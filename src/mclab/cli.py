@@ -11,6 +11,7 @@ from mclab import (
     evidence,
     gates,
     modbuild,
+    protocolproof,
     qualify,
     reference,
     server,
@@ -119,6 +120,7 @@ def main() -> int:
     sub.add_parser("mod-install")
     body = sub.add_parser("body").add_subparsers(dest="operation", required=True)
     body.add_parser("qualify")
+    body.add_parser("protocol-check")
     capture = body.add_parser("reference")
     capture.add_argument("--player", required=True)
     capture.add_argument("--seconds", type=int, default=45)
@@ -146,13 +148,14 @@ def main() -> int:
             case "mod-install":
                 result = modbuild.install()
             case "body":
-                result = (
-                    qualify.qualify_commands()
-                    if args.operation == "qualify"
-                    else reference.record_reference(
+                if args.operation == "qualify":
+                    result = qualify.qualify_commands()
+                elif args.operation == "protocol-check":
+                    result = protocolproof.qualify_protocol()
+                else:
+                    result = reference.record_reference(
                         args.player, args.seconds, args.interactions
                     )
-                )
             case "server":
                 if args.operation == "start":
                     result = server.start(args.accept_eula)

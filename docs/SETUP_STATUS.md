@@ -19,7 +19,7 @@ Git history. The original handoff has not been edited.
 | Datapack | Format 121.0 loaded without function parse errors |
 | Generated files | C0–C4; C1 seed 0 selected; absolute coordinates and bounded fills |
 | C1 world geometry | All **98,441** cells checked on the server thread; **0 mismatches** |
-| Automated tests | **38 passed**; course, protocol, stale evidence, recording and reference analysis |
+| Automated tests | **39 passed**; course, protocol, stale evidence, recording, report retention and reference analysis |
 | Python quality | Ruff lint and formatting pass |
 | Provider traffic | No requests; no paid batches, downloads of model registries, or training |
 
@@ -96,6 +96,17 @@ and API spawn, movement/look/jump, mining and interruption, normal pickup,
 placement/inventory decrement, collision, slab stepping, sprint, ledge sneak,
 fall damage, discrete entity attacks/cooldown, target and body knockback, reach
 guarding, death/replacement, expiry/watchdog, and stale/duplicate identity rejection.
+
+[G1_PROTOCOL_PROOF.json](G1_PROTOCOL_PROOF.json) records a separate **24/24**
+passing live protocol suite. It covers malformed control ranges and conflicts,
+administrative/policy endpoint restrictions, action timing, duplicate action IDs,
+queued-action cancellation with zero displacement, and rejection of commands from
+a retired episode after a new body is ready. These supplement the 39 mechanics
+checks; they do not satisfy the deferred human reference or advance a gate.
+
+```powershell
+rtk proxy powershell -NoProfile -File scripts/mclab.ps1 body protocol-check
+```
 
 G1 remains open for the prepared human interaction reference and final capability
 review. Marc deferred this check for later; no interaction preparation or capture

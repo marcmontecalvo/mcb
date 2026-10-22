@@ -111,6 +111,7 @@ queue, deadline, observation and stale-episode constraints.
 
 ```powershell
 rtk proxy powershell -NoProfile -File scripts/mclab.ps1 body qualify
+rtk proxy powershell -NoProfile -File scripts/mclab.ps1 body protocol-check
 rtk proxy powershell -NoProfile -File scripts/mclab.ps1 body reference --player Osadar932 --seconds 60
 ```
 
@@ -121,6 +122,10 @@ The suite first proves Carpet commands and then uses the Java action pack.
 It preserves all attempts, checks, actual apply ticks, observations and errors
 in `results/qualification/`. Human reference captures go in `results/references/`.
 Do not run these commands concurrently.
+
+The supplementary protocol check has 24 live admission/cancellation checks,
+reported separately from the 39 mechanics checks. G1 remains open while the
+human interaction reference is deferred; later gates have not started.
 
 The reference recorder reads the actual latest client button state received by
 the server, plus view and body state. It records client/server timing uncertainty;

@@ -64,5 +64,7 @@ milestones. Do not expose these manifests to decision backends.
 4. Deterministic C1, then interchangeable decision backends and baseline clients.
 
 Follow the handoff for remaining operations. `body qualify` and `body reference`
-now run actual bounded development experiments. Scored `run`, provider probes,
+now run actual bounded development experiments. `body protocol-check` adds a
+separate 24-check live cancellation/admission proof while the human interaction
+reference remains deferred. It cannot advance G1. Scored `run`, provider probes,
 replay, model training and external baselines remain unimplemented.

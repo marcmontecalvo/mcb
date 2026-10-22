@@ -46,6 +46,7 @@ def report() -> dict:
         attempts.append(
             {
                 "run_id": value["run_id"],
+                "suite": value.get("suite", "body_mechanics_v1"),
                 "status": value["status"],
                 "checks_passed": sum(c["passed"] for c in value["checks"]),
                 "checks_total": len(value["checks"]),
@@ -70,6 +71,7 @@ def report() -> dict:
     ) as output:
         fields = [
             "run_id",
+            "suite",
             "status",
             "checks_passed",
             "checks_total",

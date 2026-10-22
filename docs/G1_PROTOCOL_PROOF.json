@@ -1,0 +1,165 @@
+{
+  "G1": "in_progress_human_reference_deferred",
+  "checks": [
+    {
+      "expected": "invalid_controls",
+      "name": "forward_range",
+      "observed": "invalid_controls",
+      "passed": true
+    },
+    {
+      "expected": "invalid_controls",
+      "name": "strafe_range",
+      "observed": "invalid_controls",
+      "passed": true
+    },
+    {
+      "expected": "invalid_controls",
+      "name": "yaw_range",
+      "observed": "invalid_controls",
+      "passed": true
+    },
+    {
+      "expected": "invalid_controls",
+      "name": "pitch_range",
+      "observed": "invalid_controls",
+      "passed": true
+    },
+    {
+      "expected": "invalid_controls",
+      "name": "hotbar_negative",
+      "observed": "invalid_controls",
+      "passed": true
+    },
+    {
+      "expected": "invalid_controls",
+      "name": "hotbar_high",
+      "observed": "invalid_controls",
+      "passed": true
+    },
+    {
+      "expected": "invalid_controls",
+      "name": "duration_zero",
+      "observed": "invalid_controls",
+      "passed": true
+    },
+    {
+      "expected": "invalid_controls",
+      "name": "duration_long",
+      "observed": "invalid_controls",
+      "passed": true
+    },
+    {
+      "expected": "invalid_controls",
+      "name": "expiry_mismatch",
+      "observed": "invalid_controls",
+      "passed": true
+    },
+    {
+      "expected": "invalid_controls",
+      "name": "mine_attack_conflict",
+      "observed": "invalid_controls",
+      "passed": true
+    },
+    {
+      "expected": "invalid_controls",
+      "name": "use_conflict",
+      "observed": "invalid_controls",
+      "passed": true
+    },
+    {
+      "expected": "invalid_controls",
+      "name": "sneak_sprint_conflict",
+      "observed": "invalid_controls",
+      "passed": true
+    },
+    {
+      "expected": "action_id",
+      "name": "action_id_syntax",
+      "observed": "action_id",
+      "passed": true
+    },
+    {
+      "expected": "schema_version",
+      "name": "schema_version",
+      "observed": "schema_version",
+      "passed": true
+    },
+    {
+      "expected": "controls_endpoint_only",
+      "name": "policy_cannot_despawn",
+      "observed": "controls_endpoint_only",
+      "passed": true
+    },
+    {
+      "expected": "unknown_admin_operation",
+      "name": "admin_allowlist",
+      "observed": "unknown_admin_operation",
+      "passed": true
+    },
+    {
+      "expected": "late_or_distant_action",
+      "name": "future_action",
+      "observed": "late_or_distant_action",
+      "passed": true
+    },
+    {
+      "expected": "late_or_distant_action",
+      "name": "past_action",
+      "observed": "late_or_distant_action",
+      "passed": true
+    },
+    {
+      "expected": "duplicate_action_id",
+      "name": "duplicate_action_id",
+      "observed": "duplicate_action_id",
+      "passed": true
+    },
+    {
+      "expected": "no rejection of the queued movement",
+      "name": "cancelled_action_was_admitted",
+      "observed": [],
+      "passed": true
+    },
+    {
+      "expected": [],
+      "name": "release_clears_pending_action",
+      "observed": [],
+      "passed": true
+    },
+    {
+      "expected": "< 0.001 blocks",
+      "name": "cancelled_movement_no_displacement",
+      "observed": 0.0,
+      "passed": true
+    },
+    {
+      "expected": "wrong_identity",
+      "name": "retired_episode_release",
+      "observed": "wrong_identity",
+      "passed": true
+    },
+    {
+      "expected": "proof-d8df63a065f4-next",
+      "name": "new_session_survives_old_request",
+      "observed": "proof-d8df63a065f4-next",
+      "passed": true
+    }
+  ],
+  "launch_id": "7e69edecc0e11db6bb44320b71d6430b",
+  "mod_provenance": {
+    "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "8868199948104027a9a15d17c4d74295e2e687f7a492d56ca2b6a7ea308f3c09",
+    "schema_version": 1,
+    "source_hash": "8b4d2a8b339dd24d554cad27901aa7d2d2a1f1d3af4870c012eb78996be80bc8"
+  },
+  "qualifier_source_sha256": "33d68ebdf619abd58e8ad75486e4b69bd1e856191f3395bb216477947f9b1d38",
+  "recording": "results\\qualification\\20261022T222106616481Z\\events.jsonl",
+  "requests": 36,
+  "run_id": "qualification-d6ea1af56517",
+  "schema_version": 1,
+  "scored": false,
+  "source_summary": "results\\qualification\\20261022T222106616481Z\\summary.json",
+  "status": "passed_development_subset",
+  "suite": "supplementary_protocol_v1"
+}

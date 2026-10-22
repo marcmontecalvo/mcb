@@ -16,7 +16,10 @@
     "evidence": "docs/G1_BODY_PROOF.json",
     "human_interaction_reference": "deferred_by_user",
     "human_walk_jump_reference": "recorded",
-    "status": "in_progress"
+    "status": "in_progress",
+    "supplementary_protocol_checks_passed": 24,
+    "supplementary_protocol_checks_total": 24,
+    "supplementary_protocol_evidence": "docs/G1_PROTOCOL_PROOF.json"
   },
   "G2": {
     "status": "not_run"

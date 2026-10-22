@@ -104,3 +104,17 @@ and game-mode hooks record dig starts/aborts, successful block breaks, placement
 faces/inventory changes, and attack results; these are development instrumentation,
 not the future causal scoring evaluator. The real player's reach attributes are
 captured separately from geometric interaction evidence.
+
+## Supplementary automated protocol proof
+
+`mclab body protocol-check` runs a separate, bounded development suite against
+the installed mod. It checks control ranges/conflicts, schema and action IDs,
+endpoint restrictions, administrative allowlisting, past/distant actions,
+duplicate action IDs, pending-action cancellation and retired-session rejection.
+Cancellation must show that the movement request was not rejected, never applied,
+and produced less than 0.001 blocks of displacement. Each attempt preserves
+JSONL events, source inputs, provenance and expected/observed checks under
+`results/qualification/`. Cleanup failure invalidates the attempt.
+
+This suite does not replace human mechanics references or advance G1. Reports
+label it `supplementary_protocol_v1` separately from body mechanics attempts.
