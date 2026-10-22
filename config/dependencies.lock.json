@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "minecraft": "26.3",
+  "loader": "0.19.5",
+  "fabric_installer": "1.1.2",
+  "fabric_api": "0.164.0+26.3",
+  "loom": "1.17.21",
+  "gradle": "9.6.0",
+  "jdk_release": "jdk-25.0.4.1+1",
+  "carpet_commit": "c6d48ab48551f28d367cfcce8a948414c2ca5f74",
+  "datapack_version": {
+    "resource_major": 97,
+    "resource_minor": 1,
+    "data_major": 121,
+    "data_minor": 0
+  },
+  "artifacts": {
+    "minecraft_server": {
+      "name": "minecraft-server-26.3.jar",
+      "url": "https://piston-data.mojang.com/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/server.jar",
+      "sha256": "d052f14d7a173734fba553711e5b570162e2f2a313267ee31a21b975a679be64",
+      "size": 62294556
+    },
+    "carpet": {
+      "name": "fabric-carpet-26.3+v260915.jar",
+      "url": "https://github.com/gnembon/fabric-carpet/releases/download/v26.3/fabric-carpet-26.3%2Bv260915.jar",
+      "sha256": "7c40b93e807ed914064176898037117097446c6cc76e6a80a856c8bf7f7659f9",
+      "size": 1541420
+    },
+    "fabric_api": {
+      "name": "fabric-api-0.164.0+26.3.jar",
+      "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.164.0+26.3/fabric-api-0.164.0+26.3.jar",
+      "sha256": "5a75198715a50a86787658617b03b97da9936d32df04896748c12135ba709de3",
+      "size": 1775592
+    },
+    "fabric_launcher": {
+      "name": "fabric-server-launch.jar",
+      "url": "https://meta.fabricmc.net/v2/versions/loader/26.3/0.19.5/1.1.2/server/jar",
+      "sha256": "0b56ad54d762172e8b8748e467f584f071e4dedecd93dc336cf2c68837e790be",
+      "size": 181838
+    },
+    "jdk": {
+      "name": "OpenJDK25U-jdk_x64_windows_hotspot_25.0.4.1_1.zip",
+      "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_x64_windows_hotspot_25.0.4.1_1.zip",
+      "sha256": "00c847d804f4a78e9f04f2683faf14fed898535b177b7fc704486cb0284e9283",
+      "size": 141167264
+    },
+    "gradle": {
+      "name": "gradle-9.6.0-bin.zip",
+      "url": "https://services.gradle.org/distributions/gradle-9.6.0-bin.zip",
+      "sha256": "bbaeb2fef8710818cf0e261201dab964c572f92b942812df0c3620d62a529a01",
+      "size": 140681093
+    }
+  }
+}

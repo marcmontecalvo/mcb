@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "mclab",
+  "version": "0.1.0",
+  "name": "Minecraft AI Lab Bootstrap",
+  "description": "Authoritative development arena verification. No scored body yet.",
+  "environment": "server",
+  "entrypoints": {"main": ["com.vulpine.mclab.BootstrapMod"]},
+  "depends": {"fabricloader": "0.19.5", "minecraft": "26.3", "java": ">=25", "fabric-api": "*"}
+}

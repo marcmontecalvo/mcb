@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "minecraft": "26.3",
+  "server_host": "127.0.0.1",
+  "game_port": 25575,
+  "bridge_port": 8765,
+  "supervisor_port": 8766,
+  "heap_gb": 4,
+  "world_seed": 734193,
+  "origin": [1000, 80, 1000],
+  "online_mode": true,
+  "active_course": "C1",
+  "course_seed": 0
+}

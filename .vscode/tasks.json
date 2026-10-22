@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {"label":"Lab: setup", "type":"shell", "command":"powershell -NoProfile -File scripts/setup.ps1", "problemMatcher":[]},
+    {"label":"Lab: doctor", "type":"shell", "command":"powershell -NoProfile -File scripts/mclab.ps1 doctor", "problemMatcher":[]},
+    {"label":"Lab: start", "type":"shell", "command":"powershell -NoProfile -File scripts/mclab.ps1 server start", "problemMatcher":[]},
+    {"label":"Lab: stop", "type":"shell", "command":"powershell -NoProfile -File scripts/mclab.ps1 server stop", "problemMatcher":[]},
+    {"label":"Lab: C1", "type":"shell", "command":"powershell -NoProfile -File scripts/mclab.ps1 course build --course C1 --seed 0", "problemMatcher":[]},
+    {"label":"Lab: build mod", "type":"shell", "command":"powershell -NoProfile -File scripts/build-mod.ps1", "problemMatcher":[]},
+    {"label":"Lab: verify bootstrap", "type":"shell", "command":"powershell -NoProfile -File scripts/mclab.ps1 course verify-bootstrap", "problemMatcher":[]},
+    {"label":"Lab: report", "type":"shell", "command":"powershell -NoProfile -File scripts/mclab.ps1 report", "problemMatcher":[]},
+    {"label":"Lab: tests", "type":"shell", "command":"rtk proxy uv run --locked pytest", "problemMatcher":[]}
+  ]
+}

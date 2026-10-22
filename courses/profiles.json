@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "generator_version": "0.1.0",
+  "defaults": {
+    "spawn": [0.5, 0, 0.5],
+    "yaw": 0,
+    "pitch": 0,
+    "target": [0, 0, 12],
+    "target_block": "minecraft:oak_log",
+    "initial_inventory": [],
+    "platform": {"from": [-16, -4, -16], "to": [16, -1, 16], "block": "minecraft:stone"},
+    "allowed_region": {"min": [-16, -4, -16], "max": [16, 8, 16]},
+    "clear_region": {"min": [-24, -20, -24], "max": [24, 20, 24]},
+    "pit_plane": -5
+  },
+  "courses": {
+    "C0": {"tick_limit": 600, "description":"Mechanics development arena; qualification not automated"},
+    "C1": {"tick_limit": 600, "description":"One oak log twelve blocks straight ahead"},
+    "C2": {"tick_limit": 900, "description":"Seeded initial facing and target direction", "random_yaw": true,
+      "target_candidates": [[0, 0, 12], [-12, 0, 0], [0, 0, -12], [12, 0, 0]]},
+    "C3": {"tick_limit": 1200, "description":"Two-block-tall obstacle with left and right detours",
+      "obstacle_x_offsets": [-1, 0, 1],
+      "geometry": [{"from": [-2, 0, 5], "to": [2, 1, 6], "block": "minecraft:stone"}]},
+    "C4": {"tick_limit": 1200, "description":"Full-block rise, crest and descent",
+      "geometry": [{"from": [-16, 0, 5], "to": [16, 0, 8], "block": "minecraft:stone"}]}
+  }
+}
