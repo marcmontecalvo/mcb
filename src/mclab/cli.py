@@ -5,7 +5,16 @@ import json
 import subprocess
 import sys
 
-from mclab import bootstrap, courses, evidence, modbuild, server
+from mclab import (
+    bootstrap,
+    courses,
+    evidence,
+    gates,
+    modbuild,
+    qualify,
+    reference,
+    server,
+)
 from mclab.paths import ROOT, SERVER, config, lock, read_json, write_json
 
 
@@ -83,11 +92,19 @@ def doctor() -> dict:
             "ok": (SERVER / "world/datapacks/mclab/pack.mcmeta").exists(),
         }
     )
+    properties = SERVER / "server.properties"
+    checks.append(
+        {
+            "check": "continuous_ticks_when_empty",
+            "ok": properties.exists()
+            and "pause-when-empty-seconds=-1" in properties.read_text().splitlines(),
+        }
+    )
     result = {
         "schema_version": 1,
         "checks": checks,
         "server": server.status(),
-        "gates": {"G0": "pending_human_join_and_course_inspection", "G1-G8": "not_run"},
+        "gates": gates.statuses(),
     }
     write_json(ROOT / "results/doctor.json", result)
     return result
@@ -100,6 +117,12 @@ def main() -> int:
     sub.add_parser("doctor")
     sub.add_parser("report")
     sub.add_parser("mod-install")
+    body = sub.add_parser("body").add_subparsers(dest="operation", required=True)
+    body.add_parser("qualify")
+    capture = body.add_parser("reference")
+    capture.add_argument("--player", required=True)
+    capture.add_argument("--seconds", type=int, default=45)
+    capture.add_argument("--interactions", action="store_true")
     srv = sub.add_parser("server").add_subparsers(dest="operation", required=True)
     srv.add_parser("start").add_argument("--accept-eula", action="store_true")
     srv.add_parser("stop")
@@ -122,6 +145,14 @@ def main() -> int:
                 result = evidence.report()
             case "mod-install":
                 result = modbuild.install()
+            case "body":
+                result = (
+                    qualify.qualify_commands()
+                    if args.operation == "qualify"
+                    else reference.record_reference(
+                        args.player, args.seconds, args.interactions
+                    )
+                )
             case "server":
                 if args.operation == "start":
                     result = server.start(args.accept_eula)
@@ -145,6 +176,12 @@ def main() -> int:
         print(json.dumps(result, indent=2))
         if args.command == "doctor":
             return 0 if all(c.get("ok", True) for c in result["checks"]) else 1
+        if args.command == "body":
+            return (
+                0
+                if result["status"] in {"passed_development_subset", "recorded"}
+                else 1
+            )
         return 0
     except (OSError, ValueError, RuntimeError) as error:
         print(json.dumps({"error": str(error)}), file=sys.stderr)

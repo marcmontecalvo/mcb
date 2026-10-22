@@ -98,6 +98,8 @@ def _start(accept_eula: bool = False) -> dict:
         "server-port"
     ) != str(settings["game_port"]):
         raise RuntimeError("Server properties host/port differ from config/lab.json")
+    if properties.get("pause-when-empty-seconds") != "-1":
+        raise RuntimeError("Set pause-when-empty-seconds=-1 in lab server.properties")
     token = secrets.token_urlsafe(32)
     write_json(
         STATE,

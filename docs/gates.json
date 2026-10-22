@@ -1,0 +1,43 @@
+{
+  "G0": {
+    "course_id": "C1",
+    "date": "2026-10-22",
+    "geometry_checked_blocks": 98441,
+    "geometry_mismatches": 0,
+    "human_inspection_quote": "I'm on a small stone platform and I see a log",
+    "human_join_observed": true,
+    "movement_fidelity": "not measured; belongs to G1",
+    "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
+    "status": "passed"
+  },
+  "G1": {
+    "automated_checks_passed": 39,
+    "automated_checks_total": 39,
+    "evidence": "docs/G1_BODY_PROOF.json",
+    "human_interaction_reference": "deferred_by_user",
+    "human_walk_jump_reference": "recorded",
+    "status": "in_progress"
+  },
+  "G2": {
+    "status": "not_run"
+  },
+  "G3": {
+    "status": "not_run"
+  },
+  "G4": {
+    "status": "not_run"
+  },
+  "G5": {
+    "status": "not_run"
+  },
+  "G6": {
+    "status": "not_run"
+  },
+  "G7": {
+    "status": "not_run"
+  },
+  "G8": {
+    "status": "not_run"
+  },
+  "schema_version": 1
+}

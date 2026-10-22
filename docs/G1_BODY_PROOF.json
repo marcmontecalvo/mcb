@@ -1,0 +1,424 @@
+{
+  "human_walk_jump_reference": {
+    "alignment": "server-observed buttons, client timestamp/network delay unknown",
+    "analysis": {
+      "G1": "not_qualified_by_this_capture",
+      "caveats": "Client/server timing uncertainty; collisions, terrain and sample gaps require review",
+      "jump_peak_heights": [
+        1.252203340253729,
+        1.252203340253729,
+        1.252203340253729
+      ],
+      "walk_20_tick_distances": [
+        4.316928428256773,
+        4.317008726046157
+      ]
+    },
+    "player": "Osadar932",
+    "recording": "G:\\projects\\mcb\\results\\references\\20261022T201352611797Z\\events.jsonl",
+    "run_id": "qualification-42f880633134",
+    "samples": 1200,
+    "schema_version": 1,
+    "scored": false,
+    "seconds": 60,
+    "status": "recorded"
+  },
+  "qualification": {
+    "G1": "unqualified_pending_full_C0_and_real_player_reference",
+    "checks": [
+      {
+        "expected": "registered, Survival, health/food 20, empty",
+        "name": "command_spawn_survival_empty",
+        "observed": {
+          "alive": true,
+          "attack_strength": 1.0,
+          "block_reach": 4.5,
+          "entity_reach": 3.0,
+          "food": 20,
+          "health": 20.0,
+          "inventory": [],
+          "mode": "survival",
+          "name": "Lab816a39f083",
+          "on_ground": true,
+          "pitch": 0.0,
+          "pose": "STANDING",
+          "position": [
+            990.5,
+            80.0,
+            988.5
+          ],
+          "qualification_entities": [],
+          "qualification_target_block": "minecraft:air",
+          "ray": {
+            "type": "MISS"
+          },
+          "registered": true,
+          "spawn_method": "carpet_command",
+          "velocity": [
+            0.0,
+            -0.0784000015258789,
+            0.0
+          ],
+          "yaw": 0.0
+        },
+        "passed": true
+      },
+      {
+        "expected": [
+          3.7,
+          4.7
+        ],
+        "name": "command_walk_20_ticks",
+        "observed": 4.310303387502472,
+        "passed": true
+      },
+      {
+        "expected": [
+          3.7,
+          4.7
+        ],
+        "name": "command_strafe_20_ticks",
+        "observed": 4.310303387502472,
+        "passed": true
+      },
+      {
+        "expected": [
+          0,
+          0
+        ],
+        "name": "command_look_south",
+        "observed": [
+          0.0,
+          0.0
+        ],
+        "passed": true
+      },
+      {
+        "expected": [
+          1.15,
+          1.35
+        ],
+        "name": "command_jump_height",
+        "observed": 1.252203340253729,
+        "passed": true
+      },
+      {
+        "expected": "minecraft:oak_log",
+        "name": "command_aim_target",
+        "observed": {
+          "block": "minecraft:oak_log",
+          "face": "north",
+          "position": [
+            990,
+            80,
+            990
+          ],
+          "type": "BLOCK"
+        },
+        "passed": true
+      },
+      {
+        "expected": [
+          55,
+          110
+        ],
+        "name": "command_mine_duration",
+        "observed": 61,
+        "passed": true
+      },
+      {
+        "expected": "one log in initially empty inventory",
+        "name": "command_pickup",
+        "observed": 1,
+        "passed": true
+      },
+      {
+        "expected": 15,
+        "name": "command_place_inventory_decrement",
+        "observed": 15,
+        "passed": true
+      },
+      {
+        "expected": "release without a heartbeat",
+        "name": "command_disconnect_watchdog",
+        "observed": 1,
+        "passed": true
+      },
+      {
+        "expected": 1188,
+        "name": "api_exact_apply_tick",
+        "observed": 1188,
+        "passed": true
+      },
+      {
+        "expected": [
+          "fabric_start",
+          "carpet_action_head",
+          "carpet_action_tail",
+          "fabric_end_observation"
+        ],
+        "name": "callback_phase_order",
+        "observed": [
+          "fabric_start",
+          "carpet_action_head",
+          "carpet_action_tail",
+          "fabric_end_observation"
+        ],
+        "passed": true
+      },
+      {
+        "expected": 1193,
+        "name": "api_auto_expiry",
+        "observed": [
+          1193
+        ],
+        "passed": true
+      },
+      {
+        "expected": "duplicate_or_out_of_order_sequence",
+        "name": "duplicate_sequence_rejected",
+        "observed": "duplicate_or_out_of_order_sequence",
+        "passed": true
+      },
+      {
+        "expected": "wrong_identity",
+        "name": "wrong_episode_rejected",
+        "observed": "wrong_identity",
+        "passed": true
+      },
+      {
+        "expected": true,
+        "name": "stale_observation_rejected_at_execution",
+        "observed": true,
+        "passed": true
+      },
+      {
+        "expected": [
+          1.15,
+          1.35
+        ],
+        "name": "api_jump_after_input_expiry",
+        "observed": 1.252203340253729,
+        "passed": true
+      },
+      {
+        "expected": "minecraft:oak_log",
+        "name": "api_bounded_look",
+        "observed": {
+          "block": "minecraft:oak_log",
+          "face": "north",
+          "position": [
+            990,
+            80,
+            990
+          ],
+          "type": "BLOCK"
+        },
+        "passed": true
+      },
+      {
+        "expected": [
+          55,
+          110
+        ],
+        "name": "api_renewed_mining_preserves_progress",
+        "observed": 62,
+        "passed": true
+      },
+      {
+        "expected": 1,
+        "name": "api_pickup",
+        "observed": 1,
+        "passed": true
+      },
+      {
+        "expected": 15,
+        "name": "api_place_inventory_decrement",
+        "observed": 15,
+        "passed": true
+      },
+      {
+        "expected": "wrong_identity",
+        "name": "body_id_rejected",
+        "observed": "wrong_identity",
+        "passed": true
+      },
+      {
+        "expected": "wrong_identity",
+        "name": "run_id_rejected",
+        "observed": "wrong_identity",
+        "passed": true
+      },
+      {
+        "expected": "positive residual travel",
+        "name": "release_preserves_inertia",
+        "observed": 0.16601652709607606,
+        "passed": true
+      },
+      {
+        "expected": "z <= 989.701",
+        "name": "solid_collision",
+        "observed": 989.6999999880791,
+        "passed": true
+      },
+      {
+        "expected": [
+          0.49,
+          0.51
+        ],
+        "name": "half_block_step",
+        "observed": 0.5,
+        "passed": true
+      },
+      {
+        "expected": [
+          5.3,
+          6.4
+        ],
+        "name": "sprint_21_ticks",
+        "observed": 5.876576754271355,
+        "passed": true
+      },
+      {
+        "expected": "remain at y=80, z <= edge+0.3",
+        "name": "ledge_sneaking",
+        "observed": [
+          990.5,
+          80.0,
+          990.2975091220263
+        ],
+        "passed": true
+      },
+      {
+        "expected": [
+          17,
+          19
+        ],
+        "name": "five_block_fall_damage",
+        "observed": 18.0,
+        "passed": true
+      },
+      {
+        "expected": "minecraft:oak_log",
+        "name": "mining_interruption_leaves_log",
+        "observed": "minecraft:oak_log",
+        "passed": true
+      },
+      {
+        "expected": [
+          55,
+          110
+        ],
+        "name": "mining_interruption_resets_progress",
+        "observed": 61,
+        "passed": true
+      },
+      {
+        "expected": 10,
+        "name": "continuous_attack_does_not_hit_entity",
+        "observed": 10.0,
+        "passed": true
+      },
+      {
+        "expected": 9,
+        "name": "discrete_entity_attack",
+        "observed": 9.0,
+        "passed": true
+      },
+      {
+        "expected": "positive z displacement",
+        "name": "entity_knockback",
+        "observed": 0.8171440663564908,
+        "passed": true
+      },
+      {
+        "expected": "reset then recover to 1",
+        "name": "attack_cooldown",
+        "observed": [
+          0.6,
+          1.0
+        ],
+        "passed": true
+      },
+      {
+        "expected": "no damage beyond real-player reach",
+        "name": "entity_reach_guard",
+        "observed": {
+          "guard_events": 1,
+          "health": 10.0
+        },
+        "passed": true
+      },
+      {
+        "expected": "positive z displacement",
+        "name": "body_knockback_survives_release",
+        "observed": 1.312348814842494,
+        "passed": true
+      },
+      {
+        "expected": "dead or removed",
+        "name": "death_disconnect",
+        "observed": {
+          "name": "Lab64ee4d1c18",
+          "registered": false
+        },
+        "passed": true
+      },
+      {
+        "expected": "new identity, empty inventory, full health",
+        "name": "fresh_body_after_death",
+        "observed": {
+          "alive": true,
+          "attack_strength": 1.0,
+          "block_reach": 4.5,
+          "entity_reach": 3.0,
+          "food": 20,
+          "health": 20.0,
+          "inventory": [],
+          "mode": "survival",
+          "name": "Labbc1b36155e",
+          "on_ground": true,
+          "pitch": 0.0,
+          "pose": "STANDING",
+          "position": [
+            990.5,
+            80.0,
+            988.5
+          ],
+          "qualification_entities": [],
+          "qualification_target_block": "minecraft:air",
+          "ray": {
+            "type": "MISS"
+          },
+          "registered": true,
+          "spawn_method": "carpet_api",
+          "velocity": [
+            0.0,
+            -0.0784000015258789,
+            0.0
+          ],
+          "yaw": 0.0
+        },
+        "passed": true
+      }
+    ],
+    "launch_id": "7e69edecc0e11db6bb44320b71d6430b",
+    "mod_provenance": {
+      "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+      "jar_sha256": "8868199948104027a9a15d17c4d74295e2e687f7a492d56ca2b6a7ea308f3c09",
+      "schema_version": 1,
+      "source_hash": "8b4d2a8b339dd24d554cad27901aa7d2d2a1f1d3af4870c012eb78996be80bc8"
+    },
+    "profile_hash": "45d158a14ff4ea4da603aaa1d8f7b0af2139db75dd7ae8fc98ab617e319efcbf",
+    "qualifier_source_sha256": "de4ced21b8ab3f19040d6558bde39687958bbd782d2454d32baba952b4dc4dd9",
+    "recording": "G:\\projects\\mcb\\results\\qualification\\20261022T204033798344Z\\events.jsonl",
+    "requests": 202,
+    "run_id": "qualification-c341cf18a361",
+    "schema_version": 1,
+    "scored": false,
+    "status": "passed_development_subset"
+  },
+  "qualification_scope": "development-only; G1 remains open pending human interaction reference",
+  "qualification_summary": "results\\qualification\\20261022T204033798344Z\\summary.json",
+  "schema_version": 1
+}

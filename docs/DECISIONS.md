@@ -5,7 +5,7 @@
 The handoff orders milestones and requires G0 (pinned server starts, human joins,
 generated C1 loads) before body qualification. This increment establishes the
 toolchain, desktop lifecycle, course compiler, and authoritative bootstrap geometry
-evidence. Human inspection remains explicit; no later gate is inferred from a build.
+evidence. Human inspection has passed; no later gate is inferred from a build.
 
 ## Dependencies
 
@@ -52,15 +52,17 @@ Course manifests remain evaluator-only. There is no policy input pipeline yet.
 Unknown cells, ray casting and permitted observation construction are future body
 milestones. Do not expose these manifests to decision backends.
 
-## Next implementation after G0
+## G1 completion and next gates
 
-1. Prove Carpet command spawn/readiness/move/look/stop/jump/mine/place. Record C0
-   expected values and tolerances, compare with a real human reference.
-2. Implement `CarpetBodyAdapter`, bounded tick scheduling and transport. Trace
-   ordering relative to Carpet before declaring action timing.
+1. Finish the human interaction reference. The command/API development suite
+   passes 39 checks and the real-player walk/jump capture is saved. G1 stays open
+   until remaining reference/capability evidence is reviewed.
+2. Freeze the qualified initial capability and timing profiles. The adapter,
+   bounded tick scheduling and transport are implemented and callback order traced.
 3. Implement reset generations, authoritative state digests, restrictions,
    causal break/drop/pickup scoring and SQLite/JSONL recording. Pass 20 resets.
 4. Deterministic C1, then interchangeable decision backends and baseline clients.
 
-Follow the handoff for remaining operations. This increment intentionally does not
-provide pretend `run`, `body qualify`, provider probes, or replay commands.
+Follow the handoff for remaining operations. `body qualify` and `body reference`
+now run actual bounded development experiments. Scored `run`, provider probes,
+replay, model training and external baselines remain unimplemented.

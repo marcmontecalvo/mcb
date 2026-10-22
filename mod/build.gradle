@@ -16,6 +16,7 @@ dependencies {
     minecraft "com.mojang:minecraft:${pins.minecraft}"
     implementation "net.fabricmc:fabric-loader:${pins.loader}"
     implementation "net.fabricmc.fabric-api:fabric-api:${pins.fabric_api}"
+    compileOnly files('../runtime/downloads/' + pins.artifacts.carpet.name)
 }
 
 java {

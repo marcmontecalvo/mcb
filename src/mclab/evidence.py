@@ -3,7 +3,7 @@
 import csv
 from datetime import UTC, datetime
 
-from mclab import server
+from mclab import gates, server
 from mclab.paths import ROOT, SERVER, lock, read_json, write_json
 
 
@@ -23,7 +23,7 @@ def verify_bootstrap() -> dict:
         "status": "bootstrap_geometry_verified",
         "evidence": evidence,
         "qualification": "G0 geometry only; no body/reset/scoring qualification",
-        "human_inspection_confirmed": False,
+        "human_inspection_confirmed": gates.inspected(spec["spec_hash"]),
     }
 
 
@@ -37,15 +37,49 @@ def report() -> dict:
         "episodes_succeeded": 0,
         "success_rate": None,
         "provider_requests": 0,
-        "G0": "pending_human_join_and_inspection",
-        "G1-G8": "not_run",
+        "gates": gates.statuses(),
+        "G0": gates.statuses()["G0"],
     }
+    attempts = []
+    for path in sorted((ROOT / "results/qualification").glob("*/summary.json")):
+        value = read_json(path)
+        attempts.append(
+            {
+                "run_id": value["run_id"],
+                "status": value["status"],
+                "checks_passed": sum(c["passed"] for c in value["checks"]),
+                "checks_total": len(value["checks"]),
+                "requests": value.get("requests", 0),
+                "error": value.get("error", ""),
+                "evidence": str(path.relative_to(ROOT)),
+            }
+        )
+    result["development_qualification_attempts"] = attempts
+    result["human_references"] = [
+        {"evidence": str(path.relative_to(ROOT)), **read_json(path)}
+        for path in sorted((ROOT / "results/references").glob("*/summary.json"))
+    ]
     try:
         result["bootstrap"] = verify_bootstrap()
     except (OSError, ValueError, RuntimeError) as error:
         result["bootstrap"] = {"status": "not_verified", "error": str(error)}
     destination = ROOT / "results/reports"
     write_json(destination / "initial.json", result)
+    with (destination / "qualification_attempts.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as output:
+        fields = [
+            "run_id",
+            "status",
+            "checks_passed",
+            "checks_total",
+            "requests",
+            "error",
+            "evidence",
+        ]
+        writer = csv.DictWriter(output, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(attempts)
     with (destination / "initial.csv").open(
         "w", newline="", encoding="utf-8"
     ) as output:
@@ -57,10 +91,13 @@ def report() -> dict:
         f"Generated: {result['generated_at_utc']}\n\n"
         f"Server: {result['server']['state']} on Minecraft {result['minecraft']}.\n\n"
         f"Geometry: {result['bootstrap']['status']}.\n\n"
-        "G0 awaits a human join and C1 inspection. G1-G8 have not run.\n\n"
+        f"Gates: {result['gates']}.\n\n"
         "Scored episodes: 0. Success rate: unavailable. Provider requests: 0.\n\n"
-        "No body fidelity, reset reliability, model skill, or baseline performance "
-        "has been established.\n",
+        f"Development qualification attempts recorded: {len(attempts)}. "
+        "All recorded outcomes are retained in qualification_attempts.csv.\n\n"
+        "Basic body proofs and human movement references are development evidence. "
+        "Full G1 qualification remains open. No reset reliability, scored model skill "
+        "or baseline performance has been established.\n",
         encoding="utf-8",
     )
     return {"reports": str(destination), "summary": result}

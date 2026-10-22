@@ -5,9 +5,10 @@ This repository implements the bootstrap stage of
 local Minecraft Java 26.3 server and generates development courses C0–C4.
 The bootstrap Fabric mod verifies arena geometry against the generated specification.
 
-**G0 still requires a human join and C1 inspection. G1–G8 have not run.**
-There is no scored controller, fake-player adapter, evaluator, model integration,
-or learned policy yet. See [setup status](docs/SETUP_STATUS.md) and
+**G0 passed human inspection. G1 is in progress; G2–G8 have not run.**
+The Carpet adapter and a bounded qualification bridge are implemented. There is
+no scored controller, evaluator, model integration, or learned policy yet.
+See [setup status](docs/SETUP_STATUS.md) and
 [implementation decisions](docs/DECISIONS.md).
 
 ## Local operation
@@ -33,9 +34,10 @@ The game interface binds loopback, so this address is not accessible from anothe
 computer. The initial spawn is near **1000,80,1000**. C1 has an oak log at
 **1000,80,1012**. Face south (+Z; yaw 0). Inspect the platform, empty hands,
 Survival movement, and log. The client needs no mods for this check.
-Do not start scored comparisons until human inspection and subsequent gates pass.
+Do not start scored comparisons until body qualification and subsequent gates pass.
 
-The server pauses when empty under vanilla defaults. Bootstrap verification starts
+Empty-server pausing is disabled so queued setup and reset requests keep running.
+Bootstrap verification starts
 after 160 simulation ticks and checks 2048 cells per tick. Allow approximately
 11 seconds of simulation after startup. `server start` acknowledges supervisor
 startup; `server status` reports `running` only after a Minecraft protocol response.
@@ -100,7 +102,27 @@ and complete requalification.
 - `results/reports/initial.{md,csv,json}`: explicit zero-episode initial report.
 
 Runtime and results are ignored. Keep the handoff intact. The supervisor exposes
-only token-authenticated status/stop on loopback port 8766; port 8765 is reserved
-for the future body bridge. No model service or paid request runs during setup.
-The future transport/protocol and body implementation must follow the handoff's
-server-thread, queue, deadline, sensor, and stale-episode constraints.
+only token-authenticated status/stop on loopback port 8766; port 8765 hosts the
+qualification bridge. No model service or paid request runs during setup.
+The future evaluator and filtered sensor must follow the handoff's server-thread,
+queue, deadline, observation and stale-episode constraints.
+
+## Body qualification and human reference
+
+```powershell
+rtk proxy powershell -NoProfile -File scripts/mclab.ps1 body qualify
+rtk proxy powershell -NoProfile -File scripts/mclab.ps1 body reference --player Osadar932 --seconds 60
+```
+
+These are bounded development checks, not scored task episodes. Qualification
+uses a disposable mechanics fixture near 990,80,988.5 and rejects setup/cleanup
+when a human is inside it. Keep human players near the platform center.
+The suite first proves Carpet commands and then uses the Java action pack.
+It preserves all attempts, checks, actual apply ticks, observations and errors
+in `results/qualification/`. Human reference captures go in `results/references/`.
+Do not run these commands concurrently.
+
+The reference recorder reads the actual latest client button state received by
+the server, plus view and body state. It records client/server timing uncertainty;
+these are not training-ready, precisely aligned client-timestamped demonstrations.
+See [bridge protocol](docs/BRIDGE_PROTOCOL.md) for the qualification-only interface.

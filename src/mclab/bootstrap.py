@@ -90,6 +90,7 @@ def bootstrap() -> dict:
             "max-players": 4,
             "view-distance": 6,
             "simulation-distance": 5,
+            "pause-when-empty-seconds": -1,
             "enable-rcon": "false",
             "enable-query": "false",
             "white-list": "false",

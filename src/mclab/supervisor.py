@@ -23,6 +23,8 @@ def main() -> None:
                 f"-Xms{settings['heap_gb']}G",
                 f"-Xmx{settings['heap_gb']}G",
                 f"-Dmclab.launch_id={state['launch_id']}",
+                f"-Dmclab.bridge_token={state['token']}",
+                f"-Dmclab.bridge_port={settings['bridge_port']}",
                 "-jar",
                 "fabric-server-launch.jar",
                 "nogui",

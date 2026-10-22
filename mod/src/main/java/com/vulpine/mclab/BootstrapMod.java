@@ -40,6 +40,7 @@ public final class BootstrapMod implements ModInitializer {
     private final List<String> examples = new ArrayList<>();
     private boolean verified;
     private int previousPlayers = -1;
+    private BridgeRuntime bridge;
 
     public record PlayerSnapshot(String name, String uuid, double x, double y, double z) {}
     public record Evidence(int schema_version, String launch_id, String phase, String course_id, String spec_hash,
@@ -61,8 +62,16 @@ public final class BootstrapMod implements ModInitializer {
             throw new IllegalStateException("Missing/invalid generated active course", error);
         }
         ServerTickEvents.END_SERVER_TICK.register(this::tick);
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            try {
+                bridge = new BridgeRuntime(server, new net.minecraft.world.phys.Vec3(ox - 9.5, oy, oz - 11.5));
+            } catch (IOException error) { throw new IllegalStateException("Cannot bind lab bridge", error); }
+        });
+        ServerTickEvents.START_SERVER_TICK.register(server -> { if (bridge != null) bridge.preTick(); });
+        ServerTickEvents.END_SERVER_TICK.register(server -> { if (bridge != null) bridge.postTick(); });
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> { if (bridge != null) bridge.close(); });
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> writer.shutdown());
-        LOG.info("MCLab bootstrap verifier loaded; body/scoring are not implemented");
+        LOG.info("MCLab bootstrap verifier and qualification bridge loaded; scoring is not implemented");
     }
 
     private void tick(MinecraftServer server) {
