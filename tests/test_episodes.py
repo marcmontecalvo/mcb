@@ -99,7 +99,7 @@ def test_terminal_policy_newer_than_event_drain_is_not_runner_failure(monkeypatc
             assert predicate({})
 
     monkeypatch.setattr(
-        execution, "policy_state", lambda _: {"state": "episode_terminal"}
+        execution, "policy_state", lambda _, **_kwargs: {"state": "episode_terminal"}
     )
     assert execution.run_controller(Client())["data"]["status"] == "success"
 
@@ -113,7 +113,7 @@ def test_text_request_sequence_rejection_is_controller_failure(monkeypatch):
 
         def send(self, op, **fields):
             assert op == "controls"
-            assert fields["controls"]["intended_apply_tick"] == 5
+            assert fields["controls"]["intended_apply_tick"] == 4
             self.events = [
                 {
                     "type": "rejected",
@@ -129,10 +129,75 @@ def test_text_request_sequence_rejection_is_controller_failure(monkeypatch):
             assert predicate({})
 
     monkeypatch.setattr(
-        execution, "policy_state", lambda _: {**observation(), "state": "running"}
+        execution,
+        "policy_state",
+        lambda _, **_kwargs: {**observation(), "state": "running"},
     )
     with pytest.raises(execution.ControllerFailure, match="late_or_distant_action"):
         execution._drive_controller(Client(), 1)
+
+
+def test_large_policy_audit_can_be_deferred_without_retimestamping_observation():
+    from mclab import execution
+
+    class Client:
+        run_id, episode_id, body_id = "run", "episode", "body"
+        recorded = []
+
+        def state(self):
+            return {}
+
+        def http(self, _path):
+            return {
+                **observation(),
+                "run_id": self.run_id,
+                "episode_id": self.episode_id,
+                "body_id": self.body_id,
+            }
+
+        def record(self, kind, payload):
+            self.recorded.append((kind, payload))
+
+    client = Client()
+    visible = execution.policy_state(client, record=False)
+    assert visible["tick"] == 1
+    assert client.recorded == []
+    captured = client.pending_policy[2]
+    execution.record_pending_policy(client)
+    kind, recorded = client.recorded[0]
+    assert kind == "policy_observation" and recorded["tick"] == 1
+    assert recorded["captured_monotonic_ns"] == captured
+    assert client.pending_policy is None
+
+
+def test_async_recording_flush_preserves_sequence_identity_and_durable_events(
+    tmp_path, monkeypatch
+):
+    from mclab import bridge, execution
+    from mclab.paths import write_json
+
+    state = tmp_path / "state.json"
+    write_json(state, {"launch_id": "launch", "token": "secret-token-not-recorded"})
+    monkeypatch.setattr(bridge, "STATE", state)
+    client = execution.RecordedBridge(tmp_path / "events.jsonl")
+    ledger = EpisodeRecorder(tmp_path / "episodes.sqlite3")
+    ledger.begin_run(client.run_id, {})
+    client.recorder = ledger
+    first = client.episode_id
+    for n in range(20):
+        client.record("sample", {"tick": n})
+    client.episode_id = "next-episode"
+    client.record("boundary", {})
+    client.flush_recording()
+    client.close()
+    rows = ledger.db.execute(
+        "SELECT sequence,episode_id FROM events ORDER BY sequence"
+    ).fetchall()
+    assert rows == [(n + 1, first) for n in range(20)] + [(21, "next-episode")]
+    assert len((tmp_path / "events.jsonl").read_text().splitlines()) == 21
+    assert "secret-token-not-recorded" not in (tmp_path / "events.jsonl").read_text()
+    assert not client.writer.is_alive()
+    ledger.close()
 
 
 def test_controller_error_requests_failed_server_terminal(monkeypatch):

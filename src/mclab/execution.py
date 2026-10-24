@@ -1,8 +1,11 @@
 """Deterministic C1 perception-goal controller and fully recorded live attempts."""
 
+import json
 import math
+import queue
 import shutil
 import subprocess
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,16 +25,103 @@ class RecordedBridge(Bridge):
     policy_memory = None
     last_resource_tick = -20
 
+    def __init__(self, output):
+        super().__init__(output)
+        self.record_queue = queue.Queue(maxsize=64)
+        self.writer_error = None
+        self.writer = threading.Thread(target=self._write_records, daemon=True)
+        self.writer.start()
+
+    def _write_records(self):
+        database = None
+        try:
+            while True:
+                value = self.record_queue.get()
+                try:
+                    if value is None:
+                        return
+                    self.stream.write(json.dumps(value, allow_nan=False) + "\n")
+                    self.stream.flush()
+                    if self.recorder is not None:
+                        if database is None:
+                            database = EpisodeRecorder(self.recorder.path)
+                        database.append(
+                            value["run_id"],
+                            value["sequence"],
+                            value["episode_id"],
+                            value["type"],
+                            value["monotonic_ns"],
+                            value["payload"],
+                        )
+                except Exception as error:
+                    # Publish failure before task_done makes the queue empty.
+                    self.writer_error = error
+                    raise
+                finally:
+                    self.record_queue.task_done()
+        except Exception as error:
+            self.writer_error = error
+        finally:
+            if database is not None:
+                database.close()
+            try:
+                self.stream.close()
+            except Exception as error:
+                self.writer_error = error
+
     def record(self, kind, payload):
-        super().record(kind, payload)
-        if self.recorder is not None:
-            self.recorder.append(
-                self.run_id,
-                self.record_sequence,
-                self.episode_id,
-                kind,
-                time.monotonic_ns(),
-                payload,
+        if self.writer_error is not None:
+            raise RuntimeError("Episode recording failed") from self.writer_error
+        self.record_sequence += 1
+        # Transport payloads are immutable after enqueue. Assign identities and
+        # capture time here; the writer owns its own SQLite connection.
+        value = {
+            "schema_version": 1,
+            "run_id": self.run_id,
+            "episode_id": self.episode_id,
+            "body_id": self.body_id,
+            "sequence": self.record_sequence,
+            "monotonic_ns": time.monotonic_ns(),
+            "type": kind,
+            "payload": payload,
+        }
+        try:
+            self.record_queue.put_nowait(value)
+        except queue.Full:
+            self.writer_error = RuntimeError("Critical recorder queue overflow")
+            raise RuntimeError(
+                "Critical recorder queue overflow; attempt invalid"
+            ) from None
+
+    def flush_recording(self):
+        deadline = time.monotonic() + 10
+        while self.record_queue.unfinished_tasks:
+            if self.writer_error is not None:
+                raise RuntimeError("Episode recording failed") from self.writer_error
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Episode recording flush deadline exceeded")
+            time.sleep(0.005)
+        if self.writer_error is not None:
+            raise RuntimeError("Episode recording failed") from self.writer_error
+
+    def close(self):
+        failure = None
+        try:
+            self.flush_recording()
+        except Exception as error:
+            failure = error
+        if self.writer.is_alive():
+            try:
+                self.record_queue.put(None, timeout=1)
+            except queue.Full:
+                failure = RuntimeError("Recorder shutdown queue remained full")
+            self.writer.join(timeout=10)
+        if self.writer.is_alive():
+            raise RuntimeError("Recorder writer did not stop; recording invalid")
+        super().close()
+        if failure or self.writer_error:
+            raise RuntimeError("Episode recording failed during shutdown") from (
+                failure or self.writer_error
             )
 
 
@@ -140,7 +230,7 @@ class PolicyMapRecorder:
         }
 
 
-def policy_state(client: Bridge) -> dict:
+def policy_state(client: Bridge, *, record=True) -> dict:
     client.state()  # Heartbeat and evaluator event recording never reach decide().
     started = time.monotonic_ns()
     observation = client.http("/policy")
@@ -148,7 +238,21 @@ def policy_state(client: Bridge) -> dict:
     for key in ("run_id", "episode_id", "body_id"):
         if observation.get(key) != getattr(client, key):
             raise RuntimeError("Policy observation belongs to another attempt")
-    client.record("policy_observation", observation)
+    client.pending_policy = (observation, latency_ms, time.monotonic_ns())
+    if record:
+        record_pending_policy(client)
+    return observation
+
+
+def record_pending_policy(client: Bridge):
+    pending = getattr(client, "pending_policy", None)
+    if pending is None:
+        return
+    observation, latency_ms, captured_ns = pending
+    client.pending_policy = None
+    client.record(
+        "policy_observation", {**observation, "captured_monotonic_ns": captured_ns}
+    )
     memory = getattr(client, "policy_memory", None)
     if memory is not None:
         kind, payload = memory.update(observation)
@@ -163,7 +267,6 @@ def policy_state(client: Bridge) -> dict:
             },
         )
         client.last_resource_tick = observation["tick"]
-    return observation
 
 
 def run_controller(client: Bridge, wall_timeout: float = 90) -> dict:
@@ -185,9 +288,11 @@ def _drive_controller(client: Bridge, wall_timeout: float) -> dict:
         observation = policy_state(client)
         terminal = terminal_event(client)
         if terminal is not None:
+            record_pending_policy(client)
             return terminal
         if observation["state"] != "running":
             if observation["state"] == "episode_terminal":
+                record_pending_policy(client)
                 # /policy can observe a newer tick than the preceding event
                 # drain. Obtain the authoritative event before classifying it.
                 client.wait(lambda _: terminal_event(client) is not None, timeout=2)
@@ -203,8 +308,8 @@ def _drive_controller(client: Bridge, wall_timeout: float) -> dict:
                 tick,
                 f"c1-{action_index}",
                 duration=5,
-                intended_apply_tick=tick + 4,
-                expires_tick=tick + 9,
+                intended_apply_tick=tick + 3,
+                expires_tick=tick + 8,
                 **decision,
             ),
         )
@@ -278,8 +383,8 @@ def _qualify_execution(count: int, *, development: bool) -> dict:
     configuration = {
         "schema_version": 1,
         "controller": "deterministic-c1-v1",
-        "timing_profile": "c1-next-four-ticks-v1",
-        "intended_apply_offset_ticks": 4,
+        "timing_profile": "c1-three-tick-async-recorder-v3",
+        "intended_apply_offset_ticks": 3,
         "action_duration_ticks": 5,
         "wall_watchdog_seconds": 90,
         "course_spec_hash": generated["spec_hash"],
@@ -344,8 +449,15 @@ def _qualify_execution(count: int, *, development: bool) -> dict:
                 )
             request = client.send("course_begin")
             client.acknowledge(request, "course_started")
+            # The event is emitted before END(t) publishes /policy and /state.
+            # Observe publication of the running snapshot before the first input.
+            client.wait(
+                lambda state: state["state"] == "running"
+                or terminal_event(client) is not None
+            )
             terminal = run_controller(client)
             outcome = terminal["data"]
+            client.flush_recording()
             if outcome["status"] not in {"success", "failed", "invalid"}:
                 raise ValueError("Unknown authoritative episode status")
             recorder.finish(
@@ -373,23 +485,23 @@ def _qualify_execution(count: int, *, development: bool) -> dict:
         )
     except Exception as error:
         summary.update(status="invalid", error=str(error))
-        client.record("runner_error", {"error": str(error)})
+        try:
+            client.record("runner_error", {"error": str(error)})
+        except Exception as recording_error:
+            summary["recording_error"] = str(recording_error)
         if active_episode is not None:
             terminal = terminal_event(client)
-            outcome = (
-                terminal["data"]
-                if terminal is not None
-                else {
-                    "status": "invalid",
-                    "reason": "runner_error",
-                    "error": str(error),
-                }
-            )
+            outcome = {
+                "status": "invalid",
+                "reason": "runner_error",
+                "error": str(error),
+                "observed_native_terminal": terminal,
+            }
             recorder.finish(
                 active_episode,
                 outcome["status"],
                 outcome["reason"],
-                terminal or outcome,
+                outcome,
             )
             summary["episodes"].append({"episode_id": active_episode, **outcome})
     finally:
@@ -404,8 +516,12 @@ def _qualify_execution(count: int, *, development: bool) -> dict:
         summary["successes"] = sum(
             e["status"] == "success" for e in summary["episodes"]
         )
-        recorder.finish_run(client.run_id, summary["status"])
-        client.close()
-        recorder.close()
-        write_json(destination / "summary.json", summary)
+        try:
+            client.close()  # Flush all critical records before finalizing run status.
+        except Exception as error:
+            summary.update(status="invalid", recording_error=str(error))
+        finally:
+            recorder.finish_run(client.run_id, summary["status"])
+            recorder.close()
+            write_json(destination / "summary.json", summary)
     return summary

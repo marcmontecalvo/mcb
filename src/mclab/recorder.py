@@ -65,6 +65,7 @@ def arena_guard(function):
 
 class EpisodeRecorder:
     def __init__(self, path: Path):
+        self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path)
         version = self.db.execute("PRAGMA user_version").fetchone()[0]

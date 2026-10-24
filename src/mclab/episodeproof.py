@@ -79,7 +79,12 @@ def _qualify_episodes() -> dict:
     def finish(status=None, reason=None):
         nonlocal active
         terminal = terminal_event(client)
-        data = terminal["data"] if terminal else {"status": status, "reason": reason}
+        client.flush_recording()
+        data = (
+            terminal["data"]
+            if terminal and status is None
+            else {"status": status, "reason": reason}
+        )
         recorder.finish(active, data["status"], data["reason"], terminal or data)
         summary["episodes"].append({"episode_id": active, **data})
         active = None
@@ -87,7 +92,9 @@ def _qualify_episodes() -> dict:
 
     def begin():
         request = client.send("course_begin")
-        return client.acknowledge(request, "course_started", timeout=15)
+        started = client.acknowledge(request, "course_started", timeout=15)
+        client.wait(lambda state: state["state"] == "running")
+        return started
 
     def reject(name, request, reason, *, motor=True, kind="rejected"):
         client.send_raw(request, motor=motor)
@@ -358,7 +365,19 @@ def _qualify_episodes() -> dict:
     except Exception as error:
         summary.update(status="invalid", error=str(error))
         if active:
-            finish("invalid", "qualifier_error")
+            recorder.finish(
+                active,
+                "invalid",
+                "qualifier_error",
+                {
+                    "error": str(error),
+                    "observed_native_terminal": terminal_event(client),
+                },
+            )
+            summary["episodes"].append(
+                {"episode_id": active, "status": "invalid", "reason": "qualifier_error"}
+            )
+            active = None
     finally:
         try:
             request = client.send("despawn")
@@ -367,8 +386,12 @@ def _qualify_episodes() -> dict:
         except Exception as error:
             summary.update(status="invalid", cleanup_error=str(error))
         summary["requests"] = client.submitted
-        recorder.finish_run(client.run_id, summary["status"])
-        client.close()
-        recorder.close()
-        write_json(destination / "summary.json", summary)
+        try:
+            client.close()
+        except Exception as error:
+            summary.update(status="invalid", recording_error=str(error))
+        finally:
+            recorder.finish_run(client.run_id, summary["status"])
+            recorder.close()
+            write_json(destination / "summary.json", summary)
     return summary
