@@ -58,6 +58,7 @@
     "reset_evidence": "docs/G2_RESET_PROOF.json",
     "scope": "Frozen initial C1 reset, rules, causal evaluator, sensor and episode recorder",
     "sensor_profile": "local-visibility-v1",
+    "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
     "status": "passed"
   },
   "G3": {

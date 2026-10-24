@@ -8,11 +8,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from mclab import gates
+from mclab import courses, gates
 from mclab.bootstrap import sha256
 from mclab.bridge import Bridge
 from mclab.modbuild import source_hash
-from mclab.paths import ROOT, digest, read_json, write_json
+from mclab.paths import ROOT, SERVER, digest, read_json, write_json
 from mclab.protocolproof import controls
 from mclab.recorder import EpisodeRecorder, exclusive_arena
 
@@ -203,7 +203,8 @@ def _drive_controller(client: Bridge, wall_timeout: float) -> dict:
                 tick,
                 f"c1-{action_index}",
                 duration=5,
-                expires_tick=tick + 8,
+                intended_apply_tick=tick + 4,
+                expires_tick=tick + 9,
                 **decision,
             ),
         )
@@ -214,7 +215,7 @@ def _drive_controller(client: Bridge, wall_timeout: float) -> dict:
             is not None
             or any(
                 e["type"] in {"applied", "rejected", "rejected_at_execution"}
-                and e["data"].get("request_sequence") == sequence
+                and int(e["data"].get("request_sequence", -1)) == sequence
                 for e in client.events
             ),
             timeout=5,
@@ -224,7 +225,7 @@ def _drive_controller(client: Bridge, wall_timeout: float) -> dict:
                 e
                 for e in reversed(client.events)
                 if e["type"] in {"rejected", "rejected_at_execution"}
-                and e["data"].get("request_sequence") == request["sequence"]
+                and int(e["data"].get("request_sequence", -1)) == request["sequence"]
             ),
             None,
         )
@@ -258,6 +259,16 @@ def _qualify_execution(count: int, *, development: bool) -> dict:
         )
     if not development:
         gates.require_scored_execution(provenance["source_hash"], "local-visibility-v1")
+    generated = courses.verify_generated()
+    active_spec = read_json(SERVER / "world/datapacks/mclab/evaluator/active.json")
+    if active_spec["course_id"] != "C1" or active_spec["tick_limit"] != 600:
+        raise ValueError("Execution requires the frozen 600-tick C1 course")
+    if (
+        not development
+        and generated["spec_hash"]
+        != read_json(ROOT / "docs/gates.json")["G2"]["spec_hash"]
+    ):
+        raise ValueError("G2 course specification changed; requalification required")
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = ROOT / "results/execution" / stamp
     client = RecordedBridge(destination / "events.jsonl")
@@ -267,6 +278,12 @@ def _qualify_execution(count: int, *, development: bool) -> dict:
     configuration = {
         "schema_version": 1,
         "controller": "deterministic-c1-v1",
+        "timing_profile": "c1-next-four-ticks-v1",
+        "intended_apply_offset_ticks": 4,
+        "action_duration_ticks": 5,
+        "wall_watchdog_seconds": 90,
+        "course_spec_hash": generated["spec_hash"],
+        "course_tick_limit": 600,
         "track": "perception_goal",
         "sensor_profile": "local-visibility-v1",
         "profile_id": profile["profile_id"],
@@ -320,7 +337,11 @@ def _qualify_execution(count: int, *, development: bool) -> dict:
             active_episode = client.episode_id
             request = client.send("course_reset", profile_id=profile["profile_id"])
             client.acknowledge(request, "course_reset_started", timeout=10)
-            client.acknowledge(request, "course_reset_complete", timeout=90)
+            reset = client.acknowledge(request, "course_reset_complete", timeout=90)
+            if reset["data"]["spec_hash"] != generated["spec_hash"]:
+                raise RuntimeError(
+                    "Server reset specification differs from verified files"
+                )
             request = client.send("course_begin")
             client.acknowledge(request, "course_started")
             terminal = run_controller(client)

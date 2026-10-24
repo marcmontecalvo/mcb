@@ -104,6 +104,37 @@ def test_terminal_policy_newer_than_event_drain_is_not_runner_failure(monkeypatc
     assert execution.run_controller(Client())["data"]["status"] == "success"
 
 
+def test_text_request_sequence_rejection_is_controller_failure(monkeypatch):
+    from mclab import execution
+
+    class Client:
+        run_id, episode_id, body_id = "run", "episode", "body"
+        events = []
+
+        def send(self, op, **fields):
+            assert op == "controls"
+            assert fields["controls"]["intended_apply_tick"] == 5
+            self.events = [
+                {
+                    "type": "rejected",
+                    "data": {
+                        "request_sequence": "1",
+                        "reason": "late_or_distant_action",
+                    },
+                }
+            ]
+            return {"sequence": 1}
+
+        def wait(self, predicate, timeout):
+            assert predicate({})
+
+    monkeypatch.setattr(
+        execution, "policy_state", lambda _: {**observation(), "state": "running"}
+    )
+    with pytest.raises(execution.ControllerFailure, match="late_or_distant_action"):
+        execution._drive_controller(Client(), 1)
+
+
 def test_controller_error_requests_failed_server_terminal(monkeypatch):
     from mclab import execution
 
