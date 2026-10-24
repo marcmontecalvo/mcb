@@ -1,13 +1,13 @@
 # Minecraft AI laboratory
 
-This repository implements the bootstrap stage of
+This repository implements the local laboratory foundation from
 [the technical handoff](Minecraft_AI_Technical_Handoff.md). It runs an isolated,
 local Minecraft Java 26.3 server and generates development courses C0–C4.
 The bootstrap Fabric mod verifies arena geometry against the generated specification.
 
-**G0 passed human inspection. G1 is in progress; G2–G8 have not run.**
-The Carpet adapter and a bounded qualification bridge are implemented. There is
-no scored controller, evaluator, model integration, or learned policy yet.
+**G0 and G1 (the frozen initial C1 profile) passed. G2 reset work is in progress.**
+The Carpet adapter, bounded qualification bridge and reset foundation are implemented.
+There is no scored controller, evaluator, model integration, or learned policy yet.
 See [setup status](docs/SETUP_STATUS.md) and
 [implementation decisions](docs/DECISIONS.md).
 
@@ -60,8 +60,9 @@ rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server start
 All C0–C4 functions are generated. Only the selected course occupies the active
 arena. Building changes files while stopped. The datapack compares its specification
 hash at load and reconstructs a newly selected specification after warming chunks.
-Rebuilding the same specification does **not** reset a modified world. Episode reset,
-scoped entity cleanup, and body state digest checks belong to G2 and are pending.
+Rebuilding the same specification does **not** reset a modified world. The new
+`course reset-check` operation explicitly reconstructs the active C1 arena and
+checks fresh body state. Scoring and episode evaluation remain G2 work.
 
 Courses clear a bounded 49×41×49 volume, build a four-block-deep isolated platform,
 and use absolute coordinates. Vanilla fill limits are respected. The source
@@ -126,9 +127,10 @@ Do not run these commands concurrently.
 The supplementary protocol check has 24 live admission/cancellation checks,
 reported separately from the 39 mechanics checks. The October 24 human reference
 confirmed basic mining, pickup, placement and single-attack behavior; see
-[the comparison evidence](docs/G1_HUMAN_INTERACTION_PROOF.json). G1 remains open
-for the remaining C0 real-player comparisons and capability/timing review;
-later gates have not started.
+[the comparison evidence](docs/G1_HUMAN_INTERACTION_PROOF.json). The
+[capability review](docs/G1_CAPABILITY_REVIEW.json) qualifies the frozen initial
+C1 movement/mining profile. Combat knockback, entity attacks, construction and
+dimension travel remain outside that profile.
 
 For the repeat cow test, use `body reference --player Osadar932 --seconds 45
 --combat`. This prepares a stone backstop behind the cow; approach from the log
@@ -158,7 +160,20 @@ The summary retains the server's setup acknowledgement, grounded height, collisi
 samples, sneak/forward input, first-landing health and tick continuity. Reports
 require review and never advance G1 automatically. `reference-fixture-check` uses
 a fake player to verify geometry and mechanics without manipulating a human;
-it is not a substitute for the pending real-player comparisons.
+it complements the recorded real-player comparisons.
+
+## Reset foundation
+
+```powershell
+rtk proxy uv run --locked mclab course reset-check --count 20
+```
+
+Keep human players disconnected or outside the arena. This bounded G2 development
+check reconstructs C1, removes arena-scoped drops/projectiles, creates a fresh body,
+warms it and compares authoritative terrain/body digests. Each attempt is recorded
+in JSONL and `results/reset_checks.sqlite3`. The live 20-reset run matched one state
+digest throughout. Policy admission stays closed; scoring and episode evaluation
+are pending, so this does not launch scored experiments.
 
 The reference recorder reads the actual latest client button state received by
 the server, plus view and body state. It records client/server timing uncertainty;

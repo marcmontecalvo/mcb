@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "profile_id": "initial-c1-survival-v1",
+  "scope": "Initial C1 ground locomotion, aiming, log mining and pickup",
+  "qualified_courses": [
+    "C1"
+  ],
+  "dependency_lock_hash": "aea32936e50275893281248096404c4769851c6d122c4c7f1d8ea3aeb330dcda",
+  "qualified_capabilities": [
+    "forward",
+    "strafe",
+    "look",
+    "jump",
+    "sneak",
+    "sprint",
+    "mine",
+    "pickup",
+    "collision",
+    "half_step",
+    "fall_damage",
+    "block_reach_guard",
+    "cancel_expiry",
+    "death_terminal_replacement"
+  ],
+  "excluded_capabilities": [
+    "entity_attack",
+    "combat_knockback",
+    "construction",
+    "dimension_travel"
+  ],
+  "motor_profile": {
+    "duration_ticks": [
+      1,
+      5
+    ],
+    "max_observation_age_ticks": 5,
+    "max_yaw_delta": 45,
+    "max_pitch_delta": 45,
+    "watchdog_seconds": 2
+  },
+  "bounds": {
+    "schema_version": 1,
+    "profile": "development-body-proof-v1",
+    "scored": false,
+    "reference_status": "provisional tolerances; real-player comparison pending",
+    "walk_20_ticks_blocks": [
+      3.7,
+      4.7
+    ],
+    "jump_peak_blocks": [
+      1.15,
+      1.35
+    ],
+    "log_break_ticks": [
+      55,
+      110
+    ],
+    "collision_max_z": 989.701,
+    "step_peak_blocks": [
+      0.49,
+      0.51
+    ],
+    "sprint_21_ticks_blocks": [
+      5.3,
+      6.4
+    ],
+    "ledge_max_z": 990.301,
+    "fall_health": [
+      17,
+      19
+    ],
+    "spawn_timeout_seconds": 40,
+    "watchdog_seconds": 2,
+    "request_budget": 400
+  },
+  "evidence": [
+    "docs/G1_CURRENT_MOD_REGRESSION.json",
+    "docs/G1_HUMAN_INTERACTION_PROOF.json",
+    "docs/G1_GUIDED_MECHANICS_PROOF.json",
+    "docs/G1_HUMAN_TERRAIN_PROOF.json",
+    "docs/G1_HUMAN_SPRINT_PROOF.json",
+    "docs/G1_HUMAN_VIEW_PROOF.json"
+  ],
+  "review_date": "2026-10-24"
+}

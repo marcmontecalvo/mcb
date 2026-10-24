@@ -1,0 +1,325 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-24",
+  "scored": false,
+  "status": "recorded_and_reviewed",
+  "recording": "results\\references\\20261024T155319666348Z\\events.jsonl",
+  "recording_sha256": "b318ff188fb5d3e51fe7fa64da7c2d40a98b5b241a1151a75c4580170bf37ab6",
+  "mod_provenance": {
+    "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "ab04e897675ba62fbd196fad748ef8f22f4852ba16ef339d139bad5b4eb528ac",
+    "schema_version": 1,
+    "source_hash": "289c454d398566eb8d7807f142d8f8d600e1d75ea10d47a790ec9dc0de9015d3"
+  },
+  "samples": 600,
+  "setup": {
+    "before": {
+      "food": 20,
+      "health": 20.0,
+      "position": [
+        991.9173196312953,
+        80.0,
+        997.9300393628655
+      ]
+    },
+    "changed_cells": 847,
+    "initial_food": 20,
+    "initial_health": 20,
+    "mechanic": "step",
+    "origin": [
+      990,
+      80,
+      988
+    ],
+    "persistent_development_fixture": true,
+    "spawn": [
+      990.5,
+      80.0,
+      988.5
+    ],
+    "verified_cells": 847,
+    "version": "human-reference-geometry-v1"
+  },
+  "flat_ground_confirmed_sprint_windows": [
+    {
+      "first_tick": 33691,
+      "last_tick": 33711,
+      "distance": 5.668913965299112
+    },
+    {
+      "first_tick": 33692,
+      "last_tick": 33712,
+      "distance": 5.643227632765843
+    },
+    {
+      "first_tick": 33693,
+      "last_tick": 33713,
+      "distance": 5.923844517146563
+    },
+    {
+      "first_tick": 33694,
+      "last_tick": 33714,
+      "distance": 5.621545385085369
+    },
+    {
+      "first_tick": 33695,
+      "last_tick": 33715,
+      "distance": 5.621545385085369
+    },
+    {
+      "first_tick": 33696,
+      "last_tick": 33716,
+      "distance": 5.334464739355667
+    },
+    {
+      "first_tick": 33697,
+      "last_tick": 33717,
+      "distance": 5.333218321780578
+    },
+    {
+      "first_tick": 33698,
+      "last_tick": 33718,
+      "distance": 5.6131545881004286
+    },
+    {
+      "first_tick": 33699,
+      "last_tick": 33719,
+      "distance": 5.6127830092791555
+    },
+    {
+      "first_tick": 33700,
+      "last_tick": 33720,
+      "distance": 5.612580127219189
+    },
+    {
+      "first_tick": 33701,
+      "last_tick": 33721,
+      "distance": 5.612469353601568
+    },
+    {
+      "first_tick": 33702,
+      "last_tick": 33722,
+      "distance": 5.612408871199364
+    },
+    {
+      "first_tick": 33703,
+      "last_tick": 33723,
+      "distance": 5.612375847803833
+    },
+    {
+      "first_tick": 33704,
+      "last_tick": 33724,
+      "distance": 5.612357817027828
+    },
+    {
+      "first_tick": 33705,
+      "last_tick": 33725,
+      "distance": 5.612347972223006
+    },
+    {
+      "first_tick": 33706,
+      "last_tick": 33726,
+      "distance": 5.612342596958911
+    },
+    {
+      "first_tick": 33707,
+      "last_tick": 33727,
+      "distance": 5.612339662064414
+    },
+    {
+      "first_tick": 33708,
+      "last_tick": 33728,
+      "distance": 5.6123380596118295
+    },
+    {
+      "first_tick": 33709,
+      "last_tick": 33729,
+      "distance": 5.612337184672583
+    },
+    {
+      "first_tick": 33710,
+      "last_tick": 33730,
+      "distance": 5.612336706955716
+    },
+    {
+      "first_tick": 33711,
+      "last_tick": 33731,
+      "distance": 5.612336446122299
+    },
+    {
+      "first_tick": 33712,
+      "last_tick": 33732,
+      "distance": 5.612336303707252
+    },
+    {
+      "first_tick": 33713,
+      "last_tick": 33733,
+      "distance": 5.6123362259486385
+    },
+    {
+      "first_tick": 33714,
+      "last_tick": 33734,
+      "distance": 5.612336183492403
+    },
+    {
+      "first_tick": 33715,
+      "last_tick": 33735,
+      "distance": 5.892952990114168
+    },
+    {
+      "first_tick": 33716,
+      "last_tick": 33736,
+      "distance": 5.612336160311315
+    },
+    {
+      "first_tick": 33717,
+      "last_tick": 33737,
+      "distance": 5.612336147654332
+    },
+    {
+      "first_tick": 33718,
+      "last_tick": 33738,
+      "distance": 5.331719330348733
+    },
+    {
+      "first_tick": 33719,
+      "last_tick": 33739,
+      "distance": 5.612336134910265
+    },
+    {
+      "first_tick": 33720,
+      "last_tick": 33740,
+      "distance": 5.612336133785448
+    },
+    {
+      "first_tick": 33721,
+      "last_tick": 33741,
+      "distance": 5.612336133171311
+    },
+    {
+      "first_tick": 33722,
+      "last_tick": 33742,
+      "distance": 5.612336132835935
+    },
+    {
+      "first_tick": 33723,
+      "last_tick": 33743,
+      "distance": 5.612336132652899
+    },
+    {
+      "first_tick": 33724,
+      "last_tick": 33744,
+      "distance": 5.612336132552969
+    },
+    {
+      "first_tick": 33725,
+      "last_tick": 33745,
+      "distance": 5.612336132498399
+    },
+    {
+      "first_tick": 33726,
+      "last_tick": 33746,
+      "distance": 5.612336132468613
+    },
+    {
+      "first_tick": 33727,
+      "last_tick": 33747,
+      "distance": 5.612336132452356
+    },
+    {
+      "first_tick": 33728,
+      "last_tick": 33748,
+      "distance": 5.612336132443488
+    },
+    {
+      "first_tick": 33729,
+      "last_tick": 33749,
+      "distance": 5.612336132438713
+    },
+    {
+      "first_tick": 33730,
+      "last_tick": 33750,
+      "distance": 5.6123361324360985
+    },
+    {
+      "first_tick": 33731,
+      "last_tick": 33751,
+      "distance": 5.612336132434621
+    },
+    {
+      "first_tick": 33732,
+      "last_tick": 33752,
+      "distance": 5.612336132433825
+    },
+    {
+      "first_tick": 33733,
+      "last_tick": 33753,
+      "distance": 5.61233613243337
+    },
+    {
+      "first_tick": 33734,
+      "last_tick": 33754,
+      "distance": 5.612336132433143
+    },
+    {
+      "first_tick": 33735,
+      "last_tick": 33755,
+      "distance": 5.612336132433029
+    },
+    {
+      "first_tick": 33736,
+      "last_tick": 33756,
+      "distance": 5.89295293905468
+    },
+    {
+      "first_tick": 33737,
+      "last_tick": 33757,
+      "distance": 5.89295293905468
+    },
+    {
+      "first_tick": 33738,
+      "last_tick": 33758,
+      "distance": 5.89295293905468
+    },
+    {
+      "first_tick": 33739,
+      "last_tick": 33759,
+      "distance": 5.612336132433029
+    },
+    {
+      "first_tick": 33740,
+      "last_tick": 33760,
+      "distance": 5.612336132433029
+    },
+    {
+      "first_tick": 33741,
+      "last_tick": 33761,
+      "distance": 5.612336132433029
+    },
+    {
+      "first_tick": 33742,
+      "last_tick": 33762,
+      "distance": 5.612336132433029
+    }
+  ],
+  "comparison": {
+    "fake_21_tick_distance": 5.876576754271355,
+    "human_20_tick_distance_range": [
+      5.331719330348733,
+      5.923844517146563
+    ],
+    "preexisting_development_bounds": [
+      5.3,
+      6.4
+    ],
+    "interpretation": "Flat, grounded human windows with native sprint state and forward+sprint input fit existing development bounds. These overlapping windows are not independent trials; the old fake summary uses a 21-tick observation span."
+  },
+  "same_duration_fake_20_tick_windows": [
+    {
+      "first_tick": 2137,
+      "last_tick": 2157,
+      "distance": 5.428071975562943
+    }
+  ],
+  "same_duration_fake_recording": "G:\\projects\\mcb\\results\\qualification\\20261024T152640083205Z\\events.jsonl"
+}

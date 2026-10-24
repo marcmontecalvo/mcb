@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-24",
+  "status": "passed_for_initial_profile",
+  "profile_id": "initial-c1-survival-v1",
+  "profile_hash": "86b75129117caac0c325f992276a32c801abaad26d5ee2205ee4c1ff3f71f261",
+  "scope": "Initial C1 ground locomotion, aiming, log mining and pickup",
+  "evidence": [
+    "docs/G1_CURRENT_MOD_REGRESSION.json",
+    "docs/G1_HUMAN_INTERACTION_PROOF.json",
+    "docs/G1_GUIDED_MECHANICS_PROOF.json",
+    "docs/G1_HUMAN_TERRAIN_PROOF.json",
+    "docs/G1_HUMAN_SPRINT_PROOF.json",
+    "docs/G1_HUMAN_VIEW_PROOF.json"
+  ],
+  "review": {
+    "movement": "Live human walk/strafe/jump, collision/step/ledge/fall and complete sprint-state references agree with existing development bounds; exact timing caveats remain.",
+    "view": "Native degree conventions and bounded pitch; human view reference and fake heading/aiming checks.",
+    "mine_pickup": "Human log break 60 ticks vs fake 61-62; interrupted restart 60 vs 61; normal inventory collection follows observed break. Causal UUID scoring belongs to G2.",
+    "block_reach": "Real-player block reach attribute 4.5; compatibility guard calls the native isWithinBlockInteractionRange predicate. Near mining/placement is human-recorded; source/attribute review supplies the guard boundary rather than claiming a measured client reach threshold.",
+    "death_replacement": "Carpet fake death intentionally disconnects. Live suite proves terminal death and fresh registered Survival body. Human respawn is not the lifecycle being imitated.",
+    "extensions": "Entity attacks, combat knockback, construction and dimension travel are outside the initial C1 policy profile. Supplementary development checks remain evidence, not full-game qualification."
+  },
+  "handoff_basis": "C0 checks pass; human references used where relevant to initial C1. Handoff section 4 permits marking capabilities unqualified; excluded capabilities require later qualification before scored use.",
+  "limits": [
+    "No scored episodes or provider calls",
+    "G2 reset remains unqualified",
+    "Qualified profile must be enforced by later runners"
+  ]
+}

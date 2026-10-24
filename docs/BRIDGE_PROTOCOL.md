@@ -163,6 +163,42 @@ inventory and retain setup metadata in `body.reference_setup`. The bounded
 It verifies 12 geometry/target/movement checks and confirms body teardown. It is
 supplementary development evidence, not human reference evidence or G2 reset proof.
 
+## C1 reset foundation
+
+Administrative `course_reset` requires `profile_id: initial-c1-survival-v1` and
+fresh episode/body IDs. The Python runner checks the frozen G1 profile, dependency
+pins and qualified course before connecting. The server supports only the ordinary
+C1 manifest and the bounded 49×41×49 reset envelope. It retires the old body and
+clears queued controls before terrain work. A generation increments on each
+accepted reset. Retired asynchronous spawns remain watched.
+
+`course_reset_started`, `course_reset_complete` and `course_reset_failed` carry
+the request sequence and generation. Reset failures propagate immediately to the
+runner rather than being hidden behind its completion timeout. Snapshots include
+`course_reset` progress. Terrain construction/verification is limited to 2,048
+cells per tick. A fresh body must register, settle and warm 20 ticks before the
+second terrain verification; its physical fingerprint must remain unchanged.
+The completion event includes terrain/body/combined digests and the physical
+snapshot. Ephemeral IDs and generation values are tracked separately from the
+physical digest so consecutive attempts can compare equal.
+
+Humans entering the arena abort a reset. Unexpected living entities, unloaded
+chunks, fluids or block entities invalidate it. Arena-scoped drops/projectiles
+are removed. Clock/weather normalization uses the native 26.3 clock and weather
+APIs; pausing the daylight clock does not pause simulation ticks.
+
+Policy admission remains closed during and after this reset foundation. There is
+no episode-begin/scoring path yet. `heartbeat`, `release` and `despawn` remain
+administrative lifecycle operations. Fresh reset requests can replace a prepared
+body; old controls cannot survive queue clearing or the identity change.
+
+`course reset-check --count 20` records the bounded run in JSONL and a versioned
+SQLite reset-attempt table. It uses a declared 1,500-request orchestration budget,
+without relaxing motor action age/duration limits. Pending/interrupted work is
+not a completed reset and a new run always starts a new attempt and full reset.
+Twenty matching checks establish reset-foundation evidence, not completion of
+the remaining G2 restrictions/evaluator/episode-recorder work.
+
 ## Supplementary automated protocol proof
 
 `mclab body protocol-check` runs a separate, bounded development suite against

@@ -64,7 +64,7 @@ public final class BootstrapMod implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(this::tick);
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             try {
-                bridge = new BridgeRuntime(server, new net.minecraft.world.phys.Vec3(ox - 9.5, oy, oz - 11.5));
+                bridge = new BridgeRuntime(server, new net.minecraft.world.phys.Vec3(ox - 9.5, oy, oz - 11.5), spec);
             } catch (IOException error) { throw new IllegalStateException("Cannot bind lab bridge", error); }
         });
         ServerTickEvents.START_SERVER_TICK.register(server -> { if (bridge != null) bridge.preTick(); });

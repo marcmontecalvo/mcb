@@ -1,6 +1,6 @@
 """Reviewed gate evidence is separate from volatile server presence snapshots."""
 
-from mclab.paths import ROOT, read_json
+from mclab.paths import ROOT, digest, read_json
 
 
 def statuses() -> dict:
@@ -20,3 +20,24 @@ def inspected(spec_hash: str) -> bool:
         and gate["human_join_observed"]
         and bool(gate["human_inspection_quote"])
     )
+
+
+def require_initial_profile(course: str, capabilities: tuple[str, ...] = ()) -> dict:
+    """Only the frozen, reviewed scope may be used by subsequent C1 runners."""
+    gate = read_json(ROOT / "docs/gates.json")["G1"]
+    if gate["status"] != "passed":
+        raise ValueError("G1 initial profile has not passed")
+    profile = read_json(ROOT / "config/initial_body_profile.json")
+    if profile["profile_id"] != gate.get("profile_id") or digest(profile) != gate.get(
+        "profile_hash"
+    ):
+        raise ValueError("Qualified body profile has drifted; requalification required")
+    dependencies = read_json(ROOT / "config/dependencies.lock.json")
+    if digest(dependencies) != profile["dependency_lock_hash"]:
+        raise ValueError("Physics dependencies changed; requalification required")
+    if course not in profile["qualified_courses"]:
+        raise ValueError(f"Course {course} is outside the qualified body profile")
+    missing = set(capabilities) - set(profile["qualified_capabilities"])
+    if missing:
+        raise ValueError(f"Unqualified capabilities: {', '.join(sorted(missing))}")
+    return profile

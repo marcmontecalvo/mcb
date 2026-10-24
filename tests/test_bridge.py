@@ -67,3 +67,15 @@ def test_human_inspection_applies_only_to_reviewed_specification():
         "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
     )
     assert not gates.inspected("unreviewed-layout")
+
+
+def test_reset_failure_is_propagated_without_waiting_for_timeout(client, monkeypatch):
+    client.events.append(
+        {
+            "type": "course_reset_failed",
+            "data": {"request_sequence": 7, "reason": "state_changed"},
+        }
+    )
+    monkeypatch.setattr(client, "wait", lambda predicate, timeout: predicate({}))
+    with pytest.raises(RuntimeError, match="state_changed"):
+        client.acknowledge({"sequence": 7}, "course_reset_complete")

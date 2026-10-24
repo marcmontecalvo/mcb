@@ -6,6 +6,7 @@ import carpet.helpers.EntityPlayerActionPack;
 import carpet.patches.EntityPlayerMPFake;
 import carpet.script.utils.Tracer;
 import com.vulpine.mclab.mixin.PlayerStateAccessor;
+import com.vulpine.mclab.mixin.FoodStateAccessor;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -420,6 +421,35 @@ public final class CarpetBodyAdapter {
         retired = true;
         var player = player();
         if (player != null) ((EntityPlayerMPFake) player).kill(Component.literal("Lab body removed"));
+    }
+
+    public Map<String, Object> resetFingerprint() {
+        var player = player();
+        if (player == null || !player.isAlive() || !player.onGround()
+                || player.getHealth() != 20 || player.getFoodData().getFoodLevel() != 20
+                || !inventory(player).isEmpty() || !player.getActiveEffects().isEmpty()) {
+            throw new IllegalStateException("reset_body_initial_state_invalid");
+        }
+        var snapshot = observe();
+        var result = new java.util.TreeMap<String, Object>();
+        for (String key : List.of("position", "velocity", "yaw", "pitch", "on_ground", "health",
+                "food", "mode", "pose", "alive", "inventory", "block_reach", "entity_reach",
+                "attack_strength", "sprinting")) result.put(key, snapshot.get(key));
+        var abilities = player.getAbilities();
+        result.put("abilities", Map.of("flying", abilities.flying, "mayfly", abilities.mayfly,
+                "invulnerable", abilities.invulnerable, "instabuild", abilities.instabuild,
+                "mayBuild", abilities.mayBuild, "walk_speed", abilities.getWalkingSpeed()));
+        result.put("saturation", player.getFoodData().getSaturationLevel());
+        result.put("exhaustion", ((FoodStateAccessor)player.getFoodData()).mclab$getExhaustion());
+        result.put("food_tick_timer", ((FoodStateAccessor)player.getFoodData()).mclab$getTickTimer());
+        result.put("effects_empty", player.getActiveEffects().isEmpty());
+        result.put("equipment_empty", java.util.Arrays.stream(EquipmentSlot.values())
+                .allMatch(slot -> player.getItemBySlot(slot).isEmpty()));
+        result.put("on_fire", player.isOnFire());
+        result.put("frozen_ticks", player.getTicksFrozen());
+        result.put("air", player.getAirSupply());
+        result.put("environment", CourseReset.environmentFingerprint(server));
+        return result;
     }
 
     public Map<String, Object> observe() {

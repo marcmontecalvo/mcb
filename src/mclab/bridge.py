@@ -158,8 +158,10 @@ class Bridge:
         def matches(_state):
             for event in self.events:
                 if (
-                    event["type"] in {"rejected", "rejected_at_execution"}
-                    and kind not in {"rejected", "rejected_at_execution"}
+                    event["type"]
+                    in {"rejected", "rejected_at_execution", "course_reset_failed"}
+                    and kind
+                    not in {"rejected", "rejected_at_execution", "course_reset_failed"}
                     and int(event["data"].get("request_sequence", -1)) == sequence
                 ):
                     raise RuntimeError(

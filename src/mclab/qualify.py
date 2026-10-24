@@ -4,6 +4,7 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
+from mclab import gates
 from mclab.bootstrap import sha256
 from mclab.bridge import Bridge
 from mclab.modbuild import source_hash
@@ -26,7 +27,8 @@ def qualify_commands() -> dict:
         "scored": False,
         "profile_hash": digest(profile),
         "checks": checks,
-        "G1": "unqualified_pending_full_C0_and_real_player_reference",
+        "G1": gates.statuses()["G1"],
+        "G1_scope": "Gate status refers to the frozen initial C1 profile",
         "launch_id": client.launch_id,
         "qualifier_source_sha256": sha256(Path(__file__)),
         "mod_provenance": read_json(ROOT / "runtime/mod-build.json"),

@@ -4,6 +4,7 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
+from mclab import gates
 from mclab.bootstrap import sha256
 from mclab.bridge import Bridge
 from mclab.modbuild import source_hash
@@ -23,7 +24,8 @@ def qualify_reference_fixtures() -> dict:
         "scored": False,
         "run_id": client.run_id,
         "launch_id": client.launch_id,
-        "G1": "in_progress_pending_remaining_human_references",
+        "G1": gates.statuses()["G1"],
+        "G1_scope": "Gate status refers to the frozen initial C1 profile",
         "checks": [],
         "qualifier_source_sha256": sha256(Path(__file__)),
         "mod_provenance": read_json(ROOT / "runtime/mod-build.json"),

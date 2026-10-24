@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-24",
+  "scored": false,
+  "status": "recorded_and_reviewed",
+  "recording": "results\\references\\20261024T155453980055Z\\events.jsonl",
+  "recording_sha256": "8705dd86cc0b0313d7cb58b1285f3d86cc97c192c8c68d30396c61c51e116a7d",
+  "samples": 400,
+  "yaw_range": [
+    -91.80002,
+    112.04998
+  ],
+  "pitch_range": [
+    -90.0,
+    90.0
+  ],
+  "position": [
+    990.5,
+    80.0,
+    1012.6869129418902
+  ],
+  "review": "Client view changes are received as native degree yaw/pitch with pitch limited to -90..90 and no body displacement. Fake heading/bounded-look tests use the same native rotation convention; this is API/qualitative reference evidence, not a matched mouse-input trajectory."
+}

@@ -15,6 +15,7 @@ from mclab import (
     qualify,
     reference,
     referenceproof,
+    resetcheck,
     server,
 )
 from mclab.paths import ROOT, SERVER, config, lock, read_json, write_json
@@ -145,6 +146,8 @@ def main() -> int:
     build.add_argument("--seed", type=int)
     course.add_parser("verify-generated")
     course.add_parser("verify-bootstrap")
+    resets = course.add_parser("reset-check")
+    resets.add_argument("--count", type=int, default=20)
     args = parser.parse_args()
     try:
         match args.command:
@@ -192,6 +195,8 @@ def main() -> int:
                     result = courses.build(selected, seed)
                 elif args.operation == "verify-generated":
                     result = courses.verify_generated()
+                elif args.operation == "reset-check":
+                    result = resetcheck.qualify_resets(args.count)
                 else:
                     result = evidence.verify_bootstrap()
         print(json.dumps(result, indent=2))
@@ -203,6 +208,8 @@ def main() -> int:
                 if result["status"] in {"passed_development_subset", "recorded"}
                 else 1
             )
+        if args.command == "course" and args.operation == "reset-check":
+            return 0 if result["status"] == "passed_development_subset" else 1
         return 0
     except (OSError, ValueError, RuntimeError) as error:
         print(json.dumps({"error": str(error)}), file=sys.stderr)

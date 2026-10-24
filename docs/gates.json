@@ -13,8 +13,15 @@
   "G1": {
     "automated_checks_passed": 39,
     "automated_checks_total": 39,
+    "capability_review": "docs/G1_CAPABILITY_REVIEW.json",
     "current_mod_regression_evidence": "docs/G1_CURRENT_MOD_REGRESSION.json",
     "evidence": "docs/G1_BODY_PROOF.json",
+    "extensions_pending": [
+      "entity_attack",
+      "combat_knockback",
+      "construction",
+      "dimension_travel"
+    ],
     "human_combat_wall_evidence": "docs/G1_COMBAT_WALL_PROOF.json",
     "human_combat_wall_reference": "recorded_with_direct_attack_strength",
     "human_guided_mechanics_evidence": "docs/G1_GUIDED_MECHANICS_PROOF.json",
@@ -22,20 +29,26 @@
     "human_interaction_date": "2026-10-24",
     "human_interaction_evidence": "docs/G1_HUMAN_INTERACTION_PROOF.json",
     "human_interaction_reference": "recorded_and_reviewed_basic_interactions",
-    "human_sprint_state_evidence": "docs/G1_HUMAN_TERRAIN_PROOF.json",
-    "human_sprint_state_reference": "recorded_short_burst_11_ticks",
+    "human_sprint_state_evidence": "docs/G1_HUMAN_SPRINT_PROOF.json",
+    "human_sprint_state_reference": "recorded_and_reviewed_complete_flat_ground_windows",
     "human_terrain_evidence": "docs/G1_HUMAN_TERRAIN_PROOF.json",
     "human_terrain_reference": "recorded_and_reviewed_collision_step_ledge_fall",
+    "human_view_evidence": "docs/G1_HUMAN_VIEW_PROOF.json",
     "human_walk_jump_reference": "recorded",
+    "profile_hash": "86b75129117caac0c325f992276a32c801abaad26d5ee2205ee4c1ff3f71f261",
+    "profile_id": "initial-c1-survival-v1",
     "reference_fixture_evidence": "docs/G1_REFERENCE_FIXTURE_PROOF.json",
-    "remaining": "Reach-boundary, knockback/death and view-control comparisons; matched-duration sprint comparison; frozen capability/timing review",
-    "status": "in_progress",
+    "scope": "Initial C1 ground locomotion, aiming, log mining and pickup",
+    "status": "passed",
     "supplementary_protocol_checks_passed": 24,
     "supplementary_protocol_checks_total": 24,
     "supplementary_protocol_evidence": "docs/G1_PROTOCOL_PROOF.json"
   },
   "G2": {
-    "status": "not_run"
+    "remaining": "Episode restrictions, causal break/drop/pickup evaluation, full episode recorder and adversarial integration",
+    "reset_evidence": "docs/G2_RESET_PROOF.json",
+    "reset_foundation": "20_consecutive_matching_authoritative_states",
+    "status": "in_progress"
   },
   "G3": {
     "status": "not_run"

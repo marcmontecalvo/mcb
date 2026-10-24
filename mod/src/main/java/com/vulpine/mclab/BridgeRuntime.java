@@ -32,6 +32,16 @@ public final class BridgeRuntime implements AutoCloseable {
     private static volatile BridgeRuntime active;
     private final MinecraftServer server;
     private final Vec3 fixture;
+    private final JsonObject courseSpec;
+    private CourseReset courseReset;
+    private boolean resetting;
+    private boolean resetSecondVerification;
+    private int resetGeneration;
+    private int resetWarmUntil = -1;
+    private long resetRequestSequence;
+    private String resetFirstTerrain = "";
+    private String resetFirstBody = "";
+    private String resetDigest = "";
     private final String launchId = System.getProperty("mclab.launch_id", "unmanaged");
     private final ArrayBlockingQueue<Inbound> inbox = new ArrayBlockingQueue<>(64);
     private final ArrayDeque<Event> events = new ArrayDeque<>();
@@ -69,9 +79,10 @@ public final class BridgeRuntime implements AutoCloseable {
                         String body_id, long sequence, int tick, String phase, String type,
                         Map<String, Object> data) {}
 
-    public BridgeRuntime(MinecraftServer server, Vec3 fixture) throws IOException {
+    public BridgeRuntime(MinecraftServer server, Vec3 fixture, JsonObject courseSpec) throws IOException {
         this.server = server;
         this.fixture = fixture;
+        this.courseSpec = courseSpec.deepCopy();
         int port = Integer.parseInt(System.getProperty("mclab.bridge_port", "8765"));
         String token = System.getProperty("mclab.bridge_token", "");
         if (token.length() < 32) throw new IllegalStateException("Missing private bridge token");
@@ -221,6 +232,34 @@ public final class BridgeRuntime implements AutoCloseable {
         if (request.get("schema_version").getAsInt() != 1) throw new IllegalArgumentException("schema_version");
         long sequence = request.get("sequence").getAsLong();
         String op = text(request, "op");
+        if (inbound.admin() && op.equals("course_reset")) {
+            if (resetting || referenceName != null) throw new IllegalStateException("lab_busy");
+            if (!text(request, "profile_id").equals("initial-c1-survival-v1")) {
+                throw new IllegalArgumentException("unqualified_course_profile");
+            }
+            String nextRun = text(request, "run_id"), nextEpisode = text(request, "episode_id"), nextBody = text(request, "body_id");
+            if (sequence < 1 || nextEpisode.equals(episodeId) || nextBody.equals(bodyId)) {
+                throw new IllegalArgumentException("reset_requires_fresh_episode_and_body");
+            }
+            if (retired.size() >= 32) throw new IllegalStateException("restart_after_32_qualification_bodies");
+            var prepared = new CourseReset(server, courseSpec);
+            scheduled.clear(); expiryTick = -1;
+            if (body != null) { body.release(); body.retire(); retired.add(body); body = null; }
+            prepared.cleanEntities();
+            prepared.resetEnvironment();
+            runId = nextRun; episodeId = nextEpisode; bodyId = nextBody;
+            lastRequestSequence = sequence; lastContactNanos = inbound.receivedNanos(); actionIds.clear();
+            courseReset = prepared; resetting = true; resetSecondVerification = false;
+            resetWarmUntil = -1; resetRequestSequence = sequence; resetGeneration++;
+            resetFirstTerrain = ""; resetFirstBody = ""; resetDigest = "";
+            readyState = "resetting_course"; everReady = false;
+            emit("course_reset_started", "fabric_start", Map.of("generation", resetGeneration,
+                    "request_sequence", sequence, "spec_hash", courseReset.specHash()));
+            return;
+        }
+        if (courseReset != null && !Set.of("heartbeat", "release", "despawn").contains(op)) {
+            throw new IllegalStateException("course_policy_admission_closed");
+        }
         if (inbound.admin() && op.equals("reference_start")) {
             if (body != null || referenceName != null) throw new IllegalStateException("lab_busy");
             String name = text(request, "player");
@@ -323,6 +362,7 @@ public final class BridgeRuntime implements AutoCloseable {
             case "despawn" -> {
                 scheduled.clear(); body.restoreFixture(); body.retire(); retired.add(body); body = null;
                 expiryTick = -1; readyState = "idle";
+                courseReset = null; resetting = false; resetDigest = "";
                 emit("despawned", "fabric_start", Map.of());
             }
             case "fixture" -> {
@@ -372,6 +412,7 @@ public final class BridgeRuntime implements AutoCloseable {
     }
 
     public void postTick() {
+        String liveBodyState = "";
         if (referenceName != null) {
             var player = server.getPlayerList().getPlayerByName(referenceName);
             if (player == null) {
@@ -385,6 +426,7 @@ public final class BridgeRuntime implements AutoCloseable {
         }
         if (body != null && !readyState.equals("spawn_timeout")) {
             String state = body.pollReady();
+            liveBodyState = state;
             if (state.equals("ready")) everReady = true;
             if (!state.equals(readyState)) {
                 readyState = state;
@@ -395,11 +437,60 @@ public final class BridgeRuntime implements AutoCloseable {
                 emit("infrastructure_failure", "fabric_end", Map.of("reason", "spawn_timeout"));
             }
         }
+        if (resetting) tickCourseReset(liveBodyState);
+        else if (courseReset != null && !resetDigest.isEmpty() && liveBodyState.equals("ready")) readyState = "reset_ready";
         if (body != null && traceEnabled) emit("phase", "fabric_end_observation", Map.of());
         snapshot = Map.of("schema_version", 1, "launch_id", launchId,
                 "run_id", runId, "episode_id", episodeId, "body_id", bodyId,
                 "tick", server.getTickCount(), "state", readyState,
-                "body", body == null ? Map.of() : body.observe(), "requests_received", received);
+                "body", body == null ? Map.of() : body.observe(), "requests_received", received,
+                "course_reset", courseReset == null ? Map.of() : Map.of("generation", resetGeneration,
+                        "progress", courseReset.progress(), "state_digest", resetDigest));
+    }
+
+    private void tickCourseReset(String liveBodyState) {
+        try {
+            courseReset.ensureHumanClear();
+            if (!courseReset.done()) courseReset.step();
+            if (courseReset.done() && body == null) {
+                resetFirstTerrain = courseReset.terrainDigest();
+                body = new CarpetBodyAdapter(server, courseReset.spawn(),
+                        "Lab"+java.util.UUID.randomUUID().toString().replace("-", "").substring(0,10));
+                body.spawn(false);
+            } else if (body != null && liveBodyState.equals("ready")) {
+                if (resetWarmUntil < 0) resetWarmUntil = server.getTickCount()+20;
+                if (server.getTickCount() >= resetWarmUntil && !resetSecondVerification) {
+                    if (body.player().position().distanceToSqr(courseReset.spawn()) > 1e-8
+                            || body.player().getYRot() != 0 || body.player().getXRot() != 0) {
+                        throw new IllegalStateException("reset_spawn_mismatch");
+                    }
+                    resetFirstBody = CourseReset.digest(body.resetFingerprint());
+                    resetSecondVerification = true;
+                    courseReset.beginVerify();
+                } else if (resetSecondVerification && courseReset.done()) {
+                    var physical = body.resetFingerprint();
+                    String current = CourseReset.digest(physical);
+                    if (!current.equals(resetFirstBody) || !courseReset.terrainDigest().equals(resetFirstTerrain)) {
+                        throw new IllegalStateException("reset_state_changed_during_warmed_verification");
+                    }
+                    courseReset.ensureOnlyBody(body.name());
+                    resetDigest = CourseReset.digest(Map.of("terrain", resetFirstTerrain,
+                            "body", physical, "spec_hash", courseReset.specHash()));
+                    resetting = false; readyState = "reset_ready";
+                    emit("course_reset_complete", "fabric_end", Map.of("generation", resetGeneration,
+                            "request_sequence", resetRequestSequence, "state_digest", resetDigest,
+                            "terrain_digest", resetFirstTerrain, "body_digest", current,
+                            "spec_hash", courseReset.specHash(), "body_state", physical));
+                }
+            }
+            if (resetting) readyState = "resetting_course";
+        } catch (Exception error) {
+            scheduled.clear(); expiryTick = -1;
+            if (body != null) { body.retire(); retired.add(body); body = null; }
+            resetting = false; readyState = "reset_failed";
+            emit("course_reset_failed", "fabric_end", Map.of("generation", resetGeneration,
+                    "request_sequence", resetRequestSequence, "reason", error.toString()));
+        }
     }
 
     public static void trace(ServerPlayer player, String phase) {

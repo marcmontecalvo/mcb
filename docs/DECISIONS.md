@@ -52,29 +52,33 @@ Course manifests remain evaluator-only. There is no policy input pipeline yet.
 Unknown cells, ray casting and permitted observation construction are future body
 milestones. Do not expose these manifests to decision backends.
 
-## G1 completion and next gates
+## Qualified scope and next gates
 
-1. Finish the remaining C0 real-player comparisons. The command/API development
-   suite passes 39 checks, and human walk/jump and October 24 mining, pickup,
-   placement, strafe/release, sprint input, interrupted mining and wall-backed
-   attack references are saved. Direct cooldown reset/recovery is recorded. G1
-   stays open until remaining reference/capability evidence is reviewed; see
-   `G1_GUIDED_MECHANICS_PROOF.json`, `G1_COMBAT_WALL_PROOF.json` and
-   `G1_HUMAN_TERRAIN_PROOF.json`. Collision, step, ledge and fall references
-   now match the corresponding observed fake results; a short sprint burst
-   confirms actual sprint state without establishing a 20-tick comparison.
-2. Freeze the qualified initial capability and timing profiles. The adapter,
-   bounded tick scheduling and transport are implemented and callback order traced.
-   Recorded human collision/step/ledge/fall checks and a 12-check live fake-body
-   fixture probe support the review. Their world edits are bounded
-   G1 setup, not an implementation or qualification of scored episode reset.
-3. Implement reset generations, authoritative state digests, restrictions,
-   causal break/drop/pickup scoring and SQLite/JSONL recording. Pass 20 resets.
-4. Deterministic C1, then interchangeable decision backends and baseline clients.
+G1 is passed for `initial-c1-survival-v1`, frozen in
+`config/initial_body_profile.json` and reviewed in `G1_CAPABILITY_REVIEW.json`.
+The handoff permits leaving capabilities unqualified. The initial C1 profile
+covers movement, aiming, mining and pickup, supported by completed human
+walk/jump, strafe/release, terrain, sprint and view references plus native
+reach predicates and the live cancellation/death/replacement suite. Entity
+attacks, combat knockback, construction and dimension travel are excluded from
+this initial policy profile; their development evidence does not imply scored
+qualification. Callers must use `gates.require_initial_profile`, which rejects
+profile/runtime-pin drift and unsupported courses or capabilities.
 
-Follow the handoff for remaining operations. `body qualify` and `body reference`
-now run actual bounded development experiments. `body protocol-check` adds a
-separate 24-check live cancellation/admission proof while the human interaction
-reference now covers basic interactions but not all C0 mechanics. It cannot alone
-advance G1. Scored `run`, provider probes,
-replay, model training and external baselines remain unimplemented.
+Incomplete/operator-mistake human captures were removed at Marc's request.
+Implementation failures remain diagnostic development history. The completed
+references retain their recording hashes and client/server timing limitations.
+
+The G2 reset foundation now reconstructs and verifies the full C1 envelope,
+creates fresh generations/identities/bodies, warms the body and checks a second
+terrain scan with a stable physical fingerprint. Twenty consecutive resets
+matched. JSONL plus SQLite record each attempt. Native clock/weather setters
+make environment normalization idempotent in 26.3; `time set noon` is not an
+idempotent command when the clock is already at that marker.
+
+G2 remains in progress: finish episode restrictions, causal break/drop/pickup
+evaluation, complete episode recording and adversarial checks. Policy admission
+stays closed after reset, so no scored C1 completion is currently possible.
+Then implement deterministic C1 (G3), followed by versioned backends and baseline
+clients. Scored `run`, provider probes, replay, training and external baselines
+remain unimplemented. No paid provider traffic has run.

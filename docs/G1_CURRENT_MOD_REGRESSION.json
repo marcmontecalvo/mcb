@@ -2,125 +2,26 @@
   "schema_version": 1,
   "date": "2026-10-24",
   "scored": false,
-  "G1": "in_progress",
+  "G1": "passed_initial_c1_profile",
+  "profile_id": "initial-c1-survival-v1",
   "mod_provenance": {
     "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
-    "jar_sha256": "ab04e897675ba62fbd196fad748ef8f22f4852ba16ef339d139bad5b4eb528ac",
+    "jar_sha256": "9c3f74b197c96c19d51edf81d5f64df834d97c518e3fa2400862e598200533bc",
     "schema_version": 1,
-    "source_hash": "289c454d398566eb8d7807f142d8f8d600e1d75ea10d47a790ec9dc0de9015d3"
+    "source_hash": "c7bf9506e27af57641034c10006d8f5bcd1aa707ab56f70b0952f74222b30868"
   },
   "suites": {
-    "reference_fixtures": {
-      "summary": "results\\qualification\\20261024T152612409333Z\\summary.json",
-      "run_id": "qualification-cb8086891927",
-      "status": "passed_development_subset",
-      "passed": 12,
-      "total": 12,
-      "mod_provenance": {
-        "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
-        "jar_sha256": "ab04e897675ba62fbd196fad748ef8f22f4852ba16ef339d139bad5b4eb528ac",
-        "schema_version": 1,
-        "source_hash": "289c454d398566eb8d7807f142d8f8d600e1d75ea10d47a790ec9dc0de9015d3"
-      },
-      "checks": [
-        {
-          "expected": 847,
-          "name": "collision_geometry",
-          "observed": 847,
-          "passed": true
-        },
-        {
-          "expected": "minecraft:stone",
-          "name": "collision_target",
-          "observed": "minecraft:stone",
-          "passed": true
-        },
-        {
-          "expected": [
-            989.69,
-            989.701
-          ],
-          "name": "collision_blocks_forward",
-          "observed": 989.6999999880791,
-          "passed": true
-        },
-        {
-          "expected": 847,
-          "name": "step_geometry",
-          "observed": 847,
-          "passed": true
-        },
-        {
-          "expected": "minecraft:stone_slab",
-          "name": "step_target",
-          "observed": "minecraft:stone_slab",
-          "passed": true
-        },
-        {
-          "expected": [
-            0.49,
-            0.51
-          ],
-          "name": "step_walk_without_jump",
-          "observed": 0.5,
-          "passed": true
-        },
-        {
-          "expected": 847,
-          "name": "ledge_geometry",
-          "observed": 847,
-          "passed": true
-        },
-        {
-          "expected": "minecraft:air",
-          "name": "ledge_target",
-          "observed": "minecraft:air",
-          "passed": true
-        },
-        {
-          "expected": "y=80, 990.2 <= z <= 990.301",
-          "name": "ledge_sneak_holds_edge",
-          "observed": [
-            990.5,
-            80.0,
-            990.2975091220263
-          ],
-          "passed": true
-        },
-        {
-          "expected": 847,
-          "name": "fall_geometry",
-          "observed": 847,
-          "passed": true
-        },
-        {
-          "expected": "minecraft:air",
-          "name": "fall_target",
-          "observed": "minecraft:air",
-          "passed": true
-        },
-        {
-          "expected": [
-            17,
-            19
-          ],
-          "name": "fall_lands_with_damage",
-          "observed": 18.0,
-          "passed": true
-        }
-      ]
-    },
     "mechanics": {
-      "summary": "results\\qualification\\20261024T152640083205Z\\summary.json",
-      "run_id": "qualification-5ce16a9880fb",
+      "summary": "results\\qualification\\20261024T161746925582Z\\summary.json",
+      "run_id": "qualification-8b1904123732",
       "status": "passed_development_subset",
       "passed": 39,
       "total": 39,
       "mod_provenance": {
         "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
-        "jar_sha256": "ab04e897675ba62fbd196fad748ef8f22f4852ba16ef339d139bad5b4eb528ac",
+        "jar_sha256": "9c3f74b197c96c19d51edf81d5f64df834d97c518e3fa2400862e598200533bc",
         "schema_version": 1,
-        "source_hash": "289c454d398566eb8d7807f142d8f8d600e1d75ea10d47a790ec9dc0de9015d3"
+        "source_hash": "c7bf9506e27af57641034c10006d8f5bcd1aa707ab56f70b0952f74222b30868"
       },
       "checks": [
         {
@@ -135,7 +36,7 @@
             "health": 20.0,
             "inventory": [],
             "mode": "survival",
-            "name": "Labb30b0b408c",
+            "name": "Lab839a30f705",
             "on_ground": true,
             "pitch": 0.0,
             "pose": "STANDING",
@@ -244,9 +145,9 @@
           "passed": true
         },
         {
-          "expected": 1903,
+          "expected": 7517,
           "name": "api_exact_apply_tick",
-          "observed": 1903,
+          "observed": 7517,
           "passed": true
         },
         {
@@ -266,10 +167,10 @@
           "passed": true
         },
         {
-          "expected": 1908,
+          "expected": 7522,
           "name": "api_auto_expiry",
           "observed": [
-            1908
+            7522
           ],
           "passed": true
         },
@@ -321,7 +222,7 @@
             110
           ],
           "name": "api_renewed_mining_preserves_progress",
-          "observed": 61,
+          "observed": 64,
           "passed": true
         },
         {
@@ -451,14 +352,14 @@
         {
           "expected": "positive z displacement",
           "name": "body_knockback_survives_release",
-          "observed": 1.4486374708017138,
+          "observed": 1.312348814842494,
           "passed": true
         },
         {
           "expected": "dead or removed",
           "name": "death_disconnect",
           "observed": {
-            "name": "Lab47a6aa4854",
+            "name": "Lab7d1cc1f6eb",
             "registered": false
           },
           "passed": true
@@ -475,7 +376,7 @@
             "health": 20.0,
             "inventory": [],
             "mode": "survival",
-            "name": "Lab1a72a276a5",
+            "name": "Lab9748fd9914",
             "on_ground": true,
             "pitch": 0.0,
             "pose": "STANDING",
@@ -505,16 +406,16 @@
       ]
     },
     "protocol": {
-      "summary": "results\\qualification\\20261024T152750248196Z\\summary.json",
-      "run_id": "qualification-8ebdfbd57174",
+      "summary": "results\\qualification\\20261024T161959708695Z\\summary.json",
+      "run_id": "qualification-c54f75b5ce43",
       "status": "passed_development_subset",
       "passed": 24,
       "total": 24,
       "mod_provenance": {
         "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
-        "jar_sha256": "ab04e897675ba62fbd196fad748ef8f22f4852ba16ef339d139bad5b4eb528ac",
+        "jar_sha256": "9c3f74b197c96c19d51edf81d5f64df834d97c518e3fa2400862e598200533bc",
         "schema_version": 1,
-        "source_hash": "289c454d398566eb8d7807f142d8f8d600e1d75ea10d47a790ec9dc0de9015d3"
+        "source_hash": "c7bf9506e27af57641034c10006d8f5bcd1aa707ab56f70b0952f74222b30868"
       },
       "checks": [
         {
@@ -656,9 +557,109 @@
           "passed": true
         },
         {
-          "expected": "proof-4b78e3064b14-next",
+          "expected": "proof-a4fcd2c786d9-next",
           "name": "new_session_survives_old_request",
-          "observed": "proof-4b78e3064b14-next",
+          "observed": "proof-a4fcd2c786d9-next",
+          "passed": true
+        }
+      ]
+    },
+    "reference_fixtures": {
+      "summary": "results\\qualification\\20261024T162029234369Z\\summary.json",
+      "run_id": "qualification-8c9f8f52ab09",
+      "status": "passed_development_subset",
+      "passed": 12,
+      "total": 12,
+      "mod_provenance": {
+        "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "9c3f74b197c96c19d51edf81d5f64df834d97c518e3fa2400862e598200533bc",
+        "schema_version": 1,
+        "source_hash": "c7bf9506e27af57641034c10006d8f5bcd1aa707ab56f70b0952f74222b30868"
+      },
+      "checks": [
+        {
+          "expected": 847,
+          "name": "collision_geometry",
+          "observed": 847,
+          "passed": true
+        },
+        {
+          "expected": "minecraft:stone",
+          "name": "collision_target",
+          "observed": "minecraft:stone",
+          "passed": true
+        },
+        {
+          "expected": [
+            989.69,
+            989.701
+          ],
+          "name": "collision_blocks_forward",
+          "observed": 989.6999999880791,
+          "passed": true
+        },
+        {
+          "expected": 847,
+          "name": "step_geometry",
+          "observed": 847,
+          "passed": true
+        },
+        {
+          "expected": "minecraft:stone_slab",
+          "name": "step_target",
+          "observed": "minecraft:stone_slab",
+          "passed": true
+        },
+        {
+          "expected": [
+            0.49,
+            0.51
+          ],
+          "name": "step_walk_without_jump",
+          "observed": 0.5,
+          "passed": true
+        },
+        {
+          "expected": 847,
+          "name": "ledge_geometry",
+          "observed": 847,
+          "passed": true
+        },
+        {
+          "expected": "minecraft:air",
+          "name": "ledge_target",
+          "observed": "minecraft:air",
+          "passed": true
+        },
+        {
+          "expected": "y=80, 990.2 <= z <= 990.301",
+          "name": "ledge_sneak_holds_edge",
+          "observed": [
+            990.5,
+            80.0,
+            990.2975091220263
+          ],
+          "passed": true
+        },
+        {
+          "expected": 847,
+          "name": "fall_geometry",
+          "observed": 847,
+          "passed": true
+        },
+        {
+          "expected": "minecraft:air",
+          "name": "fall_target",
+          "observed": "minecraft:air",
+          "passed": true
+        },
+        {
+          "expected": [
+            17,
+            19
+          ],
+          "name": "fall_lands_with_damage",
+          "observed": 18.0,
           "passed": true
         }
       ]
