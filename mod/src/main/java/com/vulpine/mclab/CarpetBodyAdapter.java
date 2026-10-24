@@ -47,6 +47,7 @@ public final class CarpetBodyAdapter {
     private int spawnedAt;
     private boolean sawPlayer;
     private boolean ready;
+    private Map<String, Object> referenceSetup = Map.of();
 
     public CarpetBodyAdapter(MinecraftServer server, Vec3 fixture, String name) {
         this.server = server;
@@ -67,6 +68,7 @@ public final class CarpetBodyAdapter {
                 Map.entry("position", List.of(player.getX(), player.getY(), player.getZ())),
                 Map.entry("velocity", List.of(velocity.x, velocity.y, velocity.z)),
                 Map.entry("on_ground", player.onGround()),
+                Map.entry("horizontal_collision", player.horizontalCollision),
                 Map.entry("sprinting", player.isSprinting()),
                 Map.entry("attack_strength", player.getAttackStrengthScale(0)),
                 Map.entry("pose", player.getPose().toString()),
@@ -207,6 +209,7 @@ public final class CarpetBodyAdapter {
     public int age() { return server.getTickCount() - spawnedAt; }
 
     public void resetState(int dirt) {
+        referenceSetup = Map.of();
         var player = player();
         if (player == null) throw new IllegalStateException("body_not_registered");
         release();
@@ -272,6 +275,14 @@ public final class CarpetBodyAdapter {
     }
 
     public void setupFixture(boolean log, int dirt, String mechanic) throws Exception {
+        if (Set.of("reference_collision", "reference_step", "reference_ledge", "reference_fall").contains(mechanic)) {
+            if (log || dirt != 0) throw new IllegalArgumentException("reference_fixture_requires_empty_inventory");
+            restoreFixture();
+            resetState(0);
+            referenceSetup = HumanReferenceFixture.prepare(server, player(), fixture,
+                    mechanic.substring("reference_".length()));
+            return;
+        }
         if (!Set.of("flat", "collision", "step", "ledge", "fall", "combat_near", "combat_far").contains(mechanic)) {
             throw new IllegalArgumentException("unknown_fixture_mechanic");
         }
@@ -441,6 +452,7 @@ public final class CarpetBodyAdapter {
                 Map.entry("mode", player.gameMode.getGameModeForPlayer().getName()),
                 Map.entry("pose", player.getPose().toString()), Map.entry("alive", player.isAlive()),
                 Map.entry("sprinting", player.isSprinting()),
+                Map.entry("reference_setup", referenceSetup),
                 Map.entry("inventory", List.copyOf(inventory)), Map.entry("ray", hit),
                 Map.entry("qualification_target_block", BuiltInRegistries.BLOCK.getKey(
                         server.overworld().getBlockState(target).getBlock()).toString()),

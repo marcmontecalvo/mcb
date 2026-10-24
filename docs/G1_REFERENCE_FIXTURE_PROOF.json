@@ -1,0 +1,107 @@
+{
+  "G1": "in_progress_pending_remaining_human_references",
+  "checks": [
+    {
+      "expected": 847,
+      "name": "collision_geometry",
+      "observed": 847,
+      "passed": true
+    },
+    {
+      "expected": "minecraft:stone",
+      "name": "collision_target",
+      "observed": "minecraft:stone",
+      "passed": true
+    },
+    {
+      "expected": [
+        989.69,
+        989.701
+      ],
+      "name": "collision_blocks_forward",
+      "observed": 989.6999999880791,
+      "passed": true
+    },
+    {
+      "expected": 847,
+      "name": "step_geometry",
+      "observed": 847,
+      "passed": true
+    },
+    {
+      "expected": "minecraft:stone_slab",
+      "name": "step_target",
+      "observed": "minecraft:stone_slab",
+      "passed": true
+    },
+    {
+      "expected": [
+        0.49,
+        0.51
+      ],
+      "name": "step_walk_without_jump",
+      "observed": 0.5,
+      "passed": true
+    },
+    {
+      "expected": 847,
+      "name": "ledge_geometry",
+      "observed": 847,
+      "passed": true
+    },
+    {
+      "expected": "minecraft:air",
+      "name": "ledge_target",
+      "observed": "minecraft:air",
+      "passed": true
+    },
+    {
+      "expected": "y=80, 990.2 <= z <= 990.301",
+      "name": "ledge_sneak_holds_edge",
+      "observed": [
+        990.5,
+        80.0,
+        990.2975091220263
+      ],
+      "passed": true
+    },
+    {
+      "expected": 847,
+      "name": "fall_geometry",
+      "observed": 847,
+      "passed": true
+    },
+    {
+      "expected": "minecraft:air",
+      "name": "fall_target",
+      "observed": "minecraft:air",
+      "passed": true
+    },
+    {
+      "expected": [
+        17,
+        19
+      ],
+      "name": "fall_lands_with_damage",
+      "observed": 18.0,
+      "passed": true
+    }
+  ],
+  "launch_id": "680959220d1026fa936817e8031193db",
+  "mod_provenance": {
+    "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "ab04e897675ba62fbd196fad748ef8f22f4852ba16ef339d139bad5b4eb528ac",
+    "schema_version": 1,
+    "source_hash": "289c454d398566eb8d7807f142d8f8d600e1d75ea10d47a790ec9dc0de9015d3"
+  },
+  "qualifier_source_sha256": "438a59f103cead1d16740559de75d557b832388561f8cb25a023f9bbc7e8ff03",
+  "recording": "G:\\projects\\mcb\\results\\qualification\\20261024T152612409333Z\\events.jsonl",
+  "requests": 40,
+  "run_id": "qualification-cb8086891927",
+  "schema_version": 1,
+  "scored": false,
+  "status": "passed_development_subset",
+  "suite": "reference_fixture_v1",
+  "recording_sha256": "e807524999872d6728d9aae8cd1ddd5df1cce64fee48331fb71493f8ee84e2a3",
+  "human_reference_status": "prepared_not_yet_recorded"
+}

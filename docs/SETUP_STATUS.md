@@ -19,7 +19,7 @@ Git history. The original handoff has not been edited.
 | Datapack | Format 121.0 loaded without function parse errors |
 | Generated files | C0–C4; C1 seed 0 selected; absolute coordinates and bounded fills |
 | C1 world geometry | All **98,441** cells checked on the server thread; **0 mismatches** |
-| Automated tests | **47 passed**; course, protocol, stale evidence, recording, report retention and reference analysis |
+| Automated tests | **56 passed**; course, protocol, stale evidence, recording, report retention and reference analysis |
 | Python quality | Ruff lint and formatting pass |
 | Provider traffic | No requests; no paid batches, downloads of model registries, or training |
 
@@ -179,6 +179,39 @@ and **24/24 protocol** rerun. [G1_CURRENT_MOD_REGRESSION.json](G1_CURRENT_MOD_RE
 preserves those attempts and current mod provenance separately from the October 22
 proofs. Python tests (47), Ruff lint/format, mod build, installed-source checks and
 diff whitespace checks pass. No scored episodes, G2 work or provider calls ran.
+
+## Prepared remaining terrain references
+
+Named human references now support `--mechanic collision`, `step`, `ledge` and
+`fall`. Preview instructions with `body reference-plan --mechanic <name>` before
+starting a capture. Preparation rebuilds 847 bounded C0 cells, verifies every cell,
+restores health/food to 20 and relocates the named player facing south. Inventory
+is preserved; armor, effects, nonordinary Survival, unloaded chunks or another
+human in the fixture reject preparation. The ledge has a catch floor five blocks
+below. The fall check immediately drops the player five blocks. No capture or
+human manipulation runs just by previewing a plan.
+
+The pure geometry verifier runs as part of Gradle `check` without a new external
+test framework. It checks all layouts, bounds, unique cells, spawn support and
+catch floors. `body reference-fixture-check` then exercises the same preparation
+path with a fake player on the real server. Its latest **12/12** checks verify
+geometry, target blocks, collision, slab stepping, ledge sneaking and fall damage;
+see [G1_REFERENCE_FIXTURE_PROOF.json](G1_REFERENCE_FIXTURE_PROOF.json). The first
+attempt passed its checks but was marked invalid by a teardown acknowledgement
+mismatch. The runner was corrected to wait for the existing receipt and idle
+state, and a fresh attempt passed with teardown confirmed. Both raw attempts remain.
+
+The installed mod also passed fresh **39/39** body and **24/24** protocol suites;
+the [current regression proof](G1_CURRENT_MOD_REGRESSION.json) binds all three
+suites to the installed source/jar. Python now has **56 passing tests**, including
+unsupported/conflicting preparation, old-mod acknowledgement rejection, gaps,
+grounded step height and first-landing health before regeneration. Ruff lint and
+formatting, the mod build/geometry verifier and diff whitespace checks pass.
+
+The four named human terrain runs have **not** been recorded. Their summaries
+retain setup acknowledgement, collision/input/height/health measurements and tick
+continuity, and always require review. G1 remains in progress, and G2–G8 remain
+unstarted. These prepared G1 fixtures do not implement scored episode resets.
 
 All earlier development attempts remain under `results/qualification/`, and
 `mclab report` exports their recorded outcomes to `qualification_attempts.csv`.

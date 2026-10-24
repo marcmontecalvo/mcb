@@ -14,6 +14,7 @@ from mclab import (
     protocolproof,
     qualify,
     reference,
+    referenceproof,
     server,
 )
 from mclab.paths import ROOT, SERVER, config, lock, read_json, write_json
@@ -121,6 +122,9 @@ def main() -> int:
     body = sub.add_parser("body").add_subparsers(dest="operation", required=True)
     body.add_parser("qualify")
     body.add_parser("protocol-check")
+    body.add_parser("reference-fixture-check")
+    plan = body.add_parser("reference-plan")
+    plan.add_argument("--mechanic", required=True, choices=reference.MECHANICS)
     capture = body.add_parser("reference")
     capture.add_argument("--player", required=True)
     capture.add_argument("--seconds", type=int, default=45)
@@ -130,6 +134,7 @@ def main() -> int:
         action="store_true",
         help="Prepare interaction fixtures and a stone backstop behind the test cow",
     )
+    capture.add_argument("--mechanic", choices=reference.MECHANICS, default="none")
     srv = sub.add_parser("server").add_subparsers(dest="operation", required=True)
     srv.add_parser("start").add_argument("--accept-eula", action="store_true")
     srv.add_parser("stop")
@@ -157,9 +162,17 @@ def main() -> int:
                     result = qualify.qualify_commands()
                 elif args.operation == "protocol-check":
                     result = protocolproof.qualify_protocol()
+                elif args.operation == "reference-plan":
+                    result = reference.reference_plan(args.mechanic)
+                elif args.operation == "reference-fixture-check":
+                    result = referenceproof.qualify_reference_fixtures()
                 else:
                     result = reference.record_reference(
-                        args.player, args.seconds, args.interactions, args.combat
+                        args.player,
+                        args.seconds,
+                        args.interactions,
+                        args.combat,
+                        args.mechanic,
                     )
             case "server":
                 if args.operation == "start":
@@ -184,7 +197,7 @@ def main() -> int:
         print(json.dumps(result, indent=2))
         if args.command == "doctor":
             return 0 if all(c.get("ok", True) for c in result["checks"]) else 1
-        if args.command == "body":
+        if args.command == "body" and args.operation != "reference-plan":
             return (
                 0
                 if result["status"] in {"passed_development_subset", "recorded"}

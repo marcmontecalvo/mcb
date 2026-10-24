@@ -130,6 +130,39 @@ fixture, unlike the tagged cow, which is cleaned up when capture stops. Setup
 requires wall cells to be air or stone and refuses an overlapping human. It
 does not pin the cow or disable normal knockback/physics.
 
+## Named G1 terrain references
+
+`reference_start` optionally accepts `reference_mechanic` (`collision`, `step`,
+`ledge`, `fall`, or default `none`). Named mechanics cannot be combined with
+interaction/combat preparation. The server validates the mechanic before editing
+the world and returns `setup` in `reference_started`, including layout version,
+origin/spawn, edited/verified cell counts and the player's pre-setup position,
+health and food. The recorder invalidates a named capture if that acknowledgement
+is absent or names the wrong mechanic; an older mod cannot silently produce a
+flat capture labeled as a terrain test.
+
+Only explicit named setup relocates the human and normalizes health/food. It
+preserves inventory, rejects armor/effects/nonordinary Survival, preflights loaded
+chunks and refuses another human in the modified region. The geometry planner is
+pure Java and bounded to 847 cells. The default footprint is x=987..993,
+y=75..85,z=986..996. A solid catch floor remains below the ledge. World edits,
+verification, snapshots and relocation all run on the server thread. No human
+input is synthesized. The development geometry remains after recording.
+
+`body reference-plan --mechanic <name>` describes the setup and instructions
+without connecting or mutating the world. `body reference --mechanic <name>`
+starts it only when the operator requests a capture. Summaries report positions,
+grounded height, horizontal collisions, jump/sneak input, health and first landing,
+with sample gaps flagged for review; no automatic equivalence or gate pass follows.
+
+The existing administrative `fixture` operation also accepts `reference_collision`,
+`reference_step`, `reference_ledge` and `reference_fall` for fake-body-only probes.
+These use the same preparation and verification path, require an empty initial
+inventory and retain setup metadata in `body.reference_setup`. The bounded
+`body reference-fixture-check` suite records these under `reference_fixture_v1`.
+It verifies 12 geometry/target/movement checks and confirms body teardown. It is
+supplementary development evidence, not human reference evidence or G2 reset proof.
+
 ## Supplementary automated protocol proof
 
 `mclab body protocol-check` runs a separate, bounded development suite against

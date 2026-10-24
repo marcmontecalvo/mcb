@@ -62,6 +62,9 @@ milestones. Do not expose these manifests to decision backends.
    `G1_GUIDED_MECHANICS_PROOF.json` and `G1_COMBAT_WALL_PROOF.json`.
 2. Freeze the qualified initial capability and timing profiles. The adapter,
    bounded tick scheduling and transport are implemented and callback order traced.
+   Prepared human collision/step/ledge/fall checks and a 12-check live fake-body
+   fixture probe now support the remaining review. Their world edits are bounded
+   G1 setup, not an implementation or qualification of scored episode reset.
 3. Implement reset generations, authoritative state digests, restrictions,
    causal break/drop/pickup scoring and SQLite/JSONL recording. Pass 20 resets.
 4. Deterministic C1, then interchangeable decision backends and baseline clients.

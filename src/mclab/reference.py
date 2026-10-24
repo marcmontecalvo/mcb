@@ -6,12 +6,53 @@ from math import hypot
 from mclab.bridge import Bridge
 from mclab.paths import ROOT, write_json
 
+MECHANICS = ("collision", "step", "ledge", "fall")
+
+
+def reference_plan(mechanic: str) -> dict:
+    instructions = {
+        "collision": "Hold W only into the wall, then release. Do not jump or turn.",
+        "step": "Hold W only to walk over the slab, then release. Do not jump.",
+        "ledge": (
+            "Hold Shift+W toward the gap, then release. Keep sneak held until stopped."
+        ),
+        "fall": (
+            "Release all keys before setup; let the five-block fall land naturally."
+        ),
+    }
+    if mechanic not in instructions:
+        raise ValueError("Unknown reference mechanic")
+    return {
+        "mechanic": mechanic,
+        "scored": False,
+        "setup": (
+            "Rebuilds the bounded C0 development fixture, restores health/food to 20, "
+            "and relocates the named human facing south. Inventory is preserved. "
+            "Requires ordinary Overworld Survival, no armor/effects, and no other "
+            "human inside the fixture. The geometry remains after capture."
+        ),
+        "instructions": instructions[mechanic],
+        "comparison": (
+            "Review against the existing fake-player proof; "
+            "never advances G1 automatically"
+        ),
+    }
+
 
 def record_reference(
-    player: str, seconds: int, interactions: bool = False, combat: bool = False
+    player: str,
+    seconds: int,
+    interactions: bool = False,
+    combat: bool = False,
+    mechanic: str = "none",
 ) -> dict:
     if not 5 <= seconds <= 120:
         raise ValueError("Reference capture must last 5 to 120 seconds")
+    guide = None if mechanic == "none" else reference_plan(mechanic)
+    if guide and (interactions or combat):
+        raise ValueError(
+            "Named mechanics cannot be combined with interaction/combat preparation"
+        )
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = ROOT / "results/references" / stamp
     client = Bridge(destination / "events.jsonl")
@@ -23,6 +64,7 @@ def record_reference(
         "seconds": seconds,
         "prepare_interactions": interactions or combat,
         "combat_wall": combat,
+        "reference_guide": guide,
         "alignment": "server-observed buttons, client timestamp/network delay unknown",
         "recording": str(destination / "events.jsonl"),
     }
@@ -34,8 +76,18 @@ def record_reference(
             seconds=seconds,
             prepare_interactions=interactions or combat,
             prepare_combat=combat,
+            **({"reference_mechanic": mechanic} if guide else {}),
         )
-        client.acknowledge(request, "reference_started")
+        started = client.acknowledge(request, "reference_started")
+        setup = started["data"].get("setup", {}) if started else {}
+        result["setup"] = setup
+        if guide and (
+            setup.get("version") != "human-reference-geometry-v1"
+            or setup.get("mechanic") != mechanic
+        ):
+            raise RuntimeError(
+                "Installed mod did not acknowledge the named reference fixture"
+            )
         client.wait(
             lambda s: s["state"] in {"reference_complete", "reference_invalid"},
             timeout=seconds * 2 + 10,
@@ -48,6 +100,7 @@ def record_reference(
             samples=len(samples),
             analysis=analyze(samples),
             interactions=analyze_interactions(client.events),
+            fixture_measurements=measure_fixture(samples, setup) if guide else {},
         )
     except Exception as error:
         result.update(status="invalid", error=str(error))
@@ -60,6 +113,64 @@ def record_reference(
         client.close()
         write_json(destination / "summary.json", result)
     return result
+
+
+def measure_fixture(samples: list[dict], setup: dict) -> dict:
+    """Retain observations for review; measurements never assert body equivalence."""
+    if not samples:
+        return {"status": "no_samples", "mechanic": setup["mechanic"]}
+    values = [e["data"] for e in samples]
+    base_y = setup["origin"][1]
+    grounded = [v["position"][1] for v in values if v["on_ground"]]
+    forward = [v for v in values if v["buttons"]["forward"]]
+    landing = None
+    airborne = False
+    for event in samples:
+        value = event["data"]
+        if not value["on_ground"] and value["position"][1] > base_y + 0.1:
+            airborne = True
+        if airborne and value["on_ground"] and value["position"][1] <= base_y + 0.05:
+            landing = {
+                "tick": event["tick"],
+                "health": value["health"],
+                "position": value["position"],
+            }
+            break
+    return {
+        "status": "review_required",
+        "mechanic": setup["mechanic"],
+        "position_bounds": {
+            axis: [
+                min(v["position"][i] for v in values),
+                max(v["position"][i] for v in values),
+            ]
+            for i, axis in enumerate(("x", "y", "z"))
+        },
+        "grounded_height_above_platform": (
+            [min(grounded) - base_y, max(grounded) - base_y] if grounded else []
+        ),
+        "maximum_z_with_forward_input": max(v["position"][2] for v in forward)
+        if forward
+        else None,
+        "sneak_forward_samples": sum(v["buttons"]["sneak"] for v in forward),
+        "jump_input_samples": sum(v["buttons"]["jump"] for v in values),
+        "horizontal_collision_samples": sum(
+            v.get("horizontal_collision", False) for v in values
+        ),
+        "health_range": [
+            min(v["health"] for v in values),
+            max(v["health"] for v in values),
+        ],
+        "first_landing_after_airborne": landing,
+        "contiguous_ticks": all(
+            b["tick"] == a["tick"] + 1
+            for a, b in zip(samples[:-1], samples[1:], strict=True)
+        ),
+        "caveats": (
+            "Other inputs, network timing, gaps and terrain require review; "
+            "not a gate pass"
+        ),
+    }
 
 
 def analyze_interactions(events: list[dict]) -> dict:

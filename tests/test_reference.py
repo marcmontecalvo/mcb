@@ -1,13 +1,16 @@
+import pytest
+
 from mclab import reference
 from mclab.reference import analyze, analyze_interactions
 
 
-def sample(tick, y, grounded, *, jump=False, forward=False, z=0):
+def sample(tick, y, grounded, *, jump=False, forward=False, z=0, health=20):
     return {
         "tick": tick,
         "data": {
             "position": [0, y, z],
             "on_ground": grounded,
+            "health": health,
             "yaw": 0,
             "buttons": {
                 "forward": forward,
@@ -235,10 +238,10 @@ def test_direct_attack_strength_is_preserved_separately_from_damage():
     assert analyze(values)["attack_strength_samples"] == [{"tick": 11, "value": 0.2}]
 
 
-def test_combat_reference_requests_interaction_preparation_and_wall(
-    tmp_path, monkeypatch
-):
+@pytest.fixture
+def reference_transport(tmp_path, monkeypatch):
     requests = []
+    setup = {}
 
     class FakeBridge:
         def __init__(self, output):
@@ -255,7 +258,7 @@ def test_combat_reference_requests_interaction_preparation_and_wall(
             return {"sequence": self.sequence}
 
         def acknowledge(self, *args):
-            pass
+            return {"data": {"setup": setup}}
 
         def wait(self, predicate, timeout):
             assert predicate({"state": "reference_complete"})
@@ -268,6 +271,13 @@ def test_combat_reference_requests_interaction_preparation_and_wall(
 
     monkeypatch.setattr(reference, "ROOT", tmp_path)
     monkeypatch.setattr(reference, "Bridge", FakeBridge)
+    return requests, setup
+
+
+def test_combat_reference_requests_interaction_preparation_and_wall(
+    reference_transport,
+):
+    requests, _ = reference_transport
     result = reference.record_reference("Human", 5, combat=True)
     assert result["status"] == "recorded"
     assert result["combat_wall"] is True
@@ -279,3 +289,95 @@ def test_combat_reference_requests_interaction_preparation_and_wall(
         "prepare_combat": True,
     }
     assert requests[-1]["op"] == "reference_stop"
+
+
+@pytest.mark.parametrize("mechanic", reference.MECHANICS)
+def test_named_reference_retains_acknowledged_setup_and_measurements(
+    reference_transport, mechanic
+):
+    requests, setup = reference_transport
+    setup.update(
+        version="human-reference-geometry-v1", mechanic=mechanic, origin=[990, 80, 988]
+    )
+    result = reference.record_reference("Human", 5, mechanic=mechanic)
+    assert result["status"] == "recorded"
+    assert result["setup"] == setup
+    assert result["fixture_measurements"]["status"] == "review_required"
+    assert result["reference_guide"]["mechanic"] == mechanic
+    assert requests[0]["reference_mechanic"] == mechanic
+    assert requests[0]["prepare_interactions"] is False
+    assert requests[-1]["op"] == "reference_stop"
+
+
+def test_unacknowledged_fixture_invalidates_capture_and_still_stops(
+    reference_transport,
+):
+    requests, _ = reference_transport
+    result = reference.record_reference("Human", 5, mechanic="collision")
+    assert result["status"] == "invalid"
+    assert "did not acknowledge" in result["error"]
+    assert requests[-1]["op"] == "reference_stop"
+
+
+def test_invalid_preparation_is_rejected_before_transport_creation(monkeypatch):
+    def unexpected_transport(_path):
+        raise AssertionError("Validation must precede connecting or writing recordings")
+
+    monkeypatch.setattr(reference, "Bridge", unexpected_transport)
+    with pytest.raises(ValueError, match="Unknown reference mechanic"):
+        reference.record_reference("Human", 30, mechanic="unknown")
+    with pytest.raises(ValueError, match="cannot be combined"):
+        reference.record_reference("Human", 30, combat=True, mechanic="fall")
+
+
+def test_step_report_separates_grounded_rise_from_jump_height():
+    values = [
+        sample(1, 80, True),
+        sample(2, 81.25, False, jump=True),
+        sample(3, 80.5, True),
+    ]
+    result = reference.measure_fixture(
+        values, {"mechanic": "step", "origin": [990, 80, 988]}
+    )
+    assert result["grounded_height_above_platform"] == [0, 0.5]
+    assert result["jump_input_samples"] == 1
+    assert result["status"] == "review_required"
+
+
+def test_fall_report_uses_first_landing_health_before_regeneration():
+    values = [
+        sample(1, 85, False),
+        sample(2, 80, True, health=18),
+        sample(3, 80, True, health=20),
+    ]
+    result = reference.measure_fixture(
+        values, {"mechanic": "fall", "origin": [990, 80, 988]}
+    )
+    assert result["first_landing_after_airborne"]["health"] == 18
+    assert result["first_landing_after_airborne"]["tick"] == 2
+    assert result["health_range"] == [18, 20]
+    assert result["contiguous_ticks"] is True
+    values[1]["tick"] = 3
+    assert (
+        reference.measure_fixture(
+            values, {"mechanic": "fall", "origin": [990, 80, 988]}
+        )["contiguous_ticks"]
+        is False
+    )
+
+
+def test_ledge_report_retains_sneak_and_fall_instead_of_asserting_success():
+    values = [
+        sample(1, 80, True, forward=True, z=989.5),
+        sample(2, 80, True, forward=True, z=990.3),
+        sample(3, 75, True, health=18, z=990.5),
+    ]
+    for event in values[:2]:
+        event["data"]["buttons"]["sneak"] = True
+    result = reference.measure_fixture(
+        values, {"mechanic": "ledge", "origin": [990, 80, 988]}
+    )
+    assert result["sneak_forward_samples"] == 2
+    assert result["maximum_z_with_forward_input"] == 990.3
+    assert result["grounded_height_above_platform"] == [-5, 0]
+    assert result["status"] == "review_required"

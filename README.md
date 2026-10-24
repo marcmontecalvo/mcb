@@ -137,6 +137,29 @@ arena after capture. The recorder includes direct sprint state and attack-streng
 telemetry for new captures. Guide one step per short recording, allowing the human
 to reconnect and get ready before starting.
 
+Remaining terrain references now have separate, prepared G1 fixtures:
+
+```powershell
+rtk proxy uv run --locked mclab body reference-plan --mechanic collision
+rtk proxy uv run --locked mclab body reference --player Osadar932 --seconds 30 --mechanic collision
+rtk proxy uv run --locked mclab body reference-fixture-check
+```
+
+Named mechanics are `collision`, `step`, `ledge`, and `fall`. Review the plan and
+wait for the human to be ready before capture. Named setup rebuilds the bounded
+C0 area (default x=987..993, y=75..85, z=986..996), restores health/food to 20,
+and relocates that player facing south. Inventory is preserved; armor, effects,
+non-Survival state and another human in the fixture block preparation. Geometry
+remains after capture. The ledge has a catch floor five blocks below; `fall`
+starts a five-block drop immediately, so release all keys before setup.
+These are G1 development fixtures, not the G2 episode reset implementation.
+
+The summary retains the server's setup acknowledgement, grounded height, collision
+samples, sneak/forward input, first-landing health and tick continuity. Reports
+require review and never advance G1 automatically. `reference-fixture-check` uses
+a fake player to verify geometry and mechanics without manipulating a human;
+it is not a substitute for the pending real-player comparisons.
+
 The reference recorder reads the actual latest client button state received by
 the server, plus view and body state. It records client/server timing uncertainty;
 these are not training-ready, precisely aligned client-timestamped demonstrations.

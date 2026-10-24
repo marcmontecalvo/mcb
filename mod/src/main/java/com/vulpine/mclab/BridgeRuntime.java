@@ -230,16 +230,27 @@ public final class BridgeRuntime implements AutoCloseable {
             }
             int seconds = request.get("seconds").getAsInt();
             if (seconds < 5 || seconds > 120 || sequence < 1) throw new IllegalArgumentException("reference_bounds");
+            String mechanic = request.has("reference_mechanic") ? text(request, "reference_mechanic") : "none";
+            if (!Set.of("none", "collision", "step", "ledge", "fall").contains(mechanic)) {
+                throw new IllegalArgumentException("unknown_reference_mechanic");
+            }
+            boolean interactions = request.has("prepare_interactions") && request.get("prepare_interactions").getAsBoolean();
+            boolean combat = request.has("prepare_combat") && request.get("prepare_combat").getAsBoolean();
+            if ((!mechanic.equals("none") && (interactions || combat)) || (combat && !interactions)) {
+                throw new IllegalArgumentException("conflicting_reference_preparation");
+            }
             runId = text(request, "run_id"); episodeId = text(request, "episode_id");
             bodyId = text(request, "body_id"); lastRequestSequence = sequence;
-            if (request.has("prepare_interactions") && request.get("prepare_interactions").getAsBoolean()) {
-                CarpetBodyAdapter.prepareHumanInteractions(server, player, fixture,
-                        request.has("prepare_combat") && request.get("prepare_combat").getAsBoolean());
+            Map<String, Object> setup = Map.of();
+            if (!mechanic.equals("none")) {
+                setup = HumanReferenceFixture.prepare(server, player, fixture, mechanic);
+            } else if (interactions) {
+                CarpetBodyAdapter.prepareHumanInteractions(server, player, fixture, combat);
             }
             referenceName = name; referenceEnd = server.getTickCount() + seconds * 20;
             readyState = "reference_recording";
             emit("reference_started", "fabric_start", Map.of("player", name,
-                    "request_sequence", sequence, "end_tick", referenceEnd));
+                    "request_sequence", sequence, "end_tick", referenceEnd, "setup", setup));
             return;
         }
         if (inbound.admin() && op.equals("spawn")) {

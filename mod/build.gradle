@@ -42,3 +42,17 @@ dependencyLocking {
     lockAllConfigurations()
     lockMode = LockMode.STRICT
 }
+
+sourceSets {
+    geometryVerification {
+        java.srcDir('src/verification/java')
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+tasks.register('verifyReferenceGeometry', JavaExec) {
+    dependsOn tasks.named('geometryVerificationClasses')
+    classpath = sourceSets.geometryVerification.runtimeClasspath
+    mainClass = 'com.vulpine.mclab.ReferenceGeometryTest'
+}
+tasks.named('check') { dependsOn tasks.named('verifyReferenceGeometry') }
