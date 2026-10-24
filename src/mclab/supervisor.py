@@ -88,15 +88,24 @@ def main() -> None:
                     return
                 if not closing.is_set() and process.poll() is None:
                     closing.set()
-                    process.stdin.write("stop\n")
-                    process.stdin.flush()
                 self.respond({"state": "stopping"})
 
         http = ThreadingHTTPServer(("127.0.0.1", state["port"]), Handler)
         http.timeout = 0.5
+        stop_sent = False
         try:
             while process.poll() is None:
                 http.handle_request()
+                if closing.is_set() and not stop_sent:
+                    # Minecraft can lose console input supplied before startup
+                    # initializes command processing. Wait for real readiness.
+                    try:
+                        minecraft_status(settings["game_port"])
+                    except (OSError, ValueError):
+                        continue
+                    process.stdin.write("stop\n")
+                    process.stdin.flush()
+                    stop_sent = True
         finally:
             http.server_close()
             if process.poll() is None:

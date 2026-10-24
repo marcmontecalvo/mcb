@@ -122,19 +122,20 @@
       "passed": true
     }
   ],
-  "launch_id": "3bc48366b49d5dfb58258fa32e1b77eb",
+  "launch_id": "2418066d4d1c8f0586b02da9cff21eca",
   "mod_provenance": {
     "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
-    "jar_sha256": "9c3f74b197c96c19d51edf81d5f64df834d97c518e3fa2400862e598200533bc",
+    "jar_sha256": "399d4636e83e55c81e443de4bf4e65e1a2b8290d27d05bbd26c6b771345e0841",
     "schema_version": 1,
-    "source_hash": "c7bf9506e27af57641034c10006d8f5bcd1aa707ab56f70b0952f74222b30868"
+    "source_hash": "f1b1c9369325d26c622650074372ce67a5433ba713a05f660e7b845c69bb4c30"
   },
   "profile_id": "initial-c1-survival-v1",
   "qualifier_source_sha256": "5714bdbcbbadf18c8c0ebee8093a1bcc6da997abf88ffaabf34e34ecd0d5d001",
-  "recording": "G:\\projects\\mcb\\results\\qualification\\20261024T161234752260Z\\events.jsonl",
+  "recording": "G:\\projects\\mcb\\results\\qualification\\20261024T193417099805Z\\events.jsonl",
+  "recording_sha256": "05f4cae4c4efb4baa89f28dab81c55ac8fa29ccae6d266008017661b18bcb3c8",
   "request_budget": 1500,
   "requested_resets": 20,
-  "requests": 390,
+  "requests": 361,
   "resets": [
     {
       "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
@@ -189,7 +190,7 @@
         ],
         "yaw": 0.0
       },
-      "generation": 2,
+      "generation": 8,
       "request_sequence": 1,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
@@ -248,7 +249,7 @@
         ],
         "yaw": 0.0
       },
-      "generation": 3,
+      "generation": 9,
       "request_sequence": 19,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
@@ -307,7 +308,7 @@
         ],
         "yaw": 0.0
       },
-      "generation": 4,
+      "generation": 10,
       "request_sequence": 37,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
@@ -366,362 +367,8 @@
         ],
         "yaw": 0.0
       },
-      "generation": 5,
-      "request_sequence": 63,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
-      "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
-    },
-    {
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "body_state": {
-        "abilities": {
-          "flying": false,
-          "instabuild": false,
-          "invulnerable": false,
-          "mayBuild": true,
-          "mayfly": false,
-          "walk_speed": 0.1
-        },
-        "air": 300,
-        "alive": true,
-        "attack_strength": 1.0,
-        "block_reach": 4.5,
-        "effects_empty": true,
-        "entity_reach": 3.0,
-        "environment": {
-          "clear_weather_time": 12000,
-          "clock_paused": true,
-          "clock_rate": 1.0,
-          "clock_ticks": 6000,
-          "rain_time": 12000,
-          "raining": false,
-          "thunder_time": 12000,
-          "thundering": false
-        },
-        "equipment_empty": true,
-        "exhaustion": 0.0,
-        "food": 20,
-        "food_tick_timer": 0,
-        "frozen_ticks": 0,
-        "health": 20.0,
-        "inventory": [],
-        "mode": "survival",
-        "on_fire": false,
-        "on_ground": true,
-        "pitch": 0.0,
-        "pose": "STANDING",
-        "position": [
-          1000.5,
-          80.0,
-          1000.5
-        ],
-        "saturation": 5.0,
-        "sprinting": false,
-        "velocity": [
-          0.0,
-          -0.0784000015258789,
-          0.0
-        ],
-        "yaw": 0.0
-      },
-      "generation": 6,
-      "request_sequence": 81,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
-      "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
-    },
-    {
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "body_state": {
-        "abilities": {
-          "flying": false,
-          "instabuild": false,
-          "invulnerable": false,
-          "mayBuild": true,
-          "mayfly": false,
-          "walk_speed": 0.1
-        },
-        "air": 300,
-        "alive": true,
-        "attack_strength": 1.0,
-        "block_reach": 4.5,
-        "effects_empty": true,
-        "entity_reach": 3.0,
-        "environment": {
-          "clear_weather_time": 12000,
-          "clock_paused": true,
-          "clock_rate": 1.0,
-          "clock_ticks": 6000,
-          "rain_time": 12000,
-          "raining": false,
-          "thunder_time": 12000,
-          "thundering": false
-        },
-        "equipment_empty": true,
-        "exhaustion": 0.0,
-        "food": 20,
-        "food_tick_timer": 0,
-        "frozen_ticks": 0,
-        "health": 20.0,
-        "inventory": [],
-        "mode": "survival",
-        "on_fire": false,
-        "on_ground": true,
-        "pitch": 0.0,
-        "pose": "STANDING",
-        "position": [
-          1000.5,
-          80.0,
-          1000.5
-        ],
-        "saturation": 5.0,
-        "sprinting": false,
-        "velocity": [
-          0.0,
-          -0.0784000015258789,
-          0.0
-        ],
-        "yaw": 0.0
-      },
-      "generation": 7,
-      "request_sequence": 99,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
-      "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
-    },
-    {
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "body_state": {
-        "abilities": {
-          "flying": false,
-          "instabuild": false,
-          "invulnerable": false,
-          "mayBuild": true,
-          "mayfly": false,
-          "walk_speed": 0.1
-        },
-        "air": 300,
-        "alive": true,
-        "attack_strength": 1.0,
-        "block_reach": 4.5,
-        "effects_empty": true,
-        "entity_reach": 3.0,
-        "environment": {
-          "clear_weather_time": 12000,
-          "clock_paused": true,
-          "clock_rate": 1.0,
-          "clock_ticks": 6000,
-          "rain_time": 12000,
-          "raining": false,
-          "thunder_time": 12000,
-          "thundering": false
-        },
-        "equipment_empty": true,
-        "exhaustion": 0.0,
-        "food": 20,
-        "food_tick_timer": 0,
-        "frozen_ticks": 0,
-        "health": 20.0,
-        "inventory": [],
-        "mode": "survival",
-        "on_fire": false,
-        "on_ground": true,
-        "pitch": 0.0,
-        "pose": "STANDING",
-        "position": [
-          1000.5,
-          80.0,
-          1000.5
-        ],
-        "saturation": 5.0,
-        "sprinting": false,
-        "velocity": [
-          0.0,
-          -0.0784000015258789,
-          0.0
-        ],
-        "yaw": 0.0
-      },
-      "generation": 8,
-      "request_sequence": 117,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
-      "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
-    },
-    {
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "body_state": {
-        "abilities": {
-          "flying": false,
-          "instabuild": false,
-          "invulnerable": false,
-          "mayBuild": true,
-          "mayfly": false,
-          "walk_speed": 0.1
-        },
-        "air": 300,
-        "alive": true,
-        "attack_strength": 1.0,
-        "block_reach": 4.5,
-        "effects_empty": true,
-        "entity_reach": 3.0,
-        "environment": {
-          "clear_weather_time": 12000,
-          "clock_paused": true,
-          "clock_rate": 1.0,
-          "clock_ticks": 6000,
-          "rain_time": 12000,
-          "raining": false,
-          "thunder_time": 12000,
-          "thundering": false
-        },
-        "equipment_empty": true,
-        "exhaustion": 0.0,
-        "food": 20,
-        "food_tick_timer": 0,
-        "frozen_ticks": 0,
-        "health": 20.0,
-        "inventory": [],
-        "mode": "survival",
-        "on_fire": false,
-        "on_ground": true,
-        "pitch": 0.0,
-        "pose": "STANDING",
-        "position": [
-          1000.5,
-          80.0,
-          1000.5
-        ],
-        "saturation": 5.0,
-        "sprinting": false,
-        "velocity": [
-          0.0,
-          -0.0784000015258789,
-          0.0
-        ],
-        "yaw": 0.0
-      },
-      "generation": 9,
-      "request_sequence": 135,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
-      "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
-    },
-    {
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "body_state": {
-        "abilities": {
-          "flying": false,
-          "instabuild": false,
-          "invulnerable": false,
-          "mayBuild": true,
-          "mayfly": false,
-          "walk_speed": 0.1
-        },
-        "air": 300,
-        "alive": true,
-        "attack_strength": 1.0,
-        "block_reach": 4.5,
-        "effects_empty": true,
-        "entity_reach": 3.0,
-        "environment": {
-          "clear_weather_time": 12000,
-          "clock_paused": true,
-          "clock_rate": 1.0,
-          "clock_ticks": 6000,
-          "rain_time": 12000,
-          "raining": false,
-          "thunder_time": 12000,
-          "thundering": false
-        },
-        "equipment_empty": true,
-        "exhaustion": 0.0,
-        "food": 20,
-        "food_tick_timer": 0,
-        "frozen_ticks": 0,
-        "health": 20.0,
-        "inventory": [],
-        "mode": "survival",
-        "on_fire": false,
-        "on_ground": true,
-        "pitch": 0.0,
-        "pose": "STANDING",
-        "position": [
-          1000.5,
-          80.0,
-          1000.5
-        ],
-        "saturation": 5.0,
-        "sprinting": false,
-        "velocity": [
-          0.0,
-          -0.0784000015258789,
-          0.0
-        ],
-        "yaw": 0.0
-      },
-      "generation": 10,
-      "request_sequence": 153,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
-      "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
-    },
-    {
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "body_state": {
-        "abilities": {
-          "flying": false,
-          "instabuild": false,
-          "invulnerable": false,
-          "mayBuild": true,
-          "mayfly": false,
-          "walk_speed": 0.1
-        },
-        "air": 300,
-        "alive": true,
-        "attack_strength": 1.0,
-        "block_reach": 4.5,
-        "effects_empty": true,
-        "entity_reach": 3.0,
-        "environment": {
-          "clear_weather_time": 12000,
-          "clock_paused": true,
-          "clock_rate": 1.0,
-          "clock_ticks": 6000,
-          "rain_time": 12000,
-          "raining": false,
-          "thunder_time": 12000,
-          "thundering": false
-        },
-        "equipment_empty": true,
-        "exhaustion": 0.0,
-        "food": 20,
-        "food_tick_timer": 0,
-        "frozen_ticks": 0,
-        "health": 20.0,
-        "inventory": [],
-        "mode": "survival",
-        "on_fire": false,
-        "on_ground": true,
-        "pitch": 0.0,
-        "pose": "STANDING",
-        "position": [
-          1000.5,
-          80.0,
-          1000.5
-        ],
-        "saturation": 5.0,
-        "sprinting": false,
-        "velocity": [
-          0.0,
-          -0.0784000015258789,
-          0.0
-        ],
-        "yaw": 0.0
-      },
       "generation": 11,
-      "request_sequence": 172,
+      "request_sequence": 55,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
@@ -780,7 +427,7 @@
         "yaw": 0.0
       },
       "generation": 12,
-      "request_sequence": 190,
+      "request_sequence": 73,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
@@ -839,7 +486,7 @@
         "yaw": 0.0
       },
       "generation": 13,
-      "request_sequence": 208,
+      "request_sequence": 91,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
@@ -898,7 +545,7 @@
         "yaw": 0.0
       },
       "generation": 14,
-      "request_sequence": 227,
+      "request_sequence": 109,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
@@ -957,7 +604,7 @@
         "yaw": 0.0
       },
       "generation": 15,
-      "request_sequence": 245,
+      "request_sequence": 127,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
@@ -1016,7 +663,7 @@
         "yaw": 0.0
       },
       "generation": 16,
-      "request_sequence": 263,
+      "request_sequence": 145,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
@@ -1075,7 +722,7 @@
         "yaw": 0.0
       },
       "generation": 17,
-      "request_sequence": 281,
+      "request_sequence": 163,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
@@ -1134,7 +781,7 @@
         "yaw": 0.0
       },
       "generation": 18,
-      "request_sequence": 304,
+      "request_sequence": 181,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
@@ -1193,7 +840,7 @@
         "yaw": 0.0
       },
       "generation": 19,
-      "request_sequence": 329,
+      "request_sequence": 199,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
@@ -1252,7 +899,7 @@
         "yaw": 0.0
       },
       "generation": 20,
-      "request_sequence": 348,
+      "request_sequence": 217,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
@@ -1311,180 +958,372 @@
         "yaw": 0.0
       },
       "generation": 21,
-      "request_sequence": 372,
+      "request_sequence": 235,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
+      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
+      "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
+    },
+    {
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
+      "body_state": {
+        "abilities": {
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
+          "mayBuild": true,
+          "mayfly": false,
+          "walk_speed": 0.1
+        },
+        "air": 300,
+        "alive": true,
+        "attack_strength": 1.0,
+        "block_reach": 4.5,
+        "effects_empty": true,
+        "entity_reach": 3.0,
+        "environment": {
+          "clear_weather_time": 12000,
+          "clock_paused": true,
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
+        },
+        "equipment_empty": true,
+        "exhaustion": 0.0,
+        "food": 20,
+        "food_tick_timer": 0,
+        "frozen_ticks": 0,
+        "health": 20.0,
+        "inventory": [],
+        "mode": "survival",
+        "on_fire": false,
+        "on_ground": true,
+        "pitch": 0.0,
+        "pose": "STANDING",
+        "position": [
+          1000.5,
+          80.0,
+          1000.5
+        ],
+        "saturation": 5.0,
+        "sprinting": false,
+        "velocity": [
+          0.0,
+          -0.0784000015258789,
+          0.0
+        ],
+        "yaw": 0.0
+      },
+      "generation": 22,
+      "request_sequence": 253,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
+      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
+      "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
+    },
+    {
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
+      "body_state": {
+        "abilities": {
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
+          "mayBuild": true,
+          "mayfly": false,
+          "walk_speed": 0.1
+        },
+        "air": 300,
+        "alive": true,
+        "attack_strength": 1.0,
+        "block_reach": 4.5,
+        "effects_empty": true,
+        "entity_reach": 3.0,
+        "environment": {
+          "clear_weather_time": 12000,
+          "clock_paused": true,
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
+        },
+        "equipment_empty": true,
+        "exhaustion": 0.0,
+        "food": 20,
+        "food_tick_timer": 0,
+        "frozen_ticks": 0,
+        "health": 20.0,
+        "inventory": [],
+        "mode": "survival",
+        "on_fire": false,
+        "on_ground": true,
+        "pitch": 0.0,
+        "pose": "STANDING",
+        "position": [
+          1000.5,
+          80.0,
+          1000.5
+        ],
+        "saturation": 5.0,
+        "sprinting": false,
+        "velocity": [
+          0.0,
+          -0.0784000015258789,
+          0.0
+        ],
+        "yaw": 0.0
+      },
+      "generation": 23,
+      "request_sequence": 271,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
+      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
+      "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
+    },
+    {
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
+      "body_state": {
+        "abilities": {
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
+          "mayBuild": true,
+          "mayfly": false,
+          "walk_speed": 0.1
+        },
+        "air": 300,
+        "alive": true,
+        "attack_strength": 1.0,
+        "block_reach": 4.5,
+        "effects_empty": true,
+        "entity_reach": 3.0,
+        "environment": {
+          "clear_weather_time": 12000,
+          "clock_paused": true,
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
+        },
+        "equipment_empty": true,
+        "exhaustion": 0.0,
+        "food": 20,
+        "food_tick_timer": 0,
+        "frozen_ticks": 0,
+        "health": 20.0,
+        "inventory": [],
+        "mode": "survival",
+        "on_fire": false,
+        "on_ground": true,
+        "pitch": 0.0,
+        "pose": "STANDING",
+        "position": [
+          1000.5,
+          80.0,
+          1000.5
+        ],
+        "saturation": 5.0,
+        "sprinting": false,
+        "velocity": [
+          0.0,
+          -0.0784000015258789,
+          0.0
+        ],
+        "yaw": 0.0
+      },
+      "generation": 24,
+      "request_sequence": 289,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
+      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
+      "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
+    },
+    {
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
+      "body_state": {
+        "abilities": {
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
+          "mayBuild": true,
+          "mayfly": false,
+          "walk_speed": 0.1
+        },
+        "air": 300,
+        "alive": true,
+        "attack_strength": 1.0,
+        "block_reach": 4.5,
+        "effects_empty": true,
+        "entity_reach": 3.0,
+        "environment": {
+          "clear_weather_time": 12000,
+          "clock_paused": true,
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
+        },
+        "equipment_empty": true,
+        "exhaustion": 0.0,
+        "food": 20,
+        "food_tick_timer": 0,
+        "frozen_ticks": 0,
+        "health": 20.0,
+        "inventory": [],
+        "mode": "survival",
+        "on_fire": false,
+        "on_ground": true,
+        "pitch": 0.0,
+        "pose": "STANDING",
+        "position": [
+          1000.5,
+          80.0,
+          1000.5
+        ],
+        "saturation": 5.0,
+        "sprinting": false,
+        "velocity": [
+          0.0,
+          -0.0784000015258789,
+          0.0
+        ],
+        "yaw": 0.0
+      },
+      "generation": 25,
+      "request_sequence": 306,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
+      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
+      "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
+    },
+    {
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
+      "body_state": {
+        "abilities": {
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
+          "mayBuild": true,
+          "mayfly": false,
+          "walk_speed": 0.1
+        },
+        "air": 300,
+        "alive": true,
+        "attack_strength": 1.0,
+        "block_reach": 4.5,
+        "effects_empty": true,
+        "entity_reach": 3.0,
+        "environment": {
+          "clear_weather_time": 12000,
+          "clock_paused": true,
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
+        },
+        "equipment_empty": true,
+        "exhaustion": 0.0,
+        "food": 20,
+        "food_tick_timer": 0,
+        "frozen_ticks": 0,
+        "health": 20.0,
+        "inventory": [],
+        "mode": "survival",
+        "on_fire": false,
+        "on_ground": true,
+        "pitch": 0.0,
+        "pose": "STANDING",
+        "position": [
+          1000.5,
+          80.0,
+          1000.5
+        ],
+        "saturation": 5.0,
+        "sprinting": false,
+        "velocity": [
+          0.0,
+          -0.0784000015258789,
+          0.0
+        ],
+        "yaw": 0.0
+      },
+      "generation": 26,
+      "request_sequence": 325,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
+      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
+      "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
+    },
+    {
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
+      "body_state": {
+        "abilities": {
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
+          "mayBuild": true,
+          "mayfly": false,
+          "walk_speed": 0.1
+        },
+        "air": 300,
+        "alive": true,
+        "attack_strength": 1.0,
+        "block_reach": 4.5,
+        "effects_empty": true,
+        "entity_reach": 3.0,
+        "environment": {
+          "clear_weather_time": 12000,
+          "clock_paused": true,
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
+        },
+        "equipment_empty": true,
+        "exhaustion": 0.0,
+        "food": 20,
+        "food_tick_timer": 0,
+        "frozen_ticks": 0,
+        "health": 20.0,
+        "inventory": [],
+        "mode": "survival",
+        "on_fire": false,
+        "on_ground": true,
+        "pitch": 0.0,
+        "pose": "STANDING",
+        "position": [
+          1000.5,
+          80.0,
+          1000.5
+        ],
+        "saturation": 5.0,
+        "sprinting": false,
+        "velocity": [
+          0.0,
+          -0.0784000015258789,
+          0.0
+        ],
+        "yaw": 0.0
+      },
+      "generation": 27,
+      "request_sequence": 343,
       "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1"
     }
   ],
-  "run_id": "qualification-3ab773655593",
+  "reviewed_at": "2026-10-24",
+  "run_id": "qualification-5732492efd91",
   "schema_version": 1,
   "scored": false,
   "status": "passed_development_subset",
   "suite": "reset_foundation_v1",
-  "recording_sha256": "1f5a1aae394bb70440f33bee4ba7379dd95499e5ed51b3fe2d3566b4324908c7",
-  "sqlite_attempts": [
-    {
-      "attempt": 1,
-      "episode_id": "reset-979aae527e00",
-      "body_id": "body-a20002c85733",
-      "status": "passed",
-      "generation": 2,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 2,
-      "episode_id": "reset-e993545c69f7",
-      "body_id": "body-3fa12cac9c74",
-      "status": "passed",
-      "generation": 3,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 3,
-      "episode_id": "reset-5e30c2e1f9dc",
-      "body_id": "body-668f5ddfe2df",
-      "status": "passed",
-      "generation": 4,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 4,
-      "episode_id": "reset-bdb033f04794",
-      "body_id": "body-f53a903796bb",
-      "status": "passed",
-      "generation": 5,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 5,
-      "episode_id": "reset-1d4239546085",
-      "body_id": "body-71ef92e7b36d",
-      "status": "passed",
-      "generation": 6,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 6,
-      "episode_id": "reset-1f268d948a45",
-      "body_id": "body-874f15546fb0",
-      "status": "passed",
-      "generation": 7,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 7,
-      "episode_id": "reset-eb52a4313382",
-      "body_id": "body-b2e962c81c28",
-      "status": "passed",
-      "generation": 8,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 8,
-      "episode_id": "reset-513ee5b4d183",
-      "body_id": "body-8b7ff7aee75a",
-      "status": "passed",
-      "generation": 9,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 9,
-      "episode_id": "reset-9de92373e912",
-      "body_id": "body-ae09f5f552eb",
-      "status": "passed",
-      "generation": 10,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 10,
-      "episode_id": "reset-3df289b96a0f",
-      "body_id": "body-6d79848c8d99",
-      "status": "passed",
-      "generation": 11,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 11,
-      "episode_id": "reset-b38de1d43b4e",
-      "body_id": "body-d724cb77d125",
-      "status": "passed",
-      "generation": 12,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 12,
-      "episode_id": "reset-8ef75df37ae2",
-      "body_id": "body-cdf909a1b2dc",
-      "status": "passed",
-      "generation": 13,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 13,
-      "episode_id": "reset-4f2f7a2b53a9",
-      "body_id": "body-6af39d2246f3",
-      "status": "passed",
-      "generation": 14,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 14,
-      "episode_id": "reset-d89df28b9a65",
-      "body_id": "body-f15db8c9c345",
-      "status": "passed",
-      "generation": 15,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 15,
-      "episode_id": "reset-4c5ec9fb613a",
-      "body_id": "body-821c2298df23",
-      "status": "passed",
-      "generation": 16,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 16,
-      "episode_id": "reset-3fcfa1991d79",
-      "body_id": "body-1fffc785369a",
-      "status": "passed",
-      "generation": 17,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 17,
-      "episode_id": "reset-5c94046e2591",
-      "body_id": "body-a6091bd1ffdb",
-      "status": "passed",
-      "generation": 18,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 18,
-      "episode_id": "reset-98b7711e927d",
-      "body_id": "body-fe822ec239b3",
-      "status": "passed",
-      "generation": 19,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 19,
-      "episode_id": "reset-cf871233fd77",
-      "body_id": "body-f328dc88aa86",
-      "status": "passed",
-      "generation": 20,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    },
-    {
-      "attempt": 20,
-      "episode_id": "reset-284b91841be2",
-      "body_id": "body-28017a6eec3f",
-      "status": "passed",
-      "generation": 21,
-      "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a"
-    }
-  ],
-  "summary_path": "results\\qualification\\20261024T161234752260Z\\summary.json",
-  "scope": "G2 reset foundation only; no episode evaluator, restriction qualification or scored execution"
+  "summary": "results/qualification/20261024T193417099805Z/summary.json",
+  "summary_sha256": "8dad7ba15517376b5c123c2924b73b186ec2c9873acd2b666290feac4a18bda2"
 }

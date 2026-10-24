@@ -9,12 +9,14 @@ from mclab.bootstrap import sha256
 from mclab.bridge import Bridge
 from mclab.modbuild import source_hash
 from mclab.paths import ROOT, digest, read_json, write_json
+from mclab.recorder import arena_guard
 
 
 class QualificationCheckFailure(RuntimeError):
     """An observed mechanics result fell outside the declared tolerance."""
 
 
+@arena_guard
 def qualify_commands() -> dict:
     profile = read_json(ROOT / "config/qualification.json")
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")

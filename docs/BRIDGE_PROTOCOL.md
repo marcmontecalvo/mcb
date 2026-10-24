@@ -187,8 +187,7 @@ chunks, fluids or block entities invalidate it. Arena-scoped drops/projectiles
 are removed. Clock/weather normalization uses the native 26.3 clock and weather
 APIs; pausing the daylight clock does not pause simulation ticks.
 
-Policy admission remains closed during and after this reset foundation. There is
-no episode-begin/scoring path yet. `heartbeat`, `release` and `despawn` remain
+Policy admission remains closed until explicit episode begin. `heartbeat`, `release` and `despawn` remain
 administrative lifecycle operations. Fresh reset requests can replace a prepared
 body; old controls cannot survive queue clearing or the identity change.
 
@@ -196,8 +195,52 @@ body; old controls cannot survive queue clearing or the identity change.
 SQLite reset-attempt table. It uses a declared 1,500-request orchestration budget,
 without relaxing motor action age/duration limits. Pending/interrupted work is
 not a completed reset and a new run always starts a new attempt and full reset.
-Twenty matching checks establish reset-foundation evidence, not completion of
-the remaining G2 restrictions/evaluator/episode-recorder work.
+Twenty matching checks establish reset-foundation evidence. The episode suite
+separately verifies restrictions/evaluation and recording integration.
+
+## C1 episodes and permitted observation
+
+`course_begin` requires reset_ready, matching body state and no residual entities
+or humans. It performs another incremental terrain scan before `course_started`
+acknowledges its request sequence, start tick and fixed 600-tick deadline.
+State progresses through begin_verifying, running and episode_terminal.
+`course_begin_failed` propagates verification failure without waiting for timeout.
+
+Only ordinary movement/look/jump/sneak/sprint/mining controls are admitted during
+C1. Placement, entity attacks and hotbar switching are rejected and logged; the
+native destroyBlock guard permits only the designated log. Arena mutations
+outside that native break invalidate the episode. Development setup operations
+cannot run during an episode. `course_end`, reset and despawn terminate running
+work, release controls and preserve the terminal outcome.
+
+The evaluator hooks successful native block destruction, actual addFreshEntity
+creation and Inventory.add transfer inside playerTouch. Item UUID, owner, item
+type/count, proximity and ordering must match. The pickup hook precedes Player.take
+because native playerTouch restores a discarded stack's count before RETURN.
+Generic inventory contents never establish success. `course_episode_complete`
+emits success/failed/invalid, reason, ticks and evaluator-only causal milestones.
+Death/disconnect, bounds/pit, tick limit and controller watchdog cannot score success.
+
+Authenticated GET `/policy` exposes versioned `local-visibility-v1`: filtered self
+state, a 17x9x17 local map and visible entities. Native eye-to-surface OUTLINE rays
+with fluids included test occlusion in all directions. This is augmented geometric
+visibility, not camera vision. Geometry refreshes every five ticks and retains
+observed_tick; missing cells are unknown. Known geometry includes block properties,
+collision boxes, replaceability and fluid identity. No manifest, target coordinates,
+safe route, expected answer or evaluator drop identity enters this endpoint.
+The contestant discovers a log by its visible ordinary block identity.
+
+`policy_sample` records self state each running server tick, native MSPT, and full
+visible maps when refreshed (`map_update`). Python records model-visible snapshots,
+periodic map-memory full snapshots/deltas, actions and apply times, errors and
+resources in JSONL and SQLite schema v1. OS locking prevents concurrent runner
+recovery. Pending attempts after a crash become interrupted; no half-modified
+episode resumes. Replay is event/map inspection, not bit-exact simulation.
+
+Development-only `course_test` requires reset_ready before begin. Named kinds
+planted_item and target_missing exercise rejection. sensor_check temporarily builds
+bounded native occlusion fixtures, restores their cells synchronously and requires
+a fresh reset before begin. It cannot be used to perform a scored task.
 
 ## Supplementary automated protocol proof
 

@@ -60,3 +60,21 @@ def test_open_gate_cannot_start_a_runner(qualified):
     write_json(qualified / "docs/gates.json", {"G1": {"status": "in_progress"}})
     with pytest.raises(ValueError, match="has not passed"):
         gates.require_initial_profile("C1")
+
+
+def test_scored_execution_cannot_reuse_different_evaluator_or_sensor(qualified):
+    write_json(
+        qualified / "docs/gates.json",
+        {
+            "G2": {
+                "status": "passed",
+                "mod_source_hash": "reviewed",
+                "sensor_profile": "sensor-v1",
+            }
+        },
+    )
+    gates.require_scored_execution("reviewed", "sensor-v1")
+    with pytest.raises(ValueError, match="source changed"):
+        gates.require_scored_execution("changed", "sensor-v1")
+    with pytest.raises(ValueError, match="sensor profile changed"):
+        gates.require_scored_execution("reviewed", "sensor-v2")

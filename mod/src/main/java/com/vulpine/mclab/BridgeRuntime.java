@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
@@ -34,6 +35,11 @@ public final class BridgeRuntime implements AutoCloseable {
     private final Vec3 fixture;
     private final JsonObject courseSpec;
     private CourseReset courseReset;
+    private CourseEpisode episode;
+    private long pendingBeginSequence;
+    private volatile Map<String,Object> policySnapshot = Map.of();
+    private List<Map<String,Object>> visibleBlocks = List.of();
+    private int sensorTick = -100;
     private boolean resetting;
     private boolean resetSecondVerification;
     private int resetGeneration;
@@ -110,6 +116,7 @@ public final class BridgeRuntime implements AutoCloseable {
             }
             String path = exchange.getRequestURI().getPath();
             if (exchange.getRequestMethod().equals("GET")) {
+                if (path.equals("/policy")) { respond(exchange,200,policySnapshot); return; }
                 if (path.equals("/state")) {
                     respond(exchange, 200, snapshot);
                     return;
@@ -176,6 +183,7 @@ public final class BridgeRuntime implements AutoCloseable {
         if (traceEnabled && tick >= traceEnd) traceEnabled = false;
         if (body != null && System.nanoTime() - lastContactNanos > TimeUnit.SECONDS.toNanos(2)) {
             body.release();
+            if (episode != null && episode.running()) episode.finish("failed","controller_watchdog");
             if (expiryTick >= 0) emit("released", "fabric_start", Map.of("reason", "watchdog"));
             expiryTick = -1;
         }
@@ -200,7 +208,8 @@ public final class BridgeRuntime implements AutoCloseable {
             try {
                 validateIdentity(action.request());
                 validateTiming(action.controls(), tick);
-                if (!readyState.equals("ready")) throw new IllegalStateException("body_not_ready");
+                if (!readyState.equals("ready") && !readyState.equals("running")) throw new IllegalStateException("body_not_ready");
+                validateCourseControls(action.controls());
                 body.controls(action.controls());
                 expiryTick = action.controls().expires_tick();
                 emit("applied", "fabric_start", Map.of("action_id", action.controls().action_id(),
@@ -242,6 +251,7 @@ public final class BridgeRuntime implements AutoCloseable {
                 throw new IllegalArgumentException("reset_requires_fresh_episode_and_body");
             }
             if (retired.size() >= 32) throw new IllegalStateException("restart_after_32_qualification_bodies");
+            if (episode != null && episode.running()) episode.finish("failed","reset_cancelled");
             var prepared = new CourseReset(server, courseSpec);
             scheduled.clear(); expiryTick = -1;
             if (body != null) { body.release(); body.retire(); retired.add(body); body = null; }
@@ -249,6 +259,7 @@ public final class BridgeRuntime implements AutoCloseable {
             prepared.resetEnvironment();
             runId = nextRun; episodeId = nextEpisode; bodyId = nextBody;
             lastRequestSequence = sequence; lastContactNanos = inbound.receivedNanos(); actionIds.clear();
+            pendingBeginSequence=0; episode = null; visibleBlocks = List.of(); sensorTick = -100;
             courseReset = prepared; resetting = true; resetSecondVerification = false;
             resetWarmUntil = -1; resetRequestSequence = sequence; resetGeneration++;
             resetFirstTerrain = ""; resetFirstBody = ""; resetDigest = "";
@@ -257,7 +268,8 @@ public final class BridgeRuntime implements AutoCloseable {
                     "request_sequence", sequence, "spec_hash", courseReset.specHash()));
             return;
         }
-        if (courseReset != null && !Set.of("heartbeat", "release", "despawn").contains(op)) {
+        if (courseReset != null && !(inbound.admin() && Set.of("heartbeat", "release", "despawn", "course_begin", "course_end", "course_test").contains(op))
+                && !(!inbound.admin() && op.equals("controls") && episode != null && episode.running())) {
             throw new IllegalStateException("course_policy_admission_closed");
         }
         if (inbound.admin() && op.equals("reference_start")) {
@@ -338,6 +350,7 @@ public final class BridgeRuntime implements AutoCloseable {
             if (!op.equals("controls")) throw new IllegalArgumentException("controls_endpoint_only");
             var controls = GSON.fromJson(request.getAsJsonObject("controls"), Controls.class);
             validateControls(controls);
+            validateCourseControls(controls);
             if (!actionIds.add(controls.action_id())) throw new IllegalArgumentException("duplicate_action_id");
             if (actionIds.size() > 10000) throw new IllegalStateException("qualification_action_budget");
             if (scheduled.size() >= 16) throw new IllegalStateException("scheduled_queue_full");
@@ -354,15 +367,54 @@ public final class BridgeRuntime implements AutoCloseable {
             return;
         }
         switch (op) {
-            case "heartbeat" -> { }
+            case "course_begin" -> {
+                if (courseReset == null || resetting || !readyState.equals("reset_ready") || episode != null)
+                    throw new IllegalStateException("course_not_reset_ready");
+                courseReset.ensureHumanClear(); courseReset.ensureOnlyBody(body.name());
+                if (!CourseReset.digest(body.resetFingerprint()).equals(resetFirstBody))
+                    throw new IllegalStateException("body_changed_since_reset");
+                if (pendingBeginSequence!=0) throw new IllegalStateException("begin_already_pending");
+                pendingBeginSequence=sequence; courseReset.beginVerify(); readyState="begin_verifying";
+            }
+            case "course_end" -> {
+                if (episode==null || !episode.running()) throw new IllegalStateException("episode_not_running");
+                episode.finish("failed","controller_cancel");
+            }
+            case "course_test" -> {
+                if (episode!=null || !readyState.equals("reset_ready")) throw new IllegalStateException("test_requires_reset_ready");
+                String kind=text(request,"kind");
+                if(kind.equals("sensor_check")) {
+                    courseReset.ensureHumanClear();
+                    var verification=SensorVerification.check(body.player(),server.getTickCount());
+                    readyState="sensor_checked"; resetDigest="";
+                    emit("course_sensor_checked","fabric_start",Map.of("request_sequence",sequence,"verification",verification));
+                    break;
+                }
+                if(kind.equals("target_missing")) {
+                    var origin=courseSpec.getAsJsonArray("origin"); var target=courseSpec.getAsJsonArray("target");
+                    var pos=new net.minecraft.core.BlockPos(origin.get(0).getAsInt()+target.get(0).getAsInt(),
+                            origin.get(1).getAsInt()+target.get(1).getAsInt(),origin.get(2).getAsInt()+target.get(2).getAsInt());
+                    server.overworld().setBlockAndUpdate(pos,net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
+                    emit("course_test_prepared","fabric_start",Map.of("request_sequence",sequence,"kind",kind));
+                    break;
+                }
+                if (!kind.equals("planted_item")) throw new IllegalArgumentException("unknown_course_test");
+                var item=new net.minecraft.world.entity.item.ItemEntity(server.overworld(),
+                        body.player().getX()+2,body.player().getY(),body.player().getZ(),
+                        new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.OAK_LOG));
+                item.setNeverPickUp(); server.overworld().addFreshEntity(item);
+                emit("course_test_prepared","fabric_start",Map.of("request_sequence",sequence,"kind","planted_item"));
+            }
+            case "heartbeat"  -> { }
             case "release" -> {
                 scheduled.clear(); body.release(); expiryTick = -1;
                 emit("released", "fabric_start", Map.of("reason", "explicit"));
             }
             case "despawn" -> {
-                scheduled.clear(); body.restoreFixture(); body.retire(); retired.add(body); body = null;
+                if (episode!=null && episode.running()) episode.finish("failed","despawn_cancelled");
+                scheduled.clear(); if (courseReset == null) body.restoreFixture(); body.retire(); retired.add(body); body = null;
                 expiryTick = -1; readyState = "idle";
-                courseReset = null; resetting = false; resetDigest = "";
+                pendingBeginSequence=0; courseReset = null; episode = null; resetting = false; resetDigest = "";
                 emit("despawned", "fabric_start", Map.of());
             }
             case "fixture" -> {
@@ -439,6 +491,13 @@ public final class BridgeRuntime implements AutoCloseable {
         }
         if (resetting) tickCourseReset(liveBodyState);
         else if (courseReset != null && !resetDigest.isEmpty() && liveBodyState.equals("ready")) readyState = "reset_ready";
+        if (pendingBeginSequence!=0) tickCourseBegin();
+        if (episode != null) {
+            episode.tick();
+            readyState=episode.running()?"running":"episode_terminal";
+            if (!episode.running()) {scheduled.clear();expiryTick=-1;if(body!=null)body.release();}
+        }
+        updatePolicySnapshot();
         if (body != null && traceEnabled) emit("phase", "fabric_end_observation", Map.of());
         snapshot = Map.of("schema_version", 1, "launch_id", launchId,
                 "run_id", runId, "episode_id", episodeId, "body_id", bodyId,
@@ -491,6 +550,92 @@ public final class BridgeRuntime implements AutoCloseable {
             emit("course_reset_failed", "fabric_end", Map.of("generation", resetGeneration,
                     "request_sequence", resetRequestSequence, "reason", error.toString()));
         }
+    }
+
+
+
+    private void tickCourseBegin() {
+        try {
+            courseReset.ensureHumanClear(); courseReset.ensureOnlyBody(body.name());
+            courseReset.step(); readyState="begin_verifying";
+            if (!courseReset.done()) return;
+            if (!courseReset.terrainDigest().equals(resetFirstTerrain)
+                    || !CourseReset.digest(body.resetFingerprint()).equals(resetFirstBody))
+                throw new IllegalStateException("state_changed_since_reset");
+            episode=new CourseEpisode(server,body,courseSpec,(type,data)->emit(type,"server_evaluator",data));
+            readyState="running";
+            emit("course_started","fabric_end",Map.of("request_sequence",pendingBeginSequence,
+                    "start_tick",episode.publicState().get("start_tick"),
+                    "deadline_tick",episode.publicState().get("deadline_tick")));
+            pendingBeginSequence=0;
+        } catch(Exception error) {
+            emit("course_begin_failed","fabric_end",Map.of("request_sequence",pendingBeginSequence,"reason",error.toString()));
+            pendingBeginSequence=0; readyState="begin_failed";resetDigest="";
+            scheduled.clear();expiryTick=-1;if(body!=null)body.release();
+        }
+    }
+
+    private void validateCourseControls(Controls controls) {
+        if (courseReset==null) return;
+        if (episode==null || !episode.running()) throw new IllegalStateException("episode_not_running");
+        if (controls.attack_pulse() || controls.use_hold() || controls.use_pulse() || controls.hotbar_slot()!=0) {
+            episode.attempted("forbidden_control");
+            throw new IllegalArgumentException("course_forbidden_control");
+        }
+    }
+
+    private void updatePolicySnapshot() {
+        var filtered=new LinkedHashMap<String,Object>();
+        if(body!=null && body.player()!=null) {
+            var observed=body.observe();
+            for(String key:List.of("position","velocity","yaw","pitch","on_ground","health","food",
+                    "mode","pose","alive","sprinting","inventory","ray","block_reach","entity_reach","attack_strength"))
+                filtered.put(key,observed.get(key));
+            if(server.getTickCount()-sensorTick>=5 && episode!=null && episode.running()) {
+                visibleBlocks=PolicySensor.visible(body.player(),server.getTickCount());sensorTick=server.getTickCount();
+            }
+        }
+        var resources=Map.of("average_mspt",server.getAverageTickTimeNanos()/1_000_000.0,
+                "smoothed_mspt",server.getCurrentSmoothedTickTime());
+        policySnapshot=Map.ofEntries(Map.entry("schema_version",1),Map.entry("launch_id",launchId),
+                Map.entry("run_id",runId),Map.entry("episode_id",episodeId),Map.entry("body_id",bodyId),
+                Map.entry("tick",server.getTickCount()),Map.entry("state",readyState),
+                Map.entry("body",Map.copyOf(filtered)),Map.entry("visible_blocks",visibleBlocks),
+                Map.entry("sensor_profile","local-visibility-v1"),
+                Map.entry("visible_entities",body!=null && body.player()!=null && episode!=null?PolicySensor.entities(body.player()):List.of()),
+                Map.entry("episode",episode==null?Map.of():episode.publicState()),
+                Map.entry("resources",resources));
+        if(episode!=null && episode.running()) {
+            var sample=new LinkedHashMap<String,Object>(policySnapshot);
+            // Every simulation tick records body state. Map updates carry a complete local
+            // visible-cell replacement every fifth tick; consumers preserve unknown cells.
+            if(sensorTick!=server.getTickCount()) sample.remove("visible_blocks");
+            sample.put("map_update",sensorTick==server.getTickCount());
+            emit("policy_sample","fabric_end_observation",Map.copyOf(sample));
+        }
+    }
+
+    public static boolean allowBreak(ServerPlayer player, net.minecraft.core.BlockPos pos) {
+        var b=active;
+        return b==null || b.episode==null || !b.episode.owns(player) || b.episode.allowBreak(player,pos);
+    }
+    public static void beforeCourseBreak(ServerPlayer p,net.minecraft.core.BlockPos pos) {
+        var b=active;if(b!=null && b.episode!=null)b.episode.beforeBreak(p,pos);
+    }
+    public static void afterCourseBreak(ServerPlayer p,net.minecraft.core.BlockPos pos,boolean success) {
+        var b=active;if(b!=null && b.episode!=null)b.episode.afterBreak(p,pos,success);
+    }
+    public static boolean permitCourseMutation(net.minecraft.world.level.Level level, net.minecraft.core.BlockPos pos,
+                                               net.minecraft.world.level.block.state.BlockState state) {
+        var b=active;
+        return b==null || !b.server.isSameThread() || level!=b.server.overworld() || b.episode==null
+                || b.episode.permitMutation(pos,state);
+    }
+    public static void courseDrop(net.minecraft.world.entity.Entity entity,boolean added) {
+        var b=active;if(b!=null && b.server.isSameThread() && b.episode!=null)b.episode.created(entity,added);
+    }
+    public static void coursePickup(ServerPlayer p,net.minecraft.world.entity.item.ItemEntity item,int before,int after) {
+        var b=active;if(b!=null && b.server.isSameThread() && b.episode!=null)b.episode.pickup(p,item,before,after);
     }
 
     public static void trace(ServerPlayer player, String phase) {

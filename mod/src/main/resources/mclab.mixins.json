@@ -2,6 +2,17 @@
   "required": true,
   "package": "com.vulpine.mclab.mixin",
   "compatibilityLevel": "JAVA_25",
-  "mixins": ["ActionPackTraceMixin", "PlayerStateAccessor", "FoodStateAccessor", "GameModeObserverMixin", "InteractionObserverMixin"],
-  "injectors": {"defaultRequire": 1}
+  "mixins": [
+    "ActionPackTraceMixin",
+    "PlayerStateAccessor",
+    "FoodStateAccessor",
+    "GameModeObserverMixin",
+    "InteractionObserverMixin",
+    "ItemEpisodeMixin",
+    "EntityEpisodeMixin",
+    "WorldEpisodeMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
 }

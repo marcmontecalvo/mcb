@@ -11,6 +11,7 @@ from mclab.bootstrap import sha256
 from mclab.bridge import Bridge
 from mclab.modbuild import source_hash
 from mclab.paths import ROOT, read_json, write_json
+from mclab.recorder import arena_guard
 
 
 class ResetRecorder:
@@ -61,6 +62,7 @@ class ResetRecorder:
         self.db.close()
 
 
+@arena_guard
 def qualify_resets(count: int = 20) -> dict:
     if not 1 <= count <= 20:
         raise ValueError("Reset check count must be 1 to 20")

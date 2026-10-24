@@ -1,6 +1,8 @@
 """Gate-aware bootstrap reporting. No episode success is inferred from compilation."""
 
 import csv
+import json
+import sqlite3
 from datetime import UTC, datetime
 
 from mclab import gates, server
@@ -28,15 +30,52 @@ def verify_bootstrap() -> dict:
 
 
 def report() -> dict:
+    episodes = []
+    database = ROOT / "results/episodes.sqlite3"
+    if database.exists():
+        with sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True) as db:
+            for row in db.execute(
+                "SELECT e.run_id,e.episode_id,e.attempt,e.status,e.reason,"
+                "r.configuration "
+                "FROM episodes e JOIN runs r ON r.run_id=e.run_id ORDER BY e.started_at"
+            ):
+                run_id, episode_id, attempt, status, reason, configuration = row
+                configuration = json.loads(configuration)
+                episodes.append(
+                    {
+                        "run_id": run_id,
+                        "episode_id": episode_id,
+                        "attempt": attempt,
+                        "status": status,
+                        "reason": reason,
+                        "scored": configuration.get("scored", False),
+                        "controller": configuration.get(
+                            "controller", configuration.get("suite", "unknown")
+                        ),
+                    }
+                )
+    scored = [e for e in episodes if e["scored"]]
+    successes = sum(e["status"] == "success" for e in scored)
+    probes = {}
+    for path in (ROOT / "results/provider_probes").glob("*.json"):
+        probe = read_json(path)
+        if probe.get("run_id"):
+            probes[probe["run_id"]] = probe
     result = {
         "schema_version": 1,
         "generated_at_utc": datetime.now(UTC).isoformat(),
         "minecraft": lock()["minecraft"],
         "server": server.status(),
-        "episodes_attempted": 0,
-        "episodes_succeeded": 0,
-        "success_rate": None,
-        "provider_requests": 0,
+        "episodes_attempted": len(scored),
+        "episodes_succeeded": successes,
+        "success_rate": successes / len(scored) if scored else None,
+        "episode_ledger": episodes,
+        "unscored_development_attempts": len(episodes) - len(scored),
+        "provider_requests": sum(
+            b.get("provenance", {}).get("requests", 0)
+            for p in probes.values()
+            for b in p.get("backends", [])
+        ),
         "gates": gates.statuses(),
         "G0": gates.statuses()["G0"],
     }
@@ -66,6 +105,21 @@ def report() -> dict:
         result["bootstrap"] = {"status": "not_verified", "error": str(error)}
     destination = ROOT / "results/reports"
     write_json(destination / "initial.json", result)
+    with (destination / "episodes.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as output:
+        fields = [
+            "run_id",
+            "episode_id",
+            "attempt",
+            "status",
+            "reason",
+            "scored",
+            "controller",
+        ]
+        writer = csv.DictWriter(output, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(episodes)
     with (destination / "qualification_attempts.csv").open(
         "w", newline="", encoding="utf-8"
     ) as output:
@@ -87,19 +141,28 @@ def report() -> dict:
     ) as output:
         writer = csv.writer(output)
         writer.writerow(["minecraft", "G0", "episodes_attempted", "success_rate"])
-        writer.writerow([result["minecraft"], result["G0"], 0, "unavailable"])
+        writer.writerow(
+            [result["minecraft"], result["G0"], len(scored), result["success_rate"]]
+        )
     (destination / "initial.md").write_text(
         "# Initial laboratory report\n\n"
         f"Generated: {result['generated_at_utc']}\n\n"
         f"Server: {result['server']['state']} on Minecraft {result['minecraft']}.\n\n"
         f"Geometry: {result['bootstrap']['status']}.\n\n"
         f"Gates: {result['gates']}.\n\n"
-        "Scored episodes: 0. Success rate: unavailable. Provider requests: 0.\n\n"
+        f"Scored episodes: {len(scored)}. Successes: {successes}. "
+        f"Success rate: {result['success_rate']}. "
+        f"Provider requests: {result['provider_requests']}.\n\n"
+        "Unscored development/adversarial attempts: "
+        f"{result['unscored_development_attempts']}. "
+        "All outcomes, including intentional adversarial failures and invalid "
+        "attempts, appear in episodes.csv.\n\n"
         f"Development qualification attempts recorded: {len(attempts)}. "
         "All recorded outcomes are retained in qualification_attempts.csv.\n\n"
-        "Basic body proofs and human movement references are development evidence. "
-        "Full G1 qualification remains open. No reset reliability, scored model skill "
-        "or baseline performance has been established.\n",
+        "Gate status comes from the reviewed ledger. Deterministic C1 execution "
+        "does not establish model skill, later-course navigation, learned control "
+        "or external baseline performance. "
+        "See per-run provenance before comparing results.\n",
         encoding="utf-8",
     )
     return {"reports": str(destination), "summary": result}

@@ -45,10 +45,20 @@
     "supplementary_protocol_evidence": "docs/G1_PROTOCOL_PROOF.json"
   },
   "G2": {
-    "remaining": "Episode restrictions, causal break/drop/pickup evaluation, full episode recorder and adversarial integration",
+    "adversarial_checks_passed": 29,
+    "date": "2026-10-24",
+    "episode_evidence": "docs/G2_EPISODE_PROOF.json",
+    "extensions_pending": [
+      "C2-C8 qualification",
+      "arbitrary fluid/block-entity restoration",
+      "camera sensor profile"
+    ],
+    "mod_source_hash": "f1b1c9369325d26c622650074372ce67a5433ba713a05f660e7b845c69bb4c30",
+    "reset_checks_passed": 20,
     "reset_evidence": "docs/G2_RESET_PROOF.json",
-    "reset_foundation": "20_consecutive_matching_authoritative_states",
-    "status": "in_progress"
+    "scope": "Frozen initial C1 reset, rules, causal evaluator, sensor and episode recorder",
+    "sensor_profile": "local-visibility-v1",
+    "status": "passed"
   },
   "G3": {
     "status": "not_run"

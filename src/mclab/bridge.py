@@ -159,9 +159,19 @@ class Bridge:
             for event in self.events:
                 if (
                     event["type"]
-                    in {"rejected", "rejected_at_execution", "course_reset_failed"}
+                    in {
+                        "rejected",
+                        "rejected_at_execution",
+                        "course_reset_failed",
+                        "course_begin_failed",
+                    }
                     and kind
-                    not in {"rejected", "rejected_at_execution", "course_reset_failed"}
+                    not in {
+                        "rejected",
+                        "rejected_at_execution",
+                        "course_reset_failed",
+                        "course_begin_failed",
+                    }
                     and int(event["data"].get("request_sequence", -1)) == sequence
                 ):
                     raise RuntimeError(

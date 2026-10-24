@@ -71,7 +71,7 @@ public final class BootstrapMod implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(server -> { if (bridge != null) bridge.postTick(); });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> { if (bridge != null) bridge.close(); });
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> writer.shutdown());
-        LOG.info("MCLab bootstrap verifier and qualification bridge loaded; scoring is not implemented");
+        LOG.info("MCLab bootstrap verifier and qualification bridge loaded; initial C1 authoritative episode scoring available");
     }
 
     private void tick(MinecraftServer server) {

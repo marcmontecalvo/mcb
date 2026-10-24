@@ -4,6 +4,7 @@ import pytest
 
 from mclab import evidence
 from mclab.paths import write_json
+from mclab.recorder import EpisodeRecorder
 
 
 @pytest.fixture
@@ -92,3 +93,31 @@ def test_report_keeps_failed_attempts_and_distinguishes_suites(tmp_path, monkeyp
         rows = list(csv.DictReader(stream))
     assert rows[0]["error"] == "mechanics discrepancy"
     assert rows[1]["suite"] == "supplementary_protocol_v1"
+
+
+def test_report_counts_every_scored_attempt_and_separates_fault_injection(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(evidence, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        evidence.gates, "statuses", lambda: {"G0": "passed", "G1": "passed"}
+    )
+    monkeypatch.setattr(evidence.server, "status", lambda: {"state": "running"})
+    monkeypatch.setattr(evidence, "verify_bootstrap", lambda: {"status": "verified"})
+    recorder = EpisodeRecorder(tmp_path / "results/episodes.sqlite3")
+    for name, scored in (("scored", True), ("adversarial", False)):
+        recorder.begin_run(name, {"scored": scored})
+        for attempt, status in enumerate(("success", "failed", "invalid"), 1):
+            identity = f"{name}-{attempt}"
+            recorder.begin(name, attempt, identity, "body", "events.jsonl")
+            recorder.finish(identity, status, "test", {})
+    recorder.close()
+    probe = {"run_id": "probe-1", "backends": [{"provenance": {"requests": 2}}]}
+    write_json(tmp_path / "results/provider_probes/first.json", probe)
+    write_json(tmp_path / "results/provider_probes/latest.json", probe)
+    summary = evidence.report()["summary"]
+    assert summary["episodes_attempted"] == 3
+    assert summary["episodes_succeeded"] == 1
+    assert summary["success_rate"] == 1 / 3
+    assert summary["unscored_development_attempts"] == 3
+    assert summary["provider_requests"] == 2

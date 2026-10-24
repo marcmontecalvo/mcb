@@ -10,6 +10,7 @@ from mclab.bridge import Bridge
 from mclab.modbuild import source_hash
 from mclab.paths import ROOT, read_json, write_json
 from mclab.qualify import QualificationCheckFailure
+from mclab.recorder import arena_guard
 
 
 def controls(tick: int, action_id: str, **changes) -> dict:
@@ -36,6 +37,7 @@ def controls(tick: int, action_id: str, **changes) -> dict:
     return value
 
 
+@arena_guard
 def qualify_protocol() -> dict:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = ROOT / "results/qualification" / stamp

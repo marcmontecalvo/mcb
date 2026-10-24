@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "jevtests": {
+    "revision": "ec2d602ab4ac03f88b8fac886b7c173d0485dcb4",
+    "reviewed_files": [
+      {
+        "path": "adapters/base.py",
+        "url": "https://raw.githubusercontent.com/marcmontecalvo/jevtests/ec2d602ab4ac03f88b8fac886b7c173d0485dcb4/adapters/base.py",
+        "sha256": "09fc5261951c95c7e11772e77b05a30ced7cf9a7b9a346df0ba6998fe0d9aece"
+      },
+      {
+        "path": "adapters/http_systemone.py",
+        "url": "https://raw.githubusercontent.com/marcmontecalvo/jevtests/ec2d602ab4ac03f88b8fac886b7c173d0485dcb4/adapters/http_systemone.py",
+        "sha256": "62da93587411b5413ba7b609bf6136d862af73f8f01ac06b2a78585c9ca10133"
+      },
+      {
+        "path": "harness/schema.py",
+        "url": "https://raw.githubusercontent.com/marcmontecalvo/jevtests/ec2d602ab4ac03f88b8fac886b7c173d0485dcb4/harness/schema.py",
+        "sha256": "08fe16e5fca839e269291e18015b6c46d08b2905a9eccabe684da9889942dd90"
+      }
+    ],
+    "repository_root_license": "No LICENSE file found at pinned root; no source code copied or vendored",
+    "integration": "Original versioned Choice wire adapter with reference-only upstream boundary"
+  }
+}

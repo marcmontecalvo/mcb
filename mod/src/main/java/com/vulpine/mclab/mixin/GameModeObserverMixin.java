@@ -32,14 +32,17 @@ public abstract class GameModeObserverMixin {
                 "face", face.toString(), "client_sequence", sequence));
     }
 
-    @Inject(method = "destroyBlock", at = @At("HEAD"))
+    @Inject(method = "destroyBlock", at = @At("HEAD"), cancellable = true)
     private void beforeBreak(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
         if (!BridgeRuntime.onServerThread()) return;
+        if (!BridgeRuntime.allowBreak(player,pos)) { cir.setReturnValue(false); return; }
+        BridgeRuntime.beforeCourseBreak(player,pos);
         mclab$beforeBlock = BuiltInRegistries.BLOCK.getKey(player.level().getBlockState(pos).getBlock()).toString();
     }
 
     @Inject(method = "destroyBlock", at = @At("RETURN"))
     private void afterBreak(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
+        BridgeRuntime.afterCourseBreak(player,pos,cir.getReturnValue());
         if (!cir.getReturnValue() || mclab$beforeBlock == null) return;
         BridgeRuntime.interaction(player, "block_broken", () -> Map.of(
                 "block", mclab$beforeBlock, "position", List.of(pos.getX(), pos.getY(), pos.getZ())));

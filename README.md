@@ -5,9 +5,10 @@ This repository implements the local laboratory foundation from
 local Minecraft Java 26.3 server and generates development courses C0–C4.
 The bootstrap Fabric mod verifies arena geometry against the generated specification.
 
-**G0 and G1 (the frozen initial C1 profile) passed. G2 reset work is in progress.**
-The Carpet adapter, bounded qualification bridge and reset foundation are implemented.
-There is no scored controller, evaluator, model integration, or learned policy yet.
+The initial C1 body, reset/evaluator, filtered sensor, episode recorder and
+deterministic controller are implemented. The gate ledger records reviewed live
+qualification separately from code availability. Provider adapters are implemented;
+no real model endpoint, learned policy or external baseline has been live-qualified.
 See [setup status](docs/SETUP_STATUS.md) and
 [implementation decisions](docs/DECISIONS.md).
 
@@ -62,14 +63,16 @@ arena. Building changes files while stopped. The datapack compares its specifica
 hash at load and reconstructs a newly selected specification after warming chunks.
 Rebuilding the same specification does **not** reset a modified world. The new
 `course reset-check` operation explicitly reconstructs the active C1 arena and
-checks fresh body state. Scoring and episode evaluation remain G2 work.
+checks fresh body state. `course execution-check` resets each attempt before
+starting the authoritative C1 evaluator and deterministic controller.
 
 Courses clear a bounded 49×41×49 volume, build a four-block-deep isolated platform,
 and use absolute coordinates. Vanilla fill limits are respected. The source
 specifications are development fixtures: C0 is an empty mechanics arena with a log,
 not a completed qualification suite. C3 has a two-block-tall wall; C4 has a
-full-width one-block rise and descent. Restriction enforcement and success/drop
-provenance are pending. Do not regard these as scored arenas yet.
+full-width one-block rise and descent. C1 enforces target-only breaking and no
+placement/attacks, and scores causal break/drop-UUID/normal-pickup chains. Other
+courses remain unqualified; repeated seeds do not guarantee distinct layouts.
 
 ## Builds and verification
 
@@ -100,13 +103,16 @@ and complete requalification.
   serialized off-thread; includes launch ID, specification hash and mismatch counts.
 - `results/generated/`: reproduction specifications and functions.
 - `results/doctor.json`: local environment checks.
-- `results/reports/initial.{md,csv,json}`: explicit zero-episode initial report.
+- `results/episodes.sqlite3`: every development/scored attempt and full event payloads.
+- `results/execution/`: controller provenance, JSONL and terminal summaries.
+- `results/reports/initial.{md,csv,json}` and `episodes.csv`: all scored denominators
+  plus separately labeled development/adversarial attempts.
 
 Runtime and results are ignored. Keep the handoff intact. The supervisor exposes
 only token-authenticated status/stop on loopback port 8766; port 8765 hosts the
 qualification bridge. No model service or paid request runs during setup.
-The future evaluator and filtered sensor must follow the handoff's server-thread,
-queue, deadline, observation and stale-episode constraints.
+The evaluator and sensor run on the server thread. Model network calls never
+pause simulation; the bounded transport detects event gaps and stale actions.
 
 ## Body qualification and human reference
 
@@ -139,7 +145,7 @@ arena after capture. The recorder includes direct sprint state and attack-streng
 telemetry for new captures. Guide one step per short recording, allowing the human
 to reconnect and get ready before starting.
 
-Remaining terrain references now have separate, prepared G1 fixtures:
+Completed terrain references have separate, prepared G1 fixtures:
 
 ```powershell
 rtk proxy uv run --locked mclab body reference-plan --mechanic collision
@@ -172,10 +178,46 @@ Keep human players disconnected or outside the arena. This bounded G2 developmen
 check reconstructs C1, removes arena-scoped drops/projectiles, creates a fresh body,
 warms it and compares authoritative terrain/body digests. Each attempt is recorded
 in JSONL and `results/reset_checks.sqlite3`. The live 20-reset run matched one state
-digest throughout. Policy admission stays closed; scoring and episode evaluation
-are pending, so this does not launch scored experiments.
+digest throughout. Policy admission stays closed until an explicit `course_begin`
+revalidates terrain/body state. This command itself runs no scored episodes.
+
+## C1 execution and later experiments
+
+```powershell
+rtk proxy uv run --locked mclab course episode-check
+rtk proxy uv run --locked mclab course execution-check --count 10
+rtk proxy uv run --locked mclab models probe
+rtk proxy uv run --locked mclab experiments plan
+```
+
+`episode-check` deliberately attempts forbidden actions, planted items, altered
+terrain, cancellation, deadlines and controller loss. Its failed/invalid episodes
+are expected unscored fault injection, not hidden task successes. It also verifies
+native sensor occlusion against walls/corners/floors/foliage/fluids.
+
+Scored execution requires reviewed G1/G2 and the installed evaluator source hash.
+The C1 perception-goal controller discovers the oak log through permitted local
+visibility, approaches, mines, then walks into normal pickup range. It receives
+no evaluator target coordinates or drop UUID. Each attempt has a fixed 600-tick
+limit and 90-second wall watchdog. `--development` explicitly runs unscored work.
+Do not run multiple qualification/execution commands concurrently. The server
+requires restart after 32 retained body identities, including development checks.
+
+`config/backends.json` defaults to no endpoints. Explicit probes use one bounded
+request at a time, zero retries, a deadline and validated legal Choice output.
+Remote calls additionally require a configured cost ceiling and request-cost cap.
+Missing credentials skip local progress without implying provider readiness.
+
+`experiments plan` freezes a development layout inventory without changing the
+active world. C3/C4 need more distinct geometry and C5 needs a generator. Offline
+states can be exported with `experiments export-screening --recording <JSONL>
+--output <JSON>`. Their valid-action labels require independent review, and they
+are not synchronized human demonstrations or training-ready data.
+
+The Baritone 26.3 artifact/API is pinned in `config/baselines.lock.json`; a client
+bridge, authenticated client session and scored baseline trial remain pending.
 
 The reference recorder reads the actual latest client button state received by
 the server, plus view and body state. It records client/server timing uncertainty;
 these are not training-ready, precisely aligned client-timestamped demonstrations.
-See [bridge protocol](docs/BRIDGE_PROTOCOL.md) for the qualification-only interface.
+See [bridge protocol](docs/BRIDGE_PROTOCOL.md) for lifecycle and observation details.

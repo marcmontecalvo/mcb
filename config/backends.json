@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "backends": [],
+  "notes": "Configure explicit enabled endpoints and request limits. Remote probes also require key_env, max_request_cost_usd and cost_ceiling_usd. No endpoints or credentials were discovered; nothing is probed implicitly."
+}

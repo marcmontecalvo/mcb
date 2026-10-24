@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "baritone": {
+    "tag": "v1.20.0",
+    "minecraft": "26.3",
+    "artifact": "baritone-api-fabric-1.20.0.jar",
+    "url": "https://github.com/cabaletta/baritone/releases/download/v1.20.0/baritone-api-fabric-1.20.0.jar",
+    "sha256": "49adfc063cfbfd0b6f08e9d814359807baa2d1768c0d39d6c5968268547cbca6",
+    "reviewed_api_files": [
+      {
+        "path": "src/api/java/baritone/api/IBaritone.java",
+        "sha256": "5f4d4d177b18c985ae8bb480765b1ca8b701e557b2f96b40e616753ffa98cb28"
+      },
+      {
+        "path": "src/api/java/baritone/api/process/ICustomGoalProcess.java",
+        "sha256": "096b7eec1dd0c89e332e430b54cf5fc253a2f62e2bb887d8f4b324fc16cb6a6e"
+      },
+      {
+        "path": "src/api/java/baritone/api/process/IMineProcess.java",
+        "sha256": "62d2dc8036dcae9c98af5906fbdc9a7ae3b95e572293fc876d4d1e91c85600ba"
+      },
+      {
+        "path": "src/api/java/baritone/api/behavior/IPathingBehavior.java",
+        "sha256": "253a24bc6d40279296274d470afb7789a3302013842a6a187ba1ec4ef785dcb7"
+      }
+    ],
+    "status": "artifact_and_api_review_only_no_client_bridge_or_live_trial"
+  }
+}

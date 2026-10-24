@@ -76,9 +76,23 @@ matched. JSONL plus SQLite record each attempt. Native clock/weather setters
 make environment normalization idempotent in 26.3; `time set noon` is not an
 idempotent command when the clock is already at that marker.
 
-G2 remains in progress: finish episode restrictions, causal break/drop/pickup
-evaluation, complete episode recording and adversarial checks. Policy admission
-stays closed after reset, so no scored C1 completion is currently possible.
-Then implement deterministic C1 (G3), followed by versioned backends and baseline
-clients. Scored `run`, provider probes, replay, training and external baselines
-remain unimplemented. No paid provider traffic has run.
+G2 passed for the frozen initial C1 scope: twenty matching authoritative resets,
+29 adversarial/sensor checks, native causal item scoring and durable episode
+recording. Policy admission opens only after explicit begin revalidation. G2
+qualification binds the evaluator source hash and sensor profile; drift blocks
+scored execution. Native pickup observation runs after Inventory.add but before
+Player.take because native playerTouch restores the discarded stack count before
+returning. Early implementation failures remain recorded.
+
+The deterministic perception-goal C1 controller is implemented; G3 requires a
+reviewed ten-attempt run with at least nine successes. Provider Choice/chat
+adapters have bounded requests/deadlines, zero retries and sanitized exchanges;
+real readiness is unproven without configured endpoints. Upstream jevtests files
+are reference-only (no root license found); no implementation was copied.
+Baritone v1.20.0 artifact/API is pinned, without a client bridge or live trial.
+
+Development planning counts physical layouts rather than seeds: C2 has at least
+25 unique variants, C3 only three and C4 one; C5 is not generated. Those later
+courses remain unqualified. Offline exports contain actual filtered observations
+with pending independent action labels. They are not synchronized demonstrations;
+training and fresh holdout evaluation remain pending. No paid traffic has run.

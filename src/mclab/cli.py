@@ -4,11 +4,18 @@ import argparse
 import json
 import subprocess
 import sys
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
 
 from mclab import (
+    backends,
     bootstrap,
     courses,
+    episodeproof,
     evidence,
+    execution,
+    experiments,
     gates,
     modbuild,
     protocolproof,
@@ -120,6 +127,16 @@ def main() -> int:
     sub.add_parser("doctor")
     sub.add_parser("report")
     sub.add_parser("mod-install")
+    experiment = sub.add_parser("experiments").add_subparsers(
+        dest="operation", required=True
+    )
+    experiment.add_parser("plan")
+    screen = experiment.add_parser("export-screening")
+    screen.add_argument("--recording", type=Path, required=True)
+    screen.add_argument("--output", type=Path, required=True)
+    screen.add_argument("--limit", type=int, default=60)
+    models = sub.add_parser("models").add_subparsers(dest="operation", required=True)
+    models.add_parser("probe")
     body = sub.add_parser("body").add_subparsers(dest="operation", required=True)
     body.add_parser("qualify")
     body.add_parser("protocol-check")
@@ -146,8 +163,12 @@ def main() -> int:
     build.add_argument("--seed", type=int)
     course.add_parser("verify-generated")
     course.add_parser("verify-bootstrap")
+    course.add_parser("episode-check")
     resets = course.add_parser("reset-check")
     resets.add_argument("--count", type=int, default=20)
+    execute = course.add_parser("execution-check")
+    execute.add_argument("--count", type=int, default=10)
+    execute.add_argument("--development", action="store_true")
     args = parser.parse_args()
     try:
         match args.command:
@@ -160,6 +181,31 @@ def main() -> int:
                 result = evidence.report()
             case "mod-install":
                 result = modbuild.install()
+            case "experiments":
+                result = (
+                    experiments.development_plan()
+                    if args.operation == "plan"
+                    else experiments.export_screening(
+                        args.recording, args.output, args.limit
+                    )
+                )
+            case "models":
+                outcomes = backends.probe_config(
+                    read_json(ROOT / "config/backends.json")["backends"]
+                )
+                result = {
+                    "schema_version": 1,
+                    "run_id": "probe-" + uuid4().hex[:12],
+                    "status": "not_ready"
+                    if any(o["status"] == "not_ready" for o in outcomes)
+                    else "complete"
+                    if outcomes
+                    else "skipped_no_configured_backends",
+                    "backends": outcomes,
+                }
+                write_json(ROOT / "results/provider_probes/latest.json", result)
+                stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+                write_json(ROOT / "results/provider_probes" / (stamp + ".json"), result)
             case "body":
                 if args.operation == "qualify":
                     result = qualify.qualify_commands()
@@ -197,19 +243,32 @@ def main() -> int:
                     result = courses.verify_generated()
                 elif args.operation == "reset-check":
                     result = resetcheck.qualify_resets(args.count)
+                elif args.operation == "episode-check":
+                    result = episodeproof.qualify_episodes()
+                elif args.operation == "execution-check":
+                    result = execution.qualify_execution(
+                        args.count, development=args.development
+                    )
                 else:
                     result = evidence.verify_bootstrap()
         print(json.dumps(result, indent=2))
         if args.command == "doctor":
             return 0 if all(c.get("ok", True) for c in result["checks"]) else 1
+        if args.command == "models":
+            return 1 if result["status"] == "not_ready" else 0
         if args.command == "body" and args.operation != "reference-plan":
             return (
                 0
                 if result["status"] in {"passed_development_subset", "recorded"}
                 else 1
             )
-        if args.command == "course" and args.operation == "reset-check":
+        if args.command == "course" and args.operation in {
+            "reset-check",
+            "episode-check",
+        }:
             return 0 if result["status"] == "passed_development_subset" else 1
+        if args.command == "course" and args.operation == "execution-check":
+            return 0 if result["status"] == "passed" else 1
         return 0
     except (OSError, ValueError, RuntimeError) as error:
         print(json.dumps({"error": str(error)}), file=sys.stderr)

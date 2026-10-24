@@ -79,3 +79,17 @@ def test_reset_failure_is_propagated_without_waiting_for_timeout(client, monkeyp
     monkeypatch.setattr(client, "wait", lambda predicate, timeout: predicate({}))
     with pytest.raises(RuntimeError, match="state_changed"):
         client.acknowledge({"sequence": 7}, "course_reset_complete")
+
+
+def test_begin_verification_failure_does_not_wait_for_start_timeout(
+    client, monkeypatch
+):
+    client.events.append(
+        {
+            "type": "course_begin_failed",
+            "data": {"request_sequence": 9, "reason": "geometry_mismatch"},
+        }
+    )
+    monkeypatch.setattr(client, "wait", lambda predicate, timeout: predicate({}))
+    with pytest.raises(RuntimeError, match="geometry_mismatch"):
+        client.acknowledge({"sequence": 9}, "course_started")

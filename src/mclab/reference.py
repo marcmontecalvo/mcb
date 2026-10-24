@@ -5,6 +5,7 @@ from math import hypot
 
 from mclab.bridge import Bridge
 from mclab.paths import ROOT, write_json
+from mclab.recorder import arena_guard
 
 MECHANICS = ("collision", "step", "ledge", "fall")
 
@@ -39,6 +40,7 @@ def reference_plan(mechanic: str) -> dict:
     }
 
 
+@arena_guard
 def record_reference(
     player: str,
     seconds: int,
