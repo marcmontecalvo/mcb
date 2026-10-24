@@ -166,6 +166,61 @@ def test_root_normalization_and_credential_protection():
         HttpBackend(spec("https://example.com"))
 
 
+def test_explicit_private_lan_endpoint_preserves_public_https_requirement():
+    assert (
+        endpoint("http://10.10.70.3:4000/v1", "chat", network_scope="private_lan")
+        == "http://10.10.70.3:4000/v1/chat/completions"
+    )
+    for root in ("http://8.8.8.8", "http://atom:4000", "http://0.0.0.0"):
+        with pytest.raises(ValueError):
+            endpoint(root, "chat", network_scope="private_lan")
+    with pytest.raises(ValueError, match="HTTPS"):
+        endpoint("http://10.10.70.3:4000", "chat")
+    backend = HttpBackend(
+        spec(
+            "http://10.10.70.3:4000",
+            network_scope="private_lan",
+            inference_scope="local",
+        )
+    )
+    assert backend.local
+    with pytest.raises(ValueError, match="cost"):
+        HttpBackend(spec("http://10.10.70.3:4000", network_scope="private_lan"))
+
+
+def test_thinking_switch_is_explicit_scoped_and_recorded(provider):
+    root, behavior, calls = provider
+    behavior["raw"] = {
+        "model": "served",
+        "choices": [{"message": {"content": '{"choice":"stop"}'}}],
+    }
+    backend = HttpBackend(spec(root, kind="chat", enable_thinking=False))
+    assert backend.health()["status"] == "ready"
+    assert calls[0]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert backend.provenance()["enable_thinking"] is False
+    for value in ("false", 0):
+        with pytest.raises(ValueError):
+            HttpBackend(spec(root, kind="chat", enable_thinking=value))
+    with pytest.raises(ValueError):
+        HttpBackend(spec(root, enable_thinking=False))
+
+
+def test_response_validation_time_is_inside_the_decision_deadline(monkeypatch):
+    from mclab import backends
+
+    backend = HttpBackend(spec("http://localhost:8000", deadline_s=0.02))
+    monkeypatch.setattr(backend, "_post", lambda _payload: {})
+
+    def slow_parse(*_args):
+        time.sleep(0.05)
+        return "stop", {"stop": 1}, "provider_reported"
+
+    monkeypatch.setattr(backends, "parse_response", slow_parse)
+    with pytest.raises(BackendError, match="exceeded deadline"):
+        backend.health()
+    assert backend.exchanges[0]["status"] == "late_discarded"
+
+
 def test_deadline_returns_and_late_work_is_not_applied(provider):
     root, behavior, calls = provider
     behavior["delay"] = 0.25

@@ -1,0 +1,679 @@
+{
+  "attempted_inference_requests": 8,
+  "backend_source_sha256": "93512bbb7af4e45d6c05ac92211b84874c9b876a0ea5747b25becd5d25220394",
+  "choice_smoke_latency_ms": [
+    1000,
+    828
+  ],
+  "choice_smoke_scope": "Same recorded permitted C1 observation, original/reversed options; legal IDs only, not semantic accuracy or gameplay skill",
+  "configuration_reference": "https://docs.vllm.ai/en/stable/features/reasoning_outputs/",
+  "connectivity": "Restored after user disconnected VPN; direct private address directory request completed in about62ms",
+  "credentials": "ATOM_API_KEY supplied through ignored .env; headers and values excluded",
+  "date": "2026-10-24",
+  "directory_authentication": "passed",
+  "directory_models": {
+    "data": [
+      {
+        "created": 1677610602,
+        "id": "qwen3.8-flash-next",
+        "object": "model",
+        "owned_by": "openai"
+      }
+    ],
+    "object": "list"
+  },
+  "probes": [
+    {
+      "artifact": "results/provider_probes/20261024T212425034202Z.json",
+      "backends": [
+        {
+          "error": "Decision deadline/cancellation exceeded; release controls",
+          "exchanges": [
+            {
+              "candidate_order": [
+                "stop"
+              ],
+              "request": {
+                "max_tokens": 64,
+                "messages": [
+                  {
+                    "content": "{\"observation\": {\"probe\": \"readiness\"}, \"question\": {\"type\": \"choice\", \"instructions\": \"Choose one legal next action using the observation.\", \"criteria\": {\"stop\": \"Release all controls\"}}, \"format\": {\"choice\": \"candidate ID\"}}",
+                    "role": "user"
+                  }
+                ],
+                "model": "qwen3.8-flash-next",
+                "response_format": {
+                  "type": "json_object"
+                },
+                "temperature": 0
+              },
+              "request_monotonic_ns": 362949734000000,
+              "schema_version": 1,
+              "status": "deadline_or_cancelled"
+            }
+          ],
+          "name": "atom-qwen-chat",
+          "provenance": {
+            "actual_cost_usd": null,
+            "deadline_s": 1.0,
+            "inference_scope": "local",
+            "kind": "chat",
+            "name": "atom-qwen-chat",
+            "network_scope": "private_lan",
+            "request_limit": 1,
+            "requested_model": "qwen3.8-flash-next",
+            "requests": 1,
+            "retries": 0,
+            "root": "http://10.10.70.3:4000",
+            "schema_version": 1
+          },
+          "status": "not_ready"
+        }
+      ],
+      "run_id": "probe-901458b0e495",
+      "schema_version": 1,
+      "status": "not_ready"
+    },
+    {
+      "artifact": "results/provider_probes/20261024T212521598242Z.json",
+      "backends": [
+        {
+          "error": "Decision deadline/cancellation exceeded; release controls",
+          "exchanges": [
+            {
+              "candidate_order": [
+                "stop"
+              ],
+              "request": {
+                "max_tokens": 64,
+                "messages": [
+                  {
+                    "content": "{\"observation\": {\"probe\": \"readiness\"}, \"question\": {\"type\": \"choice\", \"instructions\": \"Choose one legal next action using the observation.\", \"criteria\": {\"stop\": \"Release all controls\"}}, \"format\": {\"choice\": \"candidate ID\"}}",
+                    "role": "user"
+                  }
+                ],
+                "model": "qwen3.8-flash-next",
+                "response_format": {
+                  "type": "json_object"
+                },
+                "temperature": 0
+              },
+              "request_monotonic_ns": 362997312000000,
+              "schema_version": 1,
+              "status": "deadline_or_cancelled"
+            }
+          ],
+          "name": "atom-qwen-offline-warmup",
+          "provenance": {
+            "actual_cost_usd": null,
+            "deadline_s": 10.0,
+            "inference_scope": "local",
+            "kind": "chat",
+            "name": "atom-qwen-offline-warmup",
+            "network_scope": "private_lan",
+            "request_limit": 1,
+            "requested_model": "qwen3.8-flash-next",
+            "requests": 1,
+            "retries": 0,
+            "root": "http://10.10.70.3:4000",
+            "schema_version": 1
+          },
+          "status": "not_ready"
+        }
+      ],
+      "run_id": "probe-9d46b8e6ac7d",
+      "schema_version": 1,
+      "timing_profile": "offline_warmup_10s_not_live_qualified"
+    },
+    {
+      "artifact": "results/provider_probes/20261024T212851642911Z.json",
+      "backends": [
+        {
+          "error": "Decision deadline/cancellation exceeded; release controls",
+          "exchanges": [
+            {
+              "candidate_order": [
+                "stop"
+              ],
+              "request": {
+                "max_tokens": 64,
+                "messages": [
+                  {
+                    "content": "{\"observation\": {\"probe\": \"readiness\"}, \"question\": {\"type\": \"choice\", \"instructions\": \"Choose one legal next action using the observation.\", \"criteria\": {\"stop\": \"Release all controls\"}}, \"format\": {\"choice\": \"candidate ID\"}}",
+                    "role": "user"
+                  }
+                ],
+                "model": "qwen3.8-flash-next",
+                "response_format": {
+                  "type": "json_object"
+                },
+                "temperature": 0
+              },
+              "request_monotonic_ns": 363216343000000,
+              "schema_version": 1,
+              "status": "deadline_or_cancelled"
+            }
+          ],
+          "name": "atom-qwen-chat",
+          "provenance": {
+            "actual_cost_usd": null,
+            "deadline_s": 1.0,
+            "inference_scope": "local",
+            "kind": "chat",
+            "name": "atom-qwen-chat",
+            "network_scope": "private_lan",
+            "request_limit": 1,
+            "requested_model": "qwen3.8-flash-next",
+            "requests": 1,
+            "retries": 0,
+            "root": "http://10.10.70.3:4000",
+            "schema_version": 1
+          },
+          "status": "not_ready"
+        }
+      ],
+      "run_id": "probe-085ef3e308f0",
+      "schema_version": 1,
+      "status": "not_ready"
+    },
+    {
+      "artifact": "results/provider_probes/20261024T212858988587Z.json",
+      "backends": [
+        {
+          "error": "Malformed Choice response",
+          "exchanges": [
+            {
+              "candidate_order": [
+                "stop"
+              ],
+              "raw_response": {
+                "choices": [
+                  {
+                    "finish_reason": "length",
+                    "index": 0,
+                    "message": {
+                      "content": null,
+                      "provider_specific_fields": {
+                        "reasoning": "We need answer user's request. Need parse JSON-like prompt. User: {\"observation\": {\"probe\": \"readiness\"}, \"question\": {\"type\": \"choice\", \"instructions\": \"Choose one legal next action using the observation.\", \"criteria\": {\"stop\": \"Release all controls\"}}, \"format\": {\"choice",
+                        "refusal": null
+                      },
+                      "reasoning_content": "We need answer user's request. Need parse JSON-like prompt. User: {\"observation\": {\"probe\": \"readiness\"}, \"question\": {\"type\": \"choice\", \"instructions\": \"Choose one legal next action using the observation.\", \"criteria\": {\"stop\": \"Release all controls\"}}, \"format\": {\"choice",
+                      "role": "assistant"
+                    },
+                    "provider_specific_fields": {
+                      "routed_experts": null,
+                      "stop_reason": null,
+                      "token_ids": null
+                    }
+                  }
+                ],
+                "created": 1792877336,
+                "id": "chatcmpl-a28ca1ca00982879",
+                "model": "qwen3.8-flash-next",
+                "object": "chat.completion",
+                "system_fingerprint": "vllm-0.1.dev20073+g8e685d198-3daee843",
+                "usage": {
+                  "completion_tokens": 64,
+                  "completion_tokens_details": {
+                    "reasoning_tokens": 64
+                  },
+                  "prompt_tokens": 106,
+                  "total_tokens": 170
+                }
+              },
+              "request": {
+                "max_tokens": 64,
+                "messages": [
+                  {
+                    "content": "{\"observation\": {\"probe\": \"readiness\"}, \"question\": {\"type\": \"choice\", \"instructions\": \"Choose one legal next action using the observation.\", \"criteria\": {\"stop\": \"Release all controls\"}}, \"format\": {\"choice\": \"candidate ID\"}}",
+                    "role": "user"
+                  }
+                ],
+                "model": "qwen3.8-flash-next",
+                "response_format": {
+                  "type": "json_object"
+                },
+                "temperature": 0
+              },
+              "request_monotonic_ns": 363222203000000,
+              "response_monotonic_ns": 363224687000000,
+              "schema_version": 1,
+              "status": "invalid_response"
+            }
+          ],
+          "name": "atom-qwen-offline-warmup",
+          "provenance": {
+            "actual_cost_usd": null,
+            "deadline_s": 10.0,
+            "inference_scope": "local",
+            "kind": "chat",
+            "name": "atom-qwen-offline-warmup",
+            "network_scope": "private_lan",
+            "request_limit": 1,
+            "requested_model": "qwen3.8-flash-next",
+            "requests": 1,
+            "retries": 0,
+            "root": "http://10.10.70.3:4000",
+            "schema_version": 1
+          },
+          "status": "not_ready"
+        }
+      ],
+      "run_id": "probe-ed72b83662c9",
+      "schema_version": 1,
+      "timing_profile": "offline_warmup_10s_not_live_qualified"
+    },
+    {
+      "artifact": "results/provider_probes/20261024T212927156243Z.json",
+      "backends": [
+        {
+          "decision": {
+            "choice": "stop",
+            "latency_ms": 750.0,
+            "probabilities": {
+              "stop": 1.0
+            },
+            "probability_kind": "synthetic_one_hot_not_model_likelihood",
+            "served_model": "qwen3.8-flash-next"
+          },
+          "exchanges": [
+            {
+              "candidate_order": [
+                "stop"
+              ],
+              "choice": "stop",
+              "raw_response": {
+                "choices": [
+                  {
+                    "finish_reason": "stop",
+                    "index": 0,
+                    "message": {
+                      "content": "{\"choice\": \"stop\"}",
+                      "provider_specific_fields": {
+                        "reasoning": null,
+                        "refusal": null
+                      },
+                      "role": "assistant"
+                    },
+                    "provider_specific_fields": {
+                      "routed_experts": null,
+                      "stop_reason": null,
+                      "token_ids": null
+                    }
+                  }
+                ],
+                "created": 1792877366,
+                "id": "chatcmpl-b9506cd088c41177",
+                "model": "qwen3.8-flash-next",
+                "object": "chat.completion",
+                "system_fingerprint": "vllm-0.1.dev20073+g8e685d198-3daee843",
+                "usage": {
+                  "completion_tokens": 7,
+                  "completion_tokens_details": {
+                    "reasoning_tokens": 0
+                  },
+                  "prompt_tokens": 66,
+                  "total_tokens": 73
+                }
+              },
+              "request": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                },
+                "max_tokens": 64,
+                "messages": [
+                  {
+                    "content": "{\"observation\": {\"probe\": \"readiness\"}, \"question\": {\"type\": \"choice\", \"instructions\": \"Choose one legal next action using the observation.\", \"criteria\": {\"stop\": \"Release all controls\"}}, \"format\": {\"choice\": \"candidate ID\"}}",
+                    "role": "user"
+                  }
+                ],
+                "model": "qwen3.8-flash-next",
+                "response_format": {
+                  "type": "json_object"
+                },
+                "temperature": 0
+              },
+              "request_monotonic_ns": 363252109000000,
+              "response_monotonic_ns": 363252859000000,
+              "schema_version": 1,
+              "status": "valid"
+            }
+          ],
+          "name": "atom-qwen-chat",
+          "provenance": {
+            "actual_cost_usd": null,
+            "deadline_s": 1.0,
+            "enable_thinking": false,
+            "inference_scope": "local",
+            "kind": "chat",
+            "name": "atom-qwen-chat",
+            "network_scope": "private_lan",
+            "request_limit": 1,
+            "requested_model": "qwen3.8-flash-next",
+            "requests": 1,
+            "retries": 0,
+            "root": "http://10.10.70.3:4000",
+            "schema_version": 1
+          },
+          "status": "ready"
+        }
+      ],
+      "run_id": "probe-b33020cbd835",
+      "schema_version": 1,
+      "status": "complete"
+    },
+    {
+      "artifact": "results/provider_probes/20261024T213021828964Z.json",
+      "backends": [
+        {
+          "exchanges": [
+            {
+              "candidate_order": [
+                "stop",
+                "forward",
+                "turn_left"
+              ],
+              "choice": "forward",
+              "raw_response": {
+                "choices": [
+                  {
+                    "finish_reason": "stop",
+                    "index": 0,
+                    "message": {
+                      "content": "{\n  \"choice\": \"forward\"\n}",
+                      "provider_specific_fields": {
+                        "reasoning": null,
+                        "refusal": null
+                      },
+                      "role": "assistant"
+                    },
+                    "provider_specific_fields": {
+                      "routed_experts": null,
+                      "stop_reason": null,
+                      "token_ids": null
+                    }
+                  }
+                ],
+                "created": 1792877420,
+                "id": "chatcmpl-8522fda5aa7098b4",
+                "model": "qwen3.8-flash-next",
+                "object": "chat.completion",
+                "system_fingerprint": "vllm-0.1.dev20073+g8e685d198-3daee843",
+                "usage": {
+                  "completion_tokens": 12,
+                  "completion_tokens_details": {
+                    "reasoning_tokens": 0
+                  },
+                  "prompt_tokens": 217,
+                  "total_tokens": 229
+                }
+              },
+              "request": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                },
+                "max_tokens": 64,
+                "messages": [
+                  {
+                    "content": "{\"observation\": {\"goal\": \"Collect an oak log using normal Survival actions\", \"body\": {\"position\": [1000.5, 80.0, 1004.9892984329572], \"yaw\": 0.0, \"pitch\": 0.0, \"on_ground\": true, \"inventory\": []}, \"crosshair\": {\"type\": \"MISS\"}, \"visible_oak_logs\": [[1000, 80, 1012]], \"observed_tick\": 1446, \"sensor_profile\": \"local-visibility-v1\"}, \"question\": {\"type\": \"choice\", \"instructions\": \"Choose a safe short next action using only the visible observation.\", \"criteria\": {\"stop\": \"Release controls\", \"forward\": \"Walk forward for at most five ticks\", \"turn_left\": \"Turn left fifteen degrees\"}}, \"format\": {\"choice\": \"candidate ID\"}}",
+                    "role": "user"
+                  }
+                ],
+                "model": "qwen3.8-flash-next",
+                "response_format": {
+                  "type": "json_object"
+                },
+                "temperature": 0
+              },
+              "request_monotonic_ns": 363305703000000,
+              "response_monotonic_ns": 363306703000000,
+              "schema_version": 1,
+              "status": "valid"
+            },
+            {
+              "candidate_order": [
+                "turn_left",
+                "forward",
+                "stop"
+              ],
+              "choice": "forward",
+              "raw_response": {
+                "choices": [
+                  {
+                    "finish_reason": "stop",
+                    "index": 0,
+                    "message": {
+                      "content": "{\n  \"choice\": \"forward\"\n}",
+                      "provider_specific_fields": {
+                        "reasoning": null,
+                        "refusal": null
+                      },
+                      "role": "assistant"
+                    },
+                    "provider_specific_fields": {
+                      "routed_experts": null,
+                      "stop_reason": null,
+                      "token_ids": null
+                    }
+                  }
+                ],
+                "created": 1792877421,
+                "id": "chatcmpl-95bb4d1cb2fa3a80",
+                "model": "qwen3.8-flash-next",
+                "object": "chat.completion",
+                "system_fingerprint": "vllm-0.1.dev20073+g8e685d198-3daee843",
+                "usage": {
+                  "completion_tokens": 12,
+                  "completion_tokens_details": {
+                    "reasoning_tokens": 0
+                  },
+                  "prompt_tokens": 217,
+                  "total_tokens": 229
+                }
+              },
+              "request": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                },
+                "max_tokens": 64,
+                "messages": [
+                  {
+                    "content": "{\"observation\": {\"goal\": \"Collect an oak log using normal Survival actions\", \"body\": {\"position\": [1000.5, 80.0, 1004.9892984329572], \"yaw\": 0.0, \"pitch\": 0.0, \"on_ground\": true, \"inventory\": []}, \"crosshair\": {\"type\": \"MISS\"}, \"visible_oak_logs\": [[1000, 80, 1012]], \"observed_tick\": 1446, \"sensor_profile\": \"local-visibility-v1\"}, \"question\": {\"type\": \"choice\", \"instructions\": \"Choose a safe short next action using only the visible observation.\", \"criteria\": {\"turn_left\": \"Turn left fifteen degrees\", \"forward\": \"Walk forward for at most five ticks\", \"stop\": \"Release controls\"}}, \"format\": {\"choice\": \"candidate ID\"}}",
+                    "role": "user"
+                  }
+                ],
+                "model": "qwen3.8-flash-next",
+                "response_format": {
+                  "type": "json_object"
+                },
+                "temperature": 0
+              },
+              "request_monotonic_ns": 363306703000000,
+              "response_monotonic_ns": 363307531000000,
+              "schema_version": 1,
+              "status": "valid"
+            }
+          ],
+          "name": "atom-qwen-choice-smoke",
+          "outcomes": [
+            {
+              "decision": {
+                "choice": "forward",
+                "latency_ms": 1000.0,
+                "probabilities": {
+                  "forward": 1.0,
+                  "stop": 0.0,
+                  "turn_left": 0.0
+                },
+                "probability_kind": "synthetic_one_hot_not_model_likelihood",
+                "served_model": "qwen3.8-flash-next"
+              },
+              "status": "valid"
+            },
+            {
+              "decision": {
+                "choice": "forward",
+                "latency_ms": 828.0000000377186,
+                "probabilities": {
+                  "forward": 1.0,
+                  "stop": 0.0,
+                  "turn_left": 0.0
+                },
+                "probability_kind": "synthetic_one_hot_not_model_likelihood",
+                "served_model": "qwen3.8-flash-next"
+              },
+              "status": "valid"
+            }
+          ],
+          "provenance": {
+            "actual_cost_usd": null,
+            "deadline_s": 1.0,
+            "enable_thinking": false,
+            "inference_scope": "local",
+            "kind": "chat",
+            "name": "atom-qwen-chat",
+            "network_scope": "private_lan",
+            "request_limit": 2,
+            "requested_model": "qwen3.8-flash-next",
+            "requests": 2,
+            "retries": 0,
+            "root": "http://10.10.70.3:4000",
+            "schema_version": 1
+          },
+          "status": "ready"
+        }
+      ],
+      "gameplay_actions_applied": false,
+      "run_id": "probe-e7166a78c4ed",
+      "schema_version": 1,
+      "scored": false,
+      "semantic_accuracy": "unreviewed; validates wire/schema/deadline only",
+      "timing_profile": "bounded_offline_choice_1s"
+    },
+    {
+      "artifact": "results/provider_probes/latest.json",
+      "backends": [
+        {
+          "decision": {
+            "choice": "stop",
+            "latency_ms": 750.0,
+            "probabilities": {
+              "stop": 1.0
+            },
+            "probability_kind": "synthetic_one_hot_not_model_likelihood",
+            "served_model": "qwen3.8-flash-next"
+          },
+          "exchanges": [
+            {
+              "candidate_order": [
+                "stop"
+              ],
+              "choice": "stop",
+              "raw_response": {
+                "choices": [
+                  {
+                    "finish_reason": "stop",
+                    "index": 0,
+                    "message": {
+                      "content": "{\"choice\": \"stop\"}",
+                      "provider_specific_fields": {
+                        "reasoning": null,
+                        "refusal": null
+                      },
+                      "role": "assistant"
+                    },
+                    "provider_specific_fields": {
+                      "routed_experts": null,
+                      "stop_reason": null,
+                      "token_ids": null
+                    }
+                  }
+                ],
+                "created": 1792877476,
+                "id": "chatcmpl-b81bc9df6066a236",
+                "model": "qwen3.8-flash-next",
+                "object": "chat.completion",
+                "system_fingerprint": "vllm-0.1.dev20073+g8e685d198-3daee843",
+                "usage": {
+                  "completion_tokens": 7,
+                  "completion_tokens_details": {
+                    "reasoning_tokens": 0
+                  },
+                  "prompt_tokens": 66,
+                  "total_tokens": 73
+                }
+              },
+              "request": {
+                "chat_template_kwargs": {
+                  "enable_thinking": false
+                },
+                "max_tokens": 64,
+                "messages": [
+                  {
+                    "content": "{\"observation\": {\"probe\": \"readiness\"}, \"question\": {\"type\": \"choice\", \"instructions\": \"Choose one legal next action using the observation.\", \"criteria\": {\"stop\": \"Release all controls\"}}, \"format\": {\"choice\": \"candidate ID\"}}",
+                    "role": "user"
+                  }
+                ],
+                "model": "qwen3.8-flash-next",
+                "response_format": {
+                  "type": "json_object"
+                },
+                "temperature": 0
+              },
+              "request_monotonic_ns": 363361890000000,
+              "response_monotonic_ns": 363362640000000,
+              "schema_version": 1,
+              "status": "valid"
+            }
+          ],
+          "name": "atom-qwen-chat",
+          "provenance": {
+            "actual_cost_usd": null,
+            "deadline_s": 1.0,
+            "enable_thinking": false,
+            "inference_scope": "local",
+            "kind": "chat",
+            "name": "atom-qwen-chat",
+            "network_scope": "private_lan",
+            "request_limit": 1,
+            "requested_model": "qwen3.8-flash-next",
+            "requests": 1,
+            "retries": 0,
+            "root": "http://10.10.70.3:4000",
+            "schema_version": 1
+          },
+          "status": "ready"
+        }
+      ],
+      "run_id": "probe-0e31975fe564",
+      "schema_version": 1,
+      "status": "complete"
+    }
+  ],
+  "python_tests_passed": 117,
+  "remaining": "Wire controlled tactical selection and live timing; configure/probe required local SystemOne and hosted Jev routes. No G4 gate pass inferred.",
+  "routing_metadata": {
+    "models": [
+      {
+        "model_info": {
+          "input_cost_per_token": 0,
+          "max_input_tokens": null,
+          "max_output_tokens": null,
+          "max_tokens": null,
+          "mode": null,
+          "output_cost_per_token": 0
+        },
+        "model_name": "qwen3.8-flash-next",
+        "provider": null,
+        "provider_model": "openai/qwen3.8-flash-next",
+        "upstream_host": "host.docker.internal"
+      }
+    ],
+    "path": "/model/info"
+  },
+  "schema_version": 1,
+  "status": "chat_route_ready_G4_partial",
+  "strict_readiness_latency_ms": 750,
+  "thinking": "Explicit chat_template_kwargs.enable_thinking=false; zero reasoning tokens in valid responses",
+  "valid_choice_responses": 4
+}

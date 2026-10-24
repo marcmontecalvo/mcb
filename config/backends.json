@@ -1,5 +1,21 @@
 {
   "schema_version": 1,
-  "backends": [],
-  "notes": "Configure explicit enabled endpoints and request limits. Remote probes also require key_env, max_request_cost_usd and cost_ceiling_usd. No endpoints or credentials were discovered; nothing is probed implicitly."
+  "backends": [
+    {
+      "name": "atom-qwen-chat",
+      "enabled": true,
+      "kind": "chat",
+      "root": "http://10.10.70.3:4000/v1",
+      "gateway_alias": "atom",
+      "discovery_url": "http://atom:4000/v1/models",
+      "network_scope": "private_lan",
+      "inference_scope": "local",
+      "model": "qwen3.8-flash-next",
+      "enable_thinking": false,
+      "key_env": "ATOM_API_KEY",
+      "deadline_s": 1.0,
+      "request_limit": 1
+    }
+  ],
+  "notes": "User-authorized Atom gateway resolves to 10.10.70.3. Use the resolved private address to avoid its measured 2.7-second hostname lookup inside tactical deadlines. Route metadata points to host.docker.internal; reported zero token prices are not an audited cost measurement. Load the ignored .env explicitly with uv run --env-file .env."
 }

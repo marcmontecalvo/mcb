@@ -4,6 +4,7 @@ Original integration code; no jevtests implementation is vendored. Provider
 credentials are environment references and never part of request recordings.
 """
 
+import ipaddress
 import json
 import math
 import os
@@ -46,7 +47,7 @@ class Decision:
     served_model: str | None
 
 
-def endpoint(root: str, kind: str) -> str:
+def endpoint(root: str, kind: str, *, network_scope: str = "remote") -> str:
     parts = urllib.parse.urlsplit(root)
     if (
         parts.scheme not in {"http", "https"}
@@ -57,11 +58,36 @@ def endpoint(root: str, kind: str) -> str:
         or parts.fragment
     ):
         raise ValueError("Use an HTTP(S) root without credentials/query/fragment")
-    if parts.scheme == "http" and parts.hostname not in {
-        "127.0.0.1",
-        "localhost",
-        "::1",
-    }:
+    if network_scope not in {"remote", "private_lan"}:
+        raise ValueError("Unknown backend network scope")
+    private_lan = False
+    if network_scope == "private_lan":
+        try:
+            address = ipaddress.ip_address(parts.hostname)
+        except ValueError:
+            raise ValueError(
+                "Private LAN endpoints require a resolved private IP"
+            ) from None
+        networks = (
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+            "fc00::/7",
+            "fe80::/10",
+        )
+        private_lan = any(address in ipaddress.ip_network(n) for n in networks)
+        if not private_lan:
+            raise ValueError("Private LAN endpoint is outside private address ranges")
+    if (
+        parts.scheme == "http"
+        and not private_lan
+        and parts.hostname
+        not in {
+            "127.0.0.1",
+            "localhost",
+            "::1",
+        }
+    ):
         raise ValueError("Remote provider roots require HTTPS")
     suffix = {"systemone": "systemone", "chat": "chat/completions"}[kind]
     path = parts.path.rstrip("/")
@@ -120,8 +146,15 @@ class HttpBackend:
     def __init__(self, spec: dict):
         self.name = spec["name"]
         self.kind = spec["kind"]
-        self.url = endpoint(spec["root"], self.kind)
+        self.network_scope = spec.get("network_scope", "remote")
+        self.inference_scope = spec.get("inference_scope", "unspecified")
+        self.url = endpoint(spec["root"], self.kind, network_scope=self.network_scope)
         self.model = spec["model"]
+        self.enable_thinking = spec.get("enable_thinking")
+        if self.enable_thinking is not None and (
+            self.kind != "chat" or type(self.enable_thinking) is not bool
+        ):
+            raise ValueError("enable_thinking must be an explicit chat boolean")
         self.deadline = float(spec.get("deadline_s", 1.0))
         self.budget = spec["request_limit"]
         if (
@@ -135,6 +168,9 @@ class HttpBackend:
             "127.0.0.1",
             "::1",
         }
+        self.local = self.local or (
+            self.network_scope == "private_lan" and self.inference_scope == "local"
+        )
         if not self.local:
             ceiling = spec.get("cost_ceiling_usd")
             maximum = spec.get("max_request_cost_usd")
@@ -163,7 +199,10 @@ class HttpBackend:
             "name": self.name,
             "kind": self.kind,
             "root": self.url.rsplit("/v1/", 1)[0],
+            "network_scope": self.network_scope,
+            "inference_scope": self.inference_scope,
             "requested_model": self.model,
+            "enable_thinking": self.enable_thinking,
             "deadline_s": self.deadline,
             "retries": 0,
             "request_limit": self.budget,
@@ -183,7 +222,7 @@ class HttpBackend:
                 "state": request.observation,
                 "questions": {"q": question},
             }
-        return {
+        payload = {
             "model": self.model,
             "messages": [
                 {
@@ -201,6 +240,9 @@ class HttpBackend:
             "max_tokens": 64,
             "temperature": 0,
         }
+        if self.enable_thinking is not None:
+            payload["chat_template_kwargs"] = {"enable_thinking": self.enable_thinking}
+        return payload
 
     def _post(self, payload: dict) -> dict:
         headers = {"Content-Type": "application/json"}
@@ -294,6 +336,9 @@ class HttpBackend:
         if served_model is not None and not isinstance(served_model, str):
             exchange["status"] = "invalid_response"
             raise BackendError("Served model must be a string or null")
+        if time.monotonic() - start > self.deadline or self._closed.is_set():
+            exchange["status"] = "late_discarded"
+            raise BackendError("Validated decision exceeded deadline; release controls")
         return Decision(
             choice,
             probs,

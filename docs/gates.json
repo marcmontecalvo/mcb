@@ -76,9 +76,10 @@
   },
   "G4": {
     "adapter_status": "Implemented and local HTTP contract/error/deadline tests passed",
+    "evidence": "docs/G4_ATOM_PROBE.json",
     "preparation": "docs/G4_PREPARATION.json",
-    "real_probes": "skipped_no_configured_backends",
-    "remaining": "Configure and authenticate real local/Jev/chat endpoints, validate their real responses and live timing",
+    "real_probes": "Atom local chat route authenticated and returned valid choices within1second; G4partial",
+    "remaining": "Wire controlled tactical selection and live timing; configure/probe required local SystemOne and hosted Jev routes. No G4 gate pass inferred.",
     "status": "in_progress"
   },
   "G5": {

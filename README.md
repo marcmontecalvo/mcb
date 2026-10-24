@@ -205,10 +205,27 @@ limit and 90-second wall watchdog. `--development` explicitly runs unscored work
 Do not run multiple qualification/execution commands concurrently. The server
 requires restart after 32 retained body identities, including development checks.
 
-`config/backends.json` defaults to no endpoints. Explicit probes use one bounded
+`config/backends.json` lists explicitly configured endpoints. Probes use one bounded
 request at a time, zero retries, a deadline and validated legal Choice output.
 Remote calls additionally require a configured cost ceiling and request-cost cap.
 Missing credentials skip local progress without implying provider readiness.
+
+Atom is configured as the first private-LAN chat route. Its bearer token belongs
+in the Git-ignored `.env` as `ATOM_API_KEY` (see `.env.example`). Load it explicitly:
+
+```powershell
+rtk proxy uv run --env-file .env --locked mclab models probe
+```
+
+The configured private address was resolved from `atom`; recheck discovery before
+changing it. Private HTTP requires an explicit LAN scope and private IP literal.
+Inference must also be declared local to use that scope without a remote cost
+budget. Other remote endpoints retain the default HTTPS/cost requirements.
+The Atom short-choice profile explicitly disables thinking through the
+[documented vLLM template option](https://docs.vllm.ai/en/stable/features/reasoning_outputs/).
+That option is recorded in provenance; no reasoning text is interpreted as a
+legal action. See [the Atom probe evidence](docs/G4_ATOM_PROBE.json) for live
+readiness, the bounded choice smoke checks and retained failed attempts.
 
 `experiments plan` freezes a development layout inventory without changing the
 active world. C3/C4 need more distinct geometry and C5 needs a generator. Offline
