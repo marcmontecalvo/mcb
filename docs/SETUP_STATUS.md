@@ -187,9 +187,9 @@ Named human references now support `--mechanic collision`, `step`, `ledge` and
 starting a capture. Preparation rebuilds 847 bounded C0 cells, verifies every cell,
 restores health/food to 20 and relocates the named player facing south. Inventory
 is preserved; armor, effects, nonordinary Survival, unloaded chunks or another
-human in the fixture reject preparation. The ledge has a catch floor five blocks
-below. The fall check immediately drops the player five blocks. No capture or
-human manipulation runs just by previewing a plan.
+human in the fixture reject preparation. The ledge catch layer is at y=75, with
+a landing surface at y=76. The fall check immediately drops the player five
+blocks. No capture or human manipulation runs just by previewing a plan.
 
 The pure geometry verifier runs as part of Gradle `check` without a new external
 test framework. It checks all layouts, bounds, unique cells, spawn support and
@@ -208,10 +208,27 @@ unsupported/conflicting preparation, old-mod acknowledgement rejection, gaps,
 grounded step height and first-landing health before regeneration. Ruff lint and
 formatting, the mod build/geometry verifier and diff whitespace checks pass.
 
-The four named human terrain runs have **not** been recorded. Their summaries
-retain setup acknowledgement, collision/input/height/health measurements and tick
-continuity, and always require review. G1 remains in progress, and G2–G8 remain
-unstarted. These prepared G1 fixtures do not implement scored episode resets.
+The four named human terrain references have now been recorded and reviewed:
+[G1_HUMAN_TERRAIN_PROOF.json](G1_HUMAN_TERRAIN_PROOF.json) preserves 1,800 samples
+across the accepted captures, raw recording hashes, setup and mod provenance.
+Collision stopped at z=989.6999999880791, matching the fake boundary, with 46
+blocked forward-input samples. Stepping rose 0.5 blocks without jump input.
+The ledge repeat remained at y=80 with health 20 and settled at
+z=990.2975091220263, matching the fake result. The five-block fall first landed
+with health 18, also matching the fake. Input/tick alignment caveats still apply.
+
+The first ledge attempt is retained separately: Marc reported releasing Shift
+before W, and the received input transition was followed by a fall onto the catch
+floor. The repeat kept sneak after forward release and succeeded. Human
+`horizontal_collision` remained false even at the blocked boundary, so collision
+review uses authoritative positions plus received forward input, rather than that
+flag. A no-input sprint attempt is also retained. The subsequent sprint attempt
+confirmed authoritative sprint state for 11 contiguous ticks, but was too short
+for a declared 20-tick distance comparison; no matched-duration pass is inferred.
+
+G1 stays open for reach-boundary, knockback/death and view-control comparisons,
+the matched-duration sprint comparison, and frozen capability/timing review.
+G2–G8 remain unstarted. These G1 fixtures do not implement scored episode resets.
 
 All earlier development attempts remain under `results/qualification/`, and
 `mclab report` exports their recorded outcomes to `qualification_attempts.csv`.

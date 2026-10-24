@@ -150,8 +150,8 @@ wait for the human to be ready before capture. Named setup rebuilds the bounded
 C0 area (default x=987..993, y=75..85, z=986..996), restores health/food to 20,
 and relocates that player facing south. Inventory is preserved; armor, effects,
 non-Survival state and another human in the fixture block preparation. Geometry
-remains after capture. The ledge has a catch floor five blocks below; `fall`
-starts a five-block drop immediately, so release all keys before setup.
+remains after capture. The ledge catch layer is at y=75 (landing surface y=76).
+The `fall` check starts a five-block drop immediately, so release all keys before setup.
 These are G1 development fixtures, not the G2 episode reset implementation.
 
 The summary retains the server's setup acknowledgement, grounded height, collision

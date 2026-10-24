@@ -1,0 +1,525 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-24",
+  "scored": false,
+  "G1": "in_progress",
+  "captures": [
+    {
+      "mechanic": "collision",
+      "recording": "results\\references\\20261024T153916320345Z\\events.jsonl",
+      "recording_sha256": "c6154e6b398fd8305c6641aee035a61bdaa829b8d68de7b2991603819f90d73b",
+      "analyzer_source_sha256": "b9186b4f93b5fef2c59928978a2f276bcf9b29527837e5d240e25527eec1ea6a",
+      "mod_provenance": {
+        "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "ab04e897675ba62fbd196fad748ef8f22f4852ba16ef339d139bad5b4eb528ac",
+        "schema_version": 1,
+        "source_hash": "289c454d398566eb8d7807f142d8f8d600e1d75ea10d47a790ec9dc0de9015d3"
+      },
+      "samples": 600,
+      "setup": {
+        "before": {
+          "food": 20,
+          "health": 20.0,
+          "position": [
+            1002.3654302341159,
+            80.0,
+            1005.9287465795566
+          ]
+        },
+        "changed_cells": 847,
+        "initial_food": 20,
+        "initial_health": 20,
+        "mechanic": "collision",
+        "origin": [
+          990,
+          80,
+          988
+        ],
+        "persistent_development_fixture": true,
+        "spawn": [
+          990.5,
+          80.0,
+          988.5
+        ],
+        "verified_cells": 847,
+        "version": "human-reference-geometry-v1"
+      },
+      "measurements": {
+        "caveats": "Other inputs, network timing, gaps and terrain require review; not a gate pass",
+        "contiguous_ticks": true,
+        "first_landing_after_airborne": null,
+        "grounded_height_above_platform": [
+          0.0,
+          0.0
+        ],
+        "health_range": [
+          20.0,
+          20.0
+        ],
+        "horizontal_collision_samples": 0,
+        "jump_input_samples": 0,
+        "maximum_z_with_forward_input": 989.6999999880791,
+        "mechanic": "collision",
+        "position_bounds": {
+          "x": [
+            990.5,
+            990.5
+          ],
+          "y": [
+            80.0,
+            80.0
+          ],
+          "z": [
+            988.5,
+            989.6999999880791
+          ]
+        },
+        "sneak_forward_samples": 0,
+        "status": "review_required"
+      },
+      "comparison": {
+        "fake_max_z": 989.6999999880791,
+        "human_max_z": 989.6999999880791,
+        "blocked_forward_samples": 46,
+        "interpretation": "Matching collision boundary with steady yaw 0, no jump, flat height and unchanged health. Human horizontal_collision flag was false throughout; this comparison uses authoritative position plus received forward input, not that flag."
+      }
+    },
+    {
+      "mechanic": "step",
+      "recording": "results\\references\\20261024T153957714998Z\\events.jsonl",
+      "recording_sha256": "e27f1fc77aefd85b2a79e773989ddb28dc0f556144e1380109f0083673eb8bfc",
+      "analyzer_source_sha256": "b9186b4f93b5fef2c59928978a2f276bcf9b29527837e5d240e25527eec1ea6a",
+      "mod_provenance": {
+        "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "ab04e897675ba62fbd196fad748ef8f22f4852ba16ef339d139bad5b4eb528ac",
+        "schema_version": 1,
+        "source_hash": "289c454d398566eb8d7807f142d8f8d600e1d75ea10d47a790ec9dc0de9015d3"
+      },
+      "samples": 600,
+      "setup": {
+        "before": {
+          "food": 20,
+          "health": 20.0,
+          "position": [
+            990.5,
+            80.0,
+            989.6999999880791
+          ]
+        },
+        "changed_cells": 847,
+        "initial_food": 20,
+        "initial_health": 20,
+        "mechanic": "step",
+        "origin": [
+          990,
+          80,
+          988
+        ],
+        "persistent_development_fixture": true,
+        "spawn": [
+          990.5,
+          80.0,
+          988.5
+        ],
+        "verified_cells": 847,
+        "version": "human-reference-geometry-v1"
+      },
+      "measurements": {
+        "caveats": "Other inputs, network timing, gaps and terrain require review; not a gate pass",
+        "contiguous_ticks": true,
+        "first_landing_after_airborne": {
+          "health": 20.0,
+          "position": [
+            990.5,
+            80.03584062504456,
+            991.9762925628035
+          ],
+          "tick": 17670
+        },
+        "grounded_height_above_platform": [
+          0.0,
+          0.5
+        ],
+        "health_range": [
+          20.0,
+          20.0
+        ],
+        "horizontal_collision_samples": 0,
+        "jump_input_samples": 0,
+        "maximum_z_with_forward_input": 993.6815197510299,
+        "mechanic": "step",
+        "position_bounds": {
+          "x": [
+            990.5,
+            990.5
+          ],
+          "y": [
+            80.0,
+            80.5
+          ],
+          "z": [
+            988.5,
+            993.9379872256899
+          ]
+        },
+        "sneak_forward_samples": 0,
+        "status": "review_required"
+      },
+      "comparison": {
+        "human_grounded_rise": 0.5,
+        "fake_grounded_rise": 0.5,
+        "preexisting_fake_bounds": [
+          0.49,
+          0.51
+        ],
+        "interpretation": "Matching half-block step rise with no jump input, steady x alignment, crossing beyond the slab and no damage."
+      }
+    },
+    {
+      "mechanic": "ledge",
+      "reference_status": "input_order_mistake_repeat_required",
+      "user_report": "I let go of shift before w by mistake.",
+      "recording": "results\\references\\20261024T154053953839Z\\events.jsonl",
+      "recording_sha256": "2b1e79b417d8800d5acd50e42a8ca1ede4c4c92508b60c4ed170faffc1615654",
+      "samples": 600,
+      "setup": {
+        "before": {
+          "food": 20,
+          "health": 20.0,
+          "position": [
+            990.5,
+            80.0,
+            993.9379872256899
+          ]
+        },
+        "changed_cells": 847,
+        "initial_food": 20,
+        "initial_health": 20,
+        "mechanic": "ledge",
+        "origin": [
+          990,
+          80,
+          988
+        ],
+        "persistent_development_fixture": true,
+        "spawn": [
+          990.5,
+          80.0,
+          988.5
+        ],
+        "verified_cells": 847,
+        "version": "human-reference-geometry-v1"
+      },
+      "measurements": {
+        "caveats": "Other inputs, network timing, gaps and terrain require review; not a gate pass",
+        "contiguous_ticks": true,
+        "first_landing_after_airborne": null,
+        "grounded_height_above_platform": [
+          -4.0,
+          0.0
+        ],
+        "health_range": [
+          19.0,
+          20.0
+        ],
+        "horizontal_collision_samples": 0,
+        "jump_input_samples": 0,
+        "maximum_z_with_forward_input": 990.2943667684209,
+        "mechanic": "ledge",
+        "position_bounds": {
+          "x": [
+            990.5,
+            990.5
+          ],
+          "y": [
+            76.0,
+            80.0
+          ],
+          "z": [
+            988.5,
+            990.4160300753003
+          ]
+        },
+        "sneak_forward_samples": 78,
+        "status": "review_required"
+      },
+      "interpretation": "Held sneak stopped near the expected edge. Both inputs were released in the same received tick, followed by a fall onto the catch floor. Excluded from the intended stop-forward-while-sneaking comparison; not a demonstrated body-fidelity failure."
+    },
+    {
+      "mechanic": "ledge",
+      "reference_status": "reviewed_repeat",
+      "recording": "results\\references\\20261024T154141550303Z\\events.jsonl",
+      "recording_sha256": "97212cb50eb903ca3e142af0dddb8795bce5f11997ddab98df4ac752e34e7573",
+      "analyzer_source_sha256": "b9186b4f93b5fef2c59928978a2f276bcf9b29527837e5d240e25527eec1ea6a",
+      "mod_provenance": {
+        "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "ab04e897675ba62fbd196fad748ef8f22f4852ba16ef339d139bad5b4eb528ac",
+        "schema_version": 1,
+        "source_hash": "289c454d398566eb8d7807f142d8f8d600e1d75ea10d47a790ec9dc0de9015d3"
+      },
+      "samples": 400,
+      "setup": {
+        "before": {
+          "food": 20,
+          "health": 20.0,
+          "position": [
+            990.5,
+            76.0,
+            990.4160300753003
+          ]
+        },
+        "changed_cells": 847,
+        "initial_food": 20,
+        "initial_health": 20,
+        "mechanic": "ledge",
+        "origin": [
+          990,
+          80,
+          988
+        ],
+        "persistent_development_fixture": true,
+        "spawn": [
+          990.5,
+          80.0,
+          988.5
+        ],
+        "verified_cells": 847,
+        "version": "human-reference-geometry-v1"
+      },
+      "measurements": {
+        "caveats": "Other inputs, network timing, gaps and terrain require review; not a gate pass",
+        "contiguous_ticks": true,
+        "first_landing_after_airborne": null,
+        "grounded_height_above_platform": [
+          0.0,
+          0.0
+        ],
+        "health_range": [
+          20.0,
+          20.0
+        ],
+        "horizontal_collision_samples": 0,
+        "jump_input_samples": 0,
+        "maximum_z_with_forward_input": 990.2943667684209,
+        "mechanic": "ledge",
+        "position_bounds": {
+          "x": [
+            990.5,
+            990.5
+          ],
+          "y": [
+            80.0,
+            80.0
+          ],
+          "z": [
+            988.5,
+            990.2975091220263
+          ]
+        },
+        "sneak_forward_samples": 72,
+        "status": "review_required"
+      },
+      "comparison": {
+        "human_settled_z": 990.2975091220263,
+        "fake_settled_z": 990.2975091220263,
+        "sneak_only_samples_after_forward": 20,
+        "interpretation": "Matching settled edge position; remained at y=80 with health 20, no jump and forward released while sneak remained held. Supersedes the earlier input-order mistake for intended-trial comparison."
+      }
+    },
+    {
+      "mechanic": "fall",
+      "recording": "results\\references\\20261024T154224954246Z\\events.jsonl",
+      "recording_sha256": "640986f85a8aa23857524a169ce5e46fdd748185aa35f3cf7ece0e9b5d411b4e",
+      "analyzer_source_sha256": "b9186b4f93b5fef2c59928978a2f276bcf9b29527837e5d240e25527eec1ea6a",
+      "mod_provenance": {
+        "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "ab04e897675ba62fbd196fad748ef8f22f4852ba16ef339d139bad5b4eb528ac",
+        "schema_version": 1,
+        "source_hash": "289c454d398566eb8d7807f142d8f8d600e1d75ea10d47a790ec9dc0de9015d3"
+      },
+      "samples": 200,
+      "setup": {
+        "before": {
+          "food": 20,
+          "health": 20.0,
+          "position": [
+            990.5,
+            80.0,
+            990.2975091220263
+          ]
+        },
+        "changed_cells": 847,
+        "initial_food": 20,
+        "initial_health": 20,
+        "mechanic": "fall",
+        "origin": [
+          990,
+          80,
+          988
+        ],
+        "persistent_development_fixture": true,
+        "spawn": [
+          990.5,
+          85.0,
+          988.5
+        ],
+        "verified_cells": 847,
+        "version": "human-reference-geometry-v1"
+      },
+      "measurements": {
+        "caveats": "Other inputs, network timing, gaps and terrain require review; not a gate pass",
+        "contiguous_ticks": true,
+        "first_landing_after_airborne": {
+          "health": 18.0,
+          "position": [
+            990.5,
+            80.0,
+            988.5
+          ],
+          "tick": 20504
+        },
+        "grounded_height_above_platform": [
+          0.0,
+          0.1555217529431161
+        ],
+        "health_range": [
+          18.0,
+          20.0
+        ],
+        "horizontal_collision_samples": 0,
+        "jump_input_samples": 0,
+        "maximum_z_with_forward_input": null,
+        "mechanic": "fall",
+        "position_bounds": {
+          "x": [
+            990.5,
+            990.5
+          ],
+          "y": [
+            80.0,
+            85.0
+          ],
+          "z": [
+            988.5,
+            988.5
+          ]
+        },
+        "sneak_forward_samples": 0,
+        "status": "review_required"
+      },
+      "comparison": {
+        "human_first_landing_health": 18.0,
+        "fake_landing_health": 18.0,
+        "preexisting_fake_health_bounds": [
+          17,
+          19
+        ],
+        "interpretation": "Matching first-landing health after a five-block setup drop, no jump/forward input, and constant x/z. Later natural regeneration is excluded from landing comparison."
+      }
+    }
+  ],
+  "reviewed_mechanics": [
+    "collision",
+    "step",
+    "ledge",
+    "fall"
+  ],
+  "reviewed_samples": 1800,
+  "total_samples_including_repeats": 2400,
+  "remaining": "Reach-boundary, knockback/death and view-control comparisons; matched-duration sprint comparison; frozen capability/timing review",
+  "sprint_attempts": [
+    {
+      "status": "no_input_recorded_repeat_pending",
+      "recording": "results\\references\\20261024T154334695968Z\\events.jsonl",
+      "recording_sha256": "c0dcbfdde369a8ce4bd6ba10ca4f4e306e5412d2241364e73fd3ab94c77e019e",
+      "samples": 400,
+      "interpretation": "All received buttons were false and position unchanged. Not a sprint mechanics failure."
+    },
+    {
+      "status": "recorded_short_confirmed_sprint_burst",
+      "recording": "results\\references\\20261024T154453718410Z\\events.jsonl",
+      "recording_sha256": "d9fd8fcbbf7fef23e0903757be7907d6b82326c0db103a704dafbd7f260119a1",
+      "analyzer_source_sha256": "b9186b4f93b5fef2c59928978a2f276bcf9b29527837e5d240e25527eec1ea6a",
+      "mod_provenance": {
+        "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "ab04e897675ba62fbd196fad748ef8f22f4852ba16ef339d139bad5b4eb528ac",
+        "schema_version": 1,
+        "source_hash": "289c454d398566eb8d7807f142d8f8d600e1d75ea10d47a790ec9dc0de9015d3"
+      },
+      "samples": 400,
+      "confirmed_sprint_samples": 11,
+      "confirmed_sprint_ticks": [
+        23466,
+        23467,
+        23468,
+        23469,
+        23470,
+        23471,
+        23472,
+        23473,
+        23474,
+        23475,
+        23476
+      ],
+      "positions": [
+        [
+          991.450814221378,
+          80.0,
+          994.8261774806384
+        ],
+        [
+          991.4925214228248,
+          80.0,
+          995.1036734968326
+        ],
+        [
+          991.5342286293659,
+          80.0,
+          995.3811695469212
+        ],
+        [
+          991.5759358386885,
+          80.0,
+          995.6586656155164
+        ],
+        [
+          991.6176430495298,
+          80.0,
+          995.936161694216
+        ],
+        [
+          991.6593502612002,
+          80.0,
+          996.2136577784327
+        ],
+        [
+          991.7010574733234,
+          80.0,
+          996.4911538656617
+        ],
+        [
+          991.7010574733234,
+          80.0,
+          996.4911538656617
+        ],
+        [
+          991.7844718981992,
+          80.0,
+          997.0461460443071
+        ],
+        [
+          991.8261791107783,
+          80.0,
+          997.3236421345691
+        ],
+        [
+          991.8678863233977,
+          80.0,
+          997.6011382250989
+        ]
+      ],
+      "confirmed_20_tick_windows": 0,
+      "interpretation": "Authoritative sprint state and received forward+sprint buttons confirmed for 11 contiguous ticks. Too short for the declared 20-tick distance comparison; no equivalence pass inferred."
+    }
+  ]
+}
