@@ -1,28 +1,17 @@
 {
-  "schema_version": 1,
-  "date": "2026-10-24",
-  "scored": false,
   "G1": "passed_initial_c1_profile",
-  "profile_id": "initial-c1-survival-v1",
+  "date": "2026-10-24",
   "mod_provenance": {
     "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
-    "jar_sha256": "9c3f74b197c96c19d51edf81d5f64df834d97c518e3fa2400862e598200533bc",
+    "jar_sha256": "399d4636e83e55c81e443de4bf4e65e1a2b8290d27d05bbd26c6b771345e0841",
     "schema_version": 1,
-    "source_hash": "c7bf9506e27af57641034c10006d8f5bcd1aa707ab56f70b0952f74222b30868"
+    "source_hash": "f1b1c9369325d26c622650074372ce67a5433ba713a05f660e7b845c69bb4c30"
   },
+  "profile_id": "initial-c1-survival-v1",
+  "schema_version": 1,
+  "scored": false,
   "suites": {
     "mechanics": {
-      "summary": "results\\qualification\\20261024T161746925582Z\\summary.json",
-      "run_id": "qualification-8b1904123732",
-      "status": "passed_development_subset",
-      "passed": 39,
-      "total": 39,
-      "mod_provenance": {
-        "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
-        "jar_sha256": "9c3f74b197c96c19d51edf81d5f64df834d97c518e3fa2400862e598200533bc",
-        "schema_version": 1,
-        "source_hash": "c7bf9506e27af57641034c10006d8f5bcd1aa707ab56f70b0952f74222b30868"
-      },
       "checks": [
         {
           "expected": "registered, Survival, health/food 20, empty",
@@ -36,7 +25,7 @@
             "health": 20.0,
             "inventory": [],
             "mode": "survival",
-            "name": "Lab839a30f705",
+            "name": "Lab51e3022525",
             "on_ground": true,
             "pitch": 0.0,
             "pose": "STANDING",
@@ -145,9 +134,9 @@
           "passed": true
         },
         {
-          "expected": 7517,
+          "expected": 498,
           "name": "api_exact_apply_tick",
-          "observed": 7517,
+          "observed": 498,
           "passed": true
         },
         {
@@ -167,10 +156,10 @@
           "passed": true
         },
         {
-          "expected": 7522,
+          "expected": 503,
           "name": "api_auto_expiry",
           "observed": [
-            7522
+            503
           ],
           "passed": true
         },
@@ -222,7 +211,7 @@
             110
           ],
           "name": "api_renewed_mining_preserves_progress",
-          "observed": 64,
+          "observed": 62,
           "passed": true
         },
         {
@@ -252,7 +241,7 @@
         {
           "expected": "positive residual travel",
           "name": "release_preserves_inertia",
-          "observed": 0.10738455387183876,
+          "observed": 0.1121399812781192,
           "passed": true
         },
         {
@@ -328,14 +317,14 @@
         {
           "expected": "positive z displacement",
           "name": "entity_knockback",
-          "observed": 0.8171440663564908,
+          "observed": 0.9980011404829838,
           "passed": true
         },
         {
           "expected": "reset then recover to 1",
           "name": "attack_cooldown",
           "observed": [
-            0.6,
+            0.8,
             1.0
           ],
           "passed": true
@@ -359,7 +348,7 @@
           "expected": "dead or removed",
           "name": "death_disconnect",
           "observed": {
-            "name": "Lab7d1cc1f6eb",
+            "name": "Lab956b3e7991",
             "registered": false
           },
           "passed": true
@@ -376,7 +365,7 @@
             "health": 20.0,
             "inventory": [],
             "mode": "survival",
-            "name": "Lab9748fd9914",
+            "name": "Lab2c900cc2d8",
             "on_ground": true,
             "pitch": 0.0,
             "pose": "STANDING",
@@ -403,20 +392,21 @@
           },
           "passed": true
         }
-      ]
-    },
-    "protocol": {
-      "summary": "results\\qualification\\20261024T161959708695Z\\summary.json",
-      "run_id": "qualification-c54f75b5ce43",
-      "status": "passed_development_subset",
-      "passed": 24,
-      "total": 24,
+      ],
       "mod_provenance": {
         "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
-        "jar_sha256": "9c3f74b197c96c19d51edf81d5f64df834d97c518e3fa2400862e598200533bc",
+        "jar_sha256": "399d4636e83e55c81e443de4bf4e65e1a2b8290d27d05bbd26c6b771345e0841",
         "schema_version": 1,
-        "source_hash": "c7bf9506e27af57641034c10006d8f5bcd1aa707ab56f70b0952f74222b30868"
+        "source_hash": "f1b1c9369325d26c622650074372ce67a5433ba713a05f660e7b845c69bb4c30"
       },
+      "passed": 39,
+      "recording_sha256": "0c9ed0ccfe4acec39671bb9add94942f9f9eaa92ffa187e52de91f8b34cf5f30",
+      "run_id": "qualification-10ced80dc158",
+      "status": "passed_development_subset",
+      "summary": "results/qualification/20261024T193808135463Z/summary.json",
+      "total": 39
+    },
+    "protocol": {
       "checks": [
         {
           "expected": "invalid_controls",
@@ -557,25 +547,26 @@
           "passed": true
         },
         {
-          "expected": "proof-a4fcd2c786d9-next",
+          "expected": "proof-f91621b76377-next",
           "name": "new_session_survives_old_request",
-          "observed": "proof-a4fcd2c786d9-next",
+          "observed": "proof-f91621b76377-next",
           "passed": true
         }
-      ]
-    },
-    "reference_fixtures": {
-      "summary": "results\\qualification\\20261024T162029234369Z\\summary.json",
-      "run_id": "qualification-8c9f8f52ab09",
-      "status": "passed_development_subset",
-      "passed": 12,
-      "total": 12,
+      ],
       "mod_provenance": {
         "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
-        "jar_sha256": "9c3f74b197c96c19d51edf81d5f64df834d97c518e3fa2400862e598200533bc",
+        "jar_sha256": "399d4636e83e55c81e443de4bf4e65e1a2b8290d27d05bbd26c6b771345e0841",
         "schema_version": 1,
-        "source_hash": "c7bf9506e27af57641034c10006d8f5bcd1aa707ab56f70b0952f74222b30868"
+        "source_hash": "f1b1c9369325d26c622650074372ce67a5433ba713a05f660e7b845c69bb4c30"
       },
+      "passed": 24,
+      "recording_sha256": "a5a52970acdf95c7e58fcad4e5a1dbbd7ea2c536983f006a293d67af690bd536",
+      "run_id": "qualification-3256aa0302b8",
+      "status": "passed_development_subset",
+      "summary": "results/qualification/20261024T193859809130Z/summary.json",
+      "total": 24
+    },
+    "reference_fixtures": {
       "checks": [
         {
           "expected": 847,
@@ -662,7 +653,19 @@
           "observed": 18.0,
           "passed": true
         }
-      ]
+      ],
+      "mod_provenance": {
+        "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "399d4636e83e55c81e443de4bf4e65e1a2b8290d27d05bbd26c6b771345e0841",
+        "schema_version": 1,
+        "source_hash": "f1b1c9369325d26c622650074372ce67a5433ba713a05f660e7b845c69bb4c30"
+      },
+      "passed": 12,
+      "recording_sha256": "f064452c423f32ce32e839c56ac4dd70fa755ab2476301028dc767b45abbb128",
+      "run_id": "qualification-c843c930a594",
+      "status": "passed_development_subset",
+      "summary": "results/qualification/20261024T193903168372Z/summary.json",
+      "total": 12
     }
   }
 }

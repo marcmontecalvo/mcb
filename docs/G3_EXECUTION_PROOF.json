@@ -1,0 +1,540 @@
+{
+  "action_duration_ticks": 5,
+  "attempted_episodes": 10,
+  "audit": [
+    {
+      "body_id": "body-0386b7589721",
+      "causal_chain": [
+        {
+          "drop_uuid": "6d921f34-1e16-40d9-be06-8866386b7cd0",
+          "milestone": "causal_drop_created",
+          "tick": 10762
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ],
+          "tick": 10762
+        },
+        {
+          "drop_uuid": "6d921f34-1e16-40d9-be06-8866386b7cd0",
+          "milestone": "target_collected",
+          "tick": 10775
+        }
+      ],
+      "discarded_stale_actions": [],
+      "duration_ticks": 131,
+      "episode_id": "episode-51e4368b3e00",
+      "policy_ticks_recorded": 131
+    },
+    {
+      "body_id": "body-598c9d3c882c",
+      "causal_chain": [
+        {
+          "drop_uuid": "e3a0295d-dfbf-41b4-af8d-1cc76fc3d48e",
+          "milestone": "causal_drop_created",
+          "tick": 11128
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ],
+          "tick": 11128
+        },
+        {
+          "drop_uuid": "e3a0295d-dfbf-41b4-af8d-1cc76fc3d48e",
+          "milestone": "target_collected",
+          "tick": 11139
+        }
+      ],
+      "discarded_stale_actions": [],
+      "duration_ticks": 132,
+      "episode_id": "episode-f96fabd78c7f",
+      "policy_ticks_recorded": 132
+    },
+    {
+      "body_id": "body-95ed0c7c4cb0",
+      "causal_chain": [
+        {
+          "drop_uuid": "44c7a2e4-0a29-4a1a-bfac-a4997bdb3f1b",
+          "milestone": "causal_drop_created",
+          "tick": 11479
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ],
+          "tick": 11479
+        },
+        {
+          "drop_uuid": "44c7a2e4-0a29-4a1a-bfac-a4997bdb3f1b",
+          "milestone": "target_collected",
+          "tick": 11490
+        }
+      ],
+      "discarded_stale_actions": [],
+      "duration_ticks": 128,
+      "episode_id": "episode-2665dcb01d6e",
+      "policy_ticks_recorded": 128
+    },
+    {
+      "body_id": "body-d459d619272a",
+      "causal_chain": [
+        {
+          "drop_uuid": "2e07fbcd-b460-4588-88a2-7f518ae697ac",
+          "milestone": "causal_drop_created",
+          "tick": 11834
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ],
+          "tick": 11834
+        },
+        {
+          "drop_uuid": "2e07fbcd-b460-4588-88a2-7f518ae697ac",
+          "milestone": "target_collected",
+          "tick": 11849
+        }
+      ],
+      "discarded_stale_actions": [],
+      "duration_ticks": 136,
+      "episode_id": "episode-16a896f0bea9",
+      "policy_ticks_recorded": 136
+    },
+    {
+      "body_id": "body-3e68359fe7fa",
+      "causal_chain": [
+        {
+          "drop_uuid": "a78b1ceb-f582-4293-9b3f-d20a1dc84914",
+          "milestone": "causal_drop_created",
+          "tick": 12192
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ],
+          "tick": 12192
+        },
+        {
+          "drop_uuid": "a78b1ceb-f582-4293-9b3f-d20a1dc84914",
+          "milestone": "target_collected",
+          "tick": 12203
+        }
+      ],
+      "discarded_stale_actions": [],
+      "duration_ticks": 130,
+      "episode_id": "episode-399228a6d7f1",
+      "policy_ticks_recorded": 130
+    },
+    {
+      "body_id": "body-1e177f20cf2d",
+      "causal_chain": [
+        {
+          "drop_uuid": "f48ffb54-3f6a-424b-b7d8-b39e0ebdc141",
+          "milestone": "causal_drop_created",
+          "tick": 12550
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ],
+          "tick": 12550
+        },
+        {
+          "drop_uuid": "f48ffb54-3f6a-424b-b7d8-b39e0ebdc141",
+          "milestone": "target_collected",
+          "tick": 12565
+        }
+      ],
+      "discarded_stale_actions": [
+        {
+          "count": 1,
+          "limit": 3,
+          "reason": "late_or_distant_action",
+          "request_sequence": 402
+        }
+      ],
+      "duration_ticks": 137,
+      "episode_id": "episode-9a905911aa22",
+      "policy_ticks_recorded": 137
+    },
+    {
+      "body_id": "body-00da5261ba13",
+      "causal_chain": [
+        {
+          "drop_uuid": "dd2ae441-1a49-4698-9dc2-250314b4eeb5",
+          "milestone": "causal_drop_created",
+          "tick": 12907
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ],
+          "tick": 12907
+        },
+        {
+          "drop_uuid": "dd2ae441-1a49-4698-9dc2-250314b4eeb5",
+          "milestone": "target_collected",
+          "tick": 12918
+        }
+      ],
+      "discarded_stale_actions": [],
+      "duration_ticks": 129,
+      "episode_id": "episode-19cf0186ee31",
+      "policy_ticks_recorded": 129
+    },
+    {
+      "body_id": "body-5e7514a5a81d",
+      "causal_chain": [
+        {
+          "drop_uuid": "af941bd7-e73e-457e-9597-d971fda7c5f5",
+          "milestone": "causal_drop_created",
+          "tick": 13272
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ],
+          "tick": 13272
+        },
+        {
+          "drop_uuid": "af941bd7-e73e-457e-9597-d971fda7c5f5",
+          "milestone": "target_collected",
+          "tick": 13283
+        }
+      ],
+      "discarded_stale_actions": [
+        {
+          "count": 1,
+          "limit": 3,
+          "reason": "late_or_distant_action",
+          "request_sequence": 546
+        }
+      ],
+      "duration_ticks": 139,
+      "episode_id": "episode-c31d0b5e59c0",
+      "policy_ticks_recorded": 139
+    },
+    {
+      "body_id": "body-46548dcc5b81",
+      "causal_chain": [
+        {
+          "drop_uuid": "2165a3a3-c247-49df-bb5e-44b388778c94",
+          "milestone": "causal_drop_created",
+          "tick": 13630
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ],
+          "tick": 13630
+        },
+        {
+          "drop_uuid": "2165a3a3-c247-49df-bb5e-44b388778c94",
+          "milestone": "target_collected",
+          "tick": 13641
+        }
+      ],
+      "discarded_stale_actions": [],
+      "duration_ticks": 132,
+      "episode_id": "episode-dfcd19694bde",
+      "policy_ticks_recorded": 132
+    },
+    {
+      "body_id": "body-fce09ad12098",
+      "causal_chain": [
+        {
+          "drop_uuid": "5338df38-c992-4e0e-adb2-58741ba42cf1",
+          "milestone": "causal_drop_created",
+          "tick": 13991
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ],
+          "tick": 13991
+        },
+        {
+          "drop_uuid": "5338df38-c992-4e0e-adb2-58741ba42cf1",
+          "milestone": "target_collected",
+          "tick": 14006
+        }
+      ],
+      "discarded_stale_actions": [
+        {
+          "count": 1,
+          "limit": 3,
+          "reason": "late_or_distant_action",
+          "request_sequence": 690
+        }
+      ],
+      "duration_ticks": 141,
+      "episode_id": "episode-9b43fd066d07",
+      "policy_ticks_recorded": 141
+    }
+  ],
+  "controller": "deterministic-c1-v1",
+  "controller_sha256": "7dd1e6834659db527c2aeb295bce9dcdd161a3b3dd682fe5c77d5a1048f203f9",
+  "course_spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
+  "course_tick_limit": 600,
+  "episodes": [
+    {
+      "attempt": 1,
+      "body_id": "body-0386b7589721",
+      "deadline_tick": 11244,
+      "drop_uuid": "6d921f34-1e16-40d9-be06-8866386b7cd0",
+      "end_tick": 10775,
+      "episode_id": "episode-51e4368b3e00",
+      "picked_up": true,
+      "reason": "causal_target_break_drop_pickup",
+      "start_tick": 10644,
+      "status": "success",
+      "target_broken": true
+    },
+    {
+      "attempt": 2,
+      "body_id": "body-598c9d3c882c",
+      "deadline_tick": 11607,
+      "drop_uuid": "e3a0295d-dfbf-41b4-af8d-1cc76fc3d48e",
+      "end_tick": 11139,
+      "episode_id": "episode-f96fabd78c7f",
+      "picked_up": true,
+      "reason": "causal_target_break_drop_pickup",
+      "start_tick": 11007,
+      "status": "success",
+      "target_broken": true
+    },
+    {
+      "attempt": 3,
+      "body_id": "body-95ed0c7c4cb0",
+      "deadline_tick": 11962,
+      "drop_uuid": "44c7a2e4-0a29-4a1a-bfac-a4997bdb3f1b",
+      "end_tick": 11490,
+      "episode_id": "episode-2665dcb01d6e",
+      "picked_up": true,
+      "reason": "causal_target_break_drop_pickup",
+      "start_tick": 11362,
+      "status": "success",
+      "target_broken": true
+    },
+    {
+      "attempt": 4,
+      "body_id": "body-d459d619272a",
+      "deadline_tick": 12313,
+      "drop_uuid": "2e07fbcd-b460-4588-88a2-7f518ae697ac",
+      "end_tick": 11849,
+      "episode_id": "episode-16a896f0bea9",
+      "picked_up": true,
+      "reason": "causal_target_break_drop_pickup",
+      "start_tick": 11713,
+      "status": "success",
+      "target_broken": true
+    },
+    {
+      "attempt": 5,
+      "body_id": "body-3e68359fe7fa",
+      "deadline_tick": 12673,
+      "drop_uuid": "a78b1ceb-f582-4293-9b3f-d20a1dc84914",
+      "end_tick": 12203,
+      "episode_id": "episode-399228a6d7f1",
+      "picked_up": true,
+      "reason": "causal_target_break_drop_pickup",
+      "start_tick": 12073,
+      "status": "success",
+      "target_broken": true
+    },
+    {
+      "attempt": 6,
+      "body_id": "body-1e177f20cf2d",
+      "deadline_tick": 13028,
+      "drop_uuid": "f48ffb54-3f6a-424b-b7d8-b39e0ebdc141",
+      "end_tick": 12565,
+      "episode_id": "episode-9a905911aa22",
+      "picked_up": true,
+      "reason": "causal_target_break_drop_pickup",
+      "start_tick": 12428,
+      "status": "success",
+      "target_broken": true
+    },
+    {
+      "attempt": 7,
+      "body_id": "body-00da5261ba13",
+      "deadline_tick": 13389,
+      "drop_uuid": "dd2ae441-1a49-4698-9dc2-250314b4eeb5",
+      "end_tick": 12918,
+      "episode_id": "episode-19cf0186ee31",
+      "picked_up": true,
+      "reason": "causal_target_break_drop_pickup",
+      "start_tick": 12789,
+      "status": "success",
+      "target_broken": true
+    },
+    {
+      "attempt": 8,
+      "body_id": "body-5e7514a5a81d",
+      "deadline_tick": 13744,
+      "drop_uuid": "af941bd7-e73e-457e-9597-d971fda7c5f5",
+      "end_tick": 13283,
+      "episode_id": "episode-c31d0b5e59c0",
+      "picked_up": true,
+      "reason": "causal_target_break_drop_pickup",
+      "start_tick": 13144,
+      "status": "success",
+      "target_broken": true
+    },
+    {
+      "attempt": 9,
+      "body_id": "body-46548dcc5b81",
+      "deadline_tick": 14109,
+      "drop_uuid": "2165a3a3-c247-49df-bb5e-44b388778c94",
+      "end_tick": 13641,
+      "episode_id": "episode-dfcd19694bde",
+      "picked_up": true,
+      "reason": "causal_target_break_drop_pickup",
+      "start_tick": 13509,
+      "status": "success",
+      "target_broken": true
+    },
+    {
+      "attempt": 10,
+      "body_id": "body-fce09ad12098",
+      "deadline_tick": 14465,
+      "drop_uuid": "5338df38-c992-4e0e-adb2-58741ba42cf1",
+      "end_tick": 14006,
+      "episode_id": "episode-9b43fd066d07",
+      "picked_up": true,
+      "reason": "causal_target_break_drop_pickup",
+      "start_tick": 13865,
+      "status": "success",
+      "target_broken": true
+    }
+  ],
+  "gate_threshold": "at least 9 of 10; achieved 10 of 10",
+  "historical_failures": "Earlier scored configurations remain in SQLite/JSONL and the all-attempt report; this result qualifies only the recorded v4 configuration",
+  "intended_apply_offset_ticks": 3,
+  "launch_id": "57f1986be1e226f2ff44d6e1881475be",
+  "maximum_discarded_stale_actions": 3,
+  "metrics": {
+    "applied_observation_age_max": 3,
+    "applied_observation_age_min": 3,
+    "average_mspt_sample_median": 0.455922,
+    "average_mspt_sample_p95": 0.573257,
+    "discarded_stale_actions": 3,
+    "duration_ticks_max": 141,
+    "duration_ticks_median": 132.0,
+    "duration_ticks_min": 128,
+    "policy_ticks_complete": true,
+    "rejected_controls": 3
+  },
+  "mod_provenance": {
+    "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "399d4636e83e55c81e443de4bf4e65e1a2b8290d27d05bbd26c6b771345e0841",
+    "schema_version": 1,
+    "source_hash": "f1b1c9369325d26c622650074372ce67a5433ba713a05f660e7b845c69bb4c30"
+  },
+  "profile_hash": "86b75129117caac0c325f992276a32c801abaad26d5ee2205ee4c1ff3f71f261",
+  "profile_id": "initial-c1-survival-v1",
+  "recording": "G:\\projects\\mcb\\results\\execution\\20261024T195900837101Z\\events.jsonl",
+  "recording_sha256": "f5bbd56985bd56e211e1e6632c9b8b035bd1567867b2c54d8263c1d4f79a3904",
+  "recovered_interrupted": 0,
+  "request_budget": 12000,
+  "requested_episodes": 10,
+  "requests": 732,
+  "reviewed_at": "2026-10-24",
+  "run_id": "qualification-c28263e2069a",
+  "schema_version": 1,
+  "scope": "C1 seed-0 repeatability, perception-goal, normal Survival actions; not held-out navigation or learned/model skill",
+  "scored": true,
+  "sensor_profile": "local-visibility-v1",
+  "source_commit": "f15524e961527998c16f424031560291c3b4a9ff",
+  "sqlite_rows": [
+    [
+      "episode-51e4368b3e00",
+      "body-0386b7589721",
+      "success"
+    ],
+    [
+      "episode-f96fabd78c7f",
+      "body-598c9d3c882c",
+      "success"
+    ],
+    [
+      "episode-2665dcb01d6e",
+      "body-95ed0c7c4cb0",
+      "success"
+    ],
+    [
+      "episode-16a896f0bea9",
+      "body-d459d619272a",
+      "success"
+    ],
+    [
+      "episode-399228a6d7f1",
+      "body-3e68359fe7fa",
+      "success"
+    ],
+    [
+      "episode-9a905911aa22",
+      "body-1e177f20cf2d",
+      "success"
+    ],
+    [
+      "episode-19cf0186ee31",
+      "body-00da5261ba13",
+      "success"
+    ],
+    [
+      "episode-c31d0b5e59c0",
+      "body-5e7514a5a81d",
+      "success"
+    ],
+    [
+      "episode-dfcd19694bde",
+      "body-46548dcc5b81",
+      "success"
+    ],
+    [
+      "episode-9b43fd066d07",
+      "body-fce09ad12098",
+      "success"
+    ]
+  ],
+  "status": "passed",
+  "successes": 10,
+  "summary": "results/execution/20261024T195900837101Z/summary.json",
+  "summary_sha256": "d3d13b209ac1247e6ba7f3207963e42bb31644eccb7163ab8a3069040b419a07",
+  "timing_profile": "c1-three-tick-bounded-resense-v4",
+  "track": "perception_goal",
+  "wall_watchdog_seconds": 90
+}

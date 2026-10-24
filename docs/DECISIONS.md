@@ -84,8 +84,9 @@ scored execution. Native pickup observation runs after Inventory.add but before
 Player.take because native playerTouch restores the discarded stack count before
 returning. Early implementation failures remain recorded.
 
-The deterministic perception-goal C1 controller is implemented; G3 requires a
-reviewed ten-attempt run with at least nine successes. Provider Choice/chat
+G3 passed: the final deterministic perception-goal C1 profile completed ten of ten
+attempts. Its causal chains, complete policy ticks and source/configuration hashes
+were audited; earlier failed configurations remain in the report. Provider Choice/chat
 adapters have bounded requests/deadlines, zero retries and sanitized exchanges;
 real readiness is unproven without configured endpoints. Upstream jevtests files
 are reference-only (no root license found); no implementation was copied.
@@ -96,3 +97,11 @@ Development planning counts physical layouts rather than seeds: C2 has at least
 courses remain unqualified. Offline exports contain actual filtered observations
 with pending independent action labels. They are not synchronized demonstrations;
 training and fresh holdout evaluation remain pending. No paid traffic has run.
+
+Synchronous Python audit serialization interrupted motor renewal and exposed
+stale-action failures. Those scored batches are preserved. The event writer now
+uses a bounded queue and its own SQLite connection; critical write/flush failure
+invalidates the attempt before success finalization. A start event is not the
+publication of the running snapshot, so the runner waits for both. Stale controls
+are discarded, followed by release and a fresh observation/decision, at most three
+times per episode. No action age, duration, physics or course budget was relaxed.

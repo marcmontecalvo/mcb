@@ -121,3 +121,6 @@ def test_report_counts_every_scored_attempt_and_separates_fault_injection(
     assert summary["success_rate"] == 1 / 3
     assert summary["unscored_development_attempts"] == 3
     assert summary["provider_requests"] == 2
+    assert len(summary["episodes_by_configuration"]) == 1
+    assert summary["episodes_by_configuration"][0]["attempted"] == 3
+    assert summary["episodes_by_configuration"][0]["succeeded"] == 1

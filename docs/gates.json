@@ -62,10 +62,24 @@
     "status": "passed"
   },
   "G3": {
-    "status": "not_run"
+    "attempts": 10,
+    "controller_sha256": "7dd1e6834659db527c2aeb295bce9dcdd161a3b3dd682fe5c77d5a1048f203f9",
+    "course_spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
+    "date": "2026-10-24",
+    "evidence": "docs/G3_EXECUTION_PROOF.json",
+    "limitations": "No later-course, model, learned-policy or holdout qualification",
+    "run_id": "qualification-c28263e2069a",
+    "scope": "Frozen C1 seed-0 deterministic perception-goal execution",
+    "status": "passed",
+    "successes": 10,
+    "timing_profile": "c1-three-tick-bounded-resense-v4"
   },
   "G4": {
-    "status": "not_run"
+    "adapter_status": "Implemented and local HTTP contract/error/deadline tests passed",
+    "preparation": "docs/G4_PREPARATION.json",
+    "real_probes": "skipped_no_configured_backends",
+    "remaining": "Configure and authenticate real local/Jev/chat endpoints, validate their real responses and live timing",
+    "status": "in_progress"
   },
   "G5": {
     "status": "not_run"

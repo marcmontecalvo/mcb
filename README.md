@@ -9,6 +9,8 @@ The initial C1 body, reset/evaluator, filtered sensor, episode recorder and
 deterministic controller are implemented. The gate ledger records reviewed live
 qualification separately from code availability. Provider adapters are implemented;
 no real model endpoint, learned policy or external baseline has been live-qualified.
+**G0–G3 passed for initial C1; the final configuration completed 10/10 scored attempts.**
+Earlier failed configurations remain in the report, grouped by timing/source profile.
 See [setup status](docs/SETUP_STATUS.md) and
 [implementation decisions](docs/DECISIONS.md).
 

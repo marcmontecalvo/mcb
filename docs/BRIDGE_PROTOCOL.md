@@ -233,9 +233,23 @@ The contestant discovers a log by its visible ordinary block identity.
 `policy_sample` records self state each running server tick, native MSPT, and full
 visible maps when refreshed (`map_update`). Python records model-visible snapshots,
 periodic map-memory full snapshots/deltas, actions and apply times, errors and
-resources in JSONL and SQLite schema v1. OS locking prevents concurrent runner
+resources in JSONL and SQLite schema v1. A bounded 64-record queue moves JSON
+serialization and event database writes off the motor loop. The writer owns its
+SQLite connection; identifiers, sequence and monotonic capture time are assigned
+before enqueue. Critical queue overflow, disk failure or flush/shutdown failure
+invalidates the attempt/run. Recording failure cannot promote a native success.
+Flush completes before an episode is finalized. OS locking prevents concurrent runner
 recovery. Pending attempts after a crash become interrupted; no half-modified
 episode resumes. Replay is event/map inspection, not bit-exact simulation.
+
+The deterministic C1 execution profile is `c1-three-tick-bounded-resense-v4`:
+controls target observation_tick+3, last at most five ticks and keep the existing
+five-tick maximum observation age. A stale admission/execution rejection releases
+controls and discards that command permanently. The next loop senses and decides
+again with a fresh action ID; no timestamp is rewritten. At most three such
+recoveries are permitted per episode, with every rejection recorded. Other
+rejections and controller deadlines fail the attempt. The original 600-tick and
+90-second wall limits continue throughout recovery.
 
 Development-only `course_test` requires reset_ready before begin. Named kinds
 planted_item and target_missing exercise rejection. sensor_check temporarily builds

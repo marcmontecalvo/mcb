@@ -1,0 +1,247 @@
+{
+  "backend_source_sha256": "7abee443a180c1158b260e3be27f082bb68024f64c082a0f9ff5a3979e8d2a8c",
+  "baseline_artifact": "config/baselines.lock.json",
+  "baseline_status": "Pinned artifact and supported APIs reviewed; no client bridge or trial",
+  "date": "2026-10-24",
+  "development_plan": {
+    "courses": [
+      {
+        "course_id": "C2",
+        "paired_development": [
+          {
+            "layout_hash": "ab7b1ade52f1c1b83d82b2c34708dccaba14bd4e924d5fa58b459a3e1d4f4f22",
+            "seed": 5,
+            "spec_hash": "bd8a4b9d799904f4dd71113e4f4e15a65e995ff8931328bb477e2ed8a6aed03c"
+          },
+          {
+            "layout_hash": "657434f33cd2445ec3387d7fa90e3c83e127b578913badef656070059fe4d964",
+            "seed": 6,
+            "spec_hash": "dff9b59794178f563eae579a30d30ea91a28e2fad3f6a5ce45619278f6ab15f2"
+          },
+          {
+            "layout_hash": "c2c4acbc437ea83abfce4c17c9ca8866c3f1dd62b05a1973980ef8bbd191c291",
+            "seed": 7,
+            "spec_hash": "dcdc209d2fd4bd82325e6053529f2d3037f519962791775c7717876681b43d31"
+          },
+          {
+            "layout_hash": "32d20e832b70e9507e683d427dfaff3f81759de1a7dbac6c211da9dd2d3f3bd1",
+            "seed": 8,
+            "spec_hash": "69ee270c0ac3308bb296d536bd5cb8b2a2a406f5460ed7be6919a7b0566ea09b"
+          },
+          {
+            "layout_hash": "6914dbdc201e3ae9733f888c52ca23ad6af9554e548a7248e13ba695aa120957",
+            "seed": 9,
+            "spec_hash": "aec86ce437eed4af4aae5b13ff064bfb6bf73a14e61312a962aa5913b53c566a"
+          },
+          {
+            "layout_hash": "0b54fa96cdea0183ef6973defd6379fc60add6e820b88d0a2805d48abf02dcbf",
+            "seed": 10,
+            "spec_hash": "fe4e611d025e414db9df26b095db68a5c62ba1b3eb812d9a0076213e43cc3602"
+          },
+          {
+            "layout_hash": "8ee5dd67c210978fac56c9508f6ccf9a085cd7d4e6dac9c0b9cbd130102599b1",
+            "seed": 11,
+            "spec_hash": "8592ae9f5464d2b037b4136876a281357a684e654eb47aa0299154759c4821c0"
+          },
+          {
+            "layout_hash": "3ad3a836e125c38c41f18c901904f1d30872115ad52d913b9027e2073e7433e0",
+            "seed": 12,
+            "spec_hash": "1c384f9c6df7ce011d362242526b44a17a8e27a5e57e53a008d4a7fb3f838d9a"
+          },
+          {
+            "layout_hash": "9efe28be01b1188bf620b18e46fca89bf6bea2f7ee220ffc2727f329df01a97d",
+            "seed": 13,
+            "spec_hash": "a539854660890fce27312c3e0068f4c2ac3a4911f8ae531a9528fed75e45ee84"
+          },
+          {
+            "layout_hash": "024b459288fb7bd26d8d25cde8dd6a38b23c87546fafddbdc35d27a9ddb521ea",
+            "seed": 14,
+            "spec_hash": "66ee1f1fe44ef03d3cdf08b22537d31127a66a849beb34dcbd00e279e8abfd30"
+          },
+          {
+            "layout_hash": "916ce60bac18eba31dd6faa62497ac0cf491b75fc0bde88b8f56e9d723fca453",
+            "seed": 15,
+            "spec_hash": "ed9453ed4d396171cb185e1941a9fe5f2247ea6df45ec83957f69ef958bc67be"
+          },
+          {
+            "layout_hash": "43f56d3065338280562174d5f44f33fa5fcec018edc1c574d145e118f82df53f",
+            "seed": 16,
+            "spec_hash": "d11190428420372999dbf71a73fb1203ccc20348e92c5232581f2cf4908c9672"
+          },
+          {
+            "layout_hash": "987384764d3df3836122b0639a8db5bcc9ee8283817ff77832a27cd548941612",
+            "seed": 17,
+            "spec_hash": "ccf1e077190ffd93cb9a6fe41efee4ce130d2ed8a3e5a272b6ac34867bcafe1c"
+          },
+          {
+            "layout_hash": "a7fbbce5aa34df0da82867b52178664dc9286d5cdefedd49686cecf6e70aab11",
+            "seed": 18,
+            "spec_hash": "c8d2250e4bd32a37a7dc08f9e47b4ac061b4074e97e4387de9bc632da003e009"
+          },
+          {
+            "layout_hash": "66826660350d2d60d304e9d385856e43e8c9591837970919609d5049b1d0f6be",
+            "seed": 19,
+            "spec_hash": "49233eb2a3f277ab596e7c8f4b5b1b342162748ade238246e3e4840b55ccca43"
+          },
+          {
+            "layout_hash": "7c6dc7ffa6304eef05451f6de393b881caa8d94c425bf8239f9a9f97f8093d2a",
+            "seed": 20,
+            "spec_hash": "2ce5e974bb7ed1834a0d8afb47102949d7d3068653250e648a6be0adc877c592"
+          },
+          {
+            "layout_hash": "e05c601097cbcd14f1ed7d7748371407c16fd42908bc59f92f7a961fafd890ff",
+            "seed": 21,
+            "spec_hash": "ae8e98b003c9b99f4ba90372e2948852749eddd0a3fd590047b11fec25370307"
+          },
+          {
+            "layout_hash": "368da82b3939b775bd852e58ca48a3eb32504d3e9f8e70451507369b01e20950",
+            "seed": 22,
+            "spec_hash": "52e6956bf39f41c95f25ded342d6d3b0a4368cb3b04bb579ed3ee5b7a7d6d5d0"
+          },
+          {
+            "layout_hash": "b2813609d75ea76b6bb0966e2933cf27da088697ba762e9ccda0aec23a66d50c",
+            "seed": 23,
+            "spec_hash": "8637487c5e9deb9ee34c181ae54edff68e1da325f6c3ef921881ebb2d2bb13bb"
+          },
+          {
+            "layout_hash": "4532198cdb9859976d9693a72c0efb9c0001bd7fb66df46fd8b922efdba8c383",
+            "seed": 24,
+            "spec_hash": "1c6c1e2b7b4b6bde2477bdfbf6d5d85f2f489b2e209dfcb8962809ef514640dd"
+          }
+        ],
+        "qualified": false,
+        "smoke": [
+          {
+            "layout_hash": "6e92cb994d8fbc1cf97b24da0c01c678da043f1af95c2530753f302670d8dcfc",
+            "seed": 0,
+            "spec_hash": "3c06c32d929ec43f11f34c9909ce2bc4301e255ec29bc4d49fb9a0710c7c221d"
+          },
+          {
+            "layout_hash": "7fe4e1f112639a619ff87113e373718d52d447f5017b946aa33313aec9289732",
+            "seed": 1,
+            "spec_hash": "dedb0a84387c7e373f99efeedf3507679f6728648550e4738af01f25b7b1ba16"
+          },
+          {
+            "layout_hash": "eee42b29415e11a7f25192626016f72d6d73a3189b17af36122b8efe9ade4792",
+            "seed": 2,
+            "spec_hash": "1e67915ee32b29cf2d8f41c15a2c775b10bd8229147538e182aeed07f6d92320"
+          },
+          {
+            "layout_hash": "157ded9b137aa1584eb01f9f6c078d7278e0e7bbc114c0c4e685043d25c61659",
+            "seed": 3,
+            "spec_hash": "2abe9f69f5d97d9930105c8eb834de350aa1d822ccb4c00fe7da965b4dd0fea1"
+          },
+          {
+            "layout_hash": "9d4c0488c2288cf3a9fcc0c8bf303e9068b2e216f7c000f68f468b2cdae6d452",
+            "seed": 4,
+            "spec_hash": "109659c7763ef2e5ef437bd8b7c4cdd8d630eb91e4edceabffea35f59674b49c"
+          }
+        ],
+        "status": "ready_for_future_qualification",
+        "tick_limit": 900,
+        "unique_layouts_found": 25
+      },
+      {
+        "course_id": "C3",
+        "paired_development": [],
+        "qualified": false,
+        "smoke": [
+          {
+            "layout_hash": "9b94ecb517bba54f86f72813b1c1efbdd8a0eebd035729fc7889e1b7212a323b",
+            "seed": 0,
+            "spec_hash": "d7eadee3a283bb2cd36385c9e4dd6a79fc3165b61b362861ada4b3d5aa7a334e"
+          },
+          {
+            "layout_hash": "c11b8ff1408f05790de192edf852eac78a1b5739dd37d3dac0e09bfb8c56d3b4",
+            "seed": 1,
+            "spec_hash": "d5089bc0f788cc8400eb13e6342b5bb9594ab44247e1dac51e17fadac331f15f"
+          },
+          {
+            "layout_hash": "82f74c7f649181a82f9c41cd4e9de18553a673936dfa0a5ca13f2a7c67a339c7",
+            "seed": 5,
+            "spec_hash": "6f46df33610392c3ac0f243e2c7432e21a1ce8f960eed4f8ff368b8674e4c405"
+          }
+        ],
+        "status": "insufficient_layout_diversity",
+        "tick_limit": 1200,
+        "unique_layouts_found": 3
+      },
+      {
+        "course_id": "C4",
+        "paired_development": [],
+        "qualified": false,
+        "smoke": [
+          {
+            "layout_hash": "7d330f7db3c53f25f6517a6b751dfbd7ba370faf8fc4027d9c2d61560ddbc0ac",
+            "seed": 0,
+            "spec_hash": "e3f3d8d8c4264c21cfa9de5acad977a3b569705e96f870bafa0f8506b7a13302"
+          }
+        ],
+        "status": "insufficient_layout_diversity",
+        "tick_limit": 1200,
+        "unique_layouts_found": 1
+      },
+      {
+        "course_id": "C5",
+        "status": "generator_missing"
+      }
+    ],
+    "generator_hash": "51599b8483d4d3533fbbb4c4881b1e33b49d5e1c487c06bb4852a3871f01e1d1",
+    "holdouts": {
+      "reason": "Need sufficient layout diversity and a qualified runner before freezing fresh unseen layouts",
+      "status": "not_frozen"
+    },
+    "provider_cost_ceiling": "must_be_explicitly_configured_before_remote_runs",
+    "provider_request_limit_per_episode": 60,
+    "runs_started": 0,
+    "schema_version": 1,
+    "training": {
+      "collection_limit": 50,
+      "split": "layout_disjoint_not_adjacent_frames",
+      "status": "blocked_on_synchronized_demonstrations",
+      "training_iterations": 2
+    }
+  },
+  "heldouts": "not_frozen",
+  "learned_checkpoint": null,
+  "loopback_inventory": {
+    "ports": [
+      {
+        "open": false,
+        "port": 11434
+      },
+      {
+        "open": false,
+        "port": 1234
+      },
+      {
+        "open": false,
+        "port": 8000
+      },
+      {
+        "open": false,
+        "port": 8080
+      }
+    ],
+    "provider_requests": 0,
+    "scope": "loopback_standard_ports_only"
+  },
+  "provider_requests": 0,
+  "python_tests_passed": 114,
+  "real_probe_result": {
+    "backends": [],
+    "run_id": "probe-a006c3043931",
+    "schema_version": 1,
+    "status": "skipped_no_configured_backends"
+  },
+  "schema_version": 1,
+  "screening_export": {
+    "artifact": "results/experiments/c1_screening_development.json",
+    "artifact_sha256": "7782bcf0512e5f3d77f8e243fa86c89884a6bd2a71c7fb698a264a3379506fa8",
+    "states": 35,
+    "status": "unlabeled_development_export",
+    "training_ready": false
+  },
+  "status": "in_progress_not_live_qualified",
+  "upstream_references": "config/integrations.lock.json"
+}

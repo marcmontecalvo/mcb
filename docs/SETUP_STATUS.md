@@ -1,9 +1,12 @@
 # Setup status — October 24, 2026
 
-G0 passed. **G1 passed for the frozen initial C1 profile.** G2 is in progress:
-the reset foundation passed 20 consecutive matching arena/body state checks.
-Scoring, episode restrictions and the complete episode recorder remain pending.
-G3–G8 have not run. Scored episodes: **0**. Provider requests: **0**.
+**G0–G3 passed for the frozen initial C1 scope.** The final deterministic
+perception-goal configuration completed **10/10 scored attempts**, each with a
+verified causal break/drop/pickup chain and complete per-tick policy recording.
+Completion took 128–141 ticks (median 132). Three stale controls were discarded
+and regenerated from fresh observations within the declared recovery limit.
+Earlier failed/invalid scored configurations remain in the all-attempt report.
+G4 is in progress; G5–G8 are unqualified. Provider requests: **0**.
 The original `Minecraft_AI_Technical_Handoff.md` remains unchanged.
 
 ## Runtime and qualification
@@ -16,7 +19,7 @@ The original `Minecraft_AI_Technical_Handoff.md` remains unchanged.
 | Minecraft | Java 26.3, protocol 777, authenticated mode, Survival |
 | Mods | Fabric Loader 0.19.5, API 0.164.0+26.3, pinned Carpet v26.3 |
 | Network | Loopback game 127.0.0.1:25575; authenticated bridge 8765 and supervisor 8766 |
-| Python checks | 68 tests pass; Ruff lint and formatting pass |
+| Python checks | 114 tests pass; Ruff lint and formatting pass |
 | Java checks | Mod build and pure geometry verifier pass |
 | G1 live suites | 39 body checks, 24 protocol checks, 12 reference-fixture checks |
 | G2 reset foundation | 20 consecutive identical state digests; teardown confirmed |
@@ -109,15 +112,67 @@ Safety and scope:
 - The foundation supports ordinary generated C1 and a fluid/block-entity-free
   arena. Unsupported state invalidates the attempt; arbitrary scheduled-effect
   or block-entity restoration is not claimed.
-- Policy controls stay closed after `reset_ready`; episode begin/evaluation is
-  not implemented. This path cannot report a scored completion.
+- Policy controls stay closed after `reset_ready` until explicit `course_begin`
+  revalidates terrain/body state; reset-check itself cannot report scored success.
 - Requests/events remain launch/run/episode/body scoped. Runs declare a
   1,500-request reset-check budget; motor age/duration limits are unchanged.
 - JSONL and summaries live in `results/qualification/`. SQLite schema v1 in
   `results/reset_checks.sqlite3` records pending/finalized attempts. Pending work
   is never treated as passed or resumed inside a modified world.
 
-G2 remains open for restrictions, causal break/drop/pickup evaluation, complete
-episode recording and adversarial integration checks before scored C1 runs.
+G2 passed for initial C1: [29 adversarial and sensor checks](G2_EPISODE_PROOF.json)
+verify pre-begin admission, forbidden controls, illegal floor breaking, planted
+items, altered target, cancellation, the 600-tick deadline, controller watchdog,
+out-of-bounds termination and native visibility fixtures. Those intentionally
+failed/invalid attempts remain unscored and visible in the episode ledger.
+
+The server scores native target break -> newly created item UUID -> normal
+inventory transfer. `Inventory.add` is observed before `Player.take`, because
+Minecraft restores a discarded stack count before `playerTouch` returns. A live
+smoke exposed the original incorrect RETURN hook; its failed attempt was retained.
+A second integration race between HTTP snapshots and terminal events was fixed
+and covered by a regression test, with its invalid attempt also retained.
+
+The recorder uses SQLite schema v1 plus JSONL, complete versioned event payloads,
+per-tick body/policy events and periodic observed-map snapshots/deltas. A bounded
+64-record writer queue keeps serialization/disk I/O off the motor loop and
+invalidates missing critical recordings before finalization. Pending
+attempts after a crash become interrupted. One OS arena lock covers execution,
+reset, reference and mechanics runners. Body profile, native mod source, sensor and course-specification drift block scored runs.
+
+## G3: deterministic C1
+
+[The execution proof](G3_EXECUTION_PROOF.json) binds the final ten-attempt run to
+its controller hash, source commit, native mod, course specification, sensor and
+`c1-three-tick-bounded-resense-v4` timing profile. Every applied action used a
+three-tick-old observation, within the existing five-tick bound. All ten item
+UUID chains and every running policy tick were audited against JSONL and SQLite.
+This is repeatability on one development C1 layout, not unseen-course navigation,
+learned control or model skill.
+
+The implementation history includes a 3-success/1-invalid aborted scored batch,
+a 4/10 synchronous-recorder batch and an 8/10 asynchronous batch that terminated
+on isolated stale-control rejections. Each remains recorded under its exact
+configuration/source hash. The final profile discards stale commands, releases
+inputs and makes a fresh observation/decision, at most three times per episode.
+No timestamp is rewritten and no physics, action-age/duration or course budget
+was relaxed. Recording failures invalidate attempts before finalization.
+
+## Later work prepared
+
+Choice/SystemOne and chat backend adapters have deadline, single-outstanding-call,
+zero-retry, output-validation, redaction and budget tests. No configured endpoint
+or credential was found; standard loopback ports 11434/1234/8000/8080 were closed.
+`models probe` explicitly skipped. No provider readiness or model skill is claimed.
+Upstream source references/hashes are pinned without vendoring unlicensed code.
+
+Baritone v1.20.0 Fabric API artifact SHA-256 was verified against its release
+metadata, and supported goal/mine/cancel signatures reviewed. The dedicated client
+bridge, login and live scored baseline remain pending. C2 development planning
+found 25 distinct variants, C3 only three and C4 one; C5 is absent. Later courses
+need generator expansion and qualification. Thirty-five actual permitted C1
+observations were exported with original/reversed/seeded candidate orders and
+pending independent labels. No synchronized training demonstrations, trained
+checkpoint or fresh holdout result is claimed.
 See [decisions](DECISIONS.md), [bridge protocol](BRIDGE_PROTOCOL.md) and
 [the gate ledger](gates.json) for extension boundaries.

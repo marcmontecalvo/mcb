@@ -52,10 +52,38 @@ def report() -> dict:
                         "controller": configuration.get(
                             "controller", configuration.get("suite", "unknown")
                         ),
+                        "timing_profile": configuration.get(
+                            "timing_profile", "not_declared"
+                        ),
+                        "controller_sha256": configuration.get(
+                            "controller_sha256", "not_declared"
+                        ),
                     }
                 )
     scored = [e for e in episodes if e["scored"]]
     successes = sum(e["status"] == "success" for e in scored)
+    groups = {}
+    for episode in scored:
+        key = (
+            episode["controller"],
+            episode["timing_profile"],
+            episode["controller_sha256"],
+        )
+        group = groups.setdefault(
+            key,
+            {
+                "controller": key[0],
+                "timing_profile": key[1],
+                "controller_sha256": key[2],
+                "attempted": 0,
+                "succeeded": 0,
+                "outcomes": {},
+            },
+        )
+        group["attempted"] += 1
+        group["succeeded"] += episode["status"] == "success"
+        outcomes = group["outcomes"]
+        outcomes[episode["status"]] = outcomes.get(episode["status"], 0) + 1
     probes = {}
     for path in (ROOT / "results/provider_probes").glob("*.json"):
         probe = read_json(path)
@@ -70,6 +98,7 @@ def report() -> dict:
         "episodes_succeeded": successes,
         "success_rate": successes / len(scored) if scored else None,
         "episode_ledger": episodes,
+        "episodes_by_configuration": list(groups.values()),
         "unscored_development_attempts": len(episodes) - len(scored),
         "provider_requests": sum(
             b.get("provenance", {}).get("requests", 0)
@@ -116,6 +145,8 @@ def report() -> dict:
             "reason",
             "scored",
             "controller",
+            "timing_profile",
+            "controller_sha256",
         ]
         writer = csv.DictWriter(output, fieldnames=fields)
         writer.writeheader()
@@ -144,6 +175,15 @@ def report() -> dict:
         writer.writerow(
             [result["minecraft"], result["G0"], len(scored), result["success_rate"]]
         )
+    configuration_table = (
+        "| Timing profile | Controller hash | Attempts | Successes | Outcomes |\n"
+        "| --- | --- | ---: | ---: | --- |\n"
+        + "".join(
+            f"| {g['timing_profile']} | {g['controller_sha256'][:12]} | "
+            f"{g['attempted']} | {g['succeeded']} | {g['outcomes']} |\n"
+            for g in groups.values()
+        )
+    )
     (destination / "initial.md").write_text(
         "# Initial laboratory report\n\n"
         f"Generated: {result['generated_at_utc']}\n\n"
@@ -153,6 +193,8 @@ def report() -> dict:
         f"Scored episodes: {len(scored)}. Successes: {successes}. "
         f"Success rate: {result['success_rate']}. "
         f"Provider requests: {result['provider_requests']}.\n\n"
+        "These totals include historical failed configurations. "
+        "Grouped outcomes:\n\n" + configuration_table + "\n"
         "Unscored development/adversarial attempts: "
         f"{result['unscored_development_attempts']}. "
         "All outcomes, including intentional adversarial failures and invalid "
