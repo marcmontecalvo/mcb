@@ -47,6 +47,7 @@ public abstract class InteractionObserverMixin {
             return Map.of("target_present", true, "uuid", entity.getUUID().toString(),
                     "position", List.of(entity.getX(), entity.getY(), entity.getZ()),
                     "health", entity instanceof LivingEntity living ? living.getHealth() : -1,
+                    "attack_strength", player.getAttackStrengthScale(0),
                     "within_entity_range", player.isWithinEntityInteractionRange(entity, 0));
         });
     }

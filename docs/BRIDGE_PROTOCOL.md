@@ -105,6 +105,31 @@ faces/inventory changes, and attack results; these are development instrumentati
 not the future causal scoring evaluator. The real player's reach attributes are
 captured separately from geometric interaction evidence.
 
+Reference analysis reports contiguous 20-tick walk/strafe/sprint-input windows
+with steady yaw and unmixed buttons, plus horizontal path distance following
+movement release. These are measurements for review, not automatic fidelity
+passes; collisions, other forces and unknown client timing still matter. Sprint
+input does not establish authoritative sprint state. Dig aborts preserve their
+start/abort ticks; subsequent mining duration starts at the next dig start.
+Attack summaries include intervals between recorded, matched attacks, but damage
+and timing alone cannot distinguish cooldown from target invulnerability. A
+missing attack target is excluded from matched results without invalidating the
+rest of the capture.
+
+New captures also include authoritative `sprinting`, velocity, pose and per-tick
+`attack_strength`. Attack packet/result pairs include `attack_strength` before
+and after execution. Older recordings omit those fields; the analyzer keeps
+input-only sprint windows separate from windows confirmed by authoritative state.
+Recorded strength samples retain their ticks for reviewing reset and recovery.
+
+`prepare_combat: true` alongside `prepare_interactions: true` builds a stone
+backstop behind the reference cow. CLI `body reference --combat` sets both flags.
+For the default origin the wall is x=1000..1004,y=80..81,z=1003; approach the cow
+from +Z, preferably x=1002.5,z=1006.5, facing north. It is a persistent development
+fixture, unlike the tagged cow, which is cleaned up when capture stops. Setup
+requires wall cells to be air or stone and refuses an overlapping human. It
+does not pin the cow or disable normal knockback/physics.
+
 ## Supplementary automated protocol proof
 
 `mclab body protocol-check` runs a separate, bounded development suite against

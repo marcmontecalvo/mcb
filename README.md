@@ -124,8 +124,18 @@ in `results/qualification/`. Human reference captures go in `results/references/
 Do not run these commands concurrently.
 
 The supplementary protocol check has 24 live admission/cancellation checks,
-reported separately from the 39 mechanics checks. G1 remains open while the
-human interaction reference is deferred; later gates have not started.
+reported separately from the 39 mechanics checks. The October 24 human reference
+confirmed basic mining, pickup, placement and single-attack behavior; see
+[the comparison evidence](docs/G1_HUMAN_INTERACTION_PROOF.json). G1 remains open
+for the remaining C0 real-player comparisons and capability/timing review;
+later gates have not started.
+
+For the repeat cow test, use `body reference --player Osadar932 --seconds 45
+--combat`. This prepares a stone backstop behind the cow; approach from the log
+side, near x=1002.5,z=1006.5, facing north. The wall remains in the development
+arena after capture. The recorder includes direct sprint state and attack-strength
+telemetry for new captures. Guide one step per short recording, allowing the human
+to reconnect and get ready before starting.
 
 The reference recorder reads the actual latest client button state received by
 the server, plus view and body state. It records client/server timing uncertainty;

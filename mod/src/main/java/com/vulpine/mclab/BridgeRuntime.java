@@ -233,7 +233,8 @@ public final class BridgeRuntime implements AutoCloseable {
             runId = text(request, "run_id"); episodeId = text(request, "episode_id");
             bodyId = text(request, "body_id"); lastRequestSequence = sequence;
             if (request.has("prepare_interactions") && request.get("prepare_interactions").getAsBoolean()) {
-                CarpetBodyAdapter.prepareHumanInteractions(server, player, fixture);
+                CarpetBodyAdapter.prepareHumanInteractions(server, player, fixture,
+                        request.has("prepare_combat") && request.get("prepare_combat").getAsBoolean());
             }
             referenceName = name; referenceEnd = server.getTickCount() + seconds * 20;
             readyState = "reference_recording";

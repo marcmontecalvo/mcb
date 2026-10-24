@@ -62,9 +62,14 @@ public final class CarpetBodyAdapter {
 
     public static Map<String, Object> humanReference(ServerPlayer player) {
         var input = player.getLastClientInput();
+        var velocity = player.getDeltaMovement();
         return Map.ofEntries(Map.entry("name", player.getName().getString()),
                 Map.entry("position", List.of(player.getX(), player.getY(), player.getZ())),
+                Map.entry("velocity", List.of(velocity.x, velocity.y, velocity.z)),
                 Map.entry("on_ground", player.onGround()),
+                Map.entry("sprinting", player.isSprinting()),
+                Map.entry("attack_strength", player.getAttackStrengthScale(0)),
+                Map.entry("pose", player.getPose().toString()),
                 Map.entry("yaw", player.getYRot()), Map.entry("pitch", player.getXRot()),
                 Map.entry("mode", player.gameMode.getGameModeForPlayer().getName()),
                 Map.entry("health", player.getHealth()),
@@ -87,7 +92,8 @@ public final class CarpetBodyAdapter {
         return List.copyOf(result);
     }
 
-    public static void prepareHumanInteractions(MinecraftServer server, ServerPlayer player, Vec3 fixture) throws Exception {
+    public static void prepareHumanInteractions(MinecraftServer server, ServerPlayer player, Vec3 fixture,
+                                                boolean combatWall) throws Exception {
         cleanupHumanInteractions(server, fixture);
         int empty = -1;
         for (int i = 8; i >= 0; i--) if (player.getInventory().getItem(i).isEmpty()) { empty = i; break; }
@@ -95,6 +101,25 @@ public final class CarpetBodyAdapter {
         int x = (int) (fixture.x + 9.5), y = (int) fixture.y, z = (int) (fixture.z + 11.5);
         var log = new BlockPos(x, y, z+12);
         if (player.getBoundingBox().intersects(new AABB(log))) throw new IllegalStateException("human_inside_log_setup");
+        if (combatWall) {
+            // Reusable, visible development fixture: approach the cow from +Z (the log side).
+            var wall = new AABB(x, y, z+3, x+5, y+2, z+4);
+            for (var human : server.getPlayerList().getPlayers()) {
+                if (isHuman(human) && human.getBoundingBox().intersects(wall)) {
+                    throw new IllegalStateException("human_inside_combat_wall_setup");
+                }
+            }
+            for (int dx = 0; dx < 5; dx++) for (int dy = 0; dy < 2; dy++) {
+                var state = server.overworld().getBlockState(new BlockPos(x+dx, y+dy, z+3));
+                if (!state.isAir() && !state.is(Blocks.STONE)) {
+                    throw new IllegalStateException("combat_wall_obstructed");
+                }
+            }
+            for (int dx = 0; dx < 5; dx++) for (int dy = 0; dy < 2; dy++) {
+                server.overworld().setBlockAndUpdate(new BlockPos(x+dx, y+dy, z+3),
+                        Blocks.STONE.defaultBlockState());
+            }
+        }
         server.overworld().setBlockAndUpdate(log, Blocks.OAK_LOG.defaultBlockState());
         player.getInventory().setItem(empty, new ItemStack(Items.DIRT, 16));
         player.containerMenu.broadcastChanges();
@@ -415,6 +440,7 @@ public final class CarpetBodyAdapter {
                 Map.entry("food", player.getFoodData().getFoodLevel()),
                 Map.entry("mode", player.gameMode.getGameModeForPlayer().getName()),
                 Map.entry("pose", player.getPose().toString()), Map.entry("alive", player.isAlive()),
+                Map.entry("sprinting", player.isSprinting()),
                 Map.entry("inventory", List.copyOf(inventory)), Map.entry("ray", hit),
                 Map.entry("qualification_target_block", BuiltInRegistries.BLOCK.getKey(
                         server.overworld().getBlockState(target).getBlock()).toString()),

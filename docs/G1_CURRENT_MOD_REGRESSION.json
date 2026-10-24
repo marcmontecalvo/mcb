@@ -1,0 +1,565 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-24",
+  "scored": false,
+  "G1": "in_progress",
+  "mod_provenance": {
+    "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "317c9063eb6855a7aecf38f9e8c7b4925c8877fb14161eb906e87d0dc629cef2",
+    "schema_version": 1,
+    "source_hash": "7e0ad83a758509371f1177d8d45ba954d3523a1f5c31090e8604910be62b1df2"
+  },
+  "suites": {
+    "mechanics": {
+      "summary": "results\\qualification\\20261024T151259515332Z\\summary.json",
+      "run_id": "qualification-3facb68eb904",
+      "status": "passed_development_subset",
+      "passed": 39,
+      "total": 39,
+      "mod_provenance": {
+        "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "317c9063eb6855a7aecf38f9e8c7b4925c8877fb14161eb906e87d0dc629cef2",
+        "schema_version": 1,
+        "source_hash": "7e0ad83a758509371f1177d8d45ba954d3523a1f5c31090e8604910be62b1df2"
+      },
+      "checks": [
+        {
+          "expected": "registered, Survival, health/food 20, empty",
+          "name": "command_spawn_survival_empty",
+          "observed": {
+            "alive": true,
+            "attack_strength": 1.0,
+            "block_reach": 4.5,
+            "entity_reach": 3.0,
+            "food": 20,
+            "health": 20.0,
+            "inventory": [],
+            "mode": "survival",
+            "name": "Lab1fe7e9a9d3",
+            "on_ground": true,
+            "pitch": 0.0,
+            "pose": "STANDING",
+            "position": [
+              990.5,
+              80.0,
+              988.5
+            ],
+            "qualification_entities": [],
+            "qualification_target_block": "minecraft:air",
+            "ray": {
+              "type": "MISS"
+            },
+            "registered": true,
+            "spawn_method": "carpet_command",
+            "sprinting": false,
+            "velocity": [
+              0.0,
+              -0.0784000015258789,
+              0.0
+            ],
+            "yaw": 0.0
+          },
+          "passed": true
+        },
+        {
+          "expected": [
+            3.7,
+            4.7
+          ],
+          "name": "command_walk_20_ticks",
+          "observed": 4.310303387502472,
+          "passed": true
+        },
+        {
+          "expected": [
+            3.7,
+            4.7
+          ],
+          "name": "command_strafe_20_ticks",
+          "observed": 4.310303387502472,
+          "passed": true
+        },
+        {
+          "expected": [
+            0,
+            0
+          ],
+          "name": "command_look_south",
+          "observed": [
+            0.0,
+            0.0
+          ],
+          "passed": true
+        },
+        {
+          "expected": [
+            1.15,
+            1.35
+          ],
+          "name": "command_jump_height",
+          "observed": 1.252203340253729,
+          "passed": true
+        },
+        {
+          "expected": "minecraft:oak_log",
+          "name": "command_aim_target",
+          "observed": {
+            "block": "minecraft:oak_log",
+            "face": "north",
+            "position": [
+              990,
+              80,
+              990
+            ],
+            "type": "BLOCK"
+          },
+          "passed": true
+        },
+        {
+          "expected": [
+            55,
+            110
+          ],
+          "name": "command_mine_duration",
+          "observed": 61,
+          "passed": true
+        },
+        {
+          "expected": "one log in initially empty inventory",
+          "name": "command_pickup",
+          "observed": 1,
+          "passed": true
+        },
+        {
+          "expected": 15,
+          "name": "command_place_inventory_decrement",
+          "observed": 15,
+          "passed": true
+        },
+        {
+          "expected": "release without a heartbeat",
+          "name": "command_disconnect_watchdog",
+          "observed": 1,
+          "passed": true
+        },
+        {
+          "expected": 2607,
+          "name": "api_exact_apply_tick",
+          "observed": 2607,
+          "passed": true
+        },
+        {
+          "expected": [
+            "fabric_start",
+            "carpet_action_head",
+            "carpet_action_tail",
+            "fabric_end_observation"
+          ],
+          "name": "callback_phase_order",
+          "observed": [
+            "fabric_start",
+            "carpet_action_head",
+            "carpet_action_tail",
+            "fabric_end_observation"
+          ],
+          "passed": true
+        },
+        {
+          "expected": 2612,
+          "name": "api_auto_expiry",
+          "observed": [
+            2612
+          ],
+          "passed": true
+        },
+        {
+          "expected": "duplicate_or_out_of_order_sequence",
+          "name": "duplicate_sequence_rejected",
+          "observed": "duplicate_or_out_of_order_sequence",
+          "passed": true
+        },
+        {
+          "expected": "wrong_identity",
+          "name": "wrong_episode_rejected",
+          "observed": "wrong_identity",
+          "passed": true
+        },
+        {
+          "expected": true,
+          "name": "stale_observation_rejected_at_execution",
+          "observed": true,
+          "passed": true
+        },
+        {
+          "expected": [
+            1.15,
+            1.35
+          ],
+          "name": "api_jump_after_input_expiry",
+          "observed": 1.252203340253729,
+          "passed": true
+        },
+        {
+          "expected": "minecraft:oak_log",
+          "name": "api_bounded_look",
+          "observed": {
+            "block": "minecraft:oak_log",
+            "face": "north",
+            "position": [
+              990,
+              80,
+              990
+            ],
+            "type": "BLOCK"
+          },
+          "passed": true
+        },
+        {
+          "expected": [
+            55,
+            110
+          ],
+          "name": "api_renewed_mining_preserves_progress",
+          "observed": 64,
+          "passed": true
+        },
+        {
+          "expected": 1,
+          "name": "api_pickup",
+          "observed": 1,
+          "passed": true
+        },
+        {
+          "expected": 15,
+          "name": "api_place_inventory_decrement",
+          "observed": 15,
+          "passed": true
+        },
+        {
+          "expected": "wrong_identity",
+          "name": "body_id_rejected",
+          "observed": "wrong_identity",
+          "passed": true
+        },
+        {
+          "expected": "wrong_identity",
+          "name": "run_id_rejected",
+          "observed": "wrong_identity",
+          "passed": true
+        },
+        {
+          "expected": "positive residual travel",
+          "name": "release_preserves_inertia",
+          "observed": 0.10738455387183876,
+          "passed": true
+        },
+        {
+          "expected": "z <= 989.701",
+          "name": "solid_collision",
+          "observed": 989.6999999880791,
+          "passed": true
+        },
+        {
+          "expected": [
+            0.49,
+            0.51
+          ],
+          "name": "half_block_step",
+          "observed": 0.5,
+          "passed": true
+        },
+        {
+          "expected": [
+            5.3,
+            6.4
+          ],
+          "name": "sprint_21_ticks",
+          "observed": 5.876576754271355,
+          "passed": true
+        },
+        {
+          "expected": "remain at y=80, z <= edge+0.3",
+          "name": "ledge_sneaking",
+          "observed": [
+            990.5,
+            80.0,
+            990.2975091220263
+          ],
+          "passed": true
+        },
+        {
+          "expected": [
+            17,
+            19
+          ],
+          "name": "five_block_fall_damage",
+          "observed": 18.0,
+          "passed": true
+        },
+        {
+          "expected": "minecraft:oak_log",
+          "name": "mining_interruption_leaves_log",
+          "observed": "minecraft:oak_log",
+          "passed": true
+        },
+        {
+          "expected": [
+            55,
+            110
+          ],
+          "name": "mining_interruption_resets_progress",
+          "observed": 61,
+          "passed": true
+        },
+        {
+          "expected": 10,
+          "name": "continuous_attack_does_not_hit_entity",
+          "observed": 10.0,
+          "passed": true
+        },
+        {
+          "expected": 9,
+          "name": "discrete_entity_attack",
+          "observed": 9.0,
+          "passed": true
+        },
+        {
+          "expected": "positive z displacement",
+          "name": "entity_knockback",
+          "observed": 0.8171440663564908,
+          "passed": true
+        },
+        {
+          "expected": "reset then recover to 1",
+          "name": "attack_cooldown",
+          "observed": [
+            0.6,
+            1.0
+          ],
+          "passed": true
+        },
+        {
+          "expected": "no damage beyond real-player reach",
+          "name": "entity_reach_guard",
+          "observed": {
+            "guard_events": 1,
+            "health": 10.0
+          },
+          "passed": true
+        },
+        {
+          "expected": "positive z displacement",
+          "name": "body_knockback_survives_release",
+          "observed": 1.312348814842494,
+          "passed": true
+        },
+        {
+          "expected": "dead or removed",
+          "name": "death_disconnect",
+          "observed": {
+            "name": "Lab7dc62f0dac",
+            "registered": false
+          },
+          "passed": true
+        },
+        {
+          "expected": "new identity, empty inventory, full health",
+          "name": "fresh_body_after_death",
+          "observed": {
+            "alive": true,
+            "attack_strength": 1.0,
+            "block_reach": 4.5,
+            "entity_reach": 3.0,
+            "food": 20,
+            "health": 20.0,
+            "inventory": [],
+            "mode": "survival",
+            "name": "Lab502d0db4c5",
+            "on_ground": true,
+            "pitch": 0.0,
+            "pose": "STANDING",
+            "position": [
+              990.5,
+              80.0,
+              988.5
+            ],
+            "qualification_entities": [],
+            "qualification_target_block": "minecraft:air",
+            "ray": {
+              "type": "MISS"
+            },
+            "registered": true,
+            "spawn_method": "carpet_api",
+            "sprinting": false,
+            "velocity": [
+              0.0,
+              -0.0784000015258789,
+              0.0
+            ],
+            "yaw": 0.0
+          },
+          "passed": true
+        }
+      ]
+    },
+    "protocol": {
+      "summary": "results\\qualification\\20261024T151344060993Z\\summary.json",
+      "run_id": "qualification-151aee09655a",
+      "status": "passed_development_subset",
+      "passed": 24,
+      "total": 24,
+      "mod_provenance": {
+        "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "317c9063eb6855a7aecf38f9e8c7b4925c8877fb14161eb906e87d0dc629cef2",
+        "schema_version": 1,
+        "source_hash": "7e0ad83a758509371f1177d8d45ba954d3523a1f5c31090e8604910be62b1df2"
+      },
+      "checks": [
+        {
+          "expected": "invalid_controls",
+          "name": "forward_range",
+          "observed": "invalid_controls",
+          "passed": true
+        },
+        {
+          "expected": "invalid_controls",
+          "name": "strafe_range",
+          "observed": "invalid_controls",
+          "passed": true
+        },
+        {
+          "expected": "invalid_controls",
+          "name": "yaw_range",
+          "observed": "invalid_controls",
+          "passed": true
+        },
+        {
+          "expected": "invalid_controls",
+          "name": "pitch_range",
+          "observed": "invalid_controls",
+          "passed": true
+        },
+        {
+          "expected": "invalid_controls",
+          "name": "hotbar_negative",
+          "observed": "invalid_controls",
+          "passed": true
+        },
+        {
+          "expected": "invalid_controls",
+          "name": "hotbar_high",
+          "observed": "invalid_controls",
+          "passed": true
+        },
+        {
+          "expected": "invalid_controls",
+          "name": "duration_zero",
+          "observed": "invalid_controls",
+          "passed": true
+        },
+        {
+          "expected": "invalid_controls",
+          "name": "duration_long",
+          "observed": "invalid_controls",
+          "passed": true
+        },
+        {
+          "expected": "invalid_controls",
+          "name": "expiry_mismatch",
+          "observed": "invalid_controls",
+          "passed": true
+        },
+        {
+          "expected": "invalid_controls",
+          "name": "mine_attack_conflict",
+          "observed": "invalid_controls",
+          "passed": true
+        },
+        {
+          "expected": "invalid_controls",
+          "name": "use_conflict",
+          "observed": "invalid_controls",
+          "passed": true
+        },
+        {
+          "expected": "invalid_controls",
+          "name": "sneak_sprint_conflict",
+          "observed": "invalid_controls",
+          "passed": true
+        },
+        {
+          "expected": "action_id",
+          "name": "action_id_syntax",
+          "observed": "action_id",
+          "passed": true
+        },
+        {
+          "expected": "schema_version",
+          "name": "schema_version",
+          "observed": "schema_version",
+          "passed": true
+        },
+        {
+          "expected": "controls_endpoint_only",
+          "name": "policy_cannot_despawn",
+          "observed": "controls_endpoint_only",
+          "passed": true
+        },
+        {
+          "expected": "unknown_admin_operation",
+          "name": "admin_allowlist",
+          "observed": "unknown_admin_operation",
+          "passed": true
+        },
+        {
+          "expected": "late_or_distant_action",
+          "name": "future_action",
+          "observed": "late_or_distant_action",
+          "passed": true
+        },
+        {
+          "expected": "late_or_distant_action",
+          "name": "past_action",
+          "observed": "late_or_distant_action",
+          "passed": true
+        },
+        {
+          "expected": "duplicate_action_id",
+          "name": "duplicate_action_id",
+          "observed": "duplicate_action_id",
+          "passed": true
+        },
+        {
+          "expected": "no rejection of the queued movement",
+          "name": "cancelled_action_was_admitted",
+          "observed": [],
+          "passed": true
+        },
+        {
+          "expected": [],
+          "name": "release_clears_pending_action",
+          "observed": [],
+          "passed": true
+        },
+        {
+          "expected": "< 0.001 blocks",
+          "name": "cancelled_movement_no_displacement",
+          "observed": 0.0,
+          "passed": true
+        },
+        {
+          "expected": "wrong_identity",
+          "name": "retired_episode_release",
+          "observed": "wrong_identity",
+          "passed": true
+        },
+        {
+          "expected": "proof-85dbe0ef0a62-next",
+          "name": "new_session_survives_old_request",
+          "observed": "proof-85dbe0ef0a62-next",
+          "passed": true
+        }
+      ]
+    }
+  }
+}

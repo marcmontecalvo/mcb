@@ -418,7 +418,8 @@
     "scored": false,
     "status": "passed_development_subset"
   },
-  "qualification_scope": "development-only; G1 remains open pending human interaction reference",
+  "qualification_scope": "development-only; human interaction reference recorded; full C0 reference and capability/timing review remain pending",
   "qualification_summary": "results\\qualification\\20261022T204033798344Z\\summary.json",
-  "schema_version": 1
+  "schema_version": 1,
+  "human_interaction_reference_evidence": "docs/G1_HUMAN_INTERACTION_PROOF.json"
 }

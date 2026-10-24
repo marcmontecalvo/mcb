@@ -54,9 +54,12 @@ milestones. Do not expose these manifests to decision backends.
 
 ## G1 completion and next gates
 
-1. Finish the human interaction reference. The command/API development suite
-   passes 39 checks and the real-player walk/jump capture is saved. G1 stays open
-   until remaining reference/capability evidence is reviewed.
+1. Finish the remaining C0 real-player comparisons. The command/API development
+   suite passes 39 checks, and human walk/jump and October 24 mining, pickup,
+   placement, strafe/release, sprint input, interrupted mining and wall-backed
+   attack references are saved. Direct cooldown reset/recovery is recorded. G1
+   stays open until remaining reference/capability evidence is reviewed; see
+   `G1_GUIDED_MECHANICS_PROOF.json` and `G1_COMBAT_WALL_PROOF.json`.
 2. Freeze the qualified initial capability and timing profiles. The adapter,
    bounded tick scheduling and transport are implemented and callback order traced.
 3. Implement reset generations, authoritative state digests, restrictions,
@@ -66,5 +69,6 @@ milestones. Do not expose these manifests to decision backends.
 Follow the handoff for remaining operations. `body qualify` and `body reference`
 now run actual bounded development experiments. `body protocol-check` adds a
 separate 24-check live cancellation/admission proof while the human interaction
-reference remains deferred. It cannot advance G1. Scored `run`, provider probes,
+reference now covers basic interactions but not all C0 mechanics. It cannot alone
+advance G1. Scored `run`, provider probes,
 replay, model training and external baselines remain unimplemented.

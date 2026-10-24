@@ -1,4 +1,4 @@
-# Setup status — October 22, 2026
+# Setup status — October 24, 2026
 
 The repository started with only `Minecraft_AI_Technical_Handoff.md` and an empty
 Git history. The original handoff has not been edited.
@@ -19,7 +19,7 @@ Git history. The original handoff has not been edited.
 | Datapack | Format 121.0 loaded without function parse errors |
 | Generated files | C0–C4; C1 seed 0 selected; absolute coordinates and bounded fills |
 | C1 world geometry | All **98,441** cells checked on the server thread; **0 mismatches** |
-| Automated tests | **39 passed**; course, protocol, stale evidence, recording, report retention and reference analysis |
+| Automated tests | **47 passed**; course, protocol, stale evidence, recording, report retention and reference analysis |
 | Python quality | Ruff lint and formatting pass |
 | Provider traffic | No requests; no paid batches, downloads of model registries, or training |
 
@@ -40,7 +40,7 @@ project's Java source builds without deprecation warnings.
 | Gate | Status | Evidence still required |
 | --- | --- | --- |
 | G0 | **Passed** | Human joined and confirmed the stone platform and log |
-| G1 | **In progress** | Command/API proof and human walk/jump capture implemented; full C0 remains gated |
+| G1 | **In progress** | Automated proof and human walk/jump/basic interactions recorded; remaining C0 reference and capability review pending |
 | G2 | Not run | Reset generations, scoring, recorder, 20 identical authoritative state checks |
 | G3 | Not run | At least 9/10 deterministic C1 completions |
 | G4 | Not run | Versioned backends, valid real probes, cancellation/deadline/error tests |
@@ -102,25 +102,83 @@ passing live protocol suite. It covers malformed control ranges and conflicts,
 administrative/policy endpoint restrictions, action timing, duplicate action IDs,
 queued-action cancellation with zero displacement, and rejection of commands from
 a retired episode after a new body is ready. These supplement the 39 mechanics
-checks; they do not satisfy the deferred human reference or advance a gate.
+checks; they do not replace real-player references or advance a gate.
 
 ```powershell
 rtk proxy powershell -NoProfile -File scripts/mclab.ps1 body protocol-check
 ```
 
-G1 remains open for the prepared human interaction reference and final capability
-review. Marc deferred this check for later; no interaction preparation or capture
-was started. The command prepares the original C1 log, a stationary-physics test cow,
-and dirt in an empty hotbar slot:
+The deferred human interaction reference was completed on October 24. The command
+prepares the original C1 log, a stationary-physics test cow, and dirt in an empty
+hotbar slot:
 
 ```powershell
 rtk proxy powershell -NoProfile -File scripts/mclab.ps1 body reference --player Osadar932 --seconds 90 --interactions
 ```
 
-The human should use an empty hand to punch the cow once, mine and collect the
-oak log, then place one supplied dirt block on the platform. Incoming dig/use/
-attack packets and authoritative results are recorded for comparison. Preparation
-has been implemented and compiled; this human interaction run is still pending.
+Marc punched the cow with an empty hand, mined and collected the oak log, and
+placed one dirt block. [G1_HUMAN_INTERACTION_PROOF.json](G1_HUMAN_INTERACTION_PROOF.json)
+preserves the 1,800 contiguous samples' summary and recording hash. Mining took
+60 server ticks versus 61–62 in the automated proof; dirt placement consumed one
+block, and the in-range punch dealt 1 damage, matching the fake-player results.
+The inventory transition confirms collection following the break; a causal
+drop-UUID scorer has not been implemented. Client/server timing remains uncertain.
+
+G1 remains open: the handoff also calls for real-player comparison of strafe/stop,
+view/sprint, terrain interactions, fall damage, mining interruption, placement
+reach, attack cooldown/knockback, and death/replacement where relevant. Those are
+covered by automated development checks, but this interaction capture does not
+establish their real-player equivalence. Complete that review and freeze the
+qualified capability/timing profiles before G2. No reset or scoring work has begun.
+
+The follow-up 120-second mechanics capture recorded 2,400 samples, but did not
+contain qualifying pure-strafe/sprint segments, a mining abort or an attack
+sequence. [The attempt record](G1_MECHANICS_REFERENCE_ATTEMPT.json) preserves
+its reanalysis separately from the original capture summary. Marc disconnected
+and requested a fresh attempt. Wait for reconnection and readiness, then guide
+one action per recording rather than starting another timed sequence unattended.
+The Python analyzer now reports pure strafe/sprint-input windows, residual travel
+after released movement inputs, mining aborts and recorded attack intervals.
+It rejects movement windows containing mixed inputs, turns or sample gaps.
+Sprint input alone does not establish sprint state, and attack damage/intervals
+alone do not distinguish cooldown from target invulnerability. G1 stays open.
+
+The fresh, guided pass then recorded four separate captures (3,600 total samples):
+left strafe/release, right strafe/release, sprint input/release, and interrupted
+mining followed by rapid/spaced attacks. See
+[G1_GUIDED_MECHANICS_PROOF.json](G1_GUIDED_MECHANICS_PROOF.json) for all summaries,
+raw-recording hashes, provenance and comparison limitations. The mining abort
+arrived after 21 ticks; the restart required 60 ticks versus 61 in the fake proof.
+Rapid cow attacks included zero-damage results, but knockback made the target
+awkward to hit. Marc requested a wall and a repeat rather than accepting that
+sequence as cooldown equivalence.
+
+The updated mod builds and adds human velocity, pose, authoritative sprint state,
+per-tick attack strength, and attack strength before/after attack packets. These
+fields are additive; earlier captures do not contain them. `body reference
+--player Osadar932 --seconds 45 --combat` now prepares a five-block-wide,
+two-block-high stone backstop behind the cow. Approach from the log side (+Z),
+near x=1002.5,z=1006.5, facing north. The wall occupies x=1000..1004,
+y=80..81,z=1003 and remains as a visible development fixture after capture;
+the tagged cow is removed normally. Preparation refuses to overwrite other block
+types or build through a human. This is setup geometry, not a scored reset.
+The mod was rebuilt, installed with the server stopped, and the server restarted.
+The subsequent 900-sample [wall-backed combat reference](G1_COMBAT_WALL_PROOF.json)
+captured all three attacks within reach. The cow's northward motion stopped at
+z=1004.45 against the backstop. Damage was 1,0,1 with attack gaps of 6 and 25 ticks.
+All three swings began at attack strength 1.0 and reset it to 0.0. Tick samples
+then showed strength recovering through 0.2,0.4,0.6,0.8,1.0. The zero-damage second
+swing was fully charged, consistent with the target's damage-immunity window,
+rather than an uncharged swing. These are server-observed packet/tick phases.
+This repeat verifies the wall and direct human cooldown telemetry; earlier
+captures still do not establish authoritative sprint-state equivalence. G1 stays
+open for the remaining full C0 fidelity and capability/timing review.
+
+After the wall-backed capture, the installed mod passed a fresh **39/39 mechanics**
+and **24/24 protocol** rerun. [G1_CURRENT_MOD_REGRESSION.json](G1_CURRENT_MOD_REGRESSION.json)
+preserves those attempts and current mod provenance separately from the October 22
+proofs. Python tests (47), Ruff lint/format, mod build, installed-source checks and
+diff whitespace checks pass. No scored episodes, G2 work or provider calls ran.
 
 All earlier development attempts remain under `results/qualification/`, and
 `mclab report` exports their recorded outcomes to `qualification_attempts.csv`.

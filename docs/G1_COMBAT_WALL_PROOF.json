@@ -1,0 +1,266 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-24",
+  "scored": false,
+  "status": "recorded_and_reviewed",
+  "summary": {
+    "alignment": "server-observed buttons, client timestamp/network delay unknown",
+    "analysis": {
+      "G1": "not_qualified_by_this_capture",
+      "caveats": "Client/server timing uncertainty; collisions, terrain and sample gaps require review. Sprint button is not authoritative sprint state. Overlapping movement windows are not independent trials; release distances can include other forces and terrain effects",
+      "jump_peak_heights": [],
+      "release_segments": [
+        {
+          "end_tick": 829,
+          "horizontal_path_distance": 0.252621419774023,
+          "start_tick": 814
+        },
+        {
+          "end_tick": 878,
+          "horizontal_path_distance": 0.23565315532041517,
+          "start_tick": 843
+        },
+        {
+          "end_tick": 895,
+          "horizontal_path_distance": 0.25213924438429985,
+          "start_tick": 886
+        },
+        {
+          "end_tick": 927,
+          "horizontal_path_distance": 0.11213998293208248,
+          "start_tick": 897
+        },
+        {
+          "end_tick": 937,
+          "horizontal_path_distance": 0.1773825536750241,
+          "start_tick": 930
+        },
+        {
+          "end_tick": 1643,
+          "horizontal_path_distance": 0.1773825538803135,
+          "start_tick": 940
+        }
+      ],
+      "sprint_input_20_tick_distances": [],
+      "sprint_state_20_tick_distances": [],
+      "strafe_20_tick_distances": {
+        "left": [],
+        "right": []
+      },
+      "walk_20_tick_distances": []
+    },
+    "combat_wall": true,
+    "interactions": {
+      "attack_timing_caveat": "Damage and packet intervals alone cannot distinguish attack cooldown from target invulnerability, misses or other damage modifiers",
+      "attacks": [
+        {
+          "attack_strength_after": 0.0,
+          "attack_strength_before": 1.0,
+          "health_decrement": 1.0,
+          "tick": 969,
+          "ticks_since_previous_recorded_attack": null,
+          "within_entity_range": true
+        },
+        {
+          "attack_strength_after": 0.0,
+          "attack_strength_before": 1.0,
+          "health_decrement": 0.0,
+          "tick": 975,
+          "ticks_since_previous_recorded_attack": 6,
+          "within_entity_range": true
+        },
+        {
+          "attack_strength_after": 0.0,
+          "attack_strength_before": 1.0,
+          "health_decrement": 1.0,
+          "tick": 1000,
+          "ticks_since_previous_recorded_attack": 25,
+          "within_entity_range": true
+        }
+      ],
+      "block_reach_attributes": [
+        4.5
+      ],
+      "entity_reach_attributes": [
+        3.0
+      ],
+      "mining": [],
+      "mining_interruptions": [],
+      "placements": []
+    },
+    "player": "Osadar932",
+    "prepare_interactions": true,
+    "recording": "G:\\projects\\mcb\\results\\references\\20261024T151140317123Z\\events.jsonl",
+    "run_id": "qualification-a2e9d16dd0fc",
+    "samples": 900,
+    "schema_version": 1,
+    "scored": false,
+    "seconds": 45,
+    "status": "recorded"
+  },
+  "recording_sha256": "828121381c9a8d6b67d2bac5c61293330ba3aa1950049dccf48a0719147c3def",
+  "analyzer_source_sha256": "31cbbaef7d660964e608f6176c21c6648e5044907e20214d4d9f43df6328ddd4",
+  "mod_provenance": {
+    "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "317c9063eb6855a7aecf38f9e8c7b4925c8877fb14161eb906e87d0dc629cef2",
+    "schema_version": 1,
+    "source_hash": "7e0ad83a758509371f1177d8d45ba954d3523a1f5c31090e8604910be62b1df2"
+  },
+  "launch_id": "9d8764800da3677e5be4ebd8b6547e42",
+  "samples_contiguous": true,
+  "strength_sample_count": 900,
+  "strength_samples_around_attacks": [
+    {
+      "tick": 969,
+      "value": 1.0
+    },
+    {
+      "tick": 970,
+      "value": 0.2
+    },
+    {
+      "tick": 971,
+      "value": 0.4
+    },
+    {
+      "tick": 972,
+      "value": 0.6
+    },
+    {
+      "tick": 973,
+      "value": 0.8
+    },
+    {
+      "tick": 974,
+      "value": 1.0
+    },
+    {
+      "tick": 975,
+      "value": 1.0
+    },
+    {
+      "tick": 976,
+      "value": 0.2
+    },
+    {
+      "tick": 977,
+      "value": 0.4
+    },
+    {
+      "tick": 978,
+      "value": 0.6
+    },
+    {
+      "tick": 979,
+      "value": 0.8
+    },
+    {
+      "tick": 980,
+      "value": 1.0
+    },
+    {
+      "tick": 981,
+      "value": 1.0
+    },
+    {
+      "tick": 982,
+      "value": 1.0
+    },
+    {
+      "tick": 1000,
+      "value": 1.0
+    },
+    {
+      "tick": 1001,
+      "value": 0.2
+    },
+    {
+      "tick": 1002,
+      "value": 0.4
+    },
+    {
+      "tick": 1003,
+      "value": 0.6
+    },
+    {
+      "tick": 1004,
+      "value": 0.8
+    },
+    {
+      "tick": 1005,
+      "value": 1.0
+    },
+    {
+      "tick": 1006,
+      "value": 1.0
+    },
+    {
+      "tick": 1007,
+      "value": 1.0
+    }
+  ],
+  "wall": {
+    "from": [
+      1000,
+      80,
+      1003
+    ],
+    "to": [
+      1004,
+      81,
+      1003
+    ],
+    "block": "minecraft:stone",
+    "persistent_development_fixture": true
+  },
+  "cow_positions_at_attack": [
+    {
+      "tick": 969,
+      "position": [
+        1002.5,
+        80.0,
+        1004.5
+      ]
+    },
+    {
+      "tick": 975,
+      "position": [
+        1002.6230619269106,
+        80.91429687607155,
+        1004.4499999880791
+      ]
+    },
+    {
+      "tick": 1000,
+      "position": [
+        1002.6812348843699,
+        80.0,
+        1004.4499999880791
+      ]
+    }
+  ],
+  "review": {
+    "damage_sequence": [
+      1.0,
+      0.0,
+      1.0
+    ],
+    "attack_intervals_ticks": [
+      6,
+      25
+    ],
+    "strength_before_each_attack": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "strength_after_each_attack": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "interpretation": "All three packets target the cow within reach. The second swing is fully charged but deals zero damage six ticks after a damaging hit, consistent with target damage immunity rather than an uncharged swing. The backstop limits northward knockback at cow z=1004.45. Packet reset and per-tick recovery are now directly recorded.",
+    "limitations": "Cooldown sampling follows server-observed packet/tick phases, not synchronized client timestamps. Does not qualify full C0 combat/reach/knockback fidelity."
+  },
+  "G1": "in_progress"
+}

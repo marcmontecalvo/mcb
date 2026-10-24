@@ -125,6 +125,11 @@ def main() -> int:
     capture.add_argument("--player", required=True)
     capture.add_argument("--seconds", type=int, default=45)
     capture.add_argument("--interactions", action="store_true")
+    capture.add_argument(
+        "--combat",
+        action="store_true",
+        help="Prepare interaction fixtures and a stone backstop behind the test cow",
+    )
     srv = sub.add_parser("server").add_subparsers(dest="operation", required=True)
     srv.add_parser("start").add_argument("--accept-eula", action="store_true")
     srv.add_parser("stop")
@@ -154,7 +159,7 @@ def main() -> int:
                     result = protocolproof.qualify_protocol()
                 else:
                     result = reference.record_reference(
-                        args.player, args.seconds, args.interactions
+                        args.player, args.seconds, args.interactions, args.combat
                     )
             case "server":
                 if args.operation == "start":

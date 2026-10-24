@@ -1,12 +1,15 @@
 """Bounded real-player reference capture; input labels come from client input state."""
 
 from datetime import UTC, datetime
+from math import hypot
 
 from mclab.bridge import Bridge
 from mclab.paths import ROOT, write_json
 
 
-def record_reference(player: str, seconds: int, interactions: bool = False) -> dict:
+def record_reference(
+    player: str, seconds: int, interactions: bool = False, combat: bool = False
+) -> dict:
     if not 5 <= seconds <= 120:
         raise ValueError("Reference capture must last 5 to 120 seconds")
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
@@ -18,6 +21,8 @@ def record_reference(player: str, seconds: int, interactions: bool = False) -> d
         "player": player,
         "run_id": client.run_id,
         "seconds": seconds,
+        "prepare_interactions": interactions or combat,
+        "combat_wall": combat,
         "alignment": "server-observed buttons, client timestamp/network delay unknown",
         "recording": str(destination / "events.jsonl"),
     }
@@ -27,7 +32,8 @@ def record_reference(player: str, seconds: int, interactions: bool = False) -> d
             "reference_start",
             player=player,
             seconds=seconds,
-            prepare_interactions=interactions,
+            prepare_interactions=interactions or combat,
+            prepare_combat=combat,
         )
         client.acknowledge(request, "reference_started")
         client.wait(
@@ -59,7 +65,9 @@ def record_reference(player: str, seconds: int, interactions: bool = False) -> d
 def analyze_interactions(events: list[dict]) -> dict:
     starts, uses = {}, {}
     mining, placements, attacks = [], [], []
+    interruptions = []
     attack = None
+    last_attack_tick = None
     for event in events:
         value = event["data"]
         kind = event["type"]
@@ -68,7 +76,16 @@ def analyze_interactions(events: list[dict]) -> dict:
             if value["action"] == "START_DESTROY_BLOCK":
                 starts[position] = event["tick"]
             elif value["action"] == "ABORT_DESTROY_BLOCK":
-                starts.pop(position, None)
+                first = starts.pop(position, None)
+                if first is not None:
+                    interruptions.append(
+                        {
+                            "position": list(position),
+                            "start_tick": first,
+                            "abort_tick": event["tick"],
+                            "ticks": event["tick"] - first,
+                        }
+                    )
         elif kind == "block_broken":
             first = starts.pop(tuple(value["position"]), None)
             if first is not None:
@@ -88,24 +105,40 @@ def analyze_interactions(events: list[dict]) -> dict:
                     }
                 )
         elif kind == "attack_packet":
-            attack = value
+            attack = event if value.get("uuid") else None
         elif (
             kind == "attack_result"
             and attack
-            and attack.get("uuid") == value.get("uuid")
+            and attack["data"]["uuid"] == value.get("uuid")
         ):
+            tick = attack["tick"]
             attacks.append(
                 {
-                    "health_decrement": attack["health"] - value["health"],
-                    "within_entity_range": attack["within_entity_range"],
+                    "tick": tick,
+                    "ticks_since_previous_recorded_attack": None
+                    if last_attack_tick is None
+                    else tick - last_attack_tick,
+                    "health_decrement": attack["data"]["health"] - value["health"],
+                    "within_entity_range": attack["data"]["within_entity_range"],
                 }
             )
+            if "attack_strength" in attack["data"] and "attack_strength" in value:
+                attacks[-1].update(
+                    attack_strength_before=attack["data"]["attack_strength"],
+                    attack_strength_after=value["attack_strength"],
+                )
+            last_attack_tick = tick
             attack = None
     samples = [e["data"] for e in events if e["type"] == "reference_sample"]
     return {
         "mining": mining,
+        "mining_interruptions": interruptions,
         "placements": placements,
         "attacks": attacks,
+        "attack_timing_caveat": (
+            "Damage and packet intervals alone cannot distinguish attack cooldown "
+            "from target invulnerability, misses or other damage modifiers"
+        ),
         "block_reach_attributes": sorted(
             {s["block_reach"] for s in samples if "block_reach" in s}
         ),
@@ -115,12 +148,62 @@ def analyze_interactions(events: list[dict]) -> dict:
     }
 
 
+def _distance(a: dict, b: dict) -> float:
+    first, last = a["data"]["position"], b["data"]["position"]
+    return hypot(last[0] - first[0], last[2] - first[2])
+
+
+def _buttons(event: dict) -> set[str]:
+    return {key for key, pressed in event["data"]["buttons"].items() if pressed}
+
+
+def _movement_windows(
+    samples: list[dict], buttons: set[str], *, require_sprint_state: bool = False
+) -> list[float]:
+    distances = []
+    for i in range(20, len(samples)):
+        segment = samples[i - 20 : i + 1]
+        yaw = segment[0]["data"]["yaw"]
+        if all(
+            e["tick"] == segment[0]["tick"] + offset
+            and e["data"]["on_ground"]
+            and _buttons(e) == buttons
+            and (not require_sprint_state or e["data"].get("sprinting") is True)
+            and abs((e["data"]["yaw"] - yaw + 180) % 360 - 180) < 1
+            for offset, e in enumerate(segment)
+        ):
+            distances.append(_distance(segment[0], segment[-1]))
+    return distances
+
+
+def _release_segments(samples: list[dict]) -> list[dict]:
+    segments = []
+    current = None
+    for previous, event in zip(samples[:-1], samples[1:], strict=True):
+        contiguous = event["tick"] == previous["tick"] + 1
+        grounded = previous["data"]["on_ground"] and event["data"]["on_ground"]
+        if not contiguous or not grounded or _buttons(event):
+            current = None
+            continue
+        if current is None:
+            if not _buttons(previous) & {"forward", "backward", "left", "right"}:
+                continue
+            current = {
+                "start_tick": event["tick"],
+                "end_tick": event["tick"],
+                "horizontal_path_distance": 0.0,
+            }
+            segments.append(current)
+        current["end_tick"] = event["tick"]
+        current["horizontal_path_distance"] += _distance(previous, event)
+    return segments
+
+
 def analyze(samples: list[dict]) -> dict:
     """Report comparable segments without declaring complete C0 qualification."""
     jumps = []
     start_y = None
     peak_y = None
-    walks = []
     for i, event in enumerate(samples):
         value = event["data"]
         y = value["position"][1]
@@ -134,26 +217,31 @@ def analyze(samples: list[dict]) -> dict:
             if value["on_ground"] and y <= start_y + 0.05:
                 jumps.append(peak_y - start_y)
                 start_y = peak_y = None
-        if i >= 20:
-            segment = samples[i - 20 : i + 1]
-            if event["tick"] - segment[0]["tick"] == 20 and all(
-                e["data"]["on_ground"]
-                and e["data"]["buttons"]["forward"]
-                and not any(
-                    e["data"]["buttons"][key]
-                    for key in ["backward", "left", "right", "jump", "sneak", "sprint"]
-                )
-                and abs(e["data"]["yaw"] - value["yaw"]) < 1
-                for e in segment
-            ):
-                a, b = segment[0]["data"]["position"], value["position"]
-                walks.append(((a[0] - b[0]) ** 2 + (a[2] - b[2]) ** 2) ** 0.5)
     return {
         "jump_peak_heights": jumps,
-        "walk_20_tick_distances": walks,
+        "walk_20_tick_distances": _movement_windows(samples, {"forward"}),
+        "strafe_20_tick_distances": {
+            direction: _movement_windows(samples, {direction})
+            for direction in ("left", "right")
+        },
+        "sprint_input_20_tick_distances": _movement_windows(
+            samples, {"forward", "sprint"}
+        ),
+        "sprint_state_20_tick_distances": _movement_windows(
+            samples, {"forward", "sprint"}, require_sprint_state=True
+        ),
+        "attack_strength_samples": [
+            {"tick": e["tick"], "value": e["data"]["attack_strength"]}
+            for e in samples
+            if "attack_strength" in e["data"]
+        ],
+        "release_segments": _release_segments(samples),
         "G1": "not_qualified_by_this_capture",
         "caveats": (
             "Client/server timing uncertainty; collisions, terrain and "
-            "sample gaps require review"
+            "sample gaps require review. Sprint button is not authoritative "
+            "sprint state. "
+            "Overlapping movement windows are not independent trials; "
+            "release distances can include other forces and terrain effects"
         ),
     }

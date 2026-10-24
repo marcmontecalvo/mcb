@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-24",
+  "scored": false,
+  "summary": {
+    "alignment": "server-observed buttons, client timestamp/network delay unknown",
+    "analysis": {
+      "G1": "not_qualified_by_this_capture",
+      "caveats": "Client/server timing uncertainty; collisions, terrain and sample gaps require review",
+      "jump_peak_heights": [],
+      "walk_20_tick_distances": []
+    },
+    "interactions": {
+      "attacks": [
+        {
+          "health_decrement": 1.0,
+          "within_entity_range": true
+        }
+      ],
+      "block_reach_attributes": [
+        4.5
+      ],
+      "entity_reach_attributes": [
+        3.0
+      ],
+      "mining": [
+        {
+          "block": "minecraft:oak_log",
+          "ticks": 60
+        }
+      ],
+      "placements": [
+        {
+          "adjacent_block": "minecraft:dirt",
+          "face": "up",
+          "inventory_decrement": 1,
+          "item": "minecraft:dirt"
+        }
+      ]
+    },
+    "player": "Osadar932",
+    "recording": "G:\\projects\\mcb\\results\\references\\20261024T145654066379Z\\events.jsonl",
+    "run_id": "qualification-9df2e6a43392",
+    "samples": 1800,
+    "schema_version": 1,
+    "scored": false,
+    "seconds": 90,
+    "status": "recorded"
+  },
+  "recording_sha256": "e0fed5e9f33275aca570b39cbab34b05cfc534eb1e8b5cd63480636fad481f9f",
+  "sample_ticks": {
+    "first": 3044504,
+    "last": 3046303,
+    "contiguous": true
+  },
+  "launch_id": "7e69edecc0e11db6bb44320b71d6430b",
+  "pickup": {
+    "break_tick": 3044919,
+    "first_inventory_tick": 3044941,
+    "item": "minecraft:oak_log",
+    "count": 1,
+    "evidence_scope": "inventory transition following observed target break; not a causal drop UUID scorer"
+  },
+  "comparisons": [
+    {
+      "capability": "empty_hand_log_mining",
+      "human_ticks": 60,
+      "fake_ticks": [
+        61,
+        62
+      ],
+      "difference_ticks": [
+        1,
+        2
+      ],
+      "preexisting_fake_acceptance_ticks": [
+        55,
+        110
+      ],
+      "interpretation": "consistent within existing development bounds; packet and apply boundaries differ"
+    },
+    {
+      "capability": "dirt_placement",
+      "human_inventory_decrement": 1,
+      "fake_inventory_decrement": 1,
+      "human_face": "up",
+      "human_result": "minecraft:dirt",
+      "interpretation": "matching placement result and inventory decrement"
+    },
+    {
+      "capability": "empty_hand_entity_attack",
+      "human_health_decrement": 1.0,
+      "fake_health_decrement": 1.0,
+      "human_within_entity_range": true,
+      "interpretation": "matching single attack; cooldown and reach boundary not measured"
+    },
+    {
+      "capability": "reach_attributes",
+      "human_block_reach": 4.5,
+      "human_entity_reach": 3.0,
+      "fake_block_reach": 4.5,
+      "fake_entity_reach": 3.0,
+      "interpretation": "matching attributes; not a boundary-distance interaction test"
+    }
+  ],
+  "G1": "in_progress",
+  "remaining_reference_review": [
+    "strafe and release/stop",
+    "yaw/pitch and sprint",
+    "collision, step and ledge sneak",
+    "fall damage",
+    "mining interruption",
+    "placement reach boundary",
+    "discrete attack cooldown and knockback",
+    "death/replacement"
+  ],
+  "limitations": [
+    "No scored episode or provider call",
+    "Full C0 fidelity and frozen capability/timing review remain pending",
+    "Server-observed packet timing is not synchronized client timing"
+  ]
+}

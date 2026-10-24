@@ -1,0 +1,478 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-24",
+  "scored": false,
+  "G1": "in_progress",
+  "captures": [
+    {
+      "step": "left_strafe_and_release",
+      "summary": {
+        "alignment": "server-observed buttons, client timestamp/network delay unknown",
+        "analysis": {
+          "G1": "not_qualified_by_this_capture",
+          "caveats": "Client/server timing uncertainty; collisions, terrain and sample gaps require review. Sprint button is not authoritative sprint state. Overlapping movement windows are not independent trials; release distances can include other forces and terrain effects",
+          "jump_peak_heights": [],
+          "release_segments": [
+            {
+              "end_tick": 3053176,
+              "horizontal_path_distance": 0.25584606790412473,
+              "start_tick": 3052755
+            }
+          ],
+          "sprint_input_20_tick_distances": [],
+          "strafe_20_tick_distances": {
+            "left": [
+              4.175439768150864,
+              4.239790469123451,
+              4.274925955935606,
+              4.294109933963286,
+              4.304584387183016,
+              4.31030343930536
+            ],
+            "right": []
+          },
+          "walk_20_tick_distances": []
+        },
+        "interactions": {
+          "attack_timing_caveat": "Damage and packet intervals alone cannot distinguish attack cooldown from target invulnerability, misses or other damage modifiers",
+          "attacks": [],
+          "block_reach_attributes": [
+            4.5
+          ],
+          "entity_reach_attributes": [
+            3.0
+          ],
+          "mining": [],
+          "mining_interruptions": [],
+          "placements": []
+        },
+        "player": "Osadar932",
+        "recording": "G:\\projects\\mcb\\results\\references\\20261024T150337686462Z\\events.jsonl",
+        "run_id": "qualification-4700f486faa5",
+        "samples": 600,
+        "schema_version": 1,
+        "scored": false,
+        "seconds": 30,
+        "status": "recorded"
+      },
+      "recording_sha256": "3a8162be9f5c97259fd17eed02de626190bc5d27d3d22301a7769d5ea9f23e32",
+      "analyzer_source_sha256": "1e0a40d2415a4a54a18a6aae222c7c745d9f979e378800f9aa27777528a5b96a",
+      "samples_contiguous": true,
+      "comparison": {
+        "fake_strafe_distance": 4.310303387502472,
+        "preexisting_fake_distance_bounds": [
+          3.7,
+          4.7
+        ],
+        "human_windows_within_bounds": true,
+        "human_release_path_distance": 0.25584606790412473,
+        "fake_release_path_distance": 0.16601652709607606,
+        "interpretation": "Side movement falls within existing development bounds; both bodies retain positive travel after release. Acceleration, hold duration and packet/apply timing differ, so distances are not matched-start equivalence proof."
+      }
+    },
+    {
+      "step": "right_strafe_and_release",
+      "summary": {
+        "alignment": "server-observed buttons, client timestamp/network delay unknown",
+        "analysis": {
+          "G1": "not_qualified_by_this_capture",
+          "caveats": "Client/server timing uncertainty; collisions, terrain and sample gaps require review. Sprint button is not authoritative sprint state. Overlapping movement windows are not independent trials; release distances can include other forces and terrain effects",
+          "jump_peak_heights": [],
+          "release_segments": [
+            {
+              "end_tick": 3054275,
+              "horizontal_path_distance": 0.25584568274050695,
+              "start_tick": 3053724
+            }
+          ],
+          "sprint_input_20_tick_distances": [],
+          "strafe_20_tick_distances": {
+            "left": [],
+            "right": [
+              4.175439770344005,
+              4.239790471350336
+            ]
+          },
+          "walk_20_tick_distances": []
+        },
+        "interactions": {
+          "attack_timing_caveat": "Damage and packet intervals alone cannot distinguish attack cooldown from target invulnerability, misses or other damage modifiers",
+          "attacks": [],
+          "block_reach_attributes": [
+            4.5
+          ],
+          "entity_reach_attributes": [
+            3.0
+          ],
+          "mining": [],
+          "mining_interruptions": [],
+          "placements": []
+        },
+        "player": "Osadar932",
+        "recording": "G:\\projects\\mcb\\results\\references\\20261024T150432707506Z\\events.jsonl",
+        "run_id": "qualification-5820063e73a2",
+        "samples": 600,
+        "schema_version": 1,
+        "scored": false,
+        "seconds": 30,
+        "status": "recorded"
+      },
+      "recording_sha256": "737b41bb552d82500a52b2f918c95c19d7d523041c6eb9c489a1c48632082a3c",
+      "analyzer_source_sha256": "1e0a40d2415a4a54a18a6aae222c7c745d9f979e378800f9aa27777528a5b96a",
+      "samples_contiguous": true,
+      "comparison": {
+        "preexisting_fake_strafe_distance_bounds": [
+          3.7,
+          4.7
+        ],
+        "human_windows_within_bounds": true,
+        "interpretation": "Right-strafe windows within existing strafe development bounds; release retains positive travel. Fake proof measured one strafe direction; this is a symmetry reference, not a matched right-strafe experiment."
+      }
+    },
+    {
+      "step": "sprint_input_and_release",
+      "summary": {
+        "alignment": "server-observed buttons, client timestamp/network delay unknown",
+        "analysis": {
+          "G1": "not_qualified_by_this_capture",
+          "caveats": "Client/server timing uncertainty; collisions, terrain and sample gaps require review. Sprint button is not authoritative sprint state. Overlapping movement windows are not independent trials; release distances can include other forces and terrain effects",
+          "jump_peak_heights": [],
+          "release_segments": [
+            {
+              "end_tick": 3055029,
+              "horizontal_path_distance": 0.3325999539340214,
+              "start_tick": 3054562
+            }
+          ],
+          "sprint_input_20_tick_distances": [
+            5.42807204365126,
+            5.511727960233632,
+            5.557404095992941,
+            5.582343269014319,
+            5.59596005906562,
+            5.60339482729726,
+            5.607454211223256,
+            5.609670635104156,
+            5.610880802683822,
+            5.61154155425898,
+            5.33128551651957
+          ],
+          "strafe_20_tick_distances": {
+            "left": [],
+            "right": []
+          },
+          "walk_20_tick_distances": []
+        },
+        "interactions": {
+          "attack_timing_caveat": "Damage and packet intervals alone cannot distinguish attack cooldown from target invulnerability, misses or other damage modifiers",
+          "attacks": [],
+          "block_reach_attributes": [
+            4.5
+          ],
+          "entity_reach_attributes": [
+            3.0
+          ],
+          "mining": [],
+          "mining_interruptions": [],
+          "placements": []
+        },
+        "player": "Osadar932",
+        "recording": "G:\\projects\\mcb\\results\\references\\20261024T150510372268Z\\events.jsonl",
+        "run_id": "qualification-06efdf049f3e",
+        "samples": 600,
+        "schema_version": 1,
+        "scored": false,
+        "seconds": 30,
+        "status": "recorded"
+      },
+      "recording_sha256": "bc49191e247249c4d0267e588a9f2c44f0f40e9b92c8575f402a008ca8e0f697",
+      "analyzer_source_sha256": "1e0a40d2415a4a54a18a6aae222c7c745d9f979e378800f9aa27777528a5b96a",
+      "samples_contiguous": true,
+      "comparison": {
+        "human_window_duration_ticks": 20,
+        "fake_window_duration_ticks": 21,
+        "fake_distance": 5.876576754271355,
+        "preexisting_fake_distance_bounds": [
+          5.3,
+          6.4
+        ],
+        "human_windows_within_bounds": true,
+        "interpretation": "Sprint input accompanies faster movement than ordinary walking. Human 20-tick windows fall in fake 21-tick development bounds, but durations and acceleration differ; not matched-start equivalence or authoritative sprint-state proof."
+      }
+    },
+    {
+      "step": "interrupted_mining",
+      "summary": {
+        "alignment": "server-observed buttons, client timestamp/network delay unknown",
+        "analysis": {
+          "G1": "not_qualified_by_this_capture",
+          "caveats": "Client/server timing uncertainty; collisions, terrain and sample gaps require review. Sprint button is not authoritative sprint state. Overlapping movement windows are not independent trials; release distances can include other forces and terrain effects",
+          "jump_peak_heights": [],
+          "release_segments": [
+            {
+              "end_tick": 3055445,
+              "horizontal_path_distance": 0.2336613414985145,
+              "start_tick": 3055442
+            },
+            {
+              "end_tick": 3055457,
+              "horizontal_path_distance": 0.1776944866933339,
+              "start_tick": 3055448
+            },
+            {
+              "end_tick": 3056187,
+              "horizontal_path_distance": 0.17738255315217155,
+              "start_tick": 3055460
+            }
+          ],
+          "sprint_input_20_tick_distances": [],
+          "strafe_20_tick_distances": {
+            "left": [],
+            "right": []
+          },
+          "walk_20_tick_distances": [
+            4.29378889582973,
+            4.304404394480389,
+            4.310200565487752,
+            4.313364731941715,
+            4.3150917892463925,
+            4.316034304672995,
+            4.3165431124282465
+          ]
+        },
+        "interactions": {
+          "attack_timing_caveat": "Damage and packet intervals alone cannot distinguish attack cooldown from target invulnerability, misses or other damage modifiers",
+          "attacks": [],
+          "block_reach_attributes": [
+            4.5
+          ],
+          "entity_reach_attributes": [
+            3.0
+          ],
+          "mining": [
+            {
+              "block": "minecraft:oak_log",
+              "ticks": 60
+            }
+          ],
+          "mining_interruptions": [
+            {
+              "abort_tick": 3055496,
+              "position": [
+                1000,
+                80,
+                1012
+              ],
+              "start_tick": 3055475,
+              "ticks": 21
+            }
+          ],
+          "placements": []
+        },
+        "player": "Osadar932",
+        "recording": "G:\\projects\\mcb\\results\\references\\20261024T150553255169Z\\events.jsonl",
+        "run_id": "qualification-1325c3d272d4",
+        "samples": 900,
+        "schema_version": 1,
+        "scored": false,
+        "seconds": 45,
+        "status": "recorded"
+      },
+      "recording_sha256": "cfcffb0a369436ad0867c221d68d01a4da91269325dfe552afa7636733635be7",
+      "analyzer_source_sha256": "1e0a40d2415a4a54a18a6aae222c7c745d9f979e378800f9aa27777528a5b96a",
+      "samples_contiguous": true,
+      "comparison": {
+        "human_aborted_ticks": 21,
+        "human_restarted_mining_ticks": 60,
+        "fake_restarted_mining_ticks": 61,
+        "preexisting_fake_acceptance_ticks": [
+          55,
+          110
+        ],
+        "interpretation": "Abort followed by full-duration restart agrees with fake interruption proof. Server packet and fake apply boundaries can differ by a tick; not synchronized client timing."
+      }
+    },
+    {
+      "step": "rapid_and_spaced_attacks",
+      "summary": {
+        "alignment": "server-observed buttons, client timestamp/network delay unknown",
+        "analysis": {
+          "G1": "not_qualified_by_this_capture",
+          "caveats": "Client/server timing uncertainty; collisions, terrain and sample gaps require review. Sprint button is not authoritative sprint state. Overlapping movement windows are not independent trials; release distances can include other forces and terrain effects",
+          "jump_peak_heights": [
+            1.252203340253729,
+            1.252203340253729
+          ],
+          "release_segments": [
+            {
+              "end_tick": 3056400,
+              "horizontal_path_distance": 0.2026763960132435,
+              "start_tick": 3056398
+            },
+            {
+              "end_tick": 3056615,
+              "horizontal_path_distance": 0.25583942454442143,
+              "start_tick": 3056436
+            },
+            {
+              "end_tick": 3056660,
+              "horizontal_path_distance": 0.2522409172177042,
+              "start_tick": 3056649
+            },
+            {
+              "end_tick": 3056676,
+              "horizontal_path_distance": 0.2544369965826928,
+              "start_tick": 3056670
+            },
+            {
+              "end_tick": 3057152,
+              "horizontal_path_distance": 0.24045138196759208,
+              "start_tick": 3056682
+            },
+            {
+              "end_tick": 3057256,
+              "horizontal_path_distance": 0.2256524245855145,
+              "start_tick": 3057253
+            },
+            {
+              "end_tick": 3057267,
+              "horizontal_path_distance": 0.1761758584623276,
+              "start_tick": 3057259
+            },
+            {
+              "end_tick": 3057273,
+              "horizontal_path_distance": 0.08985288426643806,
+              "start_tick": 3057273
+            },
+            {
+              "end_tick": 3057281,
+              "horizontal_path_distance": 0.39101533941904965,
+              "start_tick": 3057280
+            }
+          ],
+          "sprint_input_20_tick_distances": [],
+          "strafe_20_tick_distances": {
+            "left": [],
+            "right": []
+          },
+          "walk_20_tick_distances": []
+        },
+        "interactions": {
+          "attack_timing_caveat": "Damage and packet intervals alone cannot distinguish attack cooldown from target invulnerability, misses or other damage modifiers",
+          "attacks": [
+            {
+              "health_decrement": 1.0,
+              "tick": 3056469,
+              "ticks_since_previous_recorded_attack": null,
+              "within_entity_range": true
+            },
+            {
+              "health_decrement": 0.0,
+              "tick": 3056475,
+              "ticks_since_previous_recorded_attack": 6,
+              "within_entity_range": true
+            },
+            {
+              "health_decrement": 1.0,
+              "tick": 3056652,
+              "ticks_since_previous_recorded_attack": 177,
+              "within_entity_range": true
+            },
+            {
+              "health_decrement": 1.0,
+              "tick": 3056666,
+              "ticks_since_previous_recorded_attack": 14,
+              "within_entity_range": true
+            },
+            {
+              "health_decrement": 0.0,
+              "tick": 3056673,
+              "ticks_since_previous_recorded_attack": 7,
+              "within_entity_range": true
+            },
+            {
+              "health_decrement": 1.0,
+              "tick": 3056684,
+              "ticks_since_previous_recorded_attack": 11,
+              "within_entity_range": true
+            }
+          ],
+          "block_reach_attributes": [
+            4.5
+          ],
+          "entity_reach_attributes": [
+            3.0
+          ],
+          "mining": [],
+          "mining_interruptions": [
+            {
+              "abort_tick": 3056645,
+              "position": [
+                1001,
+                79,
+                1000
+              ],
+              "start_tick": 3056643,
+              "ticks": 2
+            }
+          ],
+          "placements": [
+            {
+              "adjacent_block": "minecraft:dirt",
+              "face": "up",
+              "inventory_decrement": 1,
+              "item": "minecraft:dirt"
+            },
+            {
+              "adjacent_block": "minecraft:dirt",
+              "face": "up",
+              "inventory_decrement": 1,
+              "item": "minecraft:dirt"
+            },
+            {
+              "adjacent_block": "minecraft:dirt",
+              "face": "up",
+              "inventory_decrement": 1,
+              "item": "minecraft:dirt"
+            }
+          ]
+        },
+        "player": "Osadar932",
+        "recording": "G:\\projects\\mcb\\results\\references\\20261024T150647954828Z\\events.jsonl",
+        "run_id": "qualification-fe2d85d82315",
+        "samples": 900,
+        "schema_version": 1,
+        "scored": false,
+        "seconds": 45,
+        "status": "recorded"
+      },
+      "recording_sha256": "c784c7b1227a08743a320e5232d4607718f96f506845ca1eebfd4fbd7a460f57",
+      "analyzer_source_sha256": "1e0a40d2415a4a54a18a6aae222c7c745d9f979e378800f9aa27777528a5b96a",
+      "samples_contiguous": true,
+      "comparison": {
+        "initial_damage_sequence": [
+          1.0,
+          0.0,
+          1.0
+        ],
+        "initial_attack_intervals_ticks": [
+          null,
+          6,
+          177
+        ],
+        "interpretation": "In-range rapid attacks show 1 then 0 damage, with a later 1-damage hit. Direct human attack-strength telemetry is absent, so target invulnerability and cooldown cannot be separated. Additional jumps and placements remain in the summary."
+      }
+    }
+  ],
+  "guided_steps_complete": true,
+  "total_samples": 3600,
+  "remaining": "Full C0 terrain, reach, knockback/death comparisons, direct sprint/cooldown telemetry and capability/timing review",
+  "mod_provenance_at_capture": {
+    "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "8868199948104027a9a15d17c4d74295e2e687f7a492d56ca2b6a7ea308f3c09",
+    "schema_version": 1,
+    "source_hash": "8b4d2a8b339dd24d554cad27901aa7d2d2a1f1d3af4870c012eb78996be80bc8"
+  },
+  "combat_retest": "completed_with_backstop_and_direct_attack_strength",
+  "combat_retest_evidence": "docs/G1_COMBAT_WALL_PROOF.json"
+}
