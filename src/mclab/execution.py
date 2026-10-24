@@ -272,8 +272,10 @@ def record_pending_policy(client: Bridge):
 def run_controller(client: Bridge, wall_timeout: float = 90) -> dict:
     try:
         return _drive_controller(client, wall_timeout)
-    except ControllerFailure as error:
+    except (ControllerFailure, TimeoutError) as error:
         client.record("controller_error", {"error": str(error)})
+        if terminal_event(client) is not None:
+            return terminal_event(client)
         request = client.send("course_end", reason="controller_execution_error")
         client.acknowledge(request, "received")
         client.wait(lambda _state: terminal_event(client) is not None)
@@ -284,6 +286,7 @@ def _drive_controller(client: Bridge, wall_timeout: float) -> dict:
     controller = C1Controller()  # No memory survives an episode boundary.
     deadline = time.monotonic() + wall_timeout
     action_index = 0
+    discarded_stale = 0
     while time.monotonic() < deadline:
         observation = policy_state(client)
         terminal = terminal_event(client)
@@ -335,9 +338,25 @@ def _drive_controller(client: Bridge, wall_timeout: float) -> dict:
             None,
         )
         if rejected is not None and terminal_event(client) is None:
-            raise ControllerFailure(
-                "Controller action rejected: " + rejected["data"]["reason"]
-            )
+            reason = rejected["data"]["reason"]
+            if reason in {"late_or_distant_action", "stale_or_mistimed_action"}:
+                discarded_stale += 1
+                client.record(
+                    "discarded_stale_action",
+                    {
+                        "request_sequence": request["sequence"],
+                        "reason": reason,
+                        "count": discarded_stale,
+                        "limit": 3,
+                    },
+                )
+                if discarded_stale <= 3:
+                    # Discard this command permanently. Release, then the next
+                    # loop senses and decides afresh under the same tick budget.
+                    release = client.send("release")
+                    client.acknowledge(release, "received")
+                    continue
+            raise ControllerFailure("Controller action rejected: " + reason)
     request = client.send("course_end", reason="controller_wall_deadline")
     client.acknowledge(request, "received")
     client.wait(lambda _state: terminal_event(client) is not None)
@@ -383,7 +402,8 @@ def _qualify_execution(count: int, *, development: bool) -> dict:
     configuration = {
         "schema_version": 1,
         "controller": "deterministic-c1-v1",
-        "timing_profile": "c1-three-tick-async-recorder-v3",
+        "timing_profile": "c1-three-tick-bounded-resense-v4",
+        "maximum_discarded_stale_actions": 3,
         "intended_apply_offset_ticks": 3,
         "action_duration_ticks": 5,
         "wall_watchdog_seconds": 90,

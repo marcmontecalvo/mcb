@@ -119,7 +119,7 @@ def test_text_request_sequence_rejection_is_controller_failure(monkeypatch):
                     "type": "rejected",
                     "data": {
                         "request_sequence": "1",
-                        "reason": "late_or_distant_action",
+                        "reason": "course_forbidden_control",
                     },
                 }
             ]
@@ -133,7 +133,7 @@ def test_text_request_sequence_rejection_is_controller_failure(monkeypatch):
         "policy_state",
         lambda _, **_kwargs: {**observation(), "state": "running"},
     )
-    with pytest.raises(execution.ControllerFailure, match="late_or_distant_action"):
+    with pytest.raises(execution.ControllerFailure, match="course_forbidden_control"):
         execution._drive_controller(Client(), 1)
 
 
@@ -168,6 +168,59 @@ def test_large_policy_audit_can_be_deferred_without_retimestamping_observation()
     assert kind == "policy_observation" and recorded["tick"] == 1
     assert recorded["captured_monotonic_ns"] == captured
     assert client.pending_policy is None
+
+
+def test_stale_controls_are_discarded_with_fresh_decisions_and_bounded_recovery(
+    monkeypatch,
+):
+    from mclab import execution
+
+    class Client:
+        run_id, episode_id, body_id = "run", "episode", "body"
+        events, controls, releases, discarded = [], [], [], []
+        sequence = 0
+
+        def send(self, op, **fields):
+            self.sequence += 1
+            if op == "controls":
+                self.controls.append(fields["controls"])
+                self.events.append(
+                    {
+                        "type": "rejected",
+                        "data": {
+                            "request_sequence": str(self.sequence),
+                            "reason": "late_or_distant_action",
+                        },
+                    }
+                )
+            else:
+                assert op == "release"
+                self.releases.append(self.sequence)
+            return {"sequence": self.sequence}
+
+        def record(self, kind, payload):
+            if kind == "discarded_stale_action":
+                self.discarded.append(payload)
+
+        def acknowledge(self, *_args):
+            pass
+
+        def wait(self, predicate, timeout):
+            assert predicate({})
+
+    ticks = iter(range(1, 10))
+    monkeypatch.setattr(
+        execution,
+        "policy_state",
+        lambda _, **_kw: {**observation(), "tick": next(ticks), "state": "running"},
+    )
+    client = Client()
+    with pytest.raises(execution.ControllerFailure, match="late_or_distant_action"):
+        execution._drive_controller(client, 1)
+    assert [c["observation_tick"] for c in client.controls] == [1, 2, 3, 4]
+    assert len({c["action_id"] for c in client.controls}) == 4
+    assert len(client.releases) == 3
+    assert [d["count"] for d in client.discarded] == [1, 2, 3, 4]
 
 
 def test_async_recording_flush_preserves_sequence_identity_and_durable_events(
