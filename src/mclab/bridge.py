@@ -1,9 +1,10 @@
 """Authenticated qualification transport; never exposes its token in recordings."""
 
+import http.client
+import io
 import json
 import time
 import urllib.error
-import urllib.request
 from pathlib import Path
 from uuid import uuid4
 
@@ -17,6 +18,9 @@ class Bridge:
         self.launch_id = state["launch_id"]
         self._token = state["token"]
         self.root = f"http://127.0.0.1:{config()['bridge_port']}"
+        self._connection = http.client.HTTPConnection(
+            "127.0.0.1", config()["bridge_port"], timeout=4
+        )
         self.run_id = "qualification-" + uuid4().hex[:12]
         self.episode_id = "proof-" + uuid4().hex[:12]
         self.body_id = "body-" + uuid4().hex[:12]
@@ -68,19 +72,36 @@ class Bridge:
         )
 
     def http(self, path: str, payload: dict | None = None) -> dict:
-        request = urllib.request.Request(
-            self.root + path,
-            method="GET" if payload is None else "POST",
-            data=None
-            if payload is None
-            else json.dumps(payload, allow_nan=False).encode(),
-            headers={
-                "Authorization": "Bearer " + self._token,
-                "Content-Type": "application/json",
-            },
+        body = (
+            None if payload is None else json.dumps(payload, allow_nan=False).encode()
         )
-        with urllib.request.urlopen(request, timeout=4) as response:
-            value = json.load(response)
+        try:
+            # Fully consume each response so the next poll can reuse its socket.
+            # A failed request is never retried: its admission may be ambiguous.
+            self._connection.request(
+                "GET" if payload is None else "POST",
+                path,
+                body=body,
+                headers={
+                    "Authorization": "Bearer " + self._token,
+                    "Content-Type": "application/json",
+                },
+            )
+            response = self._connection.getresponse()
+            with response:
+                data = response.read()
+        except (OSError, http.client.HTTPException) as error:
+            self._connection.close()
+            raise urllib.error.URLError(error) from error
+        if not 200 <= response.status < 300:
+            raise urllib.error.HTTPError(
+                self.root + path,
+                response.status,
+                response.reason,
+                response.headers,
+                io.BytesIO(data),
+            )
+        value = json.loads(data)
         if value.get("launch_id") != self.launch_id:
             raise RuntimeError("Bridge belongs to a different launch")
         return value
@@ -192,4 +213,5 @@ class Bridge:
         )
 
     def close(self):
+        self._connection.close()
         self.stream.close()
