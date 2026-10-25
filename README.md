@@ -247,6 +247,11 @@ same `uv run --env-file .env --locked` prefix. Its configured 40-call cap and $1
 cost ceiling are checked before any live batch. See [Jev evidence](docs/G4_JEV_PROOF.json)
 for the 23-call initial experiment and provider-reported charges.
 
+Upcoming model comparisons and deferred vision work are tracked in the
+[experiment queue](docs/EXPERIMENT_QUEUE.md). The gpu-docker bearer token belongs
+in ignored `.env` as `GPU_DOCKER_API_KEY`; its endpoint and exact model are pending
+discovery before any qualification claim.
+
 `experiments plan` freezes a development layout inventory without changing the
 active world. C3/C4 need more distinct geometry and C5 needs a generator. Offline
 states can be exported with `experiments export-screening --recording <JSONL>

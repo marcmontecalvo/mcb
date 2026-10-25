@@ -14,6 +14,10 @@ chat readiness passed. See [live integration](G4_LIVE_INTEGRATION.md) and
 [hash-bound live proof](G4_LIVE_PROOF.json).
 The original `Minecraft_AI_Technical_Handoff.md` remains unchanged.
 
+Next: test the user-requested Qwen3 service on gpu-docker/RTX 5060 Ti once its
+endpoint and credential are available. The Jev image/Box screen is queued for
+later. See [experiment queue](EXPERIMENT_QUEUE.md) for scope and comparison rules.
+
 ## Runtime and qualification
 
 | Item | Current evidence |

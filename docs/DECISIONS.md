@@ -48,9 +48,10 @@ state, restrictions, drops, or scored reset determinism. Launch IDs reject stale
 evidence from earlier server processes. Human presence and human inspection are
 separate facts.
 
-Course manifests remain evaluator-only. There is no policy input pipeline yet.
-Unknown cells, ray casting and permitted observation construction are future body
-milestones. Do not expose these manifests to decision backends.
+Course manifests remain evaluator-only. The G2-qualified local-visibility-v1
+pipeline exposes occlusion-tested observed geometry and body state; unknown cells
+remain unknown. Tactical inputs derive solely from this permitted policy stream.
+Do not expose evaluator manifests to decision backends.
 
 ## Qualified scope and next gates
 
@@ -88,7 +89,9 @@ G3 passed: the final deterministic perception-goal C1 profile completed ten of t
 attempts. Its causal chains, complete policy ticks and source/configuration hashes
 were audited; earlier failed configurations remain in the report. Provider Choice/chat
 adapters have bounded requests/deadlines, zero retries and sanitized exchanges;
-real readiness is unproven without configured endpoints. Upstream jevtests files
+Atom Qwen chat and hosted OpenRouter Jev have passed real probes and C1 live
+development attempts (see G4_LIVE_INTEGRATION.md). G4 remains open for a local
+SystemOne candidate and broader independent screening. Upstream jevtests files
 are reference-only (no root license found); no implementation was copied.
 Baritone v1.20.0 artifact/API is pinned, without a client bridge or live trial.
 
@@ -96,7 +99,9 @@ Development planning counts physical layouts rather than seeds: C2 has at least
 25 unique variants, C3 only three and C4 one; C5 is not generated. Those later
 courses remain unqualified. Offline exports contain actual filtered observations
 with pending independent action labels. They are not synchronized demonstrations;
-training and fresh holdout evaluation remain pending. No paid traffic has run.
+training and fresh holdout evaluation remain pending. The authorized hosted Jev
+experiment made23 paid calls with settled usage of .000637602; the verified
+wallet/key cap is . See G4_JEV_PROOF.json and EXPERIMENT_QUEUE.md.
 
 Synchronous Python audit serialization interrupted motor renewal and exposed
 stale-action failures. Those scored batches are preserved. The event writer now
