@@ -340,7 +340,9 @@ class NavigationController:
                 for n in nodes
                 if math.hypot(n[0] + 0.5 - destination[0], n[2] + 0.5 - destination[2])
                 < 0.8
-                and -0.25 <= destination[1] - n[1] <= 2.25
+                # A falling item's last visible position can be just below a
+                # crest. That crest cannot collect it after it lands beneath it.
+                and 0 <= destination[1] - n[1] <= 2.25
             }
         elif self.target is not None:
             goals = {

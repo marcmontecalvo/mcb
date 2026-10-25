@@ -196,7 +196,7 @@ def _run(course, seeds, *, reset_only, scored):
         "schema_version": 1,
         "controller": "navigation-reset-verifier"
         if reset_only
-        else "deterministic-navigation-v7",
+        else "deterministic-navigation-v8",
         "suite": "navigation_reset_v1" if reset_only else "navigation_execution_v1",
         "course_id": course,
         "seeds": seeds,

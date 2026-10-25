@@ -274,14 +274,15 @@ def test_collection_approaches_known_crest_edge_to_reveal_the_drop_floor():
     assert abs(landing[2] + 0.5 - controller.drop[2]) < 0.8
 
 
-def test_collection_goal_on_the_platform_above_a_drop_is_rejected():
+@pytest.mark.parametrize("drop_height", [80.0, 80.78030425160983, 80.99])
+def test_collection_goal_on_the_platform_above_a_drop_is_rejected(drop_height):
     controller = NavigationController()
     cells = world()
     for z in (0, 1):
         cells[0, 80, z] = cell(0, 80, z, "minecraft:stone")
     controller.cells = cells
     controller.broken = True
-    controller.drop = [0.5, 80.0, 2.1]
+    controller.drop = [0.5, drop_height, 2.1]
     body = observation(position=[0.5, 81, 0.5])["body"]
     assert controller._route(body)[-1] == (0, 80, 2)
 
