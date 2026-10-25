@@ -1,4 +1,4 @@
-# Setup status — October 24, 2026
+# Setup status — October 25, 2026
 
 **G0–G3 passed for the frozen initial C1 scope.** The final deterministic
 perception-goal configuration completed **10/10 scored attempts**, each with a
@@ -6,7 +6,8 @@ verified causal break/drop/pickup chain and complete per-tick policy recording.
 Completion took 128–141 ticks (median 132). Three stale controls were discarded
 and regenerated from fresh observations within the declared recovery limit.
 Earlier failed/invalid scored configurations remain in the all-attempt report.
-G4 is in progress; G5–G8 are unqualified. Total inference calls: **347**
+G5 passed for deterministic C2–C5 development navigation. G4 remains in progress;
+G6–G8 are unqualified. Total inference calls: **347**
 (18 provider probes +130 live calls +199 screening calls).
 The final compact-JSON tactical configuration completed **3/3 C1 seed0 development
 attempts**; all Atom Qwen live configurations total **3/5**. Directory authentication and
@@ -32,6 +33,28 @@ OpenRouter settled usage is now $0.004482366 including this screen.
 
 ## Runtime and qualification
 
+The project resumed on D:\mcb after the disk-space interruption. The moved
+toolchain passed doctor; Python launchers and installed-mod path metadata were
+refreshed. Navigation v4 completed **C2 20/20, C3 20/20, C4 19/20, C5 16/20**;
+raw source, timing, causal UUID chains, policy ticks and SQLite outcomes were
+audited. C5 missed the per-course criterion. V8's corrected collection/aiming
+candidate then passed **80/80** on one frozen execution stack: 20/20 each for
+C2, C3, C4 and C5, with persistent HTTP and between-episode GC. The raw audit
+passed source/profile binding, three-tick applied ages, five-tick controls,
+causal chains, resets/cleanup, complete policy ticks and SQLite agreement.
+This qualifies deterministic development navigation, with no model or holdout
+claim. See [current evidence](G5_NAVIGATION_PROOF.json),
+[baseline evidence](G5_DEFAULT_GC_BASELINE.json)
+and [the current autonomous handoff](AUTONOMOUS_RUN.md). No new provider requests
+were made during this continuation.
+
+The repaired recorder and persistent transport also passed **10/10** frozen C1
+regression attempts (127–187 ticks, median 129.5), with complete causal chains,
+policy ticks, timing and ledger/source checks. See
+[post-move regression](C1_DRIVE_MOVE_REGRESSION.json); the original G3 proof is
+retained. C1 was reset afterward, aggregate reports refreshed, and the server
+stopped cleanly. Doctor passes with all three loopback ports available.
+
 | Item | Current evidence |
 | --- | --- |
 | Python | Project-local CPython 3.12.13 and locked uv environment |
@@ -40,7 +63,7 @@ OpenRouter settled usage is now $0.004482366 including this screen.
 | Minecraft | Java 26.3, protocol 777, authenticated mode, Survival |
 | Mods | Fabric Loader 0.19.5, API 0.164.0+26.3, pinned Carpet v26.3 |
 | Network | Loopback game 127.0.0.1:25575; authenticated bridge 8765 and supervisor 8766 |
-| Python checks | 167 tests pass; Ruff lint and formatting pass |
+| Python checks | 255 tests pass; Ruff lint and formatting pass |
 | Java checks | Mod build and pure geometry verifier pass |
 | G1 live suites | 39 body checks, 24 protocol checks, 12 reference-fixture checks |
 | G2 reset foundation | 20 consecutive identical state digests; teardown confirmed |
@@ -156,7 +179,7 @@ and covered by a regression test, with its invalid attempt also retained.
 
 The recorder uses SQLite schema v1 plus JSONL, complete versioned event payloads,
 per-tick body/policy events and periodic observed-map snapshots/deltas. A bounded
-64-record writer queue keeps serialization/disk I/O off the motor loop and
+2304-record writer queue keeps serialization/disk I/O off the motor loop and
 invalidates missing critical recordings before finalization. Pending
 attempts after a crash become interrupted. One OS arena lock covers execution,
 reset, reference and mechanics runners. Body profile, native mod source, sensor and course-specification drift block scored runs.

@@ -65,6 +65,14 @@
     "attempts": 10,
     "controller_sha256": "7dd1e6834659db527c2aeb295bce9dcdd161a3b3dd682fe5c77d5a1048f203f9",
     "course_spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
+    "current_recorder_regression": {
+      "attempts": 10,
+      "date": "2026-10-25",
+      "evidence": "docs/C1_DRIVE_MOVE_REGRESSION.json",
+      "run_id": "qualification-5b0e023ccd53",
+      "status": "passed",
+      "successes": 10
+    },
     "date": "2026-10-24",
     "evidence": "docs/G3_EXECUTION_PROOF.json",
     "limitations": "No later-course, model, learned-policy or holdout qualification",
@@ -90,21 +98,44 @@
     "status": "in_progress"
   },
   "G5": {
-    "controller_sha256": "20a027764c6fb6c63547d9f0b1a6cdad8d3e6c5e92a65ef9b436e102ea92dbc2",
+    "attempts": 80,
+    "controller": "deterministic-navigation-v8",
+    "controller_sha256": "1fb522d90e31ddf3f9b9a249512e6cc5114ac8d24e772e8f8106ac6439691395",
     "courses": {
       "C2": {
-        "status": "not_run_current_configuration"
+        "attempts": 20,
+        "run_id": "qualification-1999d1eb4f8e",
+        "successes": 20,
+        "summary": "results\\navigation\\20261025T200547002259Z\\summary.json",
+        "unique_layouts": 20,
+        "valid_recording": true
       },
       "C3": {
-        "status": "not_run_current_configuration"
+        "attempts": 20,
+        "run_id": "qualification-e80a0f1dd468",
+        "successes": 20,
+        "summary": "results\\navigation\\20261025T201746203189Z\\summary.json",
+        "unique_layouts": 20,
+        "valid_recording": true
       },
       "C4": {
-        "status": "not_run_current_configuration"
+        "attempts": 20,
+        "run_id": "qualification-863e546fb8f4",
+        "successes": 20,
+        "summary": "results\\navigation\\20261025T202555626912Z\\summary.json",
+        "unique_layouts": 20,
+        "valid_recording": true
       },
       "C5": {
-        "status": "not_run_current_configuration"
+        "attempts": 20,
+        "run_id": "qualification-b792d7d3ba13",
+        "successes": 20,
+        "summary": "results\\navigation\\20261025T195504621562Z\\summary.json",
+        "unique_layouts": 20,
+        "valid_recording": true
       }
     },
+    "date": "2026-10-25",
     "default_gc_courses": {
       "C2": {
         "attempts": 20,
@@ -127,12 +158,15 @@
         "successes": 16
       }
     },
-    "evidence": "docs/G5_DEFAULT_GC_BASELINE.json",
+    "evidence": "docs/G5_NAVIGATION_PROOF.json",
+    "execution_stack_sha256": "5ae5c8a29d61d832c3debaa3846d4876f274f97b9ef37084d8cc010341acc92c",
     "harness_profile": "cyclic_collection_between_episodes_v1",
     "implementation_boundary": "docs/NAVIGATION_IMPLEMENTATION.md",
+    "limitations": "Development layouts only; G4 model comparison, learned policy, Baritone, construction and holdouts remain separate",
     "preparation": "docs/G5_GENERATOR_PREPARATION.json",
-    "scope": "V4 baseline below C5 criterion; V7 current-eye aiming and collection candidate with between-episode GC remains unqualified",
-    "status": "in_progress"
+    "scope": "Deterministic C2-C5 development navigation; no model, learned policy or holdout claim",
+    "status": "passed",
+    "successes": 80
   },
   "G6": {
     "status": "not_run"

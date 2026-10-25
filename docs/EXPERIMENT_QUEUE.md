@@ -1,9 +1,9 @@
 # Experiment queue
 
-Updated October 24, 2026. Queue entries are plans, not qualification evidence.
+Updated October 25, 2026. Queue entries are plans, not qualification evidence.
 Current gate results remain in `gates.json`.
 
-## Current: screening complete for Jev; navigation qualification next
+## Current: native navigation development qualification
 
 The [48-state synthetic screen](G4_SCREENING.md) completed 144 option-order cases
 for Jev: 141 correct, one wrong choice and two rejected probability sums. It does
@@ -16,10 +16,16 @@ admission failures; do not label them isolated model speed measurements.
 
 C3–C5 generators now each have 25 distinct physical geometries; C2 also has 25
 development layouts including facing variation. The old frozen plan remains.
-[Navigation implementation](NAVIGATION_IMPLEMENTATION.md) lists the native
-reset/rotation, separately scoped body profile, motor and regression work before
-G5 can run. A local SystemOne endpoint and the dedicated Baritone client bridge
-remain outstanding. No course/profile gate was widened by generator preparation.
+[Navigation implementation](NAVIGATION_IMPLEMENTATION.md) describes the completed
+reset/rotation and separately scoped body profile. The v4 baseline completed
+C2 20/20, C3 20/20, C4 19/20, C5 16/20 with valid raw audits; C5 missed the
+criterion. The V8 candidate adds collection/aiming fixes, between-episode GC and
+persistent HTTP. Its matched full matrix passed **80/80**, 20/20 per course, and
+all raw audits passed on a uniform frozen stack. G5's deterministic development
+criterion is complete. See [current evidence](G5_NAVIGATION_PROOF.json),
+[baseline evidence](G5_DEFAULT_GC_BASELINE.json) and the run ledger in
+[the autonomous handoff](AUTONOMOUS_RUN.md). A local SystemOne endpoint and the
+dedicated Baritone client bridge remain outstanding. No holdout has been consumed.
 
 ## Tested: gpu-docker Qwen3 on RTX 5060 Ti
 

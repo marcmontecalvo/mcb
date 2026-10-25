@@ -1,0 +1,324 @@
+{
+  "applied_control_count": 449,
+  "applied_observation_ages": [
+    3
+  ],
+  "attempts": 10,
+  "auditor": "D:\\mcb\\results\\validation\\audit_c1_drive_move.py",
+  "auditor_sha256": "576b892aad71bacb809ea2b5f571a909cf2071a7f722bbc06938e9aa1ce32cee",
+  "checks": {
+    "all_episode_evidence_complete": true,
+    "applied_controls_match_timing": true,
+    "cleanup_native_acknowledged": true,
+    "completed_scored_C1": true,
+    "critical_record_counts_match": true,
+    "current_stack_matches_snapshot": true,
+    "declared_counts_match": true,
+    "fresh_body_identities": true,
+    "no_cleanup_or_recording_error": true,
+    "original_C1_specification": true,
+    "record_sequences_contiguous": true,
+    "run_and_body_identities_match": true,
+    "source_snapshots_match": true,
+    "sqlite_outcomes_match": true
+  },
+  "controller_sha256": "dc66f58d382701b3795dff0b31513905c2ecc752ce5bf5b975a39cc524da028e",
+  "course_spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
+  "episodes": [
+    {
+      "applied_controls": 43,
+      "causal_chain": [
+        {
+          "drop_uuid": "b8382728-2eca-4e16-b322-9b5af8dbcf5d",
+          "milestone": "causal_drop_created"
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ]
+        },
+        {
+          "drop_uuid": "b8382728-2eca-4e16-b322-9b5af8dbcf5d",
+          "milestone": "target_collected"
+        }
+      ],
+      "causal_chain_verified": true,
+      "duration_ticks": 127,
+      "episode_id": "episode-a792c1f6b056",
+      "policy_ticks_missing": 0,
+      "reset_verified": true,
+      "status": "success",
+      "terminal_matches": true
+    },
+    {
+      "applied_controls": 43,
+      "causal_chain": [
+        {
+          "drop_uuid": "f3baa419-25ea-4f7f-bf40-bb0035d34e7d",
+          "milestone": "causal_drop_created"
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ]
+        },
+        {
+          "drop_uuid": "f3baa419-25ea-4f7f-bf40-bb0035d34e7d",
+          "milestone": "target_collected"
+        }
+      ],
+      "causal_chain_verified": true,
+      "duration_ticks": 128,
+      "episode_id": "episode-ea546f3260a7",
+      "policy_ticks_missing": 0,
+      "reset_verified": true,
+      "status": "success",
+      "terminal_matches": true
+    },
+    {
+      "applied_controls": 43,
+      "causal_chain": [
+        {
+          "drop_uuid": "a54e3d53-e25b-4a11-83cb-7b69a6aa7d55",
+          "milestone": "causal_drop_created"
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ]
+        },
+        {
+          "drop_uuid": "a54e3d53-e25b-4a11-83cb-7b69a6aa7d55",
+          "milestone": "target_collected"
+        }
+      ],
+      "causal_chain_verified": true,
+      "duration_ticks": 129,
+      "episode_id": "episode-6f460549c4ed",
+      "policy_ticks_missing": 0,
+      "reset_verified": true,
+      "status": "success",
+      "terminal_matches": true
+    },
+    {
+      "applied_controls": 43,
+      "causal_chain": [
+        {
+          "drop_uuid": "a2c1b78d-ee03-4dbd-9d30-89ed7243cf7b",
+          "milestone": "causal_drop_created"
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ]
+        },
+        {
+          "drop_uuid": "a2c1b78d-ee03-4dbd-9d30-89ed7243cf7b",
+          "milestone": "target_collected"
+        }
+      ],
+      "causal_chain_verified": true,
+      "duration_ticks": 129,
+      "episode_id": "episode-9ed0c9ba8381",
+      "policy_ticks_missing": 0,
+      "reset_verified": true,
+      "status": "success",
+      "terminal_matches": true
+    },
+    {
+      "applied_controls": 42,
+      "causal_chain": [
+        {
+          "drop_uuid": "21332049-2708-4fdf-b974-48835cc022ff",
+          "milestone": "causal_drop_created"
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ]
+        },
+        {
+          "drop_uuid": "21332049-2708-4fdf-b974-48835cc022ff",
+          "milestone": "target_collected"
+        }
+      ],
+      "causal_chain_verified": true,
+      "duration_ticks": 129,
+      "episode_id": "episode-d99f68fa1124",
+      "policy_ticks_missing": 0,
+      "reset_verified": true,
+      "status": "success",
+      "terminal_matches": true
+    },
+    {
+      "applied_controls": 43,
+      "causal_chain": [
+        {
+          "drop_uuid": "d4e0fbb5-0396-45b2-af34-c9a7eee24b78",
+          "milestone": "causal_drop_created"
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ]
+        },
+        {
+          "drop_uuid": "d4e0fbb5-0396-45b2-af34-c9a7eee24b78",
+          "milestone": "target_collected"
+        }
+      ],
+      "causal_chain_verified": true,
+      "duration_ticks": 130,
+      "episode_id": "episode-436d3155c751",
+      "policy_ticks_missing": 0,
+      "reset_verified": true,
+      "status": "success",
+      "terminal_matches": true
+    },
+    {
+      "applied_controls": 42,
+      "causal_chain": [
+        {
+          "drop_uuid": "86097e29-2e23-46e0-88de-ca8c46a6c019",
+          "milestone": "causal_drop_created"
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ]
+        },
+        {
+          "drop_uuid": "86097e29-2e23-46e0-88de-ca8c46a6c019",
+          "milestone": "target_collected"
+        }
+      ],
+      "causal_chain_verified": true,
+      "duration_ticks": 133,
+      "episode_id": "episode-f75866a123ef",
+      "policy_ticks_missing": 0,
+      "reset_verified": true,
+      "status": "success",
+      "terminal_matches": true
+    },
+    {
+      "applied_controls": 43,
+      "causal_chain": [
+        {
+          "drop_uuid": "5270ae02-2a6b-4951-a11a-3d85a226240b",
+          "milestone": "causal_drop_created"
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ]
+        },
+        {
+          "drop_uuid": "5270ae02-2a6b-4951-a11a-3d85a226240b",
+          "milestone": "target_collected"
+        }
+      ],
+      "causal_chain_verified": true,
+      "duration_ticks": 137,
+      "episode_id": "episode-60143d23122d",
+      "policy_ticks_missing": 0,
+      "reset_verified": true,
+      "status": "success",
+      "terminal_matches": true
+    },
+    {
+      "applied_controls": 47,
+      "causal_chain": [
+        {
+          "drop_uuid": "590b6b80-0ca6-4a13-aa98-79df3271860c",
+          "milestone": "causal_drop_created"
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ]
+        },
+        {
+          "drop_uuid": "590b6b80-0ca6-4a13-aa98-79df3271860c",
+          "milestone": "target_collected"
+        }
+      ],
+      "causal_chain_verified": true,
+      "duration_ticks": 150,
+      "episode_id": "episode-4454d11f3c47",
+      "policy_ticks_missing": 0,
+      "reset_verified": true,
+      "status": "success",
+      "terminal_matches": true
+    },
+    {
+      "applied_controls": 60,
+      "causal_chain": [
+        {
+          "drop_uuid": "6fec9fd6-f3ea-409a-ad8f-72787dd5e182",
+          "milestone": "causal_drop_created"
+        },
+        {
+          "milestone": "target_broken",
+          "position": [
+            1000,
+            80,
+            1012
+          ]
+        },
+        {
+          "drop_uuid": "6fec9fd6-f3ea-409a-ad8f-72787dd5e182",
+          "milestone": "target_collected"
+        }
+      ],
+      "causal_chain_verified": true,
+      "duration_ticks": 187,
+      "episode_id": "episode-e75a5f643f42",
+      "policy_ticks_missing": 0,
+      "reset_verified": true,
+      "status": "success",
+      "terminal_matches": true
+    }
+  ],
+  "mod_provenance": {
+    "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "77d33e311001312b6b3165e5adf36ae7b95ce872bd4fe82cd9a14857b58dec88",
+    "schema_version": 1,
+    "source_hash": "622e336121da10bd2fb1f3140c6ceef23c0cc43452745c003a874af9373dec4d"
+  },
+  "profile_hash": "86b75129117caac0c325f992276a32c801abaad26d5ee2205ee4c1ff3f71f261",
+  "recording_sha256": "5775c9f7fa580726a007548f36499d46ee0a57a3f2e63ac6010470103d8dae9c",
+  "run_id": "qualification-5b0e023ccd53",
+  "schema_version": 1,
+  "scope": "Frozen C1 seed-0 regression after drive move, recorder repair and persistent HTTP; original G3 evidence retained",
+  "status": "passed",
+  "successes": 10,
+  "summary": "results\\execution\\20261025T204029446655Z\\summary.json",
+  "summary_sha256": "f8e4df24c80a1076fc453d6ec072199a1039a44bf09c0b4708d7dcff95232961"
+}

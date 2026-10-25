@@ -233,11 +233,20 @@ The contestant discovers a log by its visible ordinary block identity.
 `policy_sample` records self state each running server tick, native MSPT, and full
 visible maps when refreshed (`map_update`). Python records model-visible snapshots,
 periodic map-memory full snapshots/deltas, actions and apply times, errors and
-resources in JSONL and SQLite schema v1. A bounded 64-record queue moves JSON
+resources in JSONL and SQLite schema v1. A bounded 2304-record queue moves JSON
 serialization and event database writes off the motor loop. The writer owns its
 SQLite connection; identifiers, sequence and monotonic capture time are assigned
 before enqueue. Critical queue overflow, disk failure or flush/shutdown failure
 invalidates the attempt/run. Recording failure cannot promote a native success.
+The queue holds one complete 2048-event native poll plus local/in-flight records.
+The HTTP transport consumes responses fully and reuses its authenticated loopback
+connection, preventing polling from exhausting Windows temporary TCP ports.
+There is no automatic retry of a command whose admission may be ambiguous.
+HTTP failures retain their status code; launch identity is checked per response.
+The writer commits at most 128 already queued records in one transaction; flush
+acknowledges that batch only after its commit. New databases use WAL. Navigation
+runs have separate `results/navigation/<run>/episodes.sqlite3` ledgers; reports
+aggregate them with the historical/shared `results/episodes.sqlite3` ledger.
 Flush completes before an episode is finalized. OS locking prevents concurrent runner
 recovery. Pending attempts after a crash become interrupted; no half-modified
 episode resumes. Replay is event/map inspection, not bit-exact simulation.

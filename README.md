@@ -105,7 +105,10 @@ and complete requalification.
   serialized off-thread; includes launch ID, specification hash and mismatch counts.
 - `results/generated/`: reproduction specifications and functions.
 - `results/doctor.json`: local environment checks.
-- `results/episodes.sqlite3`: every development/scored attempt and full event payloads.
+- `results/episodes.sqlite3`: shared C1/model and historical navigation ledger.
+- `results/navigation/<run>/episodes.sqlite3`: isolated new navigation ledgers,
+  including every attempted outcome and full event payloads. Reports aggregate
+  these with the shared ledger; pending attempts are recovered as interrupted.
 - `results/execution/`: controller provenance, JSONL and terminal summaries.
 - `results/reports/initial.{md,csv,json}` and `episodes.csv`: all scored denominators
   plus separately labeled development/adversarial attempts.
@@ -182,6 +185,37 @@ warms it and compares authoritative terrain/body digests. Each attempt is record
 in JSONL and `results/reset_checks.sqlite3`. The live 20-reset run matched one state
 digest throughout. Policy admission stays closed until an explicit `course_begin`
 revalidates terrain/body state. This command itself runs no scored episodes.
+
+## Navigation development
+
+The separate `navigation-c2-c5-survival-v1` profile inherits the qualified C1
+physics. Its reset qualification is in `docs/NAVIGATION_QUALIFICATION.json`;
+execution results and raw audits are in `docs/G5_NAVIGATION_PROOF.json`.
+The frozen v8 baseline passed 20/20 distinct development layouts per course
+(80/80 total), with complete raw audits. This is deterministic navigation evidence;
+model comparisons, learned policies and holdouts remain separate.
+The motor uses local observed-map memory, committed routes, fresh support checks
+and level-path lookahead. It plans clear mining viewpoints and approaches
+observed drops over known support. It is a deterministic baseline. Cyclic garbage
+collection is scheduled between episodes, with the policy recorded per run.
+The bridge reuses an authenticated HTTP connection during polling; transport
+failures invalidate attempts without retrying potentially admitted commands.
+
+With the server reporting `running`, run one development batch at a time:
+
+```powershell
+rtk proxy uv run --locked python -c "from mclab.navigation_runner import execute; r=execute('C2',list(range(5,25)),scored=True); print(r['status'],r['successes'],r['attempted_episodes'],r['recording'])"
+rtk proxy uv run --locked python -m mclab.navigationproof --help
+```
+
+Use C2, C3, C4 or C5. Seeds 5–24 are the paired development set, not holdouts.
+Smoke seeds are 101–105. Restart before exceeding 32 retained body identities;
+a five-attempt smoke plus a twenty-attempt batch uses 27 including cleanup.
+Each batch restores C1 and saves a `summary.json`, JSONL and SQLite ledger.
+Pass completed summary paths to the audit command with `--output`; invalid
+evidence exits nonzero. A valid smoke is not a gate pass. G5 requires at least
+18/20 per course under one frozen controller, execution stack and course inputs.
+No audit command changes the gate ledger automatically.
 
 ## C1 execution and later experiments
 
