@@ -79,10 +79,13 @@ def neighbors(cells, nodes, node):
             yield candidate, 1.4 if height else 1.0
 
 
-def path_to(cells, start, goals):
+def path_to(cells, start, goals, *, nodes=None):
     """Shortest known cardinal path; unknown cells never supply support/air."""
-    nodes = walkable_nodes(cells)
-    if start not in nodes or not goals:
+    if not goals:
+        return []
+    if nodes is None:
+        nodes = walkable_nodes(cells)
+    if start not in nodes:
         return []
     goals = set(goals) & nodes
     if not goals:
@@ -279,7 +282,7 @@ class NavigationController:
             }
         else:
             goals = set()
-        route = path_to(self.cells, start, goals)
+        route = path_to(self.cells, start, goals, nodes=nodes)
         if route and len(route) > 1:
             return route
         return self._frontier(nodes, start)
@@ -379,9 +382,13 @@ class NavigationController:
                     )
                 )
             )
-            if visible and reach <= 4.2:
-                self.mode = "mining"
-                turn = rotation(center, body)
+            turn = rotation(center, body)
+            # A remembered target can leave the current view while approaching.
+            # Reacquire its view before choosing another exploration frontier.
+            # Once aligned, an occluded target still requires a detour.
+            turning = abs(turn["yaw_delta"]) >= 2 or abs(turn["pitch_delta"]) >= 2
+            if reach <= 4.2 and (visible or turning):
+                self.mode = "mining" if visible else "reacquiring"
                 ray = body.get("ray", {})
                 mine = (
                     ray.get("block") == "minecraft:oak_log"
@@ -390,7 +397,8 @@ class NavigationController:
                 self.mining = self.mining or mine
                 return {
                     **turn,
-                    "mine": mine
+                    "mine": visible
+                    and mine
                     and abs(turn["yaw_delta"]) < 2
                     and abs(turn["pitch_delta"]) < 2,
                 }

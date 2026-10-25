@@ -66,6 +66,7 @@ def arena_guard(function):
 class EpisodeRecorder:
     def __init__(self, path: Path):
         self.path = path
+        self.batching = False
         path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path)
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
@@ -125,10 +126,23 @@ class EpisodeRecorder:
                 episode_id,
                 kind,
                 monotonic_ns,
-                json.dumps(payload, allow_nan=False),
+                json.dumps(payload, allow_nan=False, separators=(",", ":")),
             ),
         )
-        self.db.commit()
+        if not self.batching:
+            self.db.commit()
+
+    @contextmanager
+    def batch(self):
+        """Commit a bounded writer batch atomically before acknowledging it."""
+        if self.batching:
+            raise RuntimeError("Nested recorder batches are unsupported")
+        self.batching = True
+        try:
+            with self.db:
+                yield
+        finally:
+            self.batching = False
 
     def finish(self, episode_id: str, status: str, reason: str, terminal: dict):
         if status not in {"success", "failed", "invalid", "interrupted"}:

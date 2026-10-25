@@ -106,6 +106,22 @@ def test_mining_requires_current_log_ray_and_fully_aligned_aim():
     assert not controller.decide(o)["mine"]
 
 
+def test_nearby_remembered_target_is_reacquired_before_exploring():
+    controller = NavigationController()
+    controller.target = (0, 80, -3)
+    result = controller.decide(observation())
+    assert controller.mode == "reacquiring"
+    assert abs(result["yaw_delta"]) == 45
+    assert not result.get("forward") and not result["mine"]
+
+
+def test_aligned_but_occluded_remembered_target_does_not_stall():
+    controller = NavigationController()
+    controller.target = (0, 80, 3)
+    controller.decide(observation(pitch=math.degrees(math.atan2(1.12, 3))))
+    assert controller.mode == "approaching"
+
+
 def test_observed_air_after_mining_switches_to_pickup_without_evaluator_state():
     cells = world()
     cells[0, 80, 3] = cell(0, 80, 3, "minecraft:oak_log")

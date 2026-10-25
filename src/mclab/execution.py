@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import threading
 import time
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -27,8 +28,12 @@ class RecordedBridge(Bridge):
 
     def __init__(self, output):
         super().__init__(output)
-        self.record_queue = queue.Queue(maxsize=64)
+        # Event polling can return several simulation ticks at once. Bound the
+        # burst buffer independently of the 32-record durable write batch.
+        self.record_queue = queue.Queue(maxsize=256)
         self.writer_error = None
+        self.writer_stage = "starting"
+        self.writer_progress = time.monotonic()
         self.writer = threading.Thread(target=self._write_records, daemon=True)
         self.writer.start()
 
@@ -37,28 +42,52 @@ class RecordedBridge(Bridge):
         try:
             while True:
                 value = self.record_queue.get()
+                batch = [value]
                 try:
                     if value is None:
                         return
-                    self.stream.write(json.dumps(value, allow_nan=False) + "\n")
-                    self.stream.flush()
                     if self.recorder is not None:
                         if database is None:
+                            self.writer_stage = "opening_database"
                             database = EpisodeRecorder(self.recorder.path)
-                        database.append(
-                            value["run_id"],
-                            value["sequence"],
-                            value["episode_id"],
-                            value["type"],
-                            value["monotonic_ns"],
-                            value["payload"],
-                        )
+                    # Drain only already queued work; never delay controls to
+                    # fill a batch. Shutdown is submitted after a flush.
+                    while len(batch) < 32:
+                        try:
+                            batch.append(self.record_queue.get_nowait())
+                        except queue.Empty:
+                            break
+                    self.writer_stage = "writing_batch"
+                    with database.batch() if database is not None else nullcontext():
+                        for record in batch:
+                            if record is None:
+                                raise RuntimeError("Recorder stopped before flush")
+                            self.stream.write(
+                                json.dumps(
+                                    record, allow_nan=False, separators=(",", ":")
+                                )
+                                + "\n"
+                            )
+                            if database is not None:
+                                database.append(
+                                    record["run_id"],
+                                    record["sequence"],
+                                    record["episode_id"],
+                                    record["type"],
+                                    record["monotonic_ns"],
+                                    record["payload"],
+                                )
+                        self.stream.flush()
+                        self.writer_stage = "committing_batch"
+                    self.writer_progress = time.monotonic()
+                    self.writer_stage = "waiting"
                 except Exception as error:
                     # Publish failure before task_done makes the queue empty.
                     self.writer_error = error
                     raise
                 finally:
-                    self.record_queue.task_done()
+                    for _ in batch:
+                        self.record_queue.task_done()
         except Exception as error:
             self.writer_error = error
         finally:
@@ -88,10 +117,12 @@ class RecordedBridge(Bridge):
         try:
             self.record_queue.put_nowait(value)
         except queue.Full:
-            self.writer_error = RuntimeError("Critical recorder queue overflow")
-            raise RuntimeError(
-                "Critical recorder queue overflow; attempt invalid"
-            ) from None
+            self.writer_error = RuntimeError(
+                "Critical recorder queue overflow; "
+                f"kind={kind}, writer_stage={self.writer_stage}, "
+                f"seconds_since_commit={time.monotonic() - self.writer_progress:.3f}"
+            )
+            raise RuntimeError(f"{self.writer_error}; attempt invalid") from None
 
     def flush_recording(self):
         deadline = time.monotonic() + 10
