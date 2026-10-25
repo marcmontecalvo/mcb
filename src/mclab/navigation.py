@@ -8,7 +8,7 @@ window. This profile supports ordinary full-cube ground and one-block changes.
 import heapq
 import math
 
-PROFILE = "local-map-navigation-v5"
+PROFILE = "local-map-navigation-v6"
 DIRECTIONS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
 
@@ -44,6 +44,32 @@ def empty(cell):
     if cell is None or cell.get("fluid", "minecraft:empty") != "minecraft:empty":
         return False
     return cell.get("block") == "minecraft:air" or cell.get("collision_boxes") == []
+
+
+def clear_mining_line(cells, node, target):
+    """Conservative voxel ray from a standing cell center to the observed log."""
+    origin = (node[0] + 0.5, node[1] + 1.62, node[2] + 0.5)
+    direction = [target[i] + 0.5 - origin[i] for i in range(3)]
+    position = [math.floor(v) for v in origin]
+    step = [1 if d > 0 else -1 if d < 0 else 0 for d in direction]
+    intervals = [abs(1 / d) if d else math.inf for d in direction]
+    boundary = [
+        ((position[i] + (step[i] > 0) - origin[i]) / direction[i])
+        if direction[i]
+        else math.inf
+        for i in range(3)
+    ]
+    for _ in range(sum(abs(position[i] - target[i]) for i in range(3)) + 1):
+        if tuple(position) == tuple(target):
+            return True
+        if not empty(cells.get(tuple(position))):
+            return False
+        axis = min(range(3), key=lambda i: boundary[i])
+        if boundary[axis] > 1:
+            return False
+        position[axis] += step[axis]
+        boundary[axis] += intervals[axis]
+    return False
 
 
 def standable(cells, node):
@@ -318,6 +344,7 @@ class NavigationController:
                 for n in nodes
                 if math.hypot(n[0] - self.target[0], n[2] - self.target[2]) <= 2.8
                 and n[:1] + n[2:] != self.target[:1] + self.target[2:]
+                and clear_mining_line(self.cells, n, self.target)
             }
         else:
             goals = set()
@@ -340,7 +367,7 @@ class NavigationController:
                 ),
             )
             return reconstruct(previous, closest)
-        if route and len(route) > 1:
+        if route:
             return route
         return self._frontier(nodes, start)
 
@@ -442,7 +469,6 @@ class NavigationController:
                 )
             )
             if visible and reach <= 4.2:
-                self.mode = "mining"
                 turn = rotation(center, body)
                 ray = body.get("ray", {})
                 mine = (
@@ -450,12 +476,13 @@ class NavigationController:
                     and tuple(ray.get("position", ())) == self.target
                 )
                 self.mining = self.mining or mine
-                return {
-                    **turn,
-                    "mine": mine
-                    and abs(turn["yaw_delta"]) < 2
-                    and abs(turn["pitch_delta"]) < 2,
-                }
+                aligned = abs(turn["yaw_delta"]) < 2 and abs(turn["pitch_delta"]) < 2
+                if mine or not aligned:
+                    self.mode = "mining"
+                    return {**turn, "mine": mine and aligned}
+                # A visible face does not imply a clear ray to block center.
+                # Reposition to a known clear cell, or its center, before retrying.
+                self.last_plan = []
         self.mode = (
             "collecting"
             if self.broken or self.drop

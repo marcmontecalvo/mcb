@@ -3,7 +3,12 @@ import math
 
 import pytest
 
-from mclab.navigation import NavigationController, path_to, walkable_nodes
+from mclab.navigation import (
+    NavigationController,
+    clear_mining_line,
+    path_to,
+    walkable_nodes,
+)
 
 
 def cell(x, y, z, block="minecraft:air", tick=100):
@@ -100,10 +105,62 @@ def test_mining_requires_current_log_ray_and_fully_aligned_aim():
     )
     assert controller.decide(o)["mine"]
     o["body"]["ray"] = {}
-    assert not controller.decide(o)["mine"]
+    assert not controller.decide(o).get("mine")
     o["body"]["ray"] = {"block": "minecraft:oak_log", "position": [0, 80, 3]}
     o["body"]["yaw"] = 90
-    assert not controller.decide(o)["mine"]
+    assert not controller.decide(o).get("mine")
+
+
+def test_mining_line_rejects_a_crest_occluding_the_log_center():
+    cells = world()
+    for z in (2, 3):
+        cells[0, 80, z] = cell(0, 80, z, "minecraft:stone")
+    cells[0, 80, 5] = cell(0, 80, 5, "minecraft:oak_log")
+    assert not clear_mining_line(cells, (0, 80, 1), (0, 80, 5))
+    assert clear_mining_line(cells, (0, 81, 3), (0, 80, 5))
+
+
+def test_unknown_air_cannot_supply_a_clear_mining_line():
+    cells = world()
+    assert clear_mining_line(cells, (0, 80, 0), (0, 80, 3))
+    del cells[0, 81, 1]
+    assert not clear_mining_line(cells, (0, 80, 0), (0, 80, 3))
+
+
+def test_visible_face_with_blocked_center_ray_repositions_instead_of_stalling():
+    cells = world()
+    for z in (2, 3):
+        cells[0, 80, z] = cell(0, 80, z, "minecraft:stone")
+    cells[0, 80, 5] = cell(0, 80, 5, "minecraft:oak_log")
+    controller = NavigationController()
+    decision = controller.decide(
+        observation(
+            cells,
+            position=[0.5, 80, 1.5],
+            pitch=math.degrees(math.atan2(1.12, 4)),
+            ray={"block": "minecraft:stone", "position": [0, 80, 3]},
+        )
+    )
+    assert controller.mode == "approaching" and not decision.get("mine")
+    assert decision.get("jump") and decision.get("forward")
+
+
+def test_clear_cell_center_goal_recenters_when_the_actual_eye_ray_is_blocked():
+    cells = world()
+    for z in (2, 3):
+        cells[0, 80, z] = cell(0, 80, z, "minecraft:stone")
+    cells[0, 80, 4] = cell(0, 80, 4, "minecraft:oak_log")
+    controller = NavigationController()
+    decision = controller.decide(
+        observation(
+            cells,
+            position=[0.5, 81, 2.05],
+            pitch=math.degrees(math.atan2(2.12, 2.45)),
+            ray={"block": "minecraft:stone", "position": [0, 80, 3]},
+        )
+    )
+    assert controller.mode == "approaching" and not decision.get("mine")
+    assert controller.last_plan == [(0, 81, 2)] and decision.get("forward")
 
 
 def test_occluded_target_uses_navigation_instead_of_heading_only_reacquisition():
