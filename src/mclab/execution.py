@@ -62,20 +62,27 @@ class RecordedBridge(Bridge):
                         for record in batch:
                             if record is None:
                                 raise RuntimeError("Recorder stopped before flush")
+                            payload_json = json.dumps(
+                                record["payload"],
+                                allow_nan=False,
+                                separators=(",", ":"),
+                            )
+                            header = json.dumps(
+                                {k: v for k, v in record.items() if k != "payload"},
+                                allow_nan=False,
+                                separators=(",", ":"),
+                            )
                             self.stream.write(
-                                json.dumps(
-                                    record, allow_nan=False, separators=(",", ":")
-                                )
-                                + "\n"
+                                header[:-1] + ',"payload":' + payload_json + "}\n"
                             )
                             if database is not None:
-                                database.append(
+                                database._insert_event(
                                     record["run_id"],
                                     record["sequence"],
                                     record["episode_id"],
                                     record["type"],
                                     record["monotonic_ns"],
-                                    record["payload"],
+                                    payload_json,
                                 )
                         self.stream.flush()
                         self.writer_stage = "committing_batch"

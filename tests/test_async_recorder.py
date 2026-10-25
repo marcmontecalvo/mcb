@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 from contextlib import contextmanager
@@ -30,7 +31,7 @@ def test_last_record_failure_is_published_before_flush_can_pass(recorded, monkey
     def fail_append(*_args):
         raise OSError("simulated disk failure")
 
-    monkeypatch.setattr(EpisodeRecorder, "append", fail_append)
+    monkeypatch.setattr(EpisodeRecorder, "_insert_event", fail_append)
     client.record("critical_terminal", {"status": "success"})
     with pytest.raises(RuntimeError, match="recording failed"):
         client.flush_recording()
@@ -43,14 +44,14 @@ def test_last_record_failure_is_published_before_flush_can_pass(recorded, monkey
 def test_blocked_disk_writer_does_not_block_motor_submission(recorded, monkeypatch):
     client, ledger = recorded
     entered, release = threading.Event(), threading.Event()
-    original = EpisodeRecorder.append
+    original = EpisodeRecorder._insert_event
 
     def append(self, *args):
         entered.set()
         assert release.wait(2)
         original(self, *args)
 
-    monkeypatch.setattr(EpisodeRecorder, "append", append)
+    monkeypatch.setattr(EpisodeRecorder, "_insert_event", append)
     client.record("sample", {})
     assert entered.wait(1)
     start = time.monotonic()
@@ -111,14 +112,14 @@ def test_batch_failure_rolls_back_partial_events(recorded, monkeypatch):
 def test_burst_capacity_remains_bounded_and_overflow_invalidates(recorded, monkeypatch):
     client, _ledger = recorded
     entered, release = threading.Event(), threading.Event()
-    original = EpisodeRecorder.append
+    original = EpisodeRecorder._insert_event
 
     def append(self, *args):
         entered.set()
         assert release.wait(2)
         original(self, *args)
 
-    monkeypatch.setattr(EpisodeRecorder, "append", append)
+    monkeypatch.setattr(EpisodeRecorder, "_insert_event", append)
     client.record("first", {})
     assert entered.wait(1)
     try:
@@ -131,3 +132,28 @@ def test_burst_capacity_remains_bounded_and_overflow_invalidates(recorded, monke
         release.set()
         with pytest.raises(RuntimeError, match="recording failed"):
             client.close()
+
+
+def test_large_payload_is_encoded_once_and_roundtrips_in_both_artifacts(
+    recorded, monkeypatch
+):
+    client, ledger = recorded
+    payload = {"text": 'quoted "value"\nwith Unicode: café', "nested": [None, True, 1.5]}
+    original = json.dumps
+    encoded = []
+
+    def dumps(value, *args, **kwargs):
+        if value is payload:
+            encoded.append(True)
+        return original(value, *args, **kwargs)
+
+    monkeypatch.setattr(execution.json, "dumps", dumps)
+    client.record("roundtrip", payload)
+    client.flush_recording()
+    stored = ledger.db.execute(
+        "SELECT payload FROM events WHERE kind='roundtrip'"
+    ).fetchone()[0]
+    with open(client.stream.name, encoding="utf-8") as stream:
+        records = [json.loads(line) for line in stream]
+    assert records[-1]["payload"] == json.loads(stored) == payload
+    assert encoded == [True]

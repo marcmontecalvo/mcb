@@ -128,6 +128,19 @@ class EpisodeRecorder:
     def append(self, run_id, sequence, episode_id, kind, monotonic_ns, payload):
         # Requests, responses, actions, snapshots, milestones, resource samples and
         # errors retain their complete versioned payload rather than lossy columns.
+        self._insert_event(
+            run_id,
+            sequence,
+            episode_id,
+            kind,
+            monotonic_ns,
+            json.dumps(payload, allow_nan=False, separators=(",", ":")),
+        )
+
+    def _insert_event(
+        self, run_id, sequence, episode_id, kind, monotonic_ns, payload_json
+    ):
+        """Insert JSON encoded by the recorder; the writer can reuse it in JSONL."""
         self.db.execute(
             "INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)",
             (
@@ -136,7 +149,7 @@ class EpisodeRecorder:
                 episode_id,
                 kind,
                 monotonic_ns,
-                json.dumps(payload, allow_nan=False, separators=(",", ":")),
+                payload_json,
             ),
         )
         if not self.batching:
