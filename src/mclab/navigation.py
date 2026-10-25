@@ -191,8 +191,11 @@ class NavigationController:
     def _unseen_floor(self, x, y, z, radius=8, step=2):
         # ponytail: sampled every 2 blocks (81 probes per node); exact counting
         # only if exploration needs finer ranking.
+        # A column counts as unseen when neither this floor level nor the one
+        # below it was observed, so ledge-top nodes still value the lower floor.
         return sum(
             (x + dx, y - 1, z + dz) not in self.cells
+            and (x + dx, y - 2, z + dz) not in self.cells
             for dx in range(-radius, radius + 1, step)
             for dz in range(-radius, radius + 1, step)
         )
