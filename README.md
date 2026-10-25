@@ -227,6 +227,19 @@ That option is recorded in provenance; no reasoning text is interpreted as a
 legal action. See [the Atom probe evidence](docs/G4_ATOM_PROBE.json) for live
 readiness, the bounded choice smoke checks and retained failed attempts.
 
+Live local tactical integration is available as a separately recorded development
+experiment:
+
+```powershell
+rtk proxy uv run --env-file .env --locked mclab models live-smoke --backend atom-qwen-chat --count 1 --request-limit 40
+```
+
+The final compact-JSON configuration completed three consecutive C1 seed0 runs;
+all five historical live attempts remain in the report. Inference is asynchronous
+and every motor action is revalidated against current observations. This visible
+target behavior baseline does not establish learned control or later-course skill.
+See [live integration and results](docs/G4_LIVE_INTEGRATION.md). G4 remains open.
+
 `experiments plan` freezes a development layout inventory without changing the
 active world. C3/C4 need more distinct geometry and C5 needs a generator. Offline
 states can be exported with `experiments export-screening --recording <JSONL>

@@ -79,8 +79,11 @@
     "evidence": "docs/G4_ATOM_PROBE.json",
     "preparation": "docs/G4_PREPARATION.json",
     "real_probes": "Atom local chat route authenticated and returned valid choices within1second; G4partial",
-    "remaining": "Wire controlled tactical selection and live timing; configure/probe required local SystemOne and hosted Jev routes. No G4 gate pass inferred.",
-    "status": "in_progress"
+    "remaining": "Configure/probe required local SystemOne and hosted Jev routes; independent offline action screening and broader controlled trials. Local Qwen live integration complete; no full G4 pass inferred.",
+    "status": "in_progress",
+    "live_evidence": "docs/G4_LIVE_PROOF.json",
+    "live_integration": "docs/G4_LIVE_INTEGRATION.md",
+    "live_status": "Final compact-JSON local Qwen configuration:3/3 C1 seed0 development successes; all configurations3/5,71live requests. Not distinct-layout or held-out evidence."
   },
   "G5": {
     "status": "not_run"

@@ -18,6 +18,7 @@ from mclab import (
     experiments,
     gates,
     modbuild,
+    model_execution,
     protocolproof,
     qualify,
     reference,
@@ -137,6 +138,10 @@ def main() -> int:
     screen.add_argument("--limit", type=int, default=60)
     models = sub.add_parser("models").add_subparsers(dest="operation", required=True)
     models.add_parser("probe")
+    live = models.add_parser("live-smoke")
+    live.add_argument("--backend", required=True)
+    live.add_argument("--count", type=int, default=1)
+    live.add_argument("--request-limit", type=int, default=40)
     body = sub.add_parser("body").add_subparsers(dest="operation", required=True)
     body.add_parser("qualify")
     body.add_parser("protocol-check")
@@ -190,6 +195,12 @@ def main() -> int:
                     )
                 )
             case "models":
+                if args.operation == "live-smoke":
+                    result = model_execution.run(
+                        args.backend, count=args.count, request_limit=args.request_limit
+                    )
+                    print(json.dumps(result, indent=2))
+                    return 0 if result["status"] == "completed_development_smoke" else 1
                 outcomes = backends.probe_config(
                     read_json(ROOT / "config/backends.json")["backends"]
                 )

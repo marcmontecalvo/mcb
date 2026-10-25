@@ -6,8 +6,11 @@ verified causal break/drop/pickup chain and complete per-tick policy recording.
 Completion took 128–141 ticks (median 132). Three stale controls were discarded
 and regenerated from fresh observations within the declared recovery limit.
 Earlier failed/invalid scored configurations remain in the all-attempt report.
-G4 is in progress; G5–G8 are unqualified. Atom inference requests attempted: **8**;
-valid Choice responses: **4**. Directory authentication and chat readiness passed.
+G4 is in progress; G5–G8 are unqualified. Atom inference requests attempted: **79** (8 provider probes +71 live calls).
+The final compact-JSON tactical configuration completed **3/3 C1 seed0 development
+attempts**; all live configurations total **3/5**. Directory authentication and
+chat readiness passed. See [live integration](G4_LIVE_INTEGRATION.md) and
+[hash-bound live proof](G4_LIVE_PROOF.json).
 The original `Minecraft_AI_Technical_Handoff.md` remains unchanged.
 
 ## Runtime and qualification
@@ -20,7 +23,7 @@ The original `Minecraft_AI_Technical_Handoff.md` remains unchanged.
 | Minecraft | Java 26.3, protocol 777, authenticated mode, Survival |
 | Mods | Fabric Loader 0.19.5, API 0.164.0+26.3, pinned Carpet v26.3 |
 | Network | Loopback game 127.0.0.1:25575; authenticated bridge 8765 and supervisor 8766 |
-| Python checks | 117 tests pass; Ruff lint and formatting pass |
+| Python checks | 131 tests pass; Ruff lint and formatting pass |
 | Java checks | Mod build and pure geometry verifier pass |
 | G1 live suites | 39 body checks, 24 protocol checks, 12 reference-fixture checks |
 | G2 reset foundation | 20 consecutive identical state digests; teardown confirmed |
@@ -60,7 +63,7 @@ Completed human references:
   1.252203340253729 blocks; steady 20-tick walking distances about 4.317 blocks.
 - [Basic interactions](G1_HUMAN_INTERACTION_PROOF.json): mining 60 ticks versus
   fake 61–62, normal log collection, one dirt consumed per placement and a
-  one-damage in-range punch. Causal drop-UUID scoring is still G2 work.
+  one-damage in-range punch. G2 subsequently qualified causal drop-UUID scoring.
 - [Guided mechanics](G1_GUIDED_MECHANICS_PROOF.json): strafe/release and a mining
   abort after 21 ticks followed by a full 60-tick restart.
 - [Terrain](G1_HUMAN_TERRAIN_PROOF.json): 1,800 reviewed samples. Collision stopped
@@ -172,8 +175,11 @@ choice checks returned legal `forward` IDs under original/reversed option order
 in 828–1000 ms. These are a narrow schema/deadline smoke check, not semantic
 accuracy, calibration or Minecraft task performance. Chat probability maps remain
 labelled synthetic one-hot values. [The Atom proof](G4_ATOM_PROBE.json) preserves
-all eight attempted requests and four valid Choice responses. G4 remains open
-for the other required backend routes and controlled live integration.
+all eight attempted requests and four valid Choice responses. Live tactical integration subsequently completed three consecutive C1 seed0
+attempts after compact JSON reduced output latency. Two earlier live configurations
+failed on deadlines and remain recorded. All71 live calls are counted, including
+three pending calls cancelled after native success. G4 remains open for the other
+required backend routes, offline screening and broader controlled trials.
 Upstream source references/hashes are pinned without vendoring unlicensed code.
 
 Baritone v1.20.0 Fabric API artifact SHA-256 was verified against its release

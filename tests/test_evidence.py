@@ -115,12 +115,16 @@ def test_report_counts_every_scored_attempt_and_separates_fault_injection(
     probe = {"run_id": "probe-1", "backends": [{"provenance": {"requests": 2}}]}
     write_json(tmp_path / "results/provider_probes/first.json", probe)
     write_json(tmp_path / "results/provider_probes/latest.json", probe)
+    live = {"run_id": "live-1", "model_requests": 3, "successes": 0}
+    write_json(tmp_path / "results/model_execution/first/summary.json", live)
     summary = evidence.report()["summary"]
     assert summary["episodes_attempted"] == 3
     assert summary["episodes_succeeded"] == 1
     assert summary["success_rate"] == 1 / 3
     assert summary["unscored_development_attempts"] == 3
-    assert summary["provider_requests"] == 2
+    assert summary["provider_requests"] == 5
+    assert summary["provider_probe_requests"] == 2
+    assert summary["provider_live_requests"] == 3
     assert len(summary["episodes_by_configuration"]) == 1
     assert summary["episodes_by_configuration"][0]["attempted"] == 3
     assert summary["episodes_by_configuration"][0]["succeeded"] == 1

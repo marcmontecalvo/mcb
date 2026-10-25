@@ -1,0 +1,339 @@
+{
+  "G4_passed": false,
+  "actual_cost_usd": null,
+  "attempted_episodes": 5,
+  "model_requests": 71,
+  "runs": [
+    {
+      "applied_control_count": 80,
+      "applied_observation_ages": [
+        3
+      ],
+      "choices": {
+        "stop": 12,
+        "turn_left": 1
+      },
+      "controller_errors": [
+        {
+          "category": "decision",
+          "error": "Tactical inference failed: BackendError"
+        }
+      ],
+      "controller_sha256": "d736c72e802a3148617dcc3d5ab0309873926562969e6447734087e4a67ec60b",
+      "discarded_responses_on_close": 0,
+      "episodes": [
+        {
+          "deadline_tick": 135786,
+          "drop_uuid": "",
+          "end_tick": 135471,
+          "episode_id": "episode-131c1c98e62e",
+          "picked_up": false,
+          "reason": "controller_cancel",
+          "start_tick": 135186,
+          "status": "failed",
+          "target_broken": false
+        }
+      ],
+      "final_position": [
+        1000.5,
+        80.0,
+        1000.5
+      ],
+      "initial_position": [
+        1000.5,
+        80.0,
+        1000.5
+      ],
+      "latencies_ms": [
+        827.9999999795109,
+        844.0000000409782,
+        858.9999999967404,
+        875.0,
+        889.9999999557622,
+        890.0000000139698,
+        891.0000000032596,
+        891.0000000032596,
+        891.0000000032596,
+        906.0000000172295,
+        907.0000000065193,
+        952.9999999795109,
+        1000.0
+      ],
+      "model_requests": 14,
+      "policy_ticks_missing": 0,
+      "recorded_responses": 14,
+      "recording_sha256": "02b82c2768b7cfbe17695beee87ed31c0c2b7078ee046b860267893b5fa4f380",
+      "response_errors": [
+        {
+          "error": "BackendError"
+        }
+      ],
+      "run_id": "qualification-73db18cd4730",
+      "scored": false,
+      "source_snapshots_match": true,
+      "sqlite_outcomes_match": true,
+      "successful_causal_chains_verified": {},
+      "summary": "results\\model_execution\\20261024T215745406258Z\\summary.json",
+      "summary_sha256": "d1648a733985ab6ddb662bd5776e4060753b7fa0c07313d81498e255c8e74050",
+      "tactical_sha256": "252cd1e20213c31863c644b3e7507d397fcc3dec4f432c5b6bf8bf69c4c78e08",
+      "valid_responses": 13
+    },
+    {
+      "applied_control_count": 36,
+      "applied_observation_ages": [
+        3
+      ],
+      "choices": {
+        "aim_log": 2,
+        "forward": 3
+      },
+      "controller_errors": [
+        {
+          "category": "decision",
+          "error": "Tactical inference failed: Decision deadline/cancellation exceeded; release controls"
+        }
+      ],
+      "controller_sha256": "7614d4bf868f5d819ee2cd5cc1473af1e642476f131bf708becc91223e89eeb0",
+      "discarded_responses_on_close": 0,
+      "episodes": [
+        {
+          "deadline_tick": 137478,
+          "drop_uuid": "",
+          "end_tick": 137004,
+          "episode_id": "episode-36a13a6061c9",
+          "picked_up": false,
+          "reason": "controller_cancel",
+          "start_tick": 136878,
+          "status": "failed",
+          "target_broken": false
+        }
+      ],
+      "final_position": [
+        1000.5,
+        80.0,
+        1007.3962443144276
+      ],
+      "initial_position": [
+        1000.5,
+        80.0,
+        1000.5
+      ],
+      "latencies_ms": [
+        938.0000000237487,
+        938.0000000237487,
+        938.0000000237487,
+        953.0000000377186,
+        984.9999999860302
+      ],
+      "model_requests": 6,
+      "policy_ticks_missing": 0,
+      "recorded_responses": 6,
+      "recording_sha256": "5b19d7eff0fc7766e70a8d5e6d903e239f6d5e6e2cd9411b2d9a957deb121227",
+      "response_errors": [
+        {
+          "error": "BackendError",
+          "reason": "Decision deadline/cancellation exceeded; release controls"
+        }
+      ],
+      "run_id": "qualification-223215a98797",
+      "scored": false,
+      "source_snapshots_match": true,
+      "sqlite_outcomes_match": true,
+      "successful_causal_chains_verified": {},
+      "summary": "results\\model_execution\\20261024T215909993296Z\\summary.json",
+      "summary_sha256": "b01a9618f869f552fae20d751ae76a8d43fad934fdbf1388a87ae1e4aa0b1550",
+      "tactical_sha256": "caf1494eeee56d02bb0c4088da80e524773d048c0f00d1852f78d38c62a05dd5",
+      "valid_responses": 5
+    },
+    {
+      "applied_control_count": 73,
+      "applied_observation_ages": [
+        3
+      ],
+      "choices": {
+        "aim_log": 3,
+        "collect": 2,
+        "forward": 3,
+        "mine": 5
+      },
+      "controller_errors": [],
+      "controller_sha256": "7614d4bf868f5d819ee2cd5cc1473af1e642476f131bf708becc91223e89eeb0",
+      "discarded_responses_on_close": 1,
+      "episodes": [
+        {
+          "deadline_tick": 138556,
+          "drop_uuid": "76e171c4-4222-4cf6-a333-d80cfecaff04",
+          "end_tick": 138211,
+          "episode_id": "episode-bc41d259f8f8",
+          "picked_up": true,
+          "reason": "causal_target_break_drop_pickup",
+          "start_tick": 137956,
+          "status": "success",
+          "target_broken": true
+        }
+      ],
+      "final_position": [
+        1000.5496776903476,
+        80.0,
+        1012.1022036042602
+      ],
+      "initial_position": [
+        1000.5,
+        80.0,
+        1000.5
+      ],
+      "latencies_ms": [
+        765.0000000139698,
+        781.0000000172295,
+        797.0000000204891,
+        811.9999999762513,
+        811.9999999762513,
+        811.9999999762513,
+        813.0000000237487,
+        827.9999999795109,
+        827.9999999795109,
+        829.0000000270084,
+        829.0000000270084,
+        843.9999999827705,
+        844.0000000409782
+      ],
+      "model_requests": 14,
+      "policy_ticks_missing": 0,
+      "recorded_responses": 14,
+      "recording_sha256": "d1c81fdaa7f9516ff284aeee168318c9d417bb780fe85a8aad029dec01ac42fb",
+      "response_errors": [
+        {
+          "error": "BackendError",
+          "reason": "Decision deadline/cancellation exceeded; release controls"
+        }
+      ],
+      "run_id": "qualification-d21eafd3d2e4",
+      "scored": false,
+      "source_snapshots_match": true,
+      "sqlite_outcomes_match": true,
+      "successful_causal_chains_verified": {
+        "episode-bc41d259f8f8": true
+      },
+      "summary": "results\\model_execution\\20261024T220003526362Z\\summary.json",
+      "summary_sha256": "1edebfb1cddffaaf9592e43a31b2020f615fab01bfe589e4558f5e82d9c7a5f1",
+      "tactical_sha256": "cd7401c405c7aa000ee6c7bd5af95f4a879b8b9c30cf82f03d9cdd4a09ac333d",
+      "valid_responses": 13
+    },
+    {
+      "applied_control_count": 174,
+      "applied_observation_ages": [
+        3
+      ],
+      "choices": {
+        "aim_log": 7,
+        "collect": 4,
+        "forward": 7,
+        "mine": 17
+      },
+      "controller_errors": [],
+      "controller_sha256": "7614d4bf868f5d819ee2cd5cc1473af1e642476f131bf708becc91223e89eeb0",
+      "discarded_responses_on_close": 2,
+      "episodes": [
+        {
+          "deadline_tick": 139228,
+          "drop_uuid": "4e289baf-0a71-4df0-b28e-8bffc3ab7212",
+          "end_tick": 139014,
+          "episode_id": "episode-1846b206ba16",
+          "picked_up": true,
+          "reason": "causal_target_break_drop_pickup",
+          "start_tick": 138628,
+          "status": "success",
+          "target_broken": true
+        },
+        {
+          "deadline_tick": 139839,
+          "drop_uuid": "8f04b7ff-5dbd-48f4-bbdb-06eed49110b1",
+          "end_tick": 139469,
+          "episode_id": "episode-a0457cfc7940",
+          "picked_up": true,
+          "reason": "causal_target_break_drop_pickup",
+          "start_tick": 139239,
+          "status": "success",
+          "target_broken": true
+        }
+      ],
+      "final_position": [
+        1000.2670475122401,
+        80.0,
+        1011.2431146035716
+      ],
+      "initial_position": [
+        1000.5,
+        80.0,
+        1000.5
+      ],
+      "latencies_ms": [
+        719.0000000409782,
+        733.9999999967404,
+        733.9999999967404,
+        750.0,
+        750.0,
+        750.0,
+        750.0,
+        750.0,
+        750.0,
+        766.0000000032596,
+        766.0000000032596,
+        766.0000000032596,
+        780.9999999590218,
+        780.9999999590218,
+        781.0000000172295,
+        781.0000000172295,
+        782.0000000065193,
+        782.0000000065193,
+        782.0000000065193,
+        795.9999999729916,
+        796.9999999622814,
+        796.9999999622814,
+        797.0000000204891,
+        797.0000000204891,
+        797.0000000204891,
+        797.0000000204891,
+        797.0000000204891,
+        811.9999999762513,
+        811.9999999762513,
+        812.9999999655411,
+        813.0000000237487,
+        827.9999999795109,
+        827.9999999795109,
+        858.9999999967404,
+        889.9999999557622
+      ],
+      "model_requests": 37,
+      "policy_ticks_missing": 0,
+      "recorded_responses": 37,
+      "recording_sha256": "c406896b52a6ffcf0362b2139f9cb4df5e903509563dbaee7e2290df40d2ec70",
+      "response_errors": [
+        {
+          "error": "BackendError",
+          "reason": "Decision deadline/cancellation exceeded; release controls"
+        },
+        {
+          "error": "BackendError",
+          "reason": "Decision deadline/cancellation exceeded; release controls"
+        }
+      ],
+      "run_id": "qualification-3bf61e31607f",
+      "scored": false,
+      "source_snapshots_match": true,
+      "sqlite_outcomes_match": true,
+      "successful_causal_chains_verified": {
+        "episode-1846b206ba16": true,
+        "episode-a0457cfc7940": true
+      },
+      "summary": "results\\model_execution\\20261024T220037089049Z\\summary.json",
+      "summary_sha256": "287721bd1f631221304394488014b159d29ca475c825b3d9eb9c09ed4b843aa6",
+      "tactical_sha256": "cd7401c405c7aa000ee6c7bd5af95f4a879b8b9c30cf82f03d9cdd4a09ac333d",
+      "valid_responses": 35
+    }
+  ],
+  "schema_version": 1,
+  "scope": "Frozen C1 seed0, local Qwen bounded visible-target tactical baseline",
+  "status": "G4_partial_live_development",
+  "successful_episodes": 3
+}
