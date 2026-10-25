@@ -227,6 +227,38 @@ def test_cached_route_still_rejects_stale_support_and_requests_replanning(monkey
     assert controller.last_plan == []
 
 
+def test_newly_observed_void_reconsiders_an_exploration_goal(monkeypatch):
+    controller = NavigationController()
+    calls = []
+
+    def route(_body):
+        calls.append(True)
+        return [(0, 80, 0), (0, 80, 1), (0, 80, 6)]
+
+    monkeypatch.setattr(controller, "_route", route)
+    cells = world()
+    del cells[2, 79, 6]  # This column starts unknown, not known to be solid.
+    controller.decide(observation(cells))
+    cells[2, 79, 6] = cell(2, 79, 6)
+    cells[2, 78, 6] = cell(2, 78, 6)
+    controller.decide(observation(cells))
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize(
+    "below,expected", [(None, 0), ("minecraft:stone", 0), ("minecraft:air", 1)]
+)
+def test_exploration_void_penalty_preserves_unknowns_and_one_block_descents(
+    below, expected
+):
+    controller = NavigationController()
+    controller.cells = world()
+    controller.cells[2, 79, 0] = cell(2, 79, 0)
+    if below is not None:
+        controller.cells[2, 78, 0] = cell(2, 78, 0, below)
+    assert controller._void_exposure((0, 80, 0)) == expected
+
+
 @pytest.mark.parametrize(
     "below,expected_edge",
     [(None, math.inf), ("minecraft:stone", math.inf), ("minecraft:air", 7)],

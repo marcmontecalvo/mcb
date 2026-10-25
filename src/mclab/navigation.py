@@ -8,7 +8,7 @@ window. This profile supports ordinary full-cube ground and one-block changes.
 import heapq
 import math
 
-PROFILE = "local-map-navigation-v2"
+PROFILE = "local-map-navigation-v3"
 DIRECTIONS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
 
@@ -133,6 +133,7 @@ class NavigationController:
         self.last_tick = None
         self.last_plan = []
         self.plan_goal = None
+        self.plan_void_exposure = 0
         self.mode = "exploring"
         self.air_waypoint = None
         self.explore_heading = None
@@ -209,6 +210,15 @@ class NavigationController:
             )
         )
 
+    def _void_exposure(self, node):
+        x, y, z = node
+        return sum(
+            empty(self.cells.get((x + dx, y - 1, z + dz)))
+            and empty(self.cells.get((x + dx, y - 2, z + dz)))
+            for dx in range(-4, 5, 2)
+            for dz in range(-4, 5, 2)
+        )
+
     def _frontier(self, nodes, start):
         choices = []
         if start not in nodes:
@@ -254,6 +264,7 @@ class NavigationController:
                     + self.visits.get(node, 0) * 3
                     - unknown * 0.2
                     - gain * 0.3
+                    + self._void_exposure(node) * 2
                 )
                 score -= (
                     (node[0] - start[0]) * -math.sin(self.explore_heading)
@@ -437,13 +448,25 @@ class NavigationController:
             round(body["position"][1]),
             math.floor(body["position"][2]),
         )
-        if goal == self.plan_goal and node in self.last_plan:
+        exposure = (
+            self._void_exposure(self.last_plan[-1])
+            if self.mode == "exploring" and self.last_plan
+            else 0
+        )
+        if (
+            goal == self.plan_goal
+            and node in self.last_plan
+            and exposure <= self.plan_void_exposure
+        ):
             self.last_plan = self.last_plan[self.last_plan.index(node) :]
         else:
             self.last_plan = []
         if len(self.last_plan) < 2:
             self.last_plan = self._route(body)
             self.plan_goal = goal
+            self.plan_void_exposure = (
+                self._void_exposure(self.last_plan[-1]) if self.last_plan else 0
+            )
         if not self.last_plan:
             return {"yaw_delta": 30}
         waypoint = self.last_plan[1] if len(self.last_plan) > 1 else self.last_plan[0]
