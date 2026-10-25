@@ -23,6 +23,7 @@ def recorded(tmp_path, monkeypatch):
             "execution.py",
             "model_execution.py",
             "recorder.py",
+            "courses.py",
         ):
             path = snapshot / "src/mclab" / filename
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -38,6 +39,11 @@ def recorded(tmp_path, monkeypatch):
         rows, episodes, specs = [], [], []
 
         def record(kind, payload, episode="initial", body="initial"):
+            if fault == "no_controls" and (
+                kind == "request"
+                or (kind == "server_event" and payload.get("type") == "applied")
+            ):
+                return
             rows.append(
                 {
                     "run_id": run,
@@ -237,6 +243,20 @@ def test_smoke_can_be_complete_without_qualifying_twenty_layouts(recorded):
     assert not result["gate_eligible"]
 
 
+def test_recorded_failures_without_applied_controls_are_not_recording_corruption(
+    recorded,
+):
+    result = proof.audit(recorded(count=20, successes=0, fault="no_controls"))
+    assert result["valid_recording"] and result["applied_control_count"] == 0
+    assert result["successes"] == 0 and not result["gate_eligible"]
+
+
+def test_claimed_success_without_controller_activity_is_invalid(recorded):
+    result = proof.audit(recorded(fault="no_controls"))
+    assert not result["valid_recording"]
+    assert not all(e["control_activity_recorded"] for e in result["episodes"])
+
+
 @pytest.mark.parametrize("fault", ["timing", "tick", "uuid", "cleanup", "source"])
 def test_incomplete_or_inconsistent_evidence_never_qualifies(recorded, fault):
     result = proof.audit(recorded(count=20, fault=fault))
@@ -279,10 +299,21 @@ def test_sqlite_disagreement_or_missing_critical_record_invalidates(recorded, fa
     assert not result["valid_recording"] and not result["gate_eligible"]
 
 
-def test_different_execution_stacks_cannot_form_one_frozen_gate(recorded):
+@pytest.mark.parametrize("component", ["writer", "generator", "profiles"])
+def test_different_execution_or_course_inputs_cannot_form_one_frozen_gate(
+    recorded, component
+):
     paths = [recorded(course, count=20) for course in ("C2", "C3", "C4", "C5")]
-    archive = paths[-1].parent / "sources/src/mclab/recorder.py"
-    archive.write_text("different writer", encoding="utf-8")
+    if component == "profiles":
+        archive = paths[-1].parent / "sources/courses/profiles.json"
+        write_json(archive, {"version": 2})
+        summary = read_json(paths[-1])
+        summary["course_profiles_hash"] = digest(read_json(archive))
+        write_json(paths[-1], summary)
+    else:
+        filename = "recorder.py" if component == "writer" else "courses.py"
+        archive = paths[-1].parent / "sources/src/mclab" / filename
+        archive.write_text("different source", encoding="utf-8")
     result = proof.report(paths, paths[0].parents[2] / "proof.json")
     assert all(r["gate_eligible"] for r in result["courses"].values())
     assert not result["uniform_controller_and_timing"] and not result["G5_passed"]
@@ -292,3 +323,20 @@ def test_duplicate_course_batches_are_rejected(recorded):
     path = recorded()
     with pytest.raises(ValueError, match="one development batch"):
         proof.report([path, path], path.parent / "proof.json")
+
+
+@pytest.mark.parametrize("fault,exit_code", [(None, 0), ("uuid", 1), ("source", 1)])
+def test_cli_exposes_invalid_evidence_and_fails_closed(
+    recorded, capsys, fault, exit_code
+):
+    path = recorded(fault=fault)
+    assert (
+        proof.main([str(path), "--output", str(path.parent / "audit.json")])
+        == exit_code
+    )
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["courses"]["C2"]["valid_recording"] is (fault is None)
+    assert not printed["G5_passed"]  # A valid two-layout smoke is not a gate pass.
+    if fault is not None:
+        assert printed["status"] == "invalid_evidence"
+        assert printed["courses"]["C2"]["failed_checks"]

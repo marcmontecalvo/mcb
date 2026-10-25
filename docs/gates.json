@@ -99,10 +99,16 @@
         "successes": 20
       },
       "C3": {
-        "status": "not_run_current_controller"
+        "attempts": 20,
+        "run_id": "qualification-870a4a4e7513",
+        "status": "passed_development",
+        "successes": 20
       },
       "C4": {
-        "status": "not_run_current_controller"
+        "attempts": 20,
+        "run_id": "qualification-7377a3c87fdf",
+        "status": "passed_development",
+        "successes": 19
       },
       "C5": {
         "status": "not_run_current_controller"

@@ -30,6 +30,7 @@ def audit(path):
     specs = {s["seed"]: s for s in summary["specs"]}
     ticks, milestones, resets = defaultdict(set), defaultdict(list), {}
     actions, ages, terminals = {}, [], {}
+    applied_counts = Counter()
     errors, discarded = [], []
     cleanup = summary.get("cleanup", {})
     checks = {
@@ -92,6 +93,7 @@ def audit(path):
                     continue
                 age = data["actual_apply_tick"] - action["observation_tick"]
                 ages.append(age)
+                applied_counts[episode_id] += 1
                 checks["applied_controls_match_timing"] &= (
                     age == 3
                     and action["duration"] == 5
@@ -130,6 +132,10 @@ def audit(path):
                 "reason": episode["reason"],
                 "duration_ticks": episode["end_tick"] - episode["start_tick"],
                 "policy_ticks_missing": len(expected - ticks[identity]),
+                "applied_controls": applied_counts[identity],
+                "control_activity_recorded": (
+                    episode["status"] != "success" or applied_counts[identity] > 0
+                ),
                 "causal_chain_verified": causal,
                 "terminal_matches": all(
                     terminal.get(k) == episode.get(k)
@@ -189,6 +195,7 @@ def audit(path):
             "all_episode_evidence_complete": all(
                 a["policy_ticks_missing"] == 0
                 and a["causal_chain_verified"]
+                and a["control_activity_recorded"]
                 and a["terminal_matches"]
                 and a["reset_verified"]
                 for a in episode_audits
@@ -202,7 +209,7 @@ def audit(path):
             ),
         }
     )
-    valid = all(checks.values()) and bool(episode_audits) and bool(ages)
+    valid = all(checks.values()) and bool(episode_audits)
     successes = sum(e["status"] == "success" for e in episodes.values())
     unique_layouts = len({layout_hash(spec) for spec in summary["specs"]})
     return {
@@ -227,6 +234,8 @@ def audit(path):
         "runner_sha256": summary["runner_sha256"],
         "mod_source_hash": summary["mod_provenance"]["source_hash"],
         "profile_hash": summary["profile_hash"],
+        "course_profiles_hash": summary["course_profiles_hash"],
+        "generator_sha256": sha256(snapshot / "src/mclab/courses.py"),
         "timing_profile": summary["timing_profile"],
         "checks": checks,
         "valid_recording": valid,
@@ -267,6 +276,8 @@ def report(paths, output):
                         "runner_sha256",
                         "mod_source_hash",
                         "profile_hash",
+                        "course_profiles_hash",
+                        "generator_sha256",
                         "timing_profile",
                     )
                 )
@@ -283,7 +294,13 @@ def report(paths, output):
     proof = {
         "schema_version": 1,
         "auditor_sha256": sha256(Path(__file__)),
-        "status": "passed_development_navigation" if passed else "in_progress",
+        "status": (
+            "invalid_evidence"
+            if any(not run["valid_recording"] for run in runs)
+            else "passed_development_navigation"
+            if passed
+            else "in_progress"
+        ),
         "scope": (
             "Deterministic C2-C5 development navigation; "
             "no model, learned policy or holdout claim"
@@ -299,10 +316,27 @@ def report(paths, output):
     return proof
 
 
-if __name__ == "__main__":
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("summaries", nargs="+", type=Path)
     parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     proof = report(args.summaries, args.output)
-    print(json.dumps({k: v for k, v in proof.items() if k != "courses"}, indent=2))
+    concise = {k: v for k, v in proof.items() if k != "courses"}
+    concise["courses"] = {
+        course: {
+            "attempts": run["attempts"],
+            "successes": run["successes"],
+            "unique_layouts": run["unique_layouts"],
+            "valid_recording": run["valid_recording"],
+            "gate_eligible": run["gate_eligible"],
+            "failed_checks": [name for name, ok in run["checks"].items() if not ok],
+        }
+        for course, run in proof["courses"].items()
+    }
+    print(json.dumps(concise, indent=2))
+    return 1 if proof["status"] == "invalid_evidence" else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

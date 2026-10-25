@@ -10,8 +10,10 @@ from mclab.paths import ROOT, read_json, write_json
 
 
 def audit(path):
+    path = Path(path)
     summary = read_json(path)
-    recording = Path(summary["recording"])
+    # Original provenance keeps its launch path even after moving the checkout.
+    recording = path.parent / "events.jsonl"
     responses, errors, policy_ticks, actions, ages, choices = [], [], set(), {}, [], []
     positions = []
     milestones = {}
