@@ -132,9 +132,6 @@ class NavigationController:
         self.mode = "exploring"
         self.air_waypoint = None
         self.explore_heading = None
-        # The sensor is view-cone limited; look around once before exploring so
-        # a target behind the spawn heading is not missed.
-        self.scan_turns = 12
 
     def _observe(self, observation):
         tick = observation["tick"]
@@ -191,6 +188,15 @@ class NavigationController:
             p: c for p, c in self.cells.items() if 0 <= tick - c["observed_tick"] <= 5
         }
 
+    def _unseen_floor(self, x, y, z, radius=8, step=2):
+        # ponytail: sampled every 2 blocks (81 probes per node); exact counting
+        # only if exploration needs finer ranking.
+        return sum(
+            (x + dx, y - 1, z + dz) not in self.cells
+            for dx in range(-radius, radius + 1, step)
+            for dz in range(-radius, radius + 1, step)
+        )
+
     def _frontier(self, nodes, start):
         choices = []
         if start not in nodes:
@@ -207,7 +213,15 @@ class NavigationController:
             if unknown:
                 # One shared search keeps planning bounded as observed memory
                 # grows. Visitation penalizes views that revealed nothing new.
-                score = costs[node] + self.visits.get(node, 0) * 3 - unknown * 0.2
+                # Prefer views that reveal unexplored floor, not just the nearest
+                # edge of memory; nearest-edge alone walks the arena perimeter.
+                gain = self._unseen_floor(x, y, z)
+                score = (
+                    costs[node]
+                    + self.visits.get(node, 0) * 3
+                    - unknown * 0.2
+                    - gain * 0.3
+                )
                 score -= (
                     (node[0] - start[0]) * -math.sin(self.explore_heading)
                     + (node[2] - start[2]) * math.cos(self.explore_heading)
@@ -377,10 +391,6 @@ class NavigationController:
                     and abs(turn["yaw_delta"]) < 2
                     and abs(turn["pitch_delta"]) < 2,
                 }
-        if self.target is None and self.scan_turns > 0:
-            self.scan_turns -= 1
-            self.mode = "scanning"
-            return {"yaw_delta": 30}
         self.mode = (
             "collecting"
             if self.broken or self.drop

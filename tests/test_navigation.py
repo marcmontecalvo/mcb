@@ -164,10 +164,16 @@ def test_unsupported_sensor_rejected_before_map_mutation():
     assert not controller.cells
 
 
-def test_looks_around_once_before_exploring_when_no_target_is_visible():
+def test_exploration_prefers_the_frontier_that_reveals_more_unseen_floor():
+    cells = {
+        p: c
+        for p, c in world(12).items()
+        if not (p[0] > 7 and p[1] == 79)  # east floor beyond sight is unseen
+        and p[0] not in (-8, -9)  # west strip unseen but narrow
+    }
     controller = NavigationController()
-    turns = [controller.decide(observation()) for _ in range(12)]
-    assert all(t == {"yaw_delta": 30} for t in turns)
-    assert controller.mode == "scanning"
-    controller.decide(observation())
-    assert controller.mode == "exploring"
+    controller.cells = cells
+    controller.explore_heading = math.pi / 2  # bias west
+    nodes = walkable_nodes(cells)
+    route = controller._frontier(nodes, (0, 80, 0))
+    assert route[-1][0] > 0
