@@ -1,5 +1,6 @@
 """Declarative development courses; evaluator manifests never enter policy input."""
 
+import copy
 import random
 import shutil
 from pathlib import Path
@@ -8,7 +9,7 @@ from mclab.paths import ROOT, SERVER, config, digest, lock, read_json, write_jso
 
 
 def generate(course: str, seed: int, origin: list[int]) -> dict:
-    profiles = read_json(ROOT / "courses/profiles.json")
+    profiles = copy.deepcopy(read_json(ROOT / "courses/profiles.json"))
     if course not in profiles["courses"]:
         raise ValueError(f"Course {course} is not implemented")
     if len(origin) != 3 or not all(type(v) is int for v in origin):
@@ -24,21 +25,47 @@ def generate(course: str, seed: int, origin: list[int]) -> dict:
         else defaults["target"]
     )
     geometry = [defaults["platform"]]
-    offset = (
-        rng.choice(profile["obstacle_x_offsets"])
-        if "obstacle_x_offsets" in profile
-        else 0
-    )
-    for feature in profile.get("geometry", []):
+    offsets = profile.get("obstacle_x_offsets", [0])
+    starts = profile.get("obstacle_z_starts")
+    offset = 0
+    if starts:
+        offset = offsets[seed % len(offsets)]
+    elif "obstacle_x_offsets" in profile:
+        # Preserve the legacy RNG sequence for courses without the new grid.
+        offset = rng.choice(offsets)
+    for original in profile.get("geometry", []):
+        feature = copy.deepcopy(original)
         feature["from"][0] += offset
         feature["to"][0] += offset
+        if starts:
+            start = starts[(seed // len(offsets)) % len(starts)]
+            depth = feature["to"][2] - feature["from"][2]
+            feature["from"][2], feature["to"][2] = start, start + depth
+        if "crest_start_candidates" in profile:
+            crest_starts = profile["crest_start_candidates"]
+            lengths = profile["crest_length_candidates"]
+            start = crest_starts[seed % len(crest_starts)]
+            length = lengths[(seed // len(crest_starts)) % len(lengths)]
+            feature["from"][2], feature["to"][2] = start, start + length - 1
         geometry.append(feature)
+    if "crest_after_obstacle" in profile:
+        crest = profile["crest_after_obstacle"]
+        start = geometry[-1]["to"][2] + crest["gap"] + 1
+        geometry.append(
+            {
+                "from": [-16, 0, start],
+                "to": [16, 0, start + crest["length"] - 1],
+                "block": "minecraft:stone",
+            }
+        )
     geometry.append({"from": target, "to": target, "block": defaults["target_block"]})
     value = {
         "schema_version": 1,
         "course_id": course,
         "seed": seed,
-        "generator_version": profiles["generator_version"],
+        "generator_version": profile.get(
+            "generator_version", profiles["generator_version"]
+        ),
         "origin": origin,
         "track": "perception_goal",
         "sensor_profile": "pending-qualification",

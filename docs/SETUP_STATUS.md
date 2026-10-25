@@ -6,8 +6,8 @@ verified causal break/drop/pickup chain and complete per-tick policy recording.
 Completion took 128–141 ticks (median 132). Three stale controls were discarded
 and regenerated from fresh observations within the declared recovery limit.
 Earlier failed/invalid scored configurations remain in the all-attempt report.
-G4 is in progress; G5–G8 are unqualified. Total inference calls: **146**
-(79 Atom +23 hosted Jev +44 gpu-docker).
+G4 is in progress; G5–G8 are unqualified. Total inference calls: **347**
+(18 provider probes +130 live calls +199 screening calls).
 The final compact-JSON tactical configuration completed **3/3 C1 seed0 development
 attempts**; all Atom Qwen live configurations total **3/5**. Directory authentication and
 chat readiness passed. See [live integration](G4_LIVE_INTEGRATION.md) and
@@ -23,6 +23,13 @@ at a log that was not visible. Its 0/1 attempt and all44 calls are retained in
 [comparison evidence](G4_GPU_DOCKER_PROOF.json). The Jev image/Box experiment
 remains deferred in the [experiment queue](EXPERIMENT_QUEUE.md).
 
+The broader [synthetic tactical screen](G4_SCREENING.md) froze 48 independently
+reviewed observations under three option orders. Jev completed 141/144 correct,
+with one wrong choice and two probability sums rejected. Atom's corrected runner
+stopped at 52/54 correct after a deadline; Marc reports heavy concurrent Hermes
+usage. Those timings are shared-load measurements, not an isolated ranking.
+OpenRouter settled usage is now $0.004482366 including this screen.
+
 ## Runtime and qualification
 
 | Item | Current evidence |
@@ -33,7 +40,7 @@ remains deferred in the [experiment queue](EXPERIMENT_QUEUE.md).
 | Minecraft | Java 26.3, protocol 777, authenticated mode, Survival |
 | Mods | Fabric Loader 0.19.5, API 0.164.0+26.3, pinned Carpet v26.3 |
 | Network | Loopback game 127.0.0.1:25575; authenticated bridge 8765 and supervisor 8766 |
-| Python checks | 137 tests pass; Ruff lint and formatting pass |
+| Python checks | 167 tests pass; Ruff lint and formatting pass |
 | Java checks | Mod build and pure geometry verifier pass |
 | G1 live suites | 39 body checks, 24 protocol checks, 12 reference-fixture checks |
 | G2 reset foundation | 20 consecutive identical state digests; teardown confirmed |
@@ -195,8 +202,9 @@ Upstream source references/hashes are pinned without vendoring unlicensed code.
 Baritone v1.20.0 Fabric API artifact SHA-256 was verified against its release
 metadata, and supported goal/mine/cancel signatures reviewed. The dedicated client
 bridge, login and live scored baseline remain pending. C2 development planning
-found 25 distinct variants, C3 only three and C4 one; C5 is absent. Later courses
-need generator expansion and qualification. Thirty-five actual permitted C1
+now has25 distinct layouts per C2–C5; C3–C5 each have25 physical geometries.
+The original frozen plan is retained. Native navigation profiles andmotor
+qualification remain pending. Thirty-five actual permitted C1
 observations were exported with original/reversed/seeded candidate orders and
 pending independent labels. No synchronized training demonstrations, trained
 checkpoint or fresh holdout result is claimed.

@@ -84,10 +84,14 @@
     "live_status": "Qwen Atom final3/3 (allAtom3/5), hostedJev1/1, gpu-docker Qwen3:14b0/1 initial C1 seed0 development outcomes. Alllive4/7,130requests. GPU-docker failed decision selection despite fast valid replies. Not distinct-layout or heldout evidence.",
     "preparation": "docs/G4_PREPARATION.json",
     "real_probes": "Atom chat and OpenRouter Jev SystemOne authenticated, validated real choices within1second; hosted Jev reports usage.cost",
-    "remaining": "Configure/probe a required local SystemOne candidate; independently reviewed offline screening and broader controlled trials. Qwen and hosted Jev live integrations complete; no full G4 pass inferred.",
+    "remaining": "Local SystemOne candidate; broader native/actual-observation screening and controlled navigation trials. Synthetic screen adds evidence, not a full G4 pass.",
+    "screening_evidence": "docs/G4_SCREENING_PROOF.json",
+    "screening_status": "Synthetic48-state/3-order screen: Jev141/144; Atomcorrected partial52/54 stoppeddeadline under concurrent Hermesload. No fullheadtohead or calibrationclaim.",
     "status": "in_progress"
   },
   "G5": {
+    "implementation_boundary": "docs/NAVIGATION_IMPLEMENTATION.md",
+    "preparation": "docs/G5_GENERATOR_PREPARATION.json",
     "status": "not_run"
   },
   "G6": {

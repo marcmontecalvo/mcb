@@ -3,6 +3,24 @@
 Updated October 24, 2026. Queue entries are plans, not qualification evidence.
 Current gate results remain in `gates.json`.
 
+## Current: screening complete for Jev; navigation qualification next
+
+The [48-state synthetic screen](G4_SCREENING.md) completed 144 option-order cases
+for Jev: 141 correct, one wrong choice and two rejected probability sums. It does
+not replace broader actual-observation or native sensing tests.
+
+Atom's corrected run stopped after 54 cases (52 correct, one wrong, one timeout).
+Marc reports concurrent Hermes agents heavily use Atom, so finish its matrix only
+in a quiet window. Preserve these shared-load timings and the earlier runner's
+admission failures; do not label them isolated model speed measurements.
+
+C3–C5 generators now each have 25 distinct physical geometries; C2 also has 25
+development layouts including facing variation. The old frozen plan remains.
+[Navigation implementation](NAVIGATION_IMPLEMENTATION.md) lists the native
+reset/rotation, separately scoped body profile, motor and regression work before
+G5 can run. A local SystemOne endpoint and the dedicated Baritone client bridge
+remain outstanding. No course/profile gate was widened by generator preparation.
+
 ## Tested: gpu-docker Qwen3 on RTX 5060 Ti
 
 Requested by Marc. The user supplied `http://10.10.40.20:11434/v1/models` and

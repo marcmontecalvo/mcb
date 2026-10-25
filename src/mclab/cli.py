@@ -24,6 +24,7 @@ from mclab import (
     reference,
     referenceproof,
     resetcheck,
+    screening,
     server,
 )
 from mclab.paths import ROOT, SERVER, config, lock, read_json, write_json
@@ -131,7 +132,18 @@ def main() -> int:
     experiment = sub.add_parser("experiments").add_subparsers(
         dest="operation", required=True
     )
-    experiment.add_parser("plan")
+    experiment.add_parser("plan").add_argument("--output", type=Path)
+    experiment.add_parser("screen-build")
+    experiment.add_parser("screen-report")
+    screen_run = experiment.add_parser("screen-run")
+    screen_run.add_argument("--backend", required=True)
+    screen_run.add_argument(
+        "--fixture",
+        type=Path,
+        default=ROOT / "results/experiments/tactical_screen_v1.json",
+    )
+    screen_run.add_argument("--offset", type=int, default=0)
+    screen_run.add_argument("--limit", type=int, default=36)
     screen = experiment.add_parser("export-screening")
     screen.add_argument("--recording", type=Path, required=True)
     screen.add_argument("--output", type=Path, required=True)
@@ -164,7 +176,7 @@ def main() -> int:
     srv.add_parser("status")
     course = sub.add_parser("course").add_subparsers(dest="operation", required=True)
     build = course.add_parser("build")
-    build.add_argument("--course", choices=["C0", "C1", "C2", "C3", "C4"])
+    build.add_argument("--course", choices=["C0", "C1", "C2", "C3", "C4", "C5"])
     build.add_argument("--seed", type=int)
     course.add_parser("verify-generated")
     course.add_parser("verify-bootstrap")
@@ -187,13 +199,34 @@ def main() -> int:
             case "mod-install":
                 result = modbuild.install()
             case "experiments":
-                result = (
-                    experiments.development_plan()
-                    if args.operation == "plan"
-                    else experiments.export_screening(
+                if args.operation == "plan":
+                    result = experiments.development_plan(args.output)
+                elif args.operation == "screen-build":
+                    fixture = screening.build()
+                    result = {
+                        "states": len(fixture["states"]),
+                        "status": "frozen_synthetic_fixture",
+                    }
+                elif args.operation == "screen-run":
+                    value = screening.run(
+                        args.backend, args.fixture, offset=args.offset, limit=args.limit
+                    )
+                    result = {
+                        k: value[k]
+                        for k in (
+                            "artifact",
+                            "status",
+                            "attempted",
+                            "correct",
+                            "errors",
+                        )
+                    }
+                elif args.operation == "screen-report":
+                    result = screening.report()
+                else:
+                    result = experiments.export_screening(
                         args.recording, args.output, args.limit
                     )
-                )
             case "models":
                 if args.operation == "live-smoke":
                     result = model_execution.run(
@@ -270,6 +303,8 @@ def main() -> int:
             return 0 if all(c.get("ok", True) for c in result["checks"]) else 1
         if args.command == "models":
             return 1 if result["status"] == "not_ready" else 0
+        if args.command == "experiments" and args.operation == "screen-run":
+            return 0 if result["status"] == "completed_development_screen" else 1
         if args.command == "body" and args.operation != "reference-plan":
             return (
                 0

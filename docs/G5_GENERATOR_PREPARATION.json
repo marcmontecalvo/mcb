@@ -1,0 +1,45 @@
+{
+  "C1_spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
+  "active_world_changed": false,
+  "course_tests_passed": 28,
+  "courses": [
+    {
+      "course_id": "C2",
+      "qualified": false,
+      "status": "ready_for_future_qualification",
+      "unique_layouts_found": 25
+    },
+    {
+      "course_id": "C3",
+      "qualified": false,
+      "status": "ready_for_future_qualification",
+      "unique_layouts_found": 25
+    },
+    {
+      "course_id": "C4",
+      "qualified": false,
+      "status": "ready_for_future_qualification",
+      "unique_layouts_found": 25
+    },
+    {
+      "course_id": "C5",
+      "qualified": false,
+      "status": "ready_for_future_qualification",
+      "unique_layouts_found": 25
+    }
+  ],
+  "generator_source_sha256": "2fa0f8c91f3d70aad0885edaf0050ef54c651a962987a87deb845bdd3389d868",
+  "plan_artifact": "results\\experiments\\development_plan_navigation_v2.json",
+  "plan_hash": "e48bd96d1583caf909fbb41b4a768768f6be95e9713e430dbae51b28369aa9f6",
+  "profiles_sha256": "ccc32971caa46d93d6c979d97ecf75d0312a02099b3e0be296329b24cc647c3a",
+  "remaining": [
+    "Native reset/body rotation support needs scoped navigation profile",
+    "Native mod changes require renewed regression/reset evidence",
+    "Qualified navigation motor needs jumping/elevation support",
+    "No G5 trial or holdout performed"
+  ],
+  "reproduction": "rtk proxy uv run --locked mclab experiments plan --output results/experiments/development_plan_navigation_v2.json",
+  "review": "Independent Python reviewer verified25distinct physical geometries eachC3/C4/C5, preservedC0/C1/C2 outputs, supportedbounds andnoaliasmutation",
+  "schema_version": 1,
+  "status": "generator_preparation_not_qualified"
+}

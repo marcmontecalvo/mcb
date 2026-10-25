@@ -189,7 +189,7 @@ revalidates terrain/body state. This command itself runs no scored episodes.
 rtk proxy uv run --locked mclab course episode-check
 rtk proxy uv run --locked mclab course execution-check --count 10
 rtk proxy uv run --locked mclab models probe
-rtk proxy uv run --locked mclab experiments plan
+rtk proxy uv run --locked mclab experiments plan --output results/experiments/development_plan_navigation_v2.json
 ```
 
 `episode-check` deliberately attempts forbidden actions, planted items, altered
@@ -255,14 +255,29 @@ attempt by repeatedly selecting an impossible aim behavior. See
 [the comparison evidence](docs/G4_GPU_DOCKER_PROOF.json). It is not qualified for
 broader trials under the current prompt.
 
-`experiments plan` freezes a development layout inventory without changing the
-active world. C3/C4 need more distinct geometry and C5 needs a generator. Offline
+`experiments plan --output <new-path>` freezes a development layout inventory
+without changing the active world. C3–C5 now have expanded generators. Offline
 states can be exported with `experiments export-screening --recording <JSONL>
 --output <JSON>`. Their valid-action labels require independent review, and they
 are not synchronized human demonstrations or training-ready data.
 
 The Baritone 26.3 artifact/API is pinned in `config/baselines.lock.json`; a client
 bridge, authenticated client session and scored baseline trial remain pending.
+
+The broader [synthetic tactical screen](docs/G4_SCREENING.md) contains 48 reviewed
+observations under three candidate orders. Jev scored 141/144; Atom's shared-load
+comparison stopped after a timeout and remains partial. Its performance is not an
+isolated model speed comparison. Use `experiments screen-build`, `screen-run` and
+`screen-report` to freeze, run bounded batches and inspect all outcomes.
+
+C2–C5 now each have 25 distinct development layouts; C3–C5 each have 25 different
+physical geometries. C2 variation also includes initial facing. The qualified C1
+output is unchanged; native navigation reset/body/motor qualification and G5 trials
+remain pending. Preserve the earlier frozen plan and reproduce the new one with:
+
+```powershell
+rtk proxy uv run --locked mclab experiments plan --output results/experiments/development_plan_navigation_v2.json
+```
 
 The reference recorder reads the actual latest client button state received by
 the server, plus view and body state. It records client/server timing uncertainty;

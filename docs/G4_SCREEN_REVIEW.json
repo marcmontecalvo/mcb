@@ -1,0 +1,20 @@
+{
+  "checks": [
+    "Correct30degree turn directions for aim/collect",
+    "Mining targets and ray hits within4.5blockreach",
+    "Fresh flat support for exploration",
+    "Forward obstacles/ledges and stale/unknown support requireturn",
+    "Labels excluded from permitted summaries"
+  ],
+  "fixture_hash": "9923ec80bd4af8fe56317d53797dd621130c82c91da0f0a1b31e86da4db75596",
+  "limitations": [
+    "No positive stop cases",
+    "No placement or insufficient-dirt cases; excluded actionprofile",
+    "forward_safe is precomputed by the shared guard, not inferred by model",
+    "Synthetic observations not native visibility proofs; variants not independent unseen layouts"
+  ],
+  "reviewer": "Independent geometry review by separate Python reviewer agent",
+  "schema_version": 1,
+  "scope": "48 synthetic useful-next-behavior cases; not native sensing, gameplay or full G4 screen",
+  "status": "passed"
+}

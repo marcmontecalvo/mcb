@@ -100,6 +100,14 @@ def report() -> dict:
         for b in p.get("backends", [])
     )
     live_requests = sum(v.get("model_requests", 0) for v in live_models.values())
+    screens = {
+        value["run_id"]: value
+        for path in (ROOT / "results/screening").glob("*/summary.json")
+        if (value := read_json(path)).get("run_id")
+    }
+    screen_requests = sum(
+        s.get("provenance", {}).get("requests", 0) for s in screens.values()
+    )
     result = {
         "schema_version": 1,
         "generated_at_utc": datetime.now(UTC).isoformat(),
@@ -111,9 +119,10 @@ def report() -> dict:
         "episode_ledger": episodes,
         "episodes_by_configuration": list(groups.values()),
         "unscored_development_attempts": len(episodes) - len(scored),
-        "provider_requests": probe_requests + live_requests,
+        "provider_requests": probe_requests + live_requests + screen_requests,
         "provider_probe_requests": probe_requests,
         "provider_live_requests": live_requests,
+        "provider_screening_requests": screen_requests,
         "model_development_runs": list(live_models.values()),
         "gates": gates.statuses(),
         "G0": gates.statuses()["G0"],

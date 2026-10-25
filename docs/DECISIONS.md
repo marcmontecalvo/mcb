@@ -95,13 +95,23 @@ SystemOne candidate and broader independent screening. Upstream jevtests files
 are reference-only (no root license found); no implementation was copied.
 Baritone v1.20.0 artifact/API is pinned, without a client bridge or live trial.
 
-Development planning counts physical layouts rather than seeds: C2 has at least
-25 unique variants, C3 only three and C4 one; C5 is not generated. Those later
-courses remain unqualified. Offline exports contain actual filtered observations
+Development planning hashes geometry, spawn, facing, target and inventory rather
+than treating seed metadata as diversity. The versioned navigation plan now has
+25 variants per C2–C5; C3–C5 each have 25 distinct physical geometries. The earlier
+frozen plan is retained. These later courses remain unqualified. Offline exports contain actual filtered observations
 with pending independent action labels. They are not synchronized demonstrations;
 training and fresh holdout evaluation remain pending. The authorized hosted Jev
 experiment made 23 paid calls with settled usage of $0.000637602; the verified
 wallet/key cap is $1. See G4_JEV_PROOF.json and EXPERIMENT_QUEUE.md.
+
+The broader synthetic useful-action screen contains 48 independently reviewed
+states in three option orders. Jev completed 144 cases with 141 correct, one wrong
+choice and two rejected probability sums. Atom was stopped after a shared-load
+deadline; it remains a partial comparison. Marc reports concurrent Hermes agents
+heavily use that service. Preserve the initial runner's admission failures as
+history; the corrected runner stops rather than consuming unadmitted cases.
+No native sensing, construction, calibration or full G4 pass follows from this
+screen. See G4_SCREENING.md and G4_SCREENING_PROOF.json.
 
 Synchronous Python audit serialization interrupted motor renewal and exposed
 stale-action failures. Those scored batches are preserved. The event writer now

@@ -15,6 +15,19 @@ from dataclasses import asdict
 from mclab.backends import BackendError, ChoiceRequest
 
 PROFILE = "bounded-visible-target-tactical-v1"
+INSTRUCTIONS = (
+    "Collect one oak log using only visible information. "
+    "When no log or drop is visible, explore: move forward "
+    "when forward_safe is true, otherwise turn to seek safe "
+    "visible space. An unseen goal is not a reason to stop. "
+    "When a log is visible, aim at it, approach safely until "
+    "the ray hits it, then keep choosing mine until it breaks. "
+    "Collect a visible log drop after breaking. Stop only "
+    "when movement is unsafe and no useful turn or mining "
+    "action is available, or collection is complete. "
+    "Choose one bounded behavior. Return only compact JSON "
+    '{"choice":"ID"} with no whitespace or explanation.'
+)
 CANDIDATES = {
     "stop": "Release controls",
     "forward": "Walk forward briefly if visible terrain supports safe movement",
@@ -140,17 +153,7 @@ class TacticalController:
                     ChoiceRequest(
                         state,
                         CANDIDATES,
-                        "Collect one oak log using only visible information. "
-                        "When no log or drop is visible, explore: move forward "
-                        "when forward_safe is true, otherwise turn to seek safe "
-                        "visible space. An unseen goal is not a reason to stop. "
-                        "When a log is visible, aim at it, approach safely until "
-                        "the ray hits it, then keep choosing mine until it breaks. "
-                        "Collect a visible log drop after breaking. Stop only "
-                        "when movement is unsafe and no useful turn or mining "
-                        "action is available, or collection is complete. "
-                        "Choose one bounded behavior. Return only compact JSON "
-                        '{"choice":"ID"} with no whitespace or explanation.',
+                        INSTRUCTIONS,
                     )
                 )
                 result = {"decision": asdict(decision)}

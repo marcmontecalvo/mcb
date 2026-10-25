@@ -19,9 +19,21 @@
     "C2": {"tick_limit": 900, "description":"Seeded initial facing and target direction", "random_yaw": true,
       "target_candidates": [[0, 0, 12], [-12, 0, 0], [0, 0, -12], [12, 0, 0]]},
     "C3": {"tick_limit": 1200, "description":"Two-block-tall obstacle with left and right detours",
-      "obstacle_x_offsets": [-1, 0, 1],
+      "generator_version": "0.2.0",
+      "obstacle_x_offsets": [0, -2, -1, 1, 2],
+      "obstacle_z_starts": [5, 3, 4, 6, 7],
       "geometry": [{"from": [-2, 0, 5], "to": [2, 1, 6], "block": "minecraft:stone"}]},
     "C4": {"tick_limit": 1200, "description":"Full-block rise, crest and descent",
-      "geometry": [{"from": [-16, 0, 5], "to": [16, 0, 8], "block": "minecraft:stone"}]}
+      "generator_version": "0.2.0",
+      "crest_start_candidates": [5, 3, 4, 6, 7],
+      "crest_length_candidates": [4, 1, 2, 3, 5],
+      "geometry": [{"from": [-16, 0, 5], "to": [16, 0, 8], "block": "minecraft:stone"}]},
+    "C5": {"tick_limit": 1800, "description":"Combined initial turn, solid detour obstacle and full-block crest",
+      "generator_version": "0.2.0",
+      "random_yaw": true,
+      "obstacle_x_offsets": [0, -2, -1, 1, 2],
+      "obstacle_z_starts": [5, 3, 4, 6, 7],
+      "geometry": [{"from": [-2, 0, 5], "to": [2, 1, 6], "block": "minecraft:stone"}],
+      "crest_after_obstacle": {"gap": 1, "length": 2}}
   }
 }
