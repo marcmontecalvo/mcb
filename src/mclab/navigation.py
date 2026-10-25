@@ -8,7 +8,7 @@ window. This profile supports ordinary full-cube ground and one-block changes.
 import heapq
 import math
 
-PROFILE = "local-map-navigation-v1"
+PROFILE = "local-map-navigation-v2"
 DIRECTIONS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
 
@@ -132,6 +132,7 @@ class NavigationController:
         self.visits = {}
         self.last_tick = None
         self.last_plan = []
+        self.plan_goal = None
         self.mode = "exploring"
         self.air_waypoint = None
         self.explore_heading = None
@@ -191,7 +192,7 @@ class NavigationController:
             p: c for p, c in self.cells.items() if 0 <= tick - c["observed_tick"] <= 5
         }
 
-    def _unseen_floor(self, x, y, z, radius=8, step=2):
+    def _unseen_floor(self, x, y, z, radius=8, step=2, bounds=None):
         # ponytail: sampled every 2 blocks (81 probes per node); exact counting
         # only if exploration needs finer ranking.
         # A column counts as unseen when neither this floor level nor the one
@@ -201,6 +202,11 @@ class NavigationController:
             and (x + dx, y - 2, z + dz) not in self.cells
             for dx in range(-radius, radius + 1, step)
             for dz in range(-radius, radius + 1, step)
+            if bounds is None
+            or (
+                bounds[0] - radius // 2 <= x + dx <= bounds[1] + radius // 2
+                and bounds[2] - radius // 2 <= z + dz <= bounds[3] + radius // 2
+            )
         )
 
     def _frontier(self, nodes, start):
@@ -208,6 +214,27 @@ class NavigationController:
         if start not in nodes:
             return []
         costs, previous = paths_from(self.cells, nodes, start)
+        # Only observed two-block voids establish an edge. Unknown support is
+        # still worth exploring; a one-block descent is still traversable.
+        limits = (
+            min(n[0] for n in nodes),
+            max(n[0] for n in nodes),
+            min(n[2] for n in nodes),
+            max(n[2] for n in nodes),
+        )
+        voids = [
+            p
+            for p, c in self.cells.items()
+            if p[1] == start[1] - 1
+            and empty(c)
+            and empty(self.cells.get((p[0], p[1] - 1, p[2])))
+        ]
+        bounds = (
+            limits[0] if any(p[0] < limits[0] for p in voids) else -math.inf,
+            limits[1] if any(p[0] > limits[1] for p in voids) else math.inf,
+            limits[2] if any(p[2] < limits[2] for p in voids) else -math.inf,
+            limits[3] if any(p[2] > limits[3] for p in voids) else math.inf,
+        )
         for node in nodes:
             if node == start or node not in costs:
                 continue
@@ -221,7 +248,7 @@ class NavigationController:
                 # grows. Visitation penalizes views that revealed nothing new.
                 # Prefer views that reveal unexplored floor, not just the nearest
                 # edge of memory; nearest-edge alone walks the arena perimeter.
-                gain = self._unseen_floor(x, y, z)
+                gain = self._unseen_floor(x, y, z, bounds=bounds)
                 score = (
                     costs[node]
                     + self.visits.get(node, 0) * 3
@@ -382,13 +409,9 @@ class NavigationController:
                     )
                 )
             )
-            turn = rotation(center, body)
-            # A remembered target can leave the current view while approaching.
-            # Reacquire its view before choosing another exploration frontier.
-            # Once aligned, an occluded target still requires a detour.
-            turning = abs(turn["yaw_delta"]) >= 2 or abs(turn["pitch_delta"]) >= 2
-            if reach <= 4.2 and (visible or turning):
-                self.mode = "mining" if visible else "reacquiring"
+            if visible and reach <= 4.2:
+                self.mode = "mining"
+                turn = rotation(center, body)
                 ray = body.get("ray", {})
                 mine = (
                     ray.get("block") == "minecraft:oak_log"
@@ -397,8 +420,7 @@ class NavigationController:
                 self.mining = self.mining or mine
                 return {
                     **turn,
-                    "mine": visible
-                    and mine
+                    "mine": mine
                     and abs(turn["yaw_delta"]) < 2
                     and abs(turn["pitch_delta"]) < 2,
                 }
@@ -409,10 +431,26 @@ class NavigationController:
             if self.target
             else "exploring"
         )
-        self.last_plan = self._route(body)
+        goal = (self.mode, self.target, tuple(self.drop) if self.drop else None)
+        node = (
+            math.floor(body["position"][0]),
+            round(body["position"][1]),
+            math.floor(body["position"][2]),
+        )
+        if goal == self.plan_goal and node in self.last_plan:
+            self.last_plan = self.last_plan[self.last_plan.index(node) :]
+        else:
+            self.last_plan = []
+        if len(self.last_plan) < 2:
+            self.last_plan = self._route(body)
+            self.plan_goal = goal
         if not self.last_plan:
             return {"yaw_delta": 30}
         waypoint = self.last_plan[1] if len(self.last_plan) > 1 else self.last_plan[0]
-        return self._move(
+        decision = self._move(
             observation, [waypoint[0] + 0.5, waypoint[1], waypoint[2] + 0.5]
         )
+        if not decision.get("forward") and abs(decision.get("yaw_delta", 0)) <= 8:
+            # Fresh safety checks rejected an old route: plan again next tick.
+            self.last_plan = []
+        return decision

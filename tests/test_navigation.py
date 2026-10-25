@@ -106,13 +106,12 @@ def test_mining_requires_current_log_ray_and_fully_aligned_aim():
     assert not controller.decide(o)["mine"]
 
 
-def test_nearby_remembered_target_is_reacquired_before_exploring():
+def test_occluded_target_uses_navigation_instead_of_heading_only_reacquisition():
     controller = NavigationController()
     controller.target = (0, 80, -3)
     result = controller.decide(observation())
-    assert controller.mode == "reacquiring"
-    assert abs(result["yaw_delta"]) == 45
-    assert not result.get("forward") and not result["mine"]
+    assert controller.mode == "approaching"
+    assert not result.get("mine")
 
 
 def test_aligned_but_occluded_remembered_target_does_not_stall():
@@ -193,3 +192,61 @@ def test_exploration_prefers_the_frontier_that_reveals_more_unseen_floor():
     nodes = walkable_nodes(cells)
     route = controller._frontier(nodes, (0, 80, 0))
     assert route[-1][0] > 0
+
+
+def test_route_is_reused_until_waypoint_arrival_and_invalidated_by_a_new_target(
+    monkeypatch,
+):
+    controller = NavigationController()
+    calls = []
+
+    def route(_body):
+        calls.append(True)
+        return [(0, 80, 0), (0, 80, 1), (0, 80, 2)]
+
+    monkeypatch.setattr(controller, "_route", route)
+    assert controller.decide(observation()).get("forward")
+    assert controller.decide(observation(position=[0.5, 80, 0.7])).get("forward")
+    assert controller.decide(observation(position=[0.5, 80, 1.6])).get("forward")
+    assert len(calls) == 1 and controller.last_plan[0] == (0, 80, 1)
+    cells = world()
+    cells[0, 80, 6] = cell(0, 80, 6, "minecraft:oak_log")
+    controller.decide(observation(cells))
+    assert len(calls) == 2
+
+
+def test_cached_route_still_rejects_stale_support_and_requests_replanning(monkeypatch):
+    controller = NavigationController()
+    monkeypatch.setattr(
+        controller, "_route", lambda _: [(0, 80, 0), (0, 80, 1), (0, 80, 2)]
+    )
+    assert controller.decide(observation()).get("forward")
+    stale = observation({})
+    stale["tick"] = 106
+    assert not controller.decide(stale).get("forward")
+    assert controller.last_plan == []
+
+
+@pytest.mark.parametrize(
+    "below,expected_edge",
+    [(None, math.inf), ("minecraft:stone", math.inf), ("minecraft:air", 7)],
+)
+def test_only_observed_two_block_void_limits_speculative_edge_gain(
+    monkeypatch, below, expected_edge
+):
+    cells = world()
+    cells[8, 79, 0] = cell(8, 79, 0)
+    if below is not None:
+        cells[8, 78, 0] = cell(8, 78, 0, below)
+    controller = NavigationController()
+    controller.cells = cells
+    controller.explore_heading = 0
+    bounds = []
+
+    def gain(*_args, **kwargs):
+        bounds.append(kwargs["bounds"])
+        return 0
+
+    monkeypatch.setattr(controller, "_unseen_floor", gain)
+    controller._frontier(walkable_nodes(cells), (0, 80, 0))
+    assert bounds and all(b[1] == expected_edge for b in bounds)
