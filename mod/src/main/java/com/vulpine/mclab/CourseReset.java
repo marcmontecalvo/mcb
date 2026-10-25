@@ -18,12 +18,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.*;
 
-/** Incremental C1 reset foundation. No scoring or policy admission is implemented here. */
+/** Incremental bounded course reset; scoring and policy admission remain separate. */
 public final class CourseReset {
     private static final Gson GSON = new Gson();
     private static final int CELLS = 49*41*49;
     private final MinecraftServer server;
     private final JsonObject spec;
+    private final String profileId;
     private final int x, y, z;
     private final AABB bounds;
     private int cursor;
@@ -32,13 +33,15 @@ public final class CourseReset {
     private String terrainDigest = "";
 
     public CourseReset(MinecraftServer server, JsonObject specification) {
+        this(server, specification, NavigationSpec.INITIAL, specification);
+    }
+
+    public CourseReset(MinecraftServer server, JsonObject specification, String profileId,
+                       JsonObject initialSpecification) {
         this.server = server;
         this.spec = specification.deepCopy();
-        if (!spec.get("course_id").getAsString().equals("C1")
-                || !spec.getAsJsonArray("initial_inventory").isEmpty()
-                || spec.get("yaw").getAsFloat() != 0 || spec.get("pitch").getAsFloat() != 0) {
-            throw new IllegalArgumentException("initial_profile_requires_standard_C1");
-        }
+        this.profileId = profileId;
+        NavigationSpec.validate(profileId, GSON.fromJson(spec, Map.class), GSON.fromJson(initialSpecification, Map.class));
         var origin = spec.getAsJsonArray("origin");
         x = origin.get(0).getAsInt(); y = origin.get(1).getAsInt(); z = origin.get(2).getAsInt();
         var clear = spec.getAsJsonObject("clear_region");
@@ -156,6 +159,10 @@ public final class CourseReset {
     public boolean done() { return phase.equals("verified"); }
     public String terrainDigest() { return terrainDigest; }
     public String specHash() { return spec.get("spec_hash").getAsString(); }
+    public String profileId() { return profileId; }
+    public String courseId() { return spec.get("course_id").getAsString(); }
+    public float yaw() { return spec.get("yaw").getAsFloat(); }
+    public float pitch() { return spec.get("pitch").getAsFloat(); }
     public Vec3 spawn() {
         var s = spec.getAsJsonArray("spawn");
         return new Vec3(x+s.get(0).getAsDouble(), y+s.get(1).getAsDouble(), z+s.get(2).getAsDouble());

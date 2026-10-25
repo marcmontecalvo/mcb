@@ -40,6 +40,8 @@ public final class CarpetBodyAdapter {
     private final MinecraftServer server;
     private final Vec3 fixture;
     private final String name;
+    private final float initialYaw;
+    private final float initialPitch;
     private boolean retired;
     private boolean initialized;
     private int stableTicks;
@@ -51,9 +53,17 @@ public final class CarpetBodyAdapter {
     private Map<String, Object> referenceSetup = Map.of();
 
     public CarpetBodyAdapter(MinecraftServer server, Vec3 fixture, String name) {
+        this(server, fixture, name, 0, 0);
+    }
+
+    public CarpetBodyAdapter(MinecraftServer server, Vec3 fixture, String name, float yaw, float pitch) {
+        if (!Float.isFinite(yaw) || !Float.isFinite(pitch) || yaw < -180 || yaw >= 180
+                || pitch < -90 || pitch > 90) throw new IllegalArgumentException("invalid_initial_heading");
         this.server = server;
         this.fixture = fixture;
         this.name = name;
+        this.initialYaw = yaw;
+        this.initialPitch = pitch;
     }
 
     public String name() { return name; }
@@ -176,9 +186,9 @@ public final class CarpetBodyAdapter {
         spawnedAt = server.getTickCount();
         if (viaCommand) {
             return command("player " + name + " spawn at " + fixture.x + " " + fixture.y + " "
-                    + fixture.z + " facing 0 0 in minecraft:overworld in survival");
+                    + fixture.z + " facing " + initialYaw + " " + initialPitch + " in minecraft:overworld in survival");
         }
-        return EntityPlayerMPFake.createFake(name, server, fixture, 0, 0,
+        return EntityPlayerMPFake.createFake(name, server, fixture, initialYaw, initialPitch,
                 server.overworld().dimension(), GameType.SURVIVAL, false) ? 1 : 0;
     }
 
@@ -245,7 +255,7 @@ public final class CarpetBodyAdapter {
         player.fallDistance = 0;
         player.hurtTime = 0;
         player.setInvulnerableTime(0);
-        player.teleportTo(server.overworld(), fixture.x, fixture.y, fixture.z, Set.of(), 0, 0, true);
+        player.teleportTo(server.overworld(), fixture.x, fixture.y, fixture.z, Set.of(), initialYaw, initialPitch, true);
         player.setDeltaMovement(Vec3.ZERO);
         player.getInventory().setSelectedSlot(0);
         if (dirt > 0) player.getInventory().setItem(0, new ItemStack(Items.DIRT, dirt));

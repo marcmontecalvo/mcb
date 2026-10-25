@@ -53,7 +53,7 @@
       "arbitrary fluid/block-entity restoration",
       "camera sensor profile"
     ],
-    "mod_source_hash": "f1b1c9369325d26c622650074372ce67a5433ba713a05f660e7b845c69bb4c30",
+    "mod_source_hash": "622e336121da10bd2fb1f3140c6ceef23c0cc43452745c003a874af9373dec4d",
     "reset_checks_passed": 20,
     "reset_evidence": "docs/G2_RESET_PROOF.json",
     "scope": "Frozen initial C1 reset, rules, causal evaluator, sensor and episode recorder",

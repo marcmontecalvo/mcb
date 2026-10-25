@@ -33,7 +33,8 @@ public final class BridgeRuntime implements AutoCloseable {
     private static volatile BridgeRuntime active;
     private final MinecraftServer server;
     private final Vec3 fixture;
-    private final JsonObject courseSpec;
+    private final JsonObject initialCourseSpec;
+    private JsonObject courseSpec;
     private CourseReset courseReset;
     private CourseEpisode episode;
     private long pendingBeginSequence;
@@ -89,6 +90,7 @@ public final class BridgeRuntime implements AutoCloseable {
         this.server = server;
         this.fixture = fixture;
         this.courseSpec = courseSpec.deepCopy();
+        this.initialCourseSpec = courseSpec.deepCopy();
         int port = Integer.parseInt(System.getProperty("mclab.bridge_port", "8765"));
         String token = System.getProperty("mclab.bridge_token", "");
         if (token.length() < 32) throw new IllegalStateException("Missing private bridge token");
@@ -243,7 +245,15 @@ public final class BridgeRuntime implements AutoCloseable {
         String op = text(request, "op");
         if (inbound.admin() && op.equals("course_reset")) {
             if (resetting || referenceName != null) throw new IllegalStateException("lab_busy");
-            if (!text(request, "profile_id").equals("initial-c1-survival-v1")) {
+            String profileId = text(request, "profile_id");
+            JsonObject nextSpec;
+            if (profileId.equals(NavigationSpec.INITIAL)) {
+                if (request.has("course_spec")) throw new IllegalArgumentException("initial_profile_rejects_spec_override");
+                nextSpec = initialCourseSpec.deepCopy();
+            } else if (profileId.equals(NavigationSpec.NAVIGATION) && request.has("course_spec")
+                    && request.get("course_spec").isJsonObject()) {
+                nextSpec = request.getAsJsonObject("course_spec").deepCopy();
+            } else {
                 throw new IllegalArgumentException("unqualified_course_profile");
             }
             String nextRun = text(request, "run_id"), nextEpisode = text(request, "episode_id"), nextBody = text(request, "body_id");
@@ -251,8 +261,8 @@ public final class BridgeRuntime implements AutoCloseable {
                 throw new IllegalArgumentException("reset_requires_fresh_episode_and_body");
             }
             if (retired.size() >= 32) throw new IllegalStateException("restart_after_32_qualification_bodies");
+            var prepared = new CourseReset(server, nextSpec, profileId, initialCourseSpec);
             if (episode != null && episode.running()) episode.finish("failed","reset_cancelled");
-            var prepared = new CourseReset(server, courseSpec);
             scheduled.clear(); expiryTick = -1;
             if (body != null) { body.release(); body.retire(); retired.add(body); body = null; }
             prepared.cleanEntities();
@@ -261,11 +271,14 @@ public final class BridgeRuntime implements AutoCloseable {
             lastRequestSequence = sequence; lastContactNanos = inbound.receivedNanos(); actionIds.clear();
             pendingBeginSequence=0; episode = null; visibleBlocks = List.of(); sensorTick = -100;
             courseReset = prepared; resetting = true; resetSecondVerification = false;
+            courseSpec = nextSpec;
             resetWarmUntil = -1; resetRequestSequence = sequence; resetGeneration++;
             resetFirstTerrain = ""; resetFirstBody = ""; resetDigest = "";
             readyState = "resetting_course"; everReady = false;
             emit("course_reset_started", "fabric_start", Map.of("generation", resetGeneration,
-                    "request_sequence", sequence, "spec_hash", courseReset.specHash()));
+                    "request_sequence", sequence, "spec_hash", courseReset.specHash(),
+                    "profile_id", courseReset.profileId(), "course_id", courseReset.courseId(),
+                    "yaw", courseReset.yaw(), "pitch", courseReset.pitch()));
             return;
         }
         if (courseReset != null && !(inbound.admin() && Set.of("heartbeat", "release", "despawn", "course_begin", "course_end", "course_test").contains(op))
@@ -514,13 +527,15 @@ public final class BridgeRuntime implements AutoCloseable {
             if (courseReset.done() && body == null) {
                 resetFirstTerrain = courseReset.terrainDigest();
                 body = new CarpetBodyAdapter(server, courseReset.spawn(),
-                        "Lab"+java.util.UUID.randomUUID().toString().replace("-", "").substring(0,10));
+                        "Lab"+java.util.UUID.randomUUID().toString().replace("-", "").substring(0,10),
+                        courseReset.yaw(), courseReset.pitch());
                 body.spawn(false);
             } else if (body != null && liveBodyState.equals("ready")) {
                 if (resetWarmUntil < 0) resetWarmUntil = server.getTickCount()+20;
                 if (server.getTickCount() >= resetWarmUntil && !resetSecondVerification) {
                     if (body.player().position().distanceToSqr(courseReset.spawn()) > 1e-8
-                            || body.player().getYRot() != 0 || body.player().getXRot() != 0) {
+                            || body.player().getYRot() != courseReset.yaw()
+                            || body.player().getXRot() != courseReset.pitch()) {
                         throw new IllegalStateException("reset_spawn_mismatch");
                     }
                     resetFirstBody = CourseReset.digest(body.resetFingerprint());
@@ -536,10 +551,13 @@ public final class BridgeRuntime implements AutoCloseable {
                     resetDigest = CourseReset.digest(Map.of("terrain", resetFirstTerrain,
                             "body", physical, "spec_hash", courseReset.specHash()));
                     resetting = false; readyState = "reset_ready";
-                    emit("course_reset_complete", "fabric_end", Map.of("generation", resetGeneration,
-                            "request_sequence", resetRequestSequence, "state_digest", resetDigest,
-                            "terrain_digest", resetFirstTerrain, "body_digest", current,
-                            "spec_hash", courseReset.specHash(), "body_state", physical));
+                    emit("course_reset_complete", "fabric_end", Map.ofEntries(
+                            Map.entry("generation", resetGeneration), Map.entry("request_sequence", resetRequestSequence),
+                            Map.entry("state_digest", resetDigest), Map.entry("terrain_digest", resetFirstTerrain),
+                            Map.entry("body_digest", current), Map.entry("spec_hash", courseReset.specHash()),
+                            Map.entry("body_state", physical), Map.entry("profile_id", courseReset.profileId()),
+                            Map.entry("course_id", courseReset.courseId()), Map.entry("yaw", courseReset.yaw()),
+                            Map.entry("pitch", courseReset.pitch())));
                 }
             }
             if (resetting) readyState = "resetting_course";

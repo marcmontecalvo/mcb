@@ -1,0 +1,53 @@
+{
+  "base_profile_hash": "86b75129117caac0c325f992276a32c801abaad26d5ee2205ee4c1ff3f71f261",
+  "base_profile_id": "initial-c1-survival-v1",
+  "candidate_courses": [
+    "C2",
+    "C3",
+    "C4",
+    "C5"
+  ],
+  "dependency_lock_hash": "aea32936e50275893281248096404c4769851c6d122c4c7f1d8ea3aeb330dcda",
+  "excluded_capabilities": [
+    "entity_attack",
+    "combat_knockback",
+    "construction",
+    "dimension_travel"
+  ],
+  "motor_profile": {
+    "duration_ticks": [
+      1,
+      5
+    ],
+    "max_observation_age_ticks": 5,
+    "max_pitch_delta": 45,
+    "max_yaw_delta": 45,
+    "watchdog_seconds": 2
+  },
+  "profile_id": "navigation-c2-c5-survival-v1",
+  "qualification_ledger": "docs/NAVIGATION_QUALIFICATION.json",
+  "qualified_capabilities": [
+    "forward",
+    "strafe",
+    "look",
+    "jump",
+    "sneak",
+    "sprint",
+    "mine",
+    "pickup",
+    "collision",
+    "half_step",
+    "fall_damage",
+    "block_reach_guard",
+    "cancel_expiry",
+    "death_terminal_replacement"
+  ],
+  "schema_version": 1,
+  "scope": "C2-C5 navigation extension candidate; inherited qualified Survival physics plus generated initial headings",
+  "scope_limits": [
+    "No construction/entityattack/dimensiontravel",
+    "Every course requires20matching native resets and source-bound qualification before scored trials",
+    "Unscored development runners do not closeG5"
+  ],
+  "sensor_profile": "local-visibility-v1"
+}

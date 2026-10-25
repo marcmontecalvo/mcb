@@ -51,3 +51,42 @@ def require_scored_execution(mod_source_hash: str, sensor_profile: str) -> None:
         raise ValueError("G2 evaluator/reset source changed; requalification required")
     if sensor_profile != gate.get("sensor_profile"):
         raise ValueError("G2 sensor profile changed; requalification required")
+
+
+def require_navigation_profile(
+    course: str, capabilities: tuple[str, ...] = (), *, scored: bool = False
+) -> dict:
+    """Navigation has separate source-bound evidence; the C1 scope stays frozen."""
+    base = require_initial_profile("C1", capabilities)
+    profile = read_json(ROOT / "config/navigation_body_profile.json")
+    if (
+        profile["profile_id"] != "navigation-c2-c5-survival-v1"
+        or profile["base_profile_id"] != base["profile_id"]
+        or profile["base_profile_hash"] != digest(base)
+        or profile["dependency_lock_hash"] != base["dependency_lock_hash"]
+        or profile["motor_profile"] != base["motor_profile"]
+        or profile["qualified_capabilities"] != base["qualified_capabilities"]
+        or profile["excluded_capabilities"] != base["excluded_capabilities"]
+        or profile["sensor_profile"] != "local-visibility-v1"
+    ):
+        raise ValueError("Navigation inherited body profile has drifted")
+    if (
+        course not in {"C2", "C3", "C4", "C5"}
+        or course not in profile["candidate_courses"]
+    ):
+        raise ValueError("Course is outside the navigation profile")
+    if scored:
+        path = ROOT / "docs/NAVIGATION_QUALIFICATION.json"
+        if not path.exists():
+            raise ValueError("Navigation reset qualification has not passed")
+        entry = read_json(path).get("courses", {}).get(course, {})
+        installed = read_json(ROOT / "runtime/mod-build.json")
+        require_scored_execution(installed["source_hash"], profile["sensor_profile"])
+        if (
+            entry.get("status") != "passed"
+            or entry.get("profile_hash") != digest(profile)
+            or entry.get("mod_source_hash") != installed["source_hash"]
+            or entry.get("reset_checks_passed", 0) < 20
+        ):
+            raise ValueError("Navigation reset qualification is missing or stale")
+    return profile

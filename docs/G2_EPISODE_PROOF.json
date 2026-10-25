@@ -1,30 +1,16 @@
 {
+  "schema_version": 1,
+  "suite": "episode_adversarial_v1",
+  "scored": false,
+  "mod_provenance": {
+    "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "77d33e311001312b6b3165e5adf36ae7b95ce872bd4fe82cd9a14857b58dec88",
+    "schema_version": 1,
+    "source_hash": "622e336121da10bd2fb1f3140c6ceef23c0cc43452745c003a874af9373dec4d"
+  },
+  "run_id": "qualification-4b8733b6af21",
+  "launch_id": "5a6fd1cee8989597713d0cc0ab4a3015",
   "checks": [
-    {
-      "name": "sensor_floor_hides_buried_cells",
-      "observed": true,
-      "passed": true
-    },
-    {
-      "name": "sensor_wall_hides_log",
-      "observed": true,
-      "passed": true
-    },
-    {
-      "name": "sensor_foliage_occludes_center",
-      "observed": true,
-      "passed": true
-    },
-    {
-      "name": "sensor_wall_surface_visible",
-      "observed": true,
-      "passed": true
-    },
-    {
-      "name": "sensor_fluid_hides_air",
-      "observed": true,
-      "passed": true
-    },
     {
       "name": "sensor_wall_hides_air",
       "observed": true,
@@ -56,6 +42,31 @@
       "passed": true
     },
     {
+      "name": "sensor_floor_hides_buried_cells",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "name": "sensor_wall_hides_log",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "name": "sensor_foliage_occludes_center",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "name": "sensor_wall_surface_visible",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "name": "sensor_fluid_hides_air",
+      "observed": true,
+      "passed": true
+    },
+    {
       "name": "policy_closed_until_begin",
       "observed": "course_policy_admission_closed",
       "passed": true
@@ -63,9 +74,9 @@
     {
       "name": "fixed_600_tick_budget",
       "observed": {
-        "deadline_tick": 3360,
-        "request_sequence": 48,
-        "start_tick": 2760
+        "deadline_tick": 6195,
+        "request_sequence": 39,
+        "start_tick": 5595
       },
       "passed": true
     },
@@ -91,8 +102,8 @@
     {
       "name": "sensor_floor_occludes_buried_cells",
       "observed": {
-        "minimum_y": 79,
-        "visible_cells": 1734
+        "visible_cells": 1734,
+        "minimum_y": 79
       },
       "passed": true
     },
@@ -146,155 +157,144 @@
     {
       "name": "cancel_is_failed_not_success",
       "observed": {
-        "deadline_tick": 3360,
-        "drop_uuid": "",
-        "end_tick": 3040,
         "picked_up": false,
+        "drop_uuid": "",
+        "start_tick": 5595,
         "reason": "controller_cancel",
-        "start_tick": 2760,
+        "deadline_tick": 6195,
+        "target_broken": false,
         "status": "failed",
-        "target_broken": false
+        "end_tick": 5905
       },
       "passed": true
     },
     {
       "name": "planted_log_cannot_begin_or_score",
       "observed": {
-        "reason": "residual_arena_drops_or_projectiles",
-        "request_sequence": "190"
+        "request_sequence": "184",
+        "reason": "residual_arena_drops_or_projectiles"
       },
       "passed": true
     },
     {
       "name": "changed_target_cannot_begin",
       "observed": {
-        "reason": "java.lang.IllegalStateException: reset_geometry_mismatch_at_BlockPos{x=1000, y=80, z=1012}",
-        "request_sequence": 210
+        "request_sequence": 204,
+        "reason": "java.lang.IllegalStateException: reset_geometry_mismatch_at_BlockPos{x=1000, y=80, z=1012}"
       },
       "passed": true
     },
     {
       "name": "tick_deadline_is_failed",
       "observed": {
-        "deadline_tick": 4240,
-        "drop_uuid": "",
-        "end_tick": 4240,
         "picked_up": false,
+        "drop_uuid": "",
+        "start_tick": 6511,
         "reason": "tick_limit",
-        "start_tick": 3640,
+        "deadline_tick": 7111,
+        "target_broken": false,
         "status": "failed",
-        "target_broken": false
+        "end_tick": 7111
       },
       "passed": true
     },
     {
       "name": "disconnected_controller_is_failed",
       "observed": {
-        "deadline_tick": 5064,
-        "drop_uuid": "",
-        "end_tick": 4506,
         "picked_up": false,
+        "drop_uuid": "",
+        "start_tick": 7335,
         "reason": "controller_watchdog",
-        "start_tick": 4464,
+        "deadline_tick": 7935,
+        "target_broken": false,
         "status": "failed",
-        "target_broken": false
+        "end_tick": 7369
       },
       "passed": true
     },
     {
       "name": "bounds_or_pit_is_failed",
       "observed": {
-        "deadline_tick": 5328,
-        "drop_uuid": "",
-        "end_tick": 4816,
         "picked_up": false,
+        "drop_uuid": "",
+        "start_tick": 7594,
         "reason": "out_of_bounds",
-        "start_tick": 4728,
+        "deadline_tick": 8194,
+        "target_broken": false,
         "status": "failed",
-        "target_broken": false
+        "end_tick": 7685
       },
       "passed": true
     }
   ],
   "episodes": [
     {
-      "episode_id": "adversarial-6c0e5553fe70",
-      "reason": "intentional_sensor_fixture_requires_reset",
-      "status": "invalid"
+      "episode_id": "adversarial-f76cc5eb8eda",
+      "status": "invalid",
+      "reason": "intentional_sensor_fixture_requires_reset"
     },
     {
-      "deadline_tick": 3360,
-      "drop_uuid": "",
-      "end_tick": 3040,
-      "episode_id": "adversarial-252a06a32559",
+      "episode_id": "adversarial-094d24ccd4d9",
       "picked_up": false,
+      "drop_uuid": "",
+      "start_tick": 5595,
       "reason": "controller_cancel",
-      "start_tick": 2760,
+      "deadline_tick": 6195,
+      "target_broken": false,
       "status": "failed",
-      "target_broken": false
+      "end_tick": 5905
     },
     {
-      "episode_id": "adversarial-5488906cdb0d",
-      "reason": "intentional_planted_item",
-      "status": "invalid"
+      "episode_id": "adversarial-25c3eb30f0e0",
+      "status": "invalid",
+      "reason": "intentional_planted_item"
     },
     {
-      "episode_id": "adversarial-fca7faf1d384",
-      "reason": "intentional_target_mutation",
-      "status": "invalid"
+      "episode_id": "adversarial-c87a04b2ad07",
+      "status": "invalid",
+      "reason": "intentional_target_mutation"
     },
     {
-      "deadline_tick": 4240,
-      "drop_uuid": "",
-      "end_tick": 4240,
-      "episode_id": "adversarial-4a869e1e6ecf",
+      "episode_id": "adversarial-78d84c801f64",
       "picked_up": false,
+      "drop_uuid": "",
+      "start_tick": 6511,
       "reason": "tick_limit",
-      "start_tick": 3640,
+      "deadline_tick": 7111,
+      "target_broken": false,
       "status": "failed",
-      "target_broken": false
+      "end_tick": 7111
     },
     {
-      "deadline_tick": 5064,
-      "drop_uuid": "",
-      "end_tick": 4506,
-      "episode_id": "adversarial-af776c6bae85",
+      "episode_id": "adversarial-0fa1141469da",
       "picked_up": false,
+      "drop_uuid": "",
+      "start_tick": 7335,
       "reason": "controller_watchdog",
-      "start_tick": 4464,
+      "deadline_tick": 7935,
+      "target_broken": false,
       "status": "failed",
-      "target_broken": false
+      "end_tick": 7369
     },
     {
-      "deadline_tick": 5328,
-      "drop_uuid": "",
-      "end_tick": 4816,
-      "episode_id": "adversarial-0654fb819f26",
+      "episode_id": "adversarial-6fb35a5f1f28",
       "picked_up": false,
+      "drop_uuid": "",
+      "start_tick": 7594,
       "reason": "out_of_bounds",
-      "start_tick": 4728,
+      "deadline_tick": 8194,
+      "target_broken": false,
       "status": "failed",
-      "target_broken": false
+      "end_tick": 7685
     }
   ],
-  "launch_id": "57f1986be1e226f2ff44d6e1881475be",
-  "mod_provenance": {
-    "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
-    "jar_sha256": "399d4636e83e55c81e443de4bf4e65e1a2b8290d27d05bbd26c6b771345e0841",
-    "schema_version": 1,
-    "source_hash": "f1b1c9369325d26c622650074372ce67a5433ba713a05f660e7b845c69bb4c30"
-  },
+  "recording": "G:\\projects\\mcb\\results\\qualification\\20261025T014210927310Z\\events.jsonl",
   "qualifier_source_sha256": "4483b131a40e9d6db9758b4f4c4e0112c9133e7b9d510839b946f9647a7338d4",
-  "recorder": "bounded_64_record_async_writer_with_critical_flush_before_finalization",
-  "recording": "G:\\projects\\mcb\\results\\qualification\\20261024T195214005357Z\\events.jsonl",
-  "recording_sha256": "5b57c7627499e0eecadd3c8e048a3b1a91e31d0d08f2430648714177e64aaa28",
-  "requests": 380,
-  "reviewed_at": "2026-10-24",
-  "run_id": "qualification-2ce1252fdb06",
-  "schema_version": 1,
-  "scored": false,
   "status": "passed_development_subset",
-  "suite": "episode_adversarial_v1",
-  "summary": "results/qualification/20261024T195214005357Z/summary.json",
-  "summary_sha256": "17f9f108fbc0d0b50da6bb0af23eab5b18ad8685e4ed590eb229b3cde325bbe9"
+  "requests": 369,
+  "recording_sha256": "98ac9268c1034ef45a7b1d8e5a5b74fae77a255bb9cc6d9211ac8b9527496ee1",
+  "reviewed_at": "2026-10-24",
+  "summary": "results/qualification/20261025T014210927310Z/summary.json",
+  "summary_sha256": "e57cc07a03fe32cbc9e351ce6efd38f7a4e5aa846e033a5a2d9f908b90569249",
+  "recorder": "bounded_64_record_async_writer_with_critical_flush_before_finalization"
 }
