@@ -8,7 +8,7 @@ window. This profile supports ordinary full-cube ground and one-block changes.
 import heapq
 import math
 
-PROFILE = "local-map-navigation-v4"
+PROFILE = "local-map-navigation-v5"
 DIRECTIONS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
 
@@ -310,6 +310,7 @@ class NavigationController:
                 for n in nodes
                 if math.hypot(n[0] + 0.5 - destination[0], n[2] + 0.5 - destination[2])
                 < 0.8
+                and -0.25 <= destination[1] - n[1] <= 2.25
             }
         elif self.target is not None:
             goals = {
@@ -321,6 +322,24 @@ class NavigationController:
         else:
             goals = set()
         route = path_to(self.cells, start, goals, nodes=nodes)
+        if destination is not None:
+            if route:
+                # Stay in a valid collection cell while normal pickup completes.
+                return route
+            # A drop can be visible beyond a one-block crest while its support
+            # is still occluded. Approach the closest reachable known support to
+            # reveal that floor, rather than resuming unrelated exploration.
+            costs, previous = paths_from(self.cells, nodes, start)
+            closest = min(
+                costs,
+                key=lambda n: (
+                    math.hypot(n[0] + 0.5 - destination[0], n[2] + 0.5 - destination[2])
+                    + abs(n[1] - destination[1]) * 0.75,
+                    costs[n],
+                    n,
+                ),
+            )
+            return reconstruct(previous, closest)
         if route and len(route) > 1:
             return route
         return self._frontier(nodes, start)

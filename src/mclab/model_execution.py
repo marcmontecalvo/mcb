@@ -118,7 +118,12 @@ def drive(client, controller, wall_timeout=90):
             {
                 "error": str(error),
                 "category": "timing"
-                if isinstance(error, TimeoutError) or "deadline" in str(error).lower()
+                if isinstance(error, TimeoutError)
+                or "deadline" in str(error).lower()
+                or any(
+                    reason in str(error)
+                    for reason in ("late_or_distant_action", "stale_or_mistimed_action")
+                )
                 else "decision",
             },
         )

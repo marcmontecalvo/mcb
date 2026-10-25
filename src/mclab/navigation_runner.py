@@ -5,8 +5,11 @@ specifications reach only the authenticated reset/evaluator interface; controlle
 decisions receive the filtered policy stream through the shared motor driver.
 """
 
+import gc
 import shutil
 import subprocess
+import time
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -55,6 +58,19 @@ def _source_commit():
     ).stdout.strip()
 
 
+@contextmanager
+def _motor_gc_policy():
+    """Keep cyclic scans outside motor deadlines; reference counting stays on."""
+    enabled = gc.isenabled()
+    if enabled:
+        gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
+
+
 def _new_identity(client, prefix="navigation"):
     # Historical payloads already live in JSONL/SQLite. Retaining their objects
     # across episodes grows the heap and makes event searches/GC progressively
@@ -62,6 +78,15 @@ def _new_identity(client, prefix="navigation"):
     client.flush_recording()
     client.events.clear()
     client.samples.clear()
+    started = time.monotonic_ns()
+    collected = gc.collect()
+    client.record(
+        "between_episode_gc",
+        {
+            "collected_objects": collected,
+            "duration_ms": (time.monotonic_ns() - started) / 1_000_000,
+        },
+    )
     client.episode_id = prefix + "-" + uuid4().hex[:12]
     client.body_id = "body-" + uuid4().hex[:12]
     client.policy_memory = PolicyMapRecorder()
@@ -171,7 +196,7 @@ def _run(course, seeds, *, reset_only, scored):
         "schema_version": 1,
         "controller": "navigation-reset-verifier"
         if reset_only
-        else "deterministic-navigation-v4",
+        else "deterministic-navigation-v5",
         "suite": "navigation_reset_v1" if reset_only else "navigation_execution_v1",
         "course_id": course,
         "seeds": seeds,
@@ -180,6 +205,7 @@ def _run(course, seeds, *, reset_only, scored):
         "intended_apply_offset_ticks": 3,
         "action_duration_ticks": 5,
         "maximum_discarded_stale_actions": 3,
+        "python_gc_policy": "cyclic_collection_between_episodes_v1",
         "profile_id": profile["profile_id"],
         "profile_hash": digest(profile),
         "sensor_profile": profile["sensor_profile"],
@@ -273,15 +299,18 @@ def _run(course, seeds, *, reset_only, scored):
                 }
                 terminal = {"reset": reset, **outcome}
             else:
-                request = client.send("course_begin")
-                client.acknowledge(request, "course_started")
-                client.wait(
-                    lambda state: state["state"] == "running"
-                    or terminal_event(client) is not None
-                )
-                terminal = drive(
-                    client, _new_controller(), wall_timeout=spec["tick_limit"] / 20 + 30
-                )
+                with _motor_gc_policy():
+                    request = client.send("course_begin")
+                    client.acknowledge(request, "course_started")
+                    client.wait(
+                        lambda state: state["state"] == "running"
+                        or terminal_event(client) is not None
+                    )
+                    terminal = drive(
+                        client,
+                        _new_controller(),
+                        wall_timeout=spec["tick_limit"] / 20 + 30,
+                    )
                 outcome = terminal["data"]
             client.flush_recording()
             recorder.finish(

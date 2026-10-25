@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from contextlib import nullcontext
 
 import pytest
 
@@ -37,6 +38,7 @@ def reset_data(value, generation=1):
 
 @pytest.fixture
 def environment(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner.gc, "collect", lambda: 0)
     monkeypatch.setattr(runner, "ROOT", tmp_path)
     monkeypatch.setattr(runner, "SERVER", tmp_path / "server")
     monkeypatch.setattr(runner, "source_hash", lambda: "mod-current")
@@ -105,6 +107,8 @@ def environment(tmp_path, monkeypatch):
             return request
 
         def acknowledge(self, request, kind, **_kwargs):
+            if kind == "course_started":
+                assert not runner.gc.isenabled()
             if kind == "course_reset_complete":
                 self.generation += 1
                 value = request.get("course_spec", spec("C1"))
@@ -122,6 +126,7 @@ def environment(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "_new_controller", lambda: object())
 
     def drive(client, controller, wall_timeout):
+        assert not runner.gc.isenabled()
         state["controllers"].append(controller)
         assert wall_timeout == 75
         return {
@@ -162,12 +167,29 @@ def test_new_run_recovers_legacy_and_previous_navigation_pending_attempts(enviro
         previous.close()
     result = runner.execute("C2", [0])
     assert result["recovered_interrupted"] == 2
+    assert result["python_gc_policy"] == "cyclic_collection_between_episodes_v1"
     assert root / result["episode_database"] not in paths
     for path in paths:
         with sqlite3.connect(path) as db:
             assert db.execute("SELECT status FROM episodes").fetchone() == (
                 "interrupted",
             )
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.parametrize("error", [None, RuntimeError, KeyboardInterrupt])
+def test_motor_gc_policy_restores_callers_state_even_on_failure(enabled, error):
+    original = runner.gc.isenabled()
+    (runner.gc.enable if enabled else runner.gc.disable)()
+    try:
+        expectation = nullcontext() if error is None else pytest.raises(error)
+        with expectation, runner._motor_gc_policy():
+            assert not runner.gc.isenabled()
+            if error is not None:
+                raise error("simulated motor interruption")
+        assert runner.gc.isenabled() is enabled
+    finally:
+        (runner.gc.enable if original else runner.gc.disable)()
 
 
 def test_next_identity_releases_only_flushed_transient_history(

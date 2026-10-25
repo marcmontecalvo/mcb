@@ -4,7 +4,26 @@ from mclab import model_execution
 from mclab.backends import BackendError
 
 
-def test_model_failure_releases_and_ends_without_fallback(monkeypatch):
+@pytest.mark.parametrize(
+    "error_type,message,category",
+    [
+        (BackendError, "deadline", "timing"),
+        (
+            model_execution.ControllerFailure,
+            "Controller action rejected: late_or_distant_action",
+            "timing",
+        ),
+        (
+            model_execution.ControllerFailure,
+            "Controller action rejected: stale_or_mistimed_action",
+            "timing",
+        ),
+        (BackendError, "invalid model choice", "decision"),
+    ],
+)
+def test_model_failure_releases_and_ends_without_fallback(
+    monkeypatch, error_type, message, category
+):
     class Client:
         run_id, episode_id, body_id = "r", "e", "b"
 
@@ -39,18 +58,21 @@ def test_model_failure_releases_and_ends_without_fallback(monkeypatch):
 
     class Controller:
         def decide(self, observation):
-            raise BackendError("deadline")
+            raise error_type(message)
 
         def drain_events(self):
-            return [("tactical_result", {"status": "deadline"})]
+            return [("tactical_result", {"status": "error", "error": message})]
 
     monkeypatch.setattr(model_execution, "policy_state", lambda _: {"state": "running"})
     client = Client()
     terminal = model_execution.drive(client, Controller())
     assert terminal["data"]["status"] == "failed"
     assert client.operations == ["release", "course_end"]
-    assert client.records[0] == ("tactical_result", {"status": "deadline"})
-    assert client.records[-1][1]["category"] == "timing"
+    assert client.records[0] == (
+        "tactical_result",
+        {"status": "error", "error": message},
+    )
+    assert client.records[-1][1]["category"] == category
 
 
 def test_live_rejects_unbounded_batches_before_world_access():

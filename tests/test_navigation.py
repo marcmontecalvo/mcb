@@ -148,6 +148,50 @@ def test_observed_air_after_mining_switches_to_pickup_without_evaluator_state():
     assert controller.decide(o) == {}
 
 
+def test_collection_stays_at_a_valid_pickup_cell_instead_of_exploring():
+    controller = NavigationController()
+    controller.cells = world()
+    controller.broken = True
+    controller.drop = [0.6, 80.1, 0.7]
+    assert controller._route(observation()["body"]) == [(0, 80, 0)]
+
+
+def test_collection_approaches_known_crest_edge_to_reveal_the_drop_floor():
+    controller = NavigationController()
+    cells = world()
+    for x in range(-7, 8):
+        for z in (2, 3):
+            cells[x, 80, z] = cell(x, 80, z, "minecraft:stone")
+        for z in range(4, 8):
+            del cells[x, 79, z]
+    controller.cells = cells
+    controller.broken = True
+    controller.drop = [0.5, 80.1, 5.2]
+    body = observation(position=[0.5, 81, 2.5])["body"]
+    route = controller._route(body)
+    assert route[-1] == (0, 81, 3)
+    assert all(node[2] < 4 for node in route)  # Unknown support never supplies a step.
+    for x in range(-7, 8):
+        for z in range(4, 8):
+            cells[x, 79, z] = cell(x, 79, z, "minecraft:stone")
+    body["position"] = [0.5, 81, 3.5]
+    landing = controller._route(body)[-1]
+    assert landing[1] == 80 and landing[2] >= 4
+    assert abs(landing[2] + 0.5 - controller.drop[2]) < 0.8
+
+
+def test_collection_goal_on_the_platform_above_a_drop_is_rejected():
+    controller = NavigationController()
+    cells = world()
+    for z in (0, 1):
+        cells[0, 80, z] = cell(0, 80, z, "minecraft:stone")
+    controller.cells = cells
+    controller.broken = True
+    controller.drop = [0.5, 80.0, 2.1]
+    body = observation(position=[0.5, 81, 0.5])["body"]
+    assert controller._route(body)[-1] == (0, 80, 2)
+
+
 def test_stale_support_cannot_move_even_when_old_memory_can_plan():
     cells = world()
     controller = NavigationController()

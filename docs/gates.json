@@ -90,34 +90,48 @@
     "status": "in_progress"
   },
   "G5": {
-    "controller_sha256": "afafc844fcd1e31ef5c8f8c7d103556ee70b0b16c5f377e200023d57a824c2fa",
+    "controller_sha256": "32809aab811f46440366fdf32a73b40bf00a9cb320762592e374c2d3f0831aa3",
     "courses": {
+      "C2": {
+        "status": "not_run_current_configuration"
+      },
+      "C3": {
+        "status": "not_run_current_configuration"
+      },
+      "C4": {
+        "status": "not_run_current_configuration"
+      },
+      "C5": {
+        "status": "not_run_current_configuration"
+      }
+    },
+    "default_gc_courses": {
       "C2": {
         "attempts": 20,
         "run_id": "qualification-1e0a9af5a9cc",
-        "status": "passed_development",
         "successes": 20
       },
       "C3": {
         "attempts": 20,
         "run_id": "qualification-870a4a4e7513",
-        "status": "passed_development",
         "successes": 20
       },
       "C4": {
         "attempts": 20,
         "run_id": "qualification-7377a3c87fdf",
-        "status": "passed_development",
         "successes": 19
       },
       "C5": {
-        "status": "not_run_current_controller"
+        "attempts": 20,
+        "run_id": "qualification-bab26311cb68",
+        "successes": 16
       }
     },
-    "evidence": "docs/G5_NAVIGATION_PROOF.json",
+    "evidence": "docs/G5_DEFAULT_GC_BASELINE.json",
+    "harness_profile": "cyclic_collection_between_episodes_v1",
     "implementation_boundary": "docs/NAVIGATION_IMPLEMENTATION.md",
     "preparation": "docs/G5_GENERATOR_PREPARATION.json",
-    "scope": "Frozen deterministic C2-C5 development navigation; no model or holdout qualification",
+    "scope": "V4 baseline below C5 criterion; V5 collection and GC-scheduling candidate unqualified",
     "status": "in_progress"
   },
   "G6": {
