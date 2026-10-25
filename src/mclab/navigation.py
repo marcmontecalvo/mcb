@@ -8,7 +8,7 @@ window. This profile supports ordinary full-cube ground and one-block changes.
 import heapq
 import math
 
-PROFILE = "local-map-navigation-v6"
+PROFILE = "local-map-navigation-v7"
 DIRECTIONS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
 
@@ -49,6 +49,10 @@ def empty(cell):
 def clear_mining_line(cells, node, target):
     """Conservative voxel ray from a standing cell center to the observed log."""
     origin = (node[0] + 0.5, node[1] + 1.62, node[2] + 0.5)
+    return _clear_log_ray(cells, origin, target)
+
+
+def _clear_log_ray(cells, origin, target):
     direction = [target[i] + 0.5 - origin[i] for i in range(3)]
     position = [math.floor(v) for v in origin]
     step = [1 if d > 0 else -1 if d < 0 else 0 for d in direction]
@@ -468,13 +472,22 @@ class NavigationController:
                     )
                 )
             )
-            if visible and reach <= 4.2:
+            eye = (
+                body["position"][0],
+                body["position"][1] + 1.62,
+                body["position"][2],
+            )
+            ray = body.get("ray", {})
+            mine = (
+                ray.get("block") == "minecraft:oak_log"
+                and tuple(ray.get("position", ())) == self.target
+            )
+            if (
+                visible
+                and reach <= 4.2
+                and (mine or _clear_log_ray(self.cells, eye, self.target))
+            ):
                 turn = rotation(center, body)
-                ray = body.get("ray", {})
-                mine = (
-                    ray.get("block") == "minecraft:oak_log"
-                    and tuple(ray.get("position", ())) == self.target
-                )
                 self.mining = self.mining or mine
                 aligned = abs(turn["yaw_delta"]) < 2 and abs(turn["pitch_delta"]) < 2
                 if mine or not aligned:

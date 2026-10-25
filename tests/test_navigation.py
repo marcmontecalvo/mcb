@@ -163,6 +163,43 @@ def test_clear_cell_center_goal_recenters_when_the_actual_eye_ray_is_blocked():
     assert controller.last_plan == [(0, 81, 2)] and decision.get("forward")
 
 
+def test_blocked_actual_eye_ray_does_not_oscillate_between_aim_and_jump():
+    cells = world()
+    for x in range(-7, 8):
+        for z in (2, 3):
+            cells[x, 80, z] = cell(x, 80, z, "minecraft:stone")
+    cells[0, 80, 4] = cell(0, 80, 4, "minecraft:oak_log")
+    controller = NavigationController()
+    yaw = math.degrees(math.atan2(1, 4.5 - 1.28))
+    pitch = math.degrees(math.atan2(1.12, math.hypot(1, 4.5 - 1.28)))
+    o = observation(
+        cells,
+        position=[1.5, 80, 1.28],
+        yaw=yaw,
+        pitch=pitch,
+        ray={"block": "minecraft:stone", "position": [0, 80, 3]},
+    )
+    first = controller.decide(o)
+    assert controller.mode == "approaching" and first["yaw_delta"] < 0
+    o["body"].update(yaw=0, pitch=0, ray={"type": "MISS"})
+    second = controller.decide(o)
+    assert controller.mode == "approaching"
+    assert second.get("jump") and second.get("forward")
+
+
+def test_current_native_log_ray_can_mine_despite_missing_remembered_air():
+    cells = world()
+    cells[0, 80, 3] = cell(0, 80, 3, "minecraft:oak_log")
+    del cells[0, 81, 1]
+    controller = NavigationController()
+    o = observation(
+        cells,
+        pitch=math.degrees(math.atan2(1.12, 3)),
+        ray={"block": "minecraft:oak_log", "position": [0, 80, 3]},
+    )
+    assert controller.decide(o)["mine"]
+
+
 def test_occluded_target_uses_navigation_instead_of_heading_only_reacquisition():
     controller = NavigationController()
     controller.target = (0, 80, -3)

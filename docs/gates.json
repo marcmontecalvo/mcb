@@ -90,7 +90,7 @@
     "status": "in_progress"
   },
   "G5": {
-    "controller_sha256": "49a41b52cf098c860d43df462454f635cf6607bb7f1575fcb5736972a44096b9",
+    "controller_sha256": "20a027764c6fb6c63547d9f0b1a6cdad8d3e6c5e92a65ef9b436e102ea92dbc2",
     "courses": {
       "C2": {
         "status": "not_run_current_configuration"
@@ -131,7 +131,7 @@
     "harness_profile": "cyclic_collection_between_episodes_v1",
     "implementation_boundary": "docs/NAVIGATION_IMPLEMENTATION.md",
     "preparation": "docs/G5_GENERATOR_PREPARATION.json",
-    "scope": "V4 baseline below C5 criterion; V6 clear-ray and collection candidate with between-episode GC remains unqualified",
+    "scope": "V4 baseline below C5 criterion; V7 current-eye aiming and collection candidate with between-episode GC remains unqualified",
     "status": "in_progress"
   },
   "G6": {
