@@ -100,8 +100,8 @@ Development planning counts physical layouts rather than seeds: C2 has at least
 courses remain unqualified. Offline exports contain actual filtered observations
 with pending independent action labels. They are not synchronized demonstrations;
 training and fresh holdout evaluation remain pending. The authorized hosted Jev
-experiment made23 paid calls with settled usage of .000637602; the verified
-wallet/key cap is . See G4_JEV_PROOF.json and EXPERIMENT_QUEUE.md.
+experiment made 23 paid calls with settled usage of $0.000637602; the verified
+wallet/key cap is $1. See G4_JEV_PROOF.json and EXPERIMENT_QUEUE.md.
 
 Synchronous Python audit serialization interrupted motor renewal and exposed
 stale-action failures. Those scored batches are preserved. The event writer now

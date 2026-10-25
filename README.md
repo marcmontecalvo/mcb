@@ -248,9 +248,12 @@ cost ceiling are checked before any live batch. See [Jev evidence](docs/G4_JEV_P
 for the 23-call initial experiment and provider-reported charges.
 
 Upcoming model comparisons and deferred vision work are tracked in the
-[experiment queue](docs/EXPERIMENT_QUEUE.md). The gpu-docker bearer token belongs
-in ignored `.env` as `GPU_DOCKER_API_KEY`; its endpoint and exact model are pending
-discovery before any qualification claim.
+[experiment queue](docs/EXPERIMENT_QUEUE.md). The gpu-docker Ollama endpoint is
+`http://10.10.40.20:11434/v1` and requires no API key. Its discovered `qwen3:14b`
+model passed three recorded visible-log choices but failed its initial live C1
+attempt by repeatedly selecting an impossible aim behavior. See
+[the comparison evidence](docs/G4_GPU_DOCKER_PROOF.json). It is not qualified for
+broader trials under the current prompt.
 
 `experiments plan` freezes a development layout inventory without changing the
 active world. C3/C4 need more distinct geometry and C5 needs a generator. Offline

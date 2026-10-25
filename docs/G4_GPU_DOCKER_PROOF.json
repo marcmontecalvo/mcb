@@ -1,0 +1,535 @@
+{
+  "actual_cost_usd": null,
+  "authentication": "None; user removed unnecessary credential entries; .env edits preserved",
+  "comparison": "Same tactical candidate definitions, instructions, body, course and motor timing. This is a small system-level comparison with different model sizes/quantization/serving engines, not a GPU benchmark or general intelligence ranking.",
+  "date": "2026-10-24",
+  "discovery": {
+    "/api/ps": {
+      "models": [
+        {
+          "context_length": 4096,
+          "details": {
+            "families": [
+              "qwen3"
+            ],
+            "family": "qwen3",
+            "format": "gguf",
+            "parameter_size": "14.8B",
+            "parent_model": "",
+            "quantization_level": "Q4_K_M"
+          },
+          "digest": "bdbd181c33f2ed1b31c972991882db3cf4d192569092138a7d29e973cd9debe8",
+          "expires_at": "2026-10-25T00:57:51.504842298Z",
+          "model": "qwen3:14b",
+          "name": "qwen3:14b",
+          "size": 10786471040,
+          "size_vram": 10786471040
+        }
+      ]
+    },
+    "/api/show": {
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ],
+      "details": {
+        "families": [
+          "qwen3"
+        ],
+        "family": "qwen3",
+        "format": "gguf",
+        "parameter_size": "14.8B",
+        "parent_model": "",
+        "quantization_level": "Q4_K_M"
+      },
+      "model_info": {
+        "general.architecture": "qwen3",
+        "general.basename": "Qwen3",
+        "general.file_type": 15,
+        "general.parameter_count": 14768307200,
+        "general.quantization_version": 2,
+        "general.size_label": "14B",
+        "general.type": "model",
+        "qwen3.attention.head_count": 40,
+        "qwen3.attention.head_count_kv": 8,
+        "qwen3.attention.key_length": 128,
+        "qwen3.attention.layer_norm_rms_epsilon": 1e-06,
+        "qwen3.attention.value_length": 128,
+        "qwen3.block_count": 40,
+        "qwen3.context_length": 40960,
+        "qwen3.embedding_length": 5120,
+        "qwen3.feed_forward_length": 17408,
+        "qwen3.rope.freq_base": 1000000,
+        "tokenizer.ggml.add_bos_token": false,
+        "tokenizer.ggml.bos_token_id": 151643,
+        "tokenizer.ggml.eos_token_id": 151645,
+        "tokenizer.ggml.merges": null,
+        "tokenizer.ggml.model": "gpt2",
+        "tokenizer.ggml.padding_token_id": 151643,
+        "tokenizer.ggml.pre": "qwen2",
+        "tokenizer.ggml.token_type": null,
+        "tokenizer.ggml.tokens": null
+      },
+      "parameters": "repeat_penalty                 1\nstop                           \"<|im_start|>\"\nstop                           \"<|im_end|>\"\ntemperature                    0.6\ntop_k                          20\ntop_p                          0.95"
+    },
+    "/api/version": {
+      "version": "0.20.2"
+    }
+  },
+  "discovery_sha256": "39620d3f7259baf012119de5a9529cef512bcad7f2be004ea52be7f3c462a111",
+  "documentation": "https://docs.ollama.com/api/openai-compatibility",
+  "endpoint": "http://10.10.40.20:11434/v1",
+  "failure_diagnosis": "All40 live answers chose aim_log while visible_logs was empty. Fresh motor guard rejected impossible aiming; body stayed at spawn. Request budget exhausted after474ticks, episode failed. No input rescue/fallback.",
+  "hardware": "RTX5060Ti user-reported; GPU device identity not independently verified",
+  "live_audit": {
+    "applied_control_count": 135,
+    "applied_observation_ages": [
+      3
+    ],
+    "backend": "gpu-docker-qwen3",
+    "choices": {
+      "aim_log": 40
+    },
+    "controller_errors": [
+      {
+        "category": "decision",
+        "error": "Tactical inference failed: Request budget exhausted"
+      }
+    ],
+    "controller_sha256": "73c370203e70d1a1aef317f02af91bed74d84f2bf4c083a6557aba1b268a472f",
+    "discarded_responses_on_close": 0,
+    "episodes": [
+      {
+        "deadline_tick": 350679,
+        "drop_uuid": "",
+        "end_tick": 350553,
+        "episode_id": "episode-b8544099b4ac",
+        "picked_up": false,
+        "reason": "controller_cancel",
+        "start_tick": 350079,
+        "status": "failed",
+        "target_broken": false
+      }
+    ],
+    "final_position": [
+      1000.5,
+      80.0,
+      1000.5
+    ],
+    "initial_position": [
+      1000.5,
+      80.0,
+      1000.5
+    ],
+    "latencies_ms": [
+      467.99999999348074,
+      468.99999998277053,
+      468.99999998277053,
+      468.99999998277053,
+      468.99999998277053,
+      469.0000000409782,
+      469.0000000409782,
+      469.0000000409782,
+      469.0000000409782,
+      483.99999999674037,
+      483.99999999674037,
+      483.99999999674037,
+      483.99999999674037,
+      483.99999999674037,
+      483.99999999674037,
+      483.99999999674037,
+      483.99999999674037,
+      484.99999998603016,
+      484.99999998603016,
+      484.99999998603016,
+      484.99999998603016,
+      484.99999998603016,
+      485.0000000442378,
+      485.0000000442378,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      514.9999999557622,
+      514.9999999557622,
+      515.0000000139698,
+      592.9999999934807
+    ],
+    "model_requests": 40,
+    "policy_ticks_missing": 0,
+    "recorded_responses": 41,
+    "recording_sha256": "c32bc1e7036e93b9c121d7d906f2f51b575712e3f41cf54b55b06971f07a4635",
+    "response_errors": [
+      {
+        "error": "BackendError",
+        "reason": "Request budget exhausted"
+      }
+    ],
+    "run_id": "qualification-a00587a215b5",
+    "scored": false,
+    "source_snapshots_match": true,
+    "sqlite_outcomes_match": true,
+    "successful_causal_chains_verified": {},
+    "summary": "results\\model_execution\\20261025T005649864309Z\\summary.json",
+    "summary_sha256": "0c858844353df831e5f5ff916005b553e03b043ed7fd3013735d4e5fd6f2bb13",
+    "tactical_sha256": "cd7401c405c7aa000ee6c7bd5af95f4a879b8b9c30cf82f03d9cdd4a09ac333d",
+    "valid_responses": 40
+  },
+  "live_decision_latency_ms": {
+    "max": 592.9999999934807,
+    "median": 484.99999998603016,
+    "min": 467.99999999348074
+  },
+  "model": "qwen3:14b",
+  "probe_requests": 4,
+  "probe_results": "One readiness response returned unknown candidate1 (rejected); original/reversed/seeded frozen visible-log choices valid aim_log3/3. No semantic accuracy/calibration claim.",
+  "probes": [
+    {
+      "artifact": "results\\provider_probes\\20261025T005615730746Z.json",
+      "backends": [
+        {
+          "error": "Response chose an unknown candidate",
+          "exchanges": [
+            {
+              "candidate_order": [
+                "stop"
+              ],
+              "raw_response": {
+                "choices": [
+                  {
+                    "finish_reason": "stop",
+                    "index": 0,
+                    "message": {
+                      "content": "{\"choice\": \"1\"}",
+                      "role": "assistant"
+                    }
+                  }
+                ],
+                "created": 1792889775,
+                "id": "chatcmpl-12",
+                "model": "qwen3:14b",
+                "object": "chat.completion",
+                "system_fingerprint": "fp_ollama",
+                "usage": {
+                  "completion_tokens": 7,
+                  "prompt_tokens": 70,
+                  "total_tokens": 77
+                }
+              },
+              "request": {
+                "max_tokens": 64,
+                "messages": [
+                  {
+                    "content": "{\"observation\": {\"probe\": \"readiness\"}, \"question\": {\"type\": \"choice\", \"instructions\": \"Choose one legal next action using the observation.\", \"criteria\": {\"stop\": \"Release all controls\"}}, \"format\": {\"choice\": \"candidate ID\"}}",
+                    "role": "user"
+                  }
+                ],
+                "model": "qwen3:14b",
+                "reasoning_effort": "none",
+                "response_format": {
+                  "type": "json_object"
+                },
+                "temperature": 0
+              },
+              "request_monotonic_ns": 375661062000000,
+              "response_monotonic_ns": 375661437000000,
+              "schema_version": 1,
+              "status": "invalid_response"
+            }
+          ],
+          "name": "gpu-docker-qwen3",
+          "provenance": {
+            "actual_cost_usd": null,
+            "cost_source": "provider_usage_not_independently_audited",
+            "costed_requests": 0,
+            "deadline_s": 1.0,
+            "enable_thinking": null,
+            "inference_scope": "local",
+            "kind": "chat",
+            "name": "gpu-docker-qwen3",
+            "network_scope": "private_lan",
+            "reasoning_effort": "none",
+            "reported_cost_usd": null,
+            "request_limit": 40,
+            "requested_model": "qwen3:14b",
+            "requests": 1,
+            "retries": 0,
+            "root": "http://10.10.40.20:11434",
+            "schema_version": 1
+          },
+          "status": "not_ready"
+        }
+      ],
+      "run_id": "probe-99adfd0d96ff",
+      "schema_version": 1,
+      "sha256": "c52dede6f37044942c504abbb8851ccf575787cb87d0ebf938b4ca526d2311a4",
+      "status": "not_ready"
+    },
+    {
+      "artifact": "results\\provider_probes\\20261025T005631097624Z.json",
+      "backends": [
+        {
+          "exchanges": [
+            {
+              "candidate_order": [
+                "stop",
+                "forward",
+                "turn_left",
+                "turn_right",
+                "aim_log",
+                "mine",
+                "collect"
+              ],
+              "choice": "aim_log",
+              "raw_response": {
+                "choices": [
+                  {
+                    "finish_reason": "stop",
+                    "index": 0,
+                    "message": {
+                      "content": "{\"choice\":\"aim_log\"}",
+                      "role": "assistant"
+                    }
+                  }
+                ],
+                "created": 1792889790,
+                "id": "chatcmpl-324",
+                "model": "qwen3:14b",
+                "object": "chat.completion",
+                "system_fingerprint": "fp_ollama",
+                "usage": {
+                  "completion_tokens": 7,
+                  "prompt_tokens": 367,
+                  "total_tokens": 374
+                }
+              },
+              "request": {
+                "max_tokens": 64,
+                "messages": [
+                  {
+                    "content": "{\"observation\": {\"tick\": 138012, \"body\": {\"position\": [1000.5, 80.0, 1005.6346388431556], \"yaw\": 0.0, \"pitch\": 0.0}, \"ray\": {}, \"visible_logs\": [[1000, 80, 1012]], \"visible_drops\": [], \"forward_safe\": true}, \"question\": {\"type\": \"choice\", \"instructions\": \"Collect one oak log using only visible information. When no log or drop is visible, explore: move forward when forward_safe is true, otherwise turn to seek safe visible space. An unseen goal is not a reason to stop. When a log is visible, aim at it, approach safely until the ray hits it, then keep choosing mine until it breaks. Collect a visible log drop after breaking. Stop only when movement is unsafe and no useful turn or mining action is available, or collection is complete. Choose one bounded behavior. Return only compact JSON {\\\"choice\\\":\\\"ID\\\"} with no whitespace or explanation.\", \"criteria\": {\"stop\": \"Release controls\", \"forward\": \"Walk forward briefly if visible terrain supports safe movement\", \"turn_left\": \"Turn left 30 degrees once\", \"turn_right\": \"Turn right 30 degrees once\", \"aim_log\": \"Aim once at the nearest currently visible oak log\", \"mine\": \"Hold mining at the currently aimed oak log, renewed by new choices\", \"collect\": \"Walk briefly toward the nearest currently visible oak log item\"}}, \"format\": {\"choice\": \"candidate ID\"}}",
+                    "role": "user"
+                  }
+                ],
+                "model": "qwen3:14b",
+                "reasoning_effort": "none",
+                "response_format": {
+                  "type": "json_object"
+                },
+                "temperature": 0
+              },
+              "request_monotonic_ns": 375675546000000,
+              "response_monotonic_ns": 375676046000000,
+              "schema_version": 1,
+              "status": "valid"
+            },
+            {
+              "candidate_order": [
+                "collect",
+                "mine",
+                "aim_log",
+                "turn_right",
+                "turn_left",
+                "forward",
+                "stop"
+              ],
+              "choice": "aim_log",
+              "raw_response": {
+                "choices": [
+                  {
+                    "finish_reason": "stop",
+                    "index": 0,
+                    "message": {
+                      "content": "{\"choice\":\"aim_log\"}",
+                      "role": "assistant"
+                    }
+                  }
+                ],
+                "created": 1792889790,
+                "id": "chatcmpl-807",
+                "model": "qwen3:14b",
+                "object": "chat.completion",
+                "system_fingerprint": "fp_ollama",
+                "usage": {
+                  "completion_tokens": 7,
+                  "prompt_tokens": 367,
+                  "total_tokens": 374
+                }
+              },
+              "request": {
+                "max_tokens": 64,
+                "messages": [
+                  {
+                    "content": "{\"observation\": {\"tick\": 138012, \"body\": {\"position\": [1000.5, 80.0, 1005.6346388431556], \"yaw\": 0.0, \"pitch\": 0.0}, \"ray\": {}, \"visible_logs\": [[1000, 80, 1012]], \"visible_drops\": [], \"forward_safe\": true}, \"question\": {\"type\": \"choice\", \"instructions\": \"Collect one oak log using only visible information. When no log or drop is visible, explore: move forward when forward_safe is true, otherwise turn to seek safe visible space. An unseen goal is not a reason to stop. When a log is visible, aim at it, approach safely until the ray hits it, then keep choosing mine until it breaks. Collect a visible log drop after breaking. Stop only when movement is unsafe and no useful turn or mining action is available, or collection is complete. Choose one bounded behavior. Return only compact JSON {\\\"choice\\\":\\\"ID\\\"} with no whitespace or explanation.\", \"criteria\": {\"collect\": \"Walk briefly toward the nearest currently visible oak log item\", \"mine\": \"Hold mining at the currently aimed oak log, renewed by new choices\", \"aim_log\": \"Aim once at the nearest currently visible oak log\", \"turn_right\": \"Turn right 30 degrees once\", \"turn_left\": \"Turn left 30 degrees once\", \"forward\": \"Walk forward briefly if visible terrain supports safe movement\", \"stop\": \"Release controls\"}}, \"format\": {\"choice\": \"candidate ID\"}}",
+                    "role": "user"
+                  }
+                ],
+                "model": "qwen3:14b",
+                "reasoning_effort": "none",
+                "response_format": {
+                  "type": "json_object"
+                },
+                "temperature": 0
+              },
+              "request_monotonic_ns": 375676046000000,
+              "response_monotonic_ns": 375676437000000,
+              "schema_version": 1,
+              "status": "valid"
+            },
+            {
+              "candidate_order": [
+                "aim_log",
+                "turn_left",
+                "forward",
+                "stop",
+                "mine",
+                "turn_right",
+                "collect"
+              ],
+              "choice": "aim_log",
+              "raw_response": {
+                "choices": [
+                  {
+                    "finish_reason": "stop",
+                    "index": 0,
+                    "message": {
+                      "content": "{\"choice\":\"aim_log\"}",
+                      "role": "assistant"
+                    }
+                  }
+                ],
+                "created": 1792889791,
+                "id": "chatcmpl-920",
+                "model": "qwen3:14b",
+                "object": "chat.completion",
+                "system_fingerprint": "fp_ollama",
+                "usage": {
+                  "completion_tokens": 7,
+                  "prompt_tokens": 367,
+                  "total_tokens": 374
+                }
+              },
+              "request": {
+                "max_tokens": 64,
+                "messages": [
+                  {
+                    "content": "{\"observation\": {\"tick\": 138012, \"body\": {\"position\": [1000.5, 80.0, 1005.6346388431556], \"yaw\": 0.0, \"pitch\": 0.0}, \"ray\": {}, \"visible_logs\": [[1000, 80, 1012]], \"visible_drops\": [], \"forward_safe\": true}, \"question\": {\"type\": \"choice\", \"instructions\": \"Collect one oak log using only visible information. When no log or drop is visible, explore: move forward when forward_safe is true, otherwise turn to seek safe visible space. An unseen goal is not a reason to stop. When a log is visible, aim at it, approach safely until the ray hits it, then keep choosing mine until it breaks. Collect a visible log drop after breaking. Stop only when movement is unsafe and no useful turn or mining action is available, or collection is complete. Choose one bounded behavior. Return only compact JSON {\\\"choice\\\":\\\"ID\\\"} with no whitespace or explanation.\", \"criteria\": {\"aim_log\": \"Aim once at the nearest currently visible oak log\", \"turn_left\": \"Turn left 30 degrees once\", \"forward\": \"Walk forward briefly if visible terrain supports safe movement\", \"stop\": \"Release controls\", \"mine\": \"Hold mining at the currently aimed oak log, renewed by new choices\", \"turn_right\": \"Turn right 30 degrees once\", \"collect\": \"Walk briefly toward the nearest currently visible oak log item\"}}, \"format\": {\"choice\": \"candidate ID\"}}",
+                    "role": "user"
+                  }
+                ],
+                "model": "qwen3:14b",
+                "reasoning_effort": "none",
+                "response_format": {
+                  "type": "json_object"
+                },
+                "temperature": 0
+              },
+              "request_monotonic_ns": 375676437000000,
+              "response_monotonic_ns": 375676796000000,
+              "schema_version": 1,
+              "status": "valid"
+            }
+          ],
+          "name": "gpu-docker-qwen3",
+          "outcomes": [
+            {
+              "decision": {
+                "choice": "aim_log",
+                "latency_ms": 500.0,
+                "probabilities": {
+                  "aim_log": 1.0,
+                  "collect": 0.0,
+                  "forward": 0.0,
+                  "mine": 0.0,
+                  "stop": 0.0,
+                  "turn_left": 0.0,
+                  "turn_right": 0.0
+                },
+                "probability_kind": "synthetic_one_hot_not_model_likelihood",
+                "served_model": "qwen3:14b"
+              },
+              "status": "valid"
+            },
+            {
+              "decision": {
+                "choice": "aim_log",
+                "latency_ms": 391.00000000325963,
+                "probabilities": {
+                  "aim_log": 1.0,
+                  "collect": 0.0,
+                  "forward": 0.0,
+                  "mine": 0.0,
+                  "stop": 0.0,
+                  "turn_left": 0.0,
+                  "turn_right": 0.0
+                },
+                "probability_kind": "synthetic_one_hot_not_model_likelihood",
+                "served_model": "qwen3:14b"
+              },
+              "status": "valid"
+            },
+            {
+              "decision": {
+                "choice": "aim_log",
+                "latency_ms": 358.99999999674037,
+                "probabilities": {
+                  "aim_log": 1.0,
+                  "collect": 0.0,
+                  "forward": 0.0,
+                  "mine": 0.0,
+                  "stop": 0.0,
+                  "turn_left": 0.0,
+                  "turn_right": 0.0
+                },
+                "probability_kind": "synthetic_one_hot_not_model_likelihood",
+                "served_model": "qwen3:14b"
+              },
+              "status": "valid"
+            }
+          ],
+          "provenance": {
+            "actual_cost_usd": null,
+            "cost_source": "provider_usage_not_independently_audited",
+            "costed_requests": 0,
+            "deadline_s": 1.0,
+            "enable_thinking": null,
+            "inference_scope": "local",
+            "kind": "chat",
+            "name": "gpu-docker-qwen3",
+            "network_scope": "private_lan",
+            "reasoning_effort": "none",
+            "reported_cost_usd": null,
+            "request_limit": 3,
+            "requested_model": "qwen3:14b",
+            "requests": 3,
+            "retries": 0,
+            "root": "http://10.10.40.20:11434",
+            "schema_version": 1
+          }
+        }
+      ],
+      "run_id": "probe-295658010967",
+      "schema_version": 1,
+      "scored": false,
+      "semantic_accuracy": "Unreviewed wire/order smoke only",
+      "sha256": "3e4cf9af3c95f765d6322528263631e120fa921d124be15883ef5fb4f00387ee",
+      "source_recording": "results\\model_execution\\20261024T220003526362Z\\events.jsonl",
+      "status": "complete"
+    }
+  ],
+  "python_tests_passed": 137,
+  "result_count_note": "41 tactical results comprise40 admitted wire responses plus1 local budget rejection; no41st inference request was sent.",
+  "schema_version": 1,
+  "status": "not_viable_under_current_tactical_prompt",
+  "thinking_configuration": "reasoning_effort:none configured; no reasoning_content returned in tested responses",
+  "total_requests": 44
+}

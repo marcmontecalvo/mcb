@@ -171,6 +171,23 @@ def test_chat_probabilities_are_labeled_synthetic():
     assert label == "synthetic_one_hot_not_model_likelihood"
 
 
+def test_ollama_thinking_configuration_is_explicit_and_recorded():
+    backend = HttpBackend(
+        spec("http://localhost:11434", kind="chat", reasoning_effort="none")
+    )
+    payload = backend._payload(ChoiceRequest({}, {"stop": "stop"}))
+    assert payload["reasoning_effort"] == "none"
+    assert "chat_template_kwargs" not in payload
+    assert backend.provenance()["reasoning_effort"] == "none"
+    for changes in (
+        {"kind": "systemone", "reasoning_effort": "none"},
+        {"kind": "chat", "reasoning_effort": "none", "enable_thinking": False},
+        {"kind": "chat", "reasoning_effort": "arbitrary"},
+    ):
+        with pytest.raises(ValueError, match="thinking"):
+            HttpBackend(spec("http://localhost:11434", **changes))
+
+
 def test_root_normalization_and_credential_protection():
     assert (
         endpoint("https://openrouter.ai/api/v1", "systemone")

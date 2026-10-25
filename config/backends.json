@@ -1,37 +1,50 @@
 {
-  "schema_version": 1,
   "backends": [
     {
-      "name": "atom-qwen-chat",
-      "enabled": true,
-      "kind": "chat",
-      "root": "http://10.10.70.3:4000/v1",
-      "gateway_alias": "atom",
-      "discovery_url": "http://atom:4000/v1/models",
-      "network_scope": "private_lan",
-      "inference_scope": "local",
-      "model": "qwen3.8-flash-next",
-      "enable_thinking": false,
-      "key_env": "ATOM_API_KEY",
       "deadline_s": 1.0,
-      "request_limit": 1
+      "discovery_url": "http://atom:4000/v1/models",
+      "enable_thinking": false,
+      "enabled": true,
+      "gateway_alias": "atom",
+      "inference_scope": "local",
+      "key_env": "ATOM_API_KEY",
+      "kind": "chat",
+      "model": "qwen3.8-flash-next",
+      "name": "atom-qwen-chat",
+      "network_scope": "private_lan",
+      "request_limit": 1,
+      "root": "http://10.10.70.3:4000/v1"
     },
     {
-      "name": "openrouter-jev",
-      "enabled": true,
-      "kind": "systemone",
-      "root": "https://openrouter.ai/api",
-      "model": "typesafe/jev-1.14",
-      "key_env": "OPENROUTER_API_KEY",
-      "deadline_s": 1.0,
-      "request_limit": 40,
       "cost_ceiling_usd": 1.0,
-      "max_request_cost_usd": 0.02,
-      "pricing_reference": "https://openrouter.ai/typesafe/jev-1.14",
+      "deadline_s": 1.0,
+      "enabled": true,
       "input_usd_per_million": 0.042,
+      "key_env": "OPENROUTER_API_KEY",
+      "kind": "systemone",
+      "max_request_cost_usd": 0.02,
+      "model": "typesafe/jev-1.14",
+      "name": "openrouter-jev",
+      "notes": "User authorized one dollar wallet cap, verified via /api/v1/key. Initial plan:1 readiness +3 offline choices +at most40 live calls; conservative per-call reservation0.02USD =>0.88USD maximum for this initial experiment. No automatic retries.",
       "output_usd_per_million": 0.0,
-      "notes": "User authorized one dollar wallet cap, verified via /api/v1/key. Initial plan:1 readiness +3 offline choices +at most40 live calls; conservative per-call reservation0.02USD =>0.88USD maximum for this initial experiment. No automatic retries."
+      "pricing_reference": "https://openrouter.ai/typesafe/jev-1.14",
+      "request_limit": 40,
+      "root": "https://openrouter.ai/api"
+    },
+    {
+      "deadline_s": 1.0,
+      "enabled": true,
+      "inference_scope": "local",
+      "kind": "chat",
+      "model": "qwen3:14b",
+      "name": "gpu-docker-qwen3",
+      "network_scope": "private_lan",
+      "notes": "User-provided unauthenticated Ollama endpoint; GPU reported as RTX5060Ti. Discovery:Ollama0.20.2,qwen3:14b,14.8B,Q4_K_M,4096loadedcontext. No credential required.",
+      "reasoning_effort": "none",
+      "request_limit": 40,
+      "root": "http://10.10.40.20:11434/v1"
     }
   ],
-  "notes": "User-authorized Atom gateway resolves to 10.10.70.3. Use the resolved private address to avoid its measured 2.7-second hostname lookup inside tactical deadlines. Route metadata points to host.docker.internal; reported zero token prices are not an audited cost measurement. Load the ignored .env explicitly with uv run --env-file .env."
+  "notes": "User-authorized Atom gateway resolves to 10.10.70.3. Use the resolved private address to avoid its measured 2.7-second hostname lookup inside tactical deadlines. Route metadata points to host.docker.internal; reported zero token prices are not an audited cost measurement. Load the ignored .env explicitly with uv run --env-file .env.",
+  "schema_version": 1
 }

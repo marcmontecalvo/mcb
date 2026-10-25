@@ -77,10 +77,11 @@
   "G4": {
     "adapter_status": "Implemented and local HTTP contract/error/deadline tests passed",
     "evidence": "docs/G4_ATOM_PROBE.json",
+    "gpu_docker_evidence": "docs/G4_GPU_DOCKER_PROOF.json",
     "hosted_evidence": "docs/G4_JEV_PROOF.json",
     "live_evidence": "docs/G4_LIVE_PROOF.json",
     "live_integration": "docs/G4_LIVE_INTEGRATION.md",
-    "live_status": "Qwen final configuration3/3 (allQwen3/5), Jev1/1 initial C1 seed0 development successes. Alllive4/6,90requests. Not distinct-layout or heldout evidence.",
+    "live_status": "Qwen Atom final3/3 (allAtom3/5), hostedJev1/1, gpu-docker Qwen3:14b0/1 initial C1 seed0 development outcomes. Alllive4/7,130requests. GPU-docker failed decision selection despite fast valid replies. Not distinct-layout or heldout evidence.",
     "preparation": "docs/G4_PREPARATION.json",
     "real_probes": "Atom chat and OpenRouter Jev SystemOne authenticated, validated real choices within1second; hosted Jev reports usage.cost",
     "remaining": "Configure/probe a required local SystemOne candidate; independently reviewed offline screening and broader controlled trials. Qwen and hosted Jev live integrations complete; no full G4 pass inferred.",

@@ -6,17 +6,22 @@ verified causal break/drop/pickup chain and complete per-tick policy recording.
 Completion took 128–141 ticks (median 132). Three stale controls were discarded
 and regenerated from fresh observations within the declared recovery limit.
 Earlier failed/invalid scored configurations remain in the all-attempt report.
-G4 is in progress; G5–G8 are unqualified. Total inference calls: **102**
-(79 Atom +23 hosted Jev).
+G4 is in progress; G5–G8 are unqualified. Total inference calls: **146**
+(79 Atom +23 hosted Jev +44 gpu-docker).
 The final compact-JSON tactical configuration completed **3/3 C1 seed0 development
-attempts**; all Qwen live configurations total **3/5**. Directory authentication and
+attempts**; all Atom Qwen live configurations total **3/5**. Directory authentication and
 chat readiness passed. See [live integration](G4_LIVE_INTEGRATION.md) and
 [hash-bound live proof](G4_LIVE_PROOF.json).
+Hosted Jev passed probes and **1/1 live C1** attempt in 212 ticks. Its 23 calls
+cost $0.000637602, confirmed by settled wallet usage. See
+[Jev evidence](G4_JEV_PROOF.json).
 The original `Minecraft_AI_Technical_Handoff.md` remains unchanged.
 
-Next: test the user-requested Qwen3 service on gpu-docker/RTX 5060 Ti once its
-endpoint and credential are available. The Jev image/Box screen is queued for
-later. See [experiment queue](EXPERIMENT_QUEUE.md) for scope and comparison rules.
+The unauthenticated gpu-docker Ollama service was tested: Qwen3 14B Q4_K_M
+returned fast valid live choices (468–593 ms) but failed C1 by repeatedly aiming
+at a log that was not visible. Its 0/1 attempt and all44 calls are retained in
+[comparison evidence](G4_GPU_DOCKER_PROOF.json). The Jev image/Box experiment
+remains deferred in the [experiment queue](EXPERIMENT_QUEUE.md).
 
 ## Runtime and qualification
 
@@ -28,7 +33,7 @@ later. See [experiment queue](EXPERIMENT_QUEUE.md) for scope and comparison rule
 | Minecraft | Java 26.3, protocol 777, authenticated mode, Survival |
 | Mods | Fabric Loader 0.19.5, API 0.164.0+26.3, pinned Carpet v26.3 |
 | Network | Loopback game 127.0.0.1:25575; authenticated bridge 8765 and supervisor 8766 |
-| Python checks | 136 tests pass; Ruff lint and formatting pass |
+| Python checks | 137 tests pass; Ruff lint and formatting pass |
 | Java checks | Mod build and pure geometry verifier pass |
 | G1 live suites | 39 body checks, 24 protocol checks, 12 reference-fixture checks |
 | G2 reset foundation | 20 consecutive identical state digests; teardown confirmed |

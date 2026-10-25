@@ -151,6 +151,14 @@ class HttpBackend:
         self.url = endpoint(spec["root"], self.kind, network_scope=self.network_scope)
         self.model = spec["model"]
         self.enable_thinking = spec.get("enable_thinking")
+        self.reasoning_effort = spec.get("reasoning_effort")
+        if self.reasoning_effort is not None and (
+            self.kind != "chat"
+            or not isinstance(self.reasoning_effort, str)
+            or self.reasoning_effort not in {"none", "minimal", "low", "medium", "high"}
+            or self.enable_thinking is not None
+        ):
+            raise ValueError("Use one explicit supported chat thinking configuration")
         if self.enable_thinking is not None and (
             self.kind != "chat" or type(self.enable_thinking) is not bool
         ):
@@ -210,6 +218,7 @@ class HttpBackend:
             "inference_scope": self.inference_scope,
             "requested_model": self.model,
             "enable_thinking": self.enable_thinking,
+            "reasoning_effort": self.reasoning_effort,
             "deadline_s": self.deadline,
             "retries": 0,
             "request_limit": self.budget,
@@ -254,6 +263,8 @@ class HttpBackend:
         }
         if self.enable_thinking is not None:
             payload["chat_template_kwargs"] = {"enable_thinking": self.enable_thinking}
+        if self.reasoning_effort is not None:
+            payload["reasoning_effort"] = self.reasoning_effort
         return payload
 
     def _post(self, payload: dict) -> dict:

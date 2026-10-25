@@ -3,13 +3,30 @@
 Updated October 24, 2026. Queue entries are plans, not qualification evidence.
 Current gate results remain in `gates.json`.
 
-## Next: gpu-docker Qwen3 on RTX 5060 Ti
+## Tested: gpu-docker Qwen3 on RTX 5060 Ti
 
-Requested by Marc. Pending the endpoint URL and local credential entry.
-`GPU_DOCKER_API_KEY` is prepared in ignored `.env` and documented in `.env.example`.
-No endpoint address, port, model size, quantization or serving engine is assumed.
+Requested by Marc. The user supplied `http://10.10.40.20:11434/v1/models` and
+confirmed no authentication is required. The user's removal of unnecessary
+credential entries from `.env` and `.env.example` is preserved.
+Discovery identified Ollama 0.20.2, `qwen3:14b`, 14.8B parameters and Q4_K_M
+quantization. The loaded context was 4096 tokens and reported VRAM allocation
+10,786,471,040 bytes; RTX 5060 Ti identity remains user-reported.
 
-1. Authenticate discovery and record the exact model ID and available serving
+Initial result: three recorded visible-log choice checks passed, but the first
+one-option readiness response chose an invalid `1` ID. The live C1 attempt failed:
+all 40 choices were `aim_log` while no log was visible, so fresh guards emitted
+no movement and the request budget ended the attempt. Live replies were
+468–593 ms (median 485), with no deadline failures. This is a decision failure
+under the unchanged prompt, not evidence of general intelligence or hardware speed.
+See [gpu-docker proof](G4_GPU_DOCKER_PROOF.json).
+
+Any follow-up prompt/representation tuning or thinking-enabled experiment must
+have its own configuration and must retain this failed baseline. Do not promote
+it to broader live trials based on legal JSON or low latency alone.
+
+Initial comparison plan (completed through the first live smoke):
+
+1. Discover and record the exact model ID and available serving
    metadata. Label the GPU as user-reported unless independently verified.
 2. Run bounded readiness and frozen-observation choices with the same candidates
    and instructions used for Qwen on Atom and hosted Jev. Retain candidate order,

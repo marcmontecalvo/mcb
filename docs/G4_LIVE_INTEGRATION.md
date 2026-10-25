@@ -71,7 +71,7 @@ Run `rtk proxy uv run --locked python scripts/audit-model-smokes.py` to regenera
 the compact audit from local raw evidence. `mclab report` includes live request
 counts and keeps readiness probes distinct from gameplay calls.
 
-Verification: 136 Python tests, Ruff lint/format and credential scan passed.
+Verification: 137 Python tests, Ruff lint/format and credential scan passed.
 Code and Python reviews approved the integration. A final reset restored the
 initial C1 state digest after the live runs. No human input or rescue was used.
 
@@ -96,7 +96,8 @@ an architecture or speed advantage on broader tasks.
 The initial plan allowed 44 calls with a conservative $0.02 per-call maximum
 ($0.88 total). It used **23 calls**, reporting **$0.000637602** in OpenRouter
 `usage.cost`. The settled wallet usage exactly matched that total, leaving
-.999362398 of the  cap. Its separate snapshot is retained. [The Jev proof](G4_JEV_PROOF.json) includes probes, cost accounting and
+$0.999362398 of the $1 cap. Its separate snapshot is retained.
+[The Jev proof](G4_JEV_PROOF.json) includes probes, cost accounting and
 the live run reference. Cost accounting retains unknown when any response lacks
 valid usage; it does not assume a zero charge after failures.
 
@@ -106,6 +107,35 @@ rtk proxy uv run --env-file .env --locked mclab models live-smoke --backend open
 ```
 
 These commands make new billable calls; they do not replay stored evidence.
+
+## gpu-docker Qwen3 comparison
+
+The user supplied the unauthenticated Ollama endpoint
+`http://10.10.40.20:11434/v1`. Discovery identified `qwen3:14b`, 14.8B parameters,
+Q4_K_M quantization and Ollama 0.20.2. `reasoning_effort: none` is explicitly
+configured and recorded according to the
+[Ollama compatibility contract](https://docs.ollama.com/api/openai-compatibility).
+No reasoning content was returned; a server-internal thinking trace is not claimed.
+
+One initial readiness response returned an unknown candidate `1` and was rejected.
+Three subsequent original/reversed/seeded choices on the same recorded visible-log
+state used for Jev returned valid `aim_log` IDs in 359–500 ms. This small screen
+did not reveal the failure on observations where no log is visible.
+
+The live C1 attempt failed after 40 requests and 474 ticks: every response selected
+`aim_log` despite an empty visible-log list. The fresh motor guards suppressed
+that inapplicable behavior and the body never moved. The declared request budget
+ended the attempt; no retries, timestamp changes, rescue or deadline relaxation
+were used. Live replies took 468–593 ms (median 485), with no deadline failure.
+The recording contains 41 tactical results: 40 wire responses and one local
+budget rejection that sent no inference request. Request counts remain 40.
+
+It is faster than Atom's measured responses and slower than Jev's in these small
+tests, but unusable under the current tactical prompt. Different models, sizes,
+quantization and serving stacks prevent a hardware or general intelligence ranking.
+All 44 calls are retained in [gpu-docker evidence](G4_GPU_DOCKER_PROOF.json).
+Any representation/prompt/thinking investigation will be a separate configuration.
+
 Next: independent offline action screening and a local SystemOne candidate,
 followed by distinct-layout navigation trials after their courses and body
 capabilities are qualified. G4 is not marked passed by these C1 smokes.

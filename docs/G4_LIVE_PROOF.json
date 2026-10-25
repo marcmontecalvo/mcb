@@ -1,8 +1,8 @@
 {
   "G4_passed": false,
   "actual_cost_usd": null,
-  "attempted_episodes": 6,
-  "model_requests": 90,
+  "attempted_episodes": 7,
+  "model_requests": 130,
   "runs": [
     {
       "applied_control_count": 80,
@@ -410,10 +410,112 @@
       "summary_sha256": "f80b3207df97b447cc83399507d79e65a82933966be4fecd9dcd4ee38df385a1",
       "tactical_sha256": "cd7401c405c7aa000ee6c7bd5af95f4a879b8b9c30cf82f03d9cdd4a09ac333d",
       "valid_responses": 19
+    },
+    {
+      "applied_control_count": 135,
+      "applied_observation_ages": [
+        3
+      ],
+      "backend": "gpu-docker-qwen3",
+      "choices": {
+        "aim_log": 40
+      },
+      "controller_errors": [
+        {
+          "category": "decision",
+          "error": "Tactical inference failed: Request budget exhausted"
+        }
+      ],
+      "controller_sha256": "73c370203e70d1a1aef317f02af91bed74d84f2bf4c083a6557aba1b268a472f",
+      "discarded_responses_on_close": 0,
+      "episodes": [
+        {
+          "deadline_tick": 350679,
+          "drop_uuid": "",
+          "end_tick": 350553,
+          "episode_id": "episode-b8544099b4ac",
+          "picked_up": false,
+          "reason": "controller_cancel",
+          "start_tick": 350079,
+          "status": "failed",
+          "target_broken": false
+        }
+      ],
+      "final_position": [
+        1000.5,
+        80.0,
+        1000.5
+      ],
+      "initial_position": [
+        1000.5,
+        80.0,
+        1000.5
+      ],
+      "latencies_ms": [
+        467.99999999348074,
+        468.99999998277053,
+        468.99999998277053,
+        468.99999998277053,
+        468.99999998277053,
+        469.0000000409782,
+        469.0000000409782,
+        469.0000000409782,
+        469.0000000409782,
+        483.99999999674037,
+        483.99999999674037,
+        483.99999999674037,
+        483.99999999674037,
+        483.99999999674037,
+        483.99999999674037,
+        483.99999999674037,
+        483.99999999674037,
+        484.99999998603016,
+        484.99999998603016,
+        484.99999998603016,
+        484.99999998603016,
+        484.99999998603016,
+        485.0000000442378,
+        485.0000000442378,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        514.9999999557622,
+        514.9999999557622,
+        515.0000000139698,
+        592.9999999934807
+      ],
+      "model_requests": 40,
+      "policy_ticks_missing": 0,
+      "recorded_responses": 41,
+      "recording_sha256": "c32bc1e7036e93b9c121d7d906f2f51b575712e3f41cf54b55b06971f07a4635",
+      "response_errors": [
+        {
+          "error": "BackendError",
+          "reason": "Request budget exhausted"
+        }
+      ],
+      "run_id": "qualification-a00587a215b5",
+      "scored": false,
+      "source_snapshots_match": true,
+      "sqlite_outcomes_match": true,
+      "successful_causal_chains_verified": {},
+      "summary": "results\\model_execution\\20261025T005649864309Z\\summary.json",
+      "summary_sha256": "0c858844353df831e5f5ff916005b553e03b043ed7fd3013735d4e5fd6f2bb13",
+      "tactical_sha256": "cd7401c405c7aa000ee6c7bd5af95f4a879b8b9c30cf82f03d9cdd4a09ac333d",
+      "valid_responses": 40
     }
   ],
   "schema_version": 1,
-  "scope": "Frozen C1 seed0, configured bounded visible-target tactical baselines",
+  "scope": "Frozen C1 seed0, bounded visible-target tactical baselines",
   "status": "G4_partial_live_development",
   "successful_episodes": 4
 }
