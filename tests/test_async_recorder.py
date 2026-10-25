@@ -138,7 +138,10 @@ def test_large_payload_is_encoded_once_and_roundtrips_in_both_artifacts(
     recorded, monkeypatch
 ):
     client, ledger = recorded
-    payload = {"text": 'quoted "value"\nwith Unicode: café', "nested": [None, True, 1.5]}
+    payload = {
+        "text": 'quoted "value"\nwith Unicode: café',
+        "nested": [None, True, 1.5],
+    }
     original = json.dumps
     encoded = []
 
