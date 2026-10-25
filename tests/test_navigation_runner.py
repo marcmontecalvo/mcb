@@ -77,6 +77,7 @@ def environment(tmp_path, monkeypatch):
         def __init__(self, output):
             self.run_id, self.launch_id = "run-test", "launch-test"
             self.events, self.requests = [], []
+            self.samples = []
             self.submitted = self.generation = 0
             state["clients"].append(self)
 
@@ -167,6 +168,40 @@ def test_new_run_recovers_legacy_and_previous_navigation_pending_attempts(enviro
             assert db.execute("SELECT status FROM episodes").fetchone() == (
                 "interrupted",
             )
+
+
+def test_next_identity_releases_only_flushed_transient_history(
+    environment, monkeypatch
+):
+    _root, _state, _profile = environment
+    seen = []
+
+    def drive(client, _controller, wall_timeout):
+        assert client.events == [] and client.samples == []
+        seen.append(client.episode_id)
+        client.events.append({"recorded_event": client.episode_id})
+        client.samples.append({"recorded_sample": client.episode_id})
+        return {"data": {"status": "success", "reason": "test"}}
+
+    monkeypatch.setattr(runner, "drive", drive)
+    result = runner.execute("C2", [0, 1])
+    assert result["successes"] == 2 and len(set(seen)) == 2
+
+
+def test_failed_flush_cannot_drop_history_or_advance_identity(environment, monkeypatch):
+    client = runner.RecordedBridge(None)
+    client.episode_id, client.body_id = "old-episode", "old-body"
+    client.events.append({"critical": True})
+    client.samples.append({"tick": 123})
+
+    def fail_flush():
+        raise OSError("simulated flush failure")
+
+    monkeypatch.setattr(client, "flush_recording", fail_flush)
+    with pytest.raises(OSError, match="flush failure"):
+        runner._new_identity(client)
+    assert client.events == [{"critical": True}] and client.samples == [{"tick": 123}]
+    assert (client.episode_id, client.body_id) == ("old-episode", "old-body")
 
 
 def test_wrong_reset_hash_never_starts_controller(environment):

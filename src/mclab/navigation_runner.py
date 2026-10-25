@@ -56,6 +56,12 @@ def _source_commit():
 
 
 def _new_identity(client, prefix="navigation"):
+    # Historical payloads already live in JSONL/SQLite. Retaining their objects
+    # across episodes grows the heap and makes event searches/GC progressively
+    # slower. Flush before releasing them, while policy admission is closed.
+    client.flush_recording()
+    client.events.clear()
+    client.samples.clear()
     client.episode_id = prefix + "-" + uuid4().hex[:12]
     client.body_id = "body-" + uuid4().hex[:12]
     client.policy_memory = PolicyMapRecorder()
