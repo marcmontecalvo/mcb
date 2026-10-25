@@ -28,9 +28,9 @@ class RecordedBridge(Bridge):
 
     def __init__(self, output):
         super().__init__(output)
-        # Event polling can return several simulation ticks at once. Bound the
-        # burst buffer independently of the 32-record durable write batch.
-        self.record_queue = queue.Queue(maxsize=256)
+        # One native poll can return the entire 2048-event ring. Leave another
+        # 256 slots for in-flight writes and local request/observation records.
+        self.record_queue = queue.Queue(maxsize=2304)
         self.writer_error = None
         self.writer_stage = "starting"
         self.writer_progress = time.monotonic()
@@ -52,7 +52,7 @@ class RecordedBridge(Bridge):
                             database = EpisodeRecorder(self.recorder.path)
                     # Drain only already queued work; never delay controls to
                     # fill a batch. Shutdown is submitted after a flush.
-                    while len(batch) < 32:
+                    while len(batch) < 128:
                         try:
                             batch.append(self.record_queue.get_nowait())
                         except queue.Empty:

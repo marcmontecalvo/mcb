@@ -81,6 +81,8 @@ class EpisodeRecorder:
         if version not in (0, 1):
             self.db.close()
             raise ValueError("Unsupported episode recorder schema")
+        if version == 0:
+            self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript("""
             PRAGMA foreign_keys=ON;
             CREATE TABLE IF NOT EXISTS runs (

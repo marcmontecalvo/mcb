@@ -79,13 +79,13 @@ def test_queued_burst_uses_bounded_durable_batches(recorded, monkeypatch):
     monkeypatch.setattr(EpisodeRecorder, "batch", batch)
     client.record("first", {})
     assert entered.wait(1)
-    for index in range(60):
+    for index in range(200):
         client.record("burst", {"index": index})
-    assert client.record_queue.unfinished_tasks == 61
+    assert client.record_queue.unfinished_tasks == 201
     release.set()
     client.flush_recording()
-    assert ledger.db.execute("SELECT count(*) FROM events").fetchone()[0] == 61
-    assert all(1 <= size <= 32 for size in sizes)
+    assert ledger.db.execute("SELECT count(*) FROM events").fetchone()[0] == 201
+    assert all(1 <= size <= 128 for size in sizes)
     assert len(sizes) == 3
 
 
@@ -122,11 +122,11 @@ def test_burst_capacity_remains_bounded_and_overflow_invalidates(recorded, monke
     client.record("first", {})
     assert entered.wait(1)
     try:
-        for _ in range(256):
+        for _ in range(client.record_queue.maxsize):
             client.record("burst", {})
         with pytest.raises(RuntimeError, match="queue overflow.*writer_stage="):
             client.record("overflow", {})
-        assert client.record_queue.qsize() == 256
+        assert client.record_queue.qsize() == client.record_queue.maxsize
     finally:
         release.set()
         with pytest.raises(RuntimeError, match="recording failed"):
