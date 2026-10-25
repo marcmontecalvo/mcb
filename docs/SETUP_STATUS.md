@@ -6,9 +6,10 @@ verified causal break/drop/pickup chain and complete per-tick policy recording.
 Completion took 128–141 ticks (median 132). Three stale controls were discarded
 and regenerated from fresh observations within the declared recovery limit.
 Earlier failed/invalid scored configurations remain in the all-attempt report.
-G4 is in progress; G5–G8 are unqualified. Atom inference requests attempted: **79** (8 provider probes +71 live calls).
+G4 is in progress; G5–G8 are unqualified. Total inference calls: **102**
+(79 Atom +23 hosted Jev).
 The final compact-JSON tactical configuration completed **3/3 C1 seed0 development
-attempts**; all live configurations total **3/5**. Directory authentication and
+attempts**; all Qwen live configurations total **3/5**. Directory authentication and
 chat readiness passed. See [live integration](G4_LIVE_INTEGRATION.md) and
 [hash-bound live proof](G4_LIVE_PROOF.json).
 The original `Minecraft_AI_Technical_Handoff.md` remains unchanged.
@@ -23,7 +24,7 @@ The original `Minecraft_AI_Technical_Handoff.md` remains unchanged.
 | Minecraft | Java 26.3, protocol 777, authenticated mode, Survival |
 | Mods | Fabric Loader 0.19.5, API 0.164.0+26.3, pinned Carpet v26.3 |
 | Network | Loopback game 127.0.0.1:25575; authenticated bridge 8765 and supervisor 8766 |
-| Python checks | 131 tests pass; Ruff lint and formatting pass |
+| Python checks | 136 tests pass; Ruff lint and formatting pass |
 | Java checks | Mod build and pure geometry verifier pass |
 | G1 live suites | 39 body checks, 24 protocol checks, 12 reference-fixture checks |
 | G2 reset foundation | 20 consecutive identical state digests; teardown confirmed |
@@ -178,8 +179,8 @@ labelled synthetic one-hot values. [The Atom proof](G4_ATOM_PROBE.json) preserve
 all eight attempted requests and four valid Choice responses. Live tactical integration subsequently completed three consecutive C1 seed0
 attempts after compact JSON reduced output latency. Two earlier live configurations
 failed on deadlines and remain recorded. All71 live calls are counted, including
-three pending calls cancelled after native success. G4 remains open for the other
-required backend routes, offline screening and broader controlled trials.
+three pending calls cancelled after native success. Hosted Jev subsequently passed probes and a live attempt; G4 remains open for
+a local SystemOne candidate, independent offline screening and broader trials.
 Upstream source references/hashes are pinned without vendoring unlicensed code.
 
 Baritone v1.20.0 Fabric API artifact SHA-256 was verified against its release

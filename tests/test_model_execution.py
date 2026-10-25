@@ -59,6 +59,30 @@ def test_live_rejects_unbounded_batches_before_world_access():
             model_execution.run("unused", count=count, request_limit=budget)
 
 
+def test_remote_live_batch_preserves_configured_total_budget(monkeypatch):
+    spec = {
+        "name": "remote",
+        "enabled": True,
+        "kind": "systemone",
+        "root": "https://example.com",
+        "model": "test",
+        "deadline_s": 1,
+        "request_limit": 10,
+        "cost_ceiling_usd": 1,
+        "max_request_cost_usd": 0.02,
+    }
+    monkeypatch.setattr(model_execution, "read_json", lambda _: {"backends": [spec]})
+    monkeypatch.setattr(model_execution, "_run", lambda s, n, cap: (s, n, cap))
+    with pytest.raises(ValueError, match="configured remote"):
+        model_execution.run("remote", count=2, request_limit=12)
+    selected, count, total = model_execution.run("remote", count=2, request_limit=10)
+    assert selected["request_limit"] == 5
+    assert count == 2 and total == 10
+    spec.update(request_limit=100, max_request_cost_usd=0.03)
+    with pytest.raises(ValueError, match="cost budget"):
+        model_execution.run("remote", count=5, request_limit=50)
+
+
 def test_terminal_snapshot_drains_event_before_deciding(monkeypatch):
     class Client:
         run_id, episode_id, body_id = "r", "e", "b"

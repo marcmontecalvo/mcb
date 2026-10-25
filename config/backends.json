@@ -15,6 +15,22 @@
       "key_env": "ATOM_API_KEY",
       "deadline_s": 1.0,
       "request_limit": 1
+    },
+    {
+      "name": "openrouter-jev",
+      "enabled": true,
+      "kind": "systemone",
+      "root": "https://openrouter.ai/api",
+      "model": "typesafe/jev-1.14",
+      "key_env": "OPENROUTER_API_KEY",
+      "deadline_s": 1.0,
+      "request_limit": 40,
+      "cost_ceiling_usd": 1.0,
+      "max_request_cost_usd": 0.02,
+      "pricing_reference": "https://openrouter.ai/typesafe/jev-1.14",
+      "input_usd_per_million": 0.042,
+      "output_usd_per_million": 0.0,
+      "notes": "User authorized one dollar wallet cap, verified via /api/v1/key. Initial plan:1 readiness +3 offline choices +at most40 live calls; conservative per-call reservation0.02USD =>0.88USD maximum for this initial experiment. No automatic retries."
     }
   ],
   "notes": "User-authorized Atom gateway resolves to 10.10.70.3. Use the resolved private address to avoid its measured 2.7-second hostname lookup inside tactical deadlines. Route metadata points to host.docker.internal; reported zero token prices are not an audited cost measurement. Load the ignored .env explicitly with uv run --env-file .env."

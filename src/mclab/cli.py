@@ -137,7 +137,7 @@ def main() -> int:
     screen.add_argument("--output", type=Path, required=True)
     screen.add_argument("--limit", type=int, default=60)
     models = sub.add_parser("models").add_subparsers(dest="operation", required=True)
-    models.add_parser("probe")
+    models.add_parser("probe").add_argument("--backend")
     live = models.add_parser("live-smoke")
     live.add_argument("--backend", required=True)
     live.add_argument("--count", type=int, default=1)
@@ -201,9 +201,12 @@ def main() -> int:
                     )
                     print(json.dumps(result, indent=2))
                     return 0 if result["status"] == "completed_development_smoke" else 1
-                outcomes = backends.probe_config(
-                    read_json(ROOT / "config/backends.json")["backends"]
-                )
+                specs = read_json(ROOT / "config/backends.json")["backends"]
+                if args.backend:
+                    specs = [s for s in specs if s["name"] == args.backend]
+                    if len(specs) != 1:
+                        raise ValueError("Select exactly one configured backend")
+                outcomes = backends.probe_config(specs)
                 result = {
                     "schema_version": 1,
                     "run_id": "probe-" + uuid4().hex[:12],

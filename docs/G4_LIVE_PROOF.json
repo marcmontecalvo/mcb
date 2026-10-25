@@ -1,14 +1,15 @@
 {
   "G4_passed": false,
   "actual_cost_usd": null,
-  "attempted_episodes": 5,
-  "model_requests": 71,
+  "attempted_episodes": 6,
+  "model_requests": 90,
   "runs": [
     {
       "applied_control_count": 80,
       "applied_observation_ages": [
         3
       ],
+      "backend": "atom-qwen-chat",
       "choices": {
         "stop": 12,
         "turn_left": 1
@@ -83,6 +84,7 @@
       "applied_observation_ages": [
         3
       ],
+      "backend": "atom-qwen-chat",
       "choices": {
         "aim_log": 2,
         "forward": 3
@@ -150,6 +152,7 @@
       "applied_observation_ages": [
         3
       ],
+      "backend": "atom-qwen-chat",
       "choices": {
         "aim_log": 3,
         "collect": 2,
@@ -224,6 +227,7 @@
       "applied_observation_ages": [
         3
       ],
+      "backend": "atom-qwen-chat",
       "choices": {
         "aim_log": 7,
         "collect": 4,
@@ -330,10 +334,86 @@
       "summary_sha256": "287721bd1f631221304394488014b159d29ca475c825b3d9eb9c09ed4b843aa6",
       "tactical_sha256": "cd7401c405c7aa000ee6c7bd5af95f4a879b8b9c30cf82f03d9cdd4a09ac333d",
       "valid_responses": 35
+    },
+    {
+      "applied_control_count": 62,
+      "applied_observation_ages": [
+        3
+      ],
+      "backend": "openrouter-jev",
+      "choices": {
+        "aim_log": 2,
+        "collect": 3,
+        "forward": 3,
+        "mine": 11
+      },
+      "controller_errors": [],
+      "controller_sha256": "73c370203e70d1a1aef317f02af91bed74d84f2bf4c083a6557aba1b268a472f",
+      "discarded_responses_on_close": 1,
+      "episodes": [
+        {
+          "deadline_tick": 325210,
+          "drop_uuid": "ddb7aa58-42c8-44f0-a007-96a70e45f23b",
+          "end_tick": 324822,
+          "episode_id": "episode-e2e19ff40a0d",
+          "picked_up": true,
+          "reason": "causal_target_break_drop_pickup",
+          "start_tick": 324610,
+          "status": "success",
+          "target_broken": true
+        }
+      ],
+      "final_position": [
+        1000.8087728716337,
+        80.0,
+        1011.6653798949502
+      ],
+      "initial_position": [
+        1000.5,
+        80.0,
+        1000.5
+      ],
+      "latencies_ms": [
+        250.0,
+        265.00000001396984,
+        265.00000001396984,
+        266.00000000325963,
+        266.00000000325963,
+        281.00000001722947,
+        281.00000001722947,
+        281.00000001722947,
+        296.99999996228144,
+        296.99999996228144,
+        296.99999996228144,
+        297.0000000204891,
+        297.0000000204891,
+        297.0000000204891,
+        311.9999999762513,
+        327.9999999795109,
+        329.00000002700835,
+        343.99999998277053,
+        358.99999999674037
+      ],
+      "model_requests": 19,
+      "policy_ticks_missing": 0,
+      "recorded_responses": 19,
+      "recording_sha256": "c211463d2cf910861b4391a6152285f8161dd9d4b05442797ecaa74c601cd0bd",
+      "response_errors": [],
+      "run_id": "qualification-d3bcd99eb7a1",
+      "scored": false,
+      "source_snapshots_match": true,
+      "sqlite_outcomes_match": true,
+      "successful_causal_chains_verified": {
+        "episode-e2e19ff40a0d": true
+      },
+      "summary": "results\\model_execution\\20261025T003535986355Z\\summary.json",
+      "summary_sha256": "f80b3207df97b447cc83399507d79e65a82933966be4fecd9dcd4ee38df385a1",
+      "tactical_sha256": "cd7401c405c7aa000ee6c7bd5af95f4a879b8b9c30cf82f03d9cdd4a09ac333d",
+      "valid_responses": 19
     }
   ],
   "schema_version": 1,
-  "scope": "Frozen C1 seed0, local Qwen bounded visible-target tactical baseline",
+  "scope": "Frozen C1 seed0, configured bounded visible-target tactical baselines",
   "status": "G4_partial_live_development",
-  "successful_episodes": 3
+  "successful_episodes": 4
 }

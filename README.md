@@ -240,6 +240,13 @@ and every motor action is revalidated against current observations. This visible
 target behavior baseline does not establish learned control or later-course skill.
 See [live integration and results](docs/G4_LIVE_INTEGRATION.md). G4 remains open.
 
+OpenRouter Jev uses `OPENROUTER_API_KEY` in the same ignored `.env`. The pinned
+`typesafe/jev-1.14` SystemOne route passed its probes and one live C1 attempt.
+Probe only that route with `mclab models probe --backend openrouter-jev` under the
+same `uv run --env-file .env --locked` prefix. Its configured 40-call cap and $1
+cost ceiling are checked before any live batch. See [Jev evidence](docs/G4_JEV_PROOF.json)
+for the 23-call initial experiment and provider-reported charges.
+
 `experiments plan` freezes a development layout inventory without changing the
 active world. C3/C4 need more distinct geometry and C5 needs a generator. Offline
 states can be exported with `experiments export-screening --recording <JSONL>

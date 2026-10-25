@@ -194,6 +194,13 @@ class HttpBackend:
         self.exchanges: list[dict] = []
 
     def provenance(self) -> dict:
+        costs = []
+        for exchange in self.exchanges:
+            raw = exchange.get("raw_response")
+            usage = raw.get("usage") if isinstance(raw, dict) else None
+            cost = usage.get("cost") if isinstance(usage, dict) else None
+            if type(cost) in {int, float} and 0 <= cost <= 1e12 and math.isfinite(cost):
+                costs.append(cost)
         return {
             "schema_version": 1,
             "name": self.name,
@@ -207,7 +214,12 @@ class HttpBackend:
             "retries": 0,
             "request_limit": self.budget,
             "requests": self.requests,
-            "actual_cost_usd": None,
+            "reported_cost_usd": sum(costs) if costs else None,
+            "costed_requests": len(costs),
+            "actual_cost_usd": sum(costs)
+            if self.requests and len(costs) == self.requests
+            else None,
+            "cost_source": "provider_usage_not_independently_audited",
         }
 
     def _payload(self, request: ChoiceRequest) -> dict:

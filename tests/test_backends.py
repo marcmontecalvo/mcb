@@ -80,6 +80,28 @@ def test_real_http_choice_probe_and_no_expected_label(provider):
     assert exchange["response_monotonic_ns"] >= exchange["request_monotonic_ns"]
 
 
+def test_usage_cost_is_only_complete_when_all_requests_report_it(provider):
+    root, behavior, _ = provider
+    behavior["raw"]["usage"] = {"cost": 0.00002}
+    backend = HttpBackend(spec(root))
+    backend.health()
+    assert backend.provenance()["actual_cost_usd"] == 0.00002
+    behavior["raw"]["usage"] = {"cost": True}
+    backend.health()
+    assert backend.provenance()["actual_cost_usd"] is None
+    assert backend.provenance()["reported_cost_usd"] == 0.00002
+    assert backend.provenance()["costed_requests"] == 1
+
+
+@pytest.mark.parametrize("raw", [None, [], {"usage": {"cost": 10**400}}])
+def test_cost_accounting_tolerates_malformed_provider_response(raw):
+    backend = HttpBackend(spec("http://localhost:8000"))
+    backend.requests = 1
+    backend.exchanges = [{"raw_response": raw}]
+    assert backend.provenance()["actual_cost_usd"] is None
+    assert backend.provenance()["costed_requests"] == 0
+
+
 @pytest.mark.parametrize("status", [401, 404, 429, 503])
 def test_http_error_never_healthy_or_retried(provider, status):
     root, behavior, calls = provider

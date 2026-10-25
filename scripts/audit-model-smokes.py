@@ -86,6 +86,7 @@ def audit(path):
     }
     return {
         "run_id": summary["run_id"],
+        "backend": summary["backend"]["name"],
         "scored": summary["scored"],
         "summary": str(path.relative_to(ROOT)),
         "summary_sha256": sha256(path),
@@ -124,7 +125,7 @@ if __name__ == "__main__":
     proof = {
         "schema_version": 1,
         "status": "G4_partial_live_development",
-        "scope": "Frozen C1 seed0, local Qwen bounded visible-target tactical baseline",
+        "scope": "Frozen C1 seed0, bounded visible-target tactical baselines",
         "G4_passed": False,
         "runs": runs,
         "attempted_episodes": sum(len(r["episodes"]) for r in runs),

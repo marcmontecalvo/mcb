@@ -142,17 +142,18 @@ def run(backend_name, *, count=1, request_limit=40):
     matches = [s for s in specs if s["name"] == backend_name and s.get("enabled")]
     if len(matches) != 1:
         raise ValueError("Select exactly one enabled configured backend")
-    spec = {**matches[0], "request_limit": request_limit // count}
+    selected = matches[0]
     # Remote budgets must be explicitly supplied in configuration; never increase
     # a remote request cap just because a CLI option asks for a larger batch.
-    probe = HttpBackend(spec)
+    probe = HttpBackend({**selected, "request_limit": request_limit})
     try:
-        if not probe.local:
-            raise ValueError("This initial live smoke supports local inference only")
+        if not probe.local and request_limit > selected["request_limit"]:
+            raise ValueError("Live request cap exceeds configured remote batch limit")
         if probe.deadline != 1.0:
             raise ValueError("Initial live profile requires the frozen 1s deadline")
     finally:
         probe.close()
+    spec = {**selected, "request_limit": request_limit // count}
     with exclusive_arena():
         return _run(spec, count, request_limit)
 

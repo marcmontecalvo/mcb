@@ -1,0 +1,496 @@
+{
+  "conservative_max_initial_plan_usd": 0.88,
+  "cost_source": "OpenRouter usage.cost, not independently audited",
+  "date": "2026-10-24",
+  "documentation": [
+    "https://openrouter.ai/docs/guides/community/typesafe-sdk",
+    "https://openrouter.ai/typesafe/jev-1.14"
+  ],
+  "live_audit": "docs/G4_LIVE_PROOF.json",
+  "live_episodes": [
+    {
+      "deadline_tick": 325210,
+      "drop_uuid": "ddb7aa58-42c8-44f0-a007-96a70e45f23b",
+      "end_tick": 324822,
+      "episode_id": "episode-e2e19ff40a0d",
+      "picked_up": true,
+      "reason": "causal_target_break_drop_pickup",
+      "start_tick": 324610,
+      "status": "success",
+      "target_broken": true
+    }
+  ],
+  "live_latency_ms": {
+    "max": 358.99999999674037,
+    "median": 296.99999996228144,
+    "min": 250.0
+  },
+  "live_provenance": {
+    "actual_cost_usd": 0.000543942,
+    "cost_source": "provider_usage_not_independently_audited",
+    "costed_requests": 19,
+    "deadline_s": 1.0,
+    "enable_thinking": null,
+    "inference_scope": "unspecified",
+    "kind": "systemone",
+    "name": "openrouter-jev",
+    "network_scope": "remote",
+    "reported_cost_usd": 0.000543942,
+    "request_limit": 40,
+    "requested_model": "typesafe/jev-1.14",
+    "requests": 19,
+    "retries": 0,
+    "root": "https://openrouter.ai/api",
+    "schema_version": 1
+  },
+  "live_reported_cost_usd": 0.000543942,
+  "live_requests": 19,
+  "live_run_id": "qualification-d3bcd99eb7a1",
+  "live_summary": "results\\model_execution\\20261025T003535986355Z\\summary.json",
+  "live_summary_sha256": "f80b3207df97b447cc83399507d79e65a82933966be4fecd9dcd4ee38df385a1",
+  "model": "typesafe/jev-1.14",
+  "probabilities": "Provider-reported; calibration and order invariance not established",
+  "probe_reported_cost_usd": 9.366000000000001e-05,
+  "probe_requests": 4,
+  "probes": [
+    {
+      "artifact": "results\\provider_probes\\20261025T003353529107Z.json",
+      "backends": [
+        {
+          "decision": {
+            "choice": "stop",
+            "latency_ms": 327.9999999795109,
+            "probabilities": {
+              "stop": 1.0
+            },
+            "probability_kind": "provider_reported",
+            "served_model": "typesafe/jev-1.14-20261014"
+          },
+          "exchanges": [
+            {
+              "candidate_order": [
+                "stop"
+              ],
+              "choice": "stop",
+              "raw_response": {
+                "answers": {
+                  "q": {
+                    "choice": "stop",
+                    "confidence": 1,
+                    "probabilities": {
+                      "stop": 1
+                    },
+                    "type": "choice"
+                  }
+                },
+                "id": "gen-dec-1792888433-zprxPZsXjbOApDKgEWHU",
+                "model": "typesafe/jev-1.14-20261014",
+                "provider": "TypeSafe",
+                "usage": {
+                  "cost": 1.2894e-05,
+                  "input_tokens": 307,
+                  "output_tokens": 24
+                }
+              },
+              "request": {
+                "model": "typesafe/jev-1.14",
+                "questions": {
+                  "q": {
+                    "criteria": {
+                      "stop": "Release all controls"
+                    },
+                    "instructions": "Choose one legal next action using the observation.",
+                    "type": "choice"
+                  }
+                },
+                "state": {
+                  "probe": "readiness"
+                }
+              },
+              "request_monotonic_ns": 374318906000000,
+              "response_monotonic_ns": 374319234000000,
+              "schema_version": 1,
+              "status": "valid"
+            }
+          ],
+          "name": "openrouter-jev",
+          "provenance": {
+            "actual_cost_usd": null,
+            "deadline_s": 1.0,
+            "enable_thinking": null,
+            "inference_scope": "unspecified",
+            "kind": "systemone",
+            "name": "openrouter-jev",
+            "network_scope": "remote",
+            "request_limit": 1,
+            "requested_model": "typesafe/jev-1.14",
+            "requests": 1,
+            "retries": 0,
+            "root": "https://openrouter.ai/api",
+            "schema_version": 1
+          },
+          "status": "ready"
+        }
+      ],
+      "run_id": "probe-9a6f092f600e",
+      "schema_version": 1,
+      "sha256": "7bf1a493efa8b20575b611e1252029df74d8756b03c91cd06e362b3c8eb7c59b",
+      "status": "complete"
+    },
+    {
+      "artifact": "results\\provider_probes\\20261025T003511225016Z.json",
+      "backends": [
+        {
+          "exchanges": [
+            {
+              "candidate_order": [
+                "stop",
+                "forward",
+                "turn_left",
+                "turn_right",
+                "aim_log",
+                "mine",
+                "collect"
+              ],
+              "choice": "aim_log",
+              "raw_response": {
+                "answers": {
+                  "q": {
+                    "choice": "aim_log",
+                    "confidence": 0.58,
+                    "probabilities": {
+                      "aim_log": 0.64,
+                      "collect": 0.02,
+                      "forward": 0.1,
+                      "mine": 0.22,
+                      "stop": 0,
+                      "turn_left": 0.01,
+                      "turn_right": 0.01
+                    },
+                    "type": "choice"
+                  }
+                },
+                "id": "gen-dec-1792888510-KqOTg5UFLKCPzibnVg2M",
+                "model": "typesafe/jev-1.14-20261014",
+                "provider": "TypeSafe",
+                "usage": {
+                  "cost": 2.6922e-05,
+                  "input_tokens": 641,
+                  "output_tokens": 70
+                }
+              },
+              "request": {
+                "model": "typesafe/jev-1.14",
+                "questions": {
+                  "q": {
+                    "criteria": {
+                      "aim_log": "Aim once at the nearest currently visible oak log",
+                      "collect": "Walk briefly toward the nearest currently visible oak log item",
+                      "forward": "Walk forward briefly if visible terrain supports safe movement",
+                      "mine": "Hold mining at the currently aimed oak log, renewed by new choices",
+                      "stop": "Release controls",
+                      "turn_left": "Turn left 30 degrees once",
+                      "turn_right": "Turn right 30 degrees once"
+                    },
+                    "instructions": "Collect one oak log using only visible information. When no log or drop is visible, explore: move forward when forward_safe is true, otherwise turn to seek safe visible space. An unseen goal is not a reason to stop. When a log is visible, aim at it, approach safely until the ray hits it, then keep choosing mine until it breaks. Collect a visible log drop after breaking. Stop only when movement is unsafe and no useful turn or mining action is available, or collection is complete. Choose one bounded behavior. Return only compact JSON {\"choice\":\"ID\"} with no whitespace or explanation.",
+                    "type": "choice"
+                  }
+                },
+                "state": {
+                  "body": {
+                    "pitch": 0.0,
+                    "position": [
+                      1000.5,
+                      80.0,
+                      1005.6346388431556
+                    ],
+                    "yaw": 0.0
+                  },
+                  "forward_safe": true,
+                  "ray": {},
+                  "tick": 138012,
+                  "visible_drops": [],
+                  "visible_logs": [
+                    [
+                      1000,
+                      80,
+                      1012
+                    ]
+                  ]
+                }
+              },
+              "request_monotonic_ns": 374395984000000,
+              "response_monotonic_ns": 374396359000000,
+              "schema_version": 1,
+              "status": "valid"
+            },
+            {
+              "candidate_order": [
+                "collect",
+                "mine",
+                "aim_log",
+                "turn_right",
+                "turn_left",
+                "forward",
+                "stop"
+              ],
+              "choice": "aim_log",
+              "raw_response": {
+                "answers": {
+                  "q": {
+                    "choice": "aim_log",
+                    "confidence": 0.43,
+                    "probabilities": {
+                      "aim_log": 0.51,
+                      "collect": 0.03,
+                      "forward": 0.22,
+                      "mine": 0.2,
+                      "stop": 0,
+                      "turn_left": 0.03,
+                      "turn_right": 0.01
+                    },
+                    "type": "choice"
+                  }
+                },
+                "id": "gen-dec-1792888510-x6rkRMcL103fsSF0jFi7",
+                "model": "typesafe/jev-1.14-20261014",
+                "provider": "TypeSafe",
+                "usage": {
+                  "cost": 2.6922e-05,
+                  "input_tokens": 641,
+                  "output_tokens": 70
+                }
+              },
+              "request": {
+                "model": "typesafe/jev-1.14",
+                "questions": {
+                  "q": {
+                    "criteria": {
+                      "aim_log": "Aim once at the nearest currently visible oak log",
+                      "collect": "Walk briefly toward the nearest currently visible oak log item",
+                      "forward": "Walk forward briefly if visible terrain supports safe movement",
+                      "mine": "Hold mining at the currently aimed oak log, renewed by new choices",
+                      "stop": "Release controls",
+                      "turn_left": "Turn left 30 degrees once",
+                      "turn_right": "Turn right 30 degrees once"
+                    },
+                    "instructions": "Collect one oak log using only visible information. When no log or drop is visible, explore: move forward when forward_safe is true, otherwise turn to seek safe visible space. An unseen goal is not a reason to stop. When a log is visible, aim at it, approach safely until the ray hits it, then keep choosing mine until it breaks. Collect a visible log drop after breaking. Stop only when movement is unsafe and no useful turn or mining action is available, or collection is complete. Choose one bounded behavior. Return only compact JSON {\"choice\":\"ID\"} with no whitespace or explanation.",
+                    "type": "choice"
+                  }
+                },
+                "state": {
+                  "body": {
+                    "pitch": 0.0,
+                    "position": [
+                      1000.5,
+                      80.0,
+                      1005.6346388431556
+                    ],
+                    "yaw": 0.0
+                  },
+                  "forward_safe": true,
+                  "ray": {},
+                  "tick": 138012,
+                  "visible_drops": [],
+                  "visible_logs": [
+                    [
+                      1000,
+                      80,
+                      1012
+                    ]
+                  ]
+                }
+              },
+              "request_monotonic_ns": 374396359000000,
+              "response_monotonic_ns": 374396671000000,
+              "schema_version": 1,
+              "status": "valid"
+            },
+            {
+              "candidate_order": [
+                "aim_log",
+                "turn_left",
+                "forward",
+                "stop",
+                "mine",
+                "turn_right",
+                "collect"
+              ],
+              "choice": "aim_log",
+              "raw_response": {
+                "answers": {
+                  "q": {
+                    "choice": "aim_log",
+                    "confidence": 0.39,
+                    "probabilities": {
+                      "aim_log": 0.48,
+                      "collect": 0.07,
+                      "forward": 0.14,
+                      "mine": 0.29,
+                      "stop": 0,
+                      "turn_left": 0.01,
+                      "turn_right": 0.01
+                    },
+                    "type": "choice"
+                  }
+                },
+                "id": "gen-dec-1792888511-Yw1inWN2S8yFhqJdYExe",
+                "model": "typesafe/jev-1.14-20261014",
+                "provider": "TypeSafe",
+                "usage": {
+                  "cost": 2.6922e-05,
+                  "input_tokens": 641,
+                  "output_tokens": 70
+                }
+              },
+              "request": {
+                "model": "typesafe/jev-1.14",
+                "questions": {
+                  "q": {
+                    "criteria": {
+                      "aim_log": "Aim once at the nearest currently visible oak log",
+                      "collect": "Walk briefly toward the nearest currently visible oak log item",
+                      "forward": "Walk forward briefly if visible terrain supports safe movement",
+                      "mine": "Hold mining at the currently aimed oak log, renewed by new choices",
+                      "stop": "Release controls",
+                      "turn_left": "Turn left 30 degrees once",
+                      "turn_right": "Turn right 30 degrees once"
+                    },
+                    "instructions": "Collect one oak log using only visible information. When no log or drop is visible, explore: move forward when forward_safe is true, otherwise turn to seek safe visible space. An unseen goal is not a reason to stop. When a log is visible, aim at it, approach safely until the ray hits it, then keep choosing mine until it breaks. Collect a visible log drop after breaking. Stop only when movement is unsafe and no useful turn or mining action is available, or collection is complete. Choose one bounded behavior. Return only compact JSON {\"choice\":\"ID\"} with no whitespace or explanation.",
+                    "type": "choice"
+                  }
+                },
+                "state": {
+                  "body": {
+                    "pitch": 0.0,
+                    "position": [
+                      1000.5,
+                      80.0,
+                      1005.6346388431556
+                    ],
+                    "yaw": 0.0
+                  },
+                  "forward_safe": true,
+                  "ray": {},
+                  "tick": 138012,
+                  "visible_drops": [],
+                  "visible_logs": [
+                    [
+                      1000,
+                      80,
+                      1012
+                    ]
+                  ]
+                }
+              },
+              "request_monotonic_ns": 374396671000000,
+              "response_monotonic_ns": 374396937000000,
+              "schema_version": 1,
+              "status": "valid"
+            }
+          ],
+          "name": "openrouter-jev",
+          "outcomes": [
+            {
+              "decision": {
+                "choice": "aim_log",
+                "latency_ms": 375.0,
+                "probabilities": {
+                  "aim_log": 0.64,
+                  "collect": 0.02,
+                  "forward": 0.1,
+                  "mine": 0.22,
+                  "stop": 0.0,
+                  "turn_left": 0.01,
+                  "turn_right": 0.01
+                },
+                "probability_kind": "provider_reported",
+                "served_model": "typesafe/jev-1.14-20261014"
+              },
+              "status": "valid"
+            },
+            {
+              "decision": {
+                "choice": "aim_log",
+                "latency_ms": 311.9999999762513,
+                "probabilities": {
+                  "aim_log": 0.51,
+                  "collect": 0.03,
+                  "forward": 0.22,
+                  "mine": 0.2,
+                  "stop": 0.0,
+                  "turn_left": 0.03,
+                  "turn_right": 0.01
+                },
+                "probability_kind": "provider_reported",
+                "served_model": "typesafe/jev-1.14-20261014"
+              },
+              "status": "valid"
+            },
+            {
+              "decision": {
+                "choice": "aim_log",
+                "latency_ms": 266.00000000325963,
+                "probabilities": {
+                  "aim_log": 0.48,
+                  "collect": 0.07,
+                  "forward": 0.14,
+                  "mine": 0.29,
+                  "stop": 0.0,
+                  "turn_left": 0.01,
+                  "turn_right": 0.01
+                },
+                "probability_kind": "provider_reported",
+                "served_model": "typesafe/jev-1.14-20261014"
+              },
+              "status": "valid"
+            }
+          ],
+          "provenance": {
+            "actual_cost_usd": 8.0766e-05,
+            "cost_source": "provider_usage_not_independently_audited",
+            "costed_requests": 3,
+            "deadline_s": 1.0,
+            "enable_thinking": null,
+            "inference_scope": "unspecified",
+            "kind": "systemone",
+            "name": "openrouter-jev",
+            "network_scope": "remote",
+            "reported_cost_usd": 8.0766e-05,
+            "request_limit": 3,
+            "requested_model": "typesafe/jev-1.14",
+            "requests": 3,
+            "retries": 0,
+            "root": "https://openrouter.ai/api",
+            "schema_version": 1
+          }
+        }
+      ],
+      "run_id": "probe-631635be3d56",
+      "schema_version": 1,
+      "scored": false,
+      "semantic_accuracy": "Unreviewed wire/order smoke only",
+      "sha256": "327a0b28048daa943e14836963b049a96a89322d6719ba9f9cf4f16f8a38abed",
+      "source_recording": "results\\model_execution\\20261024T220003526362Z\\events.jsonl",
+      "status": "complete"
+    }
+  ],
+  "provider": "TypeSafe via OpenRouter SystemOne",
+  "python_tests_passed": 136,
+  "remaining": "Local SystemOne candidate and independently reviewed offline screening/broader trials; G4 remains open",
+  "request_limit_initial_plan": 44,
+  "schema_version": 1,
+  "scope": "One initial C1 seed0 unscored development attempt; no heldout or architecture comparison",
+  "served_model": "typesafe/jev-1.14-20261014",
+  "status": "hosted_jev_ready_G4_partial",
+  "total_reported_cost_usd": 0.0006376019999999999,
+  "total_requests": 23,
+  "wallet_check_after": {
+    "limit": 1,
+    "limit_remaining": 0.999362398,
+    "usage": 0.000637602
+  },
+  "wallet_limit_usd": 1,
+  "wallet_settlement": "Settled key usage matches all23 response charges exactly:0.000637602USD",
+  "wallet_usage_before_usd": 0
+}
