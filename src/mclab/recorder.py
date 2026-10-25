@@ -63,6 +63,14 @@ def arena_guard(function):
     return guarded
 
 
+def episode_databases(root: Path):
+    """Legacy shared ledger plus isolated navigation-run ledgers."""
+    legacy = root / "results/episodes.sqlite3"
+    return ([legacy] if legacy.exists() else []) + sorted(
+        (root / "results/navigation").glob("*/episodes.sqlite3")
+    )
+
+
 class EpisodeRecorder:
     def __init__(self, path: Path):
         self.path = path

@@ -5,6 +5,7 @@ import pytest
 
 from mclab import navigation_runner as runner
 from mclab.paths import digest, write_json
+from mclab.recorder import EpisodeRecorder
 
 
 def spec(course="C2", seed=0):
@@ -146,6 +147,28 @@ def test_reset_count_and_execution_seed_duplicates_rejected():
         runner.execute("C2", [1, 1])
 
 
+def test_new_run_recovers_legacy_and_previous_navigation_pending_attempts(environment):
+    root, _state, _profile = environment
+    paths = [
+        root / "results/episodes.sqlite3",
+        root / "results/navigation/previous/episodes.sqlite3",
+    ]
+    for index, path in enumerate(paths):
+        previous = EpisodeRecorder(path)
+        identity = f"interrupted-{index}"
+        previous.begin_run(identity, {})
+        previous.begin(identity, 1, identity, "body", "events.jsonl")
+        previous.close()
+    result = runner.execute("C2", [0])
+    assert result["recovered_interrupted"] == 2
+    assert root / result["episode_database"] not in paths
+    for path in paths:
+        with sqlite3.connect(path) as db:
+            assert db.execute("SELECT status FROM episodes").fetchone() == (
+                "interrupted",
+            )
+
+
 def test_wrong_reset_hash_never_starts_controller(environment):
     root, state, _ = environment
     state["wrong_hash"] = True
@@ -154,7 +177,7 @@ def test_wrong_reset_hash_never_starts_controller(environment):
     assert result["episodes"][0]["status"] == "invalid"
     assert not state["controllers"]
     assert result["cleanup"]["status"] == "restored_initial_C1"
-    with sqlite3.connect(root / "results/episodes.sqlite3") as db:
+    with sqlite3.connect(root / result["episode_database"]) as db:
         assert db.execute("SELECT status FROM episodes").fetchall() == [("invalid",)]
 
 
@@ -170,7 +193,7 @@ def test_fresh_controller_and_identities_for_each_episode_and_restore(environmen
     assert [r["course_spec"]["seed"] for r in resets[:2]] == [0, 1]
     assert "course_spec" not in resets[2]
     assert resets[2]["profile_id"] == "initial-c1-survival-v1"
-    with sqlite3.connect(root / "results/episodes.sqlite3") as db:
+    with sqlite3.connect(root / result["episode_database"]) as db:
         assert db.execute("SELECT status FROM episodes").fetchall() == [
             ("success",),
             ("success",),
@@ -195,11 +218,11 @@ def test_interrupted_attempt_is_persisted_then_restored(environment, monkeypatch
     monkeypatch.setattr(runner, "drive", interrupt)
     with pytest.raises(KeyboardInterrupt):
         runner.execute("C2", [0])
-    with sqlite3.connect(root / "results/episodes.sqlite3") as db:
-        assert db.execute("SELECT status FROM episodes").fetchone()[0] == "interrupted"
     summary = json.loads(
         next((root / "results/navigation").glob("*/summary.json")).read_text()
     )
+    with sqlite3.connect(root / summary["episode_database"]) as db:
+        assert db.execute("SELECT status FROM episodes").fetchone()[0] == "interrupted"
     assert summary["status"] == "interrupted"
     assert summary["cleanup"]["status"] == "restored_initial_C1"
     assert state["clients"][0].requests[-1]["op"] == "despawn"

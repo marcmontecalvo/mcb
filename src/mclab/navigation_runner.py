@@ -17,7 +17,7 @@ from mclab.execution import PolicyMapRecorder, RecordedBridge, terminal_event
 from mclab.modbuild import source_hash
 from mclab.model_execution import drive
 from mclab.paths import ROOT, SERVER, config, digest, read_json, write_json
-from mclab.recorder import EpisodeRecorder, exclusive_arena
+from mclab.recorder import EpisodeRecorder, episode_databases, exclusive_arena
 
 
 def _validate(course, seeds):
@@ -183,16 +183,24 @@ def _run(course, seeds, *, reset_only, scored):
         "runner_sha256": sha256(Path(__file__)),
         "controller_sha256": sha256(ROOT / "src/mclab/navigation.py"),
         "source_commit": _source_commit(),
+        "episode_database": str((destination / "episodes.sqlite3").relative_to(ROOT)),
     }
     client = RecordedBridge(destination / "events.jsonl")
     client.budget = request_budget
     try:
-        recorder = EpisodeRecorder(ROOT / "results/episodes.sqlite3")
+        recovered = 0
+        for database_path in episode_databases(ROOT):
+            previous = EpisodeRecorder(database_path)
+            try:
+                recovered += previous.recover_interrupted()
+            finally:
+                previous.close()
+        recorder = EpisodeRecorder(destination / "episodes.sqlite3")
     except BaseException:
         client.close()
         raise
     try:
-        configuration["recovered_interrupted"] = recorder.recover_interrupted()
+        configuration["recovered_interrupted"] = recovered
         recorder.begin_run(client.run_id, configuration)
     except BaseException:
         try:

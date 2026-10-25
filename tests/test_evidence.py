@@ -112,6 +112,11 @@ def test_report_counts_every_scored_attempt_and_separates_fault_injection(
             recorder.begin(name, attempt, identity, "body", "events.jsonl")
             recorder.finish(identity, status, "test", {})
     recorder.close()
+    navigation = EpisodeRecorder(tmp_path / "results/navigation/run-1/episodes.sqlite3")
+    navigation.begin_run("navigation", {"scored": True})
+    navigation.begin("navigation", 1, "navigation-1", "body", "events.jsonl")
+    navigation.finish("navigation-1", "failed", "tick_limit", {})
+    navigation.close()
     probe = {"run_id": "probe-1", "backends": [{"provenance": {"requests": 2}}]}
     write_json(tmp_path / "results/provider_probes/first.json", probe)
     write_json(tmp_path / "results/provider_probes/latest.json", probe)
@@ -122,14 +127,14 @@ def test_report_counts_every_scored_attempt_and_separates_fault_injection(
         {"run_id": "screen-1", "provenance": {"requests": 4}},
     )
     summary = evidence.report()["summary"]
-    assert summary["episodes_attempted"] == 3
+    assert summary["episodes_attempted"] == 4
     assert summary["episodes_succeeded"] == 1
-    assert summary["success_rate"] == 1 / 3
+    assert summary["success_rate"] == 1 / 4
     assert summary["unscored_development_attempts"] == 3
     assert summary["provider_requests"] == 9
     assert summary["provider_probe_requests"] == 2
     assert summary["provider_live_requests"] == 3
     assert summary["provider_screening_requests"] == 4
     assert len(summary["episodes_by_configuration"]) == 1
-    assert summary["episodes_by_configuration"][0]["attempted"] == 3
+    assert summary["episodes_by_configuration"][0]["attempted"] == 4
     assert summary["episodes_by_configuration"][0]["succeeded"] == 1

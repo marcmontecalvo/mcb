@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from mclab import gates, server
 from mclab.paths import ROOT, SERVER, lock, read_json, write_json
+from mclab.recorder import episode_databases
 
 
 def verify_bootstrap() -> dict:
@@ -31,8 +32,7 @@ def verify_bootstrap() -> dict:
 
 def report() -> dict:
     episodes = []
-    database = ROOT / "results/episodes.sqlite3"
-    if database.exists():
+    for database in episode_databases(ROOT):
         with sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True) as db:
             for row in db.execute(
                 "SELECT e.run_id,e.episode_id,e.attempt,e.status,e.reason,"
