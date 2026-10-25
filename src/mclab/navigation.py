@@ -8,7 +8,7 @@ window. This profile supports ordinary full-cube ground and one-block changes.
 import heapq
 import math
 
-PROFILE = "local-map-navigation-v3"
+PROFILE = "local-map-navigation-v4"
 DIRECTIONS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
 
@@ -376,7 +376,9 @@ class NavigationController:
         )
         if abs(turn["yaw_delta"]) > 8:
             return turn
-        forward = min(0.7, max(0.12, distance / 1.8))
+        level = abs(waypoint[1] - body["position"][1]) < 0.1
+        maximum = 1.0 if level and body.get("on_ground", True) else 0.7
+        forward = min(maximum, max(0.12, distance / 1.8))
         jumping = waypoint[1] > body["position"][1] + 0.25
         if self._safe_motion(observation, waypoint, forward, jumping):
             if jumping:
@@ -469,10 +471,29 @@ class NavigationController:
             )
         if not self.last_plan:
             return {"yaw_delta": 30}
-        waypoint = self.last_plan[1] if len(self.last_plan) > 1 else self.last_plan[0]
-        decision = self._move(
-            observation, [waypoint[0] + 0.5, waypoint[1], waypoint[2] + 0.5]
-        )
+        waypoints = self.last_plan[1:2] or self.last_plan[:1]
+        start = self.last_plan[0]
+        first = waypoints[0]
+        if first[1] == start[1] and len(self.last_plan) > 2:
+            direction = (first[0] - start[0], first[2] - start[2])
+            previous = first
+            for candidate in self.last_plan[2:4]:
+                if (
+                    candidate[1] != start[1]
+                    or (candidate[0] - previous[0], candidate[2] - previous[2])
+                    != direction
+                ):
+                    break
+                waypoints.append(candidate)
+                previous = candidate
+        # A farther waypoint must pass the same fresh geometry checks. If its
+        # support is not currently visible, try the nearer known path nodes.
+        for waypoint in reversed(waypoints):
+            decision = self._move(
+                observation, [waypoint[0] + 0.5, waypoint[1], waypoint[2] + 0.5]
+            )
+            if decision.get("forward") or abs(decision.get("yaw_delta", 0)) > 8:
+                break
         if not decision.get("forward") and abs(decision.get("yaw_delta", 0)) <= 8:
             # Fresh safety checks rejected an old route: plan again next tick.
             self.last_plan = []

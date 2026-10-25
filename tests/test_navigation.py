@@ -245,6 +245,55 @@ def test_newly_observed_void_reconsiders_an_exploration_goal(monkeypatch):
     assert len(calls) == 2
 
 
+def test_straight_level_lookahead_uses_qualified_full_walking_speed(monkeypatch):
+    controller = NavigationController()
+    monkeypatch.setattr(controller, "_route", lambda _: [(0, 80, z) for z in range(4)])
+    decision = controller.decide(observation())
+    assert decision["forward"] == 1 and not decision["jump"]
+
+
+def test_lookahead_does_not_cut_a_corner(monkeypatch):
+    controller = NavigationController()
+    monkeypatch.setattr(
+        controller,
+        "_route",
+        lambda _: [(0, 80, 0), (0, 80, 1), (1, 80, 1), (2, 80, 1)],
+    )
+    decision = controller.decide(observation())
+    assert decision["yaw_delta"] == 0 and 0 < decision["forward"] < 1
+
+
+def test_lookahead_preserves_short_jump_waypoints(monkeypatch):
+    controller = NavigationController()
+    monkeypatch.setattr(
+        controller, "_route", lambda _: [(0, 80, 0), (0, 81, 1), (0, 81, 2)]
+    )
+    cells = world()
+    for z in (1, 2):
+        cells[0, 80, z] = cell(0, 80, z, "minecraft:stone")
+    decision = controller.decide(observation(cells))
+    assert decision["jump"] and 0 < decision["forward"] <= 0.7
+
+
+def test_unseen_distant_waypoint_falls_back_to_fresh_nearer_support(monkeypatch):
+    controller = NavigationController()
+    controller.cells = world()
+    controller.cells[0, 80, 3]["observed_tick"] = 90
+    cells = world()
+    del cells[0, 80, 3]
+    monkeypatch.setattr(controller, "_route", lambda _: [(0, 80, z) for z in range(4)])
+    original = controller._move
+    attempted = []
+
+    def move(observed, waypoint):
+        attempted.append(waypoint)
+        return original(observed, waypoint)
+
+    monkeypatch.setattr(controller, "_move", move)
+    assert controller.decide(observation(cells))["forward"] == 1
+    assert [p[2] for p in attempted] == [3.5, 2.5]
+
+
 @pytest.mark.parametrize(
     "below,expected", [(None, 0), ("minecraft:stone", 0), ("minecraft:air", 1)]
 )
