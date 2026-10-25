@@ -90,9 +90,29 @@
     "status": "in_progress"
   },
   "G5": {
+    "controller_sha256": "afafc844fcd1e31ef5c8f8c7d103556ee70b0b16c5f377e200023d57a824c2fa",
+    "courses": {
+      "C2": {
+        "attempts": 20,
+        "run_id": "qualification-1e0a9af5a9cc",
+        "status": "passed_development",
+        "successes": 20
+      },
+      "C3": {
+        "status": "not_run_current_controller"
+      },
+      "C4": {
+        "status": "not_run_current_controller"
+      },
+      "C5": {
+        "status": "not_run_current_controller"
+      }
+    },
+    "evidence": "docs/G5_NAVIGATION_PROOF.json",
     "implementation_boundary": "docs/NAVIGATION_IMPLEMENTATION.md",
     "preparation": "docs/G5_GENERATOR_PREPARATION.json",
-    "status": "not_run"
+    "scope": "Frozen deterministic C2-C5 development navigation; no model or holdout qualification",
+    "status": "in_progress"
   },
   "G6": {
     "status": "not_run"
