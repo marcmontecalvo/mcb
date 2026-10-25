@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-10-24",
+  "scope": "development reset qualification, seed 0 x20 per course; not a G5 pass",
+  "courses": {
+    "C2": {
+      "status": "passed",
+      "resets": 20,
+      "profile_hash": "5fae74b136aaf10179333f81139366a2d6d7aeb5faedb3255a7ff193643aafe1",
+      "mod_source_hash": "622e336121da10bd2fb1f3140c6ceef23c0cc43452745c003a874af9373dec4d",
+      "source_commit": "257d58d7b1ba05f0f0e862f25bf5ae2f6948a9e0",
+      "summary": "results/navigation/20261025T014931945861Z/summary.json",
+      "summary_sha256": "54d062d47dae31c958e2e7a80e46a8a96f21d8f5793377bc8a5768a343bd271e",
+      "state_digest": "5345abb617faf39f03a7bf6b141e4adb96795af458d273422c4951682bdf19dd"
+    },
+    "C3": {
+      "status": "passed",
+      "resets": 20,
+      "profile_hash": "5fae74b136aaf10179333f81139366a2d6d7aeb5faedb3255a7ff193643aafe1",
+      "mod_source_hash": "622e336121da10bd2fb1f3140c6ceef23c0cc43452745c003a874af9373dec4d",
+      "source_commit": "257d58d7b1ba05f0f0e862f25bf5ae2f6948a9e0",
+      "summary": "results/navigation/20261025T015249794241Z/summary.json",
+      "summary_sha256": "21ac771a3c8498690043f0944c8c81526999c609aa6981918433830e6403dec4",
+      "state_digest": "92963c6e5ad00cf89365611aeef208a324577874170331f909aa6e3a5e5b9684"
+    },
+    "C4": {
+      "status": "passed",
+      "resets": 20,
+      "profile_hash": "5fae74b136aaf10179333f81139366a2d6d7aeb5faedb3255a7ff193643aafe1",
+      "mod_source_hash": "622e336121da10bd2fb1f3140c6ceef23c0cc43452745c003a874af9373dec4d",
+      "source_commit": "257d58d7b1ba05f0f0e862f25bf5ae2f6948a9e0",
+      "summary": "results/navigation/20261025T015612808888Z/summary.json",
+      "summary_sha256": "bbc15b53cd03143ac900e59b804fcc9d9c078a82e2bbf2a713e27d204db4c7aa",
+      "state_digest": "9c3aa3a8ee440503ca42d643235bcc617221e6088b09f274438318b8d793920f"
+    },
+    "C5": {
+      "status": "passed",
+      "resets": 20,
+      "profile_hash": "5fae74b136aaf10179333f81139366a2d6d7aeb5faedb3255a7ff193643aafe1",
+      "mod_source_hash": "622e336121da10bd2fb1f3140c6ceef23c0cc43452745c003a874af9373dec4d",
+      "source_commit": "257d58d7b1ba05f0f0e862f25bf5ae2f6948a9e0",
+      "summary": "results/navigation/20261025T015933487249Z/summary.json",
+      "summary_sha256": "9518f2072da40d05f03eeee8e4fcf5ffeccd602dd93248d263ae391dd7643bc8",
+      "state_digest": "f8b007de5e3b3fd09eb7f4acd215895d2d38d52707c2c89903a88542a0d1aa7e"
+    }
+  }
+}

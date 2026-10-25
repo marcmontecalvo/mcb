@@ -162,3 +162,12 @@ def test_unsupported_sensor_rejected_before_map_mutation():
     with pytest.raises(ValueError, match="sensor"):
         controller.decide({"sensor_profile": "camera"})
     assert not controller.cells
+
+
+def test_looks_around_once_before_exploring_when_no_target_is_visible():
+    controller = NavigationController()
+    turns = [controller.decide(observation()) for _ in range(12)]
+    assert all(t == {"yaw_delta": 30} for t in turns)
+    assert controller.mode == "scanning"
+    controller.decide(observation())
+    assert controller.mode == "exploring"

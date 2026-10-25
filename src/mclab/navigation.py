@@ -132,6 +132,9 @@ class NavigationController:
         self.mode = "exploring"
         self.air_waypoint = None
         self.explore_heading = None
+        # The sensor is view-cone limited; look around once before exploring so
+        # a target behind the spawn heading is not missed.
+        self.scan_turns = 12
 
     def _observe(self, observation):
         tick = observation["tick"]
@@ -374,6 +377,10 @@ class NavigationController:
                     and abs(turn["yaw_delta"]) < 2
                     and abs(turn["pitch_delta"]) < 2,
                 }
+        if self.target is None and self.scan_turns > 0:
+            self.scan_turns -= 1
+            self.mode = "scanning"
+            return {"yaw_delta": 30}
         self.mode = (
             "collecting"
             if self.broken or self.drop
