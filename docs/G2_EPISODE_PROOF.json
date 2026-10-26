@@ -1,42 +1,7 @@
 {
   "checks": [
     {
-      "name": "sensor_wall_hides_air",
-      "observed": true,
-      "passed": true
-    },
-    {
-      "name": "sensor_open_log_visible",
-      "observed": true,
-      "passed": true
-    },
-    {
-      "name": "sensor_fluid_identity_visible",
-      "observed": true,
-      "passed": true
-    },
-    {
-      "name": "sensor_fixture_restored",
-      "observed": true,
-      "passed": true
-    },
-    {
-      "name": "sensor_corner_hides_log",
-      "observed": true,
-      "passed": true
-    },
-    {
-      "name": "sensor_foliage_identity_visible",
-      "observed": true,
-      "passed": true
-    },
-    {
-      "name": "sensor_floor_hides_buried_cells",
-      "observed": true,
-      "passed": true
-    },
-    {
-      "name": "sensor_wall_hides_log",
+      "name": "sensor_wall_surface_visible",
       "observed": true,
       "passed": true
     },
@@ -46,7 +11,42 @@
       "passed": true
     },
     {
-      "name": "sensor_wall_surface_visible",
+      "name": "sensor_wall_hides_log",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "name": "sensor_floor_hides_buried_cells",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "name": "sensor_foliage_identity_visible",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "name": "sensor_corner_hides_log",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "name": "sensor_fixture_restored",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "name": "sensor_fluid_identity_visible",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "name": "sensor_open_log_visible",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "name": "sensor_wall_hides_air",
       "observed": true,
       "passed": true
     },
@@ -63,9 +63,9 @@
     {
       "name": "fixed_600_tick_budget",
       "observed": {
-        "deadline_tick": 29940,
-        "request_sequence": 48,
-        "start_tick": 29340
+        "deadline_tick": 1045,
+        "request_sequence": 42,
+        "start_tick": 445
       },
       "passed": true
     },
@@ -146,12 +146,12 @@
     {
       "name": "cancel_is_failed_not_success",
       "observed": {
-        "deadline_tick": 29940,
+        "deadline_tick": 1045,
         "drop_uuid": "",
-        "end_tick": 29590,
+        "end_tick": 701,
         "picked_up": false,
         "reason": "controller_cancel",
-        "start_tick": 29340,
+        "start_tick": 445,
         "status": "failed",
         "target_broken": false
       },
@@ -161,7 +161,7 @@
       "name": "planted_log_cannot_begin_or_score",
       "observed": {
         "reason": "residual_arena_drops_or_projectiles",
-        "request_sequence": "197"
+        "request_sequence": "183"
       },
       "passed": true
     },
@@ -169,19 +169,19 @@
       "name": "changed_target_cannot_begin",
       "observed": {
         "reason": "java.lang.IllegalStateException: reset_geometry_mismatch_at_BlockPos{x=1000, y=80, z=1012}",
-        "request_sequence": 219
+        "request_sequence": 204
       },
       "passed": true
     },
     {
       "name": "tick_deadline_is_failed",
       "observed": {
-        "deadline_tick": 30897,
+        "deadline_tick": 2013,
         "drop_uuid": "",
-        "end_tick": 30897,
+        "end_tick": 2013,
         "picked_up": false,
         "reason": "tick_limit",
-        "start_tick": 30297,
+        "start_tick": 1413,
         "status": "failed",
         "target_broken": false
       },
@@ -190,12 +190,12 @@
     {
       "name": "disconnected_controller_is_failed",
       "observed": {
-        "deadline_tick": 31741,
+        "deadline_tick": 2839,
         "drop_uuid": "",
-        "end_tick": 31180,
+        "end_tick": 2275,
         "picked_up": false,
         "reason": "controller_watchdog",
-        "start_tick": 31141,
+        "start_tick": 2239,
         "status": "failed",
         "target_broken": false
       },
@@ -204,12 +204,12 @@
     {
       "name": "bounds_or_pit_is_failed",
       "observed": {
-        "deadline_tick": 32007,
+        "deadline_tick": 3105,
         "drop_uuid": "",
-        "end_tick": 31493,
+        "end_tick": 2591,
         "picked_up": false,
         "reason": "out_of_bounds",
-        "start_tick": 31407,
+        "start_tick": 2505,
         "status": "failed",
         "target_broken": false
       },
@@ -218,82 +218,82 @@
   ],
   "episodes": [
     {
-      "episode_id": "adversarial-b3005c0eb6bc",
+      "episode_id": "adversarial-b59e1eb10055",
       "reason": "intentional_sensor_fixture_requires_reset",
       "status": "invalid"
     },
     {
-      "deadline_tick": 29940,
+      "deadline_tick": 1045,
       "drop_uuid": "",
-      "end_tick": 29590,
-      "episode_id": "adversarial-5a78de1046c9",
+      "end_tick": 701,
+      "episode_id": "adversarial-1bbdcc1a2b17",
       "picked_up": false,
       "reason": "controller_cancel",
-      "start_tick": 29340,
+      "start_tick": 445,
       "status": "failed",
       "target_broken": false
     },
     {
-      "episode_id": "adversarial-54098fdcc054",
+      "episode_id": "adversarial-5e21a24a4973",
       "reason": "intentional_planted_item",
       "status": "invalid"
     },
     {
-      "episode_id": "adversarial-b8d75e7cbdac",
+      "episode_id": "adversarial-af04da483821",
       "reason": "intentional_target_mutation",
       "status": "invalid"
     },
     {
-      "deadline_tick": 30897,
+      "deadline_tick": 2013,
       "drop_uuid": "",
-      "end_tick": 30897,
-      "episode_id": "adversarial-6385b098e568",
+      "end_tick": 2013,
+      "episode_id": "adversarial-adcded71b35b",
       "picked_up": false,
       "reason": "tick_limit",
-      "start_tick": 30297,
+      "start_tick": 1413,
       "status": "failed",
       "target_broken": false
     },
     {
-      "deadline_tick": 31741,
+      "deadline_tick": 2839,
       "drop_uuid": "",
-      "end_tick": 31180,
-      "episode_id": "adversarial-3c79c5ca23e7",
+      "end_tick": 2275,
+      "episode_id": "adversarial-c5dcf3115b2a",
       "picked_up": false,
       "reason": "controller_watchdog",
-      "start_tick": 31141,
+      "start_tick": 2239,
       "status": "failed",
       "target_broken": false
     },
     {
-      "deadline_tick": 32007,
+      "deadline_tick": 3105,
       "drop_uuid": "",
-      "end_tick": 31493,
-      "episode_id": "adversarial-8f9e1545e01f",
+      "end_tick": 2591,
+      "episode_id": "adversarial-6c9b905e8b08",
       "picked_up": false,
       "reason": "out_of_bounds",
-      "start_tick": 31407,
+      "start_tick": 2505,
       "status": "failed",
       "target_broken": false
     }
   ],
-  "launch_id": "3d0fa05817552d1ab4535818f12604b3",
+  "launch_id": "84208a616c7de9108762eb9f2bf9263f",
   "mod_provenance": {
     "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
-    "jar_sha256": "9c527786b1fb08732723481d00e13cd7caf04b1425e80f8f0df0cb6ff89a3fbb",
+    "jar_sha256": "8903354488983f7f3b37a43b36c39fd5fb9be96c8bf282863d4018875631df99",
     "schema_version": 1,
-    "source_hash": "37d6c43de934ae3256d3f374cac1e1d8f68581ca9e5017009c9bb22974fd0e85"
+    "source_hash": "2b974b836dd7333890b4bb999943e4f78d34bb4d62acafc5ac659459c26bcc9a"
   },
   "qualifier_source_sha256": "4483b131a40e9d6db9758b4f4c4e0112c9133e7b9d510839b946f9647a7338d4",
-  "recording": "D:\\mcb\\results\\qualification\\20261026T144030248075Z\\events.jsonl",
-  "recording_sha256": "39d611b97481b47087c974fdc37e20d14ad9b731162f9e5c5428e3c0cd137b2f",
-  "requests": 396,
+  "recording": "D:\\mcb\\results\\qualification\\20261026T163049069290Z\\events.jsonl",
+  "recording_sha256": "20d2e5ce52492966eb51b71ba792e8865fdac3588409eb8e0bf544825a75afea",
+  "requests": 387,
   "reviewed_at": "2026-10-26",
-  "run_id": "qualification-f5866494c4b2",
+  "run_id": "qualification-6b49dee18373",
   "schema_version": 1,
   "scored": false,
   "status": "passed_development_subset",
   "suite": "episode_adversarial_v1",
-  "summary": "results/qualification/20261026T144030248075Z/summary.json",
-  "summary_sha256": "9d86364464f573572978f98ccd6cb77b226bb2d9ae1d137898163a8a58f80206"
+  "summary": "results/qualification/20261026T163049069290Z/summary.json",
+  "summary_sha256": "1c428bf933e8ce3be9c28b9b2c96ad2cf798a0ad984cc11cefc6430f80beedbe"
 }

@@ -53,8 +53,8 @@
       "arbitrary fluid/block-entity restoration",
       "camera sensor profile"
     ],
-    "mod_source_hash": "37d6c43de934ae3256d3f374cac1e1d8f68581ca9e5017009c9bb22974fd0e85",
-    "requalified_reason": "human-subject course path (HumanCourse) added; C1 reset/evaluator behavior re-verified",
+    "mod_source_hash": "2b974b836dd7333890b4bb999943e4f78d34bb4d62acafc5ac659459c26bcc9a",
+    "requalified_reason": "human-subject course path and development-only NaturalRun added; C1 reset/evaluator behavior re-verified",
     "reset_checks_passed": 20,
     "reset_evidence": "docs/G2_RESET_PROOF.json",
     "scope": "Frozen initial C1 reset, rules, causal evaluator, sensor and episode recorder",
