@@ -46,14 +46,15 @@
   },
   "G2": {
     "adversarial_checks_passed": 29,
-    "date": "2026-10-24",
+    "date": "2026-10-26",
     "episode_evidence": "docs/G2_EPISODE_PROOF.json",
     "extensions_pending": [
       "C2-C8 qualification",
       "arbitrary fluid/block-entity restoration",
       "camera sensor profile"
     ],
-    "mod_source_hash": "622e336121da10bd2fb1f3140c6ceef23c0cc43452745c003a874af9373dec4d",
+    "mod_source_hash": "37d6c43de934ae3256d3f374cac1e1d8f68581ca9e5017009c9bb22974fd0e85",
+    "requalified_reason": "human-subject course path (HumanCourse) added; C1 reset/evaluator behavior re-verified",
     "reset_checks_passed": 20,
     "reset_evidence": "docs/G2_RESET_PROOF.json",
     "scope": "Frozen initial C1 reset, rules, causal evaluator, sensor and episode recorder",

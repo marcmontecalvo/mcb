@@ -1,153 +1,152 @@
 {
-  "schema_version": 1,
-  "suite": "reset_foundation_v1",
-  "scored": false,
-  "run_id": "qualification-01e5930a5316",
-  "profile_id": "initial-c1-survival-v1",
-  "launch_id": "5a6fd1cee8989597713d0cc0ab4a3015",
-  "mod_provenance": {
-    "jar": "G:\\projects\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
-    "jar_sha256": "77d33e311001312b6b3165e5adf36ae7b95ce872bd4fe82cd9a14857b58dec88",
-    "schema_version": 1,
-    "source_hash": "622e336121da10bd2fb1f3140c6ceef23c0cc43452745c003a874af9373dec4d"
-  },
-  "qualifier_source_sha256": "f3476af254773b3adb3f06f345691a211e53320ed6dbd665094464d9d8c06350",
   "G2": "in_progress_reset_foundation_only",
-  "requested_resets": 20,
-  "request_budget": 1500,
   "checks": [
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_1_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_2_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_3_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_4_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_5_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_6_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_7_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_8_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_9_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_10_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_11_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_12_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_13_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_14_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_15_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_16_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_17_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_18_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
+      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "name": "reset_19_matches",
-      "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     },
     {
-      "name": "reset_20_matches",
       "expected": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
+      "name": "reset_20_matches",
       "observed": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "passed": true
     }
   ],
+  "launch_id": "3d0fa05817552d1ab4535818f12604b3",
+  "mod_provenance": {
+    "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "9c527786b1fb08732723481d00e13cd7caf04b1425e80f8f0df0cb6ff89a3fbb",
+    "schema_version": 1,
+    "source_hash": "37d6c43de934ae3256d3f374cac1e1d8f68581ca9e5017009c9bb22974fd0e85"
+  },
+  "profile_id": "initial-c1-survival-v1",
+  "qualifier_source_sha256": "f3476af254773b3adb3f06f345691a211e53320ed6dbd665094464d9d8c06350",
+  "recording": "D:\\mcb\\results\\qualification\\20261026T143720696606Z\\events.jsonl",
+  "recording_sha256": "e6636288d597fe443d365fc014d868335332302aa702cb9bb1c8a21937d8405c",
+  "request_budget": 1500,
+  "requested_resets": 20,
+  "requests": 384,
   "resets": [
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -157,13 +156,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -191,26 +190,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 1,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
+      "course_id": "C1",
+      "generation": 88,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
       "request_sequence": 1,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -220,13 +219,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -254,26 +253,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 2,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 19,
+      "course_id": "C1",
+      "generation": 89,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 20,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -283,13 +282,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -317,26 +316,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 3,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 37,
+      "course_id": "C1",
+      "generation": 90,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 39,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -346,13 +345,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -380,26 +379,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 4,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 55,
+      "course_id": "C1",
+      "generation": 91,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 58,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -409,13 +408,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -443,26 +442,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 5,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 73,
+      "course_id": "C1",
+      "generation": 92,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 77,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -472,13 +471,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -506,26 +505,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 6,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 91,
+      "course_id": "C1",
+      "generation": 93,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 96,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -535,13 +534,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -569,26 +568,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 7,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 108,
+      "course_id": "C1",
+      "generation": 94,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 115,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -598,13 +597,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -632,26 +631,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 8,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 127,
+      "course_id": "C1",
+      "generation": 95,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 134,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -661,13 +660,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -695,26 +694,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 9,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 145,
+      "course_id": "C1",
+      "generation": 96,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 153,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -724,13 +723,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -758,26 +757,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 10,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 163,
+      "course_id": "C1",
+      "generation": 97,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 172,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -787,13 +786,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -821,26 +820,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 11,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 182,
+      "course_id": "C1",
+      "generation": 98,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 191,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -850,13 +849,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -884,26 +883,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 12,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 199,
+      "course_id": "C1",
+      "generation": 99,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 216,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -913,13 +912,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -947,26 +946,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 13,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 217,
+      "course_id": "C1",
+      "generation": 100,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 235,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -976,13 +975,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -1010,26 +1009,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 14,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 234,
+      "course_id": "C1",
+      "generation": 101,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 254,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -1039,13 +1038,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -1073,26 +1072,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 15,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 252,
+      "course_id": "C1",
+      "generation": 102,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 272,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -1102,13 +1101,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -1136,26 +1135,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 16,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 278,
+      "course_id": "C1",
+      "generation": 103,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 291,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -1165,13 +1164,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -1199,26 +1198,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 17,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 296,
+      "course_id": "C1",
+      "generation": 104,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 310,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -1228,13 +1227,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -1262,26 +1261,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 18,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 321,
+      "course_id": "C1",
+      "generation": 105,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 328,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -1291,13 +1290,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -1325,26 +1324,26 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 19,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 339,
+      "course_id": "C1",
+      "generation": 106,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 347,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     },
     {
-      "profile_id": "initial-c1-survival-v1",
+      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
       "body_state": {
         "abilities": {
-          "walk_speed": 0.1,
+          "flying": false,
+          "instabuild": false,
+          "invulnerable": false,
           "mayBuild": true,
           "mayfly": false,
-          "invulnerable": false,
-          "flying": false,
-          "instabuild": false
+          "walk_speed": 0.1
         },
         "air": 300,
         "alive": true,
@@ -1354,13 +1353,13 @@
         "entity_reach": 3.0,
         "environment": {
           "clear_weather_time": 12000,
-          "thunder_time": 12000,
-          "rain_time": 12000,
-          "clock_ticks": 6000,
-          "clock_rate": 1.0,
-          "thundering": false,
           "clock_paused": true,
-          "raining": false
+          "clock_rate": 1.0,
+          "clock_ticks": 6000,
+          "rain_time": 12000,
+          "raining": false,
+          "thunder_time": 12000,
+          "thundering": false
         },
         "equipment_empty": true,
         "exhaustion": 0.0,
@@ -1388,22 +1387,23 @@
         ],
         "yaw": 0.0
       },
-      "yaw": 0.0,
-      "generation": 20,
-      "body_digest": "d5ee6bad58c9359bebdad72bc69f7344dba1093301488c4fe2f58921e82a9ae4",
-      "request_sequence": 357,
+      "course_id": "C1",
+      "generation": 107,
+      "pitch": 0.0,
+      "profile_id": "initial-c1-survival-v1",
+      "request_sequence": 365,
+      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",
       "state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
       "terrain_digest": "08d4d9a9b085473139405d01bc330f36bfb90cbb4e46410ee48cf89263357ae1",
-      "course_id": "C1",
-      "pitch": 0.0,
-      "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"
+      "yaw": 0.0
     }
   ],
-  "recording": "G:\\projects\\mcb\\results\\qualification\\20261025T013905824507Z\\events.jsonl",
+  "reviewed_at": "2026-10-26",
+  "run_id": "qualification-f6feb18ef676",
+  "schema_version": 1,
+  "scored": false,
   "status": "passed_development_subset",
-  "requests": 375,
-  "recording_sha256": "62bcb0512ee3ec86bf05c5a5b4b614cca63a6090a80ca59fd8c2767eb14b9c23",
-  "reviewed_at": "2026-10-24",
-  "summary": "results/qualification/20261025T013905824507Z/summary.json",
-  "summary_sha256": "2e77ee2ca0733a233ee0b416e01c2b70747f3a7304064dec43ba6002b358b336"
+  "suite": "reset_foundation_v1",
+  "summary": "results/qualification/20261026T143720696606Z/summary.json",
+  "summary_sha256": "a0d94fb8e2c78dc894ea88c8e94d00b3162432570f9a62df09130ea9af2d218a"
 }
