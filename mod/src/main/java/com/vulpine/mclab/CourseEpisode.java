@@ -12,11 +12,14 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import java.util.*;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /** Evaluator-only state. Never serialized into policy observations. */
 public final class CourseEpisode {
     private final MinecraftServer server;
-    private final CarpetBodyAdapter body;
+    private final Supplier<ServerPlayer> subject;
+    private final Predicate<ServerPlayer> owner;
     private final BiConsumer<String, Map<String,Object>> events;
     private final BlockPos target;
     private final AABB bounds;
@@ -28,8 +31,15 @@ public final class CourseEpisode {
 
     public CourseEpisode(MinecraftServer server, CarpetBodyAdapter body, JsonObject spec,
                          BiConsumer<String,Map<String,Object>> events) {
-        this.server = server; this.body = body; this.events = events;
-        ledger=new CausalPickupLedger(body.player().getUUID().toString());
+        this(server, body::player, body::owns, spec, events);
+        body.resetFingerprint();
+    }
+
+    /** The scored subject may be a Carpet body or a named human client (e.g. Baritone). */
+    public CourseEpisode(MinecraftServer server, Supplier<ServerPlayer> subject, Predicate<ServerPlayer> owner,
+                         JsonObject spec, BiConsumer<String,Map<String,Object>> events) {
+        this.server = server; this.subject = subject; this.owner = owner; this.events = events;
+        ledger=new CausalPickupLedger(subject.get().getUUID().toString());
         var o=spec.getAsJsonArray("origin"); var t=spec.getAsJsonArray("target");
         int x=o.get(0).getAsInt(), y=o.get(1).getAsInt(), z=o.get(2).getAsInt();
         target=new BlockPos(x+t.get(0).getAsInt(),y+t.get(1).getAsInt(),z+t.get(2).getAsInt());
@@ -39,17 +49,16 @@ public final class CourseEpisode {
                 x+b.get(0).getAsInt()+1,y+b.get(1).getAsInt()+1,z+b.get(2).getAsInt()+1);
         pitY=y+spec.get("pit_plane").getAsDouble();
         if (!server.overworld().getBlockState(target).is(Blocks.OAK_LOG)) throw new IllegalStateException("target_not_intact");
-        body.resetFingerprint();
         startTick=server.getTickCount(); deadlineTick=startTick+spec.get("tick_limit").getAsInt();
     }
     public boolean running() { return status.equals("running"); }
-    public boolean owns(ServerPlayer p) { return body.owns(p); }
+    public boolean owns(ServerPlayer p) { return owner.test(p); }
     public void tick() {
         if (!running()) return;
-        var p=body.player();
+        var p=subject.get();
         if (p==null || !p.isAlive()) { finish("failed","death_or_disconnect"); return; }
         for (var human:server.getPlayerList().getPlayers()) {
-            if (CarpetBodyAdapter.isHuman(human) && human.level()==server.overworld()
+            if (CarpetBodyAdapter.isHuman(human) && !owns(human) && human.level()==server.overworld()
                     && human.getBoundingBox().intersects(bounds.inflate(8))) {
                 finish("invalid","human_intrusion"); return;
             }

@@ -306,7 +306,8 @@ are not synchronized human demonstrations or training-ready data.
 The Baritone 26.3 artifact/API is pinned in `config/baselines.lock.json`; a client
 bridge (`client-bridge/`, `mclab baritone prepare|launch|status|goto|cancel`) runs
 Baritone in a Prism-authenticated client; it joined the lab and passed a live
-goto/cancel probe. Scored baseline trials remain pending.
+goto/cancel probe. Server-scored reference runs went 80/80 on C2–C5 at 2–4x fewer
+ticks than V8; see [Baritone reference](docs/BARITONE_REFERENCE.md).
 
 The broader [synthetic tactical screen](docs/G4_SCREENING.md) contains 48 reviewed
 observations under three candidate orders. Jev scored 141/144; Atom's shared-load

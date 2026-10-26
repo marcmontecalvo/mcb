@@ -37,6 +37,7 @@ public final class BridgeRuntime implements AutoCloseable {
     private JsonObject courseSpec;
     private CourseReset courseReset;
     private CourseEpisode episode;
+    private HumanCourse human;
     private long pendingBeginSequence;
     private volatile Map<String,Object> policySnapshot = Map.of();
     private List<Map<String,Object>> visibleBlocks = List.of();
@@ -243,8 +244,28 @@ public final class BridgeRuntime implements AutoCloseable {
         if (request.get("schema_version").getAsInt() != 1) throw new IllegalArgumentException("schema_version");
         long sequence = request.get("sequence").getAsLong();
         String op = text(request, "op");
+        if (inbound.admin() && op.equals("human_course_reset")) {
+            if (resetting || referenceName != null || body != null || courseReset != null
+                    || (episode != null && episode.running())) throw new IllegalStateException("lab_busy");
+            if (!text(request, "profile_id").equals(NavigationSpec.NAVIGATION) || !request.has("course_spec")
+                    || !request.get("course_spec").isJsonObject()) throw new IllegalArgumentException("unqualified_course_profile");
+            String nextEpisode = text(request, "episode_id"), nextBody = text(request, "body_id");
+            if (sequence < 1 || nextEpisode.equals(episodeId) || nextBody.equals(bodyId)) {
+                throw new IllegalArgumentException("reset_requires_fresh_episode_and_body");
+            }
+            if (human != null) human.park();
+            human = null; episode = null;
+            human = new HumanCourse(server, text(request, "player"), request.getAsJsonObject("course_spec"),
+                    NavigationSpec.NAVIGATION, initialCourseSpec);
+            runId = text(request, "run_id"); episodeId = nextEpisode; bodyId = nextBody;
+            lastRequestSequence = sequence; lastContactNanos = inbound.receivedNanos();
+            resetRequestSequence = sequence; resetGeneration++; readyState = "resetting_course";
+            emit("course_reset_started", "fabric_start", Map.of("generation", resetGeneration,
+                    "request_sequence", sequence, "spec_hash", human.specHash(), "subject", "human"));
+            return;
+        }
         if (inbound.admin() && op.equals("course_reset")) {
-            if (resetting || referenceName != null) throw new IllegalStateException("lab_busy");
+            if (resetting || referenceName != null || human != null) throw new IllegalStateException("lab_busy");
             String profileId = text(request, "profile_id");
             JsonObject nextSpec;
             if (profileId.equals(NavigationSpec.INITIAL)) {
@@ -286,7 +307,7 @@ public final class BridgeRuntime implements AutoCloseable {
             throw new IllegalStateException("course_policy_admission_closed");
         }
         if (inbound.admin() && op.equals("reference_start")) {
-            if (body != null || referenceName != null) throw new IllegalStateException("lab_busy");
+            if (body != null || referenceName != null || human != null) throw new IllegalStateException("lab_busy");
             String name = text(request, "player");
             var player = server.getPlayerList().getPlayerByName(name);
             if (player == null || !CarpetBodyAdapter.isHuman(player)) {
@@ -319,6 +340,7 @@ public final class BridgeRuntime implements AutoCloseable {
         }
         if (inbound.admin() && op.equals("spawn")) {
             if (referenceName != null) throw new IllegalStateException("reference_in_progress");
+            if (human != null) throw new IllegalStateException("lab_busy");
             if (body != null) throw new IllegalStateException("body_already_active");
             if (retired.size() >= 32) throw new IllegalStateException("restart_after_32_qualification_bodies");
             runId = text(request, "run_id");
@@ -349,6 +371,10 @@ public final class BridgeRuntime implements AutoCloseable {
                     CarpetBodyAdapter.cleanupHumanInteractions(server, fixture);
                 }
                 emit("received", "fabric_start", Map.of("op", op, "request_sequence", sequence));
+                return;
+            }
+            if (inbound.admin() && human != null && op.startsWith("human_course_")) {
+                humanOp(op, sequence);
                 return;
             }
             throw new IllegalStateException("no_body");
@@ -502,6 +528,7 @@ public final class BridgeRuntime implements AutoCloseable {
                 emit("infrastructure_failure", "fabric_end", Map.of("reason", "spawn_timeout"));
             }
         }
+        if (human != null && !human.ready()) tickHuman();
         if (resetting) tickCourseReset(liveBodyState);
         else if (courseReset != null && !resetDigest.isEmpty() && liveBodyState.equals("ready")) readyState = "reset_ready";
         if (pendingBeginSequence!=0) tickCourseBegin();
@@ -571,6 +598,47 @@ public final class BridgeRuntime implements AutoCloseable {
     }
 
 
+
+    private void humanOp(String op, long sequence) {
+        emit("received", "fabric_start", Map.of("op", op, "request_sequence", sequence));
+        switch (op) {
+            case "human_course_begin" -> {
+                if (!human.ready() || episode != null) throw new IllegalStateException("course_not_reset_ready");
+                human.verifyAtSpawn();
+                var subject = human;
+                episode = new CourseEpisode(server, subject::player, subject::owns, subject.spec(),
+                        (type, data) -> emit(type, "server_evaluator", data));
+                readyState = "running";
+                emit("course_started", "fabric_end", Map.of("request_sequence", sequence, "subject", "human",
+                        "start_tick", episode.publicState().get("start_tick"),
+                        "deadline_tick", episode.publicState().get("deadline_tick")));
+            }
+            case "human_course_end" -> {
+                if (episode == null || !episode.running()) throw new IllegalStateException("episode_not_running");
+                episode.finish("failed", "controller_cancel");
+            }
+            case "human_course_stop" -> {
+                if (episode != null && episode.running()) episode.finish("failed", "human_course_stopped");
+                human.park(); human = null; episode = null; readyState = "idle";
+            }
+            default -> throw new IllegalArgumentException("unknown_admin_operation");
+        }
+    }
+
+    private void tickHuman() {
+        try {
+            var complete = human.tick();
+            if (complete == null) return;
+            readyState = "reset_ready";
+            var data = new LinkedHashMap<String, Object>(complete);
+            data.put("generation", resetGeneration); data.put("request_sequence", resetRequestSequence);
+            emit("course_reset_complete", "fabric_end", Map.copyOf(data));
+        } catch (Exception error) {
+            human.park(); human = null; readyState = "reset_failed";
+            emit("course_reset_failed", "fabric_end", Map.of("generation", resetGeneration,
+                    "request_sequence", resetRequestSequence, "reason", error.toString()));
+        }
+    }
 
     private void tickCourseBegin() {
         try {

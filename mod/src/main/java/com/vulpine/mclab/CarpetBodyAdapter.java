@@ -224,6 +224,18 @@ public final class CarpetBodyAdapter {
         var player = player();
         if (player == null) throw new IllegalStateException("body_not_registered");
         release();
+        resetPlayer(server, player, fixture.x, fixture.y, fixture.z, initialYaw, initialPitch);
+        player.getInventory().setSelectedSlot(0);
+        if (dirt > 0) player.getInventory().setItem(0, new ItemStack(Items.DIRT, dirt));
+        player.onUpdateAbilities();
+        stableTicks = 0;
+        ready = false;
+        lastPosition = null;
+    }
+
+    /** Ordinary survival player state at a pose; shared by Carpet bodies and scored humans. */
+    static void resetPlayer(MinecraftServer server, ServerPlayer player, double x, double y, double z,
+                            float yaw, float pitch) {
         player.stopRiding();
         player.gameMode.changeGameModeForPlayer(GameType.SURVIVAL);
         player.getInventory().clearContent();
@@ -255,14 +267,8 @@ public final class CarpetBodyAdapter {
         player.fallDistance = 0;
         player.hurtTime = 0;
         player.setInvulnerableTime(0);
-        player.teleportTo(server.overworld(), fixture.x, fixture.y, fixture.z, Set.of(), initialYaw, initialPitch, true);
+        player.teleportTo(server.overworld(), x, y, z, Set.of(), yaw, pitch, true);
         player.setDeltaMovement(Vec3.ZERO);
-        player.getInventory().setSelectedSlot(0);
-        if (dirt > 0) player.getInventory().setItem(0, new ItemStack(Items.DIRT, dirt));
-        player.onUpdateAbilities();
-        stableTicks = 0;
-        ready = false;
-        lastPosition = null;
     }
 
     public void restoreFixture() {

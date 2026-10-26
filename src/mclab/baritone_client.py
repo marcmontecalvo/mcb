@@ -139,8 +139,14 @@ class BaritoneClient:
             "Authorization": "Bearer " + self._token,
             "Content-Type": "application/json",
         }
-        self._connection.request(method, path, body=body, headers=headers)
-        response = self._connection.getresponse()
+        try:
+            self._connection.request(method, path, body=body, headers=headers)
+            response = self._connection.getresponse()
+        except (ConnectionError, http.client.RemoteDisconnected):
+            # The bridge may drop an idle keep-alive socket; routes are safe to resend.
+            self._connection.close()
+            self._connection.request(method, path, body=body, headers=headers)
+            response = self._connection.getresponse()
         value = json.loads(response.read() or b"{}")
         if response.status != 200:
             raise RuntimeError(
