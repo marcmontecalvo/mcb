@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "mclab_client_bridge",
+  "version": "0.1.0",
+  "name": "Minecraft AI Lab Baritone Client Bridge",
+  "description": "Loopback, token-authenticated control of the pinned Baritone API. Server scoring stays authoritative.",
+  "environment": "client",
+  "entrypoints": {"client": ["com.vulpine.mclab.client.ClientBridge"]},
+  "depends": {"fabricloader": "0.19.5", "minecraft": "26.3", "java": ">=25", "baritone": "1.20.0"}
+}

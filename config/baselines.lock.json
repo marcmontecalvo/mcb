@@ -24,6 +24,6 @@
         "sha256": "253a24bc6d40279296274d470afb7789a3302013842a6a187ba1ec4ef785dcb7"
       }
     ],
-    "status": "artifact_and_api_review_only_no_client_bridge_or_live_trial"
+    "status": "client_bridge_live_probe_passed_no_scored_trial"
   }
 }

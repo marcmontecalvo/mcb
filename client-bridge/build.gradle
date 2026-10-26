@@ -1,0 +1,39 @@
+import groovy.json.JsonSlurper
+
+buildscript {
+    def pins = new groovy.json.JsonSlurper().parse(file('../config/dependencies.lock.json'))
+    repositories { maven { url = 'https://maven.fabricmc.net/' }; mavenCentral() }
+    dependencies { classpath "net.fabricmc:fabric-loom:${pins.loom}" }
+    configurations.classpath { resolutionStrategy.activateDependencyLocking() }
+}
+apply plugin: 'net.fabricmc.fabric-loom'
+
+def pins = new JsonSlurper().parse(file('../config/dependencies.lock.json'))
+def baritone = new JsonSlurper().parse(file('../config/baselines.lock.json')).baritone
+version = '0.1.0'
+group = 'com.vulpine.mclab'
+
+dependencies {
+    minecraft "com.mojang:minecraft:${pins.minecraft}"
+    implementation "net.fabricmc:fabric-loader:${pins.loader}"
+    // Pinned, checksum-verified release jar; the bridge uses only baritone.api classes.
+    compileOnly files('../runtime/downloads/' + baritone.artifact)
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+}
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+    options.compilerArgs += ['-Xlint:deprecation']
+}
+tasks.named('jar') {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+
+dependencyLocking {
+    lockAllConfigurations()
+    lockMode = LockMode.STRICT
+}

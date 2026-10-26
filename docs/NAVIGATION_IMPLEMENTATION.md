@@ -62,7 +62,7 @@ applied control still met the unchanged timing profile. The shared recorder and
 transport also passed [10/10 C1 regression attempts](C1_DRIVE_MOVE_REGRESSION.json).
 See `AUTONOMOUS_RUN.md` for the run ledger. Holdouts remain unopened.
 
-The Baritone reference still needs a dedicated Fabric client bridge, an
-authenticated client session and live tests. Its pinned artifact alone is not
-an implemented baseline. Camera/vision experiments and synchronized learned-policy
+The Baritone reference runs through a dedicated Fabric client bridge
+(`client-bridge/`) in a Prism-authenticated session; a live join and goto/cancel
+probe passed. Scored trials against a real client player are still pending. Camera/vision experiments and synchronized learned-policy
 demonstrations remain separate later work in `EXPERIMENT_QUEUE.md`.

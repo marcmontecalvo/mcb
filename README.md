@@ -304,7 +304,9 @@ states can be exported with `experiments export-screening --recording <JSONL>
 are not synchronized human demonstrations or training-ready data.
 
 The Baritone 26.3 artifact/API is pinned in `config/baselines.lock.json`; a client
-bridge, authenticated client session and scored baseline trial remain pending.
+bridge (`client-bridge/`, `mclab baritone prepare|launch|status|goto|cancel`) runs
+Baritone in a Prism-authenticated client; it joined the lab and passed a live
+goto/cancel probe. Scored baseline trials remain pending.
 
 The broader [synthetic tactical screen](docs/G4_SCREENING.md) contains 48 reviewed
 observations under three candidate orders. Jev scored 141/144; Atom's shared-load

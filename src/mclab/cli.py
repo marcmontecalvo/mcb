@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from mclab import (
     backends,
+    baritone_client,
     bootstrap,
     courses,
     episodeproof,
@@ -173,6 +174,14 @@ def main() -> int:
         help="Prepare interaction fixtures and a stone backstop behind the test cow",
     )
     capture.add_argument("--mechanic", choices=reference.MECHANICS, default="none")
+    bar = sub.add_parser("baritone").add_subparsers(dest="operation", required=True)
+    bar.add_parser("prepare")
+    bar.add_parser("launch")
+    bar.add_parser("status")
+    bar.add_parser("cancel")
+    go = bar.add_parser("goto")
+    for axis in "xyz":
+        go.add_argument(axis, type=int)
     srv = sub.add_parser("server").add_subparsers(dest="operation", required=True)
     srv.add_parser("start").add_argument("--accept-eula", action="store_true")
     srv.add_parser("stop")
@@ -296,6 +305,15 @@ def main() -> int:
                         args.combat,
                         args.mechanic,
                     )
+            case "baritone":
+                if args.operation in ("prepare", "launch"):
+                    result = getattr(baritone_client, args.operation)()
+                elif args.operation == "goto":
+                    result = baritone_client.BaritoneClient().goto(
+                        args.x, args.y, args.z
+                    )
+                else:
+                    result = getattr(baritone_client.BaritoneClient(), args.operation)()
             case "server":
                 if args.operation == "start":
                     result = server.start(args.accept_eula)
