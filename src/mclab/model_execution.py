@@ -34,10 +34,29 @@ def close_selector(client, controller, backend, summary):
     finally:
         # A shutdown failure must not erase already admitted provider requests.
         summary["model_requests"] += backend.requests
+        planner = getattr(controller, "planner_backend", None)
+        if planner is not None:
+            summary["model_requests"] += planner.requests
+            summary["planner_model_requests"] = (
+                summary.get("planner_model_requests", 0) + planner.requests
+            )
+            summary["tactical_model_requests"] = (
+                summary.get("tactical_model_requests", 0) + backend.requests
+            )
+            summary["planner_failures"] = summary.get("planner_failures", 0) + getattr(
+                controller, "planner_failures", 0
+            )
+            summary["degraded"] = summary.get("degraded", False) or bool(
+                getattr(controller, "degraded_events", 0)
+            )
         try:
             record_selector(client, controller)
         finally:
-            client.record("backend_provenance", backend.provenance())
+            try:
+                client.record("backend_provenance", backend.provenance())
+            finally:
+                if planner is not None:
+                    client.record("planner_backend_provenance", planner.provenance())
 
 
 def drive(client, controller, wall_timeout=90):
@@ -163,7 +182,82 @@ def run(backend_name, *, count=1, request_limit=40):
         return _run(spec, count, request_limit)
 
 
-def _run(spec, count, request_limit):
+def run_tandem(
+    tactical_backend_name,
+    planner_backend_name,
+    *,
+    planner_profile,
+    count=1,
+    request_limit=40,
+    planner_request_limit=4,
+):
+    """Optional C1 tandem experiment; validate both roles before arena access."""
+    from mclab.tandem import TandemController
+
+    if (
+        type(count) is not int
+        or not 1 <= count <= 5
+        or any(
+            type(cap) is not int or not count <= cap <= 100
+            for cap in (request_limit, planner_request_limit)
+        )
+    ):
+        raise ValueError("Require 1..5 episodes and bounded per-role request caps")
+    optional = {"planner_interval_s", "plan_ttl_ticks", "planner_failure"}
+    if (
+        not isinstance(planner_profile, dict)
+        or not {"instructions", "candidates"} <= planner_profile.keys()
+        or not planner_profile.keys() <= optional | {"instructions", "candidates"}
+    ):
+        raise ValueError("Planner profile requires instructions and candidates")
+    kwargs = {
+        "planner_instructions": planner_profile["instructions"],
+        "planner_candidates": planner_profile["candidates"],
+        **{key: planner_profile[key] for key in optional if key in planner_profile},
+    }
+    specs = read_json(ROOT / "config/backends.json")["backends"]
+    selected, probes = [], []
+    try:
+        for name, cap in (
+            (tactical_backend_name, request_limit),
+            (planner_backend_name, planner_request_limit),
+        ):
+            matches = [s for s in specs if s["name"] == name and s.get("enabled")]
+            if len(matches) != 1:
+                raise ValueError("Select one configured backend for each tandem role")
+            original = matches[0]
+            spec = {**original, "request_limit": cap}
+            probe = HttpBackend(spec)
+            probes.append(probe)
+            if not probe.local and cap > original["request_limit"]:
+                raise ValueError("Tandem role exceeds configured remote request cap")
+            selected.append(spec)
+        remote = [s for s, p in zip(selected, probes, strict=True) if not p.local]
+        if remote and sum(
+            s["request_limit"] * s["max_request_cost_usd"] for s in remote
+        ) > min(s["cost_ceiling_usd"] for s in remote):
+            raise ValueError("Tandem combined conservative cost budget exceeded")
+        if probes[0].deadline != 1.0:
+            raise ValueError("Initial tandem tactical profile requires 1s deadline")
+        # Validate all controller options without provider calls or world access.
+        TandemController(probes[1], probes[0], **kwargs).close()
+    finally:
+        for probe in probes:
+            probe.close()
+    tactical, planner = selected
+    tactical = {**tactical, "request_limit": request_limit // count}
+    planner = {**planner, "request_limit": planner_request_limit // count}
+    with exclusive_arena():
+        return _run(
+            tactical,
+            count,
+            request_limit,
+            planner_spec=planner,
+            planner_profile=kwargs,
+        )
+
+
+def _run(spec, count, request_limit, *, planner_spec=None, planner_profile=None):
     profile = gates.require_initial_profile("C1", ("forward", "look", "mine", "pickup"))
     provenance = read_json(ROOT / "runtime/mod-build.json")
     if provenance["source_hash"] != source_hash():
@@ -209,6 +303,21 @@ def _run(spec, count, request_limit):
         ).stdout.strip(),
         "recovered_interrupted": recorder.recover_interrupted(),
     }
+    if planner_spec is not None:
+        from mclab.tandem import PROFILE
+
+        configuration.update(
+            controller=PROFILE,
+            experiment_mode="tandem",
+            timing_profile="async-tandem-1s-tactical-independent-planner-v1",
+            tandem_sha256=sha256(ROOT / "src/mclab/tandem.py"),
+            planner_backend=planner_spec,
+            planner_profile=planner_profile,
+            tactical_request_limit_total=request_limit,
+            planner_request_limit_total=planner_spec["request_limit"] * count,
+            model_request_limit_total=request_limit
+            + planner_spec["request_limit"] * count,
+        )
     summary = {
         **configuration,
         "run_id": client.run_id,
@@ -252,7 +361,20 @@ def _run(spec, count, request_limit):
                 lambda s: s["state"] == "running" or terminal_event(client) is not None
             )
             backend = HttpBackend(spec)
-            controller = TacticalController(backend)
+            if planner_spec is None:
+                controller = TacticalController(backend)
+            else:
+                from mclab.tandem import TandemController
+
+                planner = None
+                try:
+                    planner = HttpBackend(planner_spec)
+                    controller = TandemController(planner, backend, **planner_profile)
+                except BaseException:
+                    backend.close()
+                    if planner is not None:
+                        planner.close()
+                    raise
             try:
                 terminal = drive(client, controller)
             finally:

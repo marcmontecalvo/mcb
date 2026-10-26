@@ -1,0 +1,178 @@
+{
+  "admitted_requests": 144,
+  "attempted": 144,
+  "audit_checks_passed": [
+    "144 unique cases and exact candidate orders",
+    "matching independently reviewed fixture",
+    "identical permitted observation summaries, instructions and candidate descriptions",
+    "labels excluded from wire payload",
+    "all 144 raw choices are legal finite-distribution argmaxes",
+    "probability validation and rejected responses recomputed without normalization",
+    "correct counts recomputed from frozen labels",
+    "no reported state truncation",
+    "all 144 raw responses within 1-second deadline",
+    "English checkpoint remains on CUDA with zero fallback events"
+  ],
+  "backend": "gpu-docker-laya-english",
+  "batches": [
+    {
+      "path": "results\\screening\\20261026T004120555608Z\\summary.json",
+      "sha256": "19d0dbe43d51e39e2caf777a6c48d7acc601450201ba353e9f06d59b9a8f2812"
+    },
+    {
+      "path": "results\\screening\\20261026T004123623770Z\\summary.json",
+      "sha256": "0534662e0d92e98cbcffa30816e87c0d8d930840d640fa606c74ac3302ff009c"
+    },
+    {
+      "path": "results\\screening\\20261026T004126581241Z\\summary.json",
+      "sha256": "157059e818bbde252bc4ac7c7d4494fb85af287010f2d7250ddeaec612e8abee"
+    },
+    {
+      "path": "results\\screening\\20261026T004129351434Z\\summary.json",
+      "sha256": "75575d3083bb90a9b81297bd92bd203254d7944f237231af05792954be2dba74"
+    }
+  ],
+  "by_category": {
+    "aiming_error": {
+      "accepted_correct": 1,
+      "attempted": 24,
+      "probability_rejections": 14,
+      "returned_choice_correct_ignoring_probability_validation": 2,
+      "returned_choices": {
+        "aim_log": 2,
+        "collect": 11,
+        "forward": 11
+      }
+    },
+    "collection": {
+      "accepted_correct": 1,
+      "attempted": 24,
+      "probability_rejections": 13,
+      "returned_choice_correct_ignoring_probability_validation": 2,
+      "returned_choices": {
+        "collect": 2,
+        "forward": 22
+      }
+    },
+    "exploration": {
+      "accepted_correct": 13,
+      "attempted": 24,
+      "probability_rejections": 5,
+      "returned_choice_correct_ignoring_probability_validation": 16,
+      "returned_choices": {
+        "aim_log": 3,
+        "collect": 5,
+        "forward": 16
+      }
+    },
+    "mining": {
+      "accepted_correct": 3,
+      "attempted": 24,
+      "probability_rejections": 13,
+      "returned_choice_correct_ignoring_probability_validation": 9,
+      "returned_choices": {
+        "aim_log": 11,
+        "collect": 4,
+        "mine": 9
+      }
+    },
+    "obstacle_or_ledge": {
+      "accepted_correct": 0,
+      "attempted": 24,
+      "probability_rejections": 11,
+      "returned_choice_correct_ignoring_probability_validation": 0,
+      "returned_choices": {
+        "aim_log": 2,
+        "collect": 1,
+        "forward": 21
+      }
+    },
+    "unknown_or_stale": {
+      "accepted_correct": 0,
+      "attempted": 24,
+      "probability_rejections": 12,
+      "returned_choice_correct_ignoring_probability_validation": 0,
+      "returned_choices": {
+        "aim_log": 2,
+        "collect": 3,
+        "forward": 19
+      }
+    }
+  },
+  "configuration": {
+    "deadline_s": 1.0,
+    "enabled": true,
+    "inference_scope": "local",
+    "kind": "systemone",
+    "model": "english",
+    "name": "gpu-docker-laya-english",
+    "network_scope": "private_lan",
+    "request_limit": 36,
+    "root": "http://10.10.40.20:8001"
+  },
+  "contract_smoke": "results/laya/20261026T004105692210Z/contract.json",
+  "contract_smoke_attempted": 3,
+  "contract_smoke_correct": 3,
+  "correct": 18,
+  "date": "2026-10-25",
+  "deadline_failures": 0,
+  "decision_latency_ms_valid_responses": {
+    "max": 109.99999998603016,
+    "median": 77.9999999795109,
+    "min": 46.999999962281436,
+    "p95_nearest_rank": 93.99999998277053
+  },
+  "diagnostic_note": "Raw returned choice is inspected without changing, normalizing or accepting rejected probabilities; this does not replace the official screen score.",
+  "diagnostic_returned_choice_correct_ignoring_probability_validation": 29,
+  "experiment_runner": "results/laya/20261026T004120463643Z/runner.py",
+  "experiment_runner_sha256": "437d971012baab4207a521e2b9805fad0a6977c6c15372d14732fd6fad967403",
+  "experiment_summary": "results\\laya\\20261026T004120463643Z\\summary.json",
+  "fixture_hash": "9923ec80bd4af8fe56317d53797dd621130c82c91da0f0a1b31e86da4db75596",
+  "label_review": "docs/G4_SCREEN_REVIEW.json",
+  "largest_probability_sum_absolute_error": 0.00019999999999997797,
+  "limitations": [
+    "Synthetic development observations, not native sensing or gameplay",
+    "Four-decimal reported probabilities often miss existing sum-to-one tolerance; not repaired or retried",
+    "Raw-choice diagnostic is not an accepted-decision score",
+    "No Minecraft calibration; reported confidence not accepted as accuracy evidence",
+    "Historical backends differ in adapters and serving paths; no controlled speed or architecture ranking",
+    "No prompt tuning, native trials or holdout use",
+    "No production code/backend configuration changes"
+  ],
+  "live_health_after_screen": {
+    "checkpoint_devices": {
+      "english": "cuda"
+    },
+    "cpu_fallbacks": {
+      "english": {
+        "count": 0,
+        "last_reason": null
+      }
+    },
+    "device": "cuda",
+    "device_is_preference": false,
+    "loaded": [
+      "english"
+    ],
+    "revisions": {
+      "english": "7b928d828b7b0e022f929d9bd2e44165aa270148"
+    },
+    "status": "ok"
+  },
+  "model": "convaiinnovations/laya (English root)",
+  "probability_sum_rejections": 68,
+  "recommendation": "Retain failed tactical baseline. No broader live trials under current representation. Existing hosted Jev remains stronger on this frozen screen; move on or bound one separate Qwen3.5-4B chat screen.",
+  "reported_truncated_requests": 0,
+  "response_latency_ms_all_144": {
+    "max": 156.0,
+    "median": 78.0,
+    "min": 46.0,
+    "p95_nearest_rank": 94.0
+  },
+  "schema_version": 1,
+  "scope": "frozen synthetic tactical screening; no gameplay or G4 qualification",
+  "states_with_same_returned_choice_under_all_three_orders": 15,
+  "status": "completed_synthetic_screen_not_qualified_for_live_trials",
+  "transport_failures": 0,
+  "valid_responses": 76
+}

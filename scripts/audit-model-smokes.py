@@ -15,6 +15,7 @@ def audit(path):
     # Original provenance keeps its launch path even after moving the checkout.
     recording = path.parent / "events.jsonl"
     responses, errors, policy_ticks, actions, ages, choices = [], [], set(), {}, [], []
+    planner_responses = []
     positions = []
     milestones = {}
     cancelled_on_close = 0
@@ -27,6 +28,8 @@ def audit(path):
                 cancelled_on_close += kind == "tactical_response_discarded_on_close"
                 if "decision" in payload:
                     choices.append(payload["decision"]["choice"])
+            if kind.startswith("planner_response"):
+                planner_responses.append({"type": kind, **payload})
             if kind == "controller_error":
                 errors.append(payload)
             if kind == "request" and payload.get("op") == "controls":
@@ -55,6 +58,10 @@ def audit(path):
             ("backends.py", "backend_sha256"),
         )
     )
+    if "tandem_sha256" in summary:
+        hashes_match = hashes_match and (
+            sha256(snapshot / "tandem.py") == summary["tandem_sha256"]
+        )
     expected = set()
     for episode in summary["episodes"]:
         if "start_tick" in episode and "end_tick" in episode:
@@ -89,6 +96,10 @@ def audit(path):
     return {
         "run_id": summary["run_id"],
         "backend": summary["backend"]["name"],
+        "experiment_mode": summary.get("experiment_mode", "single_model"),
+        "degraded": summary.get("degraded", False),
+        "planner_failures": summary.get("planner_failures", 0),
+        "planner_backend": summary.get("planner_backend", {}).get("name"),
         "scored": summary["scored"],
         "summary": str(path.relative_to(ROOT)),
         "summary_sha256": sha256(path),
@@ -98,6 +109,11 @@ def audit(path):
         "tactical_sha256": summary["tactical_sha256"],
         "episodes": summary["episodes"],
         "model_requests": summary["model_requests"],
+        "tactical_model_requests": summary.get(
+            "tactical_model_requests", summary["model_requests"]
+        ),
+        "planner_model_requests": summary.get("planner_model_requests", 0),
+        "planner_responses": planner_responses,
         "recorded_responses": len(responses),
         "discarded_responses_on_close": cancelled_on_close,
         "successful_causal_chains_verified": causal_chains,

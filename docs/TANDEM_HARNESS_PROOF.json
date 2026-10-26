@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-25",
+  "hypothesis": "A planner model plus a tactical model may outperform a single model; no winner selected.",
+  "limitations": [
+    "No live two-real-model Minecraft result yet",
+    "Initial planner adapter is Choice over an explicit strategy menu, not unrestricted structured planning",
+    "Later-course navigation, opportunity suspension/resumption and combat are not implemented by this change",
+    "Existing historical qualification evidence remains source-bound; no new gate is marked passed"
+  ],
+  "new_native_minecraft_trials": 0,
+  "new_paid_provider_requests": 0,
+  "schema_version": 1,
+  "scope": "Optional C1 Choice-planner/tactical composition; single-model path preserved.",
+  "source_sha256": {
+    "scripts/audit-model-smokes.py": "60e392b5bf32aa2f06a252c0ea6e32622e8b0ac0559427f369fb6767500a7881",
+    "src/mclab/cli.py": "c2a44d95cad3bb9f3293095ad6a74b927b58fbde710291fe93b049849ed4b647",
+    "src/mclab/model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+    "src/mclab/tandem.py": "4a1a0342818dcfe0a1f1f502f4fe48d6202f82c1bd836bae4a25c4f3def9ea97",
+    "tests/test_model_audit.py": "0252952bf78dfa56a1dbac20e211aa1c6132571bd477af2dfe566a8559bbf0a1",
+    "tests/test_model_execution.py": "4767dda2ef839115e717be666046cdd09fdd43bdfc0a156aeed0fe8002f13db5",
+    "tests/test_tandem.py": "92b0e7bff2d7e7fdaf28696c4242ea6fd29be99de7cbc000dc0a53afc304cdbb"
+  },
+  "status": "optional_tandem_harness_implemented_locally_verified",
+  "usage": "mclab models live-smoke --backend TACTICAL_BACKEND --planner-backend PLANNER_BACKEND --planner-profile PROFILE_JSON --planner-request-limit 4 --count 1 --request-limit 30",
+  "verification": {
+    "cli_validation": "Missing planner profile rejected before world/provider access",
+    "diff_check": "passed",
+    "full_python_suite_passed": 274,
+    "http_transport": "Two local model routes; tactical response and motor renewals proceed while planner route is blocked. Controlled fake model responses.",
+    "ruff_format": "passed (53 files including preserved direct-scoring wrapper)",
+    "ruff_lint": "passed"
+  },
+  "verified_behaviors": [
+    "Separate backend instances and asynchronous request lanes",
+    "Slow planner does not block tactical/motor",
+    "Planner context is versioned; stale planner/tactical results discarded",
+    "Plan expiry and explicit replanning invalidate old commitments",
+    "Provider errors are retained and redacted",
+    "Cancellation closes both roles and preserves in-flight evidence",
+    "Per-role request caps and combined conservative remote cost validated before arena access",
+    "Per-role and total request accounting retained even on shutdown failure",
+    "Explicit degraded planner policy is recorded separately",
+    "Audit identifies single/tandem roles and detects tandem source drift",
+    "Single-model regression tests pass"
+  ]
+}

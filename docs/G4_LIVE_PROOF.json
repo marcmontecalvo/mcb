@@ -1,8 +1,8 @@
 {
   "G4_passed": false,
   "actual_cost_usd": null,
-  "attempted_episodes": 7,
-  "model_requests": 130,
+  "attempted_episodes": 8,
+  "model_requests": 143,
   "runs": [
     {
       "applied_control_count": 80,
@@ -21,6 +21,7 @@
         }
       ],
       "controller_sha256": "d736c72e802a3148617dcc3d5ab0309873926562969e6447734087e4a67ec60b",
+      "degraded": false,
       "discarded_responses_on_close": 0,
       "episodes": [
         {
@@ -35,6 +36,7 @@
           "target_broken": false
         }
       ],
+      "experiment_mode": "single_model",
       "final_position": [
         1000.5,
         80.0,
@@ -61,6 +63,10 @@
         1000.0
       ],
       "model_requests": 14,
+      "planner_backend": null,
+      "planner_failures": 0,
+      "planner_model_requests": 0,
+      "planner_responses": [],
       "policy_ticks_missing": 0,
       "recorded_responses": 14,
       "recording_sha256": "02b82c2768b7cfbe17695beee87ed31c0c2b7078ee046b860267893b5fa4f380",
@@ -76,6 +82,7 @@
       "successful_causal_chains_verified": {},
       "summary": "results\\model_execution\\20261024T215745406258Z\\summary.json",
       "summary_sha256": "d1648a733985ab6ddb662bd5776e4060753b7fa0c07313d81498e255c8e74050",
+      "tactical_model_requests": 14,
       "tactical_sha256": "252cd1e20213c31863c644b3e7507d397fcc3dec4f432c5b6bf8bf69c4c78e08",
       "valid_responses": 13
     },
@@ -96,6 +103,7 @@
         }
       ],
       "controller_sha256": "7614d4bf868f5d819ee2cd5cc1473af1e642476f131bf708becc91223e89eeb0",
+      "degraded": false,
       "discarded_responses_on_close": 0,
       "episodes": [
         {
@@ -110,6 +118,7 @@
           "target_broken": false
         }
       ],
+      "experiment_mode": "single_model",
       "final_position": [
         1000.5,
         80.0,
@@ -128,6 +137,10 @@
         984.9999999860302
       ],
       "model_requests": 6,
+      "planner_backend": null,
+      "planner_failures": 0,
+      "planner_model_requests": 0,
+      "planner_responses": [],
       "policy_ticks_missing": 0,
       "recorded_responses": 6,
       "recording_sha256": "5b19d7eff0fc7766e70a8d5e6d903e239f6d5e6e2cd9411b2d9a957deb121227",
@@ -144,6 +157,7 @@
       "successful_causal_chains_verified": {},
       "summary": "results\\model_execution\\20261024T215909993296Z\\summary.json",
       "summary_sha256": "b01a9618f869f552fae20d751ae76a8d43fad934fdbf1388a87ae1e4aa0b1550",
+      "tactical_model_requests": 6,
       "tactical_sha256": "caf1494eeee56d02bb0c4088da80e524773d048c0f00d1852f78d38c62a05dd5",
       "valid_responses": 5
     },
@@ -161,6 +175,7 @@
       },
       "controller_errors": [],
       "controller_sha256": "7614d4bf868f5d819ee2cd5cc1473af1e642476f131bf708becc91223e89eeb0",
+      "degraded": false,
       "discarded_responses_on_close": 1,
       "episodes": [
         {
@@ -175,6 +190,7 @@
           "target_broken": true
         }
       ],
+      "experiment_mode": "single_model",
       "final_position": [
         1000.5496776903476,
         80.0,
@@ -201,6 +217,10 @@
         844.0000000409782
       ],
       "model_requests": 14,
+      "planner_backend": null,
+      "planner_failures": 0,
+      "planner_model_requests": 0,
+      "planner_responses": [],
       "policy_ticks_missing": 0,
       "recorded_responses": 14,
       "recording_sha256": "d1c81fdaa7f9516ff284aeee168318c9d417bb780fe85a8aad029dec01ac42fb",
@@ -219,6 +239,7 @@
       },
       "summary": "results\\model_execution\\20261024T220003526362Z\\summary.json",
       "summary_sha256": "1edebfb1cddffaaf9592e43a31b2020f615fab01bfe589e4558f5e82d9c7a5f1",
+      "tactical_model_requests": 14,
       "tactical_sha256": "cd7401c405c7aa000ee6c7bd5af95f4a879b8b9c30cf82f03d9cdd4a09ac333d",
       "valid_responses": 13
     },
@@ -236,6 +257,7 @@
       },
       "controller_errors": [],
       "controller_sha256": "7614d4bf868f5d819ee2cd5cc1473af1e642476f131bf708becc91223e89eeb0",
+      "degraded": false,
       "discarded_responses_on_close": 2,
       "episodes": [
         {
@@ -261,6 +283,7 @@
           "target_broken": true
         }
       ],
+      "experiment_mode": "single_model",
       "final_position": [
         1000.2670475122401,
         80.0,
@@ -309,6 +332,10 @@
         889.9999999557622
       ],
       "model_requests": 37,
+      "planner_backend": null,
+      "planner_failures": 0,
+      "planner_model_requests": 0,
+      "planner_responses": [],
       "policy_ticks_missing": 0,
       "recorded_responses": 37,
       "recording_sha256": "c406896b52a6ffcf0362b2139f9cb4df5e903509563dbaee7e2290df40d2ec70",
@@ -332,6 +359,7 @@
       },
       "summary": "results\\model_execution\\20261024T220037089049Z\\summary.json",
       "summary_sha256": "287721bd1f631221304394488014b159d29ca475c825b3d9eb9c09ed4b843aa6",
+      "tactical_model_requests": 37,
       "tactical_sha256": "cd7401c405c7aa000ee6c7bd5af95f4a879b8b9c30cf82f03d9cdd4a09ac333d",
       "valid_responses": 35
     },
@@ -349,6 +377,7 @@
       },
       "controller_errors": [],
       "controller_sha256": "73c370203e70d1a1aef317f02af91bed74d84f2bf4c083a6557aba1b268a472f",
+      "degraded": false,
       "discarded_responses_on_close": 1,
       "episodes": [
         {
@@ -363,6 +392,7 @@
           "target_broken": true
         }
       ],
+      "experiment_mode": "single_model",
       "final_position": [
         1000.8087728716337,
         80.0,
@@ -395,6 +425,10 @@
         358.99999999674037
       ],
       "model_requests": 19,
+      "planner_backend": null,
+      "planner_failures": 0,
+      "planner_model_requests": 0,
+      "planner_responses": [],
       "policy_ticks_missing": 0,
       "recorded_responses": 19,
       "recording_sha256": "c211463d2cf910861b4391a6152285f8161dd9d4b05442797ecaa74c601cd0bd",
@@ -408,6 +442,7 @@
       },
       "summary": "results\\model_execution\\20261025T003535986355Z\\summary.json",
       "summary_sha256": "f80b3207df97b447cc83399507d79e65a82933966be4fecd9dcd4ee38df385a1",
+      "tactical_model_requests": 19,
       "tactical_sha256": "cd7401c405c7aa000ee6c7bd5af95f4a879b8b9c30cf82f03d9cdd4a09ac333d",
       "valid_responses": 19
     },
@@ -427,6 +462,7 @@
         }
       ],
       "controller_sha256": "73c370203e70d1a1aef317f02af91bed74d84f2bf4c083a6557aba1b268a472f",
+      "degraded": false,
       "discarded_responses_on_close": 0,
       "episodes": [
         {
@@ -441,6 +477,7 @@
           "target_broken": false
         }
       ],
+      "experiment_mode": "single_model",
       "final_position": [
         1000.5,
         80.0,
@@ -494,6 +531,10 @@
         592.9999999934807
       ],
       "model_requests": 40,
+      "planner_backend": null,
+      "planner_failures": 0,
+      "planner_model_requests": 0,
+      "planner_responses": [],
       "policy_ticks_missing": 0,
       "recorded_responses": 41,
       "recording_sha256": "c32bc1e7036e93b9c121d7d906f2f51b575712e3f41cf54b55b06971f07a4635",
@@ -510,12 +551,90 @@
       "successful_causal_chains_verified": {},
       "summary": "results\\model_execution\\20261025T005649864309Z\\summary.json",
       "summary_sha256": "0c858844353df831e5f5ff916005b553e03b043ed7fd3013735d4e5fd6f2bb13",
+      "tactical_model_requests": 40,
       "tactical_sha256": "cd7401c405c7aa000ee6c7bd5af95f4a879b8b9c30cf82f03d9cdd4a09ac333d",
       "valid_responses": 40
+    },
+    {
+      "applied_control_count": 51,
+      "applied_observation_ages": [
+        3
+      ],
+      "backend": "openrouter-jev",
+      "choices": {
+        "aim_log": 1,
+        "collect": 1,
+        "forward": 4,
+        "mine": 7
+      },
+      "controller_errors": [],
+      "controller_sha256": "4ec965018e092a6d7c17b6a86cee40825286087c81494907d9d4faa61c23563f",
+      "degraded": false,
+      "discarded_responses_on_close": 1,
+      "episodes": [
+        {
+          "deadline_tick": 1212,
+          "drop_uuid": "a78b6eb5-e09e-4e2d-bb9b-338a86571c09",
+          "end_tick": 763,
+          "episode_id": "episode-a08dc064d083",
+          "picked_up": true,
+          "reason": "causal_target_break_drop_pickup",
+          "start_tick": 612,
+          "status": "success",
+          "target_broken": true
+        }
+      ],
+      "experiment_mode": "single_model",
+      "final_position": [
+        1000.6370261262629,
+        80.0,
+        1009.9461808514268
+      ],
+      "initial_position": [
+        1000.5,
+        80.0,
+        1000.5
+      ],
+      "latencies_ms": [
+        281.00000001722947,
+        281.00000001722947,
+        296.99999996228144,
+        297.0000000204891,
+        297.0000000204891,
+        297.0000000204891,
+        311.9999999762513,
+        312.00000003445894,
+        327.9999999795109,
+        342.99999999348074,
+        344.0000000409782,
+        358.99999999674037,
+        530.9999999590218
+      ],
+      "model_requests": 13,
+      "planner_backend": null,
+      "planner_failures": 0,
+      "planner_model_requests": 0,
+      "planner_responses": [],
+      "policy_ticks_missing": 0,
+      "recorded_responses": 13,
+      "recording_sha256": "d1e514d85f36a421546d526d4d75eabc4d36d2bc39418747ec4a2edd40164809",
+      "response_errors": [],
+      "run_id": "qualification-bf7eddab4758",
+      "scored": false,
+      "source_snapshots_match": true,
+      "sqlite_outcomes_match": true,
+      "successful_causal_chains_verified": {
+        "episode-a08dc064d083": true
+      },
+      "summary": "results\\model_execution\\20261026T004412343903Z\\summary.json",
+      "summary_sha256": "9ed8d6d850920ff73a3060da0af54e73936590bc59326799b8447abd955d05cd",
+      "tactical_model_requests": 13,
+      "tactical_sha256": "9cc4e9d7a3d9b09e3bd5a371d5b49e21afb0cedb3a0c3b6e5b70096a33781917",
+      "valid_responses": 13
     }
   ],
   "schema_version": 1,
   "scope": "Frozen C1 seed0, bounded visible-target tactical baselines",
   "status": "G4_partial_live_development",
-  "successful_episodes": 4
+  "successful_episodes": 5
 }

@@ -2,14 +2,17 @@
 
 This repository implements the local laboratory foundation from
 [the technical handoff](Minecraft_AI_Technical_Handoff.md). It runs an isolated,
-local Minecraft Java 26.3 server and generates development courses C0–C4.
+local Minecraft Java 26.3 server and generates development courses C0–C5.
 The bootstrap Fabric mod verifies arena geometry against the generated specification.
 
 The initial C1 body, reset/evaluator, filtered sensor, episode recorder and
 deterministic controller are implemented. The gate ledger records reviewed live
 qualification separately from code availability. Provider adapters are implemented;
-no real model endpoint, learned policy or external baseline has been live-qualified.
+real provider probes and scoped C1 model trials are recorded. G4 remains open;
+no learned policy or external baseline has been live-qualified.
 **G0–G3 passed for initial C1; the final configuration completed 10/10 scored attempts.**
+The frozen deterministic C2–C5 navigation cohort passed **80/80**. Optional tandem
+model coordination is locally tested, with no live tandem performance claim.
 Earlier failed configurations remain in the report, grouped by timing/source profile.
 See [setup status](docs/SETUP_STATUS.md) and
 [implementation decisions](docs/DECISIONS.md).
@@ -60,7 +63,7 @@ rtk proxy powershell -NoProfile -File scripts/mclab.ps1 course verify-generated
 rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server start
 ```
 
-All C0–C4 functions are generated. Only the selected course occupies the active
+All C0–C5 functions are generated. Only the selected course occupies the active
 arena. Building changes files while stopped. The datapack compares its specification
 hash at load and reconstructs a newly selected specification after warming chunks.
 Rebuilding the same specification does **not** reset a modified world. The new
@@ -73,8 +76,9 @@ and use absolute coordinates. Vanilla fill limits are respected. The source
 specifications are development fixtures: C0 is an empty mechanics arena with a log,
 not a completed qualification suite. C3 has a two-block-tall wall; C4 has a
 full-width one-block rise and descent. C1 enforces target-only breaking and no
-placement/attacks, and scores causal break/drop-UUID/normal-pickup chains. Other
-courses remain unqualified; repeated seeds do not guarantee distinct layouts.
+placement/attacks, and scores causal break/drop-UUID/normal-pickup chains.
+C2–C5 qualification applies only to the declared navigation profile and frozen
+cohort; repeated seeds alone do not establish distinct layouts.
 
 ## Builds and verification
 
@@ -85,6 +89,10 @@ rtk proxy uv run --locked pytest -q
 rtk proxy uv run --locked ruff check src tests scripts
 rtk proxy uv run --locked ruff format --check src tests scripts
 ```
+
+The preserved direct-scoring container wrapper under
+`experiments/qwen35-direct/` is checked separately with Ruff. Its Dockerfile and
+README reproduce the tested SemIf service without committing weights or caches.
 
 Install the built mod only with the server stopped. The build script sets JDK and
 Gradle cache paths for its own process; Java 21 remains installed and unchanged.
@@ -303,11 +311,20 @@ observations under three candidate orders. Jev scored 141/144; Atom's shared-loa
 comparison stopped after a timeout and remains partial. Its performance is not an
 isolated model speed comparison. Use `experiments screen-build`, `screen-run` and
 `screen-report` to freeze, run bounded batches and inspect all outcomes.
+The additional local screens scored OpenJev 78/144, Laya 18/144 accepted and
+correct (29/144 raw choices), and Qwen3.5-4B SemIf direct scoring 28/144 in each
+of two separately retained prompt configurations. These candidates were not
+promoted to live trials. See the [screening evidence](docs/G4_SCREENING.md).
+The tested SemIf container build sources are preserved under
+[experiments/qwen35-direct](experiments/qwen35-direct/README.md); raw recordings
+and model caches remain ignored local artifacts.
 
 C2–C5 now each have 25 distinct development layouts; C3–C5 each have 25 different
 physical geometries. C2 variation also includes initial facing. The qualified C1
-output is unchanged; native navigation reset/body/motor qualification and G5 trials
-remain pending. Preserve the earlier frozen plan and reproduce the new one with:
+output is unchanged; twenty seed-0 resets per navigation course and the frozen
+80/80 deterministic navigation cohort are recorded. Later-course model selection
+and tandem gameplay remain unqualified. Preserve the earlier frozen plan and
+reproduce the development inventory with:
 
 ```powershell
 rtk proxy uv run --locked mclab experiments plan --output results/experiments/development_plan_navigation_v2.json
@@ -317,3 +334,52 @@ The reference recorder reads the actual latest client button state received by
 the server, plus view and body state. It records client/server timing uncertainty;
 these are not training-ready, precisely aligned client-timestamped demonstrations.
 See [bridge protocol](docs/BRIDGE_PROTOCOL.md) for lifecycle and observation details.
+
+## Optional tandem model experiments
+
+Tandem planning/tactical models are a hypothesis to compare with single-model
+execution, not an assumed winning architecture. The existing C1 live-smoke path
+stays single-model unless a planner is explicitly supplied. Either role can use
+any compatible configured backend; no model is automatically assigned a role.
+
+The first tandem adapter uses Choice to select a declared strategy and passes
+versioned strategy context to the tactical model. It is not an unrestricted
+structured-plan brain. Save an explicit experimental profile, for example at
+`results/experiments/c1_planner_profile.json`:
+
+```json
+{
+  "instructions": "Choose a collection strategy from the permitted observations.",
+  "candidates": {
+    "search": "Search safely for an oak log, then work toward collecting it.",
+    "observed_item": "Prioritize collecting a currently observed oak log item."
+  },
+  "planner_interval_s": 5.0,
+  "plan_ttl_ticks": 200,
+  "planner_failure": "fail_attempt"
+}
+```
+
+Replace the uppercase backend names with entries from `config/backends.json`.
+These commands send new provider requests and require the existing native server
+and source-bound C1 readiness checks:
+
+```powershell
+# Single model, retaining the existing motor/action profile.
+rtk proxy uv run --env-file .env --locked mclab models live-smoke --backend TACTICAL_BACKEND --count 1 --request-limit 30
+# Optional second model, with independently bounded requests.
+rtk proxy uv run --env-file .env --locked mclab models live-smoke --backend TACTICAL_BACKEND --planner-backend PLANNER_BACKEND --planner-profile results/experiments/c1_planner_profile.json --planner-request-limit 4 --count 1 --request-limit 30
+```
+
+The two asynchronous lanes have separate backend instances, deadlines and budgets;
+slow planning does not block tactical calls or the motor. Plan changes, replanning
+and expiry invalidate obsolete tactical replies. Both roles are closed and their
+requests/provenance retained during teardown failures. Remote per-role caps and
+their combined conservative cost budget are validated before touching the arena.
+`continue_without_plan` is an optional, explicitly recorded degraded failure policy;
+the default fails the attempt when the planner fails. Reports distinguish the
+roles, single/tandem mode and degraded outcomes.
+
+Fake-provider integration tests verify these contracts. Two-model live gameplay,
+general structured plans, interruption/resumption policies and combat still need
+their own tests; see [candidate architecture](docs/HYBRID_ARCHITECTURE.md).

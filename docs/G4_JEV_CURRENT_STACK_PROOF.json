@@ -1,0 +1,162 @@
+{
+  "G4_passed": false,
+  "attempts": 1,
+  "audit": {
+    "applied_control_count": 51,
+    "applied_observation_ages": [
+      3
+    ],
+    "backend": "openrouter-jev",
+    "choices": {
+      "aim_log": 1,
+      "collect": 1,
+      "forward": 4,
+      "mine": 7
+    },
+    "controller_errors": [],
+    "controller_sha256": "4ec965018e092a6d7c17b6a86cee40825286087c81494907d9d4faa61c23563f",
+    "discarded_responses_on_close": 1,
+    "episodes": [
+      {
+        "deadline_tick": 1212,
+        "drop_uuid": "a78b6eb5-e09e-4e2d-bb9b-338a86571c09",
+        "end_tick": 763,
+        "episode_id": "episode-a08dc064d083",
+        "picked_up": true,
+        "reason": "causal_target_break_drop_pickup",
+        "start_tick": 612,
+        "status": "success",
+        "target_broken": true
+      }
+    ],
+    "final_position": [
+      1000.6370261262629,
+      80.0,
+      1009.9461808514268
+    ],
+    "initial_position": [
+      1000.5,
+      80.0,
+      1000.5
+    ],
+    "latencies_ms": [
+      281.00000001722947,
+      281.00000001722947,
+      296.99999996228144,
+      297.0000000204891,
+      297.0000000204891,
+      297.0000000204891,
+      311.9999999762513,
+      312.00000003445894,
+      327.9999999795109,
+      342.99999999348074,
+      344.0000000409782,
+      358.99999999674037,
+      530.9999999590218
+    ],
+    "model_requests": 13,
+    "policy_ticks_missing": 0,
+    "recorded_responses": 13,
+    "recording_sha256": "d1e514d85f36a421546d526d4d75eabc4d36d2bc39418747ec4a2edd40164809",
+    "response_errors": [],
+    "run_id": "qualification-bf7eddab4758",
+    "scored": false,
+    "source_snapshots_match": true,
+    "sqlite_outcomes_match": true,
+    "successful_causal_chains_verified": {
+      "episode-a08dc064d083": true
+    },
+    "summary": "results\\model_execution\\20261026T004412343903Z\\summary.json",
+    "summary_sha256": "9ed8d6d850920ff73a3060da0af54e73936590bc59326799b8447abd955d05cd",
+    "tactical_sha256": "9cc4e9d7a3d9b09e3bd5a371d5b49e21afb0cedb3a0c3b6e5b70096a33781917",
+    "valid_responses": 13
+  },
+  "audit_artifact": "results\\model_execution\\20261026T004412343903Z\\audit.json",
+  "audit_artifact_sha256": "e0e5cc93e68ccccf2b9a2eb12bccd3a7f3b3bb8b855314239af893e3f4b4243c",
+  "backend_provenance": [
+    {
+      "actual_cost_usd": 0.000365736,
+      "cost_source": "provider_usage_not_independently_audited",
+      "costed_requests": 13,
+      "deadline_s": 1.0,
+      "enable_thinking": null,
+      "inference_scope": "unspecified",
+      "kind": "systemone",
+      "name": "openrouter-jev",
+      "network_scope": "remote",
+      "reasoning_effort": null,
+      "reported_cost_usd": 0.000365736,
+      "request_limit": 40,
+      "requested_model": "typesafe/jev-1.14",
+      "requests": 13,
+      "retries": 0,
+      "root": "https://openrouter.ai/api",
+      "schema_version": 1
+    }
+  ],
+  "budget": {
+    "after_artifact": "results\\provider_budgets\\20261026T004524535750Z\\jev_after.json",
+    "before_artifact": "results\\provider_budgets\\20261026T004331603729Z\\jev_before.json",
+    "expected_usage_if_reported_costs_settle_usd": 0.004860995999999999,
+    "initial_after_snapshot_remaining_usd": 0.99550474,
+    "initial_after_snapshot_usage_usd": 0.00449526,
+    "key_limit_usd": 1,
+    "last_observed_remaining_usd": 0.995139004,
+    "last_observed_usage_usd": 0.004860996,
+    "settled_delta_usd": 0.00037863000000000046,
+    "settlement_followup": {
+      "artifact": "results\\provider_budgets\\20261026T013637277648Z\\jev_settlement.json",
+      "limit": 1,
+      "limit_remaining": 0.995139004,
+      "reported_costs_reconciled": true,
+      "source": "authenticated OpenRouter /api/v1/key; no inference request",
+      "timestamp_utc": "2026-10-26T01:36:37.277648+00:00",
+      "usage": 0.004860996
+    },
+    "settlement_status": "settled_in_authenticated_followup_snapshot",
+    "usage_before_usd": 0.004482366
+  },
+  "cleanup": {
+    "aggregate_reports_refreshed": true,
+    "reset_passed": true,
+    "reset_state_digest": "b1fc57513fcd04ab458f7fba9e822aa15ebb7afc53052a821edcaca96037839a",
+    "reset_summary": "results/qualification/20261026T004501607687Z/summary.json",
+    "server_stop_requested": true,
+    "server_stopped_confirmed": true
+  },
+  "completion_ticks": 151,
+  "date": "2026-10-25",
+  "decision_deadline_s": 1.0,
+  "limitations": [
+    "One seed0 development trial, not a new qualification cohort",
+    "Prior Jev success retained separately under its historical source/harness hashes",
+    "One completed response discarded on shutdown after success",
+    "Initial after snapshot was pending; authenticated followup reconciled reported gameplay costs",
+    "No expanded navigation interface, later-course model trial, learned policy or holdout test"
+  ],
+  "live_latency_ms": {
+    "max": 530.9999999590218,
+    "median": 311.9999999762513,
+    "min": 281.00000001722947
+  },
+  "live_summary": "results\\model_execution\\20261026T004412343903Z\\summary.json",
+  "live_summary_sha256": "9ed8d6d850920ff73a3060da0af54e73936590bc59326799b8447abd955d05cd",
+  "model_requests": 13,
+  "next": "Define a separately versioned model navigation interface over the qualified C2-C5 motor, then screen actual recorded observations before controlled native development trials.",
+  "readiness": {
+    "artifact": "results\\provider_probes\\20261026T004336375071Z.json",
+    "reported_cost_usd": 1.2894e-05,
+    "requests": 1,
+    "status": "ready"
+  },
+  "reported_gameplay_cost_usd": 0.000365736,
+  "reported_total_cost_usd_including_readiness": 0.00037863,
+  "request_limit": 40,
+  "schema_version": 1,
+  "scope": "One new Jev actual-game C1 seed0 attempt on the current recorder/transport stack; not distinct-layout navigation or holdout evidence",
+  "served_models": [
+    "typesafe/jev-1.14-20261014"
+  ],
+  "status": "passed_current_stack_c1_development_smoke",
+  "successes": 1
+}

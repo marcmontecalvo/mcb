@@ -265,6 +265,20 @@ planted_item and target_missing exercise rejection. sensor_check temporarily bui
 bounded native occlusion fixtures, restores their cells synchronously and requires
 a fresh reset before begin. It cannot be used to perform a scored task.
 
+## Optional tandem recording
+
+Optional tandem orchestration is a Python-side C1 experiment and does not change
+the native bridge schema or body qualification. It adds `planner_request`,
+`planner_response`, context acceptance/invalidation/discard events,
+`planner_degraded` and `planner_backend_provenance` to the local episode recording.
+Existing tactical events carry context revision IDs and sanitized per-request
+exchanges. Summaries distinguish single/tandem mode, model roles, per-role caps
+and request counts, and degraded outcomes. Snapshot hashes bind `tandem.py` in
+addition to the shared runner, tactical motor and backend files. See
+[candidate coordination contracts](HYBRID_ARCHITECTURE.md) and
+[harness verification](TANDEM_HARNESS_PROOF.json). These recording additions are
+not native combat or live tandem qualification.
+
 ## Supplementary automated protocol proof
 
 `mclab body protocol-check` runs a separate, bounded development suite against

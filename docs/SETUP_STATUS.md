@@ -7,15 +7,20 @@ Completion took 128–141 ticks (median 132). Three stale controls were discarde
 and regenerated from fresh observations within the declared recovery limit.
 Earlier failed/invalid scored configurations remain in the all-attempt report.
 G5 passed for deterministic C2–C5 development navigation. G4 remains in progress;
-G6–G8 are unqualified. Total inference calls: **347**
-(18 provider probes +130 live calls +199 screening calls).
+G6–G8 are unqualified. Inference counts are retained per run and configuration;
+probe, synthetic-screen, live-gameplay and startup-warmup counts are distinct.
 The final compact-JSON tactical configuration completed **3/3 C1 seed0 development
 attempts**; all Atom Qwen live configurations total **3/5**. Directory authentication and
 chat readiness passed. See [live integration](G4_LIVE_INTEGRATION.md) and
 [hash-bound live proof](G4_LIVE_PROOF.json).
-Hosted Jev passed probes and **1/1 live C1** attempt in 212 ticks. Its 23 calls
-cost $0.000637602, confirmed by settled wallet usage. See
-[Jev evidence](G4_JEV_PROOF.json).
+Hosted Jev's initial C1 attempt passed in 212 ticks. A separately recorded
+post-move C1 attempt passed in 151 ticks with 13 requests; source/ledger, causal
+pickup and policy-tick audits passed. The initial and later source configurations
+are retained separately. Across all historical live model configurations there
+are eight attempts, five successes and 143 gameplay requests; these totals are
+not a controlled comparison or qualification cohort. See
+[initial Jev evidence](G4_JEV_PROOF.json) and
+[follow-up evidence](G4_JEV_CURRENT_STACK_PROOF.json).
 The original `Minecraft_AI_Technical_Handoff.md` remains unchanged.
 
 The unauthenticated gpu-docker Ollama service was tested: Qwen3 14B Q4_K_M
@@ -29,7 +34,26 @@ reviewed observations under three option orders. Jev completed 141/144 correct,
 with one wrong choice and two probability sums rejected. Atom's corrected runner
 stopped at 52/54 correct after a deadline; Marc reports heavy concurrent Hermes
 usage. Those timings are shared-load measurements, not an isolated ranking.
-OpenRouter settled usage is now $0.004482366 including this screen.
+After the later Jev readiness/gameplay calls, an authenticated follow-up reconciled
+settled OpenRouter usage to **$0.004860996**, with **$0.995139004** remaining under
+the unchanged $1 key cap. The later readiness/gameplay increment was $0.000378630.
+
+The additional local candidate screens are complete: OpenJev 4B v5 scored 78/144;
+Laya English scored 18/144 accepted and correct, with 68 probability-sum rejections
+and 29/144 raw choices correct; Qwen3.5-4B BF16 SemIf direct scoring scored 28/144
+in each of two separate prompt configurations. All used the one-second deadline;
+none were promoted to live gameplay under the tested representation. See
+[current screen details](G4_SCREENING.md).
+
+The C1 harness now supports optional tandem operation through separate planner
+and tactical backend instances, asynchronous request lanes, versioned strategy
+context, role budgets and provenance. The existing single-model path remains
+available. A local HTTP test verifies tactical progress while a fake planner route
+is held pending; **274 Python tests** and Ruff lint/format pass. The first planner
+adapter selects configured strategy choices; unrestricted strategic planning,
+later-course tandem gameplay and combat remain pending. Tandem is a hypothesis
+to compare, not the chosen winner. See [harness evidence](TANDEM_HARNESS_PROOF.json)
+and [candidate architecture](HYBRID_ARCHITECTURE.md).
 
 ## Runtime and qualification
 
@@ -45,8 +69,8 @@ causal chains, resets/cleanup, complete policy ticks and SQLite agreement.
 This qualifies deterministic development navigation, with no model or holdout
 claim. See [current evidence](G5_NAVIGATION_PROOF.json),
 [baseline evidence](G5_DEFAULT_GC_BASELINE.json)
-and [the current autonomous handoff](AUTONOMOUS_RUN.md). No new provider requests
-were made during this continuation.
+and [the current autonomous handoff](AUTONOMOUS_RUN.md). The navigation cohort
+itself made no provider requests; later model experiments are recorded separately.
 
 The repaired recorder and persistent transport also passed **10/10** frozen C1
 regression attempts (127–187 ticks, median 129.5), with complete causal chains,
@@ -63,7 +87,7 @@ stopped cleanly. Doctor passes with all three loopback ports available.
 | Minecraft | Java 26.3, protocol 777, authenticated mode, Survival |
 | Mods | Fabric Loader 0.19.5, API 0.164.0+26.3, pinned Carpet v26.3 |
 | Network | Loopback game 127.0.0.1:25575; authenticated bridge 8765 and supervisor 8766 |
-| Python checks | 255 tests pass; Ruff lint and formatting pass |
+| Python checks | 274 tests pass; Ruff lint and formatting pass (53 files including the preserved experiment wrapper) |
 | Java checks | Mod build and pure geometry verifier pass |
 | G1 live suites | 39 body checks, 24 protocol checks, 12 reference-fixture checks |
 | G2 reset foundation | 20 consecutive identical state digests; teardown confirmed |
@@ -218,16 +242,19 @@ labelled synthetic one-hot values. [The Atom proof](G4_ATOM_PROBE.json) preserve
 all eight attempted requests and four valid Choice responses. Live tactical integration subsequently completed three consecutive C1 seed0
 attempts after compact JSON reduced output latency. Two earlier live configurations
 failed on deadlines and remain recorded. All71 live calls are counted, including
-three pending calls cancelled after native success. Hosted Jev subsequently passed probes and a live attempt; G4 remains open for
-a local SystemOne candidate, independent offline screening and broader trials.
+three pending calls cancelled after native success. Hosted Jev subsequently passed
+probes and two separately recorded C1 trials. Local SystemOne candidates have now
+been screened; G4 remains open for actual-observation screening, controlled
+later-course model trials and optional tandem live comparisons.
 Upstream source references/hashes are pinned without vendoring unlicensed code.
 
 Baritone v1.20.0 Fabric API artifact SHA-256 was verified against its release
 metadata, and supported goal/mine/cancel signatures reviewed. The dedicated client
 bridge, login and live scored baseline remain pending. C2 development planning
 now has25 distinct layouts per C2–C5; C3–C5 each have25 physical geometries.
-The original frozen plan is retained. Native navigation profiles andmotor
-qualification remain pending. Thirty-five actual permitted C1
+The original frozen plan is retained. Native navigation reset qualification and
+the frozen V8 deterministic cohort are complete as described above. Broader
+model/selector qualification is pending. Thirty-five actual permitted C1
 observations were exported with original/reversed/seeded candidate orders and
 pending independent labels. No synchronized training demonstrations, trained
 checkpoint or fresh holdout result is claimed.

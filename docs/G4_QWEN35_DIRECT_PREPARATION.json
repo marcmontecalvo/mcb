@@ -1,0 +1,57 @@
+{
+  "G4_passed": false,
+  "accuracy": null,
+  "date": "2026-10-25",
+  "next": "Operator extracts archive and runs documented Docker build/run commands; then verify warmup and run bounded frozen screen at1s, stopping on readiness/deadline failure.",
+  "ollama_approximation": {
+    "admitted_screen_requests": 1,
+    "attempted_screen_cases": 1,
+    "capability_probe": "Three answer-slot next-token scores available; correct A argmax;736.6ms",
+    "capability_probe_artifact": "results/qwen_direct/20261026T004739246169Z/logprob_probe.json",
+    "cold_load_artifact": "results/qwen_direct/20261026T004729140778Z/load.json",
+    "cold_load_excluded_from_decision_deadline": true,
+    "correctness": "unknown; response did not arrive within original1s deadline",
+    "deadline_failures": 1,
+    "frozen_screen_artifact": "results/screening/20261026T004821175916Z/summary.json",
+    "matrix_complete": false,
+    "model": "qwen3.5:4b",
+    "model_digest": "d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04",
+    "quantization": "Q4_K_M",
+    "readout_limitations": [
+      "Ollama emits one incidental token, not zero-generation",
+      "Top20 logprobs do not guarantee coverage of every declared slot; missing scores would fail closed",
+      "No retry or deadline relaxation; full matrix not run"
+    ],
+    "version": "0.40.11"
+  },
+  "remote_launch_blocker": "Existing SSH host-key record for10.10.40.20 differs from the presented key; strict verification prevented login. Known-hosts file was not modified.",
+  "schema_version": 1,
+  "semif_runtime": {
+    "algorithm": "Unchanged pinned SemIf core.load_causal_model and direct.score; full-vocabulary last-position logits restricted to verified single-token answer slots; zero generated tokens",
+    "archive": "results\\qwen_direct\\mcb-qwen35-direct.zip",
+    "archive_sha256": "74fca0ed2ac9fa327f9d91bbc3965d5a7e60a3299a37d737422f211a40fcde33",
+    "base_image": "lmsysorg/sglang:v0.5.19",
+    "checks_passed": [
+      "Python syntax",
+      "seven candidate IDs, ordering, instructions and descriptions preserved by HTTP conversion",
+      "label-free state conversion"
+    ],
+    "dtype": "bfloat16",
+    "files": {
+      "Dockerfile": "f1922e81732b24f047975cf14a25abf30133bdfd6306499adc375123498e8e99",
+      "README.md": "fa357f662765589422c39e0f1b2e0055050415896e857b77b75742cc6bf1ba91",
+      "scorer.py": "9c37d0b6debd3a516d2d3ea922d58c217aeee2c7f2b83028ee8de0ca1a21f599"
+    },
+    "limitations": [
+      "Docker image not built or run on GPU host yet",
+      "Runtime reuses SGLang dependency environment and records actual versions; not the original SemIf package environment",
+      "First launch downloads separate BF16 weights; Ollama Q4 weights are not reused"
+    ],
+    "live_gpu_verified": false,
+    "model": "Qwen/Qwen3.5-4B",
+    "model_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+    "port": 8003,
+    "source_revision": "23cf1f39fc9534fe81437200959b6dfc7106e45a"
+  },
+  "status": "true_semif_gpu_runtime_prepared_awaiting_launch"
+}

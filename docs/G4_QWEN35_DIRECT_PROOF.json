@@ -1,0 +1,341 @@
+{
+  "G4_passed": false,
+  "date": "2026-10-25",
+  "earlier_ollama_attempt": "docs/G4_QWEN35_DIRECT_PREPARATION.json",
+  "fixture_hash": "9923ec80bd4af8fe56317d53797dd621130c82c91da0f0a1b31e86da4db75596",
+  "generated_tokens_per_decision": 0,
+  "gpu_verified": true,
+  "label_review": "docs/G4_SCREEN_REVIEW.json",
+  "limitations": [
+    "Synthetic translated variants, not actual-observation/gameplay accuracy or independent layouts",
+    "Runtime dependencies differ from SemIf original package pins; actualTorch2.13.0+cu130 andTransformers5.12.1 recorded",
+    "Original instructions conflicted with answer-letter renderer; serialization-neutral config is separately retained, not pooled",
+    "Direct probabilities are conditional option scores, not calibrated confidence",
+    "No heldout cases, nativeMinecraft trials, prompt search or fine-tuning",
+    "Historical Jev/Atom/OpenJev/Laya use different adapters/runtimes; no isolated speed/architecture ranking"
+  ],
+  "primary_attempted": 144,
+  "primary_correct": 28,
+  "recommendation": "The direct-scoring candidate has now been tested. Both configs scored28/144; do not promote to native trials under this observation/action representation. Continue Jev navigation integration.",
+  "reproduction_sources": {
+    "directory": "experiments/qwen35-direct",
+    "files": {
+      "Dockerfile": "f1922e81732b24f047975cf14a25abf30133bdfd6306499adc375123498e8e99",
+      "scorer.py": "9c37d0b6debd3a516d2d3ea922d58c217aeee2c7f2b83028ee8de0ca1a21f599"
+    },
+    "matches_verified_runtime_wrapper": true
+  },
+  "runs": [
+    {
+      "admitted_requests": 144,
+      "attempted": 144,
+      "audit_checks_passed": [
+        "144 unique cases with expected candidate orders and label review",
+        "permitted summaries and candidate descriptions unchanged; no expected labels sent",
+        "exact original or explicitly transformed instruction verified",
+        "same pinned model/source metadata in every response",
+        "all7 finite option logits and softmax distributions recomputed",
+        "all argmax choices and success labels recomputed including tie order",
+        "all144 decisions within existing1s deadline",
+        "no input exceeds2048tokens; scoring implementation rejects truncation"
+      ],
+      "batches": [
+        {
+          "path": "results\\screening\\20261026T005746406290Z\\summary.json",
+          "sha256": "4f734d1c7081b085e03c792ffef0cf246b948a2f67a6a6f8e524a4eb75e86591"
+        },
+        {
+          "path": "results\\screening\\20261026T005753313178Z\\summary.json",
+          "sha256": "f2f7e450d0d5a03ecf7b292adbefe8ce00a40c899b9f8699ce88aca720f58d9e"
+        },
+        {
+          "path": "results\\screening\\20261026T005800800700Z\\summary.json",
+          "sha256": "60d97a549457f4540d077efd2a43b51f4eb33da6e2b06f75de98bd509090257d"
+        },
+        {
+          "path": "results\\screening\\20261026T005808338387Z\\summary.json",
+          "sha256": "a253b322a5c7268c1782c643da7f55c482acd1ba51bf6101819f5801cc9ccd75"
+        }
+      ],
+      "by_category": {
+        "aiming_error": {
+          "attempted": 24,
+          "choices": {
+            "aim_log": 10,
+            "collect": 3,
+            "mine": 11
+          },
+          "correct": 10
+        },
+        "collection": {
+          "attempted": 24,
+          "choices": {
+            "aim_log": 12,
+            "collect": 2,
+            "mine": 10
+          },
+          "correct": 2
+        },
+        "exploration": {
+          "attempted": 24,
+          "choices": {
+            "aim_log": 9,
+            "collect": 3,
+            "mine": 12
+          },
+          "correct": 0
+        },
+        "mining": {
+          "attempted": 24,
+          "choices": {
+            "aim_log": 8,
+            "mine": 16
+          },
+          "correct": 16
+        },
+        "obstacle_or_ledge": {
+          "attempted": 24,
+          "choices": {
+            "aim_log": 2,
+            "collect": 2,
+            "mine": 14,
+            "stop": 6
+          },
+          "correct": 0
+        },
+        "unknown_or_stale": {
+          "attempted": 24,
+          "choices": {
+            "aim_log": 6,
+            "collect": 1,
+            "mine": 12,
+            "stop": 5
+          },
+          "correct": 0
+        }
+      },
+      "configuration": {
+        "deadline_s": 1.0,
+        "enabled": true,
+        "inference_scope": "local",
+        "kind": "systemone",
+        "model": "Qwen/Qwen3.5-4B",
+        "name": "gpu-docker-qwen35-4b-semif-direct",
+        "network_scope": "private_lan",
+        "request_limit": 36,
+        "root": "http://10.10.40.20:8003"
+      },
+      "correct": 28,
+      "deadline_failures": 0,
+      "errors": 0,
+      "forward_ms": {
+        "max": 148.09323800727725,
+        "median": 129.72671401803382,
+        "min": 115.20999198546633,
+        "p95_nearest_rank": 146.51519601466134
+      },
+      "input_tokens": {
+        "max": 452,
+        "min": 380
+      },
+      "instruction_transform": "none; original frozen instructions contain a conflicting JSON-output sentence",
+      "latency_ms": {
+        "max": 281.00000001722947,
+        "median": 188.00000002374873,
+        "min": 155.9999999590218,
+        "p95_nearest_rank": 218.99999998277053
+      },
+      "runner": "results\\qwen_semif\\20261026T005746332026Z\\runner.py",
+      "runner_sha256": "6cbf682ec965c9ada0c0517e3bf5167506b6872c893d51aa9f9904e96edc6f51",
+      "scope": "frozen synthetic tactical screening; no gameplay or G4 qualification",
+      "states_with_same_choice_under_all_three_orders": 0,
+      "summary": "results\\qwen_semif\\20261026T005746332026Z\\summary.json"
+    },
+    {
+      "admitted_requests": 144,
+      "attempted": 144,
+      "audit_checks_passed": [
+        "144 unique cases with expected candidate orders and label review",
+        "permitted summaries and candidate descriptions unchanged; no expected labels sent",
+        "exact original or explicitly transformed instruction verified",
+        "same pinned model/source metadata in every response",
+        "all7 finite option logits and softmax distributions recomputed",
+        "all argmax choices and success labels recomputed including tie order",
+        "all144 decisions within existing1s deadline",
+        "no input exceeds2048tokens; scoring implementation rejects truncation"
+      ],
+      "batches": [
+        {
+          "path": "results\\screening\\20261026T005837547893Z\\summary.json",
+          "sha256": "d4151bb9bee482460da1f8e67425a9143e725fa3eb784272eb0a2b188f37a620"
+        },
+        {
+          "path": "results\\screening\\20261026T005844251369Z\\summary.json",
+          "sha256": "f7c5324404c8a23a6e077f253bfbfb9e15fbd35d0bc51b8ab7e2139462e62a51"
+        },
+        {
+          "path": "results\\screening\\20261026T005851428966Z\\summary.json",
+          "sha256": "55775066ee55a23d09755b80f0da31711913720730f0a71c6055ab703cc9628f"
+        },
+        {
+          "path": "results\\screening\\20261026T005858629935Z\\summary.json",
+          "sha256": "b0d1f8300fedf76e97b7ac49a4a9f522cf30d8b4a3929641ea013c9951275133"
+        }
+      ],
+      "by_category": {
+        "aiming_error": {
+          "attempted": 24,
+          "choices": {
+            "aim_log": 9,
+            "collect": 4,
+            "mine": 11
+          },
+          "correct": 9
+        },
+        "collection": {
+          "attempted": 24,
+          "choices": {
+            "aim_log": 11,
+            "collect": 3,
+            "mine": 10
+          },
+          "correct": 3
+        },
+        "exploration": {
+          "attempted": 24,
+          "choices": {
+            "aim_log": 6,
+            "collect": 5,
+            "mine": 11,
+            "stop": 2
+          },
+          "correct": 0
+        },
+        "mining": {
+          "attempted": 24,
+          "choices": {
+            "aim_log": 8,
+            "mine": 16
+          },
+          "correct": 16
+        },
+        "obstacle_or_ledge": {
+          "attempted": 24,
+          "choices": {
+            "collect": 2,
+            "mine": 14,
+            "stop": 8
+          },
+          "correct": 0
+        },
+        "unknown_or_stale": {
+          "attempted": 24,
+          "choices": {
+            "aim_log": 1,
+            "collect": 2,
+            "mine": 12,
+            "stop": 9
+          },
+          "correct": 0
+        }
+      },
+      "configuration": {
+        "deadline_s": 1.0,
+        "enabled": true,
+        "inference_scope": "local",
+        "kind": "systemone",
+        "model": "Qwen/Qwen3.5-4B",
+        "name": "gpu-docker-qwen35-4b-semif-direct-neutral-format",
+        "network_scope": "private_lan",
+        "request_limit": 36,
+        "root": "http://10.10.40.20:8003"
+      },
+      "correct": 28,
+      "deadline_failures": 0,
+      "errors": 0,
+      "forward_ms": {
+        "max": 133.56108602602035,
+        "median": 115.44230103027076,
+        "min": 114.4880730425939,
+        "p95_nearest_rank": 132.68774602329358
+      },
+      "input_tokens": {
+        "max": 435,
+        "min": 363
+      },
+      "instruction_transform": "remove only JSON-output sentence",
+      "latency_ms": {
+        "max": 250.0,
+        "median": 179.49999999837019,
+        "min": 155.9999999590218,
+        "p95_nearest_rank": 203.00000003771856
+      },
+      "runner": "results\\qwen_semif\\20261026T005837470274Z\\runner.py",
+      "runner_sha256": "35172eb1508c1eca2d2c8aeb2bf39ab459052c0d08ab17428e5768c5f163b238",
+      "scope": "frozen synthetic labels/observations; serialization-neutral criterion; separate prompt config, no gameplay or G4 qualification",
+      "states_with_same_choice_under_all_three_orders": 0,
+      "summary": "results\\qwen_semif\\20261026T005837470274Z\\summary.json"
+    }
+  ],
+  "runtime_health_after": {
+    "generated_tokens_per_decision": 0,
+    "metadata": {
+      "device": "cuda:0",
+      "dtype": "bfloat16",
+      "implementation_sha256": {
+        "core.py": "2ed5702373242f62928dbe5339fa8b3eebe716cea94816519b6c1baa27e56da5",
+        "direct.py": "e42b91281b6fa16de3cabaf98b452dc026c0ee77869e5c1b10f44b962f3222cc"
+      },
+      "revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+      "semif_source_revision": "23cf1f39fc9534fe81437200959b6dfc7106e45a",
+      "source": "Qwen/Qwen3.5-4B",
+      "torch_version": "2.13.0+cu130",
+      "transformers_version": "5.12.1",
+      "wrapper_sha256": "9c37d0b6debd3a516d2d3ea922d58c217aeee2c7f2b83028ee8de0ca1a21f599"
+    },
+    "startup_warmup": {
+      "forward_seconds": 0.5141492059919983,
+      "id": "startup-warmup",
+      "input_tokens": 106,
+      "model": {
+        "device": "cuda:0",
+        "dtype": "bfloat16",
+        "implementation_sha256": {
+          "core.py": "2ed5702373242f62928dbe5339fa8b3eebe716cea94816519b6c1baa27e56da5",
+          "direct.py": "e42b91281b6fa16de3cabaf98b452dc026c0ee77869e5c1b10f44b962f3222cc"
+        },
+        "revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+        "semif_source_revision": "23cf1f39fc9534fe81437200959b6dfc7106e45a",
+        "source": "Qwen/Qwen3.5-4B",
+        "torch_version": "2.13.0+cu130",
+        "transformers_version": "5.12.1",
+        "wrapper_sha256": "9c37d0b6debd3a516d2d3ea922d58c217aeee2c7f2b83028ee8de0ca1a21f599"
+      },
+      "option_ids": [
+        "music",
+        "sleep"
+      ],
+      "option_logits": [
+        27.25,
+        18.125
+      ],
+      "probabilities": [
+        0.9998911030899734,
+        0.00010889691002655443
+      ],
+      "probability_status": "conditional option score; uncalibrated as decision confidence",
+      "prompt_sha256": "494fd93bd444ab9a8c15df3d8d7d4800a08c3cdf1b71e2b5a81fea9f72693dfb",
+      "prompt_version": "direct-options-v1",
+      "readout": "native full-vocabulary last-position logits restricted to declared answer slots",
+      "total_seconds": 0.535604054981377
+    },
+    "status": "ready"
+  },
+  "runtime_health_before": "results\\qwen_semif\\20261026T005745267983Z\\health.json",
+  "schema_version": 1,
+  "scope": "Qwen3.5-4B BF16 native SemIf direct option scoring over frozen synthetic observations; two separate prompt configs, no gameplay",
+  "source_hashes_verified_against_pinned_upstream": true,
+  "startup_warmup_excluded_from_screen": true,
+  "status": "completed_direct_scoring_screen_not_qualified_for_live_trials",
+  "total_new_screen_requests": 288
+}

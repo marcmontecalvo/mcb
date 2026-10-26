@@ -37,7 +37,8 @@ Primary references:
 Python starts a background supervisor with a hidden Windows console. It owns Java's
 stdin and provides only status/stop over a private bearer-token loopback HTTP
 endpoint. Tokens stay in ignored runtime files and never appear in reports. This
-is process management, not the future gameplay transport. It must not become a
+is process management, separate from the implemented authenticated gameplay
+bridge on port 8765. It must not become a
 per-motor-tick RCON or console control path.
 
 The Java verifier reads its specification before simulation, checks 2048 blocks
@@ -90,19 +91,25 @@ attempts. Its causal chains, complete policy ticks and source/configuration hash
 were audited; earlier failed configurations remain in the report. Provider Choice/chat
 adapters have bounded requests/deadlines, zero retries and sanitized exchanges;
 Atom Qwen chat and hosted OpenRouter Jev have passed real probes and C1 live
-development attempts (see G4_LIVE_INTEGRATION.md). G4 remains open for a local
-SystemOne candidate and broader independent screening. Upstream jevtests files
+development attempts (see G4_LIVE_INTEGRATION.md). Local SystemOne and direct-scoring
+candidates have now been screened and retained as failed tactical baselines.
+G4 remains open for broader actual-observation and controlled native model trials.
+Upstream jevtests files
 are reference-only (no root license found); no implementation was copied.
 Baritone v1.20.0 artifact/API is pinned, without a client bridge or live trial.
 
 Development planning hashes geometry, spawn, facing, target and inventory rather
 than treating seed metadata as diversity. The versioned navigation plan now has
 25 variants per C2–C5; C3–C5 each have 25 distinct physical geometries. The earlier
-frozen plan is retained. These later courses remain unqualified. Offline exports contain actual filtered observations
+frozen plan is retained. C2–C5 reset qualification and the frozen V8 deterministic
+development cohort passed; model/learned-policy qualification remains separate.
+Offline exports contain actual filtered observations
 with pending independent action labels. They are not synchronized demonstrations;
 training and fresh holdout evaluation remain pending. The authorized hosted Jev
 experiment made 23 paid calls with settled usage of $0.000637602; the verified
-wallet/key cap is $1. See G4_JEV_PROOF.json and EXPERIMENT_QUEUE.md.
+wallet/key cap is $1. Those are historical initial-call costs. Later screening and
+a follow-up C1 trial brought authenticated settled usage to $0.004860996, as
+recorded in G4_JEV_CURRENT_STACK_PROOF.json. See EXPERIMENT_QUEUE.md for current work.
 
 The broader synthetic useful-action screen contains 48 independently reviewed
 states in three option orders. Jev completed 144 cases with 141 correct, one wrong
@@ -120,3 +127,21 @@ invalidates the attempt before success finalization. A start event is not the
 publication of the running snapshot, so the runner waits for both. Stale controls
 are discarded, followed by release and a fresh observation/decision, at most three
 times per episode. No action age, duration, physics or course budget was relaxed.
+
+## Optional tandem experiment boundary
+
+Tandem planner/tactical models are a hypothesis to test against single-model
+alternatives. `tandem.py` adds independent asynchronous roles, bounded
+Choice-planner strategy context, expiry/replan revision checks and stale tactical
+reply rejection. `models live-smoke` remains single-model unless a second backend
+and planner profile are explicitly supplied. Per-role request caps and combined
+conservative remote cost are checked before world access; both roles' provenance
+and request totals survive shutdown failures. A configured degraded planner policy
+is recorded separately from default fail-on-planner-error behavior.
+
+The local HTTP concurrency check uses fake model responses, and the full Python
+suite passes 274 tests. No real two-model Minecraft run or winning architecture
+is claimed. Free-form strategic plans, pickup interruption/resumption, later-course
+model navigation and combat require their own work and evidence. The original
+technical handoff and native body/physics profiles remain unchanged. See
+TANDEM_HARNESS_PROOF.json and HYBRID_ARCHITECTURE.md.

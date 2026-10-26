@@ -1,0 +1,135 @@
+{
+  "accuracy": 0.5416666666666666,
+  "admitted_http_requests": 144,
+  "attempted": 144,
+  "audit_checks_passed": [
+    "144 unique cases and exact candidate orders",
+    "matching independently reviewed fixture",
+    "same permitted observation summaries and instructions",
+    "labels excluded from actual wire text",
+    "7 finite 3-logit rows per HTTP request",
+    "normalization and all decisions recomputed",
+    "accuracy recomputed from frozen labels",
+    "every decision within unchanged 1-second deadline"
+  ],
+  "backend": "gpu-docker-openjev-4b-v5-nli",
+  "backend_errors": 0,
+  "batches": [
+    {
+      "path": "results\\screening\\20261026T003737920229Z\\summary.json",
+      "sha256": "cb25a37e473ec8182ac261ac99b6b097d84177b730e2df12deb33fe8366cc04d"
+    },
+    {
+      "path": "results\\screening\\20261026T003747156879Z\\summary.json",
+      "sha256": "adeaf8e2f619d5dd662c6bd270afe8cf7ba5fc6c4bf912e37895b6e7cf2bafa7"
+    },
+    {
+      "path": "results\\screening\\20261026T003755774603Z\\summary.json",
+      "sha256": "e1c98b41c77c6c8dc2438720ede5a2b5faf415a7d2e10dc41e2fbbcfe0690e5e"
+    },
+    {
+      "path": "results\\screening\\20261026T003804498826Z\\summary.json",
+      "sha256": "d257356e51dcd0aba8cc591a6c8b7dbc36f46b2c01a36c75840d5383b448a11a"
+    }
+  ],
+  "by_category": {
+    "aiming_error": {
+      "attempted": 24,
+      "choices": {
+        "aim_log": 24
+      },
+      "correct": 24
+    },
+    "collection": {
+      "attempted": 24,
+      "choices": {
+        "collect": 24
+      },
+      "correct": 24
+    },
+    "exploration": {
+      "attempted": 24,
+      "choices": {
+        "forward": 24
+      },
+      "correct": 24
+    },
+    "mining": {
+      "attempted": 24,
+      "choices": {
+        "aim_log": 24
+      },
+      "correct": 0
+    },
+    "obstacle_or_ledge": {
+      "attempted": 24,
+      "choices": {
+        "forward": 24
+      },
+      "correct": 0
+    },
+    "unknown_or_stale": {
+      "attempted": 24,
+      "choices": {
+        "forward": 18,
+        "turn_right": 6
+      },
+      "correct": 6
+    }
+  },
+  "configuration": {
+    "deadline_s": 1.0,
+    "enabled": true,
+    "inference_scope": "local",
+    "kind": "systemone",
+    "model": "qwen3.5-4b-nli-v5",
+    "name": "gpu-docker-openjev-4b-v5-nli",
+    "network_scope": "private_lan",
+    "request_limit": 36,
+    "root": "http://10.10.40.20:8002"
+  },
+  "contract_smoke": "results/openjev/20261026T003651905041Z/contract.json",
+  "contract_smoke_attempted": 3,
+  "contract_smoke_correct": 3,
+  "correct": 78,
+  "date": "2026-10-25",
+  "deadline_failures": 0,
+  "experiment_runner": "results/openjev/20261026T003737837346Z/runner.py",
+  "experiment_runner_sha256": "205146d1dbd02cdaa78e7c032f97616391f326c5ae94398f58bf2dc353cd69e7",
+  "experiment_summary": "results\\openjev\\20261026T003737837346Z\\summary.json",
+  "fixture_hash": "9923ec80bd4af8fe56317d53797dd621130c82c91da0f0a1b31e86da4db75596",
+  "label_review": "docs/G4_SCREEN_REVIEW.json",
+  "latency_ms": {
+    "max": 657.0000000065193,
+    "median": 226.50000001885928,
+    "min": 202.9999999795109,
+    "p95_nearest_rank": 264.9999999557622
+  },
+  "limitations": [
+    "Synthetic development observations; not native sensing, actual-observation accuracy or gameplay",
+    "Historical hosted Jev used a different adapter/request path; no isolated speed or architecture ranking",
+    "Container digest and checkpoint hashes not independently read from GPU host",
+    "Normalized NLI entailment is not calibrated action-success probability",
+    "Experiment-only adapter; production backend configuration unchanged",
+    "No prompt tuning or native trials; holdouts untouched"
+  ],
+  "model": "AlexWortega/openjev/qwen3.5-4b-nli-v5",
+  "readout": "Official typed-decision hypothesis template; softmax of three raw NLI logits per option; normalize entailment over candidates. Probabilities uncalibrated.",
+  "recommendation": "Retain failed tactical baseline. Screen Laya next; do not expand OpenJev into live trials under this representation.",
+  "runtime_observed": {
+    "classification_output_width": 3,
+    "model_info_path": "/models/openjev/qwen3.5-4b-nli-v5",
+    "served_model_name": "openjev"
+  },
+  "runtime_user_reported": {
+    "container": "lmsysorg/sglang:v0.5.19",
+    "gpu": "RTX 5060 Ti 16 GB",
+    "post_startup_available_memory_gb": 3.31,
+    "weights_memory_gb": 8.62
+  },
+  "schema_version": 1,
+  "scope": "frozen synthetic tactical screening; no gameplay or G4 qualification",
+  "scored_option_pairs": 1008,
+  "states_with_same_argmax_under_all_three_orders": 48,
+  "status": "completed_synthetic_screen_not_qualified_for_live_trials"
+}

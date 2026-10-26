@@ -154,6 +154,9 @@ def main() -> int:
     live.add_argument("--backend", required=True)
     live.add_argument("--count", type=int, default=1)
     live.add_argument("--request-limit", type=int, default=40)
+    live.add_argument("--planner-backend")
+    live.add_argument("--planner-profile", type=Path)
+    live.add_argument("--planner-request-limit", type=int)
     body = sub.add_parser("body").add_subparsers(dest="operation", required=True)
     body.add_parser("qualify")
     body.add_parser("protocol-check")
@@ -229,9 +232,32 @@ def main() -> int:
                     )
             case "models":
                 if args.operation == "live-smoke":
-                    result = model_execution.run(
-                        args.backend, count=args.count, request_limit=args.request_limit
-                    )
+                    if args.planner_backend:
+                        if args.planner_profile is None:
+                            raise ValueError("Tandem mode requires --planner-profile")
+                        result = model_execution.run_tandem(
+                            args.backend,
+                            args.planner_backend,
+                            planner_profile=read_json(args.planner_profile),
+                            count=args.count,
+                            request_limit=args.request_limit,
+                            planner_request_limit=4
+                            if args.planner_request_limit is None
+                            else args.planner_request_limit,
+                        )
+                    else:
+                        if (
+                            args.planner_profile is not None
+                            or args.planner_request_limit is not None
+                        ):
+                            raise ValueError(
+                                "Planner options require --planner-backend"
+                            )
+                        result = model_execution.run(
+                            args.backend,
+                            count=args.count,
+                            request_limit=args.request_limit,
+                        )
                     print(json.dumps(result, indent=2))
                     return 0 if result["status"] == "completed_development_smoke" else 1
                 specs = read_json(ROOT / "config/backends.json")["backends"]

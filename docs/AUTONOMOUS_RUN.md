@@ -7,6 +7,92 @@ manual testing pass for work that the native harness can verify itself.
 
 ## Current phase
 
+Latest correction: Marc thinks tandem planner+tactical models might win but wants
+that tested; do not lock in hybrid as the selected architecture. The harness must
+handle two models together while preserving single-model alternatives and freely
+configurable roles. `tandem.py` now supplies an optional C1 controller with separate
+asynchronous lanes, versioned Choice-planner context, stale tactical/plan rejection,
+expiry/cancellation and explicit planner-failure policy. Live-smoke flags opt into
+the second backend/profile/cap; both role budgets plus combined conservative
+remote cost are checked before arena access. Both roles' requests and provenance
+are retained even if shutdown fails. Audit output distinguishes single/tandem
+and binds tandem source hashes. Fake-provider tests verify orchestration; no new
+live two-model run or superiority is claimed. Unrestricted strategic-plan output,
+opportunity suspension/resumption, later navigation and combat remain pending.
+`HYBRID_ARCHITECTURE.md` and `JEV_NAVIGATION_PLAN.md` reflect the hypothesis and
+current implementation boundary. Preserve pending entity-attack/knockback scope.
+
+Verification includes an actual local HTTP transport test with two model IDs:
+the planner route is held pending while the tactical route returns a decision
+and motor updates continue. These are controlled fake model responses, not Jev
+or another real model. The normal one-model CLI is still available. No paid
+provider calls or new native Minecraft trials were made during harness changes.
+Final checks: 274 Python tests, Ruff lint and format (53 files including the preserved experiment wrapper), and diff checks
+passed. `TANDEM_HARNESS_PROOF.json` records scope, source hashes, CLI validation
+and the local two-route HTTP concurrency test. No gate was advanced.
+
+Next navigation milestone:
+`JEV_NAVIGATION_PLAN.md` records the contract, implementation/test, recorded-state
+screen, native smoke and paired development comparison sequence. The current
+navigation controller combines task selection with motor execution; a real model
+comparison needs an explicit bounded local-goal interface and common motor, with
+no deterministic rescue of bad selector decisions. Optional C1 tandem runtime
+and tests are implemented; the bounded local-waypoint interface and later-course
+model runner remain pending. Preserve the frozen V8 evidence, native pins,
+one-second tactical deadline and unopened holdouts.
+
+Qwen3.5-4B direct scoring is now tested. The operator launched the dedicated
+SemIf BF16 CUDA scorer at 10.10.40.20:8003. Pinned source/wrapper hashes matched,
+and all responses used the same model/source metadata with zero generated tokens.
+The first full frozen screen scored **28/144**. Its criterion contained a JSON
+serialization instruction conflicting with answer-letter rendering; a separately
+retained version removed only that sentence and also scored **28/144**. No errors
+or missed one-second deadlines in either run. Neutral-format median was 179.5 ms,
+p95 203 ms; exploration and obstacle/ledge passed 0/24 each. Raw logits, softmaxes,
+argmaxes, candidate orders, labels and input limits audited. Evidence is in
+`G4_QWEN35_DIRECT_PROOF.json`. Actual runtime is Torch 2.13.0+cu130 and Transformers
+5.12.1, differing from the source project's dependency pins. Do not promote this
+representation to gameplay trials. All three additional model screens are now
+complete; resume Jev navigation integration. G4 remains in progress and holdouts
+are untouched. The direct scorer is still running; Laya/OpenJev are stopped.
+
+The earlier Ollama Q4 approximation is retained separately: a three-slot score
+probe worked, but the first full action request exceeded one second. That stopped
+attempt is not a semantic accuracy result. Setup/package evidence remains in
+`G4_QWEN35_DIRECT_PREPARATION.json`; no SSH trust records were changed.
+
+October 25 actual-game follow-up: Jev passed one fresh C1 seed-0 development
+attempt in **151 ticks with 13 requests** on the post-move stack. Raw audit passed
+source/ledger agreement, all policy ticks, causal break/drop/pickup and three-tick
+applied observation ages. Readiness plus gameplay cost $0.000378630. A later
+authenticated follow-up reconciled settled total usage to $0.004860996 and
+remaining credit to $0.995139004 under the unchanged $1 key cap. Evidence is
+in `G4_JEV_CURRENT_STACK_PROOF.json`. The final reset restored the frozen C1 digest,
+reports were refreshed, and Minecraft stopped cleanly. That native trial preceded
+the optional tandem code changes; it is not live verification of the new tandem
+controller. No holdout was used. G4 remains in progress. The next step is a separately
+versioned model navigation interface over the qualified C2–C5 motor, with actual
+recorded-observation screening before bounded native trials. Current live-smoke
+admission remains C1-only; no wider model qualification is claimed.
+
+October 25 model follow-up: gpu-docker OpenJev 4B v5 passed a three-case NLI
+contract check and completed the frozen synthetic screen at **78/144**, with
+zero backend/deadline errors. Whole-decision median was 226.5 ms; p95 265 ms.
+Exploration/aiming/collection passed 24/24 each; mining and obstacle/ledge failed
+0/24 each; unknown/stale passed 6/24. The raw request/score/label audit passed.
+Evidence is in `G4_OPENJEV_PROOF.json`; all 144 exchanges and the experiment-only
+adapter source are retained under results. G4 remains in progress; no native or
+holdout trials were run. After the operator switched containers, Laya English
+completed the same screen at **18/144 accepted and correct**, with 68 probability
+sum rejections and no timeout/transport failures. Raw-choice inspection, including
+rejected responses, was only 29/144; no normalization or retries were applied.
+No reported truncation or CPU fallbacks; all-response median was 78 ms.
+`G4_LAYA_PROOF.json` retains the evidence. Hold live trials of both models under
+the existing representation. Laya and OpenJev were subsequently stopped for the
+SemIf direct-scoring run described above. No native body/physics or provider
+configuration was changed during those screens. Later optional tandem Python
+harness changes are described at the top of this file.
+
 Resumed on D:\mcb on October 25, 2026, with approximately 541 GiB free at startup.
 The moved toolchain passes doctor. Python launchers were reinstalled; normal
 `uv run pytest` works. Native source/jar hashes remain `622e3361` / `77d33e31`,
@@ -69,7 +155,8 @@ have 20 distinct layouts, complete policy ticks, causal chains and matching ledg
 outcomes; all applied controls have observation age 3 and duration 5.
 C4 discarded and regenerated one stale action within the existing recovery bound;
 no timing, physics, episode or success criterion was relaxed.
-Latest checks: **255 tests pass**, Ruff lint/format pass. A loaded full run
+At the navigation checkpoint, **255 tests passed** with Ruff lint/format passing;
+the later tandem harness suite has 274 passing tests as recorded above. A loaded full run
 had one backend mock HTTP-404 assertion exceed its 0.1-second deadline;
 the complete backend module passed 27/27 in isolation, then the full suite passed.
 No provider or Atom calls were made during resumed navigation work. Keep holdouts
@@ -136,9 +223,11 @@ and all failures remain diagnostic history.
 2. C1 passed its ten-attempt regression and raw audit. Final reset, all-attempt
    reports and doctor are complete. The server is stopped. Java source is
    unchanged; native mechanics/reset suites need renewal if source/pins change.
-3. G4 remains partial: the Atom screen awaits a quiet window and the separate
-   local SystemOne candidate lacks an endpoint. Preserve all earlier provider
-   outcomes, budgets and shared-load limitations.
+3. G4 remains partial: the Atom screen awaits a quiet window. OpenJev, Laya and
+   Qwen3.5-4B direct scoring have completed their bounded synthetic screens without
+   earning live promotion. Actual-observation screening, later-course model
+   navigation and real tandem comparisons remain. Preserve all provider outcomes,
+   budgets and shared-load limitations.
 4. Baritone still needs its dedicated Fabric client bridge, an authenticated
    client session and live qualification. Synchronized human demonstrations,
    learned-policy training/evaluation, construction and holdouts remain later
@@ -157,7 +246,8 @@ qualified denominator or consume fresh holdouts during development.
 - Atom is heavily shared with Hermes agents per Marc. Do not benchmark it as an
   isolated service, retry an overloaded batch repeatedly, unload its model or
   change its service. Finish the partial screen in a quiet window later.
-- OpenRouter has a verified $1 key/wallet cap. Last settled usage: $0.004482366.
+- OpenRouter has a verified $1 key/wallet cap. Last authenticated settled usage:
+  $0.004860996; remaining credit $0.995139004. See G4_JEV_CURRENT_STACK_PROOF.json.
   Keep explicit provider/request/cost limits and record every charged request.
 - gpu-docker Qwen3 failed its existing tactical profile; preserve that baseline.
   Jev image/Box work remains a later, separate camera experiment.

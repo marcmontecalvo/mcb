@@ -3,7 +3,35 @@
 Updated October 25, 2026. Queue entries are plans, not qualification evidence.
 Current gate results remain in `gates.json`.
 
-## Current: native navigation development qualification
+## Current: model decisions and actual-game validation
+
+Architecture hypothesis from Marc: a larger LLM might provide planning and Jev
+fast tactical decisions. He explicitly corrected the earlier assumption that
+this would be the winner. Preserve single-model and tandem comparisons and make
+model/role assignment configurable. Optional tandem C1 harness support now has
+independent asynchronous lanes, versioned planning context, stale-result rejection
+and separate request/provenance accounting. Local fake-provider checks establish
+coordination behavior, not live performance or tandem superiority. The first
+planner adapter is bounded Choice over a supplied strategy menu. Broader
+structured plans, opportunity suspension/resumption and combat remain pending.
+See [candidate architecture](HYBRID_ARCHITECTURE.md).
+
+Marc authorized continued work and requested the next five steps. The concrete
+sequence and decision boundary are in [Jev navigation plan](JEV_NAVIGATION_PLAN.md):
+define the bounded navigation contract; implement/test the shared motor and
+selectors; screen actual recorded observations; run bounded native smoke trials;
+freeze/audit the paired twenty-layout development comparison. Initial code review
+found that the existing navigation controller also chooses goals, so it cannot
+serve as an opaque deterministic fallback behind a nominal model selector.
+
+October 25 Jev follow-up passed one new native C1 seed-0 trial on the current
+stack: **151 ticks, 13 requests**, no deadline/validation failures, and a complete
+raw audit. The arena was reset and the server stopped. See
+[current-stack proof](G4_JEV_CURRENT_STACK_PROOF.json). This repeats the initial
+task; it does not establish distinct-layout navigation. Next, define a separately
+versioned model navigation interface over the qualified C2–C5 motor, screen actual
+recorded observations, then run bounded native development trials. The existing
+live-smoke runner is intentionally C1-only; do not bypass that admission check.
 
 The [48-state synthetic screen](G4_SCREENING.md) completed 144 option-order cases
 for Jev: 141 correct, one wrong choice and two rejected probability sums. It does
@@ -24,8 +52,33 @@ persistent HTTP. Its matched full matrix passed **80/80**, 20/20 per course, and
 all raw audits passed on a uniform frozen stack. G5's deterministic development
 criterion is complete. See [current evidence](G5_NAVIGATION_PROOF.json),
 [baseline evidence](G5_DEFAULT_GC_BASELINE.json) and the run ledger in
-[the autonomous handoff](AUTONOMOUS_RUN.md). A local SystemOne endpoint and the
+[the autonomous handoff](AUTONOMOUS_RUN.md). A viable local SystemOne candidate and the
 dedicated Baritone client bridge remain outstanding. No holdout has been consumed.
+
+October 25 local model follow-up: OpenJev 4B v5 was served on gpu-docker port
+8002 and completed the frozen synthetic matrix at **78/144**, with no transport
+errors or missed one-second decision deadlines. Mining and obstacle/ledge both
+failed 0/24 under the current representation; retain this baseline and hold live
+trials. See [OpenJev proof](G4_OPENJEV_PROOF.json). Laya English then completed the
+same screen on CUDA: **18/144 accepted and correct**, including 68 probability-sum
+rejections. Even disregarding probability validation, its returned choices were
+correct only 29/144. No timeouts or reported truncation/fallbacks; response median
+78 ms. Hold live trials under this representation. See [Laya proof](G4_LAYA_PROOF.json).
+Laya and OpenJev are stopped. Qwen3.5:4b remains available in Ollama; the separate
+BF16 SemIf direct scorer is running at port 8003.
+These bounded screens do not justify broader trials of either new local model.
+
+Qwen3.5-4B direct scoring is now completed as a bounded screen. The native Ollama
+approximation had no accuracy result because its first full action request missed
+the one-second deadline. After operator launch, the actual pinned SemIf BF16
+forward-pass scorer ran on CUDA and scored **28/144** with the original criterion.
+A separate configuration removed only the conflicting JSON-output sentence and
+also scored **28/144**. Neither run had errors or missed deadlines. The cleaner
+configuration took median 179.5 ms per decision but failed exploration and
+obstacle/ledge 0/24 each. Source/score/label audits passed; no native or holdout
+trials were run. See [direct-scoring proof](G4_QWEN35_DIRECT_PROOF.json).
+All three additional candidate screens are complete. Hold broader local-model
+trials under this representation and return to Jev navigation integration.
 
 ## Tested: gpu-docker Qwen3 on RTX 5060 Ti
 

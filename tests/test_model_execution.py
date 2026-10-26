@@ -155,3 +155,97 @@ def test_close_failure_still_counts_requests_and_records_provenance():
         model_execution.close_selector(client, Controller(), Backend(), summary)
     assert summary["model_requests"] == 3
     assert client.records[-1] == ("backend_provenance", {"requests": 3})
+
+
+def test_tandem_accounts_for_both_roles_even_when_shutdown_fails():
+    class Backend:
+        requests = 2
+
+        def provenance(self):
+            return {"requests": self.requests}
+
+    class Controller:
+        planner_backend = Backend()
+
+        def close(self):
+            raise BackendError("shutdown failed")
+
+        def drain_events(self):
+            return [("planner_response", {"recorded": True})]
+
+    class Client:
+        records = []
+
+        def record(self, kind, payload):
+            self.records.append((kind, payload))
+
+    tactical = Backend()
+    tactical.requests = 3
+    client = Client()
+    summary = {"model_requests": 0}
+    with pytest.raises(BackendError, match="shutdown"):
+        model_execution.close_selector(client, Controller(), tactical, summary)
+    assert summary == {
+        "model_requests": 5,
+        "planner_model_requests": 2,
+        "tactical_model_requests": 3,
+        "planner_failures": 0,
+        "degraded": False,
+    }
+    assert client.records[-2:] == [
+        ("backend_provenance", {"requests": 3}),
+        ("planner_backend_provenance", {"requests": 2}),
+    ]
+
+
+def test_tandem_validates_each_role_and_combined_remote_budget(monkeypatch):
+    specs = [
+        {
+            "name": name,
+            "enabled": True,
+            "kind": "systemone",
+            "root": "https://example.com",
+            "model": "test",
+            "deadline_s": 1,
+            "request_limit": 40,
+            "cost_ceiling_usd": 1,
+            "max_request_cost_usd": 0.02,
+        }
+        for name in ("tactical", "planner")
+    ]
+    monkeypatch.setattr(model_execution, "read_json", lambda _: {"backends": specs})
+    monkeypatch.setattr(model_execution, "_run", lambda *args, **kwargs: (args, kwargs))
+    profile = {"instructions": "Choose a strategy", "candidates": {"a": "Search"}}
+    with pytest.raises(ValueError, match="combined"):
+        model_execution.run_tandem(
+            "tactical", "planner", planner_profile=profile, planner_request_limit=20
+        )
+    args, kwargs = model_execution.run_tandem(
+        "tactical",
+        "planner",
+        planner_profile=profile,
+        count=2,
+        request_limit=20,
+        planner_request_limit=4,
+    )
+    assert args[0]["request_limit"] == 10
+    assert kwargs["planner_spec"]["request_limit"] == 2
+    assert kwargs["planner_profile"]["planner_candidates"] == {"a": "Search"}
+    assert profile == {
+        "instructions": "Choose a strategy",
+        "candidates": {"a": "Search"},
+    }
+    specs[1]["request_limit"] = 1
+    with pytest.raises(ValueError, match="configured remote"):
+        model_execution.run_tandem(
+            "tactical", "planner", planner_profile=profile, planner_request_limit=2
+        )
+
+
+def test_tandem_rejects_excess_role_budget_and_invalid_profile_before_world(
+    monkeypatch,
+):
+    with pytest.raises(ValueError):
+        model_execution.run_tandem("t", "p", planner_profile={}, count=0)
+    with pytest.raises(ValueError, match="profile"):
+        model_execution.run_tandem("t", "p", planner_profile={})

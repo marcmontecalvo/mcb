@@ -1,7 +1,10 @@
-# G4 live integration — October 24, 2026
+# G4 live integration — updated October 25, 2026
 
 Status: local Qwen and hosted Jev integration implemented and exercised; G4
-remains open for a local SystemOne candidate and broader screening.
+remains open for actual-observation screening and broader controlled trials.
+Additional local candidates have completed bounded screens without live promotion.
+Optional tandem C1 coordination is implemented and locally tested, with no real
+two-model gameplay result or superiority claim; see TANDEM_HARNESS_PROOF.json.
 
 The implemented experiment is a bounded local Atom/Qwen C1 smoke run. It uses the
 existing authenticated bridge, frozen G2 course and causal evaluator. Attempts
@@ -108,6 +111,31 @@ rtk proxy uv run --env-file .env --locked mclab models live-smoke --backend open
 
 These commands make new billable calls; they do not replay stored evidence.
 
+### October 25 current-stack follow-up
+
+After the new local candidates failed the frozen tactical screen, Jev passed one
+new native C1 seed-0 development attempt on the current recorder/transport stack.
+It completed the causal log break/drop/pickup chain in **151 ticks**, using
+**13 requests**. All responses validated within the original one-second deadline:
+281–531 ms, median 312 ms. One completed response was discarded during shutdown
+after success. No control or provider retry was used.
+
+The raw audit verified source snapshots, ledger outcomes, every policy tick,
+three-tick observation ages on all 51 applied controls, and the causal drop UUID.
+A final reset restored the frozen C1 state digest and the server stopped cleanly.
+The aggregate report retains all eight historical live attempts: five successes
+and 143 gameplay requests across different model/controller configurations.
+These totals are not a qualification cohort or an architecture ranking.
+
+The new readiness call plus gameplay cost **$0.000378630**. The first after-run
+snapshot had not settled gameplay charges. A later authenticated follow-up
+reconciled all reported costs: total key usage **$0.004860996**, remaining
+**$0.995139004**, with the $1 cap unchanged. Both snapshots are preserved.
+See [current-stack proof](G4_JEV_CURRENT_STACK_PROOF.json). G4 remains in progress.
+The current live model runner is scoped to C1. Moving Jev into C2–C5 requires a
+separately versioned navigation decision interface over the qualified motor,
+followed by actual-observation screening and bounded native development trials.
+
 ## gpu-docker Qwen3 comparison
 
 The user supplied the unauthenticated Ollama endpoint
@@ -136,6 +164,8 @@ quantization and serving stacks prevent a hardware or general intelligence ranki
 All 44 calls are retained in [gpu-docker evidence](G4_GPU_DOCKER_PROOF.json).
 Any representation/prompt/thinking investigation will be a separate configuration.
 
-Next: independent offline action screening and a local SystemOne candidate,
-followed by distinct-layout navigation trials after their courses and body
-capabilities are qualified. G4 is not marked passed by these C1 smokes.
+The local SystemOne/direct-scoring screens are now recorded in G4_SCREENING.md.
+Next are actual-observation action review and controlled later-course model
+experiments, including optional tandem comparisons. Deterministic navigation is
+qualified separately; it does not qualify these model configurations. G4 is not
+marked passed by the C1 smokes or local tandem coordination tests.
