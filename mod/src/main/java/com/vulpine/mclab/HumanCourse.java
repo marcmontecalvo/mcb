@@ -93,6 +93,17 @@ final class HumanCourse {
                 "pitch", p.getXRot(), "inventory", List.of());
     }
 
+    /** A named human client identified by UUID, for runs that do not use a course reset. */
+    record Subject(MinecraftServer server, UUID uuid) {
+        static Subject named(MinecraftServer server, String name) {
+            var p = server.getPlayerList().getPlayerByName(name);
+            if (p == null || !CarpetBodyAdapter.isHuman(p)) throw new IllegalArgumentException("human_not_present");
+            return new Subject(server, p.getUUID());
+        }
+        ServerPlayer player() { return server.getPlayerList().getPlayer(uuid); }
+        boolean owns(ServerPlayer p) { return p.getUUID().equals(uuid); }
+    }
+
     private float yaw() { return spec.get("yaw").getAsFloat(); }
     private float pitch() { return spec.get("pitch").getAsFloat(); }
 }

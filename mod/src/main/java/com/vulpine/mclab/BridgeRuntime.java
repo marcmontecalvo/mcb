@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -38,6 +39,7 @@ public final class BridgeRuntime implements AutoCloseable {
     private CourseReset courseReset;
     private CourseEpisode episode;
     private HumanCourse human;
+    private NaturalRun natural;
     private long pendingBeginSequence;
     private volatile Map<String,Object> policySnapshot = Map.of();
     private List<Map<String,Object>> visibleBlocks = List.of();
@@ -244,6 +246,54 @@ public final class BridgeRuntime implements AutoCloseable {
         if (request.get("schema_version").getAsInt() != 1) throw new IllegalArgumentException("schema_version");
         long sequence = request.get("sequence").getAsLong();
         String op = text(request, "op");
+        if (inbound.admin() && op.equals("natural_probe")) {
+            if (body != null || human != null || courseReset != null || (natural != null && !natural.terminal()))
+                throw new IllegalStateException("lab_busy");
+            var cells = NaturalRun.probe(server, request.get("center_x").getAsInt(), request.get("center_z").getAsInt(),
+                    request.get("radius").getAsInt(), request.get("stride").getAsInt());
+            emit("natural_probe", "fabric_start", Map.of("request_sequence", sequence, "cells", cells));
+            return;
+        }
+        if (inbound.admin() && op.equals("natural_start")) {
+            if (resetting || referenceName != null || body != null || human != null || courseReset != null
+                    || (episode != null && episode.running()) || (natural != null && !natural.terminal()))
+                throw new IllegalStateException("lab_busy");
+            String nextEpisode = text(request, "episode_id"), nextBody = text(request, "body_id");
+            if (sequence < 1 || nextEpisode.equals(episodeId) || nextBody.equals(bodyId)) {
+                throw new IllegalArgumentException("start_requires_fresh_episode_and_body");
+            }
+            BiConsumer<String, Map<String, Object>> evaluator = (type, data) -> emit(type, "server_evaluator", data);
+            natural = null;
+            if (text(request, "subject").equals("carpet_body")) {
+                if (retired.size() >= 32) throw new IllegalStateException("restart_after_32_qualification_bodies");
+                var spawn = NaturalRun.cell(request.getAsJsonArray("start"));
+                var candidate = new CarpetBodyAdapter(server, spawn,
+                        "Lab" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10),
+                        request.get("yaw").getAsFloat(), 0);
+                natural = new NaturalRun(server, request, candidate, null, evaluator);
+                body = candidate;
+                body.spawn(false);
+            } else {
+                natural = new NaturalRun(server, request, null,
+                        HumanCourse.Subject.named(server, text(request, "player")), evaluator);
+            }
+            runId = text(request, "run_id"); episodeId = nextEpisode; bodyId = nextBody;
+            lastRequestSequence = sequence; lastContactNanos = inbound.receivedNanos(); actionIds.clear();
+            everReady = false; readyState = "natural_preparing";
+            emit("natural_accepted", "fabric_start", Map.of("request_sequence", sequence));
+            return;
+        }
+        if (inbound.admin() && op.equals("natural_stop") && natural != null) {
+            validateIdentity(request);
+            if (sequence <= lastRequestSequence) throw new IllegalArgumentException("duplicate_or_out_of_order_sequence");
+            lastRequestSequence = sequence;
+            natural.finish("failed", "stopped");
+            scheduled.clear(); expiryTick = -1;
+            if (body != null) { body.release(); body.retire(); retired.add(body); body = null; }
+            natural = null; readyState = "idle";
+            emit("received", "fabric_start", Map.of("op", op, "request_sequence", sequence));
+            return;
+        }
         if (inbound.admin() && op.equals("human_course_reset")) {
             if (resetting || referenceName != null || body != null || courseReset != null
                     || (episode != null && episode.running())) throw new IllegalStateException("lab_busy");
@@ -416,6 +466,7 @@ public final class BridgeRuntime implements AutoCloseable {
                 pendingBeginSequence=sequence; courseReset.beginVerify(); readyState="begin_verifying";
             }
             case "course_end" -> {
+                if (natural!=null && natural.running()) { natural.finish("failed","controller_cancel"); break; }
                 if (episode==null || !episode.running()) throw new IllegalStateException("episode_not_running");
                 episode.finish("failed","controller_cancel");
             }
@@ -529,6 +580,14 @@ public final class BridgeRuntime implements AutoCloseable {
             }
         }
         if (human != null && !human.ready()) tickHuman();
+        if (natural != null) {
+            natural.tick(liveBodyState.equals("ready"));
+            if (natural.running()) readyState = "running";
+            else if (natural.terminal()) {
+                readyState = "episode_terminal"; scheduled.clear(); expiryTick = -1;
+                if (body != null) body.release();
+            }
+        }
         if (resetting) tickCourseReset(liveBodyState);
         else if (courseReset != null && !resetDigest.isEmpty() && liveBodyState.equals("ready")) readyState = "reset_ready";
         if (pendingBeginSequence!=0) tickCourseBegin();
@@ -670,6 +729,10 @@ public final class BridgeRuntime implements AutoCloseable {
         }
     }
 
+    private boolean policyRunning() {
+        return (episode != null && episode.running()) || (natural != null && natural.running() && body != null);
+    }
+
     private void updatePolicySnapshot() {
         var filtered=new LinkedHashMap<String,Object>();
         if(body!=null && body.player()!=null) {
@@ -677,7 +740,7 @@ public final class BridgeRuntime implements AutoCloseable {
             for(String key:List.of("position","velocity","yaw","pitch","on_ground","health","food",
                     "mode","pose","alive","sprinting","inventory","ray","block_reach","entity_reach","attack_strength"))
                 filtered.put(key,observed.get(key));
-            if(server.getTickCount()-sensorTick>=5 && episode!=null && episode.running()) {
+            if(server.getTickCount()-sensorTick>=5 && policyRunning()) {
                 visibleBlocks=PolicySensor.visible(body.player(),server.getTickCount());sensorTick=server.getTickCount();
             }
         }
@@ -688,10 +751,10 @@ public final class BridgeRuntime implements AutoCloseable {
                 Map.entry("tick",server.getTickCount()),Map.entry("state",readyState),
                 Map.entry("body",Map.copyOf(filtered)),Map.entry("visible_blocks",visibleBlocks),
                 Map.entry("sensor_profile","local-visibility-v1"),
-                Map.entry("visible_entities",body!=null && body.player()!=null && episode!=null?PolicySensor.entities(body.player()):List.of()),
-                Map.entry("episode",episode==null?Map.of():episode.publicState()),
+                Map.entry("visible_entities",body!=null && body.player()!=null && (episode!=null || natural!=null)?PolicySensor.entities(body.player()):List.of()),
+                Map.entry("episode",natural!=null?natural.publicState():episode==null?Map.of():episode.publicState()),
                 Map.entry("resources",resources));
-        if(episode!=null && episode.running()) {
+        if(policyRunning()) {
             var sample=new LinkedHashMap<String,Object>(policySnapshot);
             // Every simulation tick records body state. Map updates carry a complete local
             // visible-cell replacement every fifth tick; consumers preserve unknown cells.
@@ -710,6 +773,7 @@ public final class BridgeRuntime implements AutoCloseable {
     }
     public static void afterCourseBreak(ServerPlayer p,net.minecraft.core.BlockPos pos,boolean success) {
         var b=active;if(b!=null && b.episode!=null)b.episode.afterBreak(p,pos,success);
+        if(b!=null && b.natural!=null)b.natural.broke(p,success);
     }
     public static boolean permitCourseMutation(net.minecraft.world.level.Level level, net.minecraft.core.BlockPos pos,
                                                net.minecraft.world.level.block.state.BlockState state) {
