@@ -95,9 +95,11 @@ final class NaturalRun {
         weather.setRaining(false); weather.setThundering(false);
         server.overworld().setRainLevel(0); server.overworld().setThunderLevel(0);
         try {
-            server.getCommands().getDispatcher().execute("gamerule minecraft:spawn_mobs " + mobs,
-                    server.createCommandSourceStack());
-        } catch (Exception error) { throw new IllegalStateException("spawn_mobs_rule", error); }
+            // Setting a rule to its current value is reported as a failure, so flip it first.
+            var dispatcher = server.getCommands().getDispatcher();
+            dispatcher.execute("gamerule minecraft:spawn_mobs " + !mobs, server.createCommandSourceStack());
+            dispatcher.execute("gamerule minecraft:spawn_mobs " + mobs, server.createCommandSourceStack());
+        } catch (Exception error) { throw new IllegalStateException("spawn_mobs_rule:" + error.getMessage(), error); }
         var area = routeArea();
         server.overworld().getEntitiesOfClass(Mob.class, area, m -> m instanceof Enemy).forEach(Mob::discard);
         server.overworld().getEntitiesOfClass(ItemEntity.class, area).forEach(ItemEntity::discard);

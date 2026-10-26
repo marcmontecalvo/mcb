@@ -341,7 +341,12 @@ def attempt(seed: int, route: dict, entrant: str, mobs: bool, destination) -> di
         client.close()
 
 
-def run(seed: int, routes: list[dict], entrants=("baritone", "v8_goal")) -> dict:
+def run(
+    seed: int,
+    routes: list[dict],
+    entrants=("baritone", "v8_goal"),
+    conditions=(False, True),
+) -> dict:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = RESULTS / stamp
     summary = {
@@ -362,7 +367,7 @@ def run(seed: int, routes: list[dict], entrants=("baritone", "v8_goal")) -> dict
     }
     with natural_world(seed):
         for route in routes:
-            for mobs in (False, True):
+            for mobs in conditions:
                 for entrant in entrants:
                     folder = (
                         destination

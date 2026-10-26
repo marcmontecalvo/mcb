@@ -308,6 +308,9 @@ bridge (`client-bridge/`, `mclab baritone prepare|launch|status|goto|cancel`) ru
 Baritone in a Prism-authenticated client; it joined the lab and passed a live
 goto/cancel probe. Server-scored reference runs went 80/80 on C2–C5 at 2–4x fewer
 ticks than V8; see [Baritone reference](docs/BARITONE_REFERENCE.md).
+On natural terrain (seed 1337, five rugged routes, calm and night-with-mobs),
+Baritone reached 10/10 goals and a V8 goal mode 0/10; see
+[natural-terrain comparison](docs/NATURAL_TERRAIN_COMPARISON.md).
 
 The broader [synthetic tactical screen](docs/G4_SCREENING.md) contains 48 reviewed
 observations under three candidate orders. Jev scored 141/144; Atom's shared-load
