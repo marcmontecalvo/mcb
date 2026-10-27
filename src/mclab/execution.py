@@ -247,8 +247,19 @@ class PolicyMapRecorder:
     def __init__(self):
         self.cells = {}
         self.observations = 0
+        self.awareness_key = None
 
     def update(self, observation: dict) -> tuple[str, dict]:
+        awareness = observation.get("awareness", {})
+        key = (
+            observation.get("sensor_profile"),
+            awareness.get("revision"),
+            json.dumps(awareness.get("config", {}), sort_keys=True),
+        )
+        if key != self.awareness_key:
+            self.cells.clear()
+            self.observations = 0
+            self.awareness_key = key
         self.observations += 1
         changes = []
         for block in observation.get("visible_blocks", []):
@@ -264,18 +275,26 @@ class PolicyMapRecorder:
         return ("policy_map_full" if full else "policy_map_delta"), {
             "tick": observation["tick"],
             "unknown_is_air": False,
+            "sensor_profile": observation.get("sensor_profile"),
+            "awareness": awareness,
             "cells": list(self.cells.values()) if full else changes,
         }
 
 
 def policy_state(client: Bridge, *, record=True) -> dict:
     client.state()  # Heartbeat and evaluator event recording never reach decide().
-    started = time.monotonic_ns()
+    started = time.perf_counter_ns()
     observation = client.http("/policy")
-    latency_ms = (time.monotonic_ns() - started) / 1_000_000
+    latency_ms = (time.perf_counter_ns() - started) / 1_000_000
     for key in ("run_id", "episode_id", "body_id"):
         if observation.get(key) != getattr(client, key):
             raise RuntimeError("Policy observation belongs to another attempt")
+    from mclab.terrain_transport import expand_terrain
+
+    client.pending_policy_wire = observation
+    decode_started = time.perf_counter_ns()
+    observation = expand_terrain(observation)
+    client.terrain_decode_ms = (time.perf_counter_ns() - decode_started) / 1_000_000
     client.pending_policy = (observation, latency_ms, time.monotonic_ns())
     if record:
         record_pending_policy(client)
@@ -288,8 +307,16 @@ def record_pending_policy(client: Bridge):
         return
     observation, latency_ms, captured_ns = pending
     client.pending_policy = None
+    wire = getattr(client, "pending_policy_wire", None)
+    client.pending_policy_wire = None
     client.record(
-        "policy_observation", {**observation, "captured_monotonic_ns": captured_ns}
+        "policy_observation",
+        {
+            **(wire if wire is not None else observation),
+            "captured_monotonic_ns": captured_ns,
+            "terrain_decode_ms": getattr(client, "terrain_decode_ms", 0.0),
+            "terrain_decode_clock": "perf_counter_ns",
+        },
     )
     memory = getattr(client, "policy_memory", None)
     if memory is not None:
@@ -301,6 +328,9 @@ def record_pending_policy(client: Bridge):
             {
                 "tick": observation["tick"],
                 "policy_http_latency_ms": latency_ms,
+                "policy_wire_bytes": getattr(client, "last_policy_wire_bytes", None),
+                "terrain_decode_ms": getattr(client, "terrain_decode_ms", None),
+                "timing_clock": "perf_counter_ns",
                 "server": observation.get("resources", {"status": "unavailable"}),
             },
         )

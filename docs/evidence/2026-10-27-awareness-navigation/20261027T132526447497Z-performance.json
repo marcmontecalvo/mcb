@@ -1,0 +1,57 @@
+{
+  "attempts_recorded": 10,
+  "cohort_status": "passed",
+  "development_only": true,
+  "discarded_stale_actions": 0,
+  "events_sha256": "a25131856e0a49ef794af1aefcdf5d05d047d049acf7e159b052525973fbd3aa",
+  "full_sprint_acceptance": false,
+  "invalid_attempts": 0,
+  "lab_restored": true,
+  "limits": [
+    "Native sample_ms measures terrain sampling; not all snapshot/serialization work.",
+    "MSPT values are server rolling averages, not individual tick costs or TPS.",
+    "Payload sizes are canonical recorded JSON, not measured network wire bytes.",
+    "These fixtures do not establish natural-terrain, client-access or sprint parity."
+  ],
+  "metrics_source_sha256": "826371a9253956a4b72847babbfb2a711f6857070cdc679453917a91c4e61291",
+  "motor_ms": {
+    "max": 33.19119999650866,
+    "p50": 1.6201999969780445,
+    "p95": 3.29520006198436,
+    "p99": 23.12599995639175,
+    "samples": 1000
+  },
+  "native_sample_ms": {
+    "max": 22.3714,
+    "p50": 0.67,
+    "p95": 0.9685,
+    "p99": 1.1857,
+    "samples": 653
+  },
+  "percentile_method": "sorted floor((n-1)*q), matching controller status",
+  "policy_http_ms": {
+    "max": 16.0,
+    "p50": 0.0,
+    "p95": 16.0,
+    "p99": 16.0,
+    "samples": 149
+  },
+  "recorded_map_sample_json_bytes": {
+    "max": 463514,
+    "p50": 429245,
+    "p95": 463474,
+    "p99": 463476,
+    "samples": 653
+  },
+  "routes_reached": 10,
+  "schema_version": 1,
+  "server_rolling_average_mspt": {
+    "max": 13.512673,
+    "p50": 0.645362,
+    "p95": 1.201308,
+    "p99": 13.398915,
+    "samples": 3241
+  },
+  "summarizer_sha256": "471a8602edbdec137dfe82d5e186320738107e359aafb30045f09833c4db23d8",
+  "summary_sha256": "6ae5e4363a703a3ee4fc1ee9212de967f2e602b5a9c20e9cb53060db527f784d"
+}

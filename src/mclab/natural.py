@@ -8,18 +8,29 @@ settings are always restored. Each attempt starts from the same world snapshot.
 import json
 import math
 import random
+import re
 import shutil
 import subprocess
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
+from dataclasses import asdict
 from datetime import UTC, datetime
+from pathlib import Path
 
 from mclab import baritone_client, server
+from mclab.awareness import Awareness
+from mclab.bootstrap import sha256
 from mclab.execution import RecordedBridge, terminal_event
+from mclab.memory_policy import MemoryPolicy
+from mclab.modbuild import source_hash
 from mclab.model_execution import ControllerFailure, drive
 from mclab.navigation_goal import GoalController
 from mclab.navigation_runner import _motor_gc_policy, _new_identity, _source_commit
-from mclab.paths import ROOT, RUNTIME, SERVER, write_json
+from mclab.navigation_segmented import SegmentedController
+from mclab.paths import ROOT, RUNTIME, SERVER, read_json, write_json
+from mclab.recorder import arena_guard
+from mclab.spatial_memory import MapArchive, MapIdentity, SpatialMemory
+from mclab.terrain_steps import TerrainPolicy
 
 PROPERTIES = SERVER / "server.properties"
 SNAPSHOTS = RUNTIME / "natural"
@@ -280,7 +291,18 @@ def _wait_terminal(client, timeout):
     raise TimeoutError("Natural attempt exceeded its wall-clock deadline")
 
 
-def attempt(seed: int, route: dict, entrant: str, mobs: bool, destination) -> dict:
+def attempt(
+    seed: int,
+    route: dict,
+    entrant: str,
+    mobs: bool,
+    destination,
+    *,
+    awareness=None,
+    terrain_policy=None,
+    memory_policy=None,
+) -> dict:
+    awareness = Awareness() if awareness is None else awareness
     _restore(seed)
     player = _relaunch_client() if entrant == "baritone" else None
     client = _bridge(destination / "events.jsonl")
@@ -296,6 +318,12 @@ def attempt(seed: int, route: dict, entrant: str, mobs: bool, destination) -> di
             goal_radius=GOAL_RADIUS,
             tick_limit=TICK_LIMIT,
             mobs=mobs,
+            awareness=awareness.payload()
+            if entrant != "baritone"
+            else Awareness().payload(),
+            terrain_encoding="sections-v1"
+            if entrant == "segmented_goal" and awareness.preset != "legacy"
+            else "cells",
         )
         client.acknowledge(request, "natural_accepted", timeout=10)
         client.wait(
@@ -324,9 +352,39 @@ def attempt(seed: int, route: dict, entrant: str, mobs: bool, destination) -> di
                     raise RuntimeError("Policy stream did not reach running")
                 time.sleep(0.05)
             try:
-                with _motor_gc_policy():
+                with ExitStack() as resources, _motor_gc_policy():
+                    controller = GoalController(
+                        route["goal"], GOAL_RADIUS, awareness=awareness
+                    )
+                    if entrant == "segmented_goal":
+                        # Each snapshot restore creates an isolated map generation.
+                        # Never reuse geometry from a preceding benchmark attempt.
+                        memory = SpatialMemory(
+                            MapArchive(
+                                destination / "map.sqlite3",
+                                MapIdentity(
+                                    str((SNAPSHOTS / _level(seed)).resolve()),
+                                    client.episode_id,
+                                    "minecraft:overworld",
+                                    awareness,
+                                ),
+                            ),
+                            client.episode_id,
+                            policy=memory_policy,
+                        )
+                        resources.callback(memory.close)
+                        controller = SegmentedController(
+                            route["goal"],
+                            memory,
+                            radius=GOAL_RADIUS - 0.5,
+                            terrain_policy=terrain_policy or TerrainPolicy(),
+                            background_planning=True,
+                        )
+                        resources.callback(controller.close)
                     terminal = drive(
-                        client, GoalController(route["goal"], GOAL_RADIUS), wall
+                        client,
+                        controller,
+                        wall,
                     )
             except ControllerFailure as failure:
                 error = str(failure)
@@ -341,12 +399,34 @@ def attempt(seed: int, route: dict, entrant: str, mobs: bool, destination) -> di
         client.close()
 
 
+@arena_guard
 def run(
     seed: int,
     routes: list[dict],
     entrants=("baritone", "v8_goal"),
     conditions=(False, True),
+    *,
+    awareness=None,
+    terrain_policy=None,
+    memory_policy=None,
 ) -> dict:
+    awareness = Awareness() if awareness is None else awareness
+    _validate_run(seed, routes, entrants, conditions)
+    if memory_policy is not None and (
+        not isinstance(memory_policy, MemoryPolicy) or entrants != ("segmented_goal",)
+    ):
+        raise ValueError("Memory policy requires only the segmented_goal entrant")
+    if terrain_policy is not None and (
+        not isinstance(terrain_policy, TerrainPolicy) or entrants != ("segmented_goal",)
+    ):
+        raise ValueError("Terrain policy requires only the segmented_goal entrant")
+    provenance = read_json(ROOT / "runtime/mod-build.json")
+    if provenance["source_hash"] != source_hash():
+        raise RuntimeError("Rebuild and install the current natural-terrain mod first")
+    if not (SNAPSHOTS / _level(seed) / "level.dat").is_file():
+        raise ValueError(
+            "Natural-world snapshot missing; probe and snapshot this seed first"
+        )
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = RESULTS / stamp
     summary = {
@@ -363,6 +443,39 @@ def run(
             "mobs_on": "midnight, spawn_mobs true",
         },
         "source_commit": _source_commit(),
+        "mod_provenance": provenance,
+        "runner_sha256": sha256(Path(__file__)),
+        "controller_sha256": sha256(ROOT / "src/mclab/navigation_goal.py"),
+        "navigation_sha256": sha256(ROOT / "src/mclab/navigation.py"),
+        "segmented_source_sha256": {
+            name: sha256(ROOT / "src/mclab" / name)
+            for name in (
+                "navigation_segmented.py",
+                "route_search.py",
+                "spatial_memory.py",
+                "spatial_archive.py",
+                "section_codec.py",
+                "memory_policy.py",
+                "observation_worker.py",
+                "terrain_transport.py",
+                "bridge.py",
+                "execution.py",
+                "terrain_route.py",
+                "planning_worker.py",
+                "terrain_steps.py",
+            )
+        },
+        "mcb_awareness": awareness.payload(),
+        "mcb_terrain_encoding": "sections-v1"
+        if "segmented_goal" in entrants and awareness.preset != "legacy"
+        else "cells",
+        "memory_policy": (memory_policy or MemoryPolicy()).payload()
+        if "segmented_goal" in entrants
+        else None,
+        "terrain_policy": asdict(terrain_policy or TerrainPolicy())
+        if "segmented_goal" in entrants
+        else None,
+        "baritone_awareness": "native client chunks/cache; independent of MCB settings",
         "attempts": [],
     }
     with natural_world(seed):
@@ -374,7 +487,16 @@ def run(
                         / f"{route['route_id']}-{'mobs' if mobs else 'calm'}-{entrant}"
                     )
                     try:
-                        outcome = attempt(seed, route, entrant, mobs, folder)
+                        outcome = attempt(
+                            seed,
+                            route,
+                            entrant,
+                            mobs,
+                            folder,
+                            awareness=awareness,
+                            terrain_policy=terrain_policy,
+                            memory_policy=memory_policy,
+                        )
                     except Exception as error:  # keep going; record the failure
                         outcome = {
                             "status": "invalid",
@@ -392,3 +514,44 @@ def run(
                     write_json(destination / "summary.json", summary)
                     print(json.dumps(summary["attempts"][-1]), flush=True)
     return summary
+
+
+def _validate_run(seed, routes, entrants, conditions):
+    """Reject malformed input before restarting servers or restoring world files."""
+    if type(seed) is not int or not 0 <= seed < 2**63:
+        raise ValueError("Natural seed must be a nonnegative signed 64-bit integer")
+    if not isinstance(routes, list) or not 1 <= len(routes) <= 10:
+        raise ValueError("Select 1..10 explicit natural routes")
+    if not entrants or any(
+        e not in {"v8_goal", "segmented_goal", "baritone"} for e in entrants
+    ):
+        raise ValueError("Unknown natural entrant")
+    if not conditions or any(type(c) is not bool for c in conditions):
+        raise ValueError("Natural conditions must be booleans")
+    identifiers = set()
+    for route in routes:
+        if not isinstance(route, dict):
+            raise ValueError("Invalid natural route")
+        name = route.get("route_id")
+        if not isinstance(name, str) or not re.fullmatch(r"R[1-9][0-9]*", name):
+            raise ValueError("Invalid natural route ID")
+        if name in identifiers:
+            raise ValueError("Duplicate natural route ID")
+        identifiers.add(name)
+        for key in ("start", "goal"):
+            point = route.get(key)
+            if (
+                not isinstance(point, list)
+                or len(point) != 3
+                or any(type(v) is not int or abs(v) > 29_000_000 for v in point)
+            ):
+                raise ValueError("Invalid natural route coordinates")
+        yaw = route.get("yaw")
+        if (
+            type(yaw) not in {int, float}
+            or not math.isfinite(yaw)
+            or not -180 <= yaw < 180
+        ):
+            raise ValueError("Invalid natural route yaw")
+        if math.dist(route["start"], route["goal"]) > 384:
+            raise ValueError("Natural route exceeds server distance limit")

@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from mclab import (
+    awareness,
     backends,
     baritone_client,
     bootstrap,
@@ -130,6 +131,40 @@ def main() -> int:
     sub.add_parser("doctor")
     sub.add_parser("report")
     sub.add_parser("mod-install")
+    aware = sub.add_parser("awareness").add_subparsers(dest="operation", required=True)
+    aware.add_parser("check")
+    aware.add_parser("status")
+    show = aware.add_parser("show")
+    show.add_argument(
+        "--preset", choices=["legacy", "visible", "chunk"], default="legacy"
+    )
+    show.add_argument("--output", type=Path)
+    for option in (
+        "horizontal-radius-blocks",
+        "vertical-radius-blocks",
+        "entity-radius-blocks",
+        "entity-vertical-radius-blocks",
+        "update-interval-ticks",
+        "extra-scan-cells-per-update",
+        "extra-scan-budget-ms",
+    ):
+        show.add_argument("--" + option, type=int)
+    show.add_argument("--entity-visibility", choices=["visible", "unoccluded"])
+    nat = sub.add_parser("natural").add_subparsers(dest="operation", required=True)
+    nat_run = nat.add_parser("run")
+    nat_run.add_argument("--seed", type=int, required=True)
+    nat_run.add_argument("--routes", type=Path, required=True)
+    nat_run.add_argument("--awareness-profile", type=Path)
+    nat_run.add_argument("--terrain-profile", type=Path)
+    nat_run.add_argument("--memory-profile", type=Path)
+    nat_run.add_argument(
+        "--entrant",
+        choices=["v8_goal", "segmented_goal", "baritone", "both"],
+        default="v8_goal",
+    )
+    nat_run.add_argument(
+        "--condition", choices=["calm", "mobs", "both"], default="calm"
+    )
     experiment = sub.add_parser("experiments").add_subparsers(
         dest="operation", required=True
     )
@@ -201,6 +236,73 @@ def main() -> int:
     args = parser.parse_args()
     try:
         match args.command:
+            case "awareness":
+                if args.operation == "show":
+                    overrides = {
+                        key: value
+                        for key, value in vars(args).items()
+                        if key in awareness.Awareness.__dataclass_fields__
+                        and key != "preset"
+                        and value is not None
+                    }
+                    selected = awareness.Awareness.resolve(args.preset, **overrides)
+                    if args.output:
+                        write_json(args.output, selected.payload())
+                    result = {
+                        "sensor_profile": selected.sensor_profile,
+                        "config": selected.payload(),
+                    }
+                elif args.operation == "check":
+                    result = awareness.check()
+                else:
+                    from mclab.bridge import Bridge
+
+                    path = (
+                        ROOT
+                        / "results/awareness"
+                        / ("status-" + uuid4().hex + ".jsonl")
+                    )
+                    client = Bridge(path)
+                    try:
+                        result = client.http("/state").get("awareness")
+                        if result is None:
+                            raise RuntimeError(
+                                "Install the current awareness-enabled mod"
+                            )
+                    finally:
+                        client.close()
+            case "natural":
+                from mclab import natural
+                from mclab.memory_policy import MemoryPolicy
+                from mclab.terrain_steps import TerrainPolicy
+
+                selected = (
+                    awareness.Awareness.from_payload(read_json(args.awareness_profile))
+                    if args.awareness_profile
+                    else awareness.Awareness()
+                )
+                routes = read_json(args.routes)
+                if isinstance(routes, dict):
+                    routes = routes["routes"]
+                result = natural.run(
+                    args.seed,
+                    routes,
+                    entrants=("v8_goal", "baritone")
+                    if args.entrant == "both"
+                    else (args.entrant,),
+                    conditions=(False, True)
+                    if args.condition == "both"
+                    else (args.condition == "mobs",),
+                    awareness=selected,
+                    terrain_policy=TerrainPolicy(**read_json(args.terrain_profile))
+                    if args.terrain_profile
+                    else None,
+                    memory_policy=MemoryPolicy.from_payload(
+                        read_json(args.memory_profile)
+                    )
+                    if args.memory_profile
+                    else None,
+                )
             case "bootstrap":
                 server.assert_stopped()
                 result = bootstrap.bootstrap()
@@ -345,6 +447,10 @@ def main() -> int:
         print(json.dumps(result, indent=2))
         if args.command == "doctor":
             return 0 if all(c.get("ok", True) for c in result["checks"]) else 1
+        if args.command == "awareness" and args.operation == "check":
+            return 0 if result["status"] == "passed" else 1
+        if args.command == "natural":
+            return 0 if all(a["status"] == "success" for a in result["attempts"]) else 1
         if args.command == "models":
             return 1 if result["status"] == "not_ready" else 0
         if args.command == "experiments" and args.operation == "screen-run":

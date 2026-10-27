@@ -1,0 +1,89 @@
+{
+  "admission_checks": {
+    "expanded_sensor_rejected_by_scored_gate": true,
+    "legacy_C1_accepted": true,
+    "legacy_C2_C5_accepted": true
+  },
+  "checks": {
+    "C2": {
+      "artifact": "results/awareness/20261027T011202192412Z-regression/C2.json",
+      "sha256": "8df5854abe3d33261c5faa872636dac83c7cafb98e8ba83282b1e75ca51147ac",
+      "status": "passed_development_reset"
+    },
+    "C3": {
+      "artifact": "results/awareness/20261027T011202192412Z-regression/C3.json",
+      "sha256": "32e3029133395284eaf7686ff73ad473871a1bd47577294f5cd24f12c2d7bc4c",
+      "status": "passed_development_reset"
+    },
+    "C4": {
+      "artifact": "results/awareness/20261027T011202192412Z-regression/C4.json",
+      "sha256": "1dac19928cabca521c17829557c2283a27f6f4feea594939642226e9ae72bdba",
+      "status": "passed_development_reset"
+    },
+    "C5": {
+      "artifact": "results/awareness/20261027T011202192412Z-regression/C5.json",
+      "sha256": "37c49966826c5251c026f2915491489426e8a2cbe8ce05b5b96d45dc939de418",
+      "status": "passed_development_reset"
+    },
+    "awareness": {
+      "artifact": "results/awareness/20261027T011202192412Z-regression/awareness.json",
+      "sha256": "7c90aaf0a920cdd9a068643284781594c33c7dbd567e638e5d81abf6b7aa0713",
+      "status": "passed"
+    },
+    "initial_adversarial": {
+      "artifact": "results/awareness/20261027T011202192412Z-regression/initial_adversarial.json",
+      "sha256": "4130699d23ce5b75e28f9493cdd9590881521d671894d1ef22164295ba04f5c2",
+      "status": "passed_development_subset"
+    },
+    "initial_resets": {
+      "artifact": "results/awareness/20261027T011202192412Z-regression/initial_resets.json",
+      "sha256": "de23dc28cc1fad9d6093b23921625abe0e63fee187f334866acc320e679a9b8b",
+      "status": "passed_development_subset"
+    }
+  },
+  "date": "2026-10-26",
+  "flat_integration": {
+    "artifact": "results/awareness/20261027T011108542886Z-runtime/summary.json",
+    "attempts": 3,
+    "scope": "Short flat-lab route, one run per mode; not natural terrain",
+    "sha256": "56a0f64f5afea4a09cb0c4dd426299c3f4536929bd5be5cbdc8653ecdc866998",
+    "successes": 3
+  },
+  "initial_adversarial_checks_passed": 29,
+  "initial_reset_checks_passed": 20,
+  "legacy_sensor_checks_passed": 11,
+  "limitations": [
+    "No new natural-terrain success or Baritone parity claim",
+    "Client chunk-subscription equivalence is not implemented",
+    "Terrain batches are incremental; requested reach is not complete current coverage",
+    "Persistent spatial memory and compact chunk transport remain pending",
+    "The V8 goal controller still trims memory to horizontal radius 20 and vertical radius 12",
+    "Mode changes require fresh episodes/controllers; no mid-run hot swapping"
+  ],
+  "local_checks": {
+    "java_build_and_configuration_checks": "passed",
+    "python_report": {
+      "artifact": "results/awareness/20261027T011202192412Z-regression/python-tests.xml",
+      "sha256": "ef511935866d268dc40c4bf4a5807522fabf810c7f4f79cf9c2ebac94323d23d"
+    },
+    "python_tests_passed": 321,
+    "ruff_check": "passed",
+    "ruff_format": "passed"
+  },
+  "mod_provenance": {
+    "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "6745c3ef97c3b7107bd9a3bb3f43bc96a454ff3827ad7099fbfd63a1c6f357c3",
+    "schema_version": 1,
+    "source_hash": "0a46861c410c72632b089f589d8430c5a23e01452d0d86db65d45338838d4c7f"
+  },
+  "native_awareness_checks_passed": 15,
+  "navigation_reset_checks_passed": {
+    "C2": 20,
+    "C3": 20,
+    "C4": 20,
+    "C5": 20
+  },
+  "schema_version": 1,
+  "scope": "Development awareness modes; legacy reset/evaluator requalification",
+  "status": "passed_development_increment"
+}

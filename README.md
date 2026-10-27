@@ -19,6 +19,30 @@ See [setup status](docs/SETUP_STATUS.md) and
 
 ## Local operation
 
+Work is paused at Marc's request. Start with the
+[October 27 handoff](docs/PAUSE_HANDOFF_2026-10-27.md) for current progress,
+remaining acceptance, runtime state and the next investigation.
+
+Development terrain sensing now supports configurable visible and chunk-awareness
+modes, separate entity settings, and native boundary checks. See
+[awareness modes](docs/AWARENESS_MODES.md) for configuration and natural-run usage.
+
+The development segmented controller adds [durable spatial recall](docs/SPATIAL_NAVIGATION.md)
+and [bounded hill excavation/foothold placement](docs/HILL_NAVIGATION.md).
+These capabilities have separate development evidence; the full movement sprint
+and fresh natural-terrain comparison remain in progress.
+Legacy scored profiles retain their frozen sensor contract.
+
+Terrain work now uses [four-move forecasts](docs/ROLLING_TERRAIN_PLANNING.md),
+including downstream cuts, placements and resource reservations. The full sprint
+checklist is [SPRINT_ACCEPTANCE.json](docs/SPRINT_ACCEPTANCE.json). New server
+changes require source-bound requalification before legacy scored admission.
+
+The development path now includes background map admission/search, segment
+prefetch, compressed map sections, retention/history/byte-budget controls and
+compact section-palette transport. Its measured performance and unfinished sprint
+requirements are reported separately from historical qualification.
+
 Run from this directory in PowerShell with Git and uv installed:
 
 ```powershell

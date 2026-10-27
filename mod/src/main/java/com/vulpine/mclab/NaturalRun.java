@@ -47,6 +47,10 @@ final class NaturalRun {
     private int blocksBroken, peakHostiles;
     private double damageTaken, minDistance = Double.MAX_VALUE;
     private float lastHealth = -1;
+    private final DevelopmentHill hill;
+    private ServerPlayer lastSubject;
+    private int kitBlocksPickedUp;
+    private final Map<String,Integer> buildingPickups = new LinkedHashMap<>();
 
     NaturalRun(MinecraftServer server, JsonObject request, CarpetBodyAdapter body, HumanCourse.Subject human,
                BiConsumer<String, Map<String, Object>> events) {
@@ -60,7 +64,11 @@ final class NaturalRun {
         if (radius < 1 || radius > 8 || tickLimit < 200 || tickLimit > 24000 || yaw < -180 || yaw >= 180)
             throw new IllegalArgumentException("natural_bounds");
         if (start.distanceTo(goal) > MAX_PROBE_RADIUS * 2) throw new IllegalArgumentException("natural_route_too_long");
-        prepareWorld();
+        if(request.has("development_hill") && human!=null)
+            throw new IllegalArgumentException("development_hill_requires_carpet_body");
+        hill=request.has("development_hill")?new DevelopmentHill(server,request,start,goal):null;
+        try { prepareWorld(); }
+        catch(RuntimeException error) { restoreDevelopmentFixture(); throw error; }
         if (human != null) {
             var p = human.player();
             if (p == null) throw new IllegalArgumentException("human_not_present");
@@ -77,6 +85,7 @@ final class NaturalRun {
     float yaw() { return yaw; }
     boolean running() { return status.equals("running"); }
     boolean terminal() { return !status.equals("preparing") && !running(); }
+    void restoreDevelopmentFixture() { if(hill!=null) hill.restore(); }
 
     ServerPlayer subject() { return body != null ? body.player() : human.player(); }
 
@@ -131,25 +140,49 @@ final class NaturalRun {
             giveKit(p);
             status = "running"; startTick = server.getTickCount(); deadlineTick = startTick + tickLimit;
             lastHealth = p.getHealth();
+            lastSubject=p;
             events.accept("course_started", Map.of("start_tick", startTick, "deadline_tick", deadlineTick,
                     "subject", body != null ? "carpet_body" : "human", "mobs", mobs));
             return;
         }
         if (!running()) return;
+        // Account for the final health loss before returning on a lethal hit.
+        var healthSubject=p!=null?p:(lastSubject!=null && !lastSubject.isAlive()?lastSubject:null);
+        if (healthSubject != null) {
+            if (healthSubject.getHealth() < lastHealth) damageTaken += lastHealth - healthSubject.getHealth();
+            lastHealth = healthSubject.getHealth();
+        }
+        if(p!=null) lastSubject=p;
         if (p == null || !p.isAlive()) { finish("failed", "death_or_disconnect"); return; }
-        if (p.getHealth() < lastHealth) damageTaken += lastHealth - p.getHealth();
-        lastHealth = p.getHealth();
         int hostiles = server.overworld().getEntitiesOfClass(Mob.class, p.getBoundingBox().inflate(16),
                 m -> m instanceof Enemy).size();
         peakHostiles = Math.max(peakHostiles, hostiles);
         double horizontal = Math.hypot(p.getX() - goal.x, p.getZ() - goal.z);
         minDistance = Math.min(minDistance, horizontal);
-        if (horizontal <= radius && Math.abs(p.getY() - goal.y) <= GOAL_DY) { finish("success", "reached_goal"); return; }
+        if (horizontal <= radius && Math.abs(p.getY() - goal.y) <= (hill==null?GOAL_DY:0.25)
+                && (hill==null || p.onGround())) { finish("success", "reached_goal"); return; }
         if (server.getTickCount() >= deadlineTick) finish("failed", "tick_limit");
     }
 
     void broke(ServerPlayer p, boolean success) {
         if (running() && success && owns(p)) blocksBroken++;
+    }
+
+    void pickup(ServerPlayer p,String kind,int before,int after) {
+        if(running() && owns(p) && (kind.equals("minecraft:cobblestone") || kind.equals("minecraft:dirt"))) {
+            int count=Math.max(0,before-after);
+            kitBlocksPickedUp+=count;
+            buildingPickups.merge(kind,count,Integer::sum);
+        }
+    }
+
+    Map<String,Integer> buildingPickups() { return Map.copyOf(buildingPickups); }
+
+    void healthChanged(ServerPlayer p,float before,float after) {
+        if(running() && owns(p)) {
+            if(after<before) damageTaken+=before-after;
+            lastHealth=after;
+        }
     }
 
     void finish(String outcome, String why) {
@@ -174,8 +207,11 @@ final class NaturalRun {
         int left = p == null ? -1 : p.getInventory().countItem(Items.COBBLESTONE) + p.getInventory().countItem(Items.DIRT);
         // Kit blocks used; picked-up dirt/cobblestone reduces this, so it is a lower bound on placements.
         result.put("kit_blocks_used_estimate", p == null ? -1 : 2 * KIT_BLOCKS - left);
+        result.put("kit_blocks_picked_up",kitBlocksPickedUp);
+        result.put("kit_blocks_spent_adjusted",p==null || !p.isAlive()?-1:2*KIT_BLOCKS+kitBlocksPickedUp-left);
         if (p != null) result.put("final_position", List.of(p.getX(), p.getY(), p.getZ()));
         result.put("mobs", mobs);
+        if(hill!=null) result.put("development_hill",hill.audit());
         return Map.copyOf(result);
     }
 

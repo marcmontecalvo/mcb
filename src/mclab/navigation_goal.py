@@ -8,6 +8,7 @@ the goal. It cannot place blocks or fight. Not a qualified controller.
 
 import math
 
+from mclab.awareness import Awareness
 from mclab.navigation import (
     NavigationController,
     empty,
@@ -30,8 +31,10 @@ def _node(position):
 
 
 class GoalController(NavigationController):
-    def __init__(self, goal, radius=3):
-        super().__init__()
+    def __init__(self, goal, radius=3, *, awareness=None):
+        self.awareness = Awareness() if awareness is None else awareness
+        self.awareness_revision = None
+        super().__init__(sensor_profile=self.awareness.sensor_profile)
         self.goal = tuple(goal)
         self.radius = radius
         self.best = math.inf
@@ -74,6 +77,19 @@ class GoalController(NavigationController):
         )
 
     def decide(self, observation):
+        # Broader sensors must be explicitly selected and recorded.
+        if observation.get("sensor_profile") != self.awareness.sensor_profile:
+            raise ValueError("Unexpected goal-controller sensor profile")
+        if self.awareness.preset != "legacy":
+            state = observation.get("awareness", {})
+            if state.get("config") != self.awareness.payload() or not state.get(
+                "revision"
+            ):
+                raise ValueError("Unexpected goal-controller awareness configuration")
+            if self.awareness_revision is None:
+                self.awareness_revision = state["revision"]
+            elif self.awareness_revision != state["revision"]:
+                raise ValueError("Awareness changed; start a fresh controller")
         body = observation["body"]
         x, y, z = body["position"]
         distance = math.hypot(self.goal[0] + 0.5 - x, self.goal[2] + 0.5 - z)

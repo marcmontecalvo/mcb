@@ -10,6 +10,63 @@ import java.util.*;
 public final class SensorVerification {
     private SensorVerification() {}
 
+    public static Map<String,Object> awarenessCheck(ServerPlayer player,int tick) {
+        var legacy=check(player,tick);
+        var checks=new LinkedHashMap<String,Boolean>();
+        checks.put("legacy_sensor_regression",Boolean.TRUE.equals(legacy.get("passed")));
+        var origin=player.blockPosition();
+        var saved=new LinkedHashMap<BlockPos,BlockState>();
+        net.minecraft.world.entity.item.ItemEntity item=null;
+        try {
+            for(int x=-4;x<=4;x++) for(int y=0;y<=4;y++) for(int z=0;z<=6;z++) {
+                var pos=origin.offset(x,y,z);
+                if(player.level().getChunkSource().getChunkNow(pos.getX()>>4,pos.getZ()>>4)==null)
+                    throw new IllegalStateException("sensor_fixture_chunk_missing");
+                saved.put(pos,player.level().getBlockState(pos));
+            }
+            clear(player,saved.keySet());
+            var target=origin.offset(0,1,4);
+            player.level().setBlock(target,Blocks.OAK_LOG.defaultBlockState(),2);
+            for(int x=-3;x<=3;x++) for(int y=0;y<=4;y++)
+                player.level().setBlock(origin.offset(x,y,2),Blocks.STONE.defaultBlockState(),2);
+            var visible=new AwarenessConfig("visible",4,4,8,4,"visible",5,32,3);
+            var chunk=new AwarenessConfig("chunk",4,4,8,4,"visible",5,32,3);
+            var shortRange=new AwarenessConfig("chunk",2,1,8,4,"visible",5,32,3);
+            var through=new AwarenessSensor(chunk);
+            checks.put("visible_mode_hides_log",!known(new AwarenessSensor(visible).sample(player,tick),target));
+            checks.put("chunk_mode_reveals_log",contains(through.sample(player,tick),target,"minecraft:oak_log"));
+            checks.put("chunk_mode_reveals_hidden_air",known(through.sample(player,tick),origin.offset(0,1,3)));
+            checks.put("horizontal_limit",!known(new AwarenessSensor(shortRange).sample(player,tick),target));
+            checks.put("vertical_limit",new AwarenessSensor(shortRange).sample(player,tick).stream().allMatch(c ->
+                    Math.abs(((Number)((List<?>)c.get("position")).get(1)).intValue()-origin.getY())<=1));
+            checks.put("extra_scan_cell_budget",((Number)through.coverage().get("inspected_extra_cells")).intValue()<=32);
+            checks.put("partial_coverage_declared",Boolean.FALSE.equals(through.coverage().get("full_coverage_claimed")));
+            var fullHeight=new AwarenessConfig("chunk",1,-1,8,4,"visible",5,32,3);
+            var fullSensor=new AwarenessSensor(fullHeight); fullSensor.sample(player,tick);
+            checks.put("full_height_includes_max_y",((Number)fullSensor.coverage().get("sweep_volume")).intValue()==9*player.level().getHeight());
+            checks.put("new_restricted_sensor_has_no_broad_cache",!known(new AwarenessSensor(visible).sample(player,tick),target));
+            var absent=origin.offset(1_000_000,0,1_000_000);
+            boolean unavailable=player.level().getChunkSource().getChunkNow(absent.getX()>>4,absent.getZ()>>4)==null;
+            checks.put("unavailable_chunk_stays_unknown",unavailable && PolicySensor.cell(player,tick,absent,false)==null
+                    && player.level().getChunkSource().getChunkNow(absent.getX()>>4,absent.getZ()>>4)==null);
+            item=new net.minecraft.world.entity.item.ItemEntity(player.level(),origin.getX()+.5,origin.getY()+1,origin.getZ()+4.5,
+                    new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIRT));
+            item.setNeverPickUp(); player.level().addFreshEntity(item);
+            String id=item.getUUID().toString();
+            checks.put("terrain_mode_does_not_reveal_hidden_entities",PolicySensor.entities(player,chunk).stream().noneMatch(e -> id.equals(e.get("uuid"))));
+            var entities=new AwarenessConfig("chunk",4,4,8,4,"unoccluded",5,32,3);
+            checks.put("entity_occlusion_independent",PolicySensor.entities(player,entities).stream().anyMatch(e -> id.equals(e.get("uuid"))));
+            var shortEntities=new AwarenessConfig("chunk",4,4,2,4,"unoccluded",5,32,3);
+            checks.put("entity_range_independent",PolicySensor.entities(player,shortEntities).stream().noneMatch(e -> id.equals(e.get("uuid"))));
+        } finally {
+            if(item!=null) item.discard();
+            saved.forEach((pos,state) -> player.level().setBlock(pos,state,2));
+        }
+        checks.put("fixture_restored",saved.entrySet().stream().allMatch(e -> player.level().getBlockState(e.getKey()).equals(e.getValue())));
+        return Map.of("checks",Map.copyOf(checks),"passed",checks.values().stream().allMatch(Boolean::booleanValue),
+                "development_only",true,"legacy_verification",legacy);
+    }
+
     public static Map<String,Object> check(ServerPlayer player, int tick) {
         var origin=player.blockPosition();
         var level=player.level();

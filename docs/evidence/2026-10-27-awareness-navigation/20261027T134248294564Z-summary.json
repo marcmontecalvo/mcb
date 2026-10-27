@@ -1,0 +1,1347 @@
+{
+  "attempts": [
+    {
+      "blocks_broken": 3,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 3,
+        "breaks_confirmed": 3,
+        "committed_step": null,
+        "goal": [
+          1280,
+          84,
+          1291
+        ],
+        "map_revision": 49,
+        "memory": {
+          "active_accounted_bytes": 31304140,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 16680829,
+          "persistence_queue": 1,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 2.482100040651858,
+          "p95": 19.38990002963692,
+          "p99": 21.141499979421496
+        },
+        "motor_latency_samples": 78,
+        "persistence_queue": 1,
+        "place_budget_reserved": 1,
+        "places_confirmed": 1,
+        "planner": {
+          "cancelled": 0,
+          "completed": 5,
+          "latency_ms": {
+            "p50": 7.367799989879131,
+            "p95": 9.14180011022836,
+            "p99": 9.14180011022836
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 4,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 6472,
+      "development_hill": {
+        "added": 1,
+        "changes": [
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              81,
+              1282
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1281
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1282
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              82,
+              1287
+            ]
+          }
+        ],
+        "kind": "mixed",
+        "removed": 3,
+        "variant": 0
+      },
+      "end_tick": 5525,
+      "final_position": [
+        1280.5,
+        84.0,
+        1290.5262047464992
+      ],
+      "kind": "mixed",
+      "kit_blocks_picked_up": 3,
+      "kit_blocks_spent_adjusted": 1,
+      "kit_blocks_used_estimate": -2,
+      "min_goal_distance": 0.973795253500839,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 5272,
+      "status": "success",
+      "ticks": 253,
+      "variant": 0
+    },
+    {
+      "blocks_broken": 3,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 3,
+        "breaks_confirmed": 3,
+        "committed_step": null,
+        "goal": [
+          1280,
+          84,
+          1291
+        ],
+        "map_revision": 51,
+        "memory": {
+          "active_accounted_bytes": 31303858,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 36038433,
+          "persistence_queue": 3,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 2.968300017528236,
+          "p95": 6.119800033047795,
+          "p99": 45.475299935787916
+        },
+        "motor_latency_samples": 81,
+        "persistence_queue": 3,
+        "place_budget_reserved": 1,
+        "places_confirmed": 1,
+        "planner": {
+          "cancelled": 0,
+          "completed": 5,
+          "latency_ms": {
+            "p50": 6.962800049223006,
+            "p95": 7.672899984754622,
+            "p99": 7.672899984754622
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 3,
+        "search_expanded": 4,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 6832,
+      "development_hill": {
+        "added": 1,
+        "changes": [
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              81,
+              1283
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1282
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1283
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              82,
+              1287
+            ]
+          }
+        ],
+        "kind": "mixed",
+        "removed": 3,
+        "variant": 1
+      },
+      "end_tick": 5900,
+      "final_position": [
+        1280.5,
+        84.0,
+        1290.628956974717
+      ],
+      "kind": "mixed",
+      "kit_blocks_picked_up": 3,
+      "kit_blocks_spent_adjusted": 1,
+      "kit_blocks_used_estimate": -2,
+      "min_goal_distance": 0.8710430252829156,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 5632,
+      "status": "success",
+      "ticks": 268,
+      "variant": 1
+    },
+    {
+      "blocks_broken": 3,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 3,
+        "breaks_confirmed": 3,
+        "committed_step": null,
+        "goal": [
+          1280,
+          84,
+          1291
+        ],
+        "map_revision": 50,
+        "memory": {
+          "active_accounted_bytes": 31303576,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 20648660,
+          "persistence_queue": 1,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 2.87279998883605,
+          "p95": 22.958300076425076,
+          "p99": 27.418899931944907
+        },
+        "motor_latency_samples": 79,
+        "persistence_queue": 1,
+        "place_budget_reserved": 1,
+        "places_confirmed": 1,
+        "planner": {
+          "cancelled": 0,
+          "completed": 5,
+          "latency_ms": {
+            "p50": 6.904899957589805,
+            "p95": 7.304699975065887,
+            "p99": 7.304699975065887
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 4,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 7203,
+      "development_hill": {
+        "added": 1,
+        "changes": [
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              81,
+              1284
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1283
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1284
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              82,
+              1287
+            ]
+          }
+        ],
+        "kind": "mixed",
+        "removed": 3,
+        "variant": 2
+      },
+      "end_tick": 6281,
+      "final_position": [
+        1280.5,
+        84.0,
+        1290.6913349595943
+      ],
+      "kind": "mixed",
+      "kit_blocks_picked_up": 3,
+      "kit_blocks_spent_adjusted": 1,
+      "kit_blocks_used_estimate": -2,
+      "min_goal_distance": 0.8086650404056854,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 6003,
+      "status": "success",
+      "ticks": 278,
+      "variant": 2
+    },
+    {
+      "blocks_broken": 3,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 3,
+        "breaks_confirmed": 3,
+        "committed_step": null,
+        "goal": [
+          1280,
+          84,
+          1291
+        ],
+        "map_revision": 54,
+        "memory": {
+          "active_accounted_bytes": 31303582,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 28530676,
+          "persistence_queue": 2,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 3.130899975076318,
+          "p95": 22.38280000165105,
+          "p99": 42.26110002491623
+        },
+        "motor_latency_samples": 89,
+        "persistence_queue": 2,
+        "place_budget_reserved": 2,
+        "places_confirmed": 2,
+        "planner": {
+          "cancelled": 0,
+          "completed": 5,
+          "latency_ms": {
+            "p50": 7.133600069209933,
+            "p95": 9.801000007428229,
+            "p99": 9.801000007428229
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 4,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 7597,
+      "development_hill": {
+        "added": 2,
+        "changes": [
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              80,
+              1284
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1283
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1284
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1285
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              82,
+              1287
+            ]
+          }
+        ],
+        "kind": "mixed",
+        "removed": 3,
+        "variant": 3
+      },
+      "end_tick": 6685,
+      "final_position": [
+        1280.5,
+        84.0,
+        1290.5746813197618
+      ],
+      "kind": "mixed",
+      "kit_blocks_picked_up": 3,
+      "kit_blocks_spent_adjusted": 2,
+      "kit_blocks_used_estimate": -1,
+      "min_goal_distance": 0.9253186802382061,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 6397,
+      "status": "success",
+      "ticks": 288,
+      "variant": 3
+    },
+    {
+      "blocks_broken": 3,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 3,
+        "breaks_confirmed": 3,
+        "committed_step": null,
+        "goal": [
+          1280,
+          84,
+          1291
+        ],
+        "map_revision": 51,
+        "memory": {
+          "active_accounted_bytes": 31303562,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 19325890,
+          "persistence_queue": 0,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 2.9912999598309398,
+          "p95": 5.8951000683009624,
+          "p99": 24.89080000668764
+        },
+        "motor_latency_samples": 82,
+        "persistence_queue": 0,
+        "place_budget_reserved": 1,
+        "places_confirmed": 1,
+        "planner": {
+          "cancelled": 0,
+          "completed": 6,
+          "latency_ms": {
+            "p50": 2.55129998549819,
+            "p95": 10.891200043261051,
+            "p99": 10.891200043261051
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 3,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 7921,
+      "development_hill": {
+        "added": 1,
+        "changes": [
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              81,
+              1282
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1281
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1282
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              82,
+              1288
+            ]
+          }
+        ],
+        "kind": "mixed",
+        "removed": 3,
+        "variant": 4
+      },
+      "end_tick": 6993,
+      "final_position": [
+        1280.5,
+        84.0,
+        1290.5092002721915
+      ],
+      "kind": "mixed",
+      "kit_blocks_picked_up": 3,
+      "kit_blocks_spent_adjusted": 1,
+      "kit_blocks_used_estimate": -2,
+      "min_goal_distance": 0.9907997278085077,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 6721,
+      "status": "success",
+      "ticks": 272,
+      "variant": 4
+    },
+    {
+      "blocks_broken": 3,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 3,
+        "breaks_confirmed": 3,
+        "committed_step": null,
+        "goal": [
+          1280,
+          84,
+          1291
+        ],
+        "map_revision": 53,
+        "memory": {
+          "active_accounted_bytes": 31303280,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 46807464,
+          "persistence_queue": 3,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 2.753000007942319,
+          "p95": 5.664299940690398,
+          "p99": 35.16450000461191
+        },
+        "motor_latency_samples": 85,
+        "persistence_queue": 3,
+        "place_budget_reserved": 1,
+        "places_confirmed": 1,
+        "planner": {
+          "cancelled": 0,
+          "completed": 6,
+          "latency_ms": {
+            "p50": 2.9400999192148447,
+            "p95": 7.225600071251392,
+            "p99": 7.225600071251392
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 3,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 8324,
+      "development_hill": {
+        "added": 1,
+        "changes": [
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              81,
+              1283
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1282
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1283
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              82,
+              1288
+            ]
+          }
+        ],
+        "kind": "mixed",
+        "removed": 3,
+        "variant": 5
+      },
+      "end_tick": 7411,
+      "final_position": [
+        1280.5,
+        84.0,
+        1290.6178154718907
+      ],
+      "kind": "mixed",
+      "kit_blocks_picked_up": 3,
+      "kit_blocks_spent_adjusted": 1,
+      "kit_blocks_used_estimate": -2,
+      "min_goal_distance": 0.8821845281092919,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 7124,
+      "status": "success",
+      "ticks": 287,
+      "variant": 5
+    },
+    {
+      "blocks_broken": 3,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 3,
+        "breaks_confirmed": 3,
+        "committed_step": null,
+        "goal": [
+          1280,
+          84,
+          1291
+        ],
+        "map_revision": 53,
+        "memory": {
+          "active_accounted_bytes": 31302998,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 47083554,
+          "persistence_queue": 2,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 3.0477000400424004,
+          "p95": 22.189400042407215,
+          "p99": 29.654800076968968
+        },
+        "motor_latency_samples": 85,
+        "persistence_queue": 2,
+        "place_budget_reserved": 1,
+        "places_confirmed": 1,
+        "planner": {
+          "cancelled": 0,
+          "completed": 7,
+          "latency_ms": {
+            "p50": 3.436999977566302,
+            "p95": 7.312300032936037,
+            "p99": 7.312300032936037
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 3,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 8655,
+      "development_hill": {
+        "added": 1,
+        "changes": [
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              81,
+              1284
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1283
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1284
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              82,
+              1288
+            ]
+          }
+        ],
+        "kind": "mixed",
+        "removed": 3,
+        "variant": 6
+      },
+      "end_tick": 7751,
+      "final_position": [
+        1280.5,
+        84.0,
+        1290.6135334093583
+      ],
+      "kind": "mixed",
+      "kit_blocks_picked_up": 3,
+      "kit_blocks_spent_adjusted": 1,
+      "kit_blocks_used_estimate": -2,
+      "min_goal_distance": 0.8864665906417031,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 7455,
+      "status": "success",
+      "ticks": 296,
+      "variant": 6
+    },
+    {
+      "blocks_broken": 3,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 3,
+        "breaks_confirmed": 3,
+        "committed_step": null,
+        "goal": [
+          1280,
+          84,
+          1291
+        ],
+        "map_revision": 68,
+        "memory": {
+          "active_accounted_bytes": 31303004,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 36202725,
+          "persistence_queue": 1,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 2.85799999255687,
+          "p95": 20.343800075352192,
+          "p99": 22.207999951206148
+        },
+        "motor_latency_samples": 111,
+        "persistence_queue": 1,
+        "place_budget_reserved": 2,
+        "places_confirmed": 2,
+        "planner": {
+          "cancelled": 0,
+          "completed": 7,
+          "latency_ms": {
+            "p50": 6.862899987027049,
+            "p95": 9.834200027398765,
+            "p99": 9.834200027398765
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 2,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 9026,
+      "development_hill": {
+        "added": 2,
+        "changes": [
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              80,
+              1284
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1283
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1284
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1285
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              82,
+              1288
+            ]
+          }
+        ],
+        "kind": "mixed",
+        "removed": 3,
+        "variant": 7
+      },
+      "end_tick": 8201,
+      "final_position": [
+        1280.5,
+        84.0,
+        1290.5591320250617
+      ],
+      "kind": "mixed",
+      "kit_blocks_picked_up": 3,
+      "kit_blocks_spent_adjusted": 2,
+      "kit_blocks_used_estimate": -1,
+      "min_goal_distance": 0.9408679749383282,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 7826,
+      "status": "success",
+      "ticks": 375,
+      "variant": 7
+    },
+    {
+      "blocks_broken": 3,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 3,
+        "breaks_confirmed": 3,
+        "committed_step": [
+          1280,
+          84,
+          1291
+        ],
+        "goal": [
+          1280,
+          84,
+          1291
+        ],
+        "map_revision": 48,
+        "memory": {
+          "active_accounted_bytes": 31302984,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 27508414,
+          "persistence_queue": 2,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "terrain_ready",
+        "motor_latency_ms": {
+          "p50": 3.5293000983074307,
+          "p95": 36.58489999361336,
+          "p99": 43.2942999759689
+        },
+        "motor_latency_samples": 76,
+        "persistence_queue": 2,
+        "place_budget_reserved": 1,
+        "places_confirmed": 1,
+        "planner": {
+          "cancelled": 0,
+          "completed": 6,
+          "latency_ms": {
+            "p50": 2.7537000132724643,
+            "p95": 7.685400079935789,
+            "p99": 7.685400079935789
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "goal within terrain horizon",
+        "route_remaining": 0,
+        "search_expanded": 0,
+        "terrain_forecast": [
+          {
+            "breaks": [],
+            "places": [],
+            "source": [
+              1280,
+              82,
+              1287
+            ],
+            "target": [
+              1280,
+              82,
+              1288
+            ]
+          },
+          {
+            "breaks": [],
+            "places": [
+              [
+                1280,
+                82,
+                1289
+              ]
+            ],
+            "source": [
+              1280,
+              82,
+              1288
+            ],
+            "target": [
+              1280,
+              83,
+              1289
+            ]
+          },
+          {
+            "breaks": [],
+            "places": [],
+            "source": [
+              1280,
+              83,
+              1289
+            ],
+            "target": [
+              1280,
+              84,
+              1290
+            ]
+          },
+          {
+            "breaks": [],
+            "places": [],
+            "source": [
+              1280,
+              84,
+              1290
+            ],
+            "target": [
+              1280,
+              84,
+              1291
+            ]
+          }
+        ]
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 9455,
+      "development_hill": {
+        "added": 1,
+        "changes": [
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              81,
+              1282
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1281
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1282
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              82,
+              1289
+            ]
+          }
+        ],
+        "kind": "mixed",
+        "removed": 3,
+        "variant": 8
+      },
+      "end_tick": 8496,
+      "final_position": [
+        1280.5,
+        84.0,
+        1290.5102455633203
+      ],
+      "kind": "mixed",
+      "kit_blocks_picked_up": 3,
+      "kit_blocks_spent_adjusted": 1,
+      "kit_blocks_used_estimate": -2,
+      "min_goal_distance": 0.989754436679732,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 8255,
+      "status": "success",
+      "ticks": 241,
+      "variant": 8
+    },
+    {
+      "blocks_broken": 3,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 3,
+        "breaks_confirmed": 3,
+        "committed_step": null,
+        "goal": [
+          1280,
+          84,
+          1291
+        ],
+        "map_revision": 52,
+        "memory": {
+          "active_accounted_bytes": 31302702,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 17396456,
+          "persistence_queue": 1,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 3.5113999620079994,
+          "p95": 23.309300071559846,
+          "p99": 37.12140000425279
+        },
+        "motor_latency_samples": 78,
+        "persistence_queue": 1,
+        "place_budget_reserved": 1,
+        "places_confirmed": 1,
+        "planner": {
+          "cancelled": 0,
+          "completed": 6,
+          "latency_ms": {
+            "p50": 2.6346000377088785,
+            "p95": 9.877100004814565,
+            "p99": 9.877100004814565
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 2,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 9749,
+      "development_hill": {
+        "added": 1,
+        "changes": [
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              81,
+              1283
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1282
+            ]
+          },
+          {
+            "after": "Block{minecraft:air}",
+            "before": "Block{minecraft:stone}",
+            "position": [
+              1280,
+              82,
+              1283
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              82,
+              1289
+            ]
+          }
+        ],
+        "kind": "mixed",
+        "removed": 3,
+        "variant": 9
+      },
+      "end_tick": 8814,
+      "final_position": [
+        1280.5,
+        84.0,
+        1290.5012295573315
+      ],
+      "kind": "mixed",
+      "kit_blocks_picked_up": 3,
+      "kit_blocks_spent_adjusted": 1,
+      "kit_blocks_used_estimate": -2,
+      "min_goal_distance": 0.9987704426685013,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 8549,
+      "status": "success",
+      "ticks": 265,
+      "variant": 9
+    }
+  ],
+  "development_only": true,
+  "lab_restored": true,
+  "memory_policy": {
+    "active_map_budget_mb": 128,
+    "memory_mode": "persistent",
+    "persistence_queue_budget_mb": 128,
+    "use_historical_geometry": true
+  },
+  "mod_provenance": {
+    "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "4ac4d8bf533a3f178fa4cd82b2f22847332832343d58851e4360f71189db4929",
+    "schema_version": 1,
+    "source_hash": "c23b9f84d8ba00591e6606a2b7250a85455f8c4fc98c43c8cfa2b3c1afb7f75b"
+  },
+  "planning_mode": "background",
+  "request_budget_per_attempt": 1000,
+  "runner_sha256": "d7cb05edd32fab9ab935f4f42e98a4009a3aeb57b690c752d71f13602465c592",
+  "source_sha256": {
+    "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+    "bridge.py": "2f25d7d2d53594009a077ed5527094f6649ffa19958f22d8feed858be338326b",
+    "execution.py": "303867508393ff1133d1de860e8172687a99a47e867ebba11ac02909b540dbf1",
+    "memory_policy.py": "99183e2f6bc27edc5b0f801874ea3401c618125693ff95fe2d3ba7fe2ca5b6fe",
+    "model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+    "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+    "navigation_segmented.py": "8d81fdde867ed3f781415a1934b7cfc3061b6ce7b0ed53ce58141e1ea1ad7b51",
+    "observation_worker.py": "d3ae59778e999e52d8da17f23b0c6d773a3305500205d20abeb604fe3642c07f",
+    "planning_worker.py": "039af788066a8138dd8ab1bb8c3dc03347e97185339c3ef6ea59cd8a50273852",
+    "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+    "route_search.py": "c9eaa551911b99cc5f537285d9ebfd634a339acb92436be6063ee5bc075d8cc3",
+    "section_codec.py": "d8ab1902437295cfe501361c1634a721f3ba26beb7430ea774fe66bd5935480d",
+    "spatial_archive.py": "87f0cbaae7a2387757bb1dea569efe9925a2d0998c0a99a7d43c41de8143ff3c",
+    "spatial_memory.py": "95ec08b3e60a1524eb277c93ddebb9858151562b2a2bd8f5fdd488696845a0cb",
+    "terrain_route.py": "9611d5a6a072f43c65839758fcec97b43fc71c8524f1bfe5bf1f6ab99b794691",
+    "terrain_steps.py": "486dc317b38e79927293eee32c85a9a045390eb9186fd7fc50b8f1fdd2bdc6f6",
+    "terrain_transport.py": "ad1cb52d593eb4ae3d1d922cc74650b296e5e2df6c32242e04fbe3365fb3c0b4"
+  },
+  "status": "passed",
+  "terrain_encoding": "sections-v1"
+}

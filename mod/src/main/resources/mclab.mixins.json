@@ -10,7 +10,8 @@
     "InteractionObserverMixin",
     "ItemEpisodeMixin",
     "EntityEpisodeMixin",
-    "WorldEpisodeMixin"
+    "WorldEpisodeMixin",
+    "NaturalHealthMixin"
   ],
   "injectors": {
     "defaultRequire": 1

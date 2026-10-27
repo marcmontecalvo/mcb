@@ -153,7 +153,10 @@ def paths_from(cells, nodes, start, goals=()):
 class NavigationController:
     """Discover, explore, route, aim, mine and collect from permitted facts."""
 
-    def __init__(self):
+    def __init__(self, *, sensor_profile="local-visibility-v1"):
+        if sensor_profile not in {"local-visibility-v1", "awareness-v1"}:
+            raise ValueError("Unsupported navigation sensor profile")
+        self.sensor_profile = sensor_profile
         self.cells = {}
         self.target = None
         self.drop = None
@@ -439,7 +442,7 @@ class NavigationController:
         return turn
 
     def decide(self, observation):
-        if observation.get("sensor_profile") != "local-visibility-v1":
+        if observation.get("sensor_profile") != self.sensor_profile:
             raise ValueError("Unsupported navigation sensor profile")
         self._observe(observation)
         body = observation["body"]

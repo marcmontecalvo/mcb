@@ -47,16 +47,30 @@
   "G2": {
     "adversarial_checks_passed": 29,
     "date": "2026-10-26",
-    "episode_evidence": "docs/G2_EPISODE_PROOF.json",
+    "episode_evidence": "docs/AWARENESS_MOVEMENT_PROOF.json",
     "extensions_pending": [
       "C2-C8 qualification",
       "arbitrary fluid/block-entity restoration",
       "camera sensor profile"
     ],
-    "mod_source_hash": "2b974b836dd7333890b4bb999943e4f78d34bb4d62acafc5ac659459c26bcc9a",
-    "requalified_reason": "human-subject course path and development-only NaturalRun added; C1 reset/evaluator behavior re-verified",
+    "mod_source_hash": "124b9292233ec0a91ac56e6e23ba3cc12bddd5a057fc25b688be2b67edbe248a",
+    "qualification_history": [
+      {
+        "date": "2026-10-26",
+        "episode_evidence": "docs/G2_EPISODE_PROOF.json",
+        "mod_source_hash": "2b974b836dd7333890b4bb999943e4f78d34bb4d62acafc5ac659459c26bcc9a",
+        "reset_evidence": "docs/G2_RESET_PROOF.json"
+      },
+      {
+        "date": "2026-10-26",
+        "episode_evidence": "docs/AWARENESS_MODES_PROOF.json",
+        "mod_source_hash": "0a46861c410c72632b089f589d8430c5a23e01452d0d86db65d45338838d4c7f",
+        "reset_evidence": "docs/AWARENESS_MODES_PROOF.json"
+      }
+    ],
+    "requalified_reason": "Disposable development hill fixtures added; frozen legacy reset/evaluator/sensors reverified",
     "reset_checks_passed": 20,
-    "reset_evidence": "docs/G2_RESET_PROOF.json",
+    "reset_evidence": "docs/AWARENESS_MOVEMENT_PROOF.json",
     "scope": "Frozen initial C1 reset, rules, causal evaluator, sensor and episode recorder",
     "sensor_profile": "local-visibility-v1",
     "spec_hash": "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf",

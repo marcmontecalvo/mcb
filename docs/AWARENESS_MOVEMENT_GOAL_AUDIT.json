@@ -1,0 +1,105 @@
+{
+  "broader_sprint_status": "incomplete",
+  "objective": "Awareness modes, adjustable horizontal/vertical reach, separate entity settings, initial persistent map with durable map recall, segmented route search, detours, planning separated from movement execution. Demonstrate hill ascent by walking, breaking steps, or placing footholds",
+  "proof": {
+    "artifact": "docs/AWARENESS_MOVEMENT_PROOF.json",
+    "sha256": "d0294de997349b7fccefd5af4bddb71a7ae5aa0b07957eab384a38d41cd90039"
+  },
+  "remaining_sprint_acceptance": [
+    "Mixed excavation/placement hills and bridge/pillar macros",
+    "Background prefetch and coarse connection graph",
+    "Compressed map transport/storage",
+    "Broader traversal families",
+    "Fresh natural-terrain comparison and full sprint performance targets"
+  ],
+  "requirements": [
+    {
+      "evidence": {
+        "artifact": "results/awareness/20261027T024304540828Z-regression/awareness.json",
+        "sha256": "65ccd8712a14323ad0e5799ad79a6c11e2c5d0bba5a8fc544b954eecb0e15452"
+      },
+      "native_checks": [
+        "visible_mode_hides_log",
+        "chunk_mode_reveals_log",
+        "horizontal_limit",
+        "vertical_limit",
+        "full_height_includes_max_y",
+        "new_restricted_sensor_has_no_broad_cache"
+      ],
+      "requirement": "Awareness modes with adjustable horizontal and vertical reach",
+      "status": "verified"
+    },
+    {
+      "evidence": {
+        "artifact": "results/awareness/20261027T024304540828Z-regression/awareness.json",
+        "sha256": "65ccd8712a14323ad0e5799ad79a6c11e2c5d0bba5a8fc544b954eecb0e15452"
+      },
+      "native_checks": [
+        "terrain_mode_does_not_reveal_hidden_entities",
+        "entity_occlusion_independent",
+        "entity_range_independent"
+      ],
+      "requirement": "Separate entity awareness settings",
+      "status": "verified"
+    },
+    {
+      "evidence": {
+        "artifact": "results/hills/20261027T030540500259Z/independent-recall.json",
+        "sha256": "fd383c2414cd8405e2d2720a1d2656fd0fc3cc4192a3a8cdd4fdd81f16fe66cb"
+      },
+      "requirement": "Initial persistent map with durable recall",
+      "status": "verified",
+      "testcases": [
+        "test_archive_recall_from_independent_python_process",
+        "test_detour_survives_eviction_restart_and_segmented_search"
+      ]
+    },
+    {
+      "evidence": {
+        "artifact": "results/hills/20261027T030540500259Z/python-tests.xml",
+        "sha256": "e953ca231d910699561ef23c2c4fff56350f063a7c7aa954c1bd9e00bc79f5c5"
+      },
+      "requirement": "Segmented route search and detours",
+      "source": "src/mclab/route_search.py",
+      "status": "verified",
+      "testcases": [
+        "test_detour_survives_eviction_restart_and_segmented_search",
+        "test_unknown_support_and_clearance_cannot_form_route"
+      ]
+    },
+    {
+      "boundary": "Versioned planning snapshot and bounded search feed a fresh-geometry motor; background prefetch not claimed",
+      "evidence": {
+        "artifact": "results/hills/20261027T030540500259Z/python-tests.xml",
+        "sha256": "e953ca231d910699561ef23c2c4fff56350f063a7c7aa954c1bd9e00bc79f5c5"
+      },
+      "requirement": "Planning separated from movement execution",
+      "sources": [
+        "src/mclab/route_search.py",
+        "src/mclab/navigation_segmented.py",
+        "src/mclab/terrain_steps.py"
+      ],
+      "status": "verified",
+      "testcases": [
+        "test_search_snapshot_immutable_and_motor_rejects_stale_recall",
+        "test_cancelled_terrain_plan_cannot_reuse_reserved_material_budget",
+        "test_horizontal_goal_radius_cannot_accept_the_floor_below_goal"
+      ]
+    },
+    {
+      "evidence": {
+        "artifact": "results/hills/20261027T030540500259Z/summary.json",
+        "sha256": "cbc10ea6aeb1b01b6cae8f7be33017794efd1338cba5b610e2e9dce73415a0d4"
+      },
+      "requirement": "Demonstrate walking, cut-step and placed-foothold hill ascent",
+      "status": "verified",
+      "successes": {
+        "cut": 10,
+        "place": 10,
+        "walk": 10
+      }
+    }
+  ],
+  "schema_version": 1,
+  "scope": "The listed initial awareness/map/search/hill goal; full ten-day sprint remains incomplete"
+}

@@ -46,8 +46,8 @@ dependencyLocking {
 sourceSets {
     geometryVerification {
         java.srcDir('src/verification/java')
-        compileClasspath += sourceSets.main.output
-        runtimeClasspath += sourceSets.main.output
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     }
 }
 tasks.register('verifyReferenceGeometry', JavaExec) {
@@ -56,3 +56,18 @@ tasks.register('verifyReferenceGeometry', JavaExec) {
     mainClass = 'com.vulpine.mclab.ReferenceGeometryTest'
 }
 tasks.named('check') { dependsOn tasks.named('verifyReferenceGeometry') }
+
+tasks.register('verifyAwarenessConfig', JavaExec) {
+    dependsOn tasks.named('geometryVerificationClasses')
+    classpath = sourceSets.geometryVerification.runtimeClasspath
+    mainClass = 'com.vulpine.mclab.AwarenessConfigTest'
+}
+tasks.named('check') { dependsOn tasks.named('verifyAwarenessConfig') }
+
+tasks.register('verifyTerrainBatch', JavaExec) {
+    dependsOn tasks.named('geometryVerificationClasses')
+    classpath = sourceSets.geometryVerification.runtimeClasspath
+    mainClass = 'com.vulpine.mclab.TerrainBatchTest'
+}
+
+tasks.named('check') { dependsOn tasks.named('verifyTerrainBatch') }

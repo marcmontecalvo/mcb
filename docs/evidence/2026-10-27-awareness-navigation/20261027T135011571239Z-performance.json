@@ -1,0 +1,88 @@
+{
+  "attempts_recorded": 1,
+  "cohort_status": "passed",
+  "decode_clocks": [
+    "perf_counter_ns"
+  ],
+  "decode_plus_motor_ms": {
+    "max": 58.662699924951795,
+    "p50": 8.524899970290065,
+    "p95": 46.835499941770735,
+    "p99": 54.585799991129335,
+    "samples": 79
+  },
+  "development_only": true,
+  "discarded_stale_actions": 0,
+  "events_sha256": "b9bd64a3b291519676ab9ad72fca1886d1539e22fb4065ae3207b4570f03a938",
+  "full_sprint_acceptance": false,
+  "invalid_attempts": 0,
+  "lab_restored": true,
+  "limits": [
+    "Native sample_ms measures terrain sampling; not all snapshot/serialization work.",
+    "MSPT values are server rolling averages, not individual tick costs or TPS.",
+    "Payload sizes are canonical recorded JSON, not measured network wire bytes.",
+    "These fixtures do not establish natural-terrain, client-access or sprint parity."
+  ],
+  "metrics_source_sha256": "8f2b180a8ad15a9f3e9d6451b01ea937a11225b810320a3dfa81a218ed1e8d45",
+  "motor_ms": {
+    "max": 51.10009992495179,
+    "p50": 2.978699980303645,
+    "p95": 40.78279994428158,
+    "p99": 48.40269999112934,
+    "samples": 79
+  },
+  "native_sample_ms": {
+    "max": 1.685,
+    "p50": 0.944,
+    "p95": 1.4504,
+    "p99": 1.522,
+    "samples": 52
+  },
+  "percentile_method": "sorted floor((n-1)*q), matching controller status",
+  "policy_http_ms": {
+    "max": 32.869,
+    "p50": 2.9041,
+    "p95": 21.2602,
+    "p99": 21.2602,
+    "samples": 12
+  },
+  "policy_wire_bytes": {
+    "max": 71815,
+    "p50": 64259,
+    "p95": 71234,
+    "p99": 71234,
+    "samples": 12
+  },
+  "recorded_map_sample_json_bytes": {
+    "max": 71773,
+    "p50": 64352,
+    "p95": 71542,
+    "p99": 71655,
+    "samples": 52
+  },
+  "routes_reached": 1,
+  "schema_version": 1,
+  "server_rolling_average_mspt": {
+    "max": 0.802999,
+    "p50": 0.712012,
+    "p95": 0.791575,
+    "p99": 0.796937,
+    "samples": 259
+  },
+  "summarizer_sha256": "471a8602edbdec137dfe82d5e186320738107e359aafb30045f09833c4db23d8",
+  "summary_sha256": "12fe89937dda887f88cd2b12c566353e8bc6d1f5043365778cff134c238610ce",
+  "terrain_decode_ms": {
+    "max": 9.3829,
+    "p50": 5.6132,
+    "p95": 8.3981,
+    "p99": 9.0657,
+    "samples": 80
+  },
+  "terrain_encode_ms_off_server_thread": {
+    "max": 3.5145,
+    "p50": 1.9905,
+    "p95": 3.3386,
+    "p99": 3.4009,
+    "samples": 52
+  }
+}

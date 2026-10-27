@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "development_only": true,
+  "scope": "Initial durable map, bounded known-ground search, fresh motor integration; hill ascent and terrain modification pending",
+  "live_summary": "results\\spatial\\20261027T021449545044Z\\summary.json",
+  "live_summary_sha256": "e9d94dccc5795c5cce6edb962b06f123116b4344f6297c11d4036bc74e4f3b8d",
+  "live_ticks": 164,
+  "recalled_cells": 20000,
+  "source_sha256": {
+    "navigation_segmented.py": "ffb2cc58fb63100a207acd02cd34ee73583d9141751e4a0babee446ed6cf0377",
+    "route_search.py": "05d1abd63f983bf188422ab7d375fe0e265f544b7d77fcab7c904a50362cacb0",
+    "spatial_memory.py": "61bc4c773b79b7efc0321fe919e13a0a7bf6da6189a1d3450c2840f55fe59794"
+  },
+  "python_tests": 336,
+  "python_report": "results\\spatial\\20261027T021449545044Z\\python-tests.xml",
+  "python_report_sha256": "b22cf50f4a5db81bb9be63c20f00200068ff65af6ba4d1bc81bc1798ef661b37",
+  "known_failed_probe": "results/spatial/20261027T021110096191Z/summary.json",
+  "failure_resolution": "Duplicate sample suppression and bounded queued-update coalescing; final probe passed",
+  "remaining": [
+    "terrain edit planning and execution",
+    "live walking/cutting/placing hill ascent",
+    "palette sections and transport deltas",
+    "next-segment prefetch and coarse connections",
+    "natural-terrain validation"
+  ]
+}

@@ -1,0 +1,748 @@
+{
+  "compact_transport_prototype": {
+    "artifact": "results/hills/20261027T133958464312Z/summary.json",
+    "lab_restored": true,
+    "performance_artifact": "results/hills/20261027T133958464312Z/performance.json",
+    "status": "passed_development_single_case",
+    "timing_limit": "HTTP/decode used the coarse Windows uptime clock in this first prototype; accurate high-resolution cohort is running. Native and motor perf-counter timings remain separate."
+  },
+  "development_only": true,
+  "full_sprint_complete": false,
+  "measurement_notes": [
+    "Prefetch cohort started while analysis of the completed mixed cohort was finishing; this is development evidence, not a controlled parity/performance freeze."
+  ],
+  "pause_checkpoint": {
+    "format": "passed",
+    "handoff": "docs/PAUSE_HANDOFF_2026-10-27.md",
+    "python_artifact": "results/background/pause-python-tests.xml",
+    "python_artifact_sha256": "c02662d7280041bc504fea13793e5ebf8a8984e332581b9aeb6598921e9de423",
+    "python_tests_passed": 405,
+    "ruff": "passed",
+    "yield_experiment": "reverted; receipts retained"
+  },
+  "performance_acceptance": "not met: compact mixed motor p95 22.12 ms; high-resolution decode plus motor p95 28.58 ms. Yield prototype worsened latency and was reverted.",
+  "python_tests": {
+    "artifact": "results/background/current-python-tests.xml",
+    "passed": 392
+  },
+  "retained_failures": [
+    {
+      "artifact": "results/hills/20261027T131445471113Z/summary.json",
+      "completed_routes": 4,
+      "failed_acceptance": "fourth route pickup/refill caused unconfirmed placement to be mined; fixed with transfer accounting and issued-cell protection",
+      "lab_restored": true,
+      "passing_ten_case_cohort": false,
+      "status": "error"
+    }
+  ],
+  "schema_version": 1,
+  "stages": [
+    {
+      "artifact": "results/hills/20261027T124750772423Z/summary.json",
+      "attempts": [
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 9.765899972990155,
+            "p95": 17.515899962745607,
+            "p99": 18.275500042364
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 202,
+          "variant": 0
+        }
+      ],
+      "lab_restored": true,
+      "mod_provenance": {
+        "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "fdcc77c94ec39fddd57c925c6aeb91a359128e55b2db46af2cf961596ca97912",
+        "schema_version": 1,
+        "source_hash": "fc955bdd084208d3babb021918dc02a225b31603342f897c7d0caecf6bd39772"
+      },
+      "source_sha256": {
+        "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+        "execution.py": "335b2640033f814da75d2a6f2d9fa2b9a36dbfbe35907cdacaf135e03d2fd209",
+        "model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+        "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+        "navigation_segmented.py": "375dd5794a154a4231808ab8d03fa6c7936efa267a93027ac117b9971dba9cac",
+        "planning_worker.py": "039af788066a8138dd8ab1bb8c3dc03347e97185339c3ef6ea59cd8a50273852",
+        "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+        "route_search.py": "c9eaa551911b99cc5f537285d9ebfd634a339acb92436be6063ee5bc075d8cc3",
+        "spatial_memory.py": "c6482407fa9f3519bc79f44ef6bd6502a6b9bb2304e78f1a105a4dde09e4f5a8",
+        "terrain_route.py": "9611d5a6a072f43c65839758fcec97b43fc71c8524f1bfe5bf1f6ab99b794691",
+        "terrain_steps.py": "418f068ecf82f9a57c726890c0ca0bab4875cbdd6b13c927f00c7fce317a9bcf"
+      },
+      "status": "passed"
+    },
+    {
+      "artifact": "results/hills/20261027T125058049515Z/summary.json",
+      "attempts": [
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 19.57190001849085,
+            "p95": 31.136999954469502,
+            "p99": 34.689599997363985
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 271,
+          "variant": 0
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 21.116800024174154,
+            "p95": 33.200499950908124,
+            "p99": 34.74080003798008
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 278,
+          "variant": 1
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 16.775600030086935,
+            "p95": 28.77149998676032,
+            "p99": 32.988900085911155
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 274,
+          "variant": 2
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 17.297099926508963,
+            "p95": 28.601799975149333,
+            "p99": 33.364999922923744
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 285,
+          "variant": 3
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 14.184600091539323,
+            "p95": 27.1901999367401,
+            "p99": 34.91580008994788
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 298,
+          "variant": 4
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 14.314199914224446,
+            "p95": 27.844900032505393,
+            "p99": 28.84120005182922
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 303,
+          "variant": 5
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 16.6682000271976,
+            "p95": 29.90610001143068,
+            "p99": 34.539599902927876
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 256,
+          "variant": 6
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 17.329800059087574,
+            "p95": 27.95210003387183,
+            "p99": 30.53290001116693
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 265,
+          "variant": 7
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 15.69020003080368,
+            "p95": 27.355599915608764,
+            "p99": 29.062599991448224
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 250,
+          "variant": 8
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 18.968900083564222,
+            "p95": 27.767200022935867,
+            "p99": 29.554199893027544
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 265,
+          "variant": 9
+        }
+      ],
+      "lab_restored": true,
+      "mod_provenance": {
+        "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "fdcc77c94ec39fddd57c925c6aeb91a359128e55b2db46af2cf961596ca97912",
+        "schema_version": 1,
+        "source_hash": "fc955bdd084208d3babb021918dc02a225b31603342f897c7d0caecf6bd39772"
+      },
+      "source_sha256": {
+        "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+        "execution.py": "335b2640033f814da75d2a6f2d9fa2b9a36dbfbe35907cdacaf135e03d2fd209",
+        "model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+        "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+        "navigation_segmented.py": "375dd5794a154a4231808ab8d03fa6c7936efa267a93027ac117b9971dba9cac",
+        "planning_worker.py": "039af788066a8138dd8ab1bb8c3dc03347e97185339c3ef6ea59cd8a50273852",
+        "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+        "route_search.py": "c9eaa551911b99cc5f537285d9ebfd634a339acb92436be6063ee5bc075d8cc3",
+        "spatial_memory.py": "c6482407fa9f3519bc79f44ef6bd6502a6b9bb2304e78f1a105a4dde09e4f5a8",
+        "terrain_route.py": "9611d5a6a072f43c65839758fcec97b43fc71c8524f1bfe5bf1f6ab99b794691",
+        "terrain_steps.py": "418f068ecf82f9a57c726890c0ca0bab4875cbdd6b13c927f00c7fce317a9bcf"
+      },
+      "status": "passed"
+    },
+    {
+      "artifact": "results/hills/20261027T125435671683Z/summary.json",
+      "attempts": [
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 14.151599956676364,
+            "p95": 28.231000062078238,
+            "p99": 29.86760006751865
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 275,
+          "variant": 0
+        }
+      ],
+      "lab_restored": true,
+      "mod_provenance": {
+        "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "fdcc77c94ec39fddd57c925c6aeb91a359128e55b2db46af2cf961596ca97912",
+        "schema_version": 1,
+        "source_hash": "fc955bdd084208d3babb021918dc02a225b31603342f897c7d0caecf6bd39772"
+      },
+      "source_sha256": {
+        "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+        "execution.py": "335b2640033f814da75d2a6f2d9fa2b9a36dbfbe35907cdacaf135e03d2fd209",
+        "model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+        "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+        "navigation_segmented.py": "375dd5794a154a4231808ab8d03fa6c7936efa267a93027ac117b9971dba9cac",
+        "planning_worker.py": "039af788066a8138dd8ab1bb8c3dc03347e97185339c3ef6ea59cd8a50273852",
+        "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+        "route_search.py": "c9eaa551911b99cc5f537285d9ebfd634a339acb92436be6063ee5bc075d8cc3",
+        "section_codec.py": "d8ab1902437295cfe501361c1634a721f3ba26beb7430ea774fe66bd5935480d",
+        "spatial_archive.py": "87f0cbaae7a2387757bb1dea569efe9925a2d0998c0a99a7d43c41de8143ff3c",
+        "spatial_memory.py": "d6cd0e8a8c7251bbeb7ca9cdec2b733c9acac103d77c1b3162eaeb2f8b2ceead",
+        "terrain_route.py": "9611d5a6a072f43c65839758fcec97b43fc71c8524f1bfe5bf1f6ab99b794691",
+        "terrain_steps.py": "418f068ecf82f9a57c726890c0ca0bab4875cbdd6b13c927f00c7fce317a9bcf"
+      },
+      "status": "passed"
+    },
+    {
+      "artifact": "results/hills/20261027T125525713613Z/summary.json",
+      "attempts": [
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 8.903300040401518,
+            "p95": 18.58529995661229,
+            "p99": 20.885300007648766
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 236,
+          "variant": 0
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 12.336299987509847,
+            "p95": 23.324199952185154,
+            "p99": 25.075000012293458
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 242,
+          "variant": 1
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 12.58920005057007,
+            "p95": 23.259200039319694,
+            "p99": 26.281900005415082
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 262,
+          "variant": 2
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 11.57420000527054,
+            "p95": 21.910900017246604,
+            "p99": 24.104899959638715
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 249,
+          "variant": 3
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 12.4175000237301,
+            "p95": 22.441500099375844,
+            "p99": 27.086899965070188
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 324,
+          "variant": 4
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 12.094800011254847,
+            "p95": 23.09980010613799,
+            "p99": 25.73389990720898
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 351,
+          "variant": 5
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 12.696699937805533,
+            "p95": 21.990700042806566,
+            "p99": 25.716800009831786
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 327,
+          "variant": 6
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 14.091799966990948,
+            "p95": 25.177999981679022,
+            "p99": 26.730599929578602
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 337,
+          "variant": 7
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 14.301500050351024,
+            "p95": 24.481299915350974,
+            "p99": 26.471099932678044
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 422,
+          "variant": 8
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 13.490500045008957,
+            "p95": 24.650600040331483,
+            "p99": 27.402599924243987
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 435,
+          "variant": 9
+        }
+      ],
+      "lab_restored": true,
+      "mod_provenance": {
+        "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "fdcc77c94ec39fddd57c925c6aeb91a359128e55b2db46af2cf961596ca97912",
+        "schema_version": 1,
+        "source_hash": "fc955bdd084208d3babb021918dc02a225b31603342f897c7d0caecf6bd39772"
+      },
+      "source_sha256": {
+        "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+        "execution.py": "335b2640033f814da75d2a6f2d9fa2b9a36dbfbe35907cdacaf135e03d2fd209",
+        "model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+        "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+        "navigation_segmented.py": "375dd5794a154a4231808ab8d03fa6c7936efa267a93027ac117b9971dba9cac",
+        "planning_worker.py": "039af788066a8138dd8ab1bb8c3dc03347e97185339c3ef6ea59cd8a50273852",
+        "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+        "route_search.py": "c9eaa551911b99cc5f537285d9ebfd634a339acb92436be6063ee5bc075d8cc3",
+        "section_codec.py": "d8ab1902437295cfe501361c1634a721f3ba26beb7430ea774fe66bd5935480d",
+        "spatial_archive.py": "87f0cbaae7a2387757bb1dea569efe9925a2d0998c0a99a7d43c41de8143ff3c",
+        "spatial_memory.py": "d6cd0e8a8c7251bbeb7ca9cdec2b733c9acac103d77c1b3162eaeb2f8b2ceead",
+        "terrain_route.py": "9611d5a6a072f43c65839758fcec97b43fc71c8524f1bfe5bf1f6ab99b794691",
+        "terrain_steps.py": "418f068ecf82f9a57c726890c0ca0bab4875cbdd6b13c927f00c7fce317a9bcf"
+      },
+      "status": "passed"
+    },
+    {
+      "artifact": "results/hills/20261027T132148920054Z/summary.json",
+      "attempts": [
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 2.4025000166147947,
+            "p95": 8.482399978674948,
+            "p99": 27.576399967074394
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 265,
+          "variant": 0
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 2.815399901010096,
+            "p95": 9.08789993263781,
+            "p99": 26.527200010605156
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 276,
+          "variant": 1
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 3.315199981443584,
+            "p95": 20.26530005969107,
+            "p99": 30.149700003676116
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 282,
+          "variant": 2
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 2.972999936901033,
+            "p95": 8.143999963067472,
+            "p99": 26.402499992400408
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 302,
+          "variant": 3
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 2.8594000032171607,
+            "p95": 8.73270002193749,
+            "p99": 40.22059997078031
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 287,
+          "variant": 4
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 3.2314000418409705,
+            "p95": 21.61820000037551,
+            "p99": 25.668399990536273
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 294,
+          "variant": 5
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 2.522099995985627,
+            "p95": 21.66880003642291,
+            "p99": 25.10259998962283
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 286,
+          "variant": 6
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 3.3469999907538295,
+            "p95": 22.098299930803478,
+            "p99": 32.27339999284595
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 368,
+          "variant": 7
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 3.415800048969686,
+            "p95": 28.45250000245869,
+            "p99": 50.21579994354397
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 252,
+          "variant": 8
+        },
+        {
+          "kind": "mixed",
+          "motor_latency_ms": {
+            "p50": 2.9555000364780426,
+            "p95": 21.3821999495849,
+            "p99": 37.62950003147125
+          },
+          "prefetch_adopted": 0,
+          "status": "success",
+          "ticks": 254,
+          "variant": 9
+        }
+      ],
+      "lab_restored": true,
+      "mod_provenance": {
+        "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "ba8c57ecd534d27e583ac975306df227f2fcc869b9a9de4c5a43de4fad647a90",
+        "schema_version": 1,
+        "source_hash": "497923cdc9b4abc4d8476d65155c569260595da81bd84b5a4de391c4babc9fd4"
+      },
+      "performance_artifact": "results/hills/20261027T132148920054Z/performance.json",
+      "source_sha256": {
+        "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+        "execution.py": "335b2640033f814da75d2a6f2d9fa2b9a36dbfbe35907cdacaf135e03d2fd209",
+        "memory_policy.py": "99183e2f6bc27edc5b0f801874ea3401c618125693ff95fe2d3ba7fe2ca5b6fe",
+        "model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+        "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+        "navigation_segmented.py": "8d81fdde867ed3f781415a1934b7cfc3061b6ce7b0ed53ce58141e1ea1ad7b51",
+        "observation_worker.py": "d3ae59778e999e52d8da17f23b0c6d773a3305500205d20abeb604fe3642c07f",
+        "planning_worker.py": "039af788066a8138dd8ab1bb8c3dc03347e97185339c3ef6ea59cd8a50273852",
+        "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+        "route_search.py": "c9eaa551911b99cc5f537285d9ebfd634a339acb92436be6063ee5bc075d8cc3",
+        "section_codec.py": "d8ab1902437295cfe501361c1634a721f3ba26beb7430ea774fe66bd5935480d",
+        "spatial_archive.py": "87f0cbaae7a2387757bb1dea569efe9925a2d0998c0a99a7d43c41de8143ff3c",
+        "spatial_memory.py": "95ec08b3e60a1524eb277c93ddebb9858151562b2a2bd8f5fdd488696845a0cb",
+        "terrain_route.py": "9611d5a6a072f43c65839758fcec97b43fc71c8524f1bfe5bf1f6ab99b794691",
+        "terrain_steps.py": "486dc317b38e79927293eee32c85a9a045390eb9186fd7fc50b8f1fdd2bdc6f6"
+      },
+      "status": "passed"
+    },
+    {
+      "artifact": "results/hills/20261027T132526447497Z/summary.json",
+      "attempts": [
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 1.6376000130549073,
+            "p95": 2.7005000738427043,
+            "p99": 3.019800060428679
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 226,
+          "variant": 0
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 1.6590000595897436,
+            "p95": 2.760500065051019,
+            "p99": 3.5409999545663595
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 251,
+          "variant": 1
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 1.5257999766618013,
+            "p95": 2.8788000345230103,
+            "p99": 3.3032000064849854
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 286,
+          "variant": 2
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 1.4964999863877892,
+            "p95": 3.0776000348851085,
+            "p99": 3.89960000757128
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 252,
+          "variant": 3
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 1.6971000004559755,
+            "p95": 3.1506000086665154,
+            "p99": 3.3282999647781253
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 361,
+          "variant": 4
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 1.7254999838769436,
+            "p95": 5.406900076195598,
+            "p99": 26.25260001514107
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 339,
+          "variant": 5
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 1.6669000033289194,
+            "p95": 2.8113999869674444,
+            "p99": 3.72769997920841
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 324,
+          "variant": 6
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 1.6194999916478992,
+            "p95": 3.09639994520694,
+            "p99": 8.326999959535897
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 345,
+          "variant": 7
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 1.5985999489203095,
+            "p95": 3.29520006198436,
+            "p99": 21.08450001105666
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 439,
+          "variant": 8
+        },
+        {
+          "kind": "prefetch",
+          "motor_latency_ms": {
+            "p50": 1.6047999961301684,
+            "p95": 20.36299998871982,
+            "p99": 25.91579989530146
+          },
+          "prefetch_adopted": 1,
+          "status": "success",
+          "ticks": 418,
+          "variant": 9
+        }
+      ],
+      "lab_restored": true,
+      "mod_provenance": {
+        "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "ba8c57ecd534d27e583ac975306df227f2fcc869b9a9de4c5a43de4fad647a90",
+        "schema_version": 1,
+        "source_hash": "497923cdc9b4abc4d8476d65155c569260595da81bd84b5a4de391c4babc9fd4"
+      },
+      "performance_artifact": "results/hills/20261027T132526447497Z/performance.json",
+      "source_sha256": {
+        "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+        "execution.py": "335b2640033f814da75d2a6f2d9fa2b9a36dbfbe35907cdacaf135e03d2fd209",
+        "memory_policy.py": "99183e2f6bc27edc5b0f801874ea3401c618125693ff95fe2d3ba7fe2ca5b6fe",
+        "model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+        "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+        "navigation_segmented.py": "8d81fdde867ed3f781415a1934b7cfc3061b6ce7b0ed53ce58141e1ea1ad7b51",
+        "observation_worker.py": "d3ae59778e999e52d8da17f23b0c6d773a3305500205d20abeb604fe3642c07f",
+        "planning_worker.py": "039af788066a8138dd8ab1bb8c3dc03347e97185339c3ef6ea59cd8a50273852",
+        "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+        "route_search.py": "c9eaa551911b99cc5f537285d9ebfd634a339acb92436be6063ee5bc075d8cc3",
+        "section_codec.py": "d8ab1902437295cfe501361c1634a721f3ba26beb7430ea774fe66bd5935480d",
+        "spatial_archive.py": "87f0cbaae7a2387757bb1dea569efe9925a2d0998c0a99a7d43c41de8143ff3c",
+        "spatial_memory.py": "95ec08b3e60a1524eb277c93ddebb9858151562b2a2bd8f5fdd488696845a0cb",
+        "terrain_route.py": "9611d5a6a072f43c65839758fcec97b43fc71c8524f1bfe5bf1f6ab99b794691",
+        "terrain_steps.py": "486dc317b38e79927293eee32c85a9a045390eb9186fd7fc50b8f1fdd2bdc6f6"
+      },
+      "status": "passed"
+    },
+    {
+      "artifact": "results/hills/20261027T134248294564Z/summary.json",
+      "attempt_count": 10,
+      "lab_restored": true,
+      "mod_provenance": {
+        "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+        "jar_sha256": "4ac4d8bf533a3f178fa4cd82b2f22847332832343d58851e4360f71189db4929",
+        "schema_version": 1,
+        "source_hash": "c23b9f84d8ba00591e6606a2b7250a85455f8c4fc98c43c8cfa2b3c1afb7f75b"
+      },
+      "performance_artifact": "results/hills/20261027T134248294564Z/performance.json",
+      "source_sha256": {
+        "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+        "bridge.py": "2f25d7d2d53594009a077ed5527094f6649ffa19958f22d8feed858be338326b",
+        "execution.py": "303867508393ff1133d1de860e8172687a99a47e867ebba11ac02909b540dbf1",
+        "memory_policy.py": "99183e2f6bc27edc5b0f801874ea3401c618125693ff95fe2d3ba7fe2ca5b6fe",
+        "model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+        "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+        "navigation_segmented.py": "8d81fdde867ed3f781415a1934b7cfc3061b6ce7b0ed53ce58141e1ea1ad7b51",
+        "observation_worker.py": "d3ae59778e999e52d8da17f23b0c6d773a3305500205d20abeb604fe3642c07f",
+        "planning_worker.py": "039af788066a8138dd8ab1bb8c3dc03347e97185339c3ef6ea59cd8a50273852",
+        "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+        "route_search.py": "c9eaa551911b99cc5f537285d9ebfd634a339acb92436be6063ee5bc075d8cc3",
+        "section_codec.py": "d8ab1902437295cfe501361c1634a721f3ba26beb7430ea774fe66bd5935480d",
+        "spatial_archive.py": "87f0cbaae7a2387757bb1dea569efe9925a2d0998c0a99a7d43c41de8143ff3c",
+        "spatial_memory.py": "95ec08b3e60a1524eb277c93ddebb9858151562b2a2bd8f5fdd488696845a0cb",
+        "terrain_route.py": "9611d5a6a072f43c65839758fcec97b43fc71c8524f1bfe5bf1f6ab99b794691",
+        "terrain_steps.py": "486dc317b38e79927293eee32c85a9a045390eb9186fd7fc50b8f1fdd2bdc6f6",
+        "terrain_transport.py": "ad1cb52d593eb4ae3d1d922cc74650b296e5e2df6c32242e04fbe3365fb3c0b4"
+      },
+      "status": "passed",
+      "tracked_summary": "docs/evidence/2026-10-27-awareness-navigation/20261027T134248294564Z-summary.json"
+    }
+  ]
+}

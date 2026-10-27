@@ -1,9 +1,25 @@
 # Experiment queue
 
-Updated October 25, 2026. Queue entries are plans, not qualification evidence.
+Updated October 26, 2026. Queue entries are plans, not qualification evidence.
 Current gate results remain in `gates.json`.
 
-## Current: model decisions and actual-game validation
+## Next sprint: awareness, movement, and block use
+
+Marc requested a focused sprint for configurable world awareness, persistent map
+memory, broader movement, and terrain modification, with hill climbing as the
+main block-use task. The [ten-day sprint plan](AWARENESS_MOVEMENT_SPRINT.md)
+defines implementation order, operator knobs, a day-five integration checkpoint,
+and acceptance comparisons against Baritone. The first increment implements
+[development awareness modes](AWARENESS_MODES.md): legacy/visible/chunk profiles,
+range/entity/scan controls, bounded extra acquisition, profile-isolated recording,
+and natural-run selection. [Spatial integration](SPATIAL_NAVIGATION.md) adds
+durable recall, bounded hot memory and resumable detour search. The next
+[hill increment](HILL_NAVIGATION.md) adds bounded cut/place execution and live
+development fixtures. Client-equivalent chunk admission, compressed transport,
+broader traversal and natural-terrain comparisons remain pending. This takes priority over
+the model experiments below; preserve their existing evidence and budgets.
+
+## Queued: model decisions and actual-game validation
 
 Architecture hypothesis from Marc: a larger LLM might provide planning and Jev
 fast tactical decisions. He explicitly corrected the earlier assumption that
@@ -52,8 +68,10 @@ persistent HTTP. Its matched full matrix passed **80/80**, 20/20 per course, and
 all raw audits passed on a uniform frozen stack. G5's deterministic development
 criterion is complete. See [current evidence](G5_NAVIGATION_PROOF.json),
 [baseline evidence](G5_DEFAULT_GC_BASELINE.json) and the run ledger in
-[the autonomous handoff](AUTONOMOUS_RUN.md). A viable local SystemOne candidate and the
-dedicated Baritone client bridge remain outstanding. No holdout has been consumed.
+[the autonomous handoff](AUTONOMOUS_RUN.md). A viable local SystemOne candidate
+remains outstanding. The Baritone bridge and development comparisons are now
+documented in [the reference](BARITONE_REFERENCE.md) and
+[terrain comparison](NATURAL_TERRAIN_COMPARISON.md). No holdout has been consumed.
 
 October 25 local model follow-up: OpenJev 4B v5 was served on gpu-docker port
 8002 and completed the frozen synthetic matrix at **78/144**, with no transport

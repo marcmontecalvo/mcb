@@ -1,0 +1,51 @@
+{
+  "background_planner": "unit-tested lane; controller integration pending",
+  "date": "2026-10-27",
+  "four_move_forecasts": {
+    "artifact": "results/hills/20261027T114953140342Z/forecast-metrics.json",
+    "sha256": "c75ba67648882ad80a3a4ab3545753a8983ba1229d35977ea493ab507825d28a"
+  },
+  "full_sprint_status": "in_progress",
+  "legacy_requalification": "pending current mod; scored admission closed",
+  "mixed_hills": {
+    "artifact": "results/hills/20261027T114953140342Z/summary.json",
+    "cases": 10,
+    "mod_provenance": {
+      "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+      "jar_sha256": "a51567054c8f5195520cdaf7f5b6e474f3eb0d0e85c44fb263a426dc9ade667d",
+      "schema_version": 1,
+      "source_hash": "edade94268d7f81eecfdcaecac98687fcecfef25953b94e779b6e8377bf63efc"
+    },
+    "sha256": "9118e970b684980353939b43c4e182b8b3ab201badb20805555c50a9390c7d20",
+    "successes": 10
+  },
+  "python_actor_sources": {
+    "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+    "execution.py": "335b2640033f814da75d2a6f2d9fa2b9a36dbfbe35907cdacaf135e03d2fd209",
+    "model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+    "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+    "navigation_segmented.py": "1f33efdbf14f97fcba52a1e6fea27df669e72f8d4c7459f0c38a60511c0925bb",
+    "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+    "route_search.py": "c9eaa551911b99cc5f537285d9ebfd634a339acb92436be6063ee5bc075d8cc3",
+    "spatial_memory.py": "303b538a992dd303e2e1195cf470c8b172f98e089fbcc39d8dc5f6769d408bb9",
+    "terrain_route.py": "9611d5a6a072f43c65839758fcec97b43fc71c8524f1bfe5bf1f6ab99b794691",
+    "terrain_steps.py": "418f068ecf82f9a57c726890c0ca0bab4875cbdd6b13c927f00c7fce317a9bcf"
+  },
+  "python_tests": {
+    "artifact": "results/hills/20261027T114953140342Z/rolling-tests.xml",
+    "passed": 360,
+    "sha256": "22da87cc51b1a411f8b1dfaa8a13458277d1414c06700913bdcfd8c8907f210b"
+  },
+  "schema_version": 1,
+  "single_lethal_hit": {
+    "artifact": "results/natural_reporting/20261027T120147549118Z/summary.json",
+    "health_loss": 20,
+    "mod_provenance": {
+      "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+      "jar_sha256": "041ad506216f4f4b319fc94a5c0700592e1e35f9da45b1e5c46887df19ea7e65",
+      "schema_version": 1,
+      "source_hash": "14df65e4264e5afe9b98729e9eb0c03d58ecf8b04e873ad5dafb84b8645f3676"
+    },
+    "sha256": "55c25cc816b2c9d694cfbdee9eaf05cee8e45f3b97006a589d436da0e2f0641d"
+  }
+}

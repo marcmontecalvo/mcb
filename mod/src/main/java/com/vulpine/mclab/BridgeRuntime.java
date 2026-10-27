@@ -42,8 +42,12 @@ public final class BridgeRuntime implements AutoCloseable {
     private NaturalRun natural;
     private long pendingBeginSequence;
     private volatile Map<String,Object> policySnapshot = Map.of();
+    private boolean compactTerrain;
+    private TerrainBatch terrainBatch = new TerrainBatch(List.of(),-100);
     private List<Map<String,Object>> visibleBlocks = List.of();
     private int sensorTick = -100;
+    private AwarenessConfig awareness = AwarenessConfig.legacy();
+    private AwarenessSensor awarenessSensor = new AwarenessSensor(awareness);
     private boolean resetting;
     private boolean resetSecondVerification;
     private int resetGeneration;
@@ -258,6 +262,18 @@ public final class BridgeRuntime implements AutoCloseable {
             if (resetting || referenceName != null || body != null || human != null || courseReset != null
                     || (episode != null && episode.running()) || (natural != null && !natural.terminal()))
                 throw new IllegalStateException("lab_busy");
+            var nextAwareness=request.has("awareness")?AwarenessConfig.parse(request.getAsJsonObject("awareness")):AwarenessConfig.legacy();
+            String terrainEncoding="cells";
+            if(request.has("terrain_encoding")) {
+                if(!request.getAsJsonPrimitive("terrain_encoding").isString())
+                    throw new IllegalArgumentException("invalid_terrain_encoding");
+                terrainEncoding=request.get("terrain_encoding").getAsString();
+                if(!Set.of("cells","sections-v1").contains(terrainEncoding)
+                        || (terrainEncoding.equals("sections-v1") && nextAwareness.preset().equals("legacy")))
+                    throw new IllegalArgumentException("invalid_terrain_encoding");
+            }
+            if(!text(request,"subject").equals("carpet_body") && !nextAwareness.equals(AwarenessConfig.legacy()))
+                throw new IllegalArgumentException("awareness_requires_carpet_body");
             String nextEpisode = text(request, "episode_id"), nextBody = text(request, "body_id");
             if (sequence < 1 || nextEpisode.equals(episodeId) || nextBody.equals(bodyId)) {
                 throw new IllegalArgumentException("start_requires_fresh_episode_and_body");
@@ -278,6 +294,8 @@ public final class BridgeRuntime implements AutoCloseable {
                         HumanCourse.Subject.named(server, text(request, "player")), evaluator);
             }
             runId = text(request, "run_id"); episodeId = nextEpisode; bodyId = nextBody;
+            resetAwareness(nextAwareness);
+            compactTerrain=terrainEncoding.equals("sections-v1");
             lastRequestSequence = sequence; lastContactNanos = inbound.receivedNanos(); actionIds.clear();
             everReady = false; readyState = "natural_preparing";
             emit("natural_accepted", "fabric_start", Map.of("request_sequence", sequence));
@@ -290,11 +308,13 @@ public final class BridgeRuntime implements AutoCloseable {
             natural.finish("failed", "stopped");
             scheduled.clear(); expiryTick = -1;
             if (body != null) { body.release(); body.retire(); retired.add(body); body = null; }
+            natural.restoreDevelopmentFixture();
             natural = null; readyState = "idle";
             emit("received", "fabric_start", Map.of("op", op, "request_sequence", sequence));
             return;
         }
         if (inbound.admin() && op.equals("human_course_reset")) {
+            if(request.has("awareness")) throw new IllegalArgumentException("qualified_profile_rejects_awareness_override");
             if (resetting || referenceName != null || body != null || courseReset != null
                     || (episode != null && episode.running())) throw new IllegalStateException("lab_busy");
             if (!text(request, "profile_id").equals(NavigationSpec.NAVIGATION) || !request.has("course_spec")
@@ -308,6 +328,7 @@ public final class BridgeRuntime implements AutoCloseable {
             human = new HumanCourse(server, text(request, "player"), request.getAsJsonObject("course_spec"),
                     NavigationSpec.NAVIGATION, initialCourseSpec);
             runId = text(request, "run_id"); episodeId = nextEpisode; bodyId = nextBody;
+            resetAwareness(AwarenessConfig.legacy());
             lastRequestSequence = sequence; lastContactNanos = inbound.receivedNanos();
             resetRequestSequence = sequence; resetGeneration++; readyState = "resetting_course";
             emit("course_reset_started", "fabric_start", Map.of("generation", resetGeneration,
@@ -315,6 +336,7 @@ public final class BridgeRuntime implements AutoCloseable {
             return;
         }
         if (inbound.admin() && op.equals("course_reset")) {
+            if(request.has("awareness")) throw new IllegalArgumentException("qualified_profile_rejects_awareness_override");
             if (resetting || referenceName != null || human != null) throw new IllegalStateException("lab_busy");
             String profileId = text(request, "profile_id");
             JsonObject nextSpec;
@@ -339,6 +361,7 @@ public final class BridgeRuntime implements AutoCloseable {
             prepared.cleanEntities();
             prepared.resetEnvironment();
             runId = nextRun; episodeId = nextEpisode; bodyId = nextBody;
+            resetAwareness(AwarenessConfig.legacy());
             lastRequestSequence = sequence; lastContactNanos = inbound.receivedNanos(); actionIds.clear();
             pendingBeginSequence=0; episode = null; visibleBlocks = List.of(); sensorTick = -100;
             courseReset = prepared; resetting = true; resetSecondVerification = false;
@@ -389,6 +412,7 @@ public final class BridgeRuntime implements AutoCloseable {
             return;
         }
         if (inbound.admin() && op.equals("spawn")) {
+            if(request.has("awareness")) throw new IllegalArgumentException("qualification_spawn_rejects_awareness_override");
             if (referenceName != null) throw new IllegalStateException("reference_in_progress");
             if (human != null) throw new IllegalStateException("lab_busy");
             if (body != null) throw new IllegalStateException("body_already_active");
@@ -396,6 +420,7 @@ public final class BridgeRuntime implements AutoCloseable {
             runId = text(request, "run_id");
             episodeId = text(request, "episode_id");
             bodyId = text(request, "body_id");
+            resetAwareness(AwarenessConfig.legacy());
             if (sequence < 1) throw new IllegalArgumentException("sequence_must_be_positive");
             lastRequestSequence = sequence;
             actionIds.clear();
@@ -516,6 +541,13 @@ public final class BridgeRuntime implements AutoCloseable {
                         request.has("mechanic") ? text(request, "mechanic") : "flat");
                 emit("fixture_setup", "fabric_start", Map.of("dirt", dirt));
             }
+            case "awareness_check" -> {
+                if(!readyState.equals("ready") || courseReset!=null || natural!=null)
+                    throw new IllegalStateException("awareness_check_requires_idle_development_body");
+                scheduled.clear(); body.release(); expiryTick=-1;
+                emit("awareness_checked","fabric_start",Map.of("request_sequence",sequence,
+                        "verification",SensorVerification.awarenessCheck(body.player(),server.getTickCount())));
+            }
             case "command_proof" -> {
                 if (!readyState.equals("ready")) throw new IllegalStateException("body_not_ready");
                 int duration = request.get("duration").getAsInt();
@@ -598,12 +630,14 @@ public final class BridgeRuntime implements AutoCloseable {
         }
         updatePolicySnapshot();
         if (body != null && traceEnabled) emit("phase", "fabric_end_observation", Map.of());
-        snapshot = Map.of("schema_version", 1, "launch_id", launchId,
+        var status = new LinkedHashMap<String,Object>(Map.of("schema_version", 1, "launch_id", launchId,
                 "run_id", runId, "episode_id", episodeId, "body_id", bodyId,
                 "tick", server.getTickCount(), "state", readyState,
                 "body", body == null ? Map.of() : body.observe(), "requests_received", received,
                 "course_reset", courseReset == null ? Map.of() : Map.of("generation", resetGeneration,
-                        "progress", courseReset.progress(), "state_digest", resetDigest));
+                        "progress", courseReset.progress(), "state_digest", resetDigest)));
+        status.put("awareness",awarenessState());
+        snapshot=Map.copyOf(status);
     }
 
     private void tickCourseReset(String liveBodyState) {
@@ -733,6 +767,21 @@ public final class BridgeRuntime implements AutoCloseable {
         return (episode != null && episode.running()) || (natural != null && natural.running() && body != null);
     }
 
+    private void resetAwareness(AwarenessConfig next) {
+        scheduled.clear(); expiryTick=-1;
+        if(body!=null && body.player()!=null) body.release();
+        awareness=next; awarenessSensor=new AwarenessSensor(next);
+        compactTerrain=false; terrainBatch=new TerrainBatch(List.of(),-100);
+        visibleBlocks=List.of(); sensorTick=-100; policySnapshot=Map.of();
+    }
+
+    private Map<String,Object> awarenessState() {
+        return Map.of("config",awareness.payload(),"revision",episodeId,
+                "sensor_profile",awareness.profile(),"coverage",awarenessSensor.coverage(),
+                "scope","body_radius_available_chunks_only","client_equivalent",false,
+                "changes_require_new_episode",true);
+    }
+
     private void updatePolicySnapshot() {
         var filtered=new LinkedHashMap<String,Object>();
         if(body!=null && body.player()!=null) {
@@ -740,8 +789,14 @@ public final class BridgeRuntime implements AutoCloseable {
             for(String key:List.of("position","velocity","yaw","pitch","on_ground","health","food",
                     "mode","pose","alive","sprinting","inventory","ray","block_reach","entity_reach","attack_strength"))
                 filtered.put(key,observed.get(key));
-            if(server.getTickCount()-sensorTick>=5 && policyRunning()) {
-                visibleBlocks=PolicySensor.visible(body.player(),server.getTickCount());sensorTick=server.getTickCount();
+            // Inventory-only evidence for natural development interactions. Legacy
+            // qualified course observations retain their frozen body contract.
+            if(natural!=null) filtered.put("building_pickups",natural.buildingPickups());
+            if(server.getTickCount()-sensorTick>=awareness.interval() && policyRunning()) {
+                visibleBlocks=awareness.preset().equals("legacy")?PolicySensor.visible(body.player(),server.getTickCount())
+                        :awarenessSensor.sample(body.player(),server.getTickCount());
+                sensorTick=server.getTickCount();
+                if(compactTerrain) terrainBatch=new TerrainBatch(visibleBlocks,sensorTick);
             }
         }
         var resources=Map.of("average_mspt",server.getAverageTickTimeNanos()/1_000_000.0,
@@ -750,15 +805,21 @@ public final class BridgeRuntime implements AutoCloseable {
                 Map.entry("run_id",runId),Map.entry("episode_id",episodeId),Map.entry("body_id",bodyId),
                 Map.entry("tick",server.getTickCount()),Map.entry("state",readyState),
                 Map.entry("body",Map.copyOf(filtered)),Map.entry("visible_blocks",visibleBlocks),
-                Map.entry("sensor_profile","local-visibility-v1"),
-                Map.entry("visible_entities",body!=null && body.player()!=null && (episode!=null || natural!=null)?PolicySensor.entities(body.player()):List.of()),
+                Map.entry("sensor_profile",awareness.profile()), Map.entry("awareness",awarenessState()),
+                Map.entry("visible_entities",body!=null && body.player()!=null && (episode!=null || natural!=null)?PolicySensor.entities(body.player(),awareness):List.of()),
                 Map.entry("episode",natural!=null?natural.publicState():episode==null?Map.of():episode.publicState()),
                 Map.entry("resources",resources));
+        if(compactTerrain) {
+            var compact=new LinkedHashMap<String,Object>(policySnapshot);
+            compact.remove("visible_blocks"); compact.put("terrain_sections",terrainBatch);
+            policySnapshot=Map.copyOf(compact);
+        }
         if(policyRunning()) {
             var sample=new LinkedHashMap<String,Object>(policySnapshot);
             // Every simulation tick records body state. Map updates carry a complete local
-            // visible-cell replacement every fifth tick; consumers preserve unknown cells.
+            // Terrain batches follow the declared cadence; expanded profiles are incremental.
             if(sensorTick!=server.getTickCount()) sample.remove("visible_blocks");
+            if(sensorTick!=server.getTickCount()) sample.remove("terrain_sections");
             sample.put("map_update",sensorTick==server.getTickCount());
             emit("policy_sample","fabric_end_observation",Map.copyOf(sample));
         }
@@ -784,8 +845,14 @@ public final class BridgeRuntime implements AutoCloseable {
     public static void courseDrop(net.minecraft.world.entity.Entity entity,boolean added) {
         var b=active;if(b!=null && b.server.isSameThread() && b.episode!=null)b.episode.created(entity,added);
     }
-    public static void coursePickup(ServerPlayer p,net.minecraft.world.entity.item.ItemEntity item,int before,int after) {
+    public static void coursePickup(ServerPlayer p,net.minecraft.world.entity.item.ItemEntity item,int before,int after,String kind) {
         var b=active;if(b!=null && b.server.isSameThread() && b.episode!=null)b.episode.pickup(p,item,before,after);
+        if(b!=null && b.server.isSameThread() && b.natural!=null)b.natural.pickup(p,kind,before,after);
+    }
+
+    public static void naturalHealthChanged(ServerPlayer p,float before,float after) {
+        var b=active;
+        if(b!=null && b.server.isSameThread() && b.natural!=null)b.natural.healthChanged(p,before,after);
     }
 
     public static void trace(ServerPlayer player, String phase) {

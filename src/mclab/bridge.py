@@ -102,6 +102,8 @@ class Bridge:
                 io.BytesIO(data),
             )
         value = json.loads(data)
+        if path == "/policy":
+            self.last_policy_wire_bytes = len(data)
         if value.get("launch_id") != self.launch_id:
             raise RuntimeError("Bridge belongs to a different launch")
         return value

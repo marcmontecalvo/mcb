@@ -10,9 +10,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(ItemEntity.class)
 public abstract class ItemEpisodeMixin {
     @Unique private int mclab$beforeCount;
+    @Unique private String mclab$itemKind;
     @Inject(method="playerTouch",at=@At("HEAD"))
     private void beforePickup(Player player, CallbackInfo ci) {
         mclab$beforeCount=((ItemEntity)(Object)this).getItem().getCount();
+        mclab$itemKind=net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(
+                ((ItemEntity)(Object)this).getItem().getItem()).toString();
     }
     // Native playerTouch restores the discarded stack count before RETURN.
     // Player.take is reached only after Inventory.add succeeds, while the
@@ -22,7 +25,7 @@ public abstract class ItemEpisodeMixin {
     private void afterPickup(Player player, CallbackInfo ci) {
         if (player instanceof ServerPlayer p) {
             var item=(ItemEntity)(Object)this;
-            BridgeRuntime.coursePickup(p,item,mclab$beforeCount,item.getItem().getCount());
+            BridgeRuntime.coursePickup(p,item,mclab$beforeCount,item.getItem().getCount(),mclab$itemKind);
         }
     }
 }

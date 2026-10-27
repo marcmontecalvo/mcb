@@ -1,0 +1,105 @@
+{
+  "admission_checks": {
+    "development_awareness_rejected_for_legacy_scoring": true,
+    "legacy_c1_accepted": true,
+    "legacy_navigation_accepted": true,
+    "scope": "Admission checks only; not new scored gameplay runs"
+  },
+  "checks": {
+    "C2": {
+      "artifact": "results/awareness/20261027T024304540828Z-regression/C2.json",
+      "sha256": "58f50cd45610a0c366423794ff10d6c4149b57d486d65cf7acbc24235b0ef6a7"
+    },
+    "C3": {
+      "artifact": "results/awareness/20261027T024304540828Z-regression/C3.json",
+      "sha256": "967c284a8d106db6ce417f0fc03d15392ab30335efceb87d495295ed9edae6e0"
+    },
+    "C4": {
+      "artifact": "results/awareness/20261027T024304540828Z-regression/C4.json",
+      "sha256": "4ae87b775f89a9b2f7bfd7c4c7421971cf4370b428227e8053ba334950433c09"
+    },
+    "C5": {
+      "artifact": "results/awareness/20261027T024304540828Z-regression/C5.json",
+      "sha256": "a0760693602f5e2724589130875e7616579c653c37f6a92ed0727447b1288941"
+    },
+    "awareness": {
+      "artifact": "results/awareness/20261027T024304540828Z-regression/awareness.json",
+      "sha256": "65ccd8712a14323ad0e5799ad79a6c11e2c5d0bba5a8fc544b954eecb0e15452"
+    },
+    "initial_adversarial": {
+      "artifact": "results/awareness/20261027T024304540828Z-regression/initial_adversarial.json",
+      "sha256": "46f916f610ab535462efcf47dd43abbc558045bcf7c4bf15ffe8d92fdb3b0c40"
+    },
+    "initial_resets": {
+      "artifact": "results/awareness/20261027T024304540828Z-regression/initial_resets.json",
+      "sha256": "c5d0c66244f7e983692df86434c3be42dcca4068d29a67ef1d3f8c2d9250dc7a"
+    }
+  },
+  "date": "2026-10-26",
+  "essential_testcases": [
+    "test_archive_recall_from_independent_python_process",
+    "test_detour_survives_eviction_restart_and_segmented_search",
+    "test_search_snapshot_immutable_and_motor_rejects_stale_recall",
+    "test_cancelled_terrain_plan_cannot_reuse_reserved_material_budget",
+    "test_horizontal_goal_radius_cannot_accept_the_floor_below_goal",
+    "test_map_recording_isolates_broader_knowledge",
+    "test_planning_view_keeps_its_revision_when_live_cells_change",
+    "test_overflow_is_explicit_and_persists_untrusted_coverage"
+  ],
+  "hill_cohort": {
+    "artifact": "results/hills/20261027T030540500259Z/summary.json",
+    "attempts": 30,
+    "sha256": "cbc10ea6aeb1b01b6cae8f7be33017794efd1338cba5b610e2e9dce73415a0d4",
+    "successes": {
+      "cut": 10,
+      "place": 10,
+      "walk": 10
+    }
+  },
+  "independent_live_map_recall": {
+    "artifact": "results/hills/20261027T030540500259Z/independent-recall.json",
+    "sha256": "fd383c2414cd8405e2d2720a1d2656fd0fc3cc4192a3a8cdd4fdd81f16fe66cb"
+  },
+  "initial_adversarial_checks_passed": 29,
+  "initial_reset_checks_passed": 20,
+  "legacy_sensor_checks_passed": 11,
+  "mod_provenance": {
+    "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "e2733985a0d11becbd4ed5266ac5ef43bcef96a02d94c87016e4ed03ff4bdaa5",
+    "schema_version": 1,
+    "source_hash": "124b9292233ec0a91ac56e6e23ba3cc12bddd5a057fc25b688be2b67edbe248a"
+  },
+  "native_awareness_checks_passed": 15,
+  "navigation_reset_checks_passed": {
+    "C2": 20,
+    "C3": 20,
+    "C4": 20,
+    "C5": 20
+  },
+  "python_tests": {
+    "artifact": "results/hills/20261027T030540500259Z/python-tests.xml",
+    "passed": 348,
+    "sha256": "e953ca231d910699561ef23c2c4fff56350f063a7c7aa954c1bd9e00bc79f5c5"
+  },
+  "remaining": [
+    "Mixed excavation/placement hills and bridge/pillar macros",
+    "Background prefetch and coarse connection graph",
+    "Compressed map transport/storage",
+    "Broader traversal families",
+    "Fresh natural-terrain comparison and full sprint performance targets"
+  ],
+  "schema_version": 1,
+  "scope": "Awareness, initial durable map/search, walking/cut/place hill fixtures; not full sprint acceptance or Baritone parity",
+  "source_sha256": {
+    "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+    "execution.py": "335b2640033f814da75d2a6f2d9fa2b9a36dbfbe35907cdacaf135e03d2fd209",
+    "model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+    "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+    "navigation_segmented.py": "eaca4ce6312b5e6e1496f86a4d0a04c605f8ad4ae42320106d3993054f5e6c98",
+    "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+    "route_search.py": "c9eaa551911b99cc5f537285d9ebfd634a339acb92436be6063ee5bc075d8cc3",
+    "spatial_memory.py": "303b538a992dd303e2e1195cf470c8b172f98e089fbcc39d8dc5f6769d408bb9",
+    "terrain_steps.py": "0b22a5193c993befab6083da01a62175a06ed66d1db7d3aa3c40fa468405fcdd"
+  },
+  "status": "passed_development_hill_increment"
+}

@@ -1,0 +1,889 @@
+{
+  "attempts": [
+    {
+      "blocks_broken": 0,
+      "controller": {
+        "active_cells": 17940,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1280,
+          80,
+          1320
+        ],
+        "map_revision": 42,
+        "memory": {
+          "active_accounted_bytes": 28020018,
+          "active_byte_limit": 134217728,
+          "active_cells": 17940,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 12566614,
+          "persistence_queue": 1,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.6376000130549073,
+          "p95": 2.7005000738427043,
+          "p99": 3.019800060428679
+        },
+        "motor_latency_samples": 70,
+        "persistence_queue": 1,
+        "place_budget_reserved": 0,
+        "places_confirmed": 0,
+        "planner": {
+          "cancelled": 0,
+          "completed": 8,
+          "latency_ms": {
+            "p50": 2.8874999843537807,
+            "p95": 9.20380000025034,
+            "p99": 9.20380000025034
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 1,
+        "prefetch_pending": false,
+        "prefetch_started": 1,
+        "reason": "known goal route",
+        "route_remaining": 3,
+        "search_expanded": 7,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 6986,
+      "development_hill": {
+        "added": 0,
+        "changes": [],
+        "kind": "prefetch",
+        "removed": 0,
+        "variant": 0
+      },
+      "end_tick": 4812,
+      "final_position": [
+        1280.5,
+        80.0,
+        1319.6154903752085
+      ],
+      "kind": "prefetch",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 0,
+      "kit_blocks_used_estimate": 0,
+      "min_goal_distance": 0.8845096247914626,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 4586,
+      "status": "success",
+      "ticks": 226,
+      "variant": 0
+    },
+    {
+      "blocks_broken": 0,
+      "controller": {
+        "active_cells": 19305,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1281,
+          80,
+          1321
+        ],
+        "map_revision": 47,
+        "memory": {
+          "active_accounted_bytes": 30160065,
+          "active_byte_limit": 134217728,
+          "active_cells": 19305,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 8905134,
+          "persistence_queue": 1,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.6590000595897436,
+          "p95": 2.760500065051019,
+          "p99": 3.5409999545663595
+        },
+        "motor_latency_samples": 78,
+        "persistence_queue": 1,
+        "place_budget_reserved": 0,
+        "places_confirmed": 0,
+        "planner": {
+          "cancelled": 0,
+          "completed": 8,
+          "latency_ms": {
+            "p50": 2.7817999944090843,
+            "p95": 8.90439993236214,
+            "p99": 8.90439993236214
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 1,
+        "prefetch_pending": false,
+        "prefetch_started": 1,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 21,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 7262,
+      "development_hill": {
+        "added": 0,
+        "changes": [],
+        "kind": "prefetch",
+        "removed": 0,
+        "variant": 1
+      },
+      "end_tick": 5113,
+      "final_position": [
+        1280.5544448470266,
+        80.0,
+        1321.6393849266656
+      ],
+      "kind": "prefetch",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 0,
+      "kit_blocks_used_estimate": 0,
+      "min_goal_distance": 0.955773354460191,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 4862,
+      "status": "success",
+      "ticks": 251,
+      "variant": 1
+    },
+    {
+      "blocks_broken": 0,
+      "controller": {
+        "active_cells": 19878,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1282,
+          80,
+          1322
+        ],
+        "map_revision": 51,
+        "memory": {
+          "active_accounted_bytes": 31069638,
+          "active_byte_limit": 134217728,
+          "active_cells": 19878,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 18577894,
+          "persistence_queue": 3,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.5257999766618013,
+          "p95": 2.8788000345230103,
+          "p99": 3.3032000064849854
+        },
+        "motor_latency_samples": 85,
+        "persistence_queue": 3,
+        "place_budget_reserved": 0,
+        "places_confirmed": 0,
+        "planner": {
+          "cancelled": 0,
+          "completed": 7,
+          "latency_ms": {
+            "p50": 2.8381000738590956,
+            "p95": 6.1082999454811215,
+            "p99": 6.1082999454811215
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 1,
+        "prefetch_pending": false,
+        "prefetch_started": 1,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 35,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 7628,
+      "development_hill": {
+        "added": 0,
+        "changes": [],
+        "kind": "prefetch",
+        "removed": 0,
+        "variant": 2
+      },
+      "end_tick": 5514,
+      "final_position": [
+        1281.550788623286,
+        80.0,
+        1322.4350888778902
+      ],
+      "kind": "prefetch",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 0,
+      "kit_blocks_used_estimate": 0,
+      "min_goal_distance": 0.9514282376809848,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 5228,
+      "status": "success",
+      "ticks": 286,
+      "variant": 2
+    },
+    {
+      "blocks_broken": 0,
+      "controller": {
+        "active_cells": 18915,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1280,
+          80,
+          1323
+        ],
+        "map_revision": 45,
+        "memory": {
+          "active_accounted_bytes": 29548623,
+          "active_byte_limit": 134217728,
+          "active_cells": 18915,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 26873997,
+          "persistence_queue": 3,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.4964999863877892,
+          "p95": 3.0776000348851085,
+          "p99": 3.89960000757128
+        },
+        "motor_latency_samples": 75,
+        "persistence_queue": 3,
+        "place_budget_reserved": 0,
+        "places_confirmed": 0,
+        "planner": {
+          "cancelled": 0,
+          "completed": 8,
+          "latency_ms": {
+            "p50": 2.634500036947429,
+            "p95": 6.777600036002696,
+            "p99": 6.777600036002696
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 1,
+        "prefetch_pending": false,
+        "prefetch_started": 1,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 10,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 7957,
+      "development_hill": {
+        "added": 0,
+        "changes": [],
+        "kind": "prefetch",
+        "removed": 0,
+        "variant": 3
+      },
+      "end_tick": 5809,
+      "final_position": [
+        1280.5,
+        80.0,
+        1322.652943573449
+      ],
+      "kind": "prefetch",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 0,
+      "kit_blocks_used_estimate": 0,
+      "min_goal_distance": 0.8470564265510347,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 5557,
+      "status": "success",
+      "ticks": 252,
+      "variant": 3
+    },
+    {
+      "blocks_broken": 0,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1281,
+          80,
+          1337
+        ],
+        "map_revision": 61,
+        "memory": {
+          "active_accounted_bytes": 31287944,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 4640357,
+          "persistence_queue": 0,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.6971000004559755,
+          "p95": 3.1506000086665154,
+          "p99": 3.3282999647781253
+        },
+        "motor_latency_samples": 101,
+        "persistence_queue": 0,
+        "place_budget_reserved": 0,
+        "places_confirmed": 0,
+        "planner": {
+          "cancelled": 0,
+          "completed": 9,
+          "latency_ms": {
+            "p50": 3.396800020709634,
+            "p95": 8.49529996048659,
+            "p99": 8.49529996048659
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 1,
+        "prefetch_pending": false,
+        "prefetch_started": 1,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 21,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 8252,
+      "development_hill": {
+        "added": 0,
+        "changes": [],
+        "kind": "prefetch",
+        "removed": 0,
+        "variant": 4
+      },
+      "end_tick": 6213,
+      "final_position": [
+        1280.5544446692807,
+        80.0,
+        1337.6129971507446
+      ],
+      "kind": "prefetch",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 0,
+      "kit_blocks_used_estimate": 0,
+      "min_goal_distance": 0.9522831719232294,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 5852,
+      "status": "success",
+      "ticks": 361,
+      "variant": 4
+    },
+    {
+      "blocks_broken": 0,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1282,
+          80,
+          1338
+        ],
+        "map_revision": 67,
+        "memory": {
+          "active_accounted_bytes": 31287944,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 9255052,
+          "persistence_queue": 1,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.7254999838769436,
+          "p95": 5.406900076195598,
+          "p99": 26.25260001514107
+        },
+        "motor_latency_samples": 112,
+        "persistence_queue": 1,
+        "place_budget_reserved": 0,
+        "places_confirmed": 0,
+        "planner": {
+          "cancelled": 0,
+          "completed": 8,
+          "latency_ms": {
+            "p50": 3.8400000194087625,
+            "p95": 13.237199978902936,
+            "p99": 13.237199978902936
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 1,
+        "prefetch_pending": false,
+        "prefetch_started": 1,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 27,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 8627,
+      "development_hill": {
+        "added": 0,
+        "changes": [],
+        "kind": "prefetch",
+        "removed": 0,
+        "variant": 5
+      },
+      "end_tick": 6566,
+      "final_position": [
+        1281.5507824285019,
+        80.0,
+        1338.4351053495636
+      ],
+      "kind": "prefetch",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 0,
+      "kit_blocks_used_estimate": 0,
+      "min_goal_distance": 0.9514332944017057,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 6227,
+      "status": "success",
+      "ticks": 339,
+      "variant": 5
+    },
+    {
+      "blocks_broken": 0,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1280,
+          80,
+          1339
+        ],
+        "map_revision": 62,
+        "memory": {
+          "active_accounted_bytes": 31287944,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 8905134,
+          "persistence_queue": 1,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.6669000033289194,
+          "p95": 2.8113999869674444,
+          "p99": 3.72769997920841
+        },
+        "motor_latency_samples": 104,
+        "persistence_queue": 1,
+        "place_budget_reserved": 0,
+        "places_confirmed": 0,
+        "planner": {
+          "cancelled": 0,
+          "completed": 12,
+          "latency_ms": {
+            "p50": 6.376000004820526,
+            "p95": 10.756000061519444,
+            "p99": 10.756000061519444
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 1,
+        "prefetch_pending": false,
+        "prefetch_started": 1,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 10,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 8996,
+      "development_hill": {
+        "added": 0,
+        "changes": [],
+        "kind": "prefetch",
+        "removed": 0,
+        "variant": 6
+      },
+      "end_tick": 6920,
+      "final_position": [
+        1280.5,
+        80.0,
+        1338.7097834072742
+      ],
+      "kind": "prefetch",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 0,
+      "kit_blocks_used_estimate": 0,
+      "min_goal_distance": 0.7902165927257556,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 6596,
+      "status": "success",
+      "ticks": 324,
+      "variant": 6
+    },
+    {
+      "blocks_broken": 0,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1281,
+          80,
+          1340
+        ],
+        "map_revision": 64,
+        "memory": {
+          "active_accounted_bytes": 31287944,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 13051018,
+          "persistence_queue": 1,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.6194999916478992,
+          "p95": 3.09639994520694,
+          "p99": 8.326999959535897
+        },
+        "motor_latency_samples": 107,
+        "persistence_queue": 1,
+        "place_budget_reserved": 0,
+        "places_confirmed": 0,
+        "planner": {
+          "cancelled": 0,
+          "completed": 10,
+          "latency_ms": {
+            "p50": 6.707799970172346,
+            "p95": 13.422799995169044,
+            "p99": 13.422799995169044
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 1,
+        "prefetch_pending": false,
+        "prefetch_started": 1,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 18,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 9459,
+      "development_hill": {
+        "added": 0,
+        "changes": [],
+        "kind": "prefetch",
+        "removed": 0,
+        "variant": 7
+      },
+      "end_tick": 7404,
+      "final_position": [
+        1280.5544448268206,
+        80.0,
+        1340.6348651140988
+      ],
+      "kind": "prefetch",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 0,
+      "kit_blocks_used_estimate": 0,
+      "min_goal_distance": 0.9551246958000909,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 7059,
+      "status": "success",
+      "ticks": 345,
+      "variant": 7
+    },
+    {
+      "blocks_broken": 0,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1282,
+          80,
+          1354
+        ],
+        "map_revision": 82,
+        "memory": {
+          "active_accounted_bytes": 31276946,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 17892244,
+          "persistence_queue": 2,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.5985999489203095,
+          "p95": 3.29520006198436,
+          "p99": 21.08450001105666
+        },
+        "motor_latency_samples": 138,
+        "persistence_queue": 2,
+        "place_budget_reserved": 0,
+        "places_confirmed": 0,
+        "planner": {
+          "cancelled": 0,
+          "completed": 10,
+          "latency_ms": {
+            "p50": 7.41850002668798,
+            "p95": 16.354999970644712,
+            "p99": 16.354999970644712
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 1,
+        "prefetch_pending": false,
+        "prefetch_started": 1,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 23,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 9836,
+      "development_hill": {
+        "added": 0,
+        "changes": [],
+        "kind": "prefetch",
+        "removed": 0,
+        "variant": 8
+      },
+      "end_tick": 7875,
+      "final_position": [
+        1281.550788389657,
+        80.0,
+        1354.4350023011148
+      ],
+      "kind": "prefetch",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 0,
+      "kit_blocks_used_estimate": 0,
+      "min_goal_distance": 0.9514343813790507,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 7436,
+      "status": "success",
+      "ticks": 439,
+      "variant": 8
+    },
+    {
+      "blocks_broken": 0,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1280,
+          80,
+          1355
+        ],
+        "map_revision": 78,
+        "memory": {
+          "active_accounted_bytes": 31284278,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 21568725,
+          "persistence_queue": 1,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.6047999961301684,
+          "p95": 20.36299998871982,
+          "p99": 25.91579989530146
+        },
+        "motor_latency_samples": 130,
+        "persistence_queue": 1,
+        "place_budget_reserved": 0,
+        "places_confirmed": 0,
+        "planner": {
+          "cancelled": 0,
+          "completed": 14,
+          "latency_ms": {
+            "p50": 6.402499973773956,
+            "p95": 17.63559994287789,
+            "p99": 17.63559994287789
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 1,
+        "prefetch_pending": false,
+        "prefetch_started": 1,
+        "reason": "known goal route",
+        "route_remaining": 3,
+        "search_expanded": 8,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 10352,
+      "development_hill": {
+        "added": 0,
+        "changes": [],
+        "kind": "prefetch",
+        "removed": 0,
+        "variant": 9
+      },
+      "end_tick": 8370,
+      "final_position": [
+        1280.5,
+        80.0,
+        1354.5776040015523
+      ],
+      "kind": "prefetch",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 0,
+      "kit_blocks_used_estimate": 0,
+      "min_goal_distance": 0.9223959984476551,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 7952,
+      "status": "success",
+      "ticks": 418,
+      "variant": 9
+    }
+  ],
+  "development_only": true,
+  "lab_restored": true,
+  "memory_policy": {
+    "active_map_budget_mb": 128,
+    "memory_mode": "persistent",
+    "persistence_queue_budget_mb": 128,
+    "use_historical_geometry": true
+  },
+  "mod_provenance": {
+    "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "ba8c57ecd534d27e583ac975306df227f2fcc869b9a9de4c5a43de4fad647a90",
+    "schema_version": 1,
+    "source_hash": "497923cdc9b4abc4d8476d65155c569260595da81bd84b5a4de391c4babc9fd4"
+  },
+  "planning_mode": "background",
+  "request_budget_per_attempt": 1000,
+  "runner_sha256": "3dfdd20f17c1b6b5d1c95230ee873794f43e17fd783d13fc701ae2c346ad4a83",
+  "source_sha256": {
+    "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+    "execution.py": "335b2640033f814da75d2a6f2d9fa2b9a36dbfbe35907cdacaf135e03d2fd209",
+    "memory_policy.py": "99183e2f6bc27edc5b0f801874ea3401c618125693ff95fe2d3ba7fe2ca5b6fe",
+    "model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+    "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+    "navigation_segmented.py": "8d81fdde867ed3f781415a1934b7cfc3061b6ce7b0ed53ce58141e1ea1ad7b51",
+    "observation_worker.py": "d3ae59778e999e52d8da17f23b0c6d773a3305500205d20abeb604fe3642c07f",
+    "planning_worker.py": "039af788066a8138dd8ab1bb8c3dc03347e97185339c3ef6ea59cd8a50273852",
+    "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+    "route_search.py": "c9eaa551911b99cc5f537285d9ebfd634a339acb92436be6063ee5bc075d8cc3",
+    "section_codec.py": "d8ab1902437295cfe501361c1634a721f3ba26beb7430ea774fe66bd5935480d",
+    "spatial_archive.py": "87f0cbaae7a2387757bb1dea569efe9925a2d0998c0a99a7d43c41de8143ff3c",
+    "spatial_memory.py": "95ec08b3e60a1524eb277c93ddebb9858151562b2a2bd8f5fdd488696845a0cb",
+    "terrain_route.py": "9611d5a6a072f43c65839758fcec97b43fc71c8524f1bfe5bf1f6ab99b794691",
+    "terrain_steps.py": "486dc317b38e79927293eee32c85a9a045390eb9186fd7fc50b8f1fdd2bdc6f6"
+  },
+  "status": "passed"
+}

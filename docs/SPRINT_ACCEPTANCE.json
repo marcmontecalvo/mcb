@@ -1,0 +1,129 @@
+{
+  "pause_handoff": "docs/PAUSE_HANDOFF_2026-10-27.md",
+  "pause_reason": "User requested pause for usage reset at 11:56 a.m. Eastern; full sprint unfinished",
+  "plan": "docs/AWARENESS_MOVEMENT_SPRINT.md",
+  "requirements": {
+    "awareness_modes_and_range_entity_controls": {
+      "evidence": "docs/AWARENESS_MOVEMENT_PROOF.json",
+      "status": "implemented_development"
+    },
+    "background_search_prefetch_and_coarse_routing": {
+      "background_live_cases": "ten mixed layouts and ten long prefetch layouts passed",
+      "evidence": "docs/ROLLING_TERRAIN_PLANNING.md",
+      "remaining": "Coarse places/connections and broader live recovery",
+      "status": "in_progress"
+    },
+    "bounded_compact_acquisition_transport": {
+      "compact_snapshot": "sections-v1 sparse palettes implemented, native/decoder tests passed and one live mixed layout passed; high-resolution cohort running",
+      "remaining": "Byte-budgeted deltas, delivery/backlog/resynchronization controls and broader performance verification",
+      "status": "partial"
+    },
+    "client_envelope_and_coverage_calibration": {
+      "status": "pending"
+    },
+    "collision_shapes_slabs_stairs": {
+      "live_cases_required": 10,
+      "status": "pending"
+    },
+    "cut_and_placed_steps": {
+      "evidence": "docs/AWARENESS_MOVEMENT_PROOF.json",
+      "historical_cases": 20,
+      "status": "implemented_development"
+    },
+    "durable_compressed_map_and_memory_modes": {
+      "compressed_sections": "schema two; migration, concurrent updates and independent restart tested",
+      "memory_controls": "current/session/persistent, historical access, accounted hot/queued byte budgets implemented; live timing target still unmet",
+      "remaining": "Automatic background recall and larger-world measurements",
+      "status": "partial"
+    },
+    "fresh_natural_comparison": {
+      "attempts_per_route_per_entrant": 3,
+      "frozen_routes": 10,
+      "mcb_completion_target": "at least 27/30",
+      "median_paired_route_time_ratio_target": "at most 2x Baritone",
+      "new_seeds_minimum": 3,
+      "status": "pending"
+    },
+    "ladders_and_dismount": {
+      "live_cases_required": 10,
+      "status": "pending"
+    },
+    "legacy_requalification_and_restoration": {
+      "current_source": "development mixed fixture and damage fix installed; source-bound scored admission remains closed until requalification",
+      "status": "required_after_server_changes"
+    },
+    "mixed_cut_place_hills": {
+      "evidence": "docs/ROLLING_TERRAIN_PROOF.json",
+      "live_cases_passed": 10,
+      "live_cases_required": 10,
+      "status": "verified_development"
+    },
+    "multi_move_terrain_forecast": {
+      "evidence": "docs/ROLLING_TERRAIN_PROOF.json",
+      "horizon_moves": 4,
+      "shorter_only_when_goal_inside_horizon": true,
+      "status": "verified_development"
+    },
+    "night_diagnostic": {
+      "attempts_per_route_per_entrant": 3,
+      "lethal_damage_reporting": "native single-hit health loss verified at 20 HP",
+      "routes": 3,
+      "status": "pending"
+    },
+    "one_two_block_gap_jumps": {
+      "live_cases_required": 10,
+      "status": "pending"
+    },
+    "performance_targets": {
+      "added_acquisition_p95_ms_per_server_tick_max": 5,
+      "evidence": "docs/BACKGROUND_NAVIGATION_PROOF.json",
+      "invalid_attempts_from_control_starvation_max": 0,
+      "motor_p95_ms_max": 20,
+      "remaining": "Mixed motor p95 was 22.03 ms before compact transport; new high-resolution compact cohort pending; complete MSPT/TPS, transport/backlog/RSS and broader movement evidence still required",
+      "status": "pending"
+    },
+    "places_connections_and_teleport_edge_schema": {
+      "status": "pending"
+    },
+    "results_and_provenance": {
+      "artifact": "docs/AWARENESS_MOVEMENT_RESULTS.md",
+      "status": "in_progress"
+    },
+    "safe_drops": {
+      "live_cases_required": 10,
+      "status": "pending"
+    },
+    "same_controller_awareness_comparison": {
+      "profiles": [
+        "legacy",
+        "visible",
+        "chunk"
+      ],
+      "routes": 5,
+      "status": "pending"
+    },
+    "shared_navigation_contract_and_recovery": {
+      "remaining": "Live interruption, changed geometry, displacement and failed-edge cohorts",
+      "status": "partial"
+    },
+    "staircase_bridge_and_pillar_macros": {
+      "live_cases_required_per_family": 10,
+      "status": "pending"
+    },
+    "surface_water_and_air_recovery": {
+      "live_cases_required": 10,
+      "status": "pending"
+    },
+    "terrain_resource_protection_cost_knobs": {
+      "remaining": "Material/protection controls, time/tool/wear/risk costs and live forbidden-action cases",
+      "status": "partial"
+    },
+    "walking_turning_strafe_sprint_diagonals": {
+      "remaining": "Safe diagonals and sprint controls/cohorts",
+      "status": "partial"
+    }
+  },
+  "schema_version": 1,
+  "scope": "Full sprint, including traversal families and natural-terrain acceptance; the earlier milestone remains historical evidence only",
+  "status": "paused"
+}
