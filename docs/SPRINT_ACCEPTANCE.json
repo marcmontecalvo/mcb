@@ -1,6 +1,7 @@
 {
+  "last_pause_reason": "User requested pause for usage reset at 11:56 a.m. Eastern; full sprint unfinished",
+  "latest_followup": "docs/MOVEMENT_ENGINE_FOLLOWUP_2026-10-27.md",
   "pause_handoff": "docs/PAUSE_HANDOFF_2026-10-27.md",
-  "pause_reason": "User requested pause for usage reset at 11:56 a.m. Eastern; full sprint unfinished",
   "plan": "docs/AWARENESS_MOVEMENT_SPRINT.md",
   "requirements": {
     "awareness_modes_and_range_entity_controls": {
@@ -14,7 +15,7 @@
       "status": "in_progress"
     },
     "bounded_compact_acquisition_transport": {
-      "compact_snapshot": "sections-v1 sparse palettes implemented, native/decoder tests passed and one live mixed layout passed; high-resolution cohort running",
+      "compact_snapshot": "sections-v1 sparse palettes implemented and high-resolution ten-case mixed/prefetch cohorts completed; byte-budgeted deltas remain pending",
       "remaining": "Byte-budgeted deltas, delivery/backlog/resynchronization controls and broader performance verification",
       "status": "partial"
     },
@@ -22,8 +23,12 @@
       "status": "pending"
     },
     "collision_shapes_slabs_stairs": {
+      "evidence": "docs/MOVEMENT_ENGINE_PROOF.json",
       "live_cases_required": 10,
-      "status": "pending"
+      "remaining": "Adverse configurations, exact off-center collision checks and final source freeze",
+      "slab_live_cases_passed": 10,
+      "stair_live_cases_passed": 10,
+      "status": "partial"
     },
     "cut_and_placed_steps": {
       "evidence": "docs/AWARENESS_MOVEMENT_PROOF.json",
@@ -32,13 +37,14 @@
     },
     "durable_compressed_map_and_memory_modes": {
       "compressed_sections": "schema two; migration, concurrent updates and independent restart tested",
-      "memory_controls": "current/session/persistent, historical access, accounted hot/queued byte budgets implemented; live timing target still unmet",
-      "remaining": "Automatic background recall and larger-world measurements",
+      "memory_controls": "current/session/persistent, historical access and accounted hot/queued byte budgets implemented; compact decoder index reuse and direct archive merges verified in bounded live fixtures",
+      "remaining": "Automatic bounded recall implemented on background admission; larger-world measurements and historical-detour live integration remain",
       "status": "partial"
     },
     "fresh_natural_comparison": {
       "attempts_per_route_per_entrant": 3,
       "frozen_routes": 10,
+      "harness": "One-to-three repetitions, three-entrant comparison, strict paired-result aggregation implemented; no new natural cohort",
       "mcb_completion_target": "at least 27/30",
       "median_paired_route_time_ratio_target": "at most 2x Baritone",
       "new_seeds_minimum": 3,
@@ -49,11 +55,12 @@
       "status": "pending"
     },
     "legacy_requalification_and_restoration": {
-      "current_source": "development mixed fixture and damage fix installed; source-bound scored admission remains closed until requalification",
+      "current_source": "Gap fixtures and jump-height diagnostics installed; source 045fae7a8c5fec661ba3a49c9d4f5777e081b29c8379bbe487c37abd043c48f1 remains development-only pending final source-bound requalification",
       "status": "required_after_server_changes"
     },
     "mixed_cut_place_hills": {
       "evidence": "docs/ROLLING_TERRAIN_PROOF.json",
+      "latest_source_bound_cohort": "docs/CONTROL_LATENCY_PROOF.json",
       "live_cases_passed": 10,
       "live_cases_required": 10,
       "status": "verified_development"
@@ -66,32 +73,45 @@
     },
     "night_diagnostic": {
       "attempts_per_route_per_entrant": 3,
-      "lethal_damage_reporting": "native single-hit health loss verified at 20 HP",
+      "lethal_damage_reporting": "20 HP lethal loss and separate death/disconnect flags verified on reporting build; night runs still pending",
       "routes": 3,
       "status": "pending"
     },
     "one_two_block_gap_jumps": {
+      "disabled_refusals_passed": 10,
+      "evidence": "docs/MOVEMENT_ENGINE_PROOF.json",
+      "implementation": "Opt-in cardinal level gaps with checked run-up, flight and run-out; two-block gaps require sprint permission",
+      "live_cases_passed": 10,
       "live_cases_required": 10,
-      "status": "pending"
+      "remaining": "Changed landing/headroom and adverse recovery, mixed routes and final source freeze remain",
+      "status": "partial"
     },
     "performance_targets": {
       "added_acquisition_p95_ms_per_server_tick_max": 5,
       "evidence": "docs/BACKGROUND_NAVIGATION_PROOF.json",
       "invalid_attempts_from_control_starvation_max": 0,
+      "latest_fixture_evidence": "docs/CONTROL_LATENCY_PROOF.json",
       "motor_p95_ms_max": 20,
-      "remaining": "Mixed motor p95 was 22.03 ms before compact transport; new high-resolution compact cohort pending; complete MSPT/TPS, transport/backlog/RSS and broader movement evidence still required",
-      "status": "pending"
+      "remaining": "Mixed and prefetch fixture motor/decode-plus-motor p95 now below 20 ms; full acquisition work, actual TPS, backlog/RSS, wider maps and broader movement performance still required; tail spikes remain",
+      "status": "partial"
     },
     "places_connections_and_teleport_edge_schema": {
-      "status": "pending"
+      "evidence": "docs/MOVEMENT_ENGINE_FOLLOWUP_2026-10-27.md",
+      "remaining": "Automatic place discovery and controller coarse-route integration; no teleport execution",
+      "status": "implemented_storage_development"
     },
     "results_and_provenance": {
       "artifact": "docs/AWARENESS_MOVEMENT_RESULTS.md",
       "status": "in_progress"
     },
     "safe_drops": {
+      "disabled_refusals_passed": 10,
+      "evidence": "docs/MOVEMENT_ENGINE_PROOF.json",
+      "implementation": "Configurable zero-to-three-block solid drops with fresh shaft/landing checks; unit coverage only",
+      "live_cases_passed": 10,
       "live_cases_required": 10,
-      "status": "pending"
+      "remaining": "Changed landing, unsafe alternatives and final frozen source cohort",
+      "status": "partial"
     },
     "same_controller_awareness_comparison": {
       "profiles": [
@@ -107,23 +127,32 @@
       "status": "partial"
     },
     "staircase_bridge_and_pillar_macros": {
+      "bridge_disabled_refusals_passed": 10,
+      "bridge_live_cases_passed": 10,
+      "evidence": "docs/MOVEMENT_ENGINE_PROOF.json",
       "live_cases_required_per_family": 10,
-      "status": "pending"
+      "pillar_disabled_refusals_passed": 10,
+      "pillar_live_cases_passed": 10,
+      "remaining": "Changed geometry/resource adverse cases and final integrated source freeze remain; three base construction families each have enabled/disabled ten-case development cohorts",
+      "staircase_disabled_refusals_passed": 10,
+      "staircase_live_cases_passed": 10,
+      "status": "partial",
+      "support_stack_status": "Bounded support stacks, verified staircase macro/exit and early handoff passed ten exact construction/ascent cases; final source qualification remains open"
     },
     "surface_water_and_air_recovery": {
       "live_cases_required": 10,
       "status": "pending"
     },
     "terrain_resource_protection_cost_knobs": {
-      "remaining": "Material/protection controls, time/tool/wear/risk costs and live forbidden-action cases",
+      "remaining": "Material allowlists, protected IDs/coordinates and break/place/wear cost knobs implemented; actual tool durability, time/risk budgets and live forbidden-action cohorts remain",
       "status": "partial"
     },
     "walking_turning_strafe_sprint_diagonals": {
-      "remaining": "Safe diagonals and sprint controls/cohorts",
+      "remaining": "Opt-in safe diagonal/sprint controls implemented and enabled walking cohort passed 10/10; dedicated use and adverse cases remain",
       "status": "partial"
     }
   },
   "schema_version": 1,
   "scope": "Full sprint, including traversal families and natural-terrain acceptance; the earlier milestone remains historical evidence only",
-  "status": "paused"
+  "status": "in_progress"
 }

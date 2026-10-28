@@ -1,0 +1,10 @@
+{
+  "allow_break": true,
+  "allow_place": true,
+  "break_budget": 8,
+  "place_budget": 8,
+  "allow_bridge": true,
+  "max_support_stack": 3,
+  "allow_pillar": true,
+  "max_pillar_height": 3
+}

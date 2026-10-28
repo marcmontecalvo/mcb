@@ -1,0 +1,101 @@
+{
+  "clock": "perf_counter_ns",
+  "codec_sha256": "fb98346ee336796705a5ec7c53d5ae3f8f1338ca2de99f3440ab0e729d102196",
+  "development_only": true,
+  "distinct_observations": 12,
+  "events": "results\\hills\\20261027T162537422269Z\\events.jsonl",
+  "events_sha256": "ec09ec57dacd92ca5877147476fa823e6c7b296b65a3120b96e83000b2c810ce",
+  "facts_equal": true,
+  "measurement": "in-process codec replay; excludes disk and control work",
+  "runner_sha256": "ad99bb7800497cdf3418f87bc525bd699370c0c28045480c7b5dad87d5396470",
+  "runs": [
+    {
+      "algorithm": "rewrite",
+      "batch_ms": {
+        "max": 169.7592,
+        "p50": 96.7685,
+        "p95": 167.1187,
+        "p99": 167.1187,
+        "samples": 12
+      },
+      "repetition": 0,
+      "total_ms": 1257.8154
+    },
+    {
+      "algorithm": "merge",
+      "batch_ms": {
+        "max": 65.2043,
+        "p50": 32.402,
+        "p95": 46.316,
+        "p99": 46.316,
+        "samples": 12
+      },
+      "repetition": 0,
+      "total_ms": 399.8259
+    },
+    {
+      "algorithm": "merge",
+      "batch_ms": {
+        "max": 61.74,
+        "p50": 22.5528,
+        "p95": 31.153,
+        "p99": 31.153,
+        "samples": 12
+      },
+      "repetition": 1,
+      "total_ms": 314.8821
+    },
+    {
+      "algorithm": "rewrite",
+      "batch_ms": {
+        "max": 221.3885,
+        "p50": 82.5369,
+        "p95": 206.8492,
+        "p99": 206.8492,
+        "samples": 12
+      },
+      "repetition": 1,
+      "total_ms": 1397.4468
+    },
+    {
+      "algorithm": "rewrite",
+      "batch_ms": {
+        "max": 241.0721,
+        "p50": 105.2731,
+        "p95": 231.4798,
+        "p99": 231.4798,
+        "samples": 12
+      },
+      "repetition": 2,
+      "total_ms": 1582.5892000000001
+    },
+    {
+      "algorithm": "merge",
+      "batch_ms": {
+        "max": 89.383,
+        "p50": 26.9669,
+        "p95": 57.3316,
+        "p99": 57.3316,
+        "samples": 12
+      },
+      "repetition": 2,
+      "total_ms": 438.3996
+    }
+  ],
+  "total_ms": {
+    "merge": {
+      "max": 438.3996,
+      "p50": 399.8259,
+      "p95": 399.8259,
+      "p99": 399.8259,
+      "samples": 3
+    },
+    "rewrite": {
+      "max": 1582.5892000000001,
+      "p50": 1397.4468,
+      "p95": 1397.4468,
+      "p99": 1397.4468,
+      "samples": 3
+    }
+  }
+}

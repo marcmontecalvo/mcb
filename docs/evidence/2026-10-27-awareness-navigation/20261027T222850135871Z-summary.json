@@ -1,0 +1,637 @@
+{
+  "attempts": [
+    {
+      "blocks_broken": 0,
+      "bridge_verified": true,
+      "controller": {
+        "active_cells": 19682,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1280,
+          80,
+          1291
+        ],
+        "map_revision": 49,
+        "memory": {
+          "active_accounted_bytes": 30800482,
+          "active_byte_limit": 134217728,
+          "active_cells": 19682,
+          "automatic_recall_count": 1,
+          "automatic_recall_last_ms": 8.610799908638,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 16476292,
+          "persistence_queue": 1,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.393200014717877,
+          "p95": 2.653899951837957,
+          "p99": 17.50230009201914
+        },
+        "motor_latency_samples": 82,
+        "movement_policy": {
+          "allow_diagonals": false,
+          "allow_shapes": true,
+          "allow_sprint": false,
+          "max_drop": 1
+        },
+        "persistence_queue": 1,
+        "place_budget_reserved": 2,
+        "places_confirmed": 2,
+        "planner": {
+          "cancelled": 0,
+          "completed": 3,
+          "latency_ms": {
+            "p50": 1.1057000374421477,
+            "p95": 1.1057000374421477,
+            "p99": 1.1057000374421477
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 8,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 231005,
+      "development_hill": {
+        "added": 2,
+        "changes": [
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              79,
+              1282
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              79,
+              1283
+            ]
+          }
+        ],
+        "kind": "bridge",
+        "removed": 0,
+        "variant": 0
+      },
+      "died": false,
+      "disconnected": false,
+      "end_tick": 230067,
+      "episode_id": "hill-d962b3e2c89f",
+      "final_position": [
+        1280.5,
+        80.0,
+        1290.5739267378028
+      ],
+      "hostile_exposure_ticks_within_16": 0,
+      "kind": "bridge",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 2,
+      "kit_blocks_used_estimate": 2,
+      "min_goal_distance": 0.9260732621971783,
+      "minimum_feet_y": 80.0,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 229805,
+      "status": "success",
+      "terrain_policy": {
+        "allow_break": false,
+        "allow_bridge": true,
+        "allow_place": true,
+        "break_budget": 8,
+        "break_penalty": 3.0,
+        "interaction_tick_limit": 160,
+        "material_allowlist": [
+          "minecraft:cobblestone",
+          "minecraft:dirt"
+        ],
+        "place_budget": 8,
+        "placement_penalty": 4.0,
+        "protected_blocks": [],
+        "protected_positions": [],
+        "reserve_blocks": 0,
+        "tool_wear_penalty": 0.0
+      },
+      "ticks": 262,
+      "variant": 0
+    },
+    {
+      "blocks_broken": 0,
+      "bridge_verified": true,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1280,
+          80,
+          1291
+        ],
+        "map_revision": 74,
+        "memory": {
+          "active_accounted_bytes": 31292788,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "automatic_recall_count": 1,
+          "automatic_recall_last_ms": 6.270800018683076,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 28974376,
+          "persistence_queue": 2,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.6268999315798283,
+          "p95": 3.05649999063462,
+          "p99": 4.141399986110628
+        },
+        "motor_latency_samples": 124,
+        "movement_policy": {
+          "allow_diagonals": false,
+          "allow_shapes": true,
+          "allow_sprint": false,
+          "max_drop": 1
+        },
+        "persistence_queue": 2,
+        "place_budget_reserved": 3,
+        "places_confirmed": 3,
+        "planner": {
+          "cancelled": 0,
+          "completed": 5,
+          "latency_ms": {
+            "p50": 7.102399948053062,
+            "p95": 8.244700031355023,
+            "p99": 8.244700031355023
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 4,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 231293,
+      "development_hill": {
+        "added": 3,
+        "changes": [
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              79,
+              1283
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              79,
+              1284
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              79,
+              1285
+            ]
+          }
+        ],
+        "kind": "bridge",
+        "removed": 0,
+        "variant": 1
+      },
+      "died": false,
+      "disconnected": false,
+      "end_tick": 230486,
+      "episode_id": "hill-60c9d41e9de0",
+      "final_position": [
+        1280.5,
+        80.0,
+        1290.6601177310592
+      ],
+      "hostile_exposure_ticks_within_16": 0,
+      "kind": "bridge",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 3,
+      "kit_blocks_used_estimate": 3,
+      "min_goal_distance": 0.8398822689407552,
+      "minimum_feet_y": 80.0,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 230093,
+      "status": "success",
+      "terrain_policy": {
+        "allow_break": false,
+        "allow_bridge": true,
+        "allow_place": true,
+        "break_budget": 8,
+        "break_penalty": 3.0,
+        "interaction_tick_limit": 160,
+        "material_allowlist": [
+          "minecraft:cobblestone",
+          "minecraft:dirt"
+        ],
+        "place_budget": 8,
+        "placement_penalty": 4.0,
+        "protected_blocks": [],
+        "protected_positions": [],
+        "reserve_blocks": 0,
+        "tool_wear_penalty": 0.0
+      },
+      "ticks": 393,
+      "variant": 1
+    },
+    {
+      "blocks_broken": 0,
+      "bridge_verified": true,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1280,
+          80,
+          1291
+        ],
+        "map_revision": 88,
+        "memory": {
+          "active_accounted_bytes": 31292512,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "automatic_recall_count": 1,
+          "automatic_recall_last_ms": 3.9663000497967005,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 30294469,
+          "persistence_queue": 2,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.601999974809587,
+          "p95": 3.2301999162882566,
+          "p99": 4.139699973165989
+        },
+        "motor_latency_samples": 148,
+        "movement_policy": {
+          "allow_diagonals": false,
+          "allow_shapes": true,
+          "allow_sprint": false,
+          "max_drop": 1
+        },
+        "persistence_queue": 2,
+        "place_budget_reserved": 4,
+        "places_confirmed": 4,
+        "planner": {
+          "cancelled": 0,
+          "completed": 5,
+          "latency_ms": {
+            "p50": 4.406900028698146,
+            "p95": 5.106399999931455,
+            "p99": 5.106399999931455
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 4,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 231728,
+      "development_hill": {
+        "added": 4,
+        "changes": [
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              79,
+              1284
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              79,
+              1285
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              79,
+              1286
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              79,
+              1287
+            ]
+          }
+        ],
+        "kind": "bridge",
+        "removed": 0,
+        "variant": 2
+      },
+      "died": false,
+      "disconnected": false,
+      "end_tick": 230995,
+      "episode_id": "hill-a9e24a2b14e6",
+      "final_position": [
+        1280.5,
+        80.0,
+        1290.6706509748801
+      ],
+      "hostile_exposure_ticks_within_16": 0,
+      "kind": "bridge",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 4,
+      "kit_blocks_used_estimate": 4,
+      "min_goal_distance": 0.8293490251198818,
+      "minimum_feet_y": 80.0,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 230528,
+      "status": "success",
+      "terrain_policy": {
+        "allow_break": false,
+        "allow_bridge": true,
+        "allow_place": true,
+        "break_budget": 8,
+        "break_penalty": 3.0,
+        "interaction_tick_limit": 160,
+        "material_allowlist": [
+          "minecraft:cobblestone",
+          "minecraft:dirt"
+        ],
+        "place_budget": 8,
+        "placement_penalty": 4.0,
+        "protected_blocks": [],
+        "protected_positions": [],
+        "reserve_blocks": 0,
+        "tool_wear_penalty": 0.0
+      },
+      "ticks": 467,
+      "variant": 2
+    },
+    {
+      "blocks_broken": 0,
+      "bridge_verified": false,
+      "controller": {
+        "active_cells": 20000,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1280,
+          80,
+          1291
+        ],
+        "map_revision": 63,
+        "memory": {
+          "active_accounted_bytes": 31293352,
+          "active_byte_limit": 134217728,
+          "active_cells": 20000,
+          "automatic_recall_count": 1,
+          "automatic_recall_last_ms": 12.765699997544289,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 35538831,
+          "persistence_queue": 3,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "following",
+        "motor_latency_ms": {
+          "p50": 1.5804000431671739,
+          "p95": 2.7663999935612082,
+          "p99": 3.175299963913858
+        },
+        "motor_latency_samples": 106,
+        "movement_policy": {
+          "allow_diagonals": false,
+          "allow_shapes": true,
+          "allow_sprint": false,
+          "max_drop": 1
+        },
+        "persistence_queue": 3,
+        "place_budget_reserved": 3,
+        "places_confirmed": 3,
+        "planner": {
+          "cancelled": 0,
+          "completed": 5,
+          "latency_ms": {
+            "p50": 5.006600054912269,
+            "p95": 6.223600008524954,
+            "p99": 6.223600008524954
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "known goal route",
+        "route_remaining": 2,
+        "search_expanded": 4,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 232229,
+      "development_hill": {
+        "added": 3,
+        "changes": [
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              79,
+              1285
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              79,
+              1286
+            ]
+          },
+          {
+            "after": "Block{minecraft:cobblestone}",
+            "before": "Block{minecraft:air}",
+            "position": [
+              1280,
+              80,
+              1281
+            ]
+          }
+        ],
+        "kind": "bridge",
+        "removed": 0,
+        "variant": 3
+      },
+      "died": false,
+      "disconnected": false,
+      "end_tick": 231376,
+      "episode_id": "hill-50e60065f42b",
+      "final_position": [
+        1280.5,
+        80.0,
+        1290.5559653626776
+      ],
+      "hostile_exposure_ticks_within_16": 0,
+      "kind": "bridge",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 3,
+      "kit_blocks_used_estimate": 3,
+      "min_goal_distance": 0.9440346373223747,
+      "minimum_feet_y": 80.0,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "reached_goal",
+      "start_tick": 231029,
+      "status": "success",
+      "terrain_policy": {
+        "allow_break": false,
+        "allow_bridge": true,
+        "allow_place": true,
+        "break_budget": 8,
+        "break_penalty": 3.0,
+        "interaction_tick_limit": 160,
+        "material_allowlist": [
+          "minecraft:cobblestone",
+          "minecraft:dirt"
+        ],
+        "place_budget": 8,
+        "placement_penalty": 4.0,
+        "protected_blocks": [],
+        "protected_positions": [],
+        "reserve_blocks": 0,
+        "tool_wear_penalty": 0.0
+      },
+      "ticks": 347,
+      "variant": 3
+    }
+  ],
+  "development_only": true,
+  "error": "Bridge lacks exact no-fall geometry/stock proof",
+  "expected_outcome": "arrival",
+  "lab_restored": true,
+  "memory_policy": {
+    "active_map_budget_mb": 128,
+    "memory_mode": "persistent",
+    "persistence_queue_budget_mb": 128,
+    "use_historical_geometry": true
+  },
+  "mod_provenance": {
+    "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "0ff3695eac9957011e7018e6594dfbf5cc531c0152affa1efe593552ae9efe54",
+    "schema_version": 1,
+    "source_hash": "d6ee52c354c84408128d4bea83e672e01d67eb7c217c9d125bc6b7327a57d63f"
+  },
+  "movement_policy": {
+    "allow_diagonals": false,
+    "allow_shapes": true,
+    "allow_sprint": false,
+    "max_drop": 1
+  },
+  "planning_mode": "background",
+  "request_budget_per_attempt": 1000,
+  "runner_sha256": "8c182e6452c132c5d7dcf0601d548827a35c0b7a2f8493fdebe9cb7d7270b430",
+  "source_sha256": {
+    "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+    "bridge.py": "2f25d7d2d53594009a077ed5527094f6649ffa19958f22d8feed858be338326b",
+    "collision_geometry.py": "dd1954f11f5d3512c64a0acd8dcf55660d5b2bf5e1c83ee3fb84532b618503e2",
+    "control_runtime.py": "10564688101e0ec4ed4dcc802d3957b6dad087c98cdce2285b62618b2dcbe596",
+    "development_checks.py": "e1643d1732403cbe31ace5d29e8291a3c5b1f8de1e815ce7d6516d5e229289b2",
+    "execution.py": "303867508393ff1133d1de860e8172687a99a47e867ebba11ac02909b540dbf1",
+    "memory_policy.py": "99183e2f6bc27edc5b0f801874ea3401c618125693ff95fe2d3ba7fe2ca5b6fe",
+    "model_execution.py": "99b7cbe03b5d928ab37df868368745f046aa4fb55259092f5ec1e8f4fedf6c16",
+    "movement_policy.py": "57d91ddbdf472a3b097f547aa4c542bc8f0c6fc7dbcf5d314891d503f0739422",
+    "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+    "navigation_segmented.py": "5d505da14e19052b5b45c1f5b841da527336597e1072243e7c875113acc27065",
+    "observation_worker.py": "bfa50efe7eb9a9865147ac740ae67888087895c91802a2509e4ddf61eda37f91",
+    "planning_worker.py": "039af788066a8138dd8ab1bb8c3dc03347e97185339c3ef6ea59cd8a50273852",
+    "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+    "route_search.py": "039e5886b0fdd2f35afc8791b0cc1c9a8b589508cc532fd48f04ad4ab0c5abc7",
+    "section_codec.py": "fb98346ee336796705a5ec7c53d5ae3f8f1338ca2de99f3440ab0e729d102196",
+    "spatial_archive.py": "16e9dc083e2aa0aa6fb07ae9a008c2253fde17dc5b7f566a569afc62c66faca3",
+    "spatial_memory.py": "8b9dc28cc64658ac17170b8e3ffb011668bbe855fec25ea323e6041acdcf5937",
+    "terrain_placement.py": "ace0ce46ff805e34e8cb336db7a611938bc186af2e81cb23fdc4a2e76327b68c",
+    "terrain_route.py": "362db355634276f088cd1447e3d808fb1ff7b607d6616bfc7fd3955a6cc63476",
+    "terrain_steps.py": "324c08aac4593010abf1e812050d9bfe1d8314b52f7c3eac35d66ce4e0105a7a",
+    "terrain_transport.py": "60879facc5d0c4068abab30fed47ee3a4e26cc2c05b47c502251457ffeb6abe4"
+  },
+  "status": "error",
+  "terrain_encoding": "sections-v1",
+  "thread_switch_ms": 5.0,
+  "trace_processing": true
+}

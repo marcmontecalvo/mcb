@@ -1,0 +1,13 @@
+{
+  "checked_at": "2026-10-27T23:39:49.049488+00:00",
+  "state": "idle",
+  "body": {},
+  "mod_provenance": {
+    "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "4d205ec26ffe91bc6890ed60da86b55572ed936df316a9c080b4a2a65cff49a4",
+    "schema_version": 1,
+    "source_hash": "288427ff6073fd843de82a195a0026d6995cf22a6e42ef27652f10e764ed3986"
+  },
+  "development_only": true,
+  "full_sprint_acceptance": false
+}

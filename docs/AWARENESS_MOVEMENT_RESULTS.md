@@ -5,9 +5,12 @@ hill block-use families work. The full [ten-day sprint](AWARENESS_MOVEMENT_SPRIN
 remains incomplete. No new Baritone comparison or natural-terrain parity claim
 is made by these results.
 
-Work is paused at Marc's request. The [pause handoff](PAUSE_HANDOFF_2026-10-27.md)
-has the latest measurements, 405-test checkpoint, unfinished requirements and
-runtime state. Mixed control-processing latency remains above target.
+Work resumed at Marc's request. The [control-latency follow-up](CONTROL_LATENCY_FOLLOWUP_2026-10-27.md)
+records the current measurements, retained failed trials and 418-test checkpoint.
+Ten mixed layouts passed with motor p95 3.94 ms and decode-plus-motor p95 11.79 ms,
+zero discarded stale actions and lab restoration. This meets the processing
+target for those development fixtures; broader performance acceptance remains open.
+The [pause handoff](PAUSE_HANDOFF_2026-10-27.md) preserves the earlier checkpoint.
 
 ## Current increment
 
@@ -24,9 +27,10 @@ and hot/persistence byte budgets are implemented. Map admission now runs outside
 control renewal. Its first live mixed case completed in 273 ticks with motor
 p50/p95/p99 of 2.83/12.88/20.89 ms
 (`results/hills/20261027T131303307685Z/summary.json`). Earlier accounting prototypes
-were much slower; their evidence remains. The 20 ms p95 target requires a broader
-frozen cohort, and total acquisition/MSPT/transport acceptance remains pending.
-All 387 Python tests and Ruff checks pass at this increment.
+were much slower; their evidence remains. At that stage the 20 ms p95 target
+required a broader frozen cohort. The current follow-up supplies separate passing
+fixture evidence; total acquisition/MSPT/transport acceptance remains pending.
+At that earlier increment, all 387 Python tests and Ruff checks passed.
 
 ## Historical initial hill cohort
 
@@ -104,9 +108,23 @@ incomplete restoration flag is retained.
 
 ## Remaining sprint acceptance
 
-Bridging/pillaring, broader collision shapes,
-configured falls, water, ladders, gap jumps and the corresponding adversarial
-cohorts remain pending. So do client-envelope calibration, compressed transport,
+Later source-bound movement stages are recorded in the
+[movement follow-up](MOVEMENT_ENGINE_FOLLOWUP_2026-10-27.md) and
+[movement proof](MOVEMENT_ENGINE_PROOF.json). Short bridges and bounded
+staircases each passed ten enabled layouts and ten safe disabled-action refusals.
+Pillars then passed ten exact ascents and ten safe pillar-disabled refusals with
+ordinary placement still enabled. The staircase and pillar pairs each share
+Python/native/runner hashes on their respective stage sources. Slabs, stairs and enabled/
+disabled drops also have retained development cohorts on their respective stage
+sources. These stages are not pooled into final integrated qualification.
+
+Cardinal level one/two-block gaps also passed ten checked crossings and ten
+safe disabled-action refusals on matching Python/native/runner sources. Their
+native audit requires real jump height and forbids falling, edits and stock use.
+
+Broader construction/collision/drop/gap adverse cases, water, ladders and
+their corresponding adversarial cohorts remain pending. So do client-envelope
+calibration, byte-budgeted transport deltas,
 coarse places/connections and larger-world performance
 measurements. Cancellation/recovery and resource accounting need broader mixed
 interaction coverage beyond the current focused tests.

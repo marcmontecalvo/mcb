@@ -1,5 +1,7 @@
 # Natural-terrain comparison: Baritone vs V8 goal mode
 
+> **Partly superseded (Oct 28, 2026):** The conclusion favoring Baritone-as-motor is legacy: V8 ran with ±20-block local memory against Baritone's full client world. Raw results remain valid history; new comparisons must use matched awareness. See [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+
 Created October 26, 2026. Development-only evidence; not part of any gate.
 
 ## Setup
@@ -54,6 +56,9 @@ a gamerule bug since fixed) and `results/natural/20261026T161537236571Z` (mobs).
 - V8 goal mode is a quick adaptation, not a tuned mover. A stronger mcb mover is
   possible, but it would mean rebuilding much of what Baritone already does.
 - Baritone plans with the full loaded client world and runs at full client speed.
+  Its on-disk chunk cache also persisted across these attempts, so it could
+  remember terrain beyond its view; the Oct 28 baseline clears it
+  ([PHASE0_NATURAL_BASELINE_2026-10-28.md](PHASE0_NATURAL_BASELINE_2026-10-28.md)).
 - One attempt per route and condition; mob spawns are random. The R4 mobs death
   shows 0 damage because damage is only counted while the subject is alive (a
   one-tick lethal hit is missed). This is a reporting gap, not a scoring error.

@@ -1,0 +1,98 @@
+{
+  "attempts_recorded": 1,
+  "cohort_status": "error",
+  "control_processing": {},
+  "decode_clocks": [
+    "perf_counter_ns"
+  ],
+  "decode_plus_motor_ms": {
+    "max": 12.422199975425006,
+    "p50": 9.59170005147606,
+    "p95": 12.265099915555119,
+    "p99": 12.265099915555119,
+    "samples": 12
+  },
+  "development_only": true,
+  "discarded_stale_actions": 1,
+  "events_sha256": "8f877f0e3bcc27987866464d7484b6caf7626348b325bf826f234dd3cbc9dd47",
+  "full_sprint_acceptance": false,
+  "invalid_attempts": 0,
+  "lab_restored": true,
+  "limits": [
+    "Native sample_ms measures terrain sampling; not all snapshot/serialization work.",
+    "MSPT values are server rolling averages, not individual tick costs or TPS.",
+    "Payload sizes are canonical recorded JSON, not measured network wire bytes.",
+    "Thread CPU samples are diagnostic only: Windows GetThreadTimes was observed to advance in 15.625 ms steps despite its clock resolution.",
+    "before_send_ms includes observation HTTP/event/recording work; it is not server observation age or the decode-plus-motor target.",
+    "These fixtures do not establish natural-terrain, client-access or sprint parity."
+  ],
+  "metrics_source_sha256": "0fcda6875ababda4c79501f2bf857b9322e074b439c4e949ab81892e9e094bd0",
+  "motor_cpu_ms": {
+    "max": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "samples": 0
+  },
+  "motor_ms": {
+    "max": 5.347799975425005,
+    "p50": 2.714300062507391,
+    "p95": 4.1779999155551195,
+    "p99": 4.1779999155551195,
+    "samples": 12
+  },
+  "native_sample_ms": {
+    "max": 5.8659,
+    "p50": 4.1884,
+    "p95": 5.7804,
+    "p99": 5.7804,
+    "samples": 13
+  },
+  "percentile_method": "sorted floor((n-1)*q), matching controller status",
+  "policy_http_ms": {
+    "max": 4.0215,
+    "p50": 2.7671,
+    "p95": 2.7671,
+    "p99": 2.7671,
+    "samples": 2
+  },
+  "policy_wire_bytes": {
+    "max": 75794,
+    "p50": 53679,
+    "p95": 53679,
+    "p99": 53679,
+    "samples": 2
+  },
+  "recorded_map_sample_json_bytes": {
+    "max": 76213,
+    "p50": 68446,
+    "p95": 76107,
+    "p99": 76107,
+    "samples": 13
+  },
+  "routes_reached": 0,
+  "schema_version": 1,
+  "server_rolling_average_mspt": {
+    "max": 23.700048,
+    "p50": 0.693472,
+    "p95": 2.041615,
+    "p99": 23.695742,
+    "samples": 65
+  },
+  "summarizer_sha256": "471a8602edbdec137dfe82d5e186320738107e359aafb30045f09833c4db23d8",
+  "summary_sha256": "cc5c7db4bae356ee13cde896989e0e7c19710ea911822890e9b9c91d3874dfef",
+  "terrain_decode_ms": {
+    "max": 8.0871,
+    "p50": 6.3302,
+    "p95": 7.655,
+    "p99": 7.655,
+    "samples": 12
+  },
+  "terrain_encode_ms_off_server_thread": {
+    "max": 9.7122,
+    "p50": 7.5885,
+    "p95": 8.9947,
+    "p99": 8.9947,
+    "samples": 13
+  }
+}

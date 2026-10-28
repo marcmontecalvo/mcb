@@ -76,6 +76,10 @@ explicit air, without deleting untouched neighbors. Independent writers serializ
 the read/merge/write transaction. Failed migration preserves the old cell table.
 Recall decodes one section at a time and retains only the requested nearest cells.
 Compression runs on the persistence worker, outside motor renewal.
+Section updates now merge palette indices and provenance rows directly. They
+avoid expanding and deep-copying unchanged geometry before recompression; unused
+palette states are removed each write. The schema-two disk format, transactional
+merge, explicit air/unknown behavior and independent public decode remain the same.
 
 Development natural/hill runs can now use `sections-v1` transport: a sparse set
 of section-local cell indices, a geometry palette and per-cell observation ticks.
@@ -86,6 +90,13 @@ validates bounds, sample epoch, duplicates, collision facts and declared cell co
 before exposing expanded facts. Missing cells remain unknown. It records the
 compact wire representation and measures decoding separately from motor decisions.
 Malformed or incomplete samples stop admission rather than fabricating coverage.
+The decoder retains its validated position index as an internal read-only
+attribute on the expanded observation. Background-mode motor admission reuses
+this index instead of validating and indexing the same positions again. Cell
+records are borrowed immutably; persistent admission still owns its copies.
+The index is not a wire field or a freshness cache. Every motor use still filters
+cell ages against the current control tick, and a new sample replaces the index.
+Plain cell-list observations retain their existing validation path.
 
 `scripts/check-hill-navigation.py` defaults to this format, with
 `--terrain-encoding cells` available for comparison. Natural `segmented_goal` runs
@@ -140,10 +151,34 @@ resumes search. It has no unconditional direct-goal digging recovery. Cancel
 returns neutral controls; the driver remains responsible for sending them and
 retains the existing action expiry/watchdog contract.
 
-This version slices planning in the driver thread. Next-segment prefetch,
-background search and a global place/connection graph are pending. Traversal
-covers ordinary full-cube ground and single steps; the hill adapter adds bounded
-confirmed cuts and footholds.
+The foreground option slices planning in the driver thread. The development
+background option runs admission and bounded search in separate threads, publishes
+owned versioned map views, and prefetches the next walking segment. Goal revision
+and start checks reject obsolete results; local motor checks still use fresh
+observations. A global place/connection graph remains pending. Traversal covers
+ordinary full-cube ground and single steps; the hill adapter adds bounded confirmed
+cuts and footholds.
 The live smoke establishes integration; focused tests establish restart recall,
 detour search, partition isolation, bounded memory, overflow behavior and stale
 history rejection. These are separate evidence scopes.
+
+For a development timing diagnosis, add `--trace-processing` to the hill runner.
+`control_processing` events separate the full observation path, decision plus
+selector recording, control HTTP submission, and acknowledgement waiting. The
+pre-submission total includes transport and recording; it is not observation age
+or the decode-plus-motor metric. Thread CPU counters are supplemental: Windows
+samples in the October 27 trials advanced in 15.625 ms steps, so zero CPU samples
+must not be interpreted as proof of a GIL wait.
+
+`--thread-switch-ms 0.5|1|2|5` is an explicit interpreter scheduling experiment
+under exclusive arena ownership. It restores the caller's setting after the
+drive, including failure. The default preserves the interpreter's existing
+setting. It changes no action-age, expiry or watchdog limit. A one-case 1 ms
+trial did not improve latency; it is not a recommended default or an acceptance
+result. No process worker is implemented by this setting.
+
+`scripts/benchmark-section-merge.py <events.jsonl> --output <receipt.json>`
+compares the prior full-section rewrite with direct sparse merge over recorded
+observations, alternates algorithm order, and checks equal final decoded facts.
+Run it separately from live cohorts. This measures codec work only, excluding
+disk I/O and live control; the receipt binds the input and executable hashes.

@@ -1,0 +1,155 @@
+{
+  "attempts_recorded": 10,
+  "bridges_verified": 0,
+  "cohort_status": "passed",
+  "configured_refusals_verified": 10,
+  "control_processing": {
+    "ack_wait_ms": {
+      "max": 715.6562,
+      "p50": 111.7865,
+      "p95": 144.8442,
+      "p99": 154.2703,
+      "samples": 583
+    },
+    "before_send_ms": {
+      "max": 57.0459,
+      "p50": 11.3597,
+      "p95": 26.9625,
+      "p99": 42.3466,
+      "samples": 583
+    },
+    "decision_record_cpu_ms": {
+      "max": 15.625,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 15.625,
+      "samples": 583
+    },
+    "decision_record_ms": {
+      "max": 16.326,
+      "p50": 0.4589,
+      "p95": 1.6975,
+      "p99": 3.3429,
+      "samples": 583
+    },
+    "observation_cpu_ms": {
+      "max": 31.25,
+      "p50": 15.625,
+      "p95": 15.625,
+      "p99": 31.25,
+      "samples": 583
+    },
+    "observation_ms": {
+      "max": 56.9504,
+      "p50": 10.7997,
+      "p95": 26.0684,
+      "p99": 42.2049,
+      "samples": 583
+    },
+    "send_http_ms": {
+      "max": 60.2342,
+      "p50": 29.9875,
+      "p95": 46.7936,
+      "p99": 53.8753,
+      "samples": 583
+    }
+  },
+  "controller_error_attempts": 0,
+  "decode_clocks": [
+    "perf_counter_ns"
+  ],
+  "decode_plus_motor_ms": {
+    "max": 23.06439991327673,
+    "p50": 6.320800043208897,
+    "p95": 8.721599927900732,
+    "p99": 10.35399997036308,
+    "samples": 583
+  },
+  "development_only": true,
+  "discarded_stale_actions": 0,
+  "events_sha256": "6fb8c9b0cc3820ba679e6fdeb171726cc1914e9698d9f17d200732a47db9dbba",
+  "expected_outcome": "refusal",
+  "full_sprint_acceptance": false,
+  "invalid_attempts": 0,
+  "lab_restored": true,
+  "limits": [
+    "Native sample_ms measures terrain sampling; not all snapshot/serialization work.",
+    "MSPT values are server rolling averages, not individual tick costs or TPS.",
+    "Payload sizes are canonical recorded JSON, not measured network wire bytes.",
+    "Thread CPU samples are diagnostic only: Windows GetThreadTimes was observed to advance in 15.625 ms steps despite its clock resolution.",
+    "before_send_ms includes observation HTTP/event/recording work; it is not server observation age or the decode-plus-motor target.",
+    "These fixtures do not establish natural-terrain, client-access or sprint parity."
+  ],
+  "metrics_source_sha256": "be7fb0047293e02ffecaa472c89b1359a67375e55df2f4b54b6fc40334685df2",
+  "motor_cpu_ms": {
+    "max": 15.625,
+    "p50": 0.0,
+    "p95": 0.0,
+    "p99": 15.625,
+    "samples": 583
+  },
+  "motor_ms": {
+    "max": 16.301599913276732,
+    "p50": 0.4455000162124634,
+    "p95": 1.675899955444038,
+    "p99": 3.318200004287064,
+    "samples": 583
+  },
+  "native_sample_ms": {
+    "max": 24.2767,
+    "p50": 0.9658,
+    "p95": 1.4415,
+    "p99": 1.5031,
+    "samples": 400
+  },
+  "percentile_method": "sorted floor((n-1)*q), matching controller status",
+  "pillars_verified": 0,
+  "policy_http_ms": {
+    "max": 10.9916,
+    "p50": 2.85,
+    "p95": 7.6011,
+    "p99": 10.8516,
+    "samples": 88
+  },
+  "policy_wire_bytes": {
+    "max": 69794,
+    "p50": 69107,
+    "p95": 69654,
+    "p99": 69683,
+    "samples": 88
+  },
+  "recorded_map_sample_json_bytes": {
+    "max": 69812,
+    "p50": 68446,
+    "p95": 69672,
+    "p99": 69701,
+    "samples": 400
+  },
+  "routes_reached": 0,
+  "schema_version": 1,
+  "server_rolling_average_mspt": {
+    "max": 8.247985,
+    "p50": 0.752786,
+    "p95": 1.383461,
+    "p99": 8.151373,
+    "samples": 2000
+  },
+  "staircases_verified": 0,
+  "summarizer_sha256": "471a8602edbdec137dfe82d5e186320738107e359aafb30045f09833c4db23d8",
+  "summary_sha256": "17c3ef98c5eb88c5c1dd0a29a966b3ce47ecbbaab8774b8a00d7076bb7d08380",
+  "terrain_decode_ms": {
+    "max": 11.4315,
+    "p50": 5.7183,
+    "p95": 7.8382,
+    "p99": 8.9841,
+    "samples": 593
+  },
+  "terrain_encode_ms_off_server_thread": {
+    "max": 3.9407,
+    "p50": 2.2152,
+    "p95": 3.3031,
+    "p99": 3.7746,
+    "samples": 400
+  },
+  "timing_error_attempts": 0
+}

@@ -19,9 +19,11 @@ See [setup status](docs/SETUP_STATUS.md) and
 
 ## Local operation
 
-Work is paused at Marc's request. Start with the
-[October 27 handoff](docs/PAUSE_HANDOFF_2026-10-27.md) for current progress,
-remaining acceptance, runtime state and the next investigation.
+**Current direction:** start with the
+[October 28 navigation direction](docs/NAVIGATION_DIRECTION_2026-10-28.md), which
+supersedes older planning docs where they conflict. The
+[October 27 handoff](docs/PAUSE_HANDOFF_2026-10-27.md) remains the reference for
+runtime state, source hashes and latency findings.
 
 Development terrain sensing now supports configurable visible and chunk-awareness
 modes, separate entity settings, and native boundary checks. See

@@ -1,5 +1,7 @@
 # Design sketch: Baritone as the motor under mcb's planner and reflexes
 
+> **Partly superseded (Oct 28, 2026):** Baritone-as-motor is no longer the default direction. Server-side Carpet bodies with MCB's planner are primary; this design is kept for the pivot rule if MCB still loses at matched awareness. See [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+
 Created October 26, 2026. Proposal only; nothing here is built or qualified.
 Context: Baritone went 80/80 on C2–C5 at 2–4× fewer ticks than V8
 ([Baritone reference](BARITONE_REFERENCE.md)). If that holds on harder layouts, mcb

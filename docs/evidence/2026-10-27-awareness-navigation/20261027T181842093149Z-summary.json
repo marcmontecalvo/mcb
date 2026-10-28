@@ -1,0 +1,147 @@
+{
+  "attempts": [
+    {
+      "blocks_broken": 0,
+      "controller": {
+        "active_cells": 19863,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 0,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1280,
+          83,
+          1291
+        ],
+        "map_revision": 239,
+        "memory": {
+          "active_accounted_bytes": 31008546,
+          "active_byte_limit": 134217728,
+          "active_cells": 19863,
+          "automatic_recall_count": 1,
+          "automatic_recall_last_ms": 10.398499900475144,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 34167945,
+          "persistence_queue": 3,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "terrain_incomplete",
+        "motor_latency_ms": {
+          "p50": 0.4697999684140086,
+          "p95": 0.9706999408081174,
+          "p99": 1.7318000318482518
+        },
+        "motor_latency_samples": 400,
+        "movement_policy": {
+          "allow_diagonals": false,
+          "allow_shapes": true,
+          "allow_sprint": false,
+          "max_drop": 1
+        },
+        "persistence_queue": 3,
+        "place_budget_reserved": 0,
+        "places_confirmed": 0,
+        "planner": {
+          "cancelled": 0,
+          "completed": 257,
+          "latency_ms": {
+            "p50": 0.9118999587371945,
+            "p95": 2.0070000318810344,
+            "p99": 2.443999983370304
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "insufficient known terrain horizon",
+        "route_remaining": 0,
+        "search_expanded": 0,
+        "terrain_forecast": []
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 1299,
+      "development_hill": {
+        "added": 0,
+        "changes": [],
+        "kind": "slab",
+        "removed": 0,
+        "variant": 0
+      },
+      "end_tick": 1299,
+      "final_position": [
+        1280.5,
+        81.5,
+        1283.943011099964
+      ],
+      "kind": "slab",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 0,
+      "kit_blocks_used_estimate": 0,
+      "min_goal_distance": 7.5569889000360035,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "tick_limit",
+      "start_tick": 99,
+      "status": "failed",
+      "ticks": 1200,
+      "variant": 0
+    }
+  ],
+  "development_only": true,
+  "error": "Hill arrival failed",
+  "lab_restored": true,
+  "memory_policy": {
+    "active_map_budget_mb": 128,
+    "memory_mode": "persistent",
+    "persistence_queue_budget_mb": 128,
+    "use_historical_geometry": true
+  },
+  "mod_provenance": {
+    "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "e9e12b254882c826d221df5bc1b264d2e50866c333619f83e5d3e36f10f9e68c",
+    "schema_version": 1,
+    "source_hash": "d5db16ba5a44ee731568e5cd8493da317587f88acbf77dc6c1d90d31d4ecbcb0"
+  },
+  "movement_policy": {
+    "allow_diagonals": false,
+    "allow_shapes": true,
+    "allow_sprint": false,
+    "max_drop": 1
+  },
+  "planning_mode": "background",
+  "request_budget_per_attempt": 1000,
+  "runner_sha256": "e9155ddf7a65d4b3900ebf53ebb9c171d631c35b3bbe1caf8e45faa04034ef85",
+  "source_sha256": {
+    "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+    "bridge.py": "2f25d7d2d53594009a077ed5527094f6649ffa19958f22d8feed858be338326b",
+    "collision_geometry.py": "89900de70299a8e9c0f8b58d014e4e8b5594a1ef0b3066d04266d96a1e279d79",
+    "control_runtime.py": "10564688101e0ec4ed4dcc802d3957b6dad087c98cdce2285b62618b2dcbe596",
+    "execution.py": "303867508393ff1133d1de860e8172687a99a47e867ebba11ac02909b540dbf1",
+    "memory_policy.py": "99183e2f6bc27edc5b0f801874ea3401c618125693ff95fe2d3ba7fe2ca5b6fe",
+    "model_execution.py": "b6dc6e3b664a08a56966b75f04fe7f1f0280ea17ba9172858159ed913f3b058c",
+    "movement_policy.py": "57d91ddbdf472a3b097f547aa4c542bc8f0c6fc7dbcf5d314891d503f0739422",
+    "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+    "navigation_segmented.py": "f20533b713017bee1599fa2e29d03799c417604415c78b7720e46f4fd5dd69c4",
+    "observation_worker.py": "bfa50efe7eb9a9865147ac740ae67888087895c91802a2509e4ddf61eda37f91",
+    "planning_worker.py": "039af788066a8138dd8ab1bb8c3dc03347e97185339c3ef6ea59cd8a50273852",
+    "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+    "route_search.py": "039e5886b0fdd2f35afc8791b0cc1c9a8b589508cc532fd48f04ad4ab0c5abc7",
+    "section_codec.py": "fb98346ee336796705a5ec7c53d5ae3f8f1338ca2de99f3440ab0e729d102196",
+    "spatial_archive.py": "16e9dc083e2aa0aa6fb07ae9a008c2253fde17dc5b7f566a569afc62c66faca3",
+    "spatial_memory.py": "8b9dc28cc64658ac17170b8e3ffb011668bbe855fec25ea323e6041acdcf5937",
+    "terrain_route.py": "27aca17bd9a1bd26bd66c08d9748da459e9ab781b4eb0d2d32f2067b992dd27d",
+    "terrain_steps.py": "975d1c9f39bef4852b2f2e982c8655c3ae93ba3c84161e1d88c110bbb9d6898a",
+    "terrain_transport.py": "60879facc5d0c4068abab30fed47ee3a4e26cc2c05b47c502251457ffeb6abe4"
+  },
+  "status": "error",
+  "terrain_encoding": "sections-v1",
+  "thread_switch_ms": 5.0,
+  "trace_processing": true
+}

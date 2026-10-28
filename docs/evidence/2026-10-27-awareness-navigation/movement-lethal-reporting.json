@@ -1,0 +1,40 @@
+{
+  "development_only": true,
+  "health_before": 20.0,
+  "lab_restored": true,
+  "mod_provenance": {
+    "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "a522c5f0884127d4459d2d49b369ab6c73d17dfd4b86ba2c8b544d8ce156ac3a",
+    "schema_version": 1,
+    "source_hash": "77becd7246526909ea363a854daed7346b8e4cdb62bed99ab5d17348976d8c51"
+  },
+  "outcome": {
+    "blocks_broken": 0,
+    "damage_taken": 20.0,
+    "deadline_tick": 4506,
+    "development_hill": {
+      "added": 0,
+      "changes": [],
+      "kind": "walk",
+      "removed": 0,
+      "variant": 0
+    },
+    "died": true,
+    "disconnected": false,
+    "end_tick": 4208,
+    "hostile_exposure_ticks_within_16": 0,
+    "kit_blocks_picked_up": 0,
+    "kit_blocks_spent_adjusted": -1,
+    "kit_blocks_used_estimate": -1,
+    "min_goal_distance": 11.0,
+    "minimum_feet_y": 80.0,
+    "mobs": false,
+    "peak_hostiles_within_16": 0,
+    "reason": "death_or_disconnect",
+    "start_tick": 4106,
+    "status": "failed",
+    "ticks": 102
+  },
+  "runner_sha256": "9b23a8a147cbc488a4429002b62d637926e85507b0060e4ec6d6d58ecdd7fc09",
+  "status": "passed"
+}

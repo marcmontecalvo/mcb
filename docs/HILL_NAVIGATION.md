@@ -1,5 +1,7 @@
 # Development hill ascent
 
+> **Partly superseded (Oct 28, 2026):** "Known walking first, terrain forecast only for unresolved obstacles" is legacy as the route chooser. The executors, confirmations and fixtures below remain valid. See [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+
 The segmented controller executes cut-step and placed-foothold plans using normal
 Survival inputs. The original single-step chooser has been replaced by
 [rolling four-move forecasts](ROLLING_TERRAIN_PLANNING.md), including downstream

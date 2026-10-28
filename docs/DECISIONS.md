@@ -145,3 +145,17 @@ is claimed. Free-form strategic plans, pickup interruption/resumption, later-cou
 model navigation and combat require their own work and evidence. The original
 technical handoff and native body/physics profiles remain unchanged. See
 TANDEM_HARNESS_PROOF.json and HYBRID_ARCHITECTURE.md.
+
+## Navigation direction (October 28, 2026)
+
+Marc approved a new navigation direction after a code and docs review:
+deterministic, tick-costed route search over observed and remembered geometry;
+optimistic planning through unknown space at a penalty, with the motor still
+refusing unobserved cells; walking, edits and movement macros competing in one
+search; interaction goals as reachable-cell sets; survival hazards as cost terms;
+and Jev setting goals, cost profiles and tactical interrupts instead of choosing
+waypoints. Server-side Carpet bodies remain primary. Baritone is the reference,
+and becomes a candidate motor only if MCB still loses at matched terrain awareness.
+Mob avoidance is a weight, not a policy: the bot is meant to play and fight
+alongside human players. Details, phases and the list of superseded documents
+are in NAVIGATION_DIRECTION_2026-10-28.md.

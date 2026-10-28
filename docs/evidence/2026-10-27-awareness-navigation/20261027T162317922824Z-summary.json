@@ -1,0 +1,201 @@
+{
+  "attempts": [
+    {
+      "blocks_broken": 0,
+      "controller": {
+        "active_cells": 13006,
+        "admission_queue": 0,
+        "background_planning": true,
+        "break_budget_reserved": 3,
+        "breaks_confirmed": 0,
+        "committed_step": null,
+        "goal": [
+          1280,
+          84,
+          1291
+        ],
+        "map_revision": 7,
+        "memory": {
+          "active_accounted_bytes": 20420336,
+          "active_byte_limit": 134217728,
+          "active_cells": 13006,
+          "persistence_byte_limit": 134217728,
+          "persistence_pending_bytes": 38441250,
+          "persistence_queue": 1,
+          "policy": {
+            "active_map_budget_mb": 128,
+            "memory_mode": "persistent",
+            "persistence_queue_budget_mb": 128,
+            "use_historical_geometry": true
+          }
+        },
+        "mode": "terrain_editing",
+        "motor_latency_ms": {
+          "p50": 2.714300062507391,
+          "p95": 4.1779999155551195,
+          "p99": 4.1779999155551195
+        },
+        "motor_latency_samples": 12,
+        "persistence_queue": 1,
+        "place_budget_reserved": 0,
+        "places_confirmed": 0,
+        "planner": {
+          "cancelled": 0,
+          "completed": 2,
+          "latency_ms": {
+            "p50": 0.05150004290044308,
+            "p95": 0.05150004290044308,
+            "p99": 0.05150004290044308
+          },
+          "pending": false
+        },
+        "prefetch_adopted": 0,
+        "prefetch_pending": false,
+        "prefetch_started": 0,
+        "reason": "four-move terrain forecast",
+        "route_remaining": 0,
+        "search_expanded": 0,
+        "terrain_forecast": [
+          {
+            "breaks": [],
+            "places": [],
+            "source": [
+              1280,
+              80,
+              1280
+            ],
+            "target": [
+              1280,
+              80,
+              1281
+            ]
+          },
+          {
+            "breaks": [
+              [
+                1280,
+                81,
+                1282
+              ],
+              [
+                1280,
+                82,
+                1282
+              ],
+              [
+                1280,
+                82,
+                1281
+              ]
+            ],
+            "places": [],
+            "source": [
+              1280,
+              80,
+              1281
+            ],
+            "target": [
+              1280,
+              81,
+              1282
+            ]
+          },
+          {
+            "breaks": [],
+            "places": [],
+            "source": [
+              1280,
+              81,
+              1282
+            ],
+            "target": [
+              1280,
+              82,
+              1283
+            ]
+          },
+          {
+            "breaks": [],
+            "places": [],
+            "source": [
+              1280,
+              82,
+              1283
+            ],
+            "target": [
+              1280,
+              82,
+              1284
+            ]
+          }
+        ]
+      },
+      "damage_taken": 0.0,
+      "deadline_tick": 199138,
+      "development_hill": {
+        "added": 0,
+        "changes": [],
+        "kind": "mixed",
+        "removed": 0,
+        "variant": 0
+      },
+      "end_tick": 198003,
+      "final_position": [
+        1280.5,
+        80.0,
+        1281.5231716937558
+      ],
+      "kind": "mixed",
+      "kit_blocks_picked_up": 0,
+      "kit_blocks_spent_adjusted": 0,
+      "kit_blocks_used_estimate": 0,
+      "min_goal_distance": 9.976828306244215,
+      "mobs": false,
+      "peak_hostiles_within_16": 0,
+      "reason": "controller_cancel",
+      "start_tick": 197938,
+      "status": "failed",
+      "ticks": 65,
+      "variant": 0
+    }
+  ],
+  "development_only": true,
+  "error": "Hill arrival failed",
+  "lab_restored": true,
+  "memory_policy": {
+    "active_map_budget_mb": 128,
+    "memory_mode": "persistent",
+    "persistence_queue_budget_mb": 128,
+    "use_historical_geometry": true
+  },
+  "mod_provenance": {
+    "jar": "D:\\mcb\\runtime\\server\\mods\\mclab-bootstrap-0.1.0.jar",
+    "jar_sha256": "4ac4d8bf533a3f178fa4cd82b2f22847332832343d58851e4360f71189db4929",
+    "schema_version": 1,
+    "source_hash": "c23b9f84d8ba00591e6606a2b7250a85455f8c4fc98c43c8cfa2b3c1afb7f75b"
+  },
+  "planning_mode": "background",
+  "request_budget_per_attempt": 1000,
+  "runner_sha256": "d7cb05edd32fab9ab935f4f42e98a4009a3aeb57b690c752d71f13602465c592",
+  "source_sha256": {
+    "awareness.py": "4078eab5b680332fc25279607514f4af129aa4e418e5c1321f96f9f186495e17",
+    "bridge.py": "2f25d7d2d53594009a077ed5527094f6649ffa19958f22d8feed858be338326b",
+    "execution.py": "303867508393ff1133d1de860e8172687a99a47e867ebba11ac02909b540dbf1",
+    "memory_policy.py": "99183e2f6bc27edc5b0f801874ea3401c618125693ff95fe2d3ba7fe2ca5b6fe",
+    "model_execution.py": "355740a68efaf91424633d93233eac17fc97630852d1bcfb6fb4963b36fe1af3",
+    "navigation.py": "25c1e39e53a535ea1d8dad45e0fbd8b7562f6a8817fc9e17664ce290f2622f7b",
+    "navigation_segmented.py": "8d81fdde867ed3f781415a1934b7cfc3061b6ce7b0ed53ce58141e1ea1ad7b51",
+    "observation_worker.py": "9516d78366bce128588ac8477063ef9ffb3d0779a1c53e1ae92c0a9e610d170e",
+    "planning_worker.py": "039af788066a8138dd8ab1bb8c3dc03347e97185339c3ef6ea59cd8a50273852",
+    "protocolproof.py": "8513accee11e1760b3a57d0ef4308aa1ae2edbf17ac8d3b46a817f6a96831bae",
+    "route_search.py": "c9eaa551911b99cc5f537285d9ebfd634a339acb92436be6063ee5bc075d8cc3",
+    "section_codec.py": "1292f65a338785c1ca7f39520eb48aa7c7b5ca7d99945737c0b5954950e96734",
+    "spatial_archive.py": "1794ebe513c484d3d31c1ea7347d5145f0acdb381e15386aa850720c53d8fc20",
+    "spatial_memory.py": "b5bd17526b7c8aae2fbb7b35e6629d19d17e38b906d69d7556c042eb774074ae",
+    "terrain_route.py": "9611d5a6a072f43c65839758fcec97b43fc71c8524f1bfe5bf1f6ab99b794691",
+    "terrain_steps.py": "486dc317b38e79927293eee32c85a9a045390eb9186fd7fc50b8f1fdd2bdc6f6",
+    "terrain_transport.py": "ad1cb52d593eb4ae3d1d922cc74650b296e5e2df6c32242e04fbe3365fb3c0b4"
+  },
+  "status": "error",
+  "terrain_encoding": "sections-v1"
+}

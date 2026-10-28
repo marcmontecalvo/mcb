@@ -1,5 +1,7 @@
 # Hybrid planning, tactical decisions and motor control
 
+> **Partly superseded (Oct 28, 2026):** Jev choosing local waypoints or behaviors inside the motor loop is legacy. Jev now sets goals, cost profiles and tactical interrupts; the plan/commitment, priority and interrupt/resume rules below still apply. See [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+
 October 25, 2026. Candidate hypothesis: a larger LLM supplies planning context and
 a faster model such as Jev handles tactical choices and interruptions. Marc
 explicitly clarified that this is a hypothesis to test, not the chosen winner.

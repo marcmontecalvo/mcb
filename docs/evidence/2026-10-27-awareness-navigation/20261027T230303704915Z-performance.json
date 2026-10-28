@@ -1,0 +1,154 @@
+{
+  "attempts_recorded": 2,
+  "bridges_verified": 0,
+  "cohort_status": "passed",
+  "configured_refusals_verified": 0,
+  "control_processing": {
+    "ack_wait_ms": {
+      "max": 158.2808,
+      "p50": 116.444,
+      "p95": 142.2566,
+      "p99": 151.6327,
+      "samples": 258
+    },
+    "before_send_ms": {
+      "max": 45.7591,
+      "p50": 11.1617,
+      "p95": 18.095,
+      "p99": 27.9338,
+      "samples": 258
+    },
+    "decision_record_cpu_ms": {
+      "max": 15.625,
+      "p50": 0.0,
+      "p95": 15.625,
+      "p99": 15.625,
+      "samples": 258
+    },
+    "decision_record_ms": {
+      "max": 16.7879,
+      "p50": 1.6772,
+      "p95": 3.9971,
+      "p99": 5.9819,
+      "samples": 258
+    },
+    "observation_cpu_ms": {
+      "max": 15.625,
+      "p50": 15.625,
+      "p95": 15.625,
+      "p99": 15.625,
+      "samples": 258
+    },
+    "observation_ms": {
+      "max": 45.6542,
+      "p50": 9.1161,
+      "p95": 15.3216,
+      "p99": 22.4365,
+      "samples": 258
+    },
+    "send_http_ms": {
+      "max": 56.9918,
+      "p50": 24.846,
+      "p95": 41.4269,
+      "p99": 43.3954,
+      "samples": 258
+    }
+  },
+  "controller_error_attempts": 0,
+  "decode_clocks": [
+    "perf_counter_ns"
+  ],
+  "decode_plus_motor_ms": {
+    "max": 25.206400062060357,
+    "p50": 6.932599991668761,
+    "p95": 10.85860004968941,
+    "p99": 12.603199919189512,
+    "samples": 258
+  },
+  "development_only": true,
+  "discarded_stale_actions": 0,
+  "events_sha256": "38cfea819c744c6b6fc32f959271f3d5637df8a0ae180ea1bc272bec5440c0ff",
+  "expected_outcome": "arrival",
+  "full_sprint_acceptance": false,
+  "invalid_attempts": 0,
+  "lab_restored": true,
+  "limits": [
+    "Native sample_ms measures terrain sampling; not all snapshot/serialization work.",
+    "MSPT values are server rolling averages, not individual tick costs or TPS.",
+    "Payload sizes are canonical recorded JSON, not measured network wire bytes.",
+    "Thread CPU samples are diagnostic only: Windows GetThreadTimes was observed to advance in 15.625 ms steps despite its clock resolution.",
+    "before_send_ms includes observation HTTP/event/recording work; it is not server observation age or the decode-plus-motor target.",
+    "These fixtures do not establish natural-terrain, client-access or sprint parity."
+  ],
+  "metrics_source_sha256": "3d85c390b3bf6735e34aeb18a1e811e1c826478c3c930385616958cdd97eb290",
+  "motor_cpu_ms": {
+    "max": 15.625,
+    "p50": 0.0,
+    "p95": 15.625,
+    "p99": 15.625,
+    "samples": 258
+  },
+  "motor_ms": {
+    "max": 16.775399912148714,
+    "p50": 1.6655001090839505,
+    "p95": 3.9849000750109553,
+    "p99": 5.967100034467876,
+    "samples": 258
+  },
+  "native_sample_ms": {
+    "max": 23.1286,
+    "p50": 0.9013,
+    "p95": 1.3261,
+    "p99": 1.3749,
+    "samples": 162
+  },
+  "percentile_method": "sorted floor((n-1)*q), matching controller status",
+  "policy_http_ms": {
+    "max": 10.9765,
+    "p50": 2.5529,
+    "p95": 5.0224,
+    "p99": 6.2102,
+    "samples": 38
+  },
+  "policy_wire_bytes": {
+    "max": 67152,
+    "p50": 60330,
+    "p95": 67127,
+    "p99": 67129,
+    "samples": 38
+  },
+  "recorded_map_sample_json_bytes": {
+    "max": 67265,
+    "p50": 64656,
+    "p95": 67143,
+    "p99": 67156,
+    "samples": 162
+  },
+  "routes_reached": 2,
+  "schema_version": 1,
+  "server_rolling_average_mspt": {
+    "max": 1.161543,
+    "p50": 0.719497,
+    "p95": 1.098375,
+    "p99": 1.124396,
+    "samples": 807
+  },
+  "staircases_verified": 2,
+  "summarizer_sha256": "471a8602edbdec137dfe82d5e186320738107e359aafb30045f09833c4db23d8",
+  "summary_sha256": "b2be2ef8a9319075b451b2df466e4f225b8c02e4daee5c8b94e661e9ec27813f",
+  "terrain_decode_ms": {
+    "max": 17.7221,
+    "p50": 5.1939,
+    "p95": 7.631,
+    "p99": 8.4553,
+    "samples": 260
+  },
+  "terrain_encode_ms_off_server_thread": {
+    "max": 3.8257,
+    "p50": 2.0934,
+    "p95": 3.2634,
+    "p99": 3.4757,
+    "samples": 162
+  },
+  "timing_error_attempts": 0
+}

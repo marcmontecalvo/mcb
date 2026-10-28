@@ -1,5 +1,7 @@
 # Hybrid navigation: next five steps
 
+> **Partly superseded (Oct 28, 2026):** Jev's role as a bounded local-waypoint selector (`bounded-local-waypoint-selector-v1`) is legacy. Jev now sets goals, cost profiles and tactical interrupts; deterministic code chooses routes. See [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+
 Created October 25, 2026. This is the next implementation and experiment plan,
 not qualification evidence. Marc authorized continued work after completion of
 the OpenJev, Laya and Qwen3.5-4B direct-scoring screens.

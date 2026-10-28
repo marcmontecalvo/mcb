@@ -1,0 +1,156 @@
+{
+  "attempts_recorded": 2,
+  "bridges_verified": 0,
+  "cohort_status": "passed",
+  "configured_refusals_verified": 0,
+  "control_processing": {
+    "ack_wait_ms": {
+      "max": 153.2418,
+      "p50": 117.4063,
+      "p95": 149.3795,
+      "p99": 153.1668,
+      "samples": 68
+    },
+    "before_send_ms": {
+      "max": 58.4441,
+      "p50": 10.8953,
+      "p95": 21.9753,
+      "p99": 56.526,
+      "samples": 68
+    },
+    "decision_record_cpu_ms": {
+      "max": 15.625,
+      "p50": 0.0,
+      "p95": 15.625,
+      "p99": 15.625,
+      "samples": 68
+    },
+    "decision_record_ms": {
+      "max": 3.1849,
+      "p50": 0.9867,
+      "p95": 2.2149,
+      "p99": 2.5426,
+      "samples": 68
+    },
+    "observation_cpu_ms": {
+      "max": 31.25,
+      "p50": 0.0,
+      "p95": 15.625,
+      "p99": 15.625,
+      "samples": 68
+    },
+    "observation_ms": {
+      "max": 58.3454,
+      "p50": 9.6877,
+      "p95": 20.0193,
+      "p99": 56.4091,
+      "samples": 68
+    },
+    "send_http_ms": {
+      "max": 49.2241,
+      "p50": 24.4837,
+      "p95": 38.9001,
+      "p99": 42.7012,
+      "samples": 68
+    }
+  },
+  "controller_error_attempts": 0,
+  "decode_clocks": [
+    "perf_counter_ns"
+  ],
+  "decode_plus_motor_ms": {
+    "max": 9.502900053218006,
+    "p50": 6.796100032021105,
+    "p95": 8.846199990087747,
+    "p99": 9.41799992607683,
+    "samples": 68
+  },
+  "development_only": true,
+  "discarded_stale_actions": 0,
+  "events_sha256": "2533da29aa58b2456efd82e06000eae863a5afdead56bc052c75bd7d57ed33e4",
+  "expected_outcome": "arrival",
+  "full_sprint_acceptance": false,
+  "gaps_verified": 2,
+  "invalid_attempts": 0,
+  "lab_restored": true,
+  "limits": [
+    "Native sample_ms measures terrain sampling; not all snapshot/serialization work.",
+    "MSPT values are server rolling averages, not individual tick costs or TPS.",
+    "Payload sizes are canonical recorded JSON, not measured network wire bytes.",
+    "Thread CPU samples are diagnostic only: Windows GetThreadTimes was observed to advance in 15.625 ms steps despite its clock resolution.",
+    "before_send_ms includes observation HTTP/event/recording work; it is not server observation age or the decode-plus-motor target.",
+    "These fixtures do not establish natural-terrain, client-access or sprint parity."
+  ],
+  "metrics_source_sha256": "5f475d82fe69f5d5c65ff89b2cb0ef0b53de83de4111d2c7bcfcf3244d8fc5eb",
+  "motor_cpu_ms": {
+    "max": 15.625,
+    "p50": 0.0,
+    "p95": 15.625,
+    "p99": 15.625,
+    "samples": 68
+  },
+  "motor_ms": {
+    "max": 3.166999900713563,
+    "p50": 0.9734000777825713,
+    "p95": 2.1994999842718244,
+    "p99": 2.5168999563902617,
+    "samples": 68
+  },
+  "native_sample_ms": {
+    "max": 2.0864,
+    "p50": 1.2598,
+    "p95": 1.766,
+    "p99": 1.9522,
+    "samples": 52
+  },
+  "percentile_method": "sorted floor((n-1)*q), matching controller status",
+  "pillars_verified": 0,
+  "policy_http_ms": {
+    "max": 9.2265,
+    "p50": 2.7285,
+    "p95": 4.9281,
+    "p99": 4.9281,
+    "samples": 10
+  },
+  "policy_wire_bytes": {
+    "max": 69705,
+    "p50": 68350,
+    "p95": 69705,
+    "p99": 69705,
+    "samples": 10
+  },
+  "recorded_map_sample_json_bytes": {
+    "max": 69723,
+    "p50": 62804,
+    "p95": 69611,
+    "p99": 69721,
+    "samples": 52
+  },
+  "routes_reached": 2,
+  "schema_version": 1,
+  "server_rolling_average_mspt": {
+    "max": 1.169076,
+    "p50": 0.851948,
+    "p95": 1.080256,
+    "p99": 1.151316,
+    "samples": 259
+  },
+  "staircases_verified": 0,
+  "summarizer_sha256": "471a8602edbdec137dfe82d5e186320738107e359aafb30045f09833c4db23d8",
+  "summary_sha256": "77aa55d49a476f095b4a7f741235c01894ca904cee433a694cf54cb158f89188",
+  "terrain_decode_ms": {
+    "max": 8.4089,
+    "p50": 5.665,
+    "p95": 7.5285,
+    "p99": 7.8224,
+    "samples": 70
+  },
+  "terrain_encode_ms_off_server_thread": {
+    "max": 6.8943,
+    "p50": 3.0302,
+    "p95": 4.5921,
+    "p99": 6.0463,
+    "samples": 52
+  },
+  "timing_error_attempts": 0
+}

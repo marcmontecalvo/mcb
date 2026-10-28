@@ -1,0 +1,155 @@
+{
+  "attempts_recorded": 1,
+  "bridges_verified": 0,
+  "cohort_status": "error",
+  "configured_refusals_verified": 0,
+  "control_processing": {
+    "ack_wait_ms": {
+      "max": 158.98,
+      "p50": 112.3917,
+      "p95": 143.2037,
+      "p99": 153.3029,
+      "samples": 400
+    },
+    "before_send_ms": {
+      "max": 39.8116,
+      "p50": 11.5505,
+      "p95": 25.4767,
+      "p99": 30.9454,
+      "samples": 400
+    },
+    "decision_record_cpu_ms": {
+      "max": 15.625,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 15.625,
+      "samples": 400
+    },
+    "decision_record_ms": {
+      "max": 3.6006,
+      "p50": 0.4962,
+      "p95": 1.0156,
+      "p99": 1.681,
+      "samples": 400
+    },
+    "observation_cpu_ms": {
+      "max": 31.25,
+      "p50": 15.625,
+      "p95": 15.625,
+      "p99": 15.625,
+      "samples": 400
+    },
+    "observation_ms": {
+      "max": 39.3965,
+      "p50": 11.0896,
+      "p95": 24.8861,
+      "p99": 30.4479,
+      "samples": 400
+    },
+    "send_http_ms": {
+      "max": 56.3729,
+      "p50": 28.8391,
+      "p95": 45.1344,
+      "p99": 51.4002,
+      "samples": 400
+    }
+  },
+  "controller_error_attempts": 0,
+  "decode_clocks": [
+    "perf_counter_ns"
+  ],
+  "decode_plus_motor_ms": {
+    "max": 11.116100010330975,
+    "p50": 6.442700104054809,
+    "p95": 8.823200004667044,
+    "p99": 9.512300033845007,
+    "samples": 400
+  },
+  "development_only": true,
+  "discarded_stale_actions": 0,
+  "events_sha256": "cc12e8a6621067e27197c40f8ed75333c316b71ef31e12786f2e9542db6699ae",
+  "expected_outcome": "arrival",
+  "full_sprint_acceptance": false,
+  "invalid_attempts": 0,
+  "lab_restored": true,
+  "limits": [
+    "Native sample_ms measures terrain sampling; not all snapshot/serialization work.",
+    "MSPT values are server rolling averages, not individual tick costs or TPS.",
+    "Payload sizes are canonical recorded JSON, not measured network wire bytes.",
+    "Thread CPU samples are diagnostic only: Windows GetThreadTimes was observed to advance in 15.625 ms steps despite its clock resolution.",
+    "before_send_ms includes observation HTTP/event/recording work; it is not server observation age or the decode-plus-motor target.",
+    "These fixtures do not establish natural-terrain, client-access or sprint parity."
+  ],
+  "metrics_source_sha256": "be7fb0047293e02ffecaa472c89b1359a67375e55df2f4b54b6fc40334685df2",
+  "motor_cpu_ms": {
+    "max": 15.625,
+    "p50": 0.0,
+    "p95": 0.0,
+    "p99": 15.625,
+    "samples": 400
+  },
+  "motor_ms": {
+    "max": 3.583699930459261,
+    "p50": 0.4819999448955059,
+    "p95": 0.9991999249905348,
+    "p99": 1.6685000155121088,
+    "samples": 400
+  },
+  "native_sample_ms": {
+    "max": 10.1541,
+    "p50": 1.15,
+    "p95": 1.8521,
+    "p99": 4.9793,
+    "samples": 240
+  },
+  "percentile_method": "sorted floor((n-1)*q), matching controller status",
+  "pillars_verified": 0,
+  "policy_http_ms": {
+    "max": 15.3816,
+    "p50": 3.0162,
+    "p95": 11.0297,
+    "p99": 12.1544,
+    "samples": 58
+  },
+  "policy_wire_bytes": {
+    "max": 66983,
+    "p50": 61782,
+    "p95": 66869,
+    "p99": 66983,
+    "samples": 58
+  },
+  "recorded_map_sample_json_bytes": {
+    "max": 67001,
+    "p50": 61801,
+    "p95": 66888,
+    "p99": 67000,
+    "samples": 240
+  },
+  "routes_reached": 0,
+  "schema_version": 1,
+  "server_rolling_average_mspt": {
+    "max": 3.459287,
+    "p50": 1.049529,
+    "p95": 2.752881,
+    "p99": 3.332993,
+    "samples": 1200
+  },
+  "staircases_verified": 0,
+  "summarizer_sha256": "471a8602edbdec137dfe82d5e186320738107e359aafb30045f09833c4db23d8",
+  "summary_sha256": "22c331bcc75366fa266b9e9d6e3301595f425eb04773107538a260ed248b2758",
+  "terrain_decode_ms": {
+    "max": 11.0383,
+    "p50": 5.9196,
+    "p95": 8.0749,
+    "p99": 8.8886,
+    "samples": 401
+  },
+  "terrain_encode_ms_off_server_thread": {
+    "max": 10.438,
+    "p50": 2.2947,
+    "p95": 4.797,
+    "p99": 6.769,
+    "samples": 240
+  },
+  "timing_error_attempts": 0
+}

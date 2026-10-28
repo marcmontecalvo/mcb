@@ -1,8 +1,12 @@
 # Rolling multi-move terrain planning
 
+> **Partly superseded (Oct 28, 2026):** "Known walking first, terrain beam only when walking fails" is legacy as the route chooser. Walking, edits and macros will compete in one tick-costed search; four-move forecasts remain for execution sequencing and resource reservation. See [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+
 October 27, 2026. The full sprint is active; acceptance is tracked in
 [SPRINT_ACCEPTANCE.json](SPRINT_ACCEPTANCE.json). This replaces the earlier
 single-step terrain chooser.
+Later development controls, historical recall and comparison tooling are
+described in [the movement follow-up](MOVEMENT_ENGINE_FOLLOWUP_2026-10-27.md).
 
 The terrain planner forecasts **four moves** at a time. Each move declares its
 standing position, blocks to break and blocks to place. A bounded beam explores
@@ -80,3 +84,11 @@ four-move forecast records and 360 passing Python tests. A separate native
 single-lethal-hit test now records all 20 HP lost, before Carpet's death handling
 can reset/remove the fake player. Mixed and reporting evidence retain their
 individual mod-source identities; this is not a final frozen sprint candidate.
+
+The resumed [control-latency follow-up](CONTROL_LATENCY_FOLLOWUP_2026-10-27.md)
+removes redundant compact-observation indexing and full-section archive rewrites.
+On the same current Python source, ten mixed and ten longer prefetch layouts
+passed with decode-plus-motor p95 of 11.79 and 6.93 ms respectively, restored labs
+and no discarded stale actions. These source-bound fixture results are recorded
+in [CONTROL_LATENCY_PROOF.json](CONTROL_LATENCY_PROOF.json). Full movement,
+acquisition/transport and natural-terrain sprint acceptance remain open.

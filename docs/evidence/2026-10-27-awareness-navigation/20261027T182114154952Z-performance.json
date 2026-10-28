@@ -1,0 +1,150 @@
+{
+  "attempts_recorded": 1,
+  "cohort_status": "passed",
+  "control_processing": {
+    "ack_wait_ms": {
+      "max": 144.964,
+      "p50": 121.7852,
+      "p95": 142.9879,
+      "p99": 144.8088,
+      "samples": 45
+    },
+    "before_send_ms": {
+      "max": 28.0136,
+      "p50": 9.4547,
+      "p95": 15.3429,
+      "p99": 17.2758,
+      "samples": 45
+    },
+    "decision_record_cpu_ms": {
+      "max": 15.625,
+      "p50": 0.0,
+      "p95": 15.625,
+      "p99": 15.625,
+      "samples": 45
+    },
+    "decision_record_ms": {
+      "max": 2.5819,
+      "p50": 1.0655,
+      "p95": 1.7424,
+      "p99": 1.8872,
+      "samples": 45
+    },
+    "observation_cpu_ms": {
+      "max": 15.625,
+      "p50": 0.0,
+      "p95": 15.625,
+      "p99": 15.625,
+      "samples": 45
+    },
+    "observation_ms": {
+      "max": 27.9229,
+      "p50": 8.2055,
+      "p95": 12.9056,
+      "p99": 16.2103,
+      "samples": 45
+    },
+    "send_http_ms": {
+      "max": 40.9138,
+      "p50": 22.782,
+      "p95": 36.6259,
+      "p99": 37.7306,
+      "samples": 45
+    }
+  },
+  "controller_error_attempts": 0,
+  "decode_clocks": [
+    "perf_counter_ns"
+  ],
+  "decode_plus_motor_ms": {
+    "max": 8.925499949035048,
+    "p50": 5.83789994110018,
+    "p95": 7.69590009162426,
+    "p99": 8.717599911490083,
+    "samples": 45
+  },
+  "development_only": true,
+  "discarded_stale_actions": 0,
+  "events_sha256": "ab336253e80b2ae887f8b4f052d8ce667e4cba19c2471b2b8b5eb1f5ed49b9ea",
+  "full_sprint_acceptance": false,
+  "invalid_attempts": 0,
+  "lab_restored": true,
+  "limits": [
+    "Native sample_ms measures terrain sampling; not all snapshot/serialization work.",
+    "MSPT values are server rolling averages, not individual tick costs or TPS.",
+    "Payload sizes are canonical recorded JSON, not measured network wire bytes.",
+    "Thread CPU samples are diagnostic only: Windows GetThreadTimes was observed to advance in 15.625 ms steps despite its clock resolution.",
+    "before_send_ms includes observation HTTP/event/recording work; it is not server observation age or the decode-plus-motor target.",
+    "These fixtures do not establish natural-terrain, client-access or sprint parity."
+  ],
+  "metrics_source_sha256": "48d5e6a9385d416a40f1bc1426fbd26cfae444ea00912faa49e273f172c09082",
+  "motor_cpu_ms": {
+    "max": 15.625,
+    "p50": 0.0,
+    "p95": 15.625,
+    "p99": 15.625,
+    "samples": 45
+  },
+  "motor_ms": {
+    "max": 2.5617999490350485,
+    "p50": 1.0505999671295285,
+    "p95": 1.728000002913177,
+    "p99": 1.8733999459072948,
+    "samples": 45
+  },
+  "native_sample_ms": {
+    "max": 1.4475,
+    "p50": 1.0279,
+    "p95": 1.3863,
+    "p99": 1.4147,
+    "samples": 32
+  },
+  "percentile_method": "sorted floor((n-1)*q), matching controller status",
+  "policy_http_ms": {
+    "max": 5.742,
+    "p50": 2.7499,
+    "p95": 3.924,
+    "p99": 3.924,
+    "samples": 7
+  },
+  "policy_wire_bytes": {
+    "max": 66859,
+    "p50": 58029,
+    "p95": 66606,
+    "p99": 66606,
+    "samples": 7
+  },
+  "recorded_map_sample_json_bytes": {
+    "max": 67013,
+    "p50": 58835,
+    "p95": 66768,
+    "p99": 66877,
+    "samples": 32
+  },
+  "routes_reached": 1,
+  "schema_version": 1,
+  "server_rolling_average_mspt": {
+    "max": 1.409869,
+    "p50": 0.983521,
+    "p95": 1.342606,
+    "p99": 1.394968,
+    "samples": 157
+  },
+  "summarizer_sha256": "471a8602edbdec137dfe82d5e186320738107e359aafb30045f09833c4db23d8",
+  "summary_sha256": "44ec15882b910167ad4063ed81e4c7b8686d84c33f9111aa08b15d0a3a24a5bf",
+  "terrain_decode_ms": {
+    "max": 7.4144,
+    "p50": 4.6078,
+    "p95": 6.3637,
+    "p99": 6.816,
+    "samples": 46
+  },
+  "terrain_encode_ms_off_server_thread": {
+    "max": 4.3609,
+    "p50": 2.5265,
+    "p95": 3.7017,
+    "p99": 4.1282,
+    "samples": 32
+  },
+  "timing_error_attempts": 0
+}

@@ -1,5 +1,12 @@
 # Awareness and movement sprint: pause handoff
 
+> **Partly superseded (Oct 28, 2026):** The "Remaining work" ordering below is superseded. Runtime state, source hashes and latency findings remain valid reference. See [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+
+Resumed at Marc's request later on October 27. This document preserves the pause
+checkpoint; use [the control-latency follow-up](CONTROL_LATENCY_FOLLOWUP_2026-10-27.md)
+and [the acceptance tracker](SPRINT_ACCEPTANCE.json) for the resumed state.
+Further work is recorded in [the movement follow-up](MOVEMENT_ENGINE_FOLLOWUP_2026-10-27.md).
+
 Paused at Marc's request on October 27, 2026 because the current five-hour usage
 block was nearly exhausted. Marc reports that usage resets at **11:56 a.m.
 Eastern**. Resume only when requested. The full sprint is **unfinished**.
