@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from mclab.execution import policy_state, record_pending_policy
+from mclab.navigation_segmented import SegmentedController
 from mclab.terrain_transport import expand_terrain
 
 
@@ -46,8 +47,46 @@ def test_sparse_negative_section_expands_known_air_without_filling_unknowns():
     assert result["visible_blocks"][0]["position"] == [-16, -1, 31]
     assert result["visible_blocks"][0]["block"] == "minecraft:air"
     assert result["visible_blocks"][0]["observed_tick"] == 6
+    with pytest.raises(TypeError):
+        result.cell_index[(-16, -1, 31)] = {}
     legacy = {"sensor_profile": "local-visibility-v1", "visible_blocks": []}
     assert expand_terrain(legacy) is legacy
+
+
+def test_validated_index_reuse_does_not_extend_the_fresh_motor_window():
+    expanded = expand_terrain(observation())
+    controller = object.__new__(SegmentedController)
+    controller.observation_lane = SimpleNamespace(
+        submit=lambda _: None, poll=lambda: None
+    )
+    controller.motor_sample = None
+    controller._admit(expanded)
+    assert controller.motor_cells is expanded.cell_index
+    assert list(controller.motor_cells) == [(-16, -1, 31)]
+    assert controller._fresh(10)[(-16, -1, 31)] is expanded["visible_blocks"][0]
+    assert not controller._fresh(12)  # age six; the index is not a freshness cache.
+    newer = observation()
+    newer["awareness"]["coverage"]["sample_tick"] = 10
+    newer["terrain_sections"]["sample_tick"] = 10
+    newer["terrain_sections"]["sections"][0]["cells"] = [[254, 0, 10]]
+    controller._admit(expand_terrain(newer))
+    assert (-16, -1, 31) not in controller.motor_cells
+    assert (-16, -1, 30) in controller._fresh(10)
+
+
+def test_plain_payload_cannot_forge_a_validated_index():
+    controller = object.__new__(SegmentedController)
+    controller.observation_lane = SimpleNamespace(
+        submit=lambda _: None, poll=lambda: None
+    )
+    controller.motor_sample = None
+    payload = {
+        "tick": 10,
+        "cell_index": {},
+        "visible_blocks": [{"position": [True, 0, 0]}],
+    }
+    with pytest.raises(ValueError, match="Invalid observed cell position"):
+        controller._admit(payload)
 
 
 @pytest.mark.parametrize("row", [[4096, 0, 6], [255, 5, 6], [255, 0, 8], [True, 0, 6]])

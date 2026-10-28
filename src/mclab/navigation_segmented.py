@@ -10,12 +10,17 @@ from collections import deque
 from dataclasses import replace
 from functools import partial
 
-from mclab.navigation import NavigationController, standable
+from mclab import collision_geometry, water_movement
+from mclab.gap_jump import GapJumpExecutor, prepare_gap
+from mclab.movement_policy import MovementPolicy
+from mclab.navigation import NavigationController, empty, standable
 from mclab.observation_worker import ObservationWorker
+from mclab.pillar_steps import executor_for, prepare_pillar
 from mclab.planning_worker import BackgroundSearch, PlanningWorker
 from mclab.route_search import RouteSearch
 from mclab.terrain_route import TerrainRouteSearch, known_step
-from mclab.terrain_steps import StepExecutor, prepare_step
+from mclab.terrain_steps import prepare_step
+from mclab.terrain_transport import ExpandedTerrain
 
 
 class SegmentedController(NavigationController):
@@ -29,11 +34,17 @@ class SegmentedController(NavigationController):
         search_ms=3,
         terrain_policy=None,
         background_planning=False,
+        movement_policy=None,
     ):
         super().__init__(
             sensor_profile=memory.archive.identity.awareness.sensor_profile
         )
         self.memory = memory
+        self.movement_policy = (
+            MovementPolicy() if movement_policy is None else movement_policy
+        )
+        if not isinstance(self.movement_policy, MovementPolicy):
+            raise ValueError("Invalid movement policy")
         self.goal = tuple(goal)
         self.radius = radius
         self.search_nodes, self.search_ms = search_nodes, search_ms
@@ -46,11 +57,18 @@ class SegmentedController(NavigationController):
         self.last_result = None
         self.terrain_policy = terrain_policy
         self.terrain = None
+        self.gap_jump = None
+        self.gap_jumps_completed = 0
+        self.air_recovering = False
+        self.air_recoveries_completed = 0
+        self.water_controls = 0
         self.edits_broken = self.edits_placed = 0
         self.breaks_reserved = self.places_reserved = 0
         self.failed_edges = set()
         self.events = []
         self.committed_step = None
+        self.committed_source = None
+        self.motion_origin_height = None
         self.commit_started = None
         self.own_footholds = set()
         self.terrain_search = None
@@ -81,6 +99,8 @@ class SegmentedController(NavigationController):
         if self.planner_lane is not None:
             self.planner_lane.cancel()
         self.prefetch = None
+        self.gap_jump = None
+        self.air_recovering = False
         if self.terrain is not None:
             self.edits_broken += self.terrain.breaks_confirmed
             self.edits_placed += self.terrain.places_confirmed
@@ -89,6 +109,7 @@ class SegmentedController(NavigationController):
         self.route.clear()
         self.search = None
         self.air_waypoint = None
+        self.motion_origin_height = None
         self.terrain = None
         self.committed_step = None
         self.mode = "cancelled"
@@ -118,6 +139,7 @@ class SegmentedController(NavigationController):
             if self.map_view
             else self.memory.revision,
             "memory": memory_status,
+            "movement_policy": self.movement_policy.payload(),
             "admission_queue": self.observation_lane.pending.qsize()
             if self.observation_lane
             else 0,
@@ -133,9 +155,16 @@ class SegmentedController(NavigationController):
                     "target": s.target,
                     "breaks": s.breaks,
                     "places": s.places,
+                    "kind": s.kind,
+                    "exit": s.exit,
                 }
                 for s in self.terrain_forecast
             ],
+            "gap_jump_phase": self.gap_jump.phase if self.gap_jump else None,
+            "gap_jumps_completed": self.gap_jumps_completed,
+            "air_recovering": self.air_recovering,
+            "air_recoveries_completed": self.air_recoveries_completed,
+            "water_controls": self.water_controls,
             "background_planning": self.planner_lane is not None,
             "planner": self.planner_lane.status() if self.planner_lane else None,
             "prefetch_pending": self.prefetch is not None,
@@ -188,6 +217,10 @@ class SegmentedController(NavigationController):
         )
         if sample[1] is not None and sample == self.motor_sample:
             return
+        if isinstance(observation, ExpandedTerrain):
+            self.motor_cells = observation.cell_index
+            self.motor_sample = sample
+            return
         cells = {}
         for cell in observation.get("visible_blocks", []):
             p = cell.get("position")
@@ -202,6 +235,12 @@ class SegmentedController(NavigationController):
         self.motor_sample = sample
 
     def _new_search(self, cells, node, revision, factory=RouteSearch):
+        if factory is RouteSearch:
+            factory = partial(
+                RouteSearch,
+                movement_policy=self.movement_policy,
+                excluded=frozenset(self.failed_edges),
+            )
         if self.planner_lane is not None:
             return BackgroundSearch(
                 self.planner_lane,
@@ -261,6 +300,27 @@ class SegmentedController(NavigationController):
     def _follow_route(self, observation):
         """Keep speed through a known straight segment; preserve corner/step stops."""
         start = self.route[0]
+        target = self.route[1]
+        dx, dz = target[0] - start[0], target[2] - start[2]
+        if (dx == 0 or dz == 0) and abs(dx) + abs(dz) > 1:
+            plan = prepare_gap(
+                self._fresh(observation["tick"]), start, target, self.movement_policy
+            )
+            if plan is None:
+                self.mode = "awaiting_gap_geometry"
+                self.reason = "gap preconditions changed or stale"
+                self.route.clear()
+                self.search = None
+                return {}
+            self.gap_jump = GapJumpExecutor(plan, self.movement_policy)
+            self.mode = "gap_jump"
+            self.events.append(
+                (
+                    "gap_jump_started",
+                    {"source": start, "target": target, "width": plan.width},
+                )
+            )
+            return self.gap_jump.decide(observation, self._fresh(observation["tick"]))
         waypoints = self.route[1:2]
         first = waypoints[0]
         if first[1] == start[1]:
@@ -292,6 +352,159 @@ class SegmentedController(NavigationController):
             }
         return self.memory.fresh(tick)
 
+    def _safe_motion(self, observation, waypoint, forward, jumping):
+        if not self.movement_policy.allow_shapes:
+            return self._safe_full_motion(observation, waypoint, forward, jumping)
+        body = observation["body"]
+        px, py, pz = body["position"]
+        cells = self._fresh(observation["tick"])
+        origin = py if self.motion_origin_height is None else self.motion_origin_height
+        target = (math.floor(waypoint[0]), waypoint[1], math.floor(waypoint[2]))
+        if not collision_geometry.standable(cells, target):
+            return False
+        yaw = math.radians(body["yaw"])
+        horizon = min(
+            math.hypot(waypoint[0] - px, waypoint[2] - pz) + 0.05, 1.8 * forward
+        )
+        for fraction in (0, 0.25, 0.5, 0.75, 1):
+            x, z = (
+                px - math.sin(yaw) * horizon * fraction,
+                pz + math.cos(yaw) * horizon * fraction,
+            )
+            support_heights = []
+            radius = collision_geometry.BODY_RADIUS - collision_geometry.EPS
+            for ox in (-radius, radius):
+                for oz in (-radius, radius):
+                    cx, cz = math.floor(x + ox), math.floor(z + oz)
+                    heights = collision_geometry.surfaces(
+                        cells,
+                        cx,
+                        cz,
+                        origin - self.movement_policy.max_drop,
+                        max(origin + 0.6, waypoint[1]),
+                    )
+                    admitted = [
+                        h
+                        for h in heights
+                        if collision_geometry.clear_column(
+                            cells, cx, cz, h, max(py, h) + 1.8 + (1.2 if jumping else 0)
+                        )
+                    ]
+                    if not admitted:
+                        return False
+                    support_heights.append(max(admitted))
+            height = max(support_heights)
+            body_bottom = max(py, height)
+            if not collision_geometry.clear_body(
+                cells, x, z, body_bottom, body_bottom + 1.8 + (1.2 if jumping else 0)
+            ):
+                return False
+        return True
+
+    def _safe_full_motion(self, observation, waypoint, forward, jumping):
+        body = observation["body"]
+        px, py, pz = body["position"]
+        if self.movement_policy.max_drop == 0:
+            origin = (
+                round(py)
+                if self.motion_origin_height is None
+                else self.motion_origin_height
+            )
+            fresh = self._fresh(observation["tick"])
+            yaw = math.radians(body["yaw"])
+            horizon = min(
+                math.hypot(waypoint[0] - px, waypoint[2] - pz) + 0.05, 1.8 * forward
+            )
+            for fraction in (0, 0.25, 0.5, 0.75, 1):
+                x, z = (
+                    px - math.sin(yaw) * horizon * fraction,
+                    pz + math.cos(yaw) * horizon * fraction,
+                )
+                for ox in (-0.29, 0.29):
+                    for oz in (-0.29, 0.29):
+                        if not any(
+                            standable(
+                                fresh, (math.floor(x + ox), y, math.floor(z + oz))
+                            )
+                            for y in range(
+                                math.floor(origin), math.ceil(max(py, waypoint[1])) + 1
+                            )
+                        ):
+                            return False
+        drop = py - waypoint[1]
+        if jumping or drop < 0.5:
+            return super()._safe_motion(observation, waypoint, forward, jumping)
+        if drop > self.movement_policy.max_drop + 0.1:
+            return False
+        cells = self._fresh(observation["tick"])
+        target = (math.floor(waypoint[0]), round(waypoint[1]), math.floor(waypoint[2]))
+        if not standable(cells, target):
+            return False
+        yaw = math.radians(body["yaw"])
+        horizon = min(
+            math.hypot(waypoint[0] - px, waypoint[2] - pz) + 0.05, 1.8 * forward
+        )
+        for fraction in (0, 0.25, 0.5, 0.75, 1):
+            x, z = (
+                px - math.sin(yaw) * horizon * fraction,
+                pz + math.cos(yaw) * horizon * fraction,
+            )
+            for ox in (-0.29, 0.29):
+                for oz in (-0.29, 0.29):
+                    cx, cz = math.floor(x + ox), math.floor(z + oz)
+                    if not any(
+                        standable(cells, (cx, y, cz))
+                        and all(
+                            empty(cells.get((cx, cy, cz)))
+                            for cy in range(y, math.ceil(py) + 2)
+                        )
+                        for y in range(target[1], math.floor(py) + 1)
+                    ):
+                        return False
+        return True
+
+    def _move(self, observation, waypoint):
+        if self.movement_policy.allow_swim:
+            cells = self._fresh(observation["tick"])
+            body = observation["body"]
+            target = (math.floor(waypoint[0]), waypoint[1], math.floor(waypoint[2]))
+            if (
+                body.get("survival", {}).get("in_water") is True
+                or water_movement.surface_height(cells, body["position"]) is not None
+                or water_movement.surface_node(cells, target)
+            ):
+                command = water_movement.swim_command(
+                    cells, body, waypoint, self.movement_policy
+                )
+                if command.get("forward") or command.get("jump"):
+                    self.water_controls += 1
+                return command
+        command = super()._move(observation, waypoint)
+        body = observation["body"]
+        if (
+            command.get("forward", 0) > 0
+            and body.get("on_ground", True)
+            and (command.get("jump") or waypoint[1] < body["position"][1] - 0.25)
+        ):
+            self.motion_origin_height = body["position"][1]
+        if command.get("forward", 0) > 0 and waypoint[1] < body["position"][1] - 0.25:
+            self.air_waypoint = waypoint
+        if (
+            self.movement_policy.allow_sprint
+            and command.get("forward", 0) >= 0.99
+            and not command.get("jump")
+            and body.get("on_ground", False)
+            and body.get("food", 0) > 6
+            and abs(waypoint[1] - body["position"][1]) < 0.1
+            and math.hypot(
+                waypoint[0] - body["position"][0], waypoint[2] - body["position"][2]
+            )
+            > 2
+            and self._safe_motion(observation, waypoint, 1.3, False)
+        ):
+            command["sprint"] = True
+        return command
+
     def _next_step(self, node, observation):
         policy = replace(
             self.terrain_policy,
@@ -313,6 +526,7 @@ class SegmentedController(NavigationController):
                 ),
                 protected=frozenset(self.own_footholds),
                 excluded=frozenset(self.failed_edges),
+                movement_policy=self.movement_policy,
             )
             self.terrain_search = self._new_search(cells, node, revision, factory)
         result = self.terrain_search.advance(
@@ -344,6 +558,8 @@ class SegmentedController(NavigationController):
                             "target": s.target,
                             "breaks": s.breaks,
                             "places": s.places,
+                            "kind": s.kind,
+                            "exit": s.exit,
                         }
                         for s in result.steps
                     ],
@@ -352,10 +568,27 @@ class SegmentedController(NavigationController):
         )
         return result.steps[0], policy
 
+    def _terrain_approach_nodes(self):
+        # Normal walking can look ahead three nodes at once. Preserve enough
+        # approach for a staircase's height gain before that lookahead skips
+        # past its entry stance. The default one-block behavior stays at four.
+        return max(4, self.terrain_policy.max_support_stack + 3)
+
+    def _node_supported(self, cells, node):
+        if self.movement_policy.allow_swim:
+            return water_movement.supported_node(
+                cells, node, shapes=self.movement_policy.allow_shapes
+            )
+        return (
+            collision_geometry.standable
+            if self.movement_policy.allow_shapes
+            else standable
+        )(cells, node)
+
     def _plan_terrain_step(self, node, observation):
         plan, policy = self._next_step(node, observation)
         if plan is not None:
-            self.terrain = StepExecutor(plan, policy)
+            self.terrain = executor_for(plan, policy)
             self.events.append(
                 (
                     "terrain_step_planned",
@@ -364,6 +597,8 @@ class SegmentedController(NavigationController):
                         "target": plan.target,
                         "breaks": plan.breaks,
                         "places": plan.places,
+                        "kind": plan.kind,
+                        "exit": plan.exit,
                     },
                 )
             )
@@ -383,10 +618,10 @@ class SegmentedController(NavigationController):
         fresh = self._fresh(observation["tick"])
         valid = node == plan.source
         if valid and (plan.breaks or plan.places):
-            actual = prepare_step(
+            actual = (prepare_pillar if plan.kind == "pillar" else prepare_step)(
                 fresh,
                 plan.source,
-                plan.target,
+                plan.exit if plan.kind == "pillar" else plan.target,
                 self.terrain_queue_policy,
                 observation["body"].get("inventory", []),
                 protected=self.own_footholds,
@@ -395,16 +630,20 @@ class SegmentedController(NavigationController):
                 actual is not None
                 and set(actual.breaks) == set(plan.breaks)
                 and actual.places == plan.places
+                and actual.kind == plan.kind
+                and actual.exit == plan.exit
             )
         elif valid:
-            valid = known_step(fresh, plan.source, plan.target)
+            valid = known_step(
+                fresh, plan.source, plan.target, max_drop=self.movement_policy.max_drop
+            )
         if not valid:
             self._clear_terrain_forecast()
             self.reason = "forecast preconditions changed; replanning"
             self.mode = "terrain_replanning"
             return
         self.terrain_queue.pop(0)
-        self.terrain = StepExecutor(plan, self.terrain_queue_policy)
+        self.terrain = executor_for(plan, self.terrain_queue_policy)
         self.mode = (
             "terrain_editing" if plan.breaks or plan.places else "terrain_planned_walk"
         )
@@ -416,6 +655,8 @@ class SegmentedController(NavigationController):
                     "target": plan.target,
                     "breaks": plan.breaks,
                     "places": plan.places,
+                    "kind": plan.kind,
+                    "exit": plan.exit,
                     "remaining_forecast_moves": len(self.terrain_queue),
                 },
             )
@@ -423,6 +664,7 @@ class SegmentedController(NavigationController):
 
     def decide(self, observation):
         began = time.perf_counter()
+        cpu_began = time.thread_time_ns()
         try:
             return self._decide(observation)
         finally:
@@ -434,6 +676,7 @@ class SegmentedController(NavigationController):
                     {
                         "tick": observation["tick"],
                         "motor_ms": duration,
+                        "motor_cpu_ms": (time.thread_time_ns() - cpu_began) / 1_000_000,
                         "mode": self.mode,
                     },
                 )
@@ -451,8 +694,74 @@ class SegmentedController(NavigationController):
             raise ValueError("Awareness revision changed; fresh controller required")
         self._admit(observation)
         body = observation["body"]
+        if self.gap_jump is not None:
+            jump = self.gap_jump
+            command = jump.decide(observation, self._fresh(observation["tick"]))
+            self.mode = "gap_" + jump.phase
+            if jump.state in {"ready", "failed"}:
+                if jump.state == "ready":
+                    self.gap_jumps_completed += 1
+                else:
+                    self.failed_edges.add((jump.plan.source, jump.plan.target))
+                self.reason = jump.reason
+                self.events.append(
+                    (
+                        "gap_jump_finished",
+                        {
+                            "source": jump.plan.source,
+                            "target": jump.plan.target,
+                            "width": jump.plan.width,
+                            "state": jump.state,
+                            "reason": jump.reason,
+                        },
+                    )
+                )
+                self.gap_jump = None
+                self.search = None
+                self.route.clear()
+                self.air_waypoint = None
+                self.motion_origin_height = None
+            return command
         p = body["position"]
-        node = (math.floor(p[0]), round(p[1]), math.floor(p[2]))
+        survival = body.get("survival", {})
+        air, maximum_air = survival.get("air"), survival.get("max_air")
+        if (
+            self.movement_policy.allow_swim
+            and type(air) is int
+            and type(maximum_air) is int
+            and maximum_air > 0
+        ):
+            if air < maximum_air * 0.5 and not self.air_recovering:
+                self.air_recovering = True
+                self.events.append(
+                    ("air_recovery_started", {"tick": observation["tick"], "air": air})
+                )
+            if self.air_recovering:
+                if air >= maximum_air * 0.9:
+                    self.air_recovering = False
+                    self.air_recoveries_completed += 1
+                    self.events.append(
+                        (
+                            "air_recovery_finished",
+                            {"tick": observation["tick"], "air": air},
+                        )
+                    )
+                else:
+                    self.mode = "air_recovery"
+                    if survival.get("in_water") is True and water_movement.can_surface(
+                        self._fresh(observation["tick"]), body
+                    ):
+                        self.water_controls += 1
+                        return {"jump": True}
+                    return {}
+        height = (
+            round(p[1] * 2) / 2 if self.movement_policy.allow_shapes else round(p[1])
+        )
+        if self.movement_policy.allow_swim:
+            water_height = water_movement.surface_height(self._known_cells(), p)
+            if water_height is not None:
+                height = water_height
+        node = (math.floor(p[0]), height, math.floor(p[2]))
         if self.terrain is not None:
             command = self.terrain.decide(observation, self._fresh(observation["tick"]))
             # An issued placement may succeed before confirmation is complete.
@@ -481,6 +790,7 @@ class SegmentedController(NavigationController):
                     self._clear_terrain_forecast()
                 else:
                     self.committed_step = self.terrain.plan.target
+                    self.committed_source = self.terrain.plan.source
                     self.commit_started = observation["tick"]
                     self.own_footholds.update(self.terrain.plan.places)
                 self.terrain = None
@@ -497,13 +807,17 @@ class SegmentedController(NavigationController):
             ):
                 self.committed_step = None
                 self.air_waypoint = None
+                self.motion_origin_height = None
                 if not self.terrain_queue:
                     self._clear_terrain_forecast()
             elif observation["tick"] - self.commit_started > 80:
+                if self.committed_source is not None:
+                    self.failed_edges.add((self.committed_source, target))
                 self.reason = "confirmed terrain step movement deadline"
                 self.mode = "terrain_motion_failed"
                 self.committed_step = None
                 self.air_waypoint = None
+                self.motion_origin_height = None
                 self._clear_terrain_forecast()
                 self.route.clear()
                 self.search = None
@@ -527,9 +841,22 @@ class SegmentedController(NavigationController):
         ):
             self.mode = "arrived"
             return {}
-        if not body.get("on_ground", True) and self.air_waypoint is not None:
-            return self._move(observation, self.air_waypoint)
+        if self.air_waypoint is not None:
+            distance = math.hypot(
+                p[0] - self.air_waypoint[0], p[2] - self.air_waypoint[2]
+            )
+            height_debt = self.air_waypoint[1] - p[1]
+            if not body.get("on_ground", True) or (
+                (self.movement_policy.allow_shapes or height_debt < -0.2)
+                and -self.movement_policy.max_drop - 0.1 <= height_debt <= 0.6
+                and distance <= 1.5
+                and (distance > 0.35 or abs(height_debt) > 0.2)
+            ):
+                # A slab can catch the body's leading edge before its center
+                # enters the destination column. Finish the checked commitment.
+                return self._move(observation, self.air_waypoint)
         self.air_waypoint = None
+        self.motion_origin_height = None
         if node in self.route:
             self.route = self.route[self.route.index(node) :]
         else:
@@ -537,7 +864,7 @@ class SegmentedController(NavigationController):
             if self.prefetch is not None and self.prefetch.start != node:
                 self._discard_prefetch()
         if self.route and not all(
-            standable(self._known_cells(), n) for n in self.route[:3]
+            self._node_supported(self._known_cells(), n) for n in self.route[:3]
         ):
             self.route.clear()
             self.search = None
@@ -545,7 +872,7 @@ class SegmentedController(NavigationController):
         if (
             self.last_result is not None
             and self.last_result.status == "unreachable"
-            and standable(self._known_cells(), self.goal)
+            and self._node_supported(self._known_cells(), self.goal)
             and math.hypot(node[0] - self.goal[0], node[2] - self.goal[2]) > 16
         ):
             # Acquisition may expose the distant goal while we follow an older
@@ -558,7 +885,7 @@ class SegmentedController(NavigationController):
             self.terrain_policy is not None
             and self.last_result is not None
             and self.last_result.status == "unreachable"
-            and 1 < len(self.route) <= 4
+            and 1 < len(self.route) <= self._terrain_approach_nodes()
         ):
             self.route.clear()
             self.search = None
@@ -596,7 +923,8 @@ class SegmentedController(NavigationController):
                 and self.last_result.status == "unreachable"
                 and self.route
                 and (
-                    len(self.route) <= 4 or self.route[-1][1] < node[1] <= self.goal[1]
+                    len(self.route) <= self._terrain_approach_nodes()
+                    or self.route[-1][1] < node[1] <= self.goal[1]
                 )
             ):
                 # Do not immediately throw away a constructed height gain for a

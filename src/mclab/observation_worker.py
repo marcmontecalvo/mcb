@@ -4,6 +4,8 @@ import queue
 import threading
 from dataclasses import dataclass
 
+from mclab.terrain_transport import NATIVE_SAMPLE_LIMIT
+
 
 @dataclass(frozen=True)
 class MapView:
@@ -42,8 +44,7 @@ class ObservationWorker:
         sample = (observation.get("awareness", {}).get("revision"), tick)
         if tick is not None and sample == self.last_sample:
             return
-        # Native scan bounds: 8192 extra cells plus the 17x9x17 near refresh.
-        if len(observation.get("visible_blocks", [])) > 8192 + 17 * 9 * 17:
+        if len(observation.get("visible_blocks", [])) > NATIVE_SAMPLE_LIMIT:
             self.memory.gap = True
             raise RuntimeError("Observation admission sample exceeds native bounds")
         try:
@@ -72,6 +73,7 @@ class ObservationWorker:
                 if self.error is not None:
                     continue
                 self.memory.ingest(observation)
+                self.memory.recall_surroundings()
                 revision, cells = self.memory.planning_snapshot()
                 self.latest = MapView(revision, cells, self.memory.status())
             except Exception as error:

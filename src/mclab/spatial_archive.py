@@ -7,7 +7,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
 
-from mclab.section_codec import decode_section, encode_section, section_key
+from mclab.section_codec import decode_section, merge_section, section_key
 
 
 class MapArchive:
@@ -70,16 +70,14 @@ class MapArchive:
                 "WHERE namespace=? AND x=? AND y=? AND z=?",
                 (namespace, *key),
             ).fetchone()
-            previous = (
-                {tuple(c["position"]): c for c in decode_section(key, row[0])}
-                if row
-                else {}
-            )
-            previous.update(changes)
             db.execute(
                 "INSERT INTO sections VALUES(?,?,?,?,?) "
                 "ON CONFLICT(namespace,x,z,y) DO UPDATE SET payload=excluded.payload",
-                (namespace, *key, encode_section(previous.values())),
+                (
+                    namespace,
+                    *key,
+                    merge_section(row[0] if row else None, changes.values()),
+                ),
             )
 
     def write(self, cells):
@@ -96,10 +94,14 @@ class MapArchive:
                 (self.identity.key,),
             )
 
-    def recall(self, center, radius, height, *, limit):
+    def recall(self, center, radius, height, *, limit, section_limit=None):
         """Bound returned cells and decoded working set; disk work is explicit."""
         if min(radius, height) < 0 or limit < 1:
             raise ValueError("Invalid map recall bounds")
+        if section_limit is not None and (
+            type(section_limit) is not int or section_limit < 1
+        ):
+            raise ValueError("Invalid recall section budget")
         x, y, z = center
         lower = (x - radius, y - height, z - radius)
         upper = (x + radius, y + height, z + radius)
@@ -110,11 +112,16 @@ class MapArchive:
             if gap is not None and not gap[0]:
                 raise RuntimeError("Archive has an observation gap; rescan required")
             lo, hi = section_key(lower), section_key(upper)
-            rows = db.execute(
+            query = (
                 "SELECT x,y,z,payload FROM sections WHERE namespace=? "
-                "AND x BETWEEN ? AND ? AND y BETWEEN ? AND ? AND z BETWEEN ? AND ?",
-                (self.identity.key, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]),
+                "AND x BETWEEN ? AND ? AND y BETWEEN ? AND ? AND z BETWEEN ? AND ?"
             )
+            parameters = [self.identity.key, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]]
+            if section_limit is not None:
+                sx, sy, sz = section_key(center)
+                query += " ORDER BY (x-?)*(x-?)+(y-?)*(y-?)+(z-?)*(z-?),x,y,z LIMIT ?"
+                parameters.extend([sx, sx, sy, sy, sz, sz, section_limit])
+            rows = db.execute(query, parameters)
 
             def admitted():
                 for sx, sy, sz, payload in rows:

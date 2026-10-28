@@ -2,6 +2,12 @@ package com.vulpine.mclab;
 
 /** Constant-space, nearest-shell-first enumeration of an inclusive rectangular volume. */
 final class AwarenessVolume {
+    static boolean nearRefresh(AwarenessConfig config,long x,long y,long z) {
+        x=Math.abs(x); y=Math.abs(y); z=Math.abs(z);
+        return x<=config.horizontalRadius() && z<=config.horizontalRadius()
+                && (config.verticalRadius()==-1 || y<=config.verticalRadius())
+                && ((x<=8 && y<=4 && z<=8) || (x<=2 && y<=8 && z<=2));
+    }
     record Cell(int x,int y,int z) {}
     private final int radius, lowY, highY, maximumShell;
     private final int size;

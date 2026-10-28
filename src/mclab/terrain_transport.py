@@ -1,9 +1,24 @@
 """Validate and expand development palette samples; absence is never air."""
 
 import math
+from types import MappingProxyType
 
-NATIVE_SAMPLE_LIMIT = 8192 + 17 * 9 * 17
+# Broad near refresh plus a 5x5 vertical spine's eight extra layers.
+NATIVE_SAMPLE_LIMIT = 8192 + 17 * 9 * 17 + 5 * 8 * 5
 GEOMETRY_FIELDS = {"block", "fluid", "replaceable", "properties", "collision_boxes"}
+
+
+class ExpandedTerrain(dict):
+    """Decoded facts plus their validated position index, borrowed immutably.
+
+    The index is an internal attribute, not a wire field. Records are the same
+    objects as visible_blocks; consumers must not mutate the borrowed observation.
+    Freshness is still evaluated against the current control tick at every use.
+    """
+
+    def __init__(self, values, cell_index):
+        super().__init__(values)
+        self.cell_index = MappingProxyType(cell_index)
 
 
 def expand_terrain(observation):
@@ -74,7 +89,7 @@ def expand_terrain(observation):
                 or any(type(v) not in (int, float) or not math.isfinite(v) for v in box)
             ):
                 raise ValueError("Invalid compact terrain collision shape")
-    cells, seen = [], set()
+    cells, index = [], {}
     for section in sections:
         if not isinstance(section, dict) or section.keys() != {"section", "cells"}:
             raise ValueError("Invalid compact terrain section")
@@ -106,13 +121,17 @@ def expand_terrain(observation):
                 key[1] * 16 + offset // 16 % 16,
                 key[2] * 16 + offset % 16,
             )
-            if p in seen or len(cells) >= count:
+            if p in index or len(cells) >= count:
                 raise ValueError("Duplicate or excess compact terrain cell")
-            seen.add(p)
-            cells.append({**palette[state], "position": list(p), "observed_tick": age})
+            cell = {**palette[state], "position": list(p), "observed_tick": age}
+            index[p] = cell
+            cells.append(cell)
     if len(cells) != count:
         raise ValueError("Incomplete compact terrain sample")
-    return {
-        **{k: v for k, v in observation.items() if k != "terrain_sections"},
-        "visible_blocks": cells,
-    }
+    return ExpandedTerrain(
+        {
+            **{k: v for k, v in observation.items() if k != "terrain_sections"},
+            "visible_blocks": cells,
+        },
+        index,
+    )

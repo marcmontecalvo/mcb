@@ -43,6 +43,57 @@ def test_foothold_requires_permission_stock_and_known_support():
     assert prepare_step(*args, policy, inventory()) is None
 
 
+def test_material_allowlist_and_protected_coordinates_apply_to_planner_and_executor():
+    from mclab.terrain_steps import building_supply
+
+    cells = terrain()
+    args = (cells, (0, 0, 0), (0, 1, 1))
+    policy = TerrainPolicy(material_allowlist=("minecraft:dirt",))
+    assert prepare_step(*args, policy, inventory()) is None
+    stock = [*inventory(), {"slot": 4, "item": "minecraft:dirt", "count": 2}]
+    assert building_supply(stock, 1, policy.material_allowlist) == 4
+    assert building_supply(stock, 2, policy.material_allowlist) is None
+    step = prepare_step(*args, policy, stock)
+    assert step is not None
+    protected = replace(policy, protected_positions=((0, 0, 1),))
+    assert prepare_step(*args, protected, stock) is None
+    with pytest.raises(ValueError, match="permissions/budgets"):
+        StepExecutor(step, protected)
+
+
+def test_protected_block_denylist_cannot_be_cut():
+    cells = terrain()
+    for y in range(3):
+        cells[0, y, 1] = cell((0, y, 1), True)
+    policy = TerrainPolicy(protected_blocks=("minecraft:stone",))
+    assert prepare_step(cells, (0, 0, 0), (0, 1, 1), policy, inventory()) is None
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"material_allowlist": ("minecraft:sand",)},
+        {"protected_positions": ((0, True, 1),)},
+        {"break_penalty": float("nan")},
+        {"placement_penalty": -1},
+        {"tool_wear_penalty": True},
+    ],
+)
+def test_invalid_resource_policies_rejected(kwargs):
+    with pytest.raises(ValueError):
+        TerrainPolicy(**kwargs)
+
+
+def test_resource_policy_json_roundtrip():
+    import json
+    from dataclasses import asdict
+
+    policy = TerrainPolicy(
+        protected_positions=((1, 2, 3),), material_allowlist=("minecraft:dirt",)
+    )
+    assert TerrainPolicy.from_payload(json.loads(json.dumps(asdict(policy)))) == policy
+
+
 def test_cut_step_rejects_unknown_fluid_gravity_and_wrong_tool():
     cells = terrain()
     for y in range(3):

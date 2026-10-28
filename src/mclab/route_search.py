@@ -10,6 +10,9 @@ import math
 import time
 from dataclasses import dataclass
 
+from mclab import collision_geometry, water_movement
+from mclab.gap_jump import prepare_gap
+from mclab.movement_policy import MovementPolicy
 from mclab.navigation import DIRECTIONS, empty, reconstruct, standable
 
 
@@ -24,7 +27,16 @@ class RouteResult:
 
 class RouteSearch:
     def __init__(
-        self, cells, start, goal, *, map_revision, goal_radius=0, owned_snapshot=False
+        self,
+        cells,
+        start,
+        goal,
+        *,
+        map_revision,
+        goal_radius=0,
+        owned_snapshot=False,
+        movement_policy=None,
+        excluded=(),
     ):
         # Caller hands an independent snapshot; retain our own nested copy.
         import copy
@@ -35,12 +47,27 @@ class RouteSearch:
         if len(self.start) != 3 or len(self.goal) != 3 or goal_radius < 0:
             raise ValueError("Invalid route endpoints")
         self.radius = goal_radius
+        self.movement_policy = (
+            MovementPolicy() if movement_policy is None else movement_policy
+        )
+        if not isinstance(self.movement_policy, MovementPolicy):
+            raise ValueError("Invalid movement policy")
+        self.excluded = frozenset(excluded)
         self.frontier = [(self._h(self.start), 0.0, self.start)]
         self.costs, self.previous = {self.start: 0.0}, {}
         self.expanded = 0
         self.best = self.start
         self.terminal = None
-        if not standable(self.cells, self.start):
+        self._standable = (
+            collision_geometry.standable
+            if self.movement_policy.allow_shapes
+            else standable
+        )
+        if self.movement_policy.allow_swim:
+            self._standable = lambda cells, node: water_movement.supported_node(
+                cells, node, shapes=self.movement_policy.allow_shapes
+            )
+        if not self._standable(self.cells, self.start):
             self.frontier.clear()
             self.terminal = RouteResult(
                 "unreachable", (), self.revision, 0, "start is not known standable"
@@ -60,8 +87,37 @@ class RouteSearch:
     def _edges(self, node):
         x, y, z = node
         for dx, dz in DIRECTIONS:
-            for dy in (0, 1, -1):
+            if self.movement_policy.allow_swim:
+                target = (x + dx, y, z + dz)
+                if (node, target) not in self.excluded and water_movement.water_edge(
+                    self.cells, node, target, shapes=self.movement_policy.allow_shapes
+                ):
+                    yield target, 1.8
+                if water_movement.surface_node(self.cells, node):
+                    continue
+            for width in range(1, self.movement_policy.max_gap + 1):
+                target = (x + dx * (width + 1), y, z + dz * (width + 1))
+                if (node, target) not in self.excluded and prepare_gap(
+                    self.cells, node, target, self.movement_policy
+                ) is not None:
+                    yield target, width + 3.5
+            if self.movement_policy.allow_shapes:
+                for ty in collision_geometry.surfaces(
+                    self.cells, x + dx, z + dz, y - self.movement_policy.max_drop, y + 1
+                ):
+                    target = (x + dx, ty, z + dz)
+                    if (
+                        node,
+                        target,
+                    ) not in self.excluded and collision_geometry.step_clear(
+                        self.cells, node, target
+                    ):
+                        yield target, 1 + 0.4 * abs(ty - y)
+                continue
+            for dy in (0, 1, *range(-1, -self.movement_policy.max_drop - 1, -1)):
                 target = (x + dx, y + dy, z + dz)
+                if (node, target) in self.excluded:
+                    continue
                 if not standable(self.cells, target):
                     continue
                 if dy == 1 and not all(
@@ -73,9 +129,23 @@ class RouteSearch:
                     )
                 ):
                     continue
-                if dy == -1 and not empty(self.cells.get((x + dx, y + 1, z + dz))):
+                if dy < 0 and not all(
+                    empty(self.cells.get((x + dx, cy, z + dz)))
+                    for cy in range(y + dy, y + 2)
+                ):
                     continue
-                yield target, 1.4 if dy else 1.0
+                yield target, 1 + 0.4 * abs(dy)
+        if self.movement_policy.allow_diagonals:
+            for dx, dz in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+                target = (x + dx, y, z + dz)
+                if (node, target) in self.excluded:
+                    continue
+                # Both swept side columns require support and two-block clearance.
+                if all(
+                    self._standable(self.cells, p)
+                    for p in (target, (x + dx, y, z), (x, y, z + dz))
+                ):
+                    yield target, math.sqrt(2)
 
     def advance(self, *, node_limit=256, budget_ms=5, segment_length=16):
         if (

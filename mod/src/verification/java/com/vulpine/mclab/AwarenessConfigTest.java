@@ -55,6 +55,22 @@ public final class AwarenessConfigTest {
         if(AwarenessConfig.parse(changed).occluded()) throw new AssertionError("chunk occlusion");
         changed.addProperty("entity_visibility","unoccluded"); AwarenessConfig.parse(changed);
         changed.addProperty("entity_visibility","bad"); reject(changed);
+        var spine=json.deepCopy(); spine.addProperty("preset","chunk");
+        spine.addProperty("horizontal_radius_blocks",16); spine.addProperty("vertical_radius_blocks",8);
+        var spineConfig=AwarenessConfig.parse(spine);
+        int nearCount=0,legacyCount=0;
+        for(int x=-10;x<=10;x++) for(int y=-10;y<=10;y++) for(int z=-10;z<=10;z++) {
+            if(AwarenessVolume.nearRefresh(spineConfig,x,y,z)) nearCount++;
+            if(AwarenessVolume.nearRefresh(legacy,x,y,z)) legacyCount++;
+        }
+        if(nearCount!=2801 || legacyCount!=2601) throw new AssertionError("bounded near refresh and spine");
+        if(!AwarenessVolume.nearRefresh(spineConfig,1,6,0)
+                || AwarenessVolume.nearRefresh(spineConfig,3,6,0)
+                || AwarenessVolume.nearRefresh(spineConfig,0,9,0)) throw new AssertionError("spine bounds");
+        spine.addProperty("horizontal_radius_blocks",1); spine.addProperty("vertical_radius_blocks",1);
+        var clipped=AwarenessConfig.parse(spine);
+        if(AwarenessVolume.nearRefresh(clipped,0,2,0) || AwarenessVolume.nearRefresh(clipped,2,0,0))
+            throw new AssertionError("spine cannot expand requested envelope");
         System.out.println("Awareness configuration: profiles, bounds, types and frozen legacy verified");
     }
 }

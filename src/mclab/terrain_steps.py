@@ -1,9 +1,11 @@
 """Bounded full-cube hill steps and confirmed Survival interaction execution."""
 
 import math
+from collections import ChainMap
 from dataclasses import dataclass
 
 from mclab.navigation import empty, full_cube, rotation, standable
+from mclab.terrain_placement import placement_target
 
 BUILDING = ("minecraft:cobblestone", "minecraft:dirt")
 EXCAVATABLE = {
@@ -22,9 +24,47 @@ class TerrainPolicy:
     place_budget: int = 8
     reserve_blocks: int = 0
     interaction_tick_limit: int = 160
+    material_allowlist: tuple = BUILDING
+    protected_blocks: tuple = ()
+    protected_positions: tuple = ()
+    break_penalty: float = 3.0
+    placement_penalty: float = 4.0
+    tool_wear_penalty: float = 0.0
+    allow_bridge: bool = False
+    max_support_stack: int = 1
+    allow_pillar: bool = False
+    max_pillar_height: int = 3
+
+    @classmethod
+    def from_payload(cls, value):
+        if (
+            not isinstance(value, dict)
+            or not value.keys() <= cls.__dataclass_fields__.keys()
+        ):
+            raise ValueError("Invalid terrain profile fields")
+        values = dict(value)
+        for name in ("material_allowlist", "protected_blocks", "protected_positions"):
+            if name in values:
+                if not isinstance(values[name], (list, tuple)):
+                    raise ValueError("Invalid terrain profile list")
+                values[name] = tuple(
+                    tuple(p)
+                    if name == "protected_positions" and isinstance(p, (list, tuple))
+                    else p
+                    for p in values[name]
+                )
+        return cls(**values)
 
     def __post_init__(self):
-        if type(self.allow_break) is not bool or type(self.allow_place) is not bool:
+        if any(
+            type(v) is not bool
+            for v in (
+                self.allow_break,
+                self.allow_place,
+                self.allow_bridge,
+                self.allow_pillar,
+            )
+        ):
             raise ValueError("Terrain permissions must be booleans")
         for name in ("break_budget", "place_budget", "reserve_blocks"):
             if (
@@ -33,10 +73,46 @@ class TerrainPolicy:
             ):
                 raise ValueError("Invalid terrain budget")
         if (
+            type(self.max_support_stack) is not int
+            or not 1 <= self.max_support_stack <= 3
+        ):
+            raise ValueError("Support stacks must contain one through three blocks")
+        if (
+            type(self.max_pillar_height) is not int
+            or not 1 <= self.max_pillar_height <= 3
+        ):
+            raise ValueError("Pillars must contain one through three blocks")
+        if (
             type(self.interaction_tick_limit) is not int
             or not 20 <= self.interaction_tick_limit <= 400
         ):
             raise ValueError("Invalid terrain interaction deadline")
+        for name in ("material_allowlist", "protected_blocks"):
+            values = getattr(self, name)
+            if not isinstance(values, tuple) or any(
+                type(v) is not str or not v.startswith("minecraft:") for v in values
+            ):
+                raise ValueError("Invalid terrain block policy")
+        if any(v not in BUILDING for v in self.material_allowlist):
+            raise ValueError("Unsupported building material")
+        if not isinstance(self.protected_positions, tuple) or any(
+            not isinstance(p, tuple)
+            or len(p) != 3
+            or any(type(v) is not int for v in p)
+            for p in self.protected_positions
+        ):
+            raise ValueError("Invalid protected positions")
+        for value in (
+            self.break_penalty,
+            self.placement_penalty,
+            self.tool_wear_penalty,
+        ):
+            if (
+                type(value) not in (int, float)
+                or not math.isfinite(value)
+                or not 0 <= value <= 1000
+            ):
+                raise ValueError("Invalid terrain cost")
 
 
 @dataclass(frozen=True)
@@ -45,6 +121,8 @@ class StepPlan:
     target: tuple
     breaks: tuple = ()
     places: tuple = ()
+    kind: str = "step"
+    exit: tuple | None = None
 
     @property
     def cost(self):
@@ -64,18 +142,18 @@ def hotbar(inventory, item):
     )
 
 
-def building_supply(inventory, reserve):
+def building_supply(inventory, reserve, materials=BUILDING):
     total = sum(
         row.get("count", 0)
         for row in inventory
-        if row.get("item") in BUILDING and 0 <= row.get("slot", -1) < 9
+        if row.get("item") in materials and 0 <= row.get("slot", -1) < 9
     )
     if total <= reserve:
         return None
     return next(
         (
             hotbar(inventory, item)
-            for item in BUILDING
+            for item in materials
             if hotbar(inventory, item) is not None
         ),
         None,
@@ -83,7 +161,7 @@ def building_supply(inventory, reserve):
 
 
 def prepare_step(cells, source, target, policy, inventory, *, protected=()):
-    """Plan at most one foothold and four headroom cuts; unknown is forbidden."""
+    """Plan a bounded support stack and four headroom cuts; unknown is forbidden."""
     x, y, z = source
     tx, ty, tz = target
     if abs(tx - x) + abs(tz - z) != 1 or ty - y not in (0, 1):
@@ -91,17 +169,54 @@ def prepare_step(cells, source, target, policy, inventory, *, protected=()):
     if not standable(cells, source):
         return None
     support = (tx, ty - 1, tz)
+    protected = set(protected) | set(policy.protected_positions)
     places = []
     if not full_cube(cells.get(support)):
-        if (
-            not policy.allow_place
-            or policy.place_budget < 1
-            or not empty(cells.get(support))
-            or not full_cube(cells.get((tx, ty - 2, tz)))
-            or building_supply(inventory, policy.reserve_blocks) is None
-        ):
+        if not policy.allow_place:
             return None
         places.append(support)
+        # Find a known base, or an explicitly permitted side anchor. The
+        # hypothetical stack is local and every block is confirmed by execution.
+        while (
+            placement_target(
+                cells, source, places[-1], allow_bridge=policy.allow_bridge
+            )
+            is None
+        ):
+            if len(places) >= policy.max_support_stack:
+                return None
+            px, py, pz = places[-1]
+            places.append((px, py - 1, pz))
+        places.reverse()
+        if len(places) > policy.place_budget:
+            return None
+        stock = [dict(row) for row in inventory]
+        predicted = {}
+        for point in places:
+            cell = cells.get(point)
+            slot = building_supply(
+                stock, policy.reserve_blocks, policy.material_allowlist
+            )
+            if (
+                point in protected
+                or (cell or {}).get("block") in policy.protected_blocks
+                or not empty(cell)
+                or slot is None
+                or placement_target(
+                    ChainMap(predicted, cells),
+                    source,
+                    point,
+                    allow_bridge=policy.allow_bridge,
+                )
+                is None
+            ):
+                return None
+            row = next(row for row in stock if row["slot"] == slot)
+            row["count"] -= 1
+            predicted[point] = {
+                "block": row["item"],
+                "collision_boxes": [[0, 0, 0, 1, 1, 1]],
+            }
     clearance = [(tx, ty, tz), (tx, ty + 1, tz)]
     if ty > y:
         clearance += [(x, y + 2, z), (x, y + 3, z), (tx, ty + 2, tz)]
@@ -113,6 +228,7 @@ def prepare_step(cells, source, target, policy, inventory, *, protected=()):
         block = (cell or {}).get("block")
         if (
             point in protected
+            or block in policy.protected_blocks
             or not policy.allow_break
             or block not in EXCAVATABLE
             or not full_cube(cell)
@@ -142,10 +258,15 @@ class StepExecutor:
 
     def __init__(self, plan, policy):
         if (
-            (plan.breaks and not policy.allow_break)
+            plan.kind != "step"
+            or (plan.breaks and not policy.allow_break)
             or (plan.places and not policy.allow_place)
             or len(plan.breaks) > policy.break_budget
             or len(plan.places) > policy.place_budget
+            or len(plan.places) > policy.max_support_stack
+            or any(
+                p in policy.protected_positions for p in (*plan.breaks, *plan.places)
+            )
         ):
             raise ValueError("Terrain plan exceeds permissions/budgets")
         self.plan, self.policy = plan, policy
@@ -186,6 +307,13 @@ class StepExecutor:
         if not body.get("on_ground", True):
             return self.fail("displaced during terrain work")
         position = body["position"]
+        eye_height = body.get("survival", {}).get("eye_height", 1.62)
+        if (
+            type(eye_height) not in (int, float)
+            or not math.isfinite(eye_height)
+            or not 0.5 <= eye_height <= 2
+        ):
+            return self.fail("invalid eye-height observation")
         source = self.plan.source
         if (
             math.hypot(position[0] - source[0] - 0.5, position[2] - source[2] - 0.5)
@@ -230,7 +358,7 @@ class StepExecutor:
         if complete:
             if self.issued:
                 if kind == "place" and (
-                    cell.get("block") not in BUILDING
+                    cell.get("block") not in self.policy.material_allowlist
                     or self.placement_item is not None
                     and cell.get("block") != self.placement_item
                     or not self.inventory_debit_seen
@@ -248,6 +376,12 @@ class StepExecutor:
             return {}
         if not standable(fresh, self.plan.source):
             return self.fail("terrain stance is no longer safe")
+        if kind == "place" and self.issued and self.inventory_debit_seen:
+            # The paid-for block can precede its next terrain delta. Replanning
+            # the full remaining stack here would charge that same block twice.
+            # Hold the stance until geometry confirms it or the deadline expires.
+            return {"sneak": True}
+        approach = None
         if kind == "break":
             allowed = prepare_step(
                 fresh, self.plan.source, self.plan.target, self.policy, inventory
@@ -259,20 +393,77 @@ class StepExecutor:
             expected = point
             face = None
         else:
-            self.slot = building_supply(inventory, self.policy.reserve_blocks)
-            below = (point[0], point[1] - 1, point[2])
-            if not empty(cell) or not full_cube(fresh.get(below)):
+            allowed = prepare_step(
+                fresh, self.plan.source, self.plan.target, self.policy, inventory
+            )
+            if allowed is None or point not in allowed.places:
+                return self.fail("placement preconditions changed")
+            if (
+                point in self.policy.protected_positions
+                or cell.get("block") in self.policy.protected_blocks
+            ):
+                return self.fail("placement is protected")
+            self.slot = building_supply(
+                inventory, self.policy.reserve_blocks, self.policy.material_allowlist
+            )
+            placement = placement_target(
+                fresh, self.plan.source, point, allow_bridge=self.policy.allow_bridge
+            )
+            if not empty(cell) or placement is None:
                 return self.fail("foothold support changed")
-            # Click the upper face of the existing ground, not the future block.
-            aim = [point[0] + 0.5, point[1] - 0.001, point[2] + 0.5]
-            expected, face = below, "UP"
+            aim, expected, face, approach = (
+                placement.aim,
+                placement.support,
+                placement.face,
+                placement.approach,
+            )
+            if approach is not None and "eye_height" not in body.get("survival", {}):
+                return self.fail("edge placement requires observed eye height")
         if self.slot is None:
             return self.fail("required hotbar supply unavailable")
-        if math.dist(aim, [position[0], position[1] + 1.62, position[2]]) > min(
+        if math.dist(aim, [position[0], position[1] + eye_height, position[2]]) > min(
             4.2, body.get("block_reach", 4.2)
         ):
             return self.fail("terrain interaction out of reach")
-        turn = rotation(aim, body)
+        aim_body = {
+            **body,
+            "position": [position[0], position[1] + eye_height - 1.62, position[2]],
+        }
+        if kind == "place" and point[1] >= source[1]:
+            dx, dz = point[0] - source[0], point[2] - source[2]
+            progress = (position[0] - source[0] - 0.5) * dx + (
+                position[2] - source[2] - 0.5
+            ) * dz
+            if progress > 0.1:
+                # Low stack layers require an edge view, but a layer at feet
+                # height would intersect that same leaning body. Return to the
+                # known source footprint before issuing the upper placement.
+                retreat = rotation(
+                    (source[0] + 0.5, source[1], source[2] + 0.5),
+                    aim_body,
+                    ground=True,
+                )
+                return {
+                    **retreat,
+                    "sneak": True,
+                    "hotbar_slot": self.slot,
+                    "forward": 0.3 if abs(retreat["yaw_delta"]) < 8 else 0,
+                }
+        turn = rotation(aim, aim_body)
+        stance = {"sneak": True} if approach is not None else {}
+        if approach is not None:
+            dx, dz = point[0] - source[0], point[2] - source[2]
+            progress = (position[0] - source[0] - 0.5) * dx + (
+                position[2] - source[2] - 0.5
+            ) * dz
+            if progress < 0.6:
+                approach_turn = rotation(approach, aim_body, ground=True)
+                return {
+                    **approach_turn,
+                    **stance,
+                    "hotbar_slot": self.slot,
+                    "forward": 0.3 if abs(approach_turn["yaw_delta"]) < 8 else 0,
+                }
         ray = body.get("ray", {})
         aligned = abs(turn["yaw_delta"]) < 2 and abs(turn["pitch_delta"]) < 2
         hit_position = tuple(ray.get("position", ()))
@@ -288,8 +479,8 @@ class StepExecutor:
             or not hit
             or (face is not None and str(ray.get("face", "")).upper() != face)
         ):
-            return {**turn, "hotbar_slot": self.slot}
-        command = {**turn, "hotbar_slot": self.slot}
+            return {**turn, **stance, "hotbar_slot": self.slot}
+        command = {**turn, **stance, "hotbar_slot": self.slot}
         if kind == "break":
             command["mine"] = True
             self.issued_breaks.add(hit_position)

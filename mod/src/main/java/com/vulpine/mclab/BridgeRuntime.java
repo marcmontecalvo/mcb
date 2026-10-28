@@ -791,7 +791,13 @@ public final class BridgeRuntime implements AutoCloseable {
                 filtered.put(key,observed.get(key));
             // Inventory-only evidence for natural development interactions. Legacy
             // qualified course observations retain their frozen body contract.
-            if(natural!=null) filtered.put("building_pickups",natural.buildingPickups());
+            if(natural!=null) {
+                filtered.put("building_pickups",natural.buildingPickups());
+                var player=body.player();
+                filtered.put("survival",Map.of("eye_height",player.getEyeHeight(),
+                        "air",player.getAirSupply(),"max_air",player.getMaxAirSupply(),
+                        "in_water",player.isInWater(),"on_climbable",player.onClimbable()));
+            }
             if(server.getTickCount()-sensorTick>=awareness.interval() && policyRunning()) {
                 visibleBlocks=awareness.preset().equals("legacy")?PolicySensor.visible(body.player(),server.getTickCount())
                         :awarenessSensor.sample(body.player(),server.getTickCount());

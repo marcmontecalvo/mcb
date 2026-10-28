@@ -34,6 +34,17 @@ final class AwarenessSensor {
             var cell=PolicySensor.cell(player,tick,pos,config.occluded());
             if(cell!=null) result.add(cell);
         }
+        // A narrow vertical spine covers jump-placement shafts and their
+        // adjacent exits without expanding the requested awareness envelope.
+        int spineX=Math.min(2,config.horizontalRadius());
+        int spineY=config.verticalRadius()==-1?8:Math.min(8,config.verticalRadius());
+        for(int x=-spineX;x<=spineX;x++) for(int y=-spineY;y<=spineY;y++) for(int z=-spineX;z<=spineX;z++) {
+            if(Math.abs(y)<=nearY) continue;
+            var pos=center.offset(x,y,z);
+            if(!player.level().isInsideBuildHeight(pos)) continue;
+            var cell=PolicySensor.cell(player,tick,pos,config.occluded());
+            if(cell!=null) result.add(cell);
+        }
         int radius=config.horizontalRadius();
         int low=config.verticalRadius()==-1?player.level().getMinY():Math.max(player.level().getMinY(),anchor.getY()-config.verticalRadius());
         int high=config.verticalRadius()==-1?player.level().getMaxY():Math.min(player.level().getMaxY(),anchor.getY()+config.verticalRadius());
@@ -47,8 +58,7 @@ final class AwarenessSensor {
             var pos=anchor.offset(offset.x(),offset.y(),offset.z());
             // The anchor survives ordinary movement, but live acquisition never exceeds current reach.
             if(!inRange(config,center,pos)) continue;
-            if(Math.abs(pos.getX()-center.getX())<=nearX && Math.abs(pos.getY()-center.getY())<=nearY
-                    && Math.abs(pos.getZ()-center.getZ())<=nearX) continue;
+            if(inNearRefresh(config,center,pos)) continue;
             if(player.level().getChunkSource().getChunkNow(pos.getX()>>4,pos.getZ()>>4)==null) {
                 unavailable++; continue;
             }
@@ -71,5 +81,10 @@ final class AwarenessSensor {
         return Math.abs((long)pos.getX()-center.getX())<=config.horizontalRadius()
                 && Math.abs((long)pos.getZ()-center.getZ())<=config.horizontalRadius()
                 && (config.verticalRadius()==-1 || Math.abs((long)pos.getY()-center.getY())<=config.verticalRadius());
+    }
+
+    static boolean inNearRefresh(AwarenessConfig config,BlockPos center,BlockPos pos) {
+        return AwarenessVolume.nearRefresh(config,(long)pos.getX()-center.getX(),
+                (long)pos.getY()-center.getY(),(long)pos.getZ()-center.getZ());
     }
 }

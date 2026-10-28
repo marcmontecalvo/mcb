@@ -1,8 +1,10 @@
 """Native single-lethal-hit diagnostic; restores the lab after the unscored run."""
 
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
+from mclab.bootstrap import sha256
 from mclab.execution import RecordedBridge, terminal_event
 from mclab.modbuild import source_hash
 from mclab.paths import ROOT, SERVER, read_json, write_json
@@ -23,7 +25,11 @@ def main():
         / "results/natural_reporting"
         / datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     )
-    summary = {"development_only": True, "mod_provenance": provenance}
+    summary = {
+        "development_only": True,
+        "mod_provenance": provenance,
+        "runner_sha256": sha256(Path(__file__)),
+    }
     with exclusive_arena():
         client = RecordedBridge(folder / "events.jsonl")
         active = False
@@ -63,6 +69,8 @@ def main():
                 )
             if outcome["status"] != "failed" or outcome["damage_taken"] != health:
                 raise AssertionError("Lethal health loss was not fully reported")
+            if outcome["died"] is not True or outcome["disconnected"] is not False:
+                raise AssertionError("Lethal hit was not distinguished from disconnect")
             if outcome["kit_blocks_spent_adjusted"] != -1:
                 raise AssertionError(
                     "Death inventory loss counted as building stock spend"

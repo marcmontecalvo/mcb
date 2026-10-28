@@ -46,6 +46,10 @@ final class NaturalRun {
     private int readyTick = -1, startTick = -1, deadlineTick = -1, endTick = -1;
     private int blocksBroken, peakHostiles;
     private double damageTaken, minDistance = Double.MAX_VALUE;
+    private double minFeetY,maxFeetY;
+    private int hostileExposureTicks;
+    private int waterTicks, minimumAir;
+    private boolean died, disconnected;
     private float lastHealth = -1;
     private final DevelopmentHill hill;
     private ServerPlayer lastSubject;
@@ -103,10 +107,13 @@ final class NaturalRun {
         var weather = server.overworld().getWeatherData();
         weather.setRaining(false); weather.setThundering(false);
         server.overworld().setRainLevel(0); server.overworld().setThunderLevel(0);
+        // Setting a rule to its current value is reported as a failure, so flip it first.
+        // The flip itself fails when the rule already holds !mobs; only the final set must succeed.
+        var dispatcher = server.getCommands().getDispatcher();
         try {
-            // Setting a rule to its current value is reported as a failure, so flip it first.
-            var dispatcher = server.getCommands().getDispatcher();
             dispatcher.execute("gamerule minecraft:spawn_mobs " + !mobs, server.createCommandSourceStack());
+        } catch (Exception alreadyFlipped) { /* rule already holds !mobs */ }
+        try {
             dispatcher.execute("gamerule minecraft:spawn_mobs " + mobs, server.createCommandSourceStack());
         } catch (Exception error) { throw new IllegalStateException("spawn_mobs_rule:" + error.getMessage(), error); }
         var area = routeArea();
@@ -140,6 +147,8 @@ final class NaturalRun {
             giveKit(p);
             status = "running"; startTick = server.getTickCount(); deadlineTick = startTick + tickLimit;
             lastHealth = p.getHealth();
+            minFeetY = maxFeetY = p.getY();
+            minimumAir=p.getAirSupply();
             lastSubject=p;
             events.accept("course_started", Map.of("start_tick", startTick, "deadline_tick", deadlineTick,
                     "subject", body != null ? "carpet_body" : "human", "mobs", mobs));
@@ -151,12 +160,18 @@ final class NaturalRun {
         if (healthSubject != null) {
             if (healthSubject.getHealth() < lastHealth) damageTaken += lastHealth - healthSubject.getHealth();
             lastHealth = healthSubject.getHealth();
+            if(lastHealth<=0 || !healthSubject.isAlive()) died=true;
         }
-        if(p!=null) lastSubject=p;
+        if(p!=null) { lastSubject=p; minFeetY=Math.min(minFeetY,p.getY()); maxFeetY=Math.max(maxFeetY,p.getY()); }
+        if(p==null && !died) disconnected=true;
         if (p == null || !p.isAlive()) { finish("failed", "death_or_disconnect"); return; }
+        if(hill!=null) hill.diagnosticTick(p);
+        minimumAir=Math.min(minimumAir,p.getAirSupply());
+        if(p.isInWater()) waterTicks++;
         int hostiles = server.overworld().getEntitiesOfClass(Mob.class, p.getBoundingBox().inflate(16),
                 m -> m instanceof Enemy).size();
         peakHostiles = Math.max(peakHostiles, hostiles);
+        if(hostiles>0) hostileExposureTicks++;
         double horizontal = Math.hypot(p.getX() - goal.x, p.getZ() - goal.z);
         minDistance = Math.min(minDistance, horizontal);
         if (horizontal <= radius && Math.abs(p.getY() - goal.y) <= (hill==null?GOAL_DY:0.25)
@@ -181,6 +196,7 @@ final class NaturalRun {
     void healthChanged(ServerPlayer p,float before,float after) {
         if(running() && owns(p)) {
             if(after<before) damageTaken+=before-after;
+            if(after<=0) died=true;
             lastHealth=after;
         }
     }
@@ -202,6 +218,14 @@ final class NaturalRun {
         result.put("ticks", startTick < 0 ? -1 : endTick - startTick);
         result.put("min_goal_distance", minDistance == Double.MAX_VALUE ? -1 : minDistance);
         result.put("damage_taken", damageTaken);
+        result.put("minimum_feet_y",minFeetY);
+        result.put("maximum_feet_y",maxFeetY);
+        result.put("water_ticks",waterTicks);
+        result.put("minimum_air",minimumAir);
+        result.put("final_air",p==null?-1:p.getAirSupply());
+        result.put("died",died);
+        result.put("disconnected",disconnected);
+        result.put("hostile_exposure_ticks_within_16",hostileExposureTicks);
         result.put("peak_hostiles_within_16", peakHostiles);
         result.put("blocks_broken", blocksBroken);
         int left = p == null ? -1 : p.getInventory().countItem(Items.COBBLESTONE) + p.getInventory().countItem(Items.DIRT);

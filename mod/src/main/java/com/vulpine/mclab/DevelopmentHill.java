@@ -2,9 +2,11 @@ package com.vulpine.mclab;
 
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -22,18 +24,20 @@ final class DevelopmentHill {
     private final Map<BlockPos,BlockState> original=new LinkedHashMap<>();
     private final Map<BlockPos,BlockState> prepared=new LinkedHashMap<>();
     private final AABB area;
+    private boolean lowAirInjected;
 
     DevelopmentHill(MinecraftServer server, JsonObject request, Vec3 start, Vec3 goal) {
         this.server=server;
         kind=request.get("development_hill").getAsString();
         variant=request.get("hill_variant").getAsInt();
-        int height=kind.equals("prefetch")?0:kind.equals("mixed")?4:kind.equals("place")?2:3;
-        int goalZ=kind.equals("prefetch")?40+variant%4+17*(variant/4):11;
+        int height=Set.of("prefetch","drop","bridge","gap","water").contains(kind)?0:kind.equals("pillar")?3+variant%2:Set.of("mixed","staircase").contains(kind)?4:kind.equals("place")?2:3;
+        int startHeight=kind.equals("drop")?1+variant%3:0;
+        int goalZ=kind.equals("prefetch")?40+variant%4+17*(variant/4):kind.equals("staircase")?8+variant:kind.equals("pillar")?5+variant/2:kind.equals("gap")?7+variant/2+variant%2:kind.equals("water")?8+variant/2+variant%2:11;
         int goalX=kind.equals("prefetch")?variant%3:0;
-        int maxZ=kind.equals("prefetch")?80:14;
+        int maxZ=kind.equals("prefetch")?80:Set.of("staircase","pillar","water").contains(kind)?20:14;
         area=new AABB(X-6,Y-3,Z-3,X+7,Y+9,Z+maxZ+1);
-        if(!Set.of("walk","cut","place","mixed","prefetch").contains(kind) || variant<0 || variant>9
-                || !start.equals(new Vec3(X+0.5,Y,Z+0.5))
+        if(!Set.of("walk","cut","place","mixed","prefetch","slab","stairs","drop","bridge","staircase","pillar","gap","water").contains(kind) || variant<0 || variant>9
+                || !start.equals(new Vec3(X+0.5,Y+startHeight,Z+0.5))
                 || !goal.equals(new Vec3(X+goalX+0.5,Y+height,Z+goalZ+0.5))
                 || request.get("mobs").getAsBoolean()
                 || request.get("goal_radius").getAsDouble()!=1)
@@ -49,9 +53,17 @@ final class DevelopmentHill {
         try {
             for(var pos:original.keySet()) {
                 int z=pos.getZ()-Z;
-                int top=0;
+                double top=0;
                 boolean bedrock=false;
-                if(kind.equals("mixed")) {
+                if(kind.equals("pillar")) {
+                    if(Math.abs(pos.getX()-X)==1 || z==-3 || z==maxZ) { top=7; bedrock=true; }
+                    else if(pos.getX()==X && z>=1+variant/2) { top=height; bedrock=true; }
+                } else if(kind.equals("staircase")) {
+                    if(Math.abs(pos.getX()-X)==1 || z==-3 || z==maxZ) { top=7; bedrock=true; }
+                    else if(pos.getX()==X && z>=4+variant) { top=4; bedrock=true; }
+                } else if(Set.of("bridge","gap","water").contains(kind)) {
+                    if(Math.abs(pos.getX()-X)==1 || z==-3 || z==maxZ) { top=7; bedrock=true; }
+                } else if(kind.equals("mixed")) {
                     if(Math.abs(pos.getX()-X)==1 || z==-3 || z==14) {
                         top=7; bedrock=true;
                     } else if(pos.getX()==X && z>=8+variant/4) {
@@ -60,11 +72,28 @@ final class DevelopmentHill {
                 } else if(!kind.equals("prefetch"))
                 if(Math.abs(pos.getX()-X)<=2+variant/4) {
                     int offset=variant%4;
-                    if(kind.equals("walk")) top=z<2+offset?0:z<4+offset?1:z<6+offset?2:3;
+                    if(kind.equals("drop")) top=z<4+offset?startHeight:0;
+                    else if(kind.equals("slab")) top=Math.min(3,Math.max(0,(z-(2+offset)+1)*0.5));
+                    else if(kind.equals("walk") || kind.equals("stairs")) top=z<2+offset?0:z<4+offset?1:z<6+offset?2:3;
                     else if(z>=4+offset) top=height;
                 }
-                boolean solid=pos.getY()<Y || ((kind.equals("mixed") || z<=12) && pos.getY()<Y+top);
+                boolean solid=pos.getY()<Y || ((Set.of("mixed","bridge","staircase","pillar","gap","water").contains(kind) || z<=12) && pos.getY()<Y+top);
                 var state=solid?(bedrock?Blocks.BEDROCK:Blocks.STONE).defaultBlockState():Blocks.AIR.defaultBlockState();
+                if(kind.equals("bridge") && pos.getX()==X && z>=2+variant%4
+                        && z<2+variant%4+2+variant%3 && pos.getY()>=Y-2 && pos.getY()<Y)
+                    state=Blocks.AIR.defaultBlockState();
+                if(kind.equals("gap") && pos.getX()==X && z>=2+variant/2
+                        && z<2+variant/2+1+variant%2 && pos.getY()>=Y-2 && pos.getY()<Y)
+                    state=Blocks.AIR.defaultBlockState();
+                if(kind.equals("water") && pos.getX()==X && z>=2+variant/2
+                        && z<2+variant/2+3+variant%2 && pos.getY()>=Y-2 && pos.getY()<Y)
+                    state=Blocks.WATER.defaultBlockState();
+                if(kind.equals("slab") && top%1!=0 && z<=12 && pos.getY()==Y+Math.floor(top))
+                    state=Blocks.STONE_SLAB.defaultBlockState();
+                if(kind.equals("stairs") && top>0 && pos.getY()==Y+top-1 && z<=12
+                        && (z==2+variant%4 || z==4+variant%4 || z==6+variant%4))
+                    state=Blocks.STONE_BRICK_STAIRS.defaultBlockState()
+                            .setValue(BlockStateProperties.HORIZONTAL_FACING,Direction.SOUTH);
                 if(kind.equals("mixed") && pos.getX()==X && z>=0 && z<=2+variant%4 && pos.getY()==Y+2)
                     state=Blocks.STONE.defaultBlockState();
                 level.setBlock(pos,state,2);
@@ -85,7 +114,15 @@ final class DevelopmentHill {
             changes.add(Map.of("position",List.of(p.getX(),p.getY(),p.getZ()),
                     "before",entry.getValue().toString(),"after",after.toString()));
         }
-        return Map.of("kind",kind,"variant",variant,"removed",removed,"added",added,"changes",changes);
+        return Map.of("kind",kind,"variant",variant,"removed",removed,"added",added,"changes",changes,
+                "low_air_injected",lowAirInjected);
+    }
+
+    void diagnosticTick(net.minecraft.server.level.ServerPlayer player) {
+        if(kind.equals("water") && variant%2==1 && !lowAirInjected && player.isInWater()) {
+            player.setAirSupply(90);
+            lowAirInjected=true;
+        }
     }
 
     void restore() {

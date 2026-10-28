@@ -122,6 +122,9 @@ class SpatialMemory:
         self.closed = False
         self.pending = queue.Queue(queue_limit)
         self.last_sample = None
+        self.recall_region = None
+        self.recall_count = 0
+        self.recall_ms = 0.0
         self.worker = threading.Thread(target=self._write, daemon=True)
         self.worker.start()
 
@@ -327,7 +330,50 @@ class SpatialMemory:
             "persistence_pending_bytes": pending_bytes,
             "persistence_byte_limit": self.queue_byte_limit,
             "persistence_queue": self.pending.qsize(),
+            "automatic_recall_count": self.recall_count,
+            "automatic_recall_last_ms": self.recall_ms,
         }
+
+    def recall_surroundings(self):
+        """Bounded historical read on the admission lane when entering a section.
+
+        Never flush the writer or evict observed cells to make room for history.
+        Recall is planning evidence only; original sessions/timestamps survive.
+        """
+        self._check()
+        if (
+            self.latest_center is None
+            or self.policy.memory_mode != "persistent"
+            or not self.policy.use_historical_geometry
+        ):
+            return
+        region = tuple(v // 16 for v in self.latest_center)
+        if region == self.recall_region:
+            return
+        began = time.perf_counter()
+        available = self.limit - len(self.cells)
+        if available > 0:
+            rows = self.archive.recall(
+                self.latest_center,
+                32,
+                16,
+                limit=min(4096, self.limit),
+                section_limit=32,
+            )
+            for cell in rows:
+                if tuple(cell["position"]) in self.cells:
+                    continue
+                size = self._cell_charge(cell)
+                if (
+                    len(self.cells) >= self.limit
+                    or self.active_bytes + size > self.byte_limit
+                ):
+                    break
+                self._remember(cell, size)
+                self.revision += 1
+        self.recall_region = region
+        self.recall_count += 1
+        self.recall_ms = (time.perf_counter() - began) * 1000
 
     def recall(self, center, radius, height):
         if (

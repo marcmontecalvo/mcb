@@ -59,12 +59,16 @@ def close_selector(client, controller, backend, summary):
                     client.record("planner_backend_provenance", planner.provenance())
 
 
-def drive(client, controller, wall_timeout=90):
+def drive(client, controller, wall_timeout=90, *, trace_processing=False):
     """Renew motor commands independently of inference; never retry old commands."""
     deadline = time.monotonic() + wall_timeout
     action_index = discarded = 0
+    client.last_controller_error = None
     try:
         while time.monotonic() < deadline:
+            if trace_processing:
+                began = time.perf_counter_ns()
+                cpu_began = time.thread_time_ns()
             observation = policy_state(client)
             terminal = terminal_event(client)
             if terminal is not None:
@@ -74,12 +78,18 @@ def drive(client, controller, wall_timeout=90):
                 return terminal_event(client)
             if observation["state"] != "running":
                 raise RuntimeError("Policy admission closed before terminal result")
+            if trace_processing:
+                observed = time.perf_counter_ns()
+                cpu_observed = time.thread_time_ns()
             try:
                 decision = controller.decide(observation)
             finally:
                 record_selector(client, controller)
             action_index += 1
             tick = observation["tick"]
+            if trace_processing:
+                decided = time.perf_counter_ns()
+                cpu_decided = time.thread_time_ns()
             request = client.send(
                 "controls",
                 motor=True,
@@ -92,6 +102,8 @@ def drive(client, controller, wall_timeout=90):
                     **decision,
                 ),
             )
+            if trace_processing:
+                submitted = time.perf_counter_ns()
             client.wait(
                 lambda _, sequence=request["sequence"]: terminal_event(client)
                 is not None
@@ -102,6 +114,25 @@ def drive(client, controller, wall_timeout=90):
                 ),
                 timeout=5,
             )
+            if trace_processing:
+                acknowledged = time.perf_counter_ns()
+                client.record(
+                    "control_processing",
+                    {
+                        "tick": tick,
+                        "request_sequence": request["sequence"],
+                        "clock": "perf_counter_ns",
+                        "cpu_clock": "thread_time_ns",
+                        "observation_ms": (observed - began) / 1_000_000,
+                        "observation_cpu_ms": (cpu_observed - cpu_began) / 1_000_000,
+                        "decision_record_ms": (decided - observed) / 1_000_000,
+                        "decision_record_cpu_ms": (cpu_decided - cpu_observed)
+                        / 1_000_000,
+                        "before_send_ms": (decided - began) / 1_000_000,
+                        "send_http_ms": (submitted - decided) / 1_000_000,
+                        "ack_wait_ms": (acknowledged - submitted) / 1_000_000,
+                    },
+                )
             rejection = next(
                 (
                     e
@@ -132,6 +163,7 @@ def drive(client, controller, wall_timeout=90):
                 raise ControllerFailure("Controller action rejected: " + reason)
         raise ControllerFailure("Controller wall deadline exceeded")
     except (BackendError, ControllerFailure, TimeoutError) as error:
+        client.last_controller_error = str(error)
         client.record(
             "controller_error",
             {
@@ -141,7 +173,11 @@ def drive(client, controller, wall_timeout=90):
                 or "deadline" in str(error).lower()
                 or any(
                     reason in str(error)
-                    for reason in ("late_or_distant_action", "stale_or_mistimed_action")
+                    for reason in (
+                        "late_or_distant_action",
+                        "stale_or_mistimed_action",
+                        "stale_queued_request",
+                    )
                 )
                 else "decision",
             },
