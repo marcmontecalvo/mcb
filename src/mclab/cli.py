@@ -157,9 +157,12 @@ def main() -> int:
     nat_run.add_argument("--awareness-profile", type=Path)
     nat_run.add_argument("--terrain-profile", type=Path)
     nat_run.add_argument("--memory-profile", type=Path)
+    nat_run.add_argument("--movement-profile", type=Path)
+    nat_run.add_argument("--repetitions", type=int, choices=range(1, 4), default=1)
+    nat_run.add_argument("--view-distance", type=int, help="server chunks, 2..32")
     nat_run.add_argument(
         "--entrant",
-        choices=["v8_goal", "segmented_goal", "baritone", "both"],
+        choices=["v8_goal", "segmented_goal", "baritone", "both", "comparison"],
         default="v8_goal",
     )
     nat_run.add_argument(
@@ -274,6 +277,7 @@ def main() -> int:
             case "natural":
                 from mclab import natural
                 from mclab.memory_policy import MemoryPolicy
+                from mclab.movement_policy import MovementPolicy
                 from mclab.terrain_steps import TerrainPolicy
 
                 selected = (
@@ -287,14 +291,18 @@ def main() -> int:
                 result = natural.run(
                     args.seed,
                     routes,
-                    entrants=("v8_goal", "baritone")
+                    entrants=("segmented_goal", "baritone", "v8_goal")
+                    if args.entrant == "comparison"
+                    else ("v8_goal", "baritone")
                     if args.entrant == "both"
                     else (args.entrant,),
                     conditions=(False, True)
                     if args.condition == "both"
                     else (args.condition == "mobs",),
                     awareness=selected,
-                    terrain_policy=TerrainPolicy(**read_json(args.terrain_profile))
+                    terrain_policy=TerrainPolicy.from_payload(
+                        read_json(args.terrain_profile)
+                    )
                     if args.terrain_profile
                     else None,
                     memory_policy=MemoryPolicy.from_payload(
@@ -302,6 +310,13 @@ def main() -> int:
                     )
                     if args.memory_profile
                     else None,
+                    movement_policy=MovementPolicy.from_payload(
+                        read_json(args.movement_profile)
+                    )
+                    if args.movement_profile
+                    else None,
+                    repetitions=args.repetitions,
+                    view_distance=args.view_distance,
                 )
             case "bootstrap":
                 server.assert_stopped()

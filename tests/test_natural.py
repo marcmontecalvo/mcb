@@ -1,8 +1,86 @@
 import math
+from contextlib import nullcontext
 
 import pytest
 
 from mclab import natural
+
+
+@pytest.mark.parametrize("repetitions", [True, 0, 4])
+def test_repetition_bounds_rejected_before_world_changes(monkeypatch, repetitions):
+    monkeypatch.setattr(
+        natural, "natural_world", lambda *_: pytest.fail("World changed")
+    )
+    route = {"route_id": "R1", "start": [0, 80, 0], "goal": [0, 80, 100], "yaw": 0}
+    with pytest.raises(ValueError, match="repetitions"):
+        natural.run(1337, [route], repetitions=repetitions)
+
+
+@pytest.mark.parametrize("view_distance", [True, 1, 33, 4.0])
+def test_view_distance_bounds_rejected_before_world_changes(monkeypatch, view_distance):
+    monkeypatch.setattr(
+        natural, "natural_world", lambda *_: pytest.fail("World changed")
+    )
+    route = {"route_id": "R1", "start": [0, 80, 0], "goal": [0, 80, 100], "yaw": 0}
+    with pytest.raises(ValueError, match="view distance"):
+        natural.run(1337, [route], view_distance=view_distance)
+
+
+def test_view_distance_edit_and_restore(monkeypatch, tmp_path):
+    properties = tmp_path / "server.properties"
+    original = "level-name=world\nview-distance=6\n"
+    properties.write_text(original)
+    monkeypatch.setattr(natural, "PROPERTIES", properties)
+    monkeypatch.setattr(natural, "_stop", lambda: None)
+    with natural.natural_world(1337, 4):
+        assert "view-distance=4" in properties.read_text()
+        assert natural._server_view_distance() == 4
+    assert properties.read_text() == original
+
+
+def test_three_entrant_repetitions_keep_failures_and_unique_paths(
+    monkeypatch, tmp_path
+):
+    from mclab.movement_policy import MovementPolicy
+
+    snapshot = tmp_path / "natural-1337"
+    snapshot.mkdir()
+    (snapshot / "level.dat").touch()
+    monkeypatch.setattr(natural, "SNAPSHOTS", tmp_path)
+    monkeypatch.setattr(natural, "RESULTS", tmp_path / "results")
+    worlds = []
+    monkeypatch.setattr(
+        natural, "natural_world", lambda *a: worlds.append(a) or nullcontext()
+    )
+    monkeypatch.setattr(natural, "read_json", lambda _: {"source_hash": "current"})
+    monkeypatch.setattr(natural, "source_hash", lambda: "current")
+    monkeypatch.setattr(natural, "sha256", lambda _: "test-hash")
+    monkeypatch.setattr(natural, "_source_commit", lambda: "test-commit")
+    paths = []
+
+    def attempt(seed, route, entrant, mobs, destination, **kwargs):
+        paths.append(destination)
+        if entrant == "segmented_goal":
+            raise TimeoutError("Retained timeout")
+        return {"status": "success", "ticks": 100}
+
+    monkeypatch.setattr(natural, "attempt", attempt)
+    route = {"route_id": "R1", "start": [0, 80, 0], "goal": [0, 80, 100], "yaw": 0}
+    summary = natural.run(
+        1337,
+        [route],
+        entrants=("segmented_goal", "baritone", "v8_goal"),
+        conditions=(False,),
+        repetitions=3,
+        movement_policy=MovementPolicy(),
+        view_distance=4,
+    )
+    assert worlds == [(1337, 4)]
+    assert summary["server_view_distance_chunks"] == 4
+    assert len(paths) == len(set(paths)) == 9
+    assert len(summary["attempts"]) == 9
+    assert [r["repetition"] for r in summary["attempts"]] == [1, 1, 1, 2, 2, 2, 3, 3, 3]
+    assert sum(r["status"] == "invalid" for r in summary["attempts"]) == 3
 
 
 def _cells():

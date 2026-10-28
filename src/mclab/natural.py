@@ -24,6 +24,7 @@ from mclab.execution import RecordedBridge, terminal_event
 from mclab.memory_policy import MemoryPolicy
 from mclab.modbuild import source_hash
 from mclab.model_execution import ControllerFailure, drive
+from mclab.movement_policy import MovementPolicy
 from mclab.navigation_goal import GoalController
 from mclab.navigation_runner import _motor_gc_policy, _new_identity, _source_commit
 from mclab.navigation_segmented import SegmentedController
@@ -76,20 +77,18 @@ def _start() -> None:
 
 
 @contextmanager
-def natural_world(seed: int):
+def natural_world(seed: int, view_distance: int | None = None):
     """Point the stopped server at the natural world; always restore the lab world."""
     _stop()
     original = PROPERTIES.read_text()
-    PROPERTIES.write_text(
-        _set_properties(
-            original,
-            {
-                "level-name": _level(seed),
-                "level-type": "minecraft\\:normal",
-                "level-seed": str(seed),
-            },
-        )
-    )
+    values = {
+        "level-name": _level(seed),
+        "level-type": "minecraft\\:normal",
+        "level-seed": str(seed),
+    }
+    if view_distance is not None:
+        values["view-distance"] = str(view_distance)
+    PROPERTIES.write_text(_set_properties(original, values))
     try:
         yield
     finally:
@@ -252,6 +251,21 @@ def _restore(seed: int) -> None:
     _start()
 
 
+def _baritone_cache() -> Path:
+    port = baritone_client.config()["game_port"]
+    return (
+        baritone_client.prism_dir()
+        / "instances"
+        / baritone_client.INSTANCE_ID
+        / f"minecraft/baritone/127.0.0.1_{port}"
+    )
+
+
+def _server_view_distance() -> int:
+    match = re.search(r"^view-distance=(\d+)$", PROPERTIES.read_text(), re.M)
+    return int(match.group(1)) if match else 10  # vanilla default
+
+
 def _relaunch_client() -> str:
     """Reconnect the Baritone client after a server restart; returns the player name."""
     subprocess.run(
@@ -266,6 +280,11 @@ def _relaunch_client() -> str:
         check=True,
     )
     time.sleep(3)
+    # Parity: MCB gets a fresh map each attempt, so Baritone must not path from
+    # its on-disk chunk cache of earlier attempts (or the flat lab world).
+    shutil.rmtree(_baritone_cache(), ignore_errors=True)
+    if _baritone_cache().exists():
+        raise RuntimeError("Could not clear the Baritone chunk cache")
     baritone_client.launch()
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
@@ -301,6 +320,7 @@ def attempt(
     awareness=None,
     terrain_policy=None,
     memory_policy=None,
+    movement_policy=None,
 ) -> dict:
     awareness = Awareness() if awareness is None else awareness
     _restore(seed)
@@ -308,6 +328,11 @@ def attempt(
     client = _bridge(destination / "events.jsonl")
     try:
         _new_identity(client, f"natural-{entrant}")
+        # The wire payload in each policy_observation is already replayable. The
+        # expanded-cell recorder rewrites the whole accumulated map every 20th
+        # observation inside the control loop; at chunk radius 64 that reached
+        # 29 MB and caused late actions (Phase 0 run 20261028T025756029115Z).
+        client.policy_memory = None
         request = client.send(
             "natural_start",
             subject="human" if entrant == "baritone" else "carpet_body",
@@ -379,12 +404,16 @@ def attempt(
                             radius=GOAL_RADIUS - 0.5,
                             terrain_policy=terrain_policy or TerrainPolicy(),
                             background_planning=True,
+                            movement_policy=movement_policy,
                         )
                         resources.callback(controller.close)
                     terminal = drive(
                         client,
                         controller,
                         wall,
+                    )
+                    navigation_status = (
+                        controller.status() if entrant == "segmented_goal" else None
                     )
             except ControllerFailure as failure:
                 error = str(failure)
@@ -394,6 +423,14 @@ def attempt(
         outcome = dict(terminal["data"]) if terminal else {"status": "invalid"}
         if error:
             outcome.update(status="invalid", reason="controller_failure", error=error)
+        if entrant != "baritone" and getattr(client, "last_controller_error", None):
+            outcome.update(
+                native_status=outcome["status"],
+                status="invalid",
+                controller_error=client.last_controller_error,
+            )
+        if entrant == "segmented_goal" and not error:
+            outcome["navigation"] = navigation_status
         return outcome
     finally:
         client.close()
@@ -409,15 +446,30 @@ def run(
     awareness=None,
     terrain_policy=None,
     memory_policy=None,
+    movement_policy=None,
+    repetitions=1,
+    view_distance=None,
 ) -> dict:
     awareness = Awareness() if awareness is None else awareness
     _validate_run(seed, routes, entrants, conditions)
+    if type(repetitions) is not int or not 1 <= repetitions <= 3:
+        raise ValueError("Natural repetitions must be between one and three")
+    if view_distance is not None and (
+        type(view_distance) is not int or not 2 <= view_distance <= 32
+    ):
+        raise ValueError("Server view distance must be between 2 and 32 chunks")
+    if movement_policy is not None and (
+        not isinstance(movement_policy, MovementPolicy)
+        or "segmented_goal" not in entrants
+    ):
+        raise ValueError("Movement policy requires a segmented_goal entrant")
     if memory_policy is not None and (
-        not isinstance(memory_policy, MemoryPolicy) or entrants != ("segmented_goal",)
+        not isinstance(memory_policy, MemoryPolicy) or "segmented_goal" not in entrants
     ):
         raise ValueError("Memory policy requires only the segmented_goal entrant")
     if terrain_policy is not None and (
-        not isinstance(terrain_policy, TerrainPolicy) or entrants != ("segmented_goal",)
+        not isinstance(terrain_policy, TerrainPolicy)
+        or "segmented_goal" not in entrants
     ):
         raise ValueError("Terrain policy requires only the segmented_goal entrant")
     provenance = read_json(ROOT / "runtime/mod-build.json")
@@ -434,6 +486,7 @@ def run(
         "suite": "natural_terrain_v1",
         "development_only": True,
         "seed": seed,
+        "repetitions": repetitions,
         "routes": routes,
         "goal_radius": GOAL_RADIUS,
         "tick_limit": TICK_LIMIT,
@@ -456,6 +509,11 @@ def run(
                 "spatial_archive.py",
                 "section_codec.py",
                 "memory_policy.py",
+                "movement_policy.py",
+                "collision_geometry.py",
+                "model_execution.py",
+                "control_runtime.py",
+                "awareness.py",
                 "observation_worker.py",
                 "terrain_transport.py",
                 "bridge.py",
@@ -463,9 +521,16 @@ def run(
                 "terrain_route.py",
                 "planning_worker.py",
                 "terrain_steps.py",
+                "terrain_placement.py",
+                "pillar_steps.py",
+                "gap_jump.py",
+                "water_movement.py",
             )
         },
         "mcb_awareness": awareness.payload(),
+        "movement_policy": (movement_policy or MovementPolicy()).payload()
+        if "segmented_goal" in entrants
+        else None,
         "mcb_terrain_encoding": "sections-v1"
         if "segmented_goal" in entrants and awareness.preset != "legacy"
         else "cells",
@@ -475,44 +540,53 @@ def run(
         "terrain_policy": asdict(terrain_policy or TerrainPolicy())
         if "segmented_goal" in entrants
         else None,
-        "baritone_awareness": "native client chunks/cache; independent of MCB settings",
+        "baritone_awareness": "native client chunks within server view distance; "
+        "on-disk chunk cache cleared before each attempt",
+        "server_view_distance_chunks": view_distance or _server_view_distance(),
+        "policy_map_recording": "wire payloads only; no expanded-cell snapshots",
         "attempts": [],
     }
-    with natural_world(seed):
+    with natural_world(seed, view_distance):
         for route in routes:
-            for mobs in conditions:
-                for entrant in entrants:
-                    folder = (
-                        destination
-                        / f"{route['route_id']}-{'mobs' if mobs else 'calm'}-{entrant}"
+            for mobs, repetition, entrant in (
+                (mobs, repetition, entrant)
+                for mobs in conditions
+                for repetition in range(repetitions)
+                for entrant in entrants
+            ):
+                folder = destination / (
+                    f"{route['route_id']}-{'mobs' if mobs else 'calm'}-"
+                    f"{entrant}-{repetition + 1}"
+                )
+                try:
+                    outcome = attempt(
+                        seed,
+                        route,
+                        entrant,
+                        mobs,
+                        folder,
+                        awareness=awareness,
+                        terrain_policy=terrain_policy,
+                        memory_policy=memory_policy,
+                        movement_policy=movement_policy,
                     )
-                    try:
-                        outcome = attempt(
-                            seed,
-                            route,
-                            entrant,
-                            mobs,
-                            folder,
-                            awareness=awareness,
-                            terrain_policy=terrain_policy,
-                            memory_policy=memory_policy,
-                        )
-                    except Exception as error:  # keep going; record the failure
-                        outcome = {
-                            "status": "invalid",
-                            "reason": type(error).__name__,
-                            "error": str(error),
-                        }
-                    summary["attempts"].append(
-                        {
-                            "route_id": route["route_id"],
-                            "mobs": mobs,
-                            "entrant": entrant,
-                            **outcome,
-                        }
-                    )
-                    write_json(destination / "summary.json", summary)
-                    print(json.dumps(summary["attempts"][-1]), flush=True)
+                except Exception as error:  # keep going; record the failure
+                    outcome = {
+                        "status": "invalid",
+                        "reason": type(error).__name__,
+                        "error": str(error),
+                    }
+                summary["attempts"].append(
+                    {
+                        "route_id": route["route_id"],
+                        "mobs": mobs,
+                        "entrant": entrant,
+                        "repetition": repetition + 1,
+                        **outcome,
+                    }
+                )
+                write_json(destination / "summary.json", summary)
+                print(json.dumps(summary["attempts"][-1]), flush=True)
     return summary
 
 
