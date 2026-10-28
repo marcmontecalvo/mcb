@@ -7,7 +7,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
 
-from mclab.section_codec import decode_section, merge_section, section_key
+from mclab.section_codec import decode_section, merge_rows, merge_section, section_key
 
 
 class MapArchive:
@@ -65,26 +65,42 @@ class MapArchive:
             p = tuple(cell["position"])
             sections[section_key(p)][p] = cell
         for key, changes in sections.items():
-            row = db.execute(
-                "SELECT payload FROM sections "
-                "WHERE namespace=? AND x=? AND y=? AND z=?",
-                (namespace, *key),
-            ).fetchone()
-            db.execute(
-                "INSERT INTO sections VALUES(?,?,?,?,?) "
-                "ON CONFLICT(namespace,x,z,y) DO UPDATE SET payload=excluded.payload",
-                (
-                    namespace,
-                    *key,
-                    merge_section(row[0] if row else None, changes.values()),
-                ),
-            )
+            MapArchive._merge(db, namespace, key, merge_section, changes.values())
+
+    @staticmethod
+    def _merge(db, namespace, key, merge, changes):
+        row = db.execute(
+            "SELECT payload FROM sections WHERE namespace=? AND x=? AND y=? AND z=?",
+            (namespace, *key),
+        ).fetchone()
+        db.execute(
+            "INSERT INTO sections VALUES(?,?,?,?,?) "
+            "ON CONFLICT(namespace,x,z,y) DO UPDATE SET payload=excluded.payload",
+            (namespace, *key, merge(row[0] if row else None, changes)),
+        )
 
     def write(self, cells):
         with self.connect() as db:
             # Serialize read/merge/write across independent writer connections.
             db.execute("BEGIN IMMEDIATE")
             self._write_cells(db, self.identity.key, cells)
+
+    def write_deltas(self, deltas):
+        """Merge `(key, [(offset, facts, provenance), ...])` in one transaction."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for key, rows in deltas:
+                self._merge(db, self.identity.key, key, merge_rows, rows)
+
+    def section_keys(self):
+        """Keys of every stored section in this namespace (no payload decode)."""
+        with self.connect() as db:
+            return {
+                tuple(row)
+                for row in db.execute(
+                    "SELECT x,y,z FROM sections WHERE namespace=?", (self.identity.key,)
+                )
+            }
 
     def mark_gap(self):
         with self.connect() as db:
@@ -94,8 +110,11 @@ class MapArchive:
                 (self.identity.key,),
             )
 
-    def recall(self, center, radius, height, *, limit, section_limit=None):
-        """Bound returned cells and decoded working set; disk work is explicit."""
+    def recall(self, center, radius, height, *, limit, section_limit=None, only=None):
+        """Bound returned cells and decoded working set; disk work is explicit.
+
+        With `only`, sections outside that key set are not decoded.
+        """
         if min(radius, height) < 0 or limit < 1:
             raise ValueError("Invalid map recall bounds")
         if section_limit is not None and (
@@ -125,6 +144,8 @@ class MapArchive:
 
             def admitted():
                 for sx, sy, sz, payload in rows:
+                    if only is not None and (sx, sy, sz) not in only:
+                        continue
                     for cell in decode_section((sx, sy, sz), payload):
                         if all(
                             a <= p <= b

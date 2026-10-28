@@ -1,0 +1,54 @@
+{
+  "module": "mclab.spatial_memory",
+  "samples": 781,
+  "admission_ms": {
+    "p50": 36.9,
+    "p95": 58.9,
+    "max": 88.2
+  },
+  "view_cells": 6390144,
+  "retained_cells": 6390144,
+  "status": {
+    "policy": {
+      "memory_mode": "persistent",
+      "use_historical_geometry": true,
+      "active_map_budget_mb": 128,
+      "persistence_queue_budget_mb": 128
+    },
+    "active_cells": 6390144,
+    "active_sections": 1944,
+    "evicted_sections": 0,
+    "active_accounted_bytes": 48273408,
+    "active_byte_limit": 134217728,
+    "persistence_pending_bytes": 62484480,
+    "persistence_byte_limit": 134217728,
+    "persistence_queue": 1296,
+    "automatic_recall_count": 0,
+    "automatic_recall_last_ms": 0.0
+  },
+  "failure": null,
+  "traced_mb_after_admission": null,
+  "traced_mb_after_writer_drain": null,
+  "max_persistence_queue": 1296,
+  "writer_drain_after_admission_s": 9.8,
+  "writer_cells_per_s": 158936,
+  "live_inflow_cells_per_s": 32768,
+  "astar": [
+    {
+      "map": "dict surface band",
+      "status": "reached",
+      "expanded": 8901,
+      "nodes_per_s": 34629
+    },
+    {
+      "map": "grid snapshot",
+      "status": "reached",
+      "expanded": 8901,
+      "nodes_per_s": 27100
+    }
+  ],
+  "traced_run": {
+    "traced_mb_after_admission": 96.5,
+    "traced_mb_after_writer_drain": 64.6
+  }
+}

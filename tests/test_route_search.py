@@ -26,7 +26,7 @@ def test_detour_survives_eviction_restart_and_segmented_search(tmp_path):
     )
     cells = floor_map(positions)
     archive = MapArchive(tmp_path / "detour.db", identity())
-    memory = SpatialMemory(archive, "discovery", active_cell_limit=8)
+    memory = SpatialMemory(archive, "discovery")
     try:
         memory.ingest(
             {
@@ -35,7 +35,7 @@ def test_detour_survives_eviction_restart_and_segmented_search(tmp_path):
                 "visible_blocks": list(cells.values()),
             }
         )
-        assert len(memory.cells) == 8
+        assert len(memory.cells) == len(cells)
     finally:
         memory.close()
     restarted = SpatialMemory(MapArchive(archive.path, identity()), "recall")

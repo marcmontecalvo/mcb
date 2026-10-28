@@ -5,9 +5,9 @@ from uuid import uuid4
 
 from mclab.awareness import Awareness
 from mclab.bootstrap import sha256
+from mclab.control_loop import drive
 from mclab.execution import RecordedBridge
 from mclab.modbuild import source_hash
-from mclab.model_execution import drive
 from mclab.navigation_segmented import SegmentedController
 from mclab.paths import ROOT, SERVER, read_json, write_json
 from mclab.recorder import exclusive_arena
@@ -29,7 +29,12 @@ def main():
     summary = {"development_only": True, "mod_provenance": provenance}
     summary["source_sha256"] = {
         name: sha256(ROOT / "src/mclab" / name)
-        for name in ("navigation_segmented.py", "route_search.py", "spatial_memory.py")
+        for name in (
+            "navigation_segmented.py",
+            "route_search.py",
+            "spatial_memory.py",
+            "pathing_grid.py",
+        )
     }
     with exclusive_arena():
         client = RecordedBridge(destination / "events.jsonl")

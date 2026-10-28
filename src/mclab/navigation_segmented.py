@@ -90,6 +90,22 @@ class SegmentedController(NavigationController):
         self.prefetch_started = self.prefetch_adopted = 0
         self.motor_latencies = deque(maxlen=2048)
 
+    @property
+    def pipeline_safe(self):
+        """Plain walking only. Terrain, pillar, gap, committed steps, swimming and
+        air recovery keep their validated one-command-at-a-time timing."""
+        return (
+            self.gap_jump is None
+            and self.terrain is None
+            and self.committed_step is None
+            and self.air_waypoint is None
+            and not self.terrain_queue
+            and self.terrain_search is None
+            and not self.air_recovering
+            and not self.movement_policy.allow_swim
+            and not self.mode.startswith(("gap", "terrain", "air"))
+        )
+
     def drain_events(self):
         events, self.events = self.events, []
         return events

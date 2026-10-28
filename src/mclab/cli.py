@@ -161,6 +161,12 @@ def main() -> int:
     nat_run.add_argument("--repetitions", type=int, choices=range(1, 4), default=1)
     nat_run.add_argument("--view-distance", type=int, help="server chunks, 2..32")
     nat_run.add_argument(
+        "--control-profile",
+        choices=["lockstep-three-tick-v1", "dev-pipelined-v1"],
+        default="lockstep-three-tick-v1",
+        help="segmented_goal only; other entrants stay lockstep",
+    )
+    nat_run.add_argument(
         "--entrant",
         choices=["v8_goal", "segmented_goal", "baritone", "both", "comparison"],
         default="v8_goal",
@@ -317,6 +323,7 @@ def main() -> int:
                     else None,
                     repetitions=args.repetitions,
                     view_distance=args.view_distance,
+                    control_profile=args.control_profile,
                 )
             case "bootstrap":
                 server.assert_stopped()

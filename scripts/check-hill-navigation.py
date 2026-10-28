@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from mclab.awareness import Awareness
 from mclab.bootstrap import sha256
+from mclab.control_loop import LOCKSTEP, PROFILES, drive
 from mclab.control_runtime import thread_switch_interval
 from mclab.development_checks import (
     bridge_completed,
@@ -21,7 +22,6 @@ from mclab.development_checks import (
 from mclab.execution import RecordedBridge
 from mclab.memory_policy import MemoryPolicy
 from mclab.modbuild import source_hash
-from mclab.model_execution import drive
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation_runner import _motor_gc_policy
 from mclab.navigation_segmented import SegmentedController
@@ -72,6 +72,7 @@ def main():
     parser.add_argument(
         "--terrain-encoding", choices=("cells", "sections-v1"), default="sections-v1"
     )
+    parser.add_argument("--control-profile", choices=PROFILES, default=LOCKSTEP)
     args = parser.parse_args()
     if args.expect_refusal and not (
         (args.kind == "drop" and args.max_drop == 0)
@@ -113,7 +114,11 @@ def main():
         "expected_outcome": "refusal" if args.expect_refusal else "arrival",
         "mod_provenance": provenance,
         "runner_sha256": sha256(Path(__file__)),
-        "request_budget_per_attempt": 1000,
+        # Pipelined control sends a command every tick: one per tick plus slack.
+        "request_budget_per_attempt": 1000
+        if args.control_profile == LOCKSTEP
+        else 4000,
+        "control_profile": args.control_profile,
         "planning_mode": "background" if args.background_planning else "foreground",
         "memory_policy": memory_policy.payload(),
         "movement_policy": movement_policy.payload(),
@@ -129,6 +134,7 @@ def main():
                 "navigation_segmented.py",
                 "route_search.py",
                 "spatial_memory.py",
+                "pathing_grid.py",
                 "spatial_archive.py",
                 "section_codec.py",
                 "memory_policy.py",
@@ -148,6 +154,7 @@ def main():
                 "navigation.py",
                 "awareness.py",
                 "model_execution.py",
+                "control_loop.py",
                 "execution.py",
                 "protocolproof.py",
                 "control_runtime.py",
@@ -170,7 +177,9 @@ def main():
             )
             for kind in kinds:
                 for variant in range(args.variants):
-                    client.budget = client.sequence + 1000
+                    client.budget = (
+                        client.sequence + summary["request_budget_per_attempt"]
+                    )
                     client.episode_id = "hill-" + uuid4().hex[:12]
                     client.body_id = "body-" + uuid4().hex[:12]
                     height = (
@@ -265,6 +274,7 @@ def main():
                                 controller,
                                 150 if kind == "prefetch" else 90,
                                 trace_processing=args.trace_processing,
+                                profile=args.control_profile,
                             )
                         result = dict(terminal["data"])
                         if client.last_controller_error is not None:
@@ -303,6 +313,9 @@ def main():
                                 "variant": variant,
                                 "episode_id": client.episode_id,
                                 "controller": controller.status(),
+                                "control_loop": getattr(
+                                    client, "control_loop_summary", None
+                                ),
                                 "terrain_policy": asdict(policy),
                                 **result,
                             }

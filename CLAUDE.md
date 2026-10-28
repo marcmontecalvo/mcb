@@ -2,7 +2,7 @@
 
 1. Read [docs/NAVIGATION_DIRECTION_2026-10-28.md](docs/NAVIGATION_DIRECTION_2026-10-28.md).
    It is the authoritative plan for navigation, route planning, model roles and
-   the Baritone comparison. Begin with **Phase 0** unless Marc says otherwise.
+   the Baritone comparison. Phase 0 is done. Next: [docs/PHASE0_FIX_PLAN_2026-10-28.md](docs/PHASE0_FIX_PLAN_2026-10-28.md), then Phase 1.
 2. For live runtime state, source hashes and how to operate the lab, read
    [docs/PAUSE_HANDOFF_2026-10-27.md](docs/PAUSE_HANDOFF_2026-10-27.md) and the README.
    Recheck live server status rather than trusting recorded PIDs.

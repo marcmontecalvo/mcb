@@ -20,10 +20,10 @@ from pathlib import Path
 from mclab import baritone_client, server
 from mclab.awareness import Awareness
 from mclab.bootstrap import sha256
-from mclab.execution import RecordedBridge, terminal_event
+from mclab.control_loop import LOCKSTEP, PROFILES, drive
+from mclab.execution import ControllerFailure, RecordedBridge, terminal_event
 from mclab.memory_policy import MemoryPolicy
 from mclab.modbuild import source_hash
-from mclab.model_execution import ControllerFailure, drive
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation_goal import GoalController
 from mclab.navigation_runner import _motor_gc_policy, _new_identity, _source_commit
@@ -321,6 +321,7 @@ def attempt(
     terrain_policy=None,
     memory_policy=None,
     movement_policy=None,
+    control_profile=LOCKSTEP,
 ) -> dict:
     awareness = Awareness() if awareness is None else awareness
     _restore(seed)
@@ -411,6 +412,10 @@ def attempt(
                         client,
                         controller,
                         wall,
+                        # Only the segmented controller opts into pipelining.
+                        profile=control_profile
+                        if entrant == "segmented_goal"
+                        else LOCKSTEP,
                     )
                     navigation_status = (
                         controller.status() if entrant == "segmented_goal" else None
@@ -431,9 +436,20 @@ def attempt(
             )
         if entrant == "segmented_goal" and not error:
             outcome["navigation"] = navigation_status
+        if getattr(client, "control_loop_summary", None) is not None:
+            outcome["control_loop"] = client.control_loop_summary
         return outcome
     finally:
         client.close()
+
+
+def _error_chain(error):
+    chain, seen = [], set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        chain.append(f"{type(error).__name__}: {error}")
+        error = error.__cause__ or error.__context__
+    return chain
 
 
 @arena_guard
@@ -449,6 +465,7 @@ def run(
     movement_policy=None,
     repetitions=1,
     view_distance=None,
+    control_profile=LOCKSTEP,
 ) -> dict:
     awareness = Awareness() if awareness is None else awareness
     _validate_run(seed, routes, entrants, conditions)
@@ -458,6 +475,10 @@ def run(
         type(view_distance) is not int or not 2 <= view_distance <= 32
     ):
         raise ValueError("Server view distance must be between 2 and 32 chunks")
+    if control_profile not in PROFILES or (
+        control_profile != LOCKSTEP and "segmented_goal" not in entrants
+    ):
+        raise ValueError("Development control profile requires segmented_goal")
     if movement_policy is not None and (
         not isinstance(movement_policy, MovementPolicy)
         or "segmented_goal" not in entrants
@@ -506,12 +527,14 @@ def run(
                 "navigation_segmented.py",
                 "route_search.py",
                 "spatial_memory.py",
+                "pathing_grid.py",
                 "spatial_archive.py",
                 "section_codec.py",
                 "memory_policy.py",
                 "movement_policy.py",
                 "collision_geometry.py",
                 "model_execution.py",
+                "control_loop.py",
                 "control_runtime.py",
                 "awareness.py",
                 "observation_worker.py",
@@ -526,6 +549,11 @@ def run(
                 "gap_jump.py",
                 "water_movement.py",
             )
+        },
+        "control_profiles": {
+            entrant: control_profile if entrant == "segmented_goal" else LOCKSTEP
+            for entrant in entrants
+            if entrant != "baritone"
         },
         "mcb_awareness": awareness.payload(),
         "movement_policy": (movement_policy or MovementPolicy()).payload()
@@ -569,12 +597,15 @@ def run(
                         terrain_policy=terrain_policy,
                         memory_policy=memory_policy,
                         movement_policy=movement_policy,
+                        control_profile=control_profile,
                     )
                 except Exception as error:  # keep going; record the failure
                     outcome = {
                         "status": "invalid",
                         "reason": type(error).__name__,
                         "error": str(error),
+                        # Cleanup errors can mask the original; keep the chain.
+                        "error_chain": _error_chain(error),
                     }
                 summary["attempts"].append(
                     {

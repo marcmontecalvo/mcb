@@ -16,9 +16,9 @@ from uuid import uuid4
 
 from mclab import courses, gates
 from mclab.bootstrap import sha256
+from mclab.control_loop import drive
 from mclab.execution import PolicyMapRecorder, RecordedBridge, terminal_event
 from mclab.modbuild import source_hash
-from mclab.model_execution import drive
 from mclab.paths import ROOT, SERVER, config, digest, read_json, write_json
 from mclab.recorder import EpisodeRecorder, episode_databases, exclusive_arena
 

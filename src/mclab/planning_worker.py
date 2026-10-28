@@ -5,6 +5,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, replace
 
+from mclab.pathing_grid import GridView
 from mclab.route_search import RouteResult, RouteSearch
 
 
@@ -67,8 +68,9 @@ class PlanningWorker:
             or segment_length < 2
         ):
             raise ValueError("Invalid background planning budgets")
-        # This bounded index copy is cheap; nested collision data stays owned.
-        view = dict(cells)
+        # Grid views are frozen copy-on-write snapshots; plain dicts get an index
+        # copy. Nested collision data stays owned by the map either way.
+        view = cells.frozen_view() if isinstance(cells, GridView) else dict(cells)
         with self.condition:
             if self.stopping:
                 raise RuntimeError("Planning worker is closed")

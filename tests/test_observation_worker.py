@@ -81,7 +81,7 @@ def test_background_recall_after_restart_preserves_fresh_changes(tmp_path):
         worker.pending.join()
         view = worker.poll()
         assert view.cells[(1, 0, 0)]["block"] == "minecraft:air"
-        assert view.cells[(2, 0, 0)]["observation_session"] == "old-process"
+        assert view.cells.record((2, 0, 0))["observation_session"] == "old-process"
         assert (2, 0, 0) not in memory.fresh(100)
         assert view.status["automatic_recall_count"] == 1
         obs = observation(tick=2)
@@ -117,19 +117,52 @@ def test_automatic_recall_respects_memory_policy(tmp_path, mode, historical):
         memory.close()
 
 
-def test_automatic_recall_cannot_evict_live_cells_or_exceed_budget(tmp_path):
+def test_automatic_recall_cannot_replace_live_cells(tmp_path):
     archive = MapArchive(tmp_path / "map.db", identity())
     old = SpatialMemory(archive, "old")
     old.ingest(observation(*[(x, 0, 0) for x in range(10)]))
     old.close()
-    memory = SpatialMemory(archive, "new", active_cell_limit=2)
+    memory = SpatialMemory(archive, "new")
     try:
         obs = observation((9, 0, 0), tick=1, block="minecraft:air")
         obs["body"] = {"position": [0.5, 1, 0.5]}
         memory.ingest(obs)
         memory.recall_surroundings()
-        assert len(memory.cells) == 2
+        assert len(memory.cells) == 10
         assert memory.cells[(9, 0, 0)]["block"] == "minecraft:air"
-        assert memory.active_bytes <= memory.byte_limit
+        assert memory.cells.record((9, 0, 0))["observation_session"] == "new"
+        assert memory.cells.record((8, 0, 0))["observation_session"] == "old"
+        assert set(memory.fresh(1)) == {(9, 0, 0)}
     finally:
         memory.close()
+
+
+def test_automatic_recall_decodes_only_sections_that_can_add_history(tmp_path):
+    archive = MapArchive(tmp_path / "map.db", identity())
+    old = SpatialMemory(archive, "old")
+    old.ingest(observation((0, 0, 0)))
+    old.close()
+    memory = SpatialMemory(archive, "new")
+    decoded = []
+    recall = archive.recall
+    archive.recall = lambda *a, **kw: decoded.append(kw["only"]) or recall(*a, **kw)
+    try:
+        obs = observation((20, 0, 0), tick=1)
+        obs["body"] = {"position": [20.5, 1, 0.5]}
+        memory.ingest(obs)
+        memory.flush()  # Our own section (1, 0, 0) is now archived too.
+        memory.recall_surroundings()
+        assert decoded == [frozenset({(0, 0, 0)})]
+        assert memory.cells.record((0, 0, 0))["observation_session"] == "old"
+    finally:
+        memory.close()
+    fresh = SpatialMemory(MapArchive(tmp_path / "other.db", identity()), "s")
+    fresh.archive.recall = lambda *a, **kw: pytest.fail("nothing to recall")
+    try:
+        obs = observation((0, 0, 0), tick=1)
+        obs["body"] = {"position": [0.5, 1, 0.5]}
+        fresh.ingest(obs)
+        fresh.flush()
+        fresh.recall_surroundings()
+    finally:
+        fresh.close()

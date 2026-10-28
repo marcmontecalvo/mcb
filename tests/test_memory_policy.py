@@ -4,7 +4,7 @@ import pytest
 from test_spatial_memory import identity, observation
 
 from mclab.memory_policy import MemoryPolicy
-from mclab.spatial_memory import MapArchive, SpatialMemory, accounted_bytes
+from mclab.spatial_memory import MapArchive, SpatialMemory
 
 
 @pytest.mark.parametrize("mode", ["current", "session"])
@@ -40,19 +40,27 @@ def test_strict_planning_cannot_see_old_cells_or_recall_archive(tmp_path, policy
         memory.close()
 
 
-def test_hot_byte_eviction_preserves_durable_data(tmp_path):
+def test_hot_byte_eviction_drops_far_sections_only_and_preserves_durable_data(
+    tmp_path,
+):
     archive = MapArchive(tmp_path / "map.db", identity())
     memory = SpatialMemory(
         archive, "session", policy=MemoryPolicy(active_map_budget_mb=0.001)
     )
     try:
-        memory.ingest(observation(*[(x, 0, 0) for x in range(20)]))
-        assert len(memory.cells) < 20
-        assert memory.active_bytes <= 1048
+        far = observation(*[(200 + x, 0, 0) for x in range(20)], tick=1)
+        far["body"] = {"position": [200.5, 1, 0.5]}
+        memory.ingest(far)
+        near = observation(*[(x, 0, 0) for x in range(-8, 9)], tick=2)
+        near["body"] = {"position": [0.5, 1, 0.5]}
+        memory.ingest(near)
+        # Over budget, but sections inside the awareness volume are never evicted.
+        assert set(memory.cells) == {(x, 0, 0) for x in range(-8, 9)}
+        assert memory.status()["evicted_sections"] == 2
         assert memory.status()["active_accounted_bytes"] == memory.active_bytes
     finally:
         memory.close()
-    assert len(archive.recall((0, 0, 0), 30, 0, limit=100)) == 20
+    assert len(archive.recall((100, 0, 0), 120, 0, limit=100)) == 37
 
 
 def test_strict_reach_rejects_still_young_cells_after_displacement(tmp_path):
@@ -73,43 +81,19 @@ def test_strict_reach_rejects_still_young_cells_after_displacement(tmp_path):
         memory.close()
 
 
-def test_cached_accounting_matches_tree_for_different_positions_and_provenance(
-    tmp_path,
-):
-    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
-    try:
-        for offset in (0, 2**50):
-            cell = {
-                "position": [offset, -offset, offset],
-                "block": "minecraft:stone",
-                "fluid": "minecraft:empty",
-                "collision_boxes": [[0, 0, 0, 1, 1, 1]],
-                "properties": {"axis": "x"},
-                "replaceable": False,
-                "observed_tick": 2 ** offset.bit_length(),
-                "observed_at_ns": 10**18,
-                "observation_session": "session" * 100,
-            }
-            assert memory._cell_charge(cell) == accounted_bytes(cell)
-        cell["extension"] = {"nested": [1, 2, 3]}
-        assert memory._cell_charge(cell) == accounted_bytes(cell)
-    finally:
-        memory.close()
-
-
 def test_queue_byte_limit_marks_gap_without_silent_drop(tmp_path):
     archive = MapArchive(tmp_path / "map.db", identity())
     entered, release = threading.Event(), threading.Event()
-    original_write = archive.write
+    original_write = archive.write_deltas
 
     def blocked_write(cells):
         entered.set()
         assert release.wait(5)
         original_write(cells)
 
-    archive.write = blocked_write
+    archive.write_deltas = blocked_write
     memory = SpatialMemory(
-        archive, "session", policy=MemoryPolicy(persistence_queue_budget_mb=0.003)
+        archive, "session", policy=MemoryPolicy(persistence_queue_budget_mb=0.04)
     )
     try:
         memory.ingest(observation((0, 0, 0)))

@@ -42,12 +42,7 @@ def merge_section(payload, cells):
     write so replaced states cannot grow the durable section indefinitely.
     The schema and independently owned public decode contract stay unchanged.
     """
-    palette, previous = json.loads(zlib.decompress(payload)) if payload else ([], [])
-    indices = {
-        json.dumps(facts, sort_keys=True, separators=(",", ":")): index
-        for index, facts in enumerate(palette)
-    }
-    rows = {offset: (index, provenance) for offset, index, provenance in previous}
+    rows = []
     for cell in cells:
         x, y, z = cell["position"]
         facts = {
@@ -55,14 +50,33 @@ def merge_section(payload, cells):
             for k, v in cell.items()
             if k != "position" and k not in OBSERVATION_FIELDS
         }
-        canonical = json.dumps(facts, sort_keys=True, separators=(",", ":"))
-        if canonical not in indices:
-            indices[canonical] = len(palette)
-            palette.append(facts)
-        rows[(x % 16) * 256 + (y % 16) * 16 + z % 16] = (
-            indices[canonical],
-            {k: cell[k] for k in OBSERVATION_FIELDS if k in cell},
-        )
+        provenance = {k: cell[k] for k in OBSERVATION_FIELDS if k in cell}
+        rows.append(((x % 16) * 256 + (y % 16) * 16 + z % 16, facts, provenance))
+    return merge_rows(payload, rows)
+
+
+def merge_rows(payload, changes):
+    """Merge `(offset, facts, provenance)` rows; latest row per offset wins.
+
+    Rows may share `facts` objects (a palette); each distinct object is
+    canonicalized once, so a whole-section delta costs one encode per state.
+    """
+    palette, previous = json.loads(zlib.decompress(payload)) if payload else ([], [])
+    indices = {
+        json.dumps(facts, sort_keys=True, separators=(",", ":")): index
+        for index, facts in enumerate(palette)
+    }
+    rows = {offset: (index, provenance) for offset, index, provenance in previous}
+    by_object = {}
+    for offset, facts, provenance in changes:
+        index = by_object.get(id(facts))
+        if index is None:
+            canonical = json.dumps(facts, sort_keys=True, separators=(",", ":"))
+            if canonical not in indices:
+                indices[canonical] = len(palette)
+                palette.append(facts)
+            index = by_object[id(facts)] = indices[canonical]
+        rows[offset] = (index, provenance)
     compact, remap, packed = [], {}, []
     for offset, (index, provenance) in sorted(rows.items()):
         if index not in remap:

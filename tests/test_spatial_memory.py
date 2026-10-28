@@ -7,6 +7,7 @@ from dataclasses import replace
 import pytest
 
 from mclab.awareness import Awareness
+from mclab.memory_policy import MemoryPolicy
 from mclab.spatial_memory import MapArchive, MapIdentity, SpatialMemory
 
 
@@ -24,17 +25,25 @@ def observation(*positions, tick=20, block="minecraft:stone"):
 
 def test_evicted_cells_survive_restart_and_air_replaces_solid(tmp_path):
     archive = MapArchive(tmp_path / "map.db", identity())
-    first = SpatialMemory(archive, "process-1", active_cell_limit=2)
+    first = SpatialMemory(
+        archive, "process-1", policy=MemoryPolicy(active_map_budget_mb=0.001)
+    )
     try:
-        first.ingest(observation((0, 0, 0), (1, 0, 0), (2, 0, 0)))
-        assert len(first.cells) == 2
+        start = observation((0, 0, 0), (1, 0, 0))
+        start["body"] = {"position": [0.5, 1, 0.5]}
+        first.ingest(start)
+        assert len(first.cells) == 2  # Inside the view: kept although over budget.
+        moved = observation((2, 0, 64), tick=21)
+        moved["body"] = {"position": [2.5, 1, 64.5]}
+        first.ingest(moved)
+        assert len(first.cells) == 1
         assert (0, 0, 0) not in first.cells
     finally:
         first.close()
     second = SpatialMemory(MapArchive(archive.path, identity()), "process-2")
     try:
         second.recall((0, 0, 0), 5, 5)
-        assert len(second.cells) == 3
+        assert len(second.cells) == 2
         assert second.fresh(20) == {}  # Tick restart cannot freshen historical data.
         second.ingest(observation((0, 0, 0), tick=21, block="minecraft:air"))
         assert second.fresh(21)[(0, 0, 0)]["block"] == "minecraft:air"
@@ -77,13 +86,13 @@ def test_rejects_mismatched_observation_and_owns_nested_data(tmp_path):
         obs["visible_blocks"][0]["collision_boxes"][0][3] = 0.5
         obs["visible_blocks"][0]["properties"]["axis"] = "z"
         obs["visible_blocks"][0]["extra"]["nested"][0] = 2
-        assert memory.cells[(0, 0, 0)]["position"] == [0, 0, 0]
+        assert memory.cells.record((0, 0, 0))["position"] == [0, 0, 0]
         assert memory.cells[(0, 0, 0)]["collision_boxes"][0][3] == 1
         assert memory.cells[(0, 0, 0)]["properties"]["axis"] == "x"
         assert memory.cells[(0, 0, 0)]["extra"]["nested"] == [1]
         _, snapshot = memory.snapshot()
         snapshot[0]["position"][0] = 100
-        assert memory.cells[(0, 0, 0)]["position"] == [0, 0, 0]
+        assert memory.cells.record((0, 0, 0))["position"] == [0, 0, 0]
     finally:
         memory.close()
 
@@ -91,21 +100,25 @@ def test_rejects_mismatched_observation_and_owns_nested_data(tmp_path):
 def test_overflow_is_explicit_and_persists_untrusted_coverage(tmp_path):
     archive = MapArchive(tmp_path / "map.db", identity())
     entered, release = threading.Event(), threading.Event()
-    write = archive.write
+    write = archive.write_deltas
 
     def blocked_write(cells):
         entered.set()
         assert release.wait(5)
         write(cells)
 
-    archive.write = blocked_write
+    archive.write_deltas = blocked_write
     memory = SpatialMemory(archive, "session", queue_limit=1)
     try:
         memory.ingest(observation((0, 0, 0)))
         assert entered.wait(5)
-        memory.ingest(observation((1, 0, 0)))
+        memory.ingest(observation((16, 0, 0)))
+        # Further samples of a pending section coalesce instead of queueing.
+        for tick in range(21, 40):
+            memory.ingest(observation((17, 0, 0), tick=tick))
+        assert memory.status()["persistence_queue"] == 1
         with pytest.raises(RuntimeError, match="queue full"):
-            memory.ingest(observation((2, 0, 0)))
+            memory.ingest(observation((32, 0, 0)))
         with pytest.raises(RuntimeError, match="gap"):
             memory.snapshot()
     finally:
@@ -130,7 +143,7 @@ def test_writer_failure_is_reported_and_archived_as_gap(tmp_path):
     def failed_write(_):
         raise OSError("disk unavailable")
 
-    archive.write = failed_write
+    archive.write_deltas = failed_write
     memory = SpatialMemory(archive, "session")
     memory.ingest(observation((1, 2, 3)))
     with pytest.raises(RuntimeError, match="persistence failed"):
@@ -171,6 +184,7 @@ def test_archive_recall_from_independent_python_process(tmp_path):
     code = """
 import json, sys
 from mclab.awareness import Awareness
+from mclab.memory_policy import MemoryPolicy
 from mclab.spatial_memory import MapArchive, MapIdentity, SpatialMemory
 identity = MapIdentity('save-uuid', 'reset-1', 'minecraft:overworld', Awareness())
 memory = SpatialMemory(MapArchive(sys.argv[1], identity), 'reader-process')

@@ -88,6 +88,13 @@ edit-vs-detour 1, planner stall 1. Before Phase 1, the 64-block awareness
 pipeline needs fixing: the 20,000-cell hot-map cap, persistence backlog and
 occasional late actions. See [PHASE0_NATURAL_BASELINE_2026-10-28.md](PHASE0_NATURAL_BASELINE_2026-10-28.md).
 
+**Phase 0 fixes result (Oct 28):** a compact section grid now retains the whole
+64-block view, with zero map-gap invalids. An optional pipelined control loop
+(`dev-pipelined-v1`) is available. Calm natural routes: MCB 3/5 reached the goal
+(Phase 0: 0/5), at about 2.4–2.7× Baritone's time. Late actions at 64-block
+awareness remain the main harness issue. See
+[PHASE0_FIXES_RESULTS_2026-10-28.md](PHASE0_FIXES_RESULTS_2026-10-28.md).
+
 ### Phase 1 — Time-based cost model
 
 - Replace `1 / 1.4 / 1+0.4|dy| / width+3.5` and flat `break_penalty=3.0`,

@@ -1,31 +1,29 @@
-"""Bounded, unscored live C1 tactical experiments; separate from frozen G3."""
+"""Bounded, unscored live C1 tactical experiments; separate from frozen G3.
+
+The motor loop lives in `control_loop`; it is re-exported here for old callers.
+"""
 
 import subprocess
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 from mclab import courses, gates
-from mclab.backends import BackendError, HttpBackend
+from mclab.backends import HttpBackend
 from mclab.bootstrap import sha256
+from mclab.control_loop import drive, record_selector
 from mclab.execution import (
     ControllerFailure,
     PolicyMapRecorder,
     RecordedBridge,
-    policy_state,
     terminal_event,
 )
 from mclab.modbuild import source_hash
 from mclab.paths import ROOT, SERVER, digest, read_json, write_json
-from mclab.protocolproof import controls
 from mclab.recorder import EpisodeRecorder, exclusive_arena
 from mclab.tactical import TacticalController
 
-
-def record_selector(client, controller):
-    for kind, payload in controller.drain_events():
-        client.record(kind, payload)
+__all__ = ["ControllerFailure", "close_selector", "drive", "record_selector", "run"]
 
 
 def close_selector(client, controller, backend, summary):
@@ -57,138 +55,6 @@ def close_selector(client, controller, backend, summary):
             finally:
                 if planner is not None:
                     client.record("planner_backend_provenance", planner.provenance())
-
-
-def drive(client, controller, wall_timeout=90, *, trace_processing=False):
-    """Renew motor commands independently of inference; never retry old commands."""
-    deadline = time.monotonic() + wall_timeout
-    action_index = discarded = 0
-    client.last_controller_error = None
-    try:
-        while time.monotonic() < deadline:
-            if trace_processing:
-                began = time.perf_counter_ns()
-                cpu_began = time.thread_time_ns()
-            observation = policy_state(client)
-            terminal = terminal_event(client)
-            if terminal is not None:
-                return terminal
-            if observation["state"] == "episode_terminal":
-                client.wait(lambda _: terminal_event(client) is not None, timeout=2)
-                return terminal_event(client)
-            if observation["state"] != "running":
-                raise RuntimeError("Policy admission closed before terminal result")
-            if trace_processing:
-                observed = time.perf_counter_ns()
-                cpu_observed = time.thread_time_ns()
-            try:
-                decision = controller.decide(observation)
-            finally:
-                record_selector(client, controller)
-            action_index += 1
-            tick = observation["tick"]
-            if trace_processing:
-                decided = time.perf_counter_ns()
-                cpu_decided = time.thread_time_ns()
-            request = client.send(
-                "controls",
-                motor=True,
-                controls=controls(
-                    tick,
-                    f"model-{action_index}",
-                    duration=5,
-                    intended_apply_tick=tick + 3,
-                    expires_tick=tick + 8,
-                    **decision,
-                ),
-            )
-            if trace_processing:
-                submitted = time.perf_counter_ns()
-            client.wait(
-                lambda _, sequence=request["sequence"]: terminal_event(client)
-                is not None
-                or any(
-                    e["type"] in {"applied", "rejected", "rejected_at_execution"}
-                    and int(e["data"].get("request_sequence", -1)) == sequence
-                    for e in client.events
-                ),
-                timeout=5,
-            )
-            if trace_processing:
-                acknowledged = time.perf_counter_ns()
-                client.record(
-                    "control_processing",
-                    {
-                        "tick": tick,
-                        "request_sequence": request["sequence"],
-                        "clock": "perf_counter_ns",
-                        "cpu_clock": "thread_time_ns",
-                        "observation_ms": (observed - began) / 1_000_000,
-                        "observation_cpu_ms": (cpu_observed - cpu_began) / 1_000_000,
-                        "decision_record_ms": (decided - observed) / 1_000_000,
-                        "decision_record_cpu_ms": (cpu_decided - cpu_observed)
-                        / 1_000_000,
-                        "before_send_ms": (decided - began) / 1_000_000,
-                        "send_http_ms": (submitted - decided) / 1_000_000,
-                        "ack_wait_ms": (acknowledged - submitted) / 1_000_000,
-                    },
-                )
-            rejection = next(
-                (
-                    e
-                    for e in reversed(client.events)
-                    if e["type"] in {"rejected", "rejected_at_execution"}
-                    and int(e["data"].get("request_sequence", -1))
-                    == request["sequence"]
-                ),
-                None,
-            )
-            if rejection and terminal_event(client) is None:
-                reason = rejection["data"]["reason"]
-                if reason in {"late_or_distant_action", "stale_or_mistimed_action"}:
-                    discarded += 1
-                    client.record(
-                        "discarded_stale_action",
-                        {
-                            "request_sequence": request["sequence"],
-                            "reason": reason,
-                            "count": discarded,
-                            "limit": 3,
-                        },
-                    )
-                    if discarded <= 3:
-                        release = client.send("release")
-                        client.acknowledge(release, "received")
-                        continue
-                raise ControllerFailure("Controller action rejected: " + reason)
-        raise ControllerFailure("Controller wall deadline exceeded")
-    except (BackendError, ControllerFailure, TimeoutError) as error:
-        client.last_controller_error = str(error)
-        client.record(
-            "controller_error",
-            {
-                "error": str(error),
-                "category": "timing"
-                if isinstance(error, TimeoutError)
-                or "deadline" in str(error).lower()
-                or any(
-                    reason in str(error)
-                    for reason in (
-                        "late_or_distant_action",
-                        "stale_or_mistimed_action",
-                        "stale_queued_request",
-                    )
-                )
-                else "decision",
-            },
-        )
-        if terminal_event(client) is None:
-            release = client.send("release")
-            client.acknowledge(release, "received")
-            end = client.send("course_end", reason="controller_execution_error")
-            client.acknowledge(end, "received")
-            client.wait(lambda _: terminal_event(client) is not None)
-        return terminal_event(client)
 
 
 def run(backend_name, *, count=1, request_limit=40):
@@ -328,6 +194,7 @@ def _run(spec, count, request_limit, *, planner_spec=None, planner_profile=None)
         "profile_hash": digest(profile),
         "mod_provenance": provenance,
         "controller_sha256": sha256(Path(__file__)),
+        "control_loop_sha256": sha256(ROOT / "src/mclab/control_loop.py"),
         "tactical_sha256": sha256(ROOT / "src/mclab/tactical.py"),
         "backend_sha256": sha256(ROOT / "src/mclab/backends.py"),
         "source_commit": subprocess.run(

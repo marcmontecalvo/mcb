@@ -1,6 +1,6 @@
 import pytest
 
-from mclab import model_execution
+from mclab import control_loop, model_execution
 from mclab.backends import BackendError
 
 
@@ -8,9 +8,9 @@ def test_processing_trace_keeps_controls_and_measures_separate_phases(monkeypatc
     snapshots = iter([{"state": "running", "tick": 10}, {"state": "episode_terminal"}])
     wall = iter([0, 10_000_000, 13_000_000, 15_000_000, 50_000_000, 60_000_000])
     cpu = iter([0, 2_000_000, 3_000_000, 4_000_000])
-    monkeypatch.setattr(model_execution, "policy_state", lambda _: next(snapshots))
-    monkeypatch.setattr(model_execution.time, "perf_counter_ns", lambda: next(wall))
-    monkeypatch.setattr(model_execution.time, "thread_time_ns", lambda: next(cpu))
+    monkeypatch.setattr(control_loop, "policy_state", lambda _: next(snapshots))
+    monkeypatch.setattr(control_loop.time, "perf_counter_ns", lambda: next(wall))
+    monkeypatch.setattr(control_loop.time, "thread_time_ns", lambda: next(cpu))
 
     class Client:
         events = []
@@ -38,7 +38,7 @@ def test_processing_trace_keeps_controls_and_measures_separate_phases(monkeypatc
     client = Client()
     terminal = {"data": {"status": "success"}}
     polls = iter([None, None, terminal])
-    monkeypatch.setattr(model_execution, "terminal_event", lambda _: next(polls))
+    monkeypatch.setattr(control_loop, "terminal_event", lambda _: next(polls))
     # The terminal iteration takes entry timestamps but emits no control trace.
     assert (
         model_execution.drive(client, Controller(), trace_processing=True) == terminal
@@ -119,7 +119,7 @@ def test_model_failure_releases_and_ends_without_fallback(
         def drain_events(self):
             return [("tactical_result", {"status": "error", "error": message})]
 
-    monkeypatch.setattr(model_execution, "policy_state", lambda _: {"state": "running"})
+    monkeypatch.setattr(control_loop, "policy_state", lambda _: {"state": "running"})
     client = Client()
     terminal = model_execution.drive(client, Controller())
     assert terminal["data"]["status"] == "failed"
@@ -179,7 +179,7 @@ def test_terminal_snapshot_drains_event_before_deciding(monkeypatch):
             assert predicate({})
 
     monkeypatch.setattr(
-        model_execution, "policy_state", lambda _: {"state": "episode_terminal"}
+        control_loop, "policy_state", lambda _: {"state": "episode_terminal"}
     )
     assert model_execution.drive(Client(), object())["data"]["status"] == "success"
 
