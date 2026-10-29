@@ -73,7 +73,7 @@ def start(accept_eula: bool = False) -> dict:
 def _start(accept_eula: bool = False) -> dict:
     assert_stopped()
     settings = config()
-    for key in ("game_port", "bridge_port", "supervisor_port"):
+    for key in ("game_port", "bridge_port", "lab_port", "supervisor_port"):
         if not port_free(settings[key]):
             raise RuntimeError(
                 f"Port {settings[key]} is in use; no process was stopped"

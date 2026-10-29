@@ -3,7 +3,9 @@
 This repository implements the local laboratory foundation from
 [the technical handoff](Minecraft_AI_Technical_Handoff.md). It runs an isolated,
 local Minecraft Java 26.3 server and generates development courses C0–C5.
-The bootstrap Fabric mod verifies arena geometry against the generated specification.
+Two independent Fabric mods run on it: `mcb-body` (Carpet body sensing and control)
+and `mcb-lab` (arena verification, courses, resets, natural runs and scoring of any
+named player). See [the bridge protocol](docs/BRIDGE_PROTOCOL.md) for the split.
 
 The initial C1 body, reset/evaluator, filtered sensor, episode recorder and
 deterministic controller are implemented. The gate ledger records reviewed live
@@ -74,6 +76,23 @@ after 160 simulation ticks and checks 2048 cells per tick. Allow approximately
 11 seconds of simulation after startup. `server start` acknowledges supervisor
 startup; `server status` reports `running` only after a Minecraft protocol response.
 
+## Local run launcher and results browser
+
+```powershell
+rtk proxy powershell -NoProfile -File scripts/lab-ui.ps1
+```
+
+This opens **http://127.0.0.1:8770/**. No additional libraries or frontend build
+are required. Select MCB/Baritone setups and courses or natural routes, start a
+session, follow progress and recorded timeout clocks, then select historical runs
+for comparison. The page also starts the lab and prepares/launches Baritone through
+the existing tools. Mineflayer is not integrated yet.
+
+The launcher reads the original configuration/profile files and calls the existing
+runners. It writes only selections, status and logs to `results/sessions/`; runner
+evidence stays in its original directories. See [the UI guide](docs/LAB_UI.md) for
+supported combinations, prerequisites, shared configuration and stopping behavior.
+
 ## Configuration and generated courses
 
 [config/lab.json](config/lab.json) controls origin, memory, ports, and launch settings.
@@ -120,10 +139,13 @@ The preserved direct-scoring container wrapper under
 `experiments/qwen35-direct/` is checked separately with Ruff. Its Dockerfile and
 README reproduce the tested SemIf service without committing weights or caches.
 
-Install the built mod only with the server stopped. The build script sets JDK and
-Gradle cache paths for its own process; Java 21 remains installed and unchanged.
+Install the built mods only with the server stopped. The build script builds
+`mcb-body/` and `mcb-lab/` as separate Gradle projects, each running its own
+verification checks, and sets JDK and Gradle cache paths for its own process; Java 21
+remains installed and unchanged. `mod-install` copies both jars, removes the retired
+`mclab-bootstrap` jar, and records one source hash over both mods.
 Dependency versions/hashes are in `config/dependencies.lock.json`, `uv.lock`,
-`mod/gradle.lockfile`, `mod/buildscript-gradle.lockfile`, and Gradle verification
+each mod's `gradle.lockfile` and `buildscript-gradle.lockfile`, and Gradle verification
 metadata. The wrapper pins and verifies Gradle 9.6.0. `-UpdateLocks` is an explicit
 maintainer operation, not the normal build. Keep generated wrapper files in version
 control. The repository initially had no commits.
@@ -149,7 +171,7 @@ and complete requalification.
 
 Runtime and results are ignored. Keep the handoff intact. The supervisor exposes
 only token-authenticated status/stop on loopback port 8766; port 8765 hosts the
-qualification bridge. No model service or paid request runs during setup.
+`mcb-body` bridge and port 8768 the `mcb-lab` bridge. No model service or paid request runs during setup.
 The evaluator and sensor run on the server thread. Model network calls never
 pause simulation; the bounded transport detects event gaps and stale actions.
 

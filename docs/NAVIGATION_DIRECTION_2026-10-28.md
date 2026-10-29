@@ -12,6 +12,75 @@ Prepared from a review of the docs and `route_search.py`, `terrain_route.py`,
 October 27 checkpoint (`55d160c` plus uncommitted work). Nothing below has been
 run live yet; every claim about performance is a hypothesis until Phase 0 measures it.
 
+## 0. Update — October 28 midday (Marc). Overrides §3–§4 where they differ.
+
+After Phase 0 and the [Phase 0 fixes](PHASE0_FIXES_RESULTS_2026-10-28.md), Marc set
+four further decisions. Work in this order: **A → B → C**, with D as the method for B and C.
+
+| # | Decision |
+|---|---|
+| D9 | **Split the mod in two, fully independent.** `mcb-body` (the nervous system): sensing, applying controls, the per-tick route follower, actions (mine/place/attack/eat), reflexes, events to Python. `mcb-lab` (the test lab): world/course generation, resets, scoring, recording/observing *any* player. Neither depends on the other or shares code paths. The lab must score Baritone, Mineflayer or any other body exactly as it scores MCB, so it can outlive MCB if Marc pivots. |
+| D10 | **Per-tick movement runs in `mcb-body`, not Python.** Python sends a route (with planned breaks/places) and objectives; the mod drives the Carpet body every server tick from live position/velocity and reports progress, blocked, done or needs-replan. Reflexes (e.g. dodging a zombie/creeper, retreat) also run in the mod. This removes the HTTP/Python round trip and the 3-tick lead from the movement loop, and is the real fix for late commands. A separate Python map/search process (shared-memory grid) is still worthwhile but secondary. |
+| D11 | **Planner core is one phase with flags.** Phases 1, 2 and 4 (tick costs, optimistic unknown space, unified edit/macro edges) are built together, each behind its own flag, and evaluated with ablations (all off / each on / all on) on the five calm routes plus fixtures. |
+| D12 | **Baritone as the apples-to-apples baseline, reimplemented, not copied.** Read Baritone's source (LGPL-3.0) and reimplement its move logic and cost values in MCB's own code, with a reference note to the Baritone class/constant each derives from. Do not paste Baritone code. Goal: same costs, same view range (D8), tick-for-tick execution, so the remaining difference is architecture. That comparison, plus licensing and per-bot cost, decides MCB vs Baritone. |
+
+### Revised order
+
+**A. Mod split (D9).** Move lab-only classes (courses, resets, natural runs,
+development fixtures, reference geometry, causal scoring) into `mcb-lab`; keep
+sensing, body adapter and control bridge in `mcb-body`. Each mod builds, loads and
+passes its own checks alone and together. Lab scoring must work with a human or
+Baritone client and no `mcb-body` installed. Re-establish the legacy and natural
+harness on the split before moving on. Today's single mod is ~3.2k lines in 18
+files, so this is a bounded refactor; requalify source-bound evidence afterwards.
+
+> **Step A status (Oct 28, 2026): done, development evidence only.** `mod/` is now
+> `mcb-body/` and `mcb-lab/`, two Gradle projects with separate packages, mixins and
+> ports (8765 body, 8768 lab). `mcb-lab` has no Carpet dependency and scores any named
+> player through one reset/scoring path. The wire changes are listed at the top of
+> [BRIDGE_PROTOCOL.md](BRIDGE_PROTOCOL.md). The Python client keeps the old interface
+> and fans out compound ops, so harness callers barely changed.
+>
+> Live, both mods together, final source hash `3c46b074…` (`results/qualification/`
+> unless noted): body mechanics 39/39 (`20261028T171014058999Z`), protocol 24/24
+> (`…171103610861Z`), C1 reset ×3 with one state digest (`…171107813505Z`),
+> adversarial episodes 29/29 (`…171138484284Z`), natural lethal-hit reporting
+> (`results/natural_reporting/20261028T171408460232Z`), driven natural walk, success
+> in 106 ticks (`results/spatial/20261028T171426790821Z`). Each mod also booted
+> **alone**: the lab served and failed a reset for an absent player with
+> `subject_not_present`; the body spawned and settled a Carpet body.
+>
+> Failed cohorts kept: protocol `20261028T165532032455Z` (hash `0789a582…`, the lab
+> checked identity before its op allowlist) and adversarial `20261028T165714107133Z`
+> (hash `1b855235…`, no lab controller watchdog). Both were fixed in the mods; the
+> checks were not relaxed.
+>
+> Independent-client check completed later on Oct 28: Baritone finished natural R1
+> in 579 ticks with `mcb-body` physically absent and its port unbound. The lab alone
+> reset and scored the real client; both mods were restored afterward. Evidence:
+> `results/lab_only_client/20261028T232805064827Z/summary.json` (development only).
+>
+> Not yet done: formal requalification. The mod source hash
+> changed, so `docs/NAVIGATION_QUALIFICATION.json` and G1/G2 entries bound to the old
+> hash are stale, and scored navigation refuses to run until the 20-reset
+> qualification is repeated per course. One proof changed meaning:
+> `policy_closed_until_begin` is now `motion_before_begin_cannot_score` (see
+> BRIDGE_PROTOCOL.md).
+
+**B. In-mod route follower and reflexes (D10).** Start with the ordinary moves
+(walk, ascend, descend, diagonal, fall) reimplemented from Baritone's movement
+logic (D12), then sprint/momentum, then the existing macros (cut, place, bridge,
+pillar, staircase, gap). Python keeps planning and edit confirmation policy; the
+follower enforces the same invariants (never step into unknown, confirm edits).
+Acceptance: existing fixture families pass; zero late-command invalids on the
+five calm routes; ticks compared to Baritone per route.
+
+**C. Planner core (D11)** using Baritone-derived tick costs (D12), then the
+frozen comparison (Phase 7) and survival/Jev profiles (Phase 6).
+
+Phase 5 (movement speed) is absorbed into B. Phase 3 (interaction goals) can be
+done any time; it is small.
+
 ## 1. Product goal (why the choices below)
 
 The goal is an AI-controlled body that plays alongside Marc, his son and their

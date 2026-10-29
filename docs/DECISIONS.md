@@ -159,3 +159,31 @@ and becomes a candidate motor only if MCB still loses at matched terrain awarene
 Mob avoidance is a weight, not a policy: the bot is meant to play and fight
 alongside human players. Details, phases and the list of superseded documents
 are in NAVIGATION_DIRECTION_2026-10-28.md.
+
+## Mod split, in-mod movement, Baritone-derived baseline (October 28, 2026)
+
+Marc decided: split the mod into independent `mcb-body` and `mcb-lab` mods so
+the lab can evaluate any body; move per-tick movement and reflexes into
+`mcb-body`; build the planner core (tick costs, optimistic unknown space, unified
+edges) as one flagged phase with ablations. Baritone (LGPL-3.0) may be read and
+its move logic and cost values reimplemented as MCB's own code with reference
+notes; Baritone source is not copied. Earlier wording that no baseline source was
+consulted described the bootstrap increment, not a standing rule. See section 0
+of NAVIGATION_DIRECTION_2026-10-28.md.
+
+
+## Mod split implementation (October 28, 2026)
+
+Step A of the direction document. The lab never spawns or drives a body: every
+subject is a named player that may join after the request (600-tick window), so a
+Carpet body and a Baritone client go through the same reset, fingerprint and scoring
+code. Rules the single mod enforced via shared state were moved to their owner, not
+dropped. Course control limits are a body spawn option. Motion before `course_begin`
+fails begin verification in the lab. The controller watchdog is split: the body
+releases controls, and the lab fails the episode only for courses that opt in
+(bridge-driven bodies), because Baritone and human clients are not heartbeated. The
+Python bridge keeps the single-bridge interface and fans compound ops out to both mods
+so the existing harness did not need rewriting; step B can replace it. Duplicated
+small helpers (player reset, interaction observers) are intentional: D9 forbids
+shared code paths. Legacy qualified evidence is bound to the old source hash and must
+be requalified before scored use.

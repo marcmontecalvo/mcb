@@ -33,6 +33,7 @@ class PlanningWorker:
         self.pending = None
         self.latest = None
         self.error = None
+        self.parked = None  # (token, search, job) of a wall-cut search
         self.stopping = False
         self.durations = deque(maxlen=1024)
         self.completed = self.cancelled = 0
@@ -89,8 +90,9 @@ class PlanningWorker:
                 wall_budget_ms,
                 segment_length,
                 search_factory or self.search_factory,
+                None,
             )
-            self.latest = self.error = None
+            self.latest = self.error = self.parked = None
             self.condition.notify()
             return self.serial
 
@@ -102,10 +104,28 @@ class PlanningWorker:
                 raise RuntimeError("Background route search failed") from self.error
             return self.latest
 
+    def resume(self, token):
+        """Continue a wall-cut search on its own snapshot; None if not resumable.
+
+        Restarting from zero on each new snapshot never finished a dead-end
+        search that needed more than one wall budget, so it never reported
+        "unreachable" and the terrain fallback never ran (natural run
+        20261029T190159944470Z R5). The expansion cap still bounds total work.
+        """
+        with self.condition:
+            if self.stopping or self.parked is None or self.parked[0] != token:
+                return None
+            _, search, job = self.parked
+            self.serial += 1
+            self.pending = (self.serial, *job[1:-1], search)
+            self.latest = self.error = self.parked = None
+            self.condition.notify()
+            return self.serial
+
     def cancel(self):
         with self.condition:
             self.serial += 1
-            self.pending = self.latest = self.error = None
+            self.pending = self.latest = self.error = self.parked = None
             self.condition.notify()
 
     def _current(self, token):
@@ -135,18 +155,21 @@ class PlanningWorker:
                 wall_ms,
                 length,
                 factory,
+                search,
             ) = job
             began = time.perf_counter()
             terminal_published = False
             try:
-                search = factory(
-                    cells,
-                    start,
-                    goal,
-                    map_revision=revision,
-                    goal_radius=radius,
-                    owned_snapshot=True,
-                )
+                if search is None:
+                    search = factory(
+                        cells,
+                        start,
+                        goal,
+                        map_revision=revision,
+                        goal_radius=radius,
+                        owned_snapshot=True,
+                    )
+                wall_cut = False
                 while self._current(token):
                     result = search.advance(
                         node_limit=min(nodes, cap - search.expanded),
@@ -156,6 +179,7 @@ class PlanningWorker:
                     elapsed = (time.perf_counter() - began) * 1000
                     final = result.status != "searching"
                     if not final and (result.expanded >= cap or elapsed >= wall_ms):
+                        wall_cut = result.expanded < cap
                         result = replace(
                             result,
                             status="incomplete",
@@ -172,6 +196,8 @@ class PlanningWorker:
                             self.durations.append(elapsed)
                             self.completed += 1
                             terminal_published = True
+                            if wall_cut:
+                                self.parked = (token, search, job)
                     if final:
                         break
                     time.sleep(0)  # Yield the GIL between bounded slices.
@@ -256,4 +282,18 @@ class BackgroundSearch:
             )
         self.expanded = envelope.result.expanded
         self.elapsed_ms = envelope.elapsed_ms
+        if envelope.result.status == "incomplete" and len(envelope.result.route) < 2:
+            # No move to follow yet: keep searching rather than idle on a dead result.
+            # ponytail: still ends incomplete past the expansion cap; Step C (D3)
+            # planning through unknown space replaces this known-only fallback.
+            token = self.worker.resume(self.token)
+            if token is not None:
+                self.token = token
+                return RouteResult(
+                    "searching",
+                    (self.start,),
+                    self.revision,
+                    self.expanded,
+                    "background search resumed",
+                )
         return envelope.result

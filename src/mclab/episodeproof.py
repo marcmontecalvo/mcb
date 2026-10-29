@@ -9,7 +9,7 @@ from mclab import gates
 from mclab.bootstrap import sha256
 from mclab.execution import RecordedBridge, terminal_event
 from mclab.modbuild import source_hash
-from mclab.paths import ROOT, read_json, write_json
+from mclab.paths import MOD_SOURCES, ROOT, read_json, write_json
 from mclab.protocolproof import controls
 from mclab.recorder import EpisodeRecorder, exclusive_arena
 
@@ -109,7 +109,7 @@ def _qualify_episodes() -> dict:
         return finish()
 
     try:
-        for relative in ("src/mclab", "mod/src", "config/initial_body_profile.json"):
+        for relative in ("src/mclab", *MOD_SOURCES, "config/initial_body_profile.json"):
             source, target = ROOT / relative, destination / "sources" / relative
             if source.is_dir():
                 shutil.copytree(
@@ -127,13 +127,27 @@ def _qualify_episodes() -> dict:
         for name, passed in verification["checks"].items():
             check("sensor_" + name, passed, passed)
         finish("invalid", "intentional_sensor_fixture_requires_reset")
+        # The body cannot know about episodes (mcb-body is independent of mcb-lab), so
+        # it applies early controls; the lab must then refuse to score the changed
+        # subject.
         reset()
         tick = client.state()["tick"]
-        reject(
-            "policy_closed_until_begin",
-            client.envelope("controls", controls=controls(tick, "before-begin")),
-            "course_policy_admission_closed",
+        request = client.send(
+            "controls",
+            motor=True,
+            controls=controls(tick, "before-begin", yaw_delta=10),
         )
+        client.acknowledge(request, "applied")
+        client.ticks(5)
+        request = client.send("course_begin")
+        rejection = client.acknowledge(request, "rejected", timeout=15)
+        check(
+            "motion_before_begin_cannot_score",
+            rejection["data"],
+            "changed" in rejection["data"]["reason"],
+        )
+        finish("invalid", "intentional_motion_before_begin")
+        reset()
         started = begin()
         check(
             "fixed_600_tick_budget",

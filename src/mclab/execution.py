@@ -16,7 +16,7 @@ from mclab import courses, gates
 from mclab.bootstrap import sha256
 from mclab.bridge import Bridge
 from mclab.modbuild import source_hash
-from mclab.paths import ROOT, SERVER, digest, read_json, write_json
+from mclab.paths import MOD_SOURCES, ROOT, SERVER, digest, read_json, write_json
 from mclab.protocolproof import controls
 from mclab.recorder import EpisodeRecorder, exclusive_arena
 
@@ -506,7 +506,7 @@ def _qualify_execution(count: int, *, development: bool) -> dict:
     }
     active_episode = None
     try:
-        for relative in ("src/mclab", "mod/src", "config/initial_body_profile.json"):
+        for relative in ("src/mclab", *MOD_SOURCES, "config/initial_body_profile.json"):
             source, target = ROOT / relative, destination / "sources" / relative
             if source.is_dir():
                 shutil.copytree(

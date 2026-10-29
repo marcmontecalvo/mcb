@@ -155,6 +155,7 @@ def main():
                 "awareness.py",
                 "model_execution.py",
                 "control_loop.py",
+                "native_driver.py",
                 "execution.py",
                 "protocolproof.py",
                 "control_runtime.py",

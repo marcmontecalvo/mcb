@@ -60,7 +60,7 @@ def doctor() -> dict:
                 "ok": path.exists() and bootstrap.sha256(path) == artifact["sha256"],
             }
         )
-    for key in ("game_port", "bridge_port", "supervisor_port"):
+    for key in ("game_port", "bridge_port", "lab_port", "supervisor_port"):
         checks.append(
             {
                 "check": key,
@@ -82,17 +82,7 @@ def doctor() -> dict:
                 and bootstrap.sha256(path) == lock()["artifacts"][name]["sha256"],
             }
         )
-    mod_record = ROOT / "runtime/mod-build.json"
-    mod_jar = SERVER / "mods/mclab-bootstrap-0.1.0.jar"
-    checks.append(
-        {
-            "check": "installed:project_mod",
-            "ok": mod_record.exists()
-            and mod_jar.exists()
-            and bootstrap.sha256(mod_jar) == read_json(mod_record)["jar_sha256"]
-            and modbuild.source_hash() == read_json(mod_record)["source_hash"],
-        }
-    )
+    checks.append({"check": "installed:project_mods", "ok": modbuild.installed()})
     checks.append(
         {
             "check": "eula",

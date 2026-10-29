@@ -4,6 +4,7 @@
   "server_host": "127.0.0.1",
   "game_port": 25575,
   "bridge_port": 8765,
+  "lab_port": 8768,
   "supervisor_port": 8766,
   "heap_gb": 4,
   "world_seed": 734193,

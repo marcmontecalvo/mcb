@@ -28,7 +28,7 @@ def recorded(tmp_path, monkeypatch):
             path = snapshot / "src/mclab" / filename
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(filename, encoding="utf-8")
-        native = snapshot / "mod/src/test.java"
+        native = snapshot / "mcb-body/src/test.java"
         native.parent.mkdir(parents=True)
         native.write_text("class Test {}", encoding="utf-8")
         profile = {"profile_id": "navigation-c2-c5-survival-v1"}

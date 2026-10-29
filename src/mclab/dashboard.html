@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCB Lab</title>
+<style>
+:root{color-scheme:dark;font:15px system-ui,sans-serif;background:#111820;color:#e7edf4}
+*{box-sizing:border-box}body{max-width:1450px;margin:auto;padding:24px}h1{margin:0;font-size:27px}h2{font-size:19px;margin:0 0 16px}h3{font-size:16px}p{line-height:1.5}.muted,small{color:#a7b5c5}header{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:24px}.layout{display:grid;grid-template-columns:370px 1fr;gap:18px;align-items:start}section{background:#1b2632;border:1px solid #344455;border-radius:10px;padding:20px;margin-bottom:18px}label{display:block;margin:13px 0 6px}input,select,button{font:inherit;border:1px solid #53677d;border-radius:5px;background:#121c26;color:inherit;padding:8px}input:not([type=checkbox]),select{width:100%}button{cursor:pointer}button:hover{border-color:#6cd6ba}button:disabled{opacity:.5;cursor:wait}.primary{background:#246d5c;border-color:#4da38c;font-weight:650;width:100%;margin-top:20px}.checks{display:flex;flex-wrap:wrap;gap:5px 15px}.checks label{margin:4px 0;display:flex;align-items:center;gap:7px}.checks input{accent-color:#64d7b4}details{margin-top:15px}summary{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#101923;padding:14px;border-radius:5px;max-height:360px;overflow:auto;font-size:12px}.error{color:#ffb3a5}.ok{color:#7ee0bd}.badge{padding:3px 7px;border:1px solid #53677d;border-radius:4px;font-size:12px}progress{width:100%;accent-color:#64d7b4;height:16px}.job{border-top:1px solid #344455;padding:12px 0}.job:first-child{border:0}.clock{font-variant-numeric:tabular-nums;color:#7ee0bd}.scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:10px 8px;border-bottom:1px solid #344455;text-align:left;vertical-align:top}th{color:#a9c1d7}td small{display:block}a{color:#80d9c4}code{overflow-wrap:anywhere}#message{min-height:22px;margin:8px 0}.toolbar{display:flex;gap:10px;margin:12px 0}.toolbar input{flex:1}.toolbar button{white-space:nowrap}.compare td{min-width:180px;max-width:350px;overflow-wrap:anywhere}.compare pre{max-height:140px;margin:0}.diff{background:#382e25}.metric-group{background:#263849;color:#d4e7f7;padding-top:16px}.best-value{background:#154637;color:#a2f1cc;font-weight:650}.compare th small{display:block;color:#a7b5c5;font-weight:400;margin-top:5px}.hidden,[hidden]{display:none!important}footer{font-size:12px;color:#a7b5c5;margin-top:20px}@media(max-width:950px){.layout{grid-template-columns:1fr}body{padding:12px}header{align-items:start;flex-direction:column}}
+</style>
+<header><div><h1>MCB Lab</h1><span class="muted">Launch sessions · follow progress · compare runs</span></div><div id="server" class="muted">Local runners, existing configuration files</div></header>
+<button id="shutdown" title="Stop the dashboard process. Active test batches keep running.">Shut down dashboard</button>
+<div id="message" role="status" aria-live="polite"></div>
+<div class="layout">
+<div><section>
+<h2>New session</h2>
+<div class="checks"><button data-setup="server-start">Start lab</button><button data-setup="baritone-prepare">Prepare Baritone</button><button data-setup="baritone-launch">Launch Baritone</button></div>
+<label for="kind">Run type</label><select id="kind"><option value="courses">Courses — MCB / Baritone</option><option value="natural">Natural terrain — MCB / Baritone</option><option value="models">C1 model smoke</option></select>
+<div id="course-options">
+<label>Setups</label><div class="checks"><label><input type="checkbox" name="course-entrant" value="v8_goal" checked>MCB V8</label><label><input type="checkbox" name="course-entrant" value="baritone">Baritone</label></div>
+<label>Stages</label><div id="courses" class="checks"></div>
+<label for="seeds">Seeds (comma separated)</label><input id="seeds" value="101,102,103" placeholder="101,102,103">
+<small>C1 uses MCB only, seed 0, one attempt. C2–C5 accept 1–20 seeds. Comparisons run separately on the same seeds.</small>
+</div>
+<div id="natural-options" hidden>
+<label>Setups</label><div class="checks"><label><input type="checkbox" name="natural-entrant" value="segmented_goal" checked>MCB segmented</label><label><input type="checkbox" name="natural-entrant" value="v8_goal">MCB V8</label><label><input type="checkbox" name="natural-entrant" value="baritone">Baritone</label></div>
+<label for="seed">World seed</label><input id="seed" type="number" min="0" value="1337">
+<label for="routes">Existing route file</label><input id="routes" list="routes-list" placeholder="Path to existing routes JSON"><datalist id="routes-list"></datalist>
+<label>Routes</label><div id="route-ids" class="checks"><small class="muted">Choose a route file</small></div>
+<label for="condition">Conditions</label><select id="condition"><option value="calm">Calm</option><option value="mobs">Night with mobs</option><option value="both">Both</option></select>
+<label for="repetitions">Repetitions</label><input id="repetitions" type="number" min="1" max="3" value="1">
+<label><input type="checkbox" id="show-markers" checked> Show path (red) and goal (green) in game</label>
+<label for="stall-seconds">End an attempt after this many seconds without moving (0 = off)</label><input id="stall-seconds" type="number" min="0" max="120" value="10">
+<small>Stalled attempts are recorded as failed / stalled. The attempt always ends as soon as the bot reaches the goal.</small>
+<details><summary>Existing profiles and controls</summary><div id="profiles"></div>
+<label for="view-distance">Server view distance (chunks; blank = existing)</label><input id="view-distance" type="number" min="2" max="32" placeholder="Existing server setting">
+<label for="control-profile">MCB segmented control profile</label><select id="control-profile"><option value="dev-native-route-v1" selected>dev-native-route-v1 (native per-tick; development)</option><option value="lockstep-three-tick-v1">lockstep-three-tick-v1</option><option value="dev-pipelined-v1">dev-pipelined-v1</option></select>
+<small>Native follows route segments every game tick. It is experimental and does not support swimming.</small>
+<small>Movement, terrain, memory and control selections apply to segmented MCB. Awareness applies to MCB entrants. Baritone uses its client awareness.</small></details>
+<p><small>The existing natural runner restores snapshots and restarts the server for each attempt. Seed snapshots must already exist.</small></p>
+</div>
+<div id="model-options" hidden><label>Configured backends</label><div id="backends" class="checks"></div><p><small>One C1 attempt per backend, using its current request cap from config/backends.json. Existing credential, budget and qualification checks apply.</small></p></div>
+<p><small>Mineflayer is not integrated yet. Existing runners retain their admission checks; these sessions do not promote gate status.</small></p>
+<button id="launch" class="primary">Start session</button>
+<details><summary>Shared configuration</summary><p><small>Edit these original files in your editor. Refresh to discover new profiles; files are read again when each batch starts. There is no web-specific bot configuration.</small></p><div id="configs"></div><button id="reload-config">Refresh configuration</button></details>
+</section></div>
+<div>
+<section><h2>Sessions</h2><div id="sessions"><p class="muted">Loading…</p></div></section>
+<section><h2>Run history</h2><p class="muted">Select up to four runs to compare. Old and new runs use the original summaries, including unsuccessful attempts.</p>
+<div class="toolbar"><input id="filter" aria-label="Filter results" placeholder="Filter by body, stage, status, date or file path"><button id="refresh">Refresh results</button></div>
+<div class="toolbar"><button id="compare">Compare selected</button><button id="clear">Clear selection</button><span id="result-count" class="muted"></span></div>
+<div class="scroll" style="max-height:470px"><table><thead><tr><th>Select</th><th>Run / body</th><th>Stage</th><th>Result</th><th>Success ticks<br><small>median</small></th></tr></thead><tbody id="results"></tbody></table></div>
+</section>
+<section id="comparison" hidden><h2>Selected runs</h2><p class="muted">Completion, speed, health and block use side by side. Expand per-attempt results to compare individual routes. Different tasks and settings can affect the results.</p><div class="scroll" id="comparison-content"></div></section>
+<section id="detail" hidden><h2>Original summary</h2><a id="download">Download JSON</a><pre id="detail-content"></pre></section>
+</div></div>
+<footer>One session at a time. “Stop after batch” lets the current runner finish; “Kill now” cuts the current run (the attempt is recorded as killed) and still restores the lab world. Closing this browser or the UI server leaves the worker running. Runner outputs stay in their original results directories; results/sessions contains only launch selections and session status.</footer>
+<script>
+'use strict';
+const token='__TOKEN__';
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const checked=name=>[...document.querySelectorAll(`input[name="${name}"]:checked`)].map(x=>x.value);
+let history=[], selected=new Set(), activeSessions=[], fetching=false, pollCount=0, shuttingDown=false;
+function message(text,error=false){$('message').textContent=text;$('message').className=error?'error':'ok'}
+async function api(path,data){const response=await fetch(path,data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-UI-Token':token},body:JSON.stringify(data)});const value=await response.json();if(!response.ok)throw Error(value.error||response.statusText);return value}
+$('shutdown').onclick=async()=>{shuttingDown=true;$('shutdown').disabled=true;try{await api('/api/shutdown',{});document.querySelectorAll('button,input,select').forEach(el=>el.disabled=true);$('server').textContent='Dashboard stopped';message('Dashboard stopped. Run scripts/lab-ui.ps1 again, then reload this page. Active test batches keep running.')}catch(e){shuttingDown=false;$('shutdown').disabled=false;message(e.message,true)}};
+function option(value,text){const o=document.createElement('option');o.value=value;o.textContent=text;return o}
+let routeIds={};
+function renderRouteIds(){const ids=routeIds[$('routes').value];$('route-ids').innerHTML=ids?ids.map(id=>`<label><input type="checkbox" name="route-id" value="${esc(id)}" checked>${esc(id)}</label>`).join(''):'<small class="muted">Not a known route file</small>'}
+$('routes').addEventListener('input',renderRouteIds);
+async function catalog(){const c=await api('/api/catalog');routeIds=c.route_ids||{};$('courses').innerHTML='';for(const [id,p] of Object.entries(c.courses)){if(id==='C0')continue;const label=document.createElement('label');const input=document.createElement('input');input.type='checkbox';input.name='stage';input.value=id;input.checked=id==='C2';label.append(input,document.createTextNode(id));label.title=p.description;$('courses').append(label)}
+ $('routes-list').replaceChildren(...c.profiles.routes.map(p=>option(p,p)));if(!$('routes').value)$('routes').value=c.profiles.routes[0]||'';renderRouteIds();$('profiles').innerHTML='';for(const key of ['awareness','movement','memory','terrain']){const label=document.createElement('label');label.htmlFor=key+'-profile';label.textContent=key[0].toUpperCase()+key.slice(1)+' profile';const input=document.createElement('input');input.id=key+'-profile';input.setAttribute('list',key+'-list');input.placeholder='Runner default (or existing JSON path)';const list=document.createElement('datalist');list.id=key+'-list';list.append(...c.profiles[key].map(p=>option(p,p)));$('profiles').append(label,input,list)}
+ $('backends').innerHTML=c.backends.map(b=>`<label><input type="checkbox" name="backend" value="${esc(b.name)}">${esc(b.name)} <small>${esc(b.model)} · cap ${esc(b.request_limit)}</small></label>`).join('');$('configs').innerHTML=c.config_files.map(p=>`<p><code>${esc(p)}</code></p>`).join('');
+}
+function form(){const kind=$('kind').value;if(kind==='courses'){const raw=$('seeds').value.split(',').map(x=>x.trim());if(raw.some(x=>!/^\d+$/.test(x)))throw Error('Enter seeds as comma-separated nonnegative integers');return{kind,entrants:checked('course-entrant'),courses:checked('stage'),seeds:raw.map(Number)}}if(kind==='models')return{kind,backends:checked('backend')};const data={kind,entrants:checked('natural-entrant'),seed:Number($('seed').value),routes:$('routes').value,route_ids:routeIds[$('routes').value]?checked('route-id'):null,show_markers:$('show-markers').checked,stall_seconds:Number($('stall-seconds').value),condition:$('condition').value,repetitions:Number($('repetitions').value),control_profile:$('control-profile').value,view_distance:$('view-distance').value?Number($('view-distance').value):null};for(const key of ['awareness','movement','memory','terrain'])data[key+'_profile']=$(key+'-profile').value;return data}
+$('kind').onchange=()=>{for(const [kind,id] of [['courses','course-options'],['natural','natural-options'],['models','model-options']])$(id).hidden=$('kind').value!==kind};
+$('launch').onclick=async()=>{const b=$('launch');b.disabled=true;try{await api('/api/start',form());message('Session started');await poll()}catch(e){message(e.message,true)}finally{b.disabled=activeSessions.some(s=>['queued','running'].includes(s.status))}};
+function duration(n){n=Math.max(0,Math.floor(n));return `${Math.floor(n/3600)?Math.floor(n/3600)+'h ':''}${Math.floor(n/60)%60}m ${n%60}s`}
+function clock(start,end){return `<span class="clock" data-start="${start}" data-end="${end||''}">${duration((end||Date.now()/1000)-start)}</span>`}
+function sessionHTML(s){const active=['queued','running'].includes(s.status);const completed=s.jobs.filter(j=>j.status==='completed').length;return `<details data-session="${esc(s.id)}" ${active?'open':''}><summary><b>${esc(s.id)}</b> <span class="badge">${esc(s.status)}</span> ${clock(s.started_at||s.created_at,s.finished_at)}</summary><progress value="${completed}" max="${s.jobs.length}"></progress><small>${completed}/${s.jobs.length} batches completed</small>${s.jobs.map(j=>`<div class="job"><b>${esc(j.entrant)} · ${esc(j.course||j.kind)}</b> <span class="badge">${esc(j.status)}</span> ${j.started_at?clock(j.started_at,j.finished_at):''}<br><small>${esc(j.seeds?'Seeds '+j.seeds.join(', '):j.routes||'C1')} ${j.progress!=null?' · '+j.progress+'/'+j.expected+' attempts recorded':''}</small>${j.status==='running'?`<p>${esc(j.live?.phase||'Preparing / running / restoring')} ${j.live?.game_seconds_left!=null?` · <span class="clock">${duration(j.live.game_seconds_left)} game time left</span> <small>(recorded tick clock; sample ${Math.round(j.live.sample_age_s)}s old)</small>`:' · timeout clock waiting for a recorded running state'}</p>`:''}${j.error?`<p class="error">${esc(j.error)}</p>`:''}${(j.artifacts||[]).map(p=>`<button data-detail="${esc(p)}">View result</button>`).join(' ')}</div>`).join('')}${s.error?`<p class="error">${esc(s.error)}</p>`:''}${active?`<button data-stop="1" ${s.stop_requested?'disabled':''}>${s.stop_requested?'Stopping after batch…':'Stop after batch'}</button> <button data-kill="1" ${s.kill_requested?'disabled':''}>${s.kill_requested?'Killing — restoring lab…':'Kill now'}</button>`:`<button data-delete="${esc(s.id)}">Delete session and its results</button>`}<details data-log="${esc(s.id)}"><summary>Console log</summary><pre>${esc(s.log||'No output yet')}</pre></details></details>`}
+async function poll(){if(fetching||shuttingDown)return;fetching=true;try{activeSessions=await api('/api/sessions');const opened=[...$('sessions').querySelectorAll('details[open]')].map(x=>x.dataset.session?'[data-session="'+x.dataset.session+'"]':'[data-log="'+x.dataset.log+'"]');$('sessions').innerHTML=activeSessions.length?activeSessions.slice(0,12).map(sessionHTML).join('<hr>'):'<p class="muted">No sessions yet. Select a setup and start one.</p>';for(const selector of opened){const el=$('sessions').querySelector(selector);if(el)el.open=true}$('launch').disabled=activeSessions.some(s=>['queued','running'].includes(s.status));if(++pollCount%5===0){await loadHistory();const server=await api('/api/status');$('server').textContent='Lab server: '+server.state}}catch(e){message('Progress refresh failed: '+e.message,true)}finally{fetching=false}}
+async function loadHistory(){history=await api('/api/results');renderHistory()}
+function renderHistory(){const filter=$('filter').value.toLowerCase();const rows=history.filter(r=>JSON.stringify([r.path,r.body,r.stage,r.status,r.suite]).toLowerCase().includes(filter));$('result-count').textContent=`${rows.length} runs · ${selected.size} selected`;$('results').innerHTML=rows.map(r=>`<tr><td><input aria-label="Select ${esc(r.path)}" type="checkbox" data-select="${esc(r.id||r.path)}" ${selected.has(r.id||r.path)?'checked':''}></td><td><button data-detail="${esc(r.path)}">${esc(r.date)}</button><small>${esc(r.body)} · ${esc(r.suite)}</small></td><td>${esc(r.stage)}<small>${r.scored?'Scored':'Development / unscored'}</small></td><td>${esc(r.status)}<small>${esc(Object.entries(r.statuses).map(([k,v])=>`${v} ${k}`).join(', ')||r.error||'No attempts recorded')}</small></td><td>${esc(r.median_ticks)}</td></tr>`).join('')}
+async function detail(path){try{const value=await api('/api/detail?path='+encodeURIComponent(path));$('detail').hidden=false;$('detail-content').textContent=JSON.stringify(value,null,2);$('download').href='/api/detail?path='+encodeURIComponent(path);$('download').download=path.replaceAll('/','-');$('detail').scrollIntoView({behavior:'smooth',block:'start'})}catch(e){message(e.message,true)}}
+
+const comparisonMetrics = [
+ ['Time', 'success_ticks', 'Median completion time — successes only', 'game seconds'],
+ ['Time', 'success_ticks', 'Median completion time — successes only', 'ticks'],
+ ['Time', 'success_wall', 'Median real elapsed time — successes only', 'seconds'],
+ ['Time', 'ticks', 'Total attempt time — all outcomes', 'game seconds'],
+ ['Health and survival', 'damage', 'Health lost — total', 'HP'],
+ ['Health and survival', 'damage_mean', 'Health lost — average per measured attempt', 'HP'],
+ ['Health and survival', 'damage_worst', 'Health lost — worst attempt', 'HP'],
+ ['Health and survival', 'died', 'Deaths confirmed', ''],
+ ['Health and survival', 'disconnected', 'Disconnects confirmed', ''],
+ ['Blocks', 'broken', 'Blocks broken — server recorded', 'blocks'],
+ ['Blocks', 'placed', 'Blocks placed — server recorded', 'blocks'],
+ ['Blocks', 'confirmed_places', 'Block placements confirmed by MCB', 'blocks'],
+ ['Blocks', 'confirmed_breaks', 'Block breaks confirmed by MCB', 'blocks'],
+ ['Blocks', 'blocks_spent', 'Building blocks spent — pickup-adjusted inventory', 'blocks'],
+ ['Blocks', 'kit_estimate', 'Building kit use — older inventory estimate', 'blocks'],
+ ['Environment', 'goal_distance', 'Closest approach to goal', 'blocks'],
+ ['Environment', 'water_ticks', 'Time in water — total', 'game seconds'],
+ ['Environment', 'minimum_air', 'Lowest air supply', 'ticks'],
+ ['Environment', 'hostile_ticks', 'Time near hostile mobs — total', 'game seconds'],
+ ['Environment', 'peak_hostiles', 'Most nearby hostile mobs', '']
+];
+function measured(value,unit=''){
+ if(typeof value!=='number'||!Number.isFinite(value)||value<0)return 'Not recorded';
+ const n=unit==='game seconds'?value/20:value;
+ return n.toLocaleString(undefined,{maximumFractionDigits:2})+(unit==='game seconds'?' game s':unit==='seconds'?' s':unit?' '+unit:'');
+}
+function compare(){
+ const rows=history.filter(r=>selected.has(r.id||r.path));
+ if(rows.length<2){message('Select at least two runs',true);return}
+ if(rows.some(r=>!r.comparison)){message('Comparison metrics are not available for one of these summaries. Refresh results after restarting the UI.',true);return}
+ const data=rows.map(r=>r.comparison);
+ const sameTasks=data.every(d=>d.tasks_known)&&new Set(data.map(d=>d.task_key)).size===1;
+ const allSucceeded=data.every(d=>d.attempts.length>0&&(d.expected==null||d.expected===d.attempts.length)&&d.attempts.every(a=>['Success','Passed'].includes(a.status)));
+ const cellRow=(label,values)=>'<tr><th scope="row">'+esc(label)+'</th>'+values.map(v=>'<td>'+esc(v)+'</td>').join('')+'</tr>';
+ const section=title=>'<tr><th class="metric-group" colspan="'+(rows.length+1)+'">'+esc(title)+'</th></tr>';
+ const bodyName=body=>({'segmented_goal':'MCB segmented','v8_goal':'MCB V8','baritone':'Baritone'}[body]||body);
+ const heading='<thead><tr><th>Measure</th>'+rows.map(r=>'<th>'+esc(bodyName(r.body))+'<small>'+esc(r.date)+'</small></th>').join('')+'</tr></thead>';
+ let content=(sameTasks?'':'<p class="muted">These runs have different recorded task sets. Times and totals describe each run separately.</p>')+'<table class="compare">'+heading+'<tbody>'+section('Outcome');
+ content+=cellRow('Stage',rows.map(r=>r.stage));
+ content+=cellRow('Run status',rows.map(r=>r.status.replaceAll('_',' ')));
+ content+=cellRow('Attempts recorded',data.map(d=>d.attempts.length));
+ content+=cellRow('Attempts planned',data.map(d=>d.expected??'Not recorded'));
+ content+=cellRow('Missing attempts',data.map(d=>d.expected==null?'Not recorded':Math.max(0,d.expected-d.attempts.length)));
+ content+=cellRow('Successful / passed',data.map(d=>(d.counts.success||0)+(d.counts.passed||0)));
+ content+=cellRow('Failed',data.map(d=>d.counts.failed||0));
+ content+=cellRow('Invalid',data.map(d=>d.counts.invalid||0));
+ content+=cellRow('Interrupted',data.map(d=>d.counts.interrupted||0));
+ content+=cellRow('Completion rate (planned attempts when known)',data.map(d=>d.attempts.length?((100*((d.counts.success||0)+(d.counts.passed||0))/Math.max(d.expected||0,d.attempts.length)).toFixed(1)+'%'):'No attempts recorded'));
+ content+=cellRow('Other recorded outcomes',data.map(d=>Object.entries(d.counts).filter(([k])=>!['success','passed','failed','invalid','interrupted'].includes(k)).map(([k,v])=>k.replaceAll('_',' ')+': '+v).join('; ')||'None'));
+ content+=cellRow('Failure reasons',data.map(d=>d.failure_reasons.join('; ')||'None recorded'));
+ let group='';
+ for(const [nextGroup,key,label,unit] of comparisonMetrics){
+  const values=data.map(d=>d.metrics[key]);
+  // Always show the primary speed, health and block rows, even for older runs.
+  if(!['success_ticks','damage','broken','placed','confirmed_places','blocks_spent'].includes(key)&&!values.some(v=>v?.samples))continue;
+  if(group!==nextGroup){content+=section(nextGroup);group=nextGroup}
+  const canHighlight=sameTasks&&allSucceeded&&['success_ticks','success_wall','damage','damage_mean','damage_worst'].includes(key)&&values.every(v=>v?.samples===v?.out_of&&v?.samples>0);
+  const best=canHighlight?Math.min(...values.map(v=>v.value)):null;
+  const distinct=canHighlight&&new Set(values.map(v=>v.value)).size>1;
+  content+='<tr><th scope="row">'+esc(label)+'</th>'+values.map(v=>{
+   const note=v?.samples?(key.startsWith('success_')?v.samples+' successful attempts':v.samples<v.out_of?v.samples+'/'+v.out_of+' attempts recorded':''):'';
+   return '<td class="'+(distinct&&v.value===best?'best-value':'')+'">'+esc(measured(v?.value,unit))+(note?'<small>'+esc(note)+'</small>':'')+'</td>';
+  }).join('')+'</tr>';
+ }
+ let setup='<details><summary>Recorded setup</summary><table class="compare">'+heading+'<tbody>';
+ const keys=[...new Set(data.flatMap(d=>Object.keys(d.settings)))];
+ for(const key of keys)setup+=cellRow(key,data.map(d=>d.settings[key]??'Not recorded'));
+ setup+='</tbody></table></details>';
+ content+='</tbody></table><p class="muted">Game seconds use 20 ticks per second. Health is in HP (2 HP = 1 heart). Placement confirmations and inventory use are separate measurements. Missing data is never treated as zero. Green marks a lower value only when recorded tasks match, every attempt succeeded, and all samples are available.</p>';
+ content+='<details><summary>Per-attempt results</summary><table class="compare">'+heading+'<tbody>';
+ const cases=new Map();for(const d of data)for(const a of d.attempts)if(!cases.has(a.key))cases.set(a.key,a.label);
+ const fields=[['Result','status'],['Reason','reason'],['Elapsed game time','ticks','game seconds'],['Health lost','damage','HP'],['Blocks broken','broken','blocks'],['Blocks placed (server)','placed','blocks'],['Placements confirmed by MCB','confirmed_places','blocks'],['Building blocks spent','blocks_spent','blocks']];
+ for(const [key,label] of cases){
+  content+=section(label);
+  const attempts=data.map(d=>d.attempts.find(a=>a.key===key));
+  for(const [name,field,unit] of fields)content+=cellRow(name,attempts.map(a=>!a?'Attempt not recorded':unit?measured(a[field],unit):a[field]));
+ }
+ content+='</tbody></table></details>'+setup;
+ $('comparison-content').innerHTML=content;
+ $('comparison').hidden=false;
+ $('comparison').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+document.addEventListener('click',async e=>{const setup=e.target.closest('[data-setup]');if(setup){setup.disabled=true;try{await api('/api/start',{kind:'setup',operation:setup.dataset.setup});message('Setup started');await poll()}catch(err){message(err.message,true)}finally{setup.disabled=false}return;}const detailButton=e.target.closest('[data-detail]');if(detailButton)await detail(detailButton.dataset.detail);if(e.target.closest('[data-kill]')){try{await api('/api/kill',{});message('Killing the current run; the lab world is being restored');await poll()}catch(err){message(err.message,true)}}const del=e.target.closest('[data-delete]');if(del&&confirm('Delete session '+del.dataset.delete+' and the result folders it wrote? Runs cited in docs/ are kept.')){try{const r=await api('/api/delete',{id:del.dataset.delete});message(`Deleted ${r.deleted.length} result folder(s)`+(r.kept_cited_in_docs.length?`; kept ${r.kept_cited_in_docs.length} cited in docs`:''));await poll();await loadHistory()}catch(err){message(err.message,true)}}if(e.target.closest('[data-stop]')){try{await api('/api/stop',{});message('The queue will stop after the current batch finishes cleanup');await poll()}catch(err){message(err.message,true)}}});
+document.addEventListener('change',e=>{if(e.target.matches('[data-select]')){const p=e.target.dataset.select;if(e.target.checked){if(selected.size===4){e.target.checked=false;message('Select up to four runs',true);return}selected.add(p)}else selected.delete(p);$('result-count').textContent=`${history.length} runs · ${selected.size} selected`}});
+$('filter').oninput=renderHistory;$('refresh').onclick=()=>loadHistory().catch(e=>message(e.message,true));$('compare').onclick=compare;$('clear').onclick=()=>{selected.clear();renderHistory();$('comparison').hidden=true};$('reload-config').onclick=()=>catalog().then(()=>message('Reloaded original configuration files')).catch(e=>message(e.message,true));
+setInterval(()=>{for(const el of document.querySelectorAll('[data-start]'))el.textContent=duration((Number(el.dataset.end)||Date.now()/1000)-Number(el.dataset.start))},1000);
+(async()=>{try{await catalog();await loadHistory();const server=await api('/api/status');$('server').textContent='Lab server: '+server.state;await poll()}catch(e){message(e.message,true)}setInterval(poll,3000)})();
+</script>
+</html>

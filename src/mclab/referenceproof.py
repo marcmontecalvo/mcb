@@ -8,7 +8,7 @@ from mclab import gates
 from mclab.bootstrap import sha256
 from mclab.bridge import Bridge
 from mclab.modbuild import source_hash
-from mclab.paths import ROOT, read_json, write_json
+from mclab.paths import MOD_SOURCES, ROOT, read_json, write_json
 from mclab.protocolproof import controls
 from mclab.qualify import QualificationCheckFailure
 from mclab.recorder import arena_guard
@@ -65,9 +65,8 @@ def qualify_reference_fixtures() -> dict:
             )
         for relative in (
             "src/mclab",
-            "mod/src",
+            *MOD_SOURCES,
             "config/qualification.json",
-            "mod/build.gradle",
         ):
             source, target = ROOT / relative, destination / "sources" / relative
             if source.is_dir():

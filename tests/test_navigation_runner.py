@@ -69,7 +69,13 @@ def environment(tmp_path, monkeypatch):
     write_json(
         tmp_path / "server/world/datapacks/mclab/evaluator/active.json", spec("C1")
     )
-    for name in ("src/mclab/navigation.py", "mod/src/test.java"):
+    for name in (
+        "src/mclab/navigation.py",
+        "mcb-body/src/test.java",
+        "mcb-lab/src/test.java",
+        "mcb-body/build.gradle",
+        "mcb-lab/build.gradle",
+    ):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("test source")

@@ -20,7 +20,7 @@ from pathlib import Path
 from mclab import baritone_client, server
 from mclab.awareness import Awareness
 from mclab.bootstrap import sha256
-from mclab.control_loop import LOCKSTEP, PROFILES, drive
+from mclab.control_loop import LOCKSTEP, NATIVE, PROFILES, drive
 from mclab.execution import ControllerFailure, RecordedBridge, terminal_event
 from mclab.memory_policy import MemoryPolicy
 from mclab.modbuild import source_hash
@@ -322,11 +322,14 @@ def attempt(
     memory_policy=None,
     movement_policy=None,
     control_profile=LOCKSTEP,
+    show_markers=False,
+    stall_ticks=0,
 ) -> dict:
     awareness = Awareness() if awareness is None else awareness
     _restore(seed)
     player = _relaunch_client() if entrant == "baritone" else None
     client = _bridge(destination / "events.jsonl")
+    client.show_path = show_markers  # the native driver publishes its planned path
     try:
         _new_identity(client, f"natural-{entrant}")
         # The wire payload in each policy_observation is already replayable. The
@@ -344,6 +347,8 @@ def attempt(
             goal_radius=GOAL_RADIUS,
             tick_limit=TICK_LIMIT,
             mobs=mobs,
+            show_markers=show_markers,
+            stall_ticks=stall_ticks,
             awareness=awareness.payload()
             if entrant != "baritone"
             else Awareness().payload(),
@@ -466,9 +471,16 @@ def run(
     repetitions=1,
     view_distance=None,
     control_profile=LOCKSTEP,
+    show_markers=False,
+    stall_seconds=10,
 ) -> dict:
     awareness = Awareness() if awareness is None else awareness
     _validate_run(seed, routes, entrants, conditions)
+    # 0 disables. The server ends an attempt whose body stays within one block this long.
+    if type(stall_seconds) is not int or not (
+        stall_seconds == 0 or 3 <= stall_seconds <= 120
+    ):
+        raise ValueError("Stall timeout must be 0 (off) or 3..120 seconds")
     if type(repetitions) is not int or not 1 <= repetitions <= 3:
         raise ValueError("Natural repetitions must be between one and three")
     if view_distance is not None and (
@@ -484,6 +496,14 @@ def run(
         or "segmented_goal" not in entrants
     ):
         raise ValueError("Movement policy requires a segmented_goal entrant")
+    if (
+        control_profile == NATIVE
+        and movement_policy is not None
+        and movement_policy.allow_swim
+    ):
+        raise ValueError(
+            "Native route profile supports land movement; swimming needs a legacy control profile"
+        )
     if memory_policy is not None and (
         not isinstance(memory_policy, MemoryPolicy) or "segmented_goal" not in entrants
     ):
@@ -548,6 +568,7 @@ def run(
                 "pillar_steps.py",
                 "gap_jump.py",
                 "water_movement.py",
+                "native_driver.py",
             )
         },
         "control_profiles": {
@@ -572,6 +593,7 @@ def run(
         "on-disk chunk cache cleared before each attempt",
         "server_view_distance_chunks": view_distance or _server_view_distance(),
         "policy_map_recording": "wire payloads only; no expanded-cell snapshots",
+        "stall_seconds": stall_seconds,
         "attempts": [],
     }
     with natural_world(seed, view_distance):
@@ -598,7 +620,24 @@ def run(
                         memory_policy=memory_policy,
                         movement_policy=movement_policy,
                         control_profile=control_profile,
+                        show_markers=show_markers,
+                        stall_ticks=stall_seconds * 20,
                     )
+                except KeyboardInterrupt:
+                    # Dashboard kill: keep the cut attempt in the ledger, then let
+                    # natural_world restore the lab world on the way out.
+                    summary["attempts"].append(
+                        {
+                            "route_id": route["route_id"],
+                            "mobs": mobs,
+                            "entrant": entrant,
+                            "repetition": repetition + 1,
+                            "status": "invalid",
+                            "reason": "killed",
+                        }
+                    )
+                    write_json(destination / "summary.json", summary)
+                    raise
                 except Exception as error:  # keep going; record the failure
                     outcome = {
                         "status": "invalid",

@@ -1,8 +1,118 @@
 # Qualification bridge v1
 
+## Split into mcb-body and mcb-lab (October 28, 2026)
+
+Section 0, step A of [the navigation direction](NAVIGATION_DIRECTION_2026-10-28.md)
+split the single `mclab` mod into two independent mods (decision D9). **This
+section overrides the rest of this document where they conflict**; the sections
+below describe the single-mod bridge and remain accurate for everything not listed here.
+
+| Mod | Port (`config/lab.json`) | Endpoints | Owns |
+|---|---|---|---|
+| `mcb-body` (`mcb-body/`) | `bridge_port` 8765 | `/admin`, `/controls`, `/state`, `/policy`, `/events` | Carpet body spawn/despawn, controls, sensing and terrain stream, reach guard, body interaction events, sensor self-checks, Carpet command proofs |
+| `mcb-lab` (`mcb-lab/`) | `lab_port` 8768 | `/admin`, `/state`, `/events` | G0 arena verification, course reset, episodes and causal scoring, natural runs, mechanics fixtures, death/knockback proofs, human reference recording |
+
+Both use the same bearer token and launch ID. Each has its own event ring and
+sequence numbers. Neither imports the other; `mcb-lab` does not depend on Carpet.
+Either mod loads and serves alone. The lab scores any **named player**: a Carpet
+body, a human or a Baritone client, all through the same code path.
+
+Body ops: `spawn` (`name`, `position`, `yaw`, `pitch`, `replace`, `stream`,
+`limits`: `none`|`course`, `extended_observation`, `awareness`, `terrain_encoding`,
+`via_command`), `despawn`, `release`, `heartbeat`, `sensor_check`,
+`awareness_check`, `command_proof`, `trace`, and `controls` on `/controls`.
+Lab ops: `course_reset` (`player`, `profile_id`, `course_spec`, `watchdog`),
+`course_begin`, `course_end`, `course_test`, `natural_probe`, `natural_start`
+(`player`, `subject` label; optional `show_markers` and `stall_ticks`, 0 = off,
+else 40..2400), `natural_path` (`points`: up to 64 cells, drawn only while markers
+are on), `stop` (`reason`), `fixture`/`death_proof`/
+`knockback_proof` (`player`), `reference_start`, `reference_stop`, `heartbeat`.
+The lab checks its op allowlist before identity. A natural run ends `failed` /
+`stalled` when the subject stays within one block of a point for `stall_ticks`;
+it always ends `success` / `reached_goal` inside the goal radius.
+
+Behaviour that changed with the split:
+
+- **Subjects join by name.** `course_reset` and `natural_start` name the player and
+  may arrive before it exists. The lab waits up to 600 ticks for the player to be
+  present for 5 consecutive ticks (state `awaiting_subject`), else fails with
+  `subject_not_present`. The C1 Carpet path and the Baritone path are now one reset:
+  park in spectator above the arena, rebuild, place, settle 20 ticks, fingerprint,
+  re-verify terrain, compare. The old `human_course_*` ops are gone.
+- **Early motion fails begin instead of being refused.** The body cannot know about
+  episodes, so it accepts controls before `course_begin`. `course_begin` then fails
+  with `body_changed_since_reset` because the subject fingerprint changed. The
+  episode check asserts this as `motion_before_begin_cannot_score`.
+- **Course control limits live on the body.** A body spawned with `limits: course`
+  rejects attack, use and non-zero hotbar slots (`course_forbidden_control`).
+- **Controller watchdog is split.** The body releases controls after 2 s without
+  contact (as before). The lab fails a running course episode with
+  `controller_watchdog` only when `course_reset` set `watchdog: true` (bridge-driven
+  Carpet bodies); Baritone and human runs are not heartbeated and have no lab watchdog.
+- **Sensing starts when the body is ready, not at episode start.** A streaming body
+  senses and emits `policy_sample` whenever it is ready in survival, including the
+  settle period at the course spawn before `course_begin`.
+- **The body re-settles when moved.** Leaving survival (e.g. parked as spectator) or
+  moving more than 4 blocks in one tick clears `ready` until the body settles again.
+- `sensor_check` is a body op and no longer invalidates a lab reset; it restores
+  the terrain it edits.
+
+The Python client (`src/mclab/bridge.py`) keeps the single-bridge interface. It
+routes each op to its mod, merges both event streams, and overlays the lab's run
+state, episode, fixture view and pickup ledger on the body's `/state` and
+`/policy`. Its compound ops are: `course_reset` without `player` (lab reset naming a
+fresh body, then body `spawn`), `natural_start` with `subject: carpet_body`,
+`despawn` (body despawn + lab `stop`) and `natural_stop` (lab `stop` + body despawn).
+
 This interface supports C0 development. It is **not qualified for scoring** and
 its privileged fixture observations must never be sent to a decision backend.
 The 17×9×17 occlusion-filtered map and evaluator restrictions remain future work.
+
+## Development native route execution (Step B)
+
+`dev-native-route-v1` is an opt-in development control profile. Planning and edit
+policy stay in Python; the body executes movement and actions at START_SERVER_TICK
+using live position/velocity and fresh local sensor facts. It does not import the
+lab or score itself. Legacy `/controls` timing, permission and qualification
+contracts are unchanged.
+
+New authenticated body `/admin` operations use the existing identity and monotonic
+request sequence envelope:
+
+| Operation | Fields | Acknowledgement |
+| --- | --- | --- |
+| `follow_route` | `route_id`, `route` (2–32 `[x,y,z]` standing nodes), full `movement_policy` | `route_accepted` |
+| `follow_step` | `step_id`, `plan` (`source`, `target`, explicit `breaks`/`places`, `kind`, optional `exit`), full `terrain_policy` | `step_accepted` |
+| `follow_gap` | `gap_id`, gap `plan` (`source`, `target`), `movement_policy` | `gap_accepted` |
+| `cancel_route` | no extra fields; cancels route, edits, gap and reflex inputs | `route_cancelled` |
+
+Native objectives require a ready body spawned with `extended_observation: true`
+and without `limits: course`. Ordinary routes enforce adjacency, standing-height,
+diagonal and drop permissions. Gap objectives separately enforce known runway,
+level gap width, landing/headroom and sprint/food permission. Edits use real
+hotbar/aim/mine/use inputs; no world writes, fabricated item counts or teleport
+fallback exist. Body admission independently enforces edit shape, budgets,
+material allowlist and protected positions/blocks.
+
+State and extended-policy snapshots expose `route_follower`, `step_follower`,
+`gap_follower` and `reflex_follower`. They carry the accepted objective ID, progress,
+state and failure reason. A normal route/gap finishes with `done`; an edit finishes
+with `edits_ready`, **not** a committed move. Python requires freshly observed edit
+geometry plus the matching inventory debit adjusted for recorded pickups, then
+hands over the next movement step. Failure becomes `needs_replan`; missing facts
+never provide support or clearance. Progress/stop events stay in the body stream.
+
+Native per-tick sensing uses the configured awareness bounds and occlusion rules,
+never force-loads a chunk, and does not use lab fixture observations. A local
+threat reflex can choose a checked retreat from nearby observed hostiles, avoiding
+unknown terrain and deferring takeover while airborne. This is not a combat
+controller or the later survival cost model.
+
+An objective replacement releases old inputs and clears scheduled controls. Raw
+`/controls` cannot be mixed into an active native route/edit/gap/reflex. Explicit
+release, despawn, body loss and the existing two-second contact watchdog stop
+native execution as well. Heartbeats keep the external objective owner alive;
+Python/HTTP is outside the per-tick movement/action loop.
 
 ## Transport and thread boundary
 

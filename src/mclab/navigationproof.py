@@ -9,15 +9,16 @@ from pathlib import Path
 
 from mclab.bootstrap import sha256
 from mclab.experiments import layout_hash
-from mclab.paths import ROOT, digest, read_json, write_json
+from mclab.paths import MODS, ROOT, digest, read_json, write_json
 
 
 def _native_hash(snapshot):
     hasher = hashlib.sha256()
-    for path in sorted((snapshot / "mod/src").rglob("*")):
-        if path.is_file():
-            hasher.update(path.relative_to(snapshot).as_posix().encode())
-            hasher.update(path.read_bytes())
+    for mod in MODS:
+        for path in sorted((snapshot / mod / "src").rglob("*")):
+            if path.is_file():
+                hasher.update(path.relative_to(snapshot).as_posix().encode())
+                hasher.update(path.read_bytes())
     return hasher.hexdigest()
 
 

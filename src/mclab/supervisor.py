@@ -25,6 +25,7 @@ def main() -> None:
                 f"-Dmclab.launch_id={state['launch_id']}",
                 f"-Dmclab.bridge_token={state['token']}",
                 f"-Dmclab.bridge_port={settings['bridge_port']}",
+                f"-Dmclab.lab_port={settings['lab_port']}",
                 "-jar",
                 "fabric-server-launch.jar",
                 "nogui",

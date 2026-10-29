@@ -11,6 +11,40 @@ from mclab.route_search import RouteSearch
 from mclab.spatial_memory import MapArchive, SpatialMemory
 
 
+def test_incomplete_search_retries_after_new_map_snapshot(tmp_path):
+    from types import SimpleNamespace
+
+    from mclab.route_search import RouteResult
+
+    cells = floor_map([(x, z) for x in range(-1, 8) for z in (-1, 0, 1)])
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController((6, 1, 0), memory, radius=0)
+    try:
+        memory.ingest(observation(cells))
+        revision = memory.revision
+        exhausted = SimpleNamespace(
+            start=(0, 1, 0),
+            revision=revision,
+            advance=lambda **_: RouteResult(
+                "incomplete", ((0, 1, 0),), revision, 128, "background search budget"
+            ),
+        )
+        controller.search = exhausted
+        # Keep the same snapshot for both polls: do not spin up duplicate jobs.
+        controller._admit = lambda _: None
+        assert controller.decide(observation(cells)) == {}
+        assert controller.decide(observation(cells)) == {}
+        assert controller.search is exhausted
+        # A fresh map snapshot must allow planning from this same standing cell.
+        memory.ingest(observation(cells, tick=6))
+        assert memory.revision != revision
+        wait_until(lambda: controller.decide(observation(cells, tick=6)).get("forward"))
+        assert controller.search is not exhausted
+    finally:
+        controller.close()
+        memory.close()
+
+
 def observation(cells, *, x=0.5, tick=1):
     return {
         "sensor_profile": "local-visibility-v1",
@@ -19,6 +53,27 @@ def observation(cells, *, x=0.5, tick=1):
         "visible_blocks": list(cells.values()),
         "body": {"position": [x, 1, 0.5], "yaw": -90, "pitch": 0},
     }
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_native_handoff_keeps_route_when_python_motor_would_stop(tmp_path, native):
+    cells = floor_map([(x, z) for x in range(-1, 8) for z in (-1, 0, 1)])
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController((6, 1, 0), memory, radius=0)
+    try:
+        # Reproduce the native run's loop: a known route exists, but the Python
+        # motor returns no forward input and clears it before native handoff.
+        controller._follow_route = lambda _: {}
+        assert controller.decide(observation(cells), native=native) == {}
+        if native:
+            assert controller.mode == "following"
+            assert len(controller.route) > 1
+        else:
+            assert controller.mode == "awaiting_fresh_geometry"
+            assert not controller.route
+    finally:
+        controller.close()
+        memory.close()
 
 
 def wait_until(predicate):
@@ -141,6 +196,37 @@ def test_straight_lookahead_falls_back_when_farther_move_fails_fresh_safety():
     assert [p[0] for p in targets] == [3.5, 2.5, 1.5]
 
 
+def test_unsafe_lookahead_cannot_turn_body_away_from_safe_near_waypoint(tmp_path):
+    from mclab.movement_policy import MovementPolicy
+
+    cells = floor_map([(x, z) for x in range(-1, 3) for z in range(-1, 5)])
+    for z in range(1, 5):
+        cells[1, 0, z].update(block="minecraft:air", collision_boxes=[])
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController(
+        (0, 1, 4), memory, movement_policy=MovementPolicy(allow_shapes=True)
+    )
+    controller.route = [(0, 1, z) for z in range(5)]
+    obs = observation(cells)
+    obs["body"].update(position=[0.80150609438, 1, 0.28864596651], yaw=5.363637)
+    try:
+        memory.ingest(obs)
+        # Aim safely toward the next cell, rather than alternating between its
+        # heading and an unsafe shortcut farther along the same straight route.
+        turn = controller._follow_route(obs)
+        assert turn["yaw_delta"] > 8
+        obs["body"]["yaw"] += turn["yaw_delta"]
+        command = controller._follow_route(obs)
+        assert command.get("forward", 0) > 0
+        assert abs(command["yaw_delta"]) <= 8
+        # The rejected shortcut remains unsafe; fixing steering must not admit it.
+        aligned_far = {**obs, "body": {**obs["body"], "yaw": 5.363637}}
+        assert not controller._move(aligned_far, [0.5, 1, 3.5]).get("forward")
+    finally:
+        controller.close()
+        memory.close()
+
+
 def test_blocked_map_admission_keeps_controls_responsive_and_uses_fresh_safety(
     tmp_path,
 ):
@@ -174,3 +260,59 @@ def test_blocked_map_admission_keeps_controls_responsive_and_uses_fresh_safety(
         release.set()
         controller.close()
         memory.close()
+
+
+def test_ledge_edge_stance_uses_the_supporting_cell(tmp_path):
+    # Floor at x 0..6; x = -1 is a hole. The body center is over the hole
+    # (x = -0.05) but its hitbox still rests on x = 0, like run
+    # 20261029T122717114577Z R4/R5, which froze for ~4,900 ticks.
+    cells = floor_map([(x, z) for x in range(0, 7) for z in (-1, 0, 1)])
+    for y in range(5):
+        cells[-1, y, 0] = {
+            "position": [-1, y, 0],
+            "block": "minecraft:air",
+            "collision_boxes": [],
+        }
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController((6, 1, 0), memory, radius=0)
+    try:
+        memory.ingest(observation(cells, x=-0.05))
+        assert controller._stance_node([-0.05, 1, 0.5], 1) == (0, 1, 0)
+        # A body fully over a hole keeps its own (unsupported) cell.
+        assert controller._stance_node([-0.5, 1, 0.5], 1) == (-1, 1, 0)
+        # The ordinary case is unchanged.
+        assert controller._stance_node([2.5, 1, 0.5], 1) == (2, 1, 0)
+    finally:
+        controller.close()
+        memory.close()
+
+
+def test_wall_cut_dead_end_search_resumes_until_unreachable():
+    # Natural run 20261029T190159944470Z R5: a dead-end pocket needed more than
+    # one 250 ms wall budget. Each cut search restarted from zero and reported
+    # "incomplete" forever, so the terrain fallback (which needs "unreachable")
+    # never ran. A slow search with a tiny wall budget reproduces that here.
+    from mclab.planning_worker import BackgroundSearch
+
+    class SlowSearch(RouteSearch):
+        def advance(self, **kwargs):
+            time.sleep(0.01)
+            return super().advance(**{**kwargs, "node_limit": 1})
+
+    class TinyWallWorker(PlanningWorker):
+        def submit(self, *args, **kwargs):
+            return super().submit(*args, **{**kwargs, "wall_budget_ms": 5})
+
+    pocket = floor_map([(x, z) for x in range(3) for z in range(3)])
+    worker = TinyWallWorker(search_factory=SlowSearch)
+    try:
+        search = BackgroundSearch(
+            worker, pocket, (2, 1, 2), (40, 1, 40), map_revision=1, goal_revision=1
+        )
+        result = wait_until(
+            lambda: (r := search.advance()).status not in ("searching",) and r
+        )
+        assert result.status == "unreachable"
+        assert result.expanded == 9
+    finally:
+        worker.close()

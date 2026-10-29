@@ -25,7 +25,8 @@ from mclab.protocolproof import controls
 
 LOCKSTEP = "lockstep-three-tick-v1"
 PIPELINED = "dev-pipelined-v1"
-PROFILES = (LOCKSTEP, PIPELINED)
+NATIVE = "dev-native-route-v1"
+PROFILES = (LOCKSTEP, PIPELINED, NATIVE)
 LEAD_TICKS = 3
 DURATION_TICKS = 5
 STALE_LIMIT = 3
@@ -103,6 +104,12 @@ def drive(
     client, controller, wall_timeout=90, *, trace_processing=False, profile=LOCKSTEP
 ):
     """Renew motor commands independently of inference; never retry old commands."""
+    if profile == NATIVE:
+        if trace_processing:
+            raise ValueError("Processing traces are recorded only in lockstep")
+        from mclab.native_driver import drive_native
+
+        return drive_native(client, controller, wall_timeout)
     if profile == PIPELINED:
         if trace_processing:
             raise ValueError("Processing traces are recorded only in lockstep")

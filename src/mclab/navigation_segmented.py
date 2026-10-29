@@ -355,7 +355,12 @@ class SegmentedController(NavigationController):
             command = self._move(
                 observation, [target[0] + 0.5, target[1], target[2] + 0.5]
             )
-            if command.get("forward") or abs(command.get("yaw_delta", 0)) > 8:
+            # Only the next waypoint may ask us to turn. A farther shortcut is
+            # useful when already aligned and freshly safe; otherwise turning
+            # toward it can alternate forever with a safe nearer waypoint.
+            if command.get("forward") or (
+                target == first and abs(command.get("yaw_delta", 0)) > 8
+            ):
                 return command
         return command
 
@@ -601,6 +606,31 @@ class SegmentedController(NavigationController):
             else standable
         )(cells, node)
 
+    def _stance_node(self, p, height):
+        """The cell the body stands on, not just the cell under its center.
+
+        On a ledge the center column can be air while the 0.6-wide hitbox rests
+        on a neighbour. Planning from the center cell then fails forever with
+        "start is not known standable" (natural run 20261029T122717114577Z,
+        R4 and R5). Baritone's pathStart applies the same correction.
+        """
+        node = (math.floor(p[0]), height, math.floor(p[2]))
+        cells = self._known_cells()
+        if self._node_supported(cells, node):
+            return node
+        r = collision_geometry.BODY_RADIUS - collision_geometry.EPS
+        touched = {
+            (math.floor(p[0] + ox), height, math.floor(p[2] + oz))
+            for ox in (-r, r)
+            for oz in (-r, r)
+        } - {node}
+        supported = [c for c in touched if self._node_supported(cells, c)]
+        return min(
+            supported,
+            key=lambda c: (math.hypot(c[0] + 0.5 - p[0], c[2] + 0.5 - p[2]), c),
+            default=node,
+        )
+
     def _plan_terrain_step(self, node, observation):
         plan, policy = self._next_step(node, observation)
         if plan is not None:
@@ -678,11 +708,11 @@ class SegmentedController(NavigationController):
             )
         )
 
-    def decide(self, observation):
+    def decide(self, observation, *, native=False):
         began = time.perf_counter()
         cpu_began = time.thread_time_ns()
         try:
-            return self._decide(observation)
+            return self._decide(observation, native=native)
         finally:
             duration = (time.perf_counter() - began) * 1000
             self.motor_latencies.append(duration)
@@ -698,7 +728,7 @@ class SegmentedController(NavigationController):
                 )
             )
 
-    def _decide(self, observation):
+    def _decide(self, observation, *, native=False):
         if self.cancelled:
             return {}
         revision = observation.get("awareness", {}).get("revision")
@@ -777,7 +807,7 @@ class SegmentedController(NavigationController):
             water_height = water_movement.surface_height(self._known_cells(), p)
             if water_height is not None:
                 height = water_height
-        node = (math.floor(p[0]), height, math.floor(p[2]))
+        node = self._stance_node(p, height)
         if self.terrain is not None:
             command = self.terrain.decide(observation, self._fresh(observation["tick"]))
             # An issued placement may succeed before confirmation is complete.
@@ -915,7 +945,16 @@ class SegmentedController(NavigationController):
                         {"start": node, "goal_revision": self.goal_revision},
                     )
                 )
-            if self.search is None or self.search.start != node:
+            revision = self.map_view.revision if self.map_view else self.memory.revision
+            exhausted_snapshot = (
+                self.last_result is not None
+                and self.last_result.status == "incomplete"
+                and self.last_result.map_revision != revision
+            )
+            # Budget-limited workers are finished. Once acquisition publishes a
+            # new map, submit a fresh bounded search instead of polling that
+            # finished result forever. Do not resubmit on an unchanged snapshot.
+            if self.search is None or self.search.start != node or exhausted_snapshot:
                 revision, cells = self._planning_snapshot()
                 self.search = self._new_search(cells, node, revision)
             self.last_result = self.search.advance(
@@ -956,6 +995,15 @@ class SegmentedController(NavigationController):
                 return {}
         self.mode = "following"
         self._start_prefetch()
+        if native:
+            # The in-mod motor owns steering and fresh swept-body checks. The
+            # Python motor's different lookahead must not discard its route
+            # before native actuation gets a chance to validate and follow it.
+            source, target = self.route[:2]
+            if max(abs(target[0] - source[0]), abs(target[2] - source[2])) <= 1:
+                return {}
+            # Gap preparation still belongs to the planner; the native driver
+            # hands the resulting plan to the separate in-mod gap executor.
         command = self._follow_route(observation)
         if not command.get("forward") and abs(command.get("yaw_delta", 0)) <= 8:
             self.mode = "awaiting_fresh_geometry"

@@ -19,7 +19,7 @@ from mclab.bootstrap import sha256
 from mclab.control_loop import drive
 from mclab.execution import PolicyMapRecorder, RecordedBridge, terminal_event
 from mclab.modbuild import source_hash
-from mclab.paths import ROOT, SERVER, config, digest, read_json, write_json
+from mclab.paths import MOD_SOURCES, ROOT, SERVER, config, digest, read_json, write_json
 from mclab.recorder import EpisodeRecorder, episode_databases, exclusive_arena
 
 
@@ -255,7 +255,7 @@ def _run(course, seeds, *, reset_only, scored):
     try:
         for relative in (
             "src/mclab",
-            "mod/src",
+            *MOD_SOURCES,
             "config/navigation_body_profile.json",
             "courses/profiles.json",
         ):

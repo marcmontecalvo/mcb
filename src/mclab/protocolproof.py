@@ -8,7 +8,7 @@ from mclab import gates
 from mclab.bootstrap import sha256
 from mclab.bridge import Bridge
 from mclab.modbuild import source_hash
-from mclab.paths import ROOT, read_json, write_json
+from mclab.paths import MOD_SOURCES, ROOT, read_json, write_json
 from mclab.qualify import QualificationCheckFailure
 from mclab.recorder import arena_guard
 
@@ -77,11 +77,10 @@ def qualify_protocol() -> dict:
             )
         for relative in (
             "src/mclab",
-            "mod/src",
+            *MOD_SOURCES,
             "config/lab.json",
             "config/dependencies.lock.json",
             "config/qualification.json",
-            "mod/build.gradle",
         ):
             source = ROOT / relative
             target = destination / "sources" / relative

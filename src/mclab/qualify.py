@@ -8,7 +8,7 @@ from mclab import gates
 from mclab.bootstrap import sha256
 from mclab.bridge import Bridge
 from mclab.modbuild import source_hash
-from mclab.paths import ROOT, digest, read_json, write_json
+from mclab.paths import MOD_SOURCES, ROOT, digest, read_json, write_json
 from mclab.recorder import arena_guard
 
 
@@ -78,11 +78,10 @@ def qualify_commands() -> dict:
         archive = destination / "sources"
         for relative in [
             "src/mclab",
-            "mod/src",
+            *MOD_SOURCES,
             "config/qualification.json",
             "config/lab.json",
             "config/dependencies.lock.json",
-            "mod/build.gradle",
         ]:
             source = ROOT / relative
             target = archive / relative

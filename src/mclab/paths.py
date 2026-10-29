@@ -7,6 +7,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "runtime"
 SERVER = RUNTIME / "server"
+# Two independent server mods: the body (nervous system) and the lab (courses, scoring).
+MODS = ("mcb-body", "mcb-lab")
+# Source-bound inputs archived with evidence and hashed for provenance.
+MOD_SOURCES = tuple(f"{mod}/src" for mod in MODS) + tuple(
+    f"{mod}/build.gradle" for mod in MODS
+)
 
 
 def read_json(path: Path) -> dict:
@@ -28,9 +34,14 @@ def config() -> dict:
     value = read_json(ROOT / "config/lab.json")
     if value["server_host"] != "127.0.0.1":
         raise ValueError("This desktop launch profile requires loopback binding")
-    ports = [value["game_port"], value["bridge_port"], value["supervisor_port"]]
+    ports = [
+        value["game_port"],
+        value["bridge_port"],
+        value["lab_port"],
+        value["supervisor_port"],
+    ]
     if len(set(ports)) != len(ports) or any(not 1024 <= p <= 65535 for p in ports):
-        raise ValueError("Use distinct unprivileged game/bridge/supervisor ports")
+        raise ValueError("Use distinct unprivileged game/bridge/lab/supervisor ports")
     if not 1 <= value["heap_gb"] <= 16:
         raise ValueError("Server heap must be between 1 and 16 GB")
     return value

@@ -40,8 +40,9 @@ def _wait_terminal(client, wall_timeout):
 
 
 def _attempt(client, baritone, player, profile, spec):
+    # Naming the player makes this a lab-only reset of that client; no body is spawned.
     request = client.send(
-        "human_course_reset",
+        "course_reset",
         player=player,
         profile_id=profile["profile_id"],
         course_spec=spec,
@@ -49,7 +50,7 @@ def _attempt(client, baritone, player, profile, spec):
     client.acknowledge(request, "course_reset_started", timeout=10)
     reset = client.acknowledge(request, "course_reset_complete", timeout=90)
     _verify_reset(reset["data"], spec)
-    request = client.send("human_course_begin")
+    request = client.send("course_begin")
     client.acknowledge(request, "course_started")
     started = time.monotonic()
     baritone.mine("minecraft:oak_log", 1)
@@ -142,8 +143,8 @@ def _run(course, seeds):
     finally:
         try:
             baritone.cancel()
-            request = client.send("human_course_stop")
-            client.acknowledge(request, "received")
+            request = client.send("stop", reason="human_course_stopped")
+            client.acknowledge(request, "stopped")
         except Exception as error:
             summary["stop_error"] = str(error)
         try:

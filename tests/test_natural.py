@@ -38,6 +38,23 @@ def test_view_distance_edit_and_restore(monkeypatch, tmp_path):
     assert properties.read_text() == original
 
 
+def test_native_swimming_rejected_before_world_changes(monkeypatch):
+    from mclab.movement_policy import MovementPolicy
+
+    monkeypatch.setattr(
+        natural, "natural_world", lambda *_: pytest.fail("World changed")
+    )
+    route = {"route_id": "R1", "start": [0, 80, 0], "goal": [0, 80, 100], "yaw": 0}
+    with pytest.raises(ValueError, match="supports land movement"):
+        natural.run(
+            1337,
+            [route],
+            entrants=("segmented_goal",),
+            control_profile="dev-native-route-v1",
+            movement_policy=MovementPolicy(allow_swim=True),
+        )
+
+
 def test_three_entrant_repetitions_keep_failures_and_unique_paths(
     monkeypatch, tmp_path
 ):
