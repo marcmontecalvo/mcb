@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "mcb-lab",
+  "version": "0.1.0",
+  "name": "MCB Lab",
+  "description": "Test lab: arena verification, courses, resets, natural runs, fixtures, and scoring or recording of any named player.",
+  "environment": "server",
+  "entrypoints": {"main": ["com.vulpine.mcb.lab.LabMod"]},
+  "mixins": ["mcb-lab.mixins.json"],
+  "depends": {"fabricloader": "0.19.5", "minecraft": "26.3", "java": ">=25", "fabric-api": "*"}
+}

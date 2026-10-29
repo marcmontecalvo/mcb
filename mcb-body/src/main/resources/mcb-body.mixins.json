@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "com.vulpine.mcb.body.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "mixins": [
+    "ActionPackTraceMixin",
+    "PlayerStateAccessor",
+    "GameModeObserverMixin",
+    "InteractionObserverMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
