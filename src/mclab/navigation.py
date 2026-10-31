@@ -8,6 +8,8 @@ window. This profile supports ordinary full-cube ground and one-block changes.
 import heapq
 import math
 
+from mclab.grid_cache import EMPTY, FULL
+
 PROFILE = "local-map-navigation-v7"
 DIRECTIONS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
@@ -78,6 +80,13 @@ def _clear_log_ray(cells, origin, target):
 
 def standable(cells, node):
     x, y, z = node
+    flags = getattr(cells, "cflags", None)  # memoised cell flags on a Grid
+    if flags is not None:
+        return bool(
+            flags((x, y - 1, z)) & FULL
+            and flags((x, y, z)) & EMPTY
+            and flags((x, y + 1, z)) & EMPTY
+        )
     return full_cube(cells.get((x, y - 1, z))) and all(
         empty(cells.get((x, cy, z))) for cy in (y, y + 1)
     )

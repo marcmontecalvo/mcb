@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "source": "Baritone v1.20.0 (config/baselines.lock.json), values read from source per D12; no code copied",
+  "units": "game ticks unless noted",
+  "base": {
+    "move_costs": {
+      "walk_one_block": 4.633,
+      "sprint_one_block": 3.564,
+      "sneak_one_block": 15.385,
+      "walk_one_in_water": 9.091,
+      "walk_one_over_soul_sand": 9.266,
+      "ladder_up_one": 8.511,
+      "ladder_down_one": 6.667,
+      "walk_off_block": 3.706,
+      "center_after_fall": 0.927,
+      "jump_one_block": 3.163,
+      "_ref": "api/pathing/movement/ActionCosts; jump = fall(1.25) - fall(0.25)"
+    },
+    "penalties": {
+      "block_placement": 20.0,
+      "block_break_additional": 2.0,
+      "jump": 2.0,
+      "walk_on_water_one": 3.0,
+      "pillar_on_air": 0.1,
+      "_ref": "Settings blockPlacementPenalty, blockBreakAdditionalPenalty, jumpPenalty, walkOnWaterOnePenalty; MovementPillar"
+    },
+    "permissions": {
+      "allow_sprint": true,
+      "allow_break": true,
+      "allow_place": true,
+      "allow_parkour": false,
+      "allow_parkour_place": false,
+      "allow_parkour_ascend": true,
+      "allow_diagonal_ascend": false,
+      "allow_diagonal_descend": false,
+      "allow_downward": true,
+      "allow_water_bucket_fall": true,
+      "allow_walk_on_bottom_slab": true,
+      "allow_vines": false,
+      "avoid_updating_falling_blocks": true,
+      "max_fall_no_water": 3,
+      "max_fall_bucket": 20,
+      "sprint_min_food": 7
+    },
+    "search": {
+      "heuristic": "octile_xz_times_cost_heuristic_plus_goal_y_level",
+      "cost_heuristic": 3.563,
+      "partial_path_coefficients": [1.5, 2, 2.5, 3, 4, 5, 10],
+      "partial_path_min_distance": 5,
+      "minimum_improvement": 0.01,
+      "backtrack_cost_favoring": 0.5,
+      "primary_timeout_ms": 500,
+      "failure_timeout_ms": 2000,
+      "plan_ahead_primary_timeout_ms": 4000,
+      "plan_ahead_failure_timeout_ms": 5000,
+      "planning_tick_lookahead": 150,
+      "path_cutoff_factor": 0.9,
+      "path_cutoff_minimum_length": 30,
+      "max_cost_increase": 10.0,
+      "cost_verification_lookahead": 5,
+      "movement_timeout_ticks": 100,
+      "_ref": "Settings; pathing/calc/AbstractNodeCostSearch COEFFICIENTS, MIN_DIST_PATH; goals/GoalXZ, GoalYLevel"
+    },
+    "avoidance": {
+      "enabled": false,
+      "mob_coefficient": 1.5,
+      "mob_radius": 8,
+      "spawner_coefficient": 2.0,
+      "spawner_radius": 16,
+      "_note": "Multiplies the cost of moves into cells within the radius. Below 1.0 attracts. Mobs counted: hostile Mob entities; spiders only in darkness; zombified piglins only when angered; endermen only when provoked.",
+      "_ref": "utils/pathing/Avoidance"
+    },
+    "execution": {
+      "sprint_ascends": true,
+      "overshoot_traverse": true,
+      "allow_overshoot_diagonal_descend": true,
+      "block_break_speed": 6,
+      "right_click_speed": 4,
+      "_ref": "Settings; pathing/path/PathExecutor.shouldSprintNextTick"
+    }
+  },
+  "goals": {
+    "goto": {
+      "baritone_process": "CustomGoalProcess",
+      "goal": "GoalBlock | GoalNear | GoalXZ | GoalYLevel",
+      "overrides": {}
+    },
+    "mine": {
+      "baritone_process": "MineProcess",
+      "goal": "GoalComposite of GoalTwoBlocks/GoalBlock/GoalThreeBlocks per known ore (+ dropped items); GoalYLevel then strip-mine when legit",
+      "overrides": {
+        "permissions.allow_break": true
+      },
+      "settings": {
+        "legit_mine_y": -59,
+        "goal_update_interval_ticks": 5,
+        "max_ore_locations": 64,
+        "scan_dropped_items": true,
+        "only_exposed_ores": false
+      }
+    },
+    "get_to_block": {
+      "baritone_process": "GetToBlockProcess",
+      "goal": "GoalComposite of GoalGetToBlock (adjacent) per known instance; blacklist closest on failure",
+      "overrides": {},
+      "_note": "Its break multiplier of 1 only widens the reachability scan; real paths use the base context."
+    },
+    "build": {
+      "baritone_process": "BuilderProcess",
+      "goal": "GoalComposite of GoalPlace/GoalBreak/GoalAdjacent per schematic block",
+      "overrides": {
+        "penalties.jump": 12.0,
+        "search.backtrack_cost_favoring": 1.0
+      },
+      "settings": {
+        "place_correct_block_cost": 0.0,
+        "place_incorrect_block_multiplier": 2.0,
+        "place_block_we_lack_multiplier": 3.0,
+        "break_correct_block_multiplier": 10.0,
+        "break_incorrect_block_multiplier": 1.0,
+        "_ref": "BuilderProcess.BuilderCalculationContext"
+      }
+    },
+    "follow": {
+      "baritone_process": "FollowProcess",
+      "goal": "GoalNear(entity, follow_radius)",
+      "overrides": {},
+      "settings": {"follow_radius": 3, "offset_distance": 0, "offset_direction_deg": 0}
+    },
+    "explore": {
+      "baritone_process": "ExploreProcess",
+      "goal": "GoalComposite of GoalXZ to the nearest unloaded chunks; heuristic adds GoalYLevel(maintain_y)",
+      "overrides": {},
+      "settings": {"maintain_y": 64, "chunk_set_minimum_size": 10}
+    },
+    "farm": {
+      "baritone_process": "FarmProcess",
+      "goal": "GoalComposite of GoalBlock/GoalGetToBlock per crop",
+      "overrides": {},
+      "settings": {"replant": true, "max_scan": 256}
+    },
+    "flee": {
+      "baritone_process": "GoalRunAway (used by Mine/GetToBlock)",
+      "goal": "GoalRunAway: heuristic = -octile distance from the threats; with maintain_y, 0.6 x that + 1.5 x GoalYLevel",
+      "overrides": {}
+    },
+    "walk_off": {
+      "baritone_process": "ElytraProcess.WalkOffCalculationContext",
+      "goal": "GoalYLevel",
+      "overrides": {
+        "permissions.allow_break": false,
+        "permissions.allow_place": false,
+        "permissions.allow_water_bucket_fall": false,
+        "permissions.max_fall_no_water": 10000
+      },
+      "_note": "Baritone also sets a minimum fall of 8 and allows falling into lava for elytra take-off; MCB should not copy the lava part."
+    },
+    "hunt": {
+      "baritone_process": "none (Baritone has no combat)",
+      "goal": "GoalNear(target, attack reach)",
+      "overrides": {
+        "avoidance.enabled": true,
+        "avoidance.mob_coefficient": 0.5
+      },
+      "_note": "Baritone's own suggestion: an avoidance coefficient below 1.0 walks toward mobs. 0.5 is a starting guess, not a Baritone value."
+    }
+  }
+}

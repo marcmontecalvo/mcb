@@ -7,21 +7,11 @@ Legacy full-cube predicates and qualification controllers remain unchanged.
 
 import math
 
+from mclab.grid_cache import HAZARDS
 from mclab.navigation import full_cube
 
 EPS = 1e-7
 BODY_RADIUS = 0.3
-HAZARDS = {
-    "minecraft:fire",
-    "minecraft:soul_fire",
-    "minecraft:cactus",
-    "minecraft:magma_block",
-    "minecraft:campfire",
-    "minecraft:soul_campfire",
-    "minecraft:powder_snow",
-    "minecraft:sweet_berry_bush",
-    "minecraft:wither_rose",
-}
 
 
 def safe_cell(cell):
@@ -34,7 +24,16 @@ def safe_cell(cell):
 
 def clear_column(cells, x, z, bottom, top):
     """Known body clearance at the central 0.6-wide player footprint."""
-    return clear_body(cells, x + 0.5, z + 0.5, bottom, top)
+    table = getattr(cells, "m_clear", None)  # memoised on a Grid
+    if table is None:
+        return clear_body(cells, x + 0.5, z + 0.5, bottom, top)
+    if (x, z) in cells.ecols:
+        table = cells.o_clear
+    key = (x, z, bottom, top)
+    result = table.get(key)
+    if result is None:
+        result = table[key] = clear_body(cells, x + 0.5, z + 0.5, bottom, top)
+    return result
 
 
 def clear_body(cells, x, z, bottom, top, *, cell_safe=safe_cell):
@@ -60,32 +59,69 @@ def clear_body(cells, x, z, bottom, top, *, cell_safe=safe_cell):
     return True
 
 
+def _cell_heights(cells, x, y, z):
+    """Standing heights this one cell offers (no window filter)."""
+    cell = cells.get((x, y, z))
+    if not safe_cell(cell):
+        return ()
+    block = cell.get("block", "")
+    if not (full_cube(cell) or block.endswith(("_slab", "_stairs"))):
+        return ()
+    heights = []
+    for box in cell.get("collision_boxes", []):
+        if (
+            box[0] < 0.8 - EPS
+            and box[3] > 0.2 + EPS
+            and box[2] < 0.8 - EPS
+            and box[5] > 0.2 + EPS
+        ):
+            height = y + box[4]
+            if clear_column(cells, x, z, height, height + 1.8):
+                heights.append(height)
+    return tuple(heights)
+
+
 def surfaces(cells, x, z, low, high):
+    table = getattr(cells, "m_csurf", None)  # memoised on a Grid
+    if table is None:
+        return _surfaces(cells, x, z, low, high, None)
+    if (x, z) in cells.ecols:
+        table = cells.o_csurf
+    key = (x, z, low, high)
+    found = table.get(key)
+    if found is None:
+        found = table[key] = _surfaces(cells, x, z, low, high, table)
+    return list(found)
+
+
+def _surfaces(cells, x, z, low, high, table):
     heights = set()
     for y in range(math.floor(low) - 1, math.floor(high) + 1):
-        cell = cells.get((x, y, z))
-        if not safe_cell(cell):
-            continue
-        block = cell.get("block", "")
-        if not (full_cube(cell) or block.endswith(("_slab", "_stairs"))):
-            continue
-        for box in cell.get("collision_boxes", []):
-            height = y + box[4]
-            if (
-                low - EPS <= height <= high + EPS
-                and box[0] < 0.8 - EPS
-                and box[3] > 0.2 + EPS
-                and box[2] < 0.8 - EPS
-                and box[5] > 0.2 + EPS
-                and clear_column(cells, x, z, height, height + 1.8)
-            ):
+        if table is None:
+            found = _cell_heights(cells, x, y, z)
+        else:
+            found = table.get((x, y, z))
+            if found is None:
+                found = table[x, y, z] = _cell_heights(cells, x, y, z)
+        for height in found:
+            if low - EPS <= height <= high + EPS:
                 heights.add(height)
     return sorted(heights)
 
 
 def standable(cells, node):
     x, y, z = node
-    return any(abs(height - y) < EPS for height in surfaces(cells, x, z, y, y))
+    table = getattr(cells, "m_stand", None)  # memoised on a Grid
+    if table is None:
+        return any(abs(height - y) < EPS for height in surfaces(cells, x, z, y, y))
+    if (x, z) in cells.ecols:
+        table = cells.o_stand
+    result = table.get(node)
+    if result is None:
+        result = table[node] = any(
+            abs(height - y) < EPS for height in surfaces(cells, x, z, y, y)
+        )
+    return result
 
 
 def step_clear(cells, source, target):

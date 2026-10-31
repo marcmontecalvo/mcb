@@ -143,8 +143,10 @@ def test_blocked_worker_does_not_block_controls_or_leak_a_cancelled_goal(
     )
     try:
         obs = observation(cells)
-        assert not controller.decide(obs).get("forward")
-        assert entered.wait(3)
+        # The first decide may wait for the map lane to admit the start cell.
+        wait_until(
+            lambda: not controller.decide(obs).get("forward") and entered.is_set()
+        )
         # Calling decide again must return while the worker is still blocked.
         assert not controller.decide(obs).get("forward")
         controller.cancel()
@@ -316,3 +318,84 @@ def test_wall_cut_dead_end_search_resumes_until_unreachable():
         assert result.expanded == 9
     finally:
         worker.close()
+
+
+def test_wall_cut_partial_that_starts_with_an_edit_keeps_searching():
+    # Run 20261030T200723012823Z R2: a ~600-node partial began with a cut and the
+    # bot tunnelled 30 blocks; the finished search walks around.
+    from types import SimpleNamespace
+
+    from mclab.planning_worker import BackgroundSearch
+    from mclab.route_search import RouteResult
+    from mclab.terrain_steps import StepPlan
+
+    route = ((0, 1, 0), (1, 1, 0), (2, 1, 0))
+    edit = StepPlan((0, 1, 0), (1, 1, 0), breaks=((1, 1, 0),))
+
+    def make(steps, elapsed=250):
+        result = RouteResult(
+            "incomplete", route, 1, 600, "background search budget", steps
+        )
+        resumed = []
+        worker = SimpleNamespace(
+            submit=lambda *a, **k: 1,
+            poll=lambda token: SimpleNamespace(
+                result=result, elapsed_ms=elapsed, token=token
+            ),
+            resume=lambda token: resumed.append(token) or 2,
+        )
+        return BackgroundSearch(
+            worker, {}, (0, 1, 0), (9, 1, 0), map_revision=1, goal_revision=1
+        ), resumed
+
+    search, resumed = make((edit,))
+    assert search.advance().status == "searching" and resumed == [1]
+    search, resumed = make(())
+    assert search.advance().status == "incomplete" and resumed == []
+    # Patience is bounded: after a second of search the edit-first partial is used.
+    search, resumed = make((edit,), elapsed=1200)
+    assert search.advance().status == "incomplete" and resumed == []
+
+
+def test_superseded_search_is_resubmitted_and_stale_cancel_spares_it():
+    """Run 20261031T002351544397Z R4: discarding an already-superseded prefetch
+    cancelled the main search on the shared lane; it stayed "pending" forever."""
+    from mclab.planning_worker import BackgroundSearch
+
+    cells = floor_map([(x, z) for x in range(-1, 8) for z in (-1, 0, 1)])
+    worker = PlanningWorker()
+    try:
+        prefetch = BackgroundSearch(
+            worker, cells, (0, 1, 0), (6, 1, 0), map_revision=1, goal_revision=0
+        )
+        search = BackgroundSearch(
+            worker, cells, (0, 1, 0), (6, 1, 0), map_revision=1, goal_revision=0
+        )
+        worker.cancel(prefetch.token)  # stale token: must not touch the search
+        assert worker._current(search.token)
+        assert wait_until(lambda: search.advance().status != "searching")
+
+        worker.cancel()  # the search's job is gone for good
+        result = wait_until(lambda: (r := search.advance()).status != "searching" and r)
+        assert result.status in {"reached", "segment"}
+    finally:
+        worker.close()
+
+
+def test_controller_waits_for_the_start_cell_before_planning(tmp_path):
+    """Cohort 15 R1: planning before the first observation was admitted reported
+    'start is not known standable' and walked four blind fallback steps."""
+    from types import SimpleNamespace
+
+    cells = floor_map([(x, z) for x in range(-1, 8) for z in (-1, 0, 1)])
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController((6, 1, 0), memory, radius=0)
+    try:
+        controller._admit = lambda _: None
+        controller.map_view = SimpleNamespace(revision=0, cells={}, status={})
+        assert controller.decide(observation(cells)) == {}
+        assert controller.mode == "awaiting_map"
+        assert controller.search is None and controller.terrain is None
+    finally:
+        controller.close()
+        memory.close()

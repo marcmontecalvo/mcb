@@ -237,6 +237,16 @@ Step C: the 250 ms searches that almost always end `incomplete`, plus path shape
 
 Installed source hash after these changes: `2ca44cfc6f5bf4686d6c080925d07e9c333e985393d892555c8a153e8a2d606b`.
 
+### Live rerun, October 29
+
+See [the complete rerun note](STEP_B_RERUN_2026-10-29.md) and
+`results/natural/20261029T205639210651Z/summary.json`. On the unchanged installed
+source, at server view distance 4 and MCB chunk radius 64: MCB 4/5, Baritone 5/5;
+zero damage, zero MCB timing rejections, no accepted-identity errors, and 99 route
+splices. R5 still stalls, but its recording now reaches `terrain_planning` /
+`terrain_incomplete`; no digging step executes. Retain this planner failure for
+Step C. Full five-goal acceptance and formal qualification remain open.
+
 ## Reference method (D12)
 
 Read, do not copy, Baritone v1.20.0 sources. New motor code is independently

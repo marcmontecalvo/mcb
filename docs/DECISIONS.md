@@ -187,3 +187,14 @@ so the existing harness did not need rewriting; step B can replace it. Duplicate
 small helpers (player reset, interaction observers) are intentional: D9 forbids
 shared code paths. Legacy qualified evidence is bound to the old source hash and must
 be requalified before scored use.
+
+## Swimming survival reflex (October 30, 2026)
+
+Getting the head above water is allowed when `allow_swim` is false. It is a
+survival reflex, never a route: `water_movement.air_recovery_command` only
+surfaces straight up or steps into one adjacent column that is open to air, and
+returns `{}` otherwise. Route search and `swim_command` still require
+`allow_swim`, so the no-recovery-fallback rule for planned movement is unchanged.
+With `allow_swim` the reflex may swim to the nearest breathable cell within the
+remaining air (air / `SWIM_TICKS` blocks). Recovery ends when the eyes are out of
+water (`eye_in_water`, falling back to `in_water`), not at 90 % air.

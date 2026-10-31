@@ -1,0 +1,14 @@
+{
+  "allow_break": true,
+  "allow_place": true,
+  "break_budget": 64,
+  "place_budget": 64,
+  "allow_bridge": true,
+  "max_support_stack": 3,
+  "allow_pillar": true,
+  "max_pillar_height": 3,
+  "planner_tick_costs": true,
+  "planner_unknown": true,
+  "planner_edits": true,
+  "heuristic_weight": 1
+}

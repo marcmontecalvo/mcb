@@ -21,6 +21,7 @@ class Awareness:
             "legacy",
             "visible",
             "chunk",
+            "sections",
         }:
             raise ValueError("Unknown awareness preset")
         bounds = {
@@ -29,7 +30,11 @@ class Awareness:
             "entity_radius_blocks": (1, 64),
             "entity_vertical_radius_blocks": (1, 64),
             "update_interval_ticks": (1, 20),
-            "extra_scan_cells_per_update": (1, 8192),
+            # "sections" counts whole 4096-cell sections against this budget.
+            "extra_scan_cells_per_update": (
+                1,
+                65536 if self.preset == "sections" else 8192,
+            ),
             "extra_scan_budget_ms": (1, 10),
             "schema_version": (1, 1),
         }
@@ -38,7 +43,8 @@ class Awareness:
             if type(value) is not int or not low <= value <= high:
                 raise ValueError(f"Invalid awareness {key}")
         if self.vertical_radius_blocks == 0 or (
-            self.vertical_radius_blocks == -1 and self.preset != "chunk"
+            self.vertical_radius_blocks == -1
+            and self.preset not in {"chunk", "sections"}
         ):
             raise ValueError("Full height is supported only in chunk mode")
         if type(self.entity_visibility) is not str or self.entity_visibility not in {
@@ -82,6 +88,12 @@ class Awareness:
             "legacy": {},
             "visible": {"horizontal_radius_blocks": 32, "vertical_radius_blocks": 16},
             "chunk": {"horizontal_radius_blocks": 32, "vertical_radius_blocks": -1},
+            "sections": {
+                "horizontal_radius_blocks": 64,
+                "vertical_radius_blocks": 48,
+                "extra_scan_cells_per_update": 32768,
+                "extra_scan_budget_ms": 10,
+            },
         }
         if preset not in values:
             raise ValueError("Unknown awareness preset")

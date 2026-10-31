@@ -11,10 +11,12 @@ class MovementPolicy:
     allow_shapes: bool = False
     max_gap: int = 0
     allow_swim: bool = False
+    allow_climb: bool = False
 
     def __post_init__(self):
         if (
-            type(self.allow_diagonals) is not bool
+            type(self.allow_climb) is not bool
+            or type(self.allow_diagonals) is not bool
             or type(self.allow_sprint) is not bool
             or type(self.allow_shapes) is not bool
             or type(self.allow_swim) is not bool
@@ -26,7 +28,10 @@ class MovementPolicy:
             raise ValueError("Gap jumps must be between zero and two blocks")
 
     def payload(self):
-        return asdict(self)
+        value = asdict(self)
+        if not self.allow_climb:  # Old requests stay byte-identical.
+            del value["allow_climb"]
+        return value
 
     @classmethod
     def from_payload(cls, value):

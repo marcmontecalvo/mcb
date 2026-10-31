@@ -211,8 +211,13 @@ public final class CarpetBodyAdapter {
         pack.setSprinting(control.sprint());
         pack.turn((float) control.yaw_delta(), (float) control.pitch_delta());
         pack.setSlot(control.hotbar_slot() + 1);
-        pack.start(EntityPlayerActionPack.ActionType.JUMP,
-                control.jump() ? EntityPlayerActionPack.Action.once() : null);
+        // Carpet's "once" jump acts only on the ground; swimming up and climbing
+        // need the key held (Baritone holds jump in water and on ladders). Live run
+        // 20261030T200723012823Z R1: a swimmer sank 2.5 blocks under its route.
+        var body = player();
+        boolean hold = control.jump() && body != null && (body.isInWater() || body.onClimbable());
+        pack.start(EntityPlayerActionPack.ActionType.JUMP, !control.jump() ? null
+                : hold ? EntityPlayerActionPack.Action.continuous() : EntityPlayerActionPack.Action.once());
         if (control.mine()) {
             if (!mining) pack.start(EntityPlayerActionPack.ActionType.ATTACK, EntityPlayerActionPack.Action.continuous());
         } else {

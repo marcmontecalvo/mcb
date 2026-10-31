@@ -1,0 +1,9 @@
+{
+  "allow_diagonals": true,
+  "allow_sprint": true,
+  "max_drop": 3,
+  "allow_shapes": true,
+  "max_gap": 2,
+  "allow_swim": true,
+  "allow_climb": true
+}

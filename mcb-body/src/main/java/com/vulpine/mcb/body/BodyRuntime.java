@@ -38,6 +38,8 @@ public final class BodyRuntime implements AutoCloseable {
     private static volatile BodyRuntime active;
     private final MinecraftServer server;
     private volatile Map<String,Object> policySnapshot = Map.of();
+    private volatile Object servedTerrain; // last terrain batch /policy actually served
+    private TerrainBatch loggedBatch; // this update's newly scanned sections, for the event log
     private boolean compactTerrain;
     private TerrainBatch terrainBatch = new TerrainBatch(List.of(),-100);
     private List<Map<String,Object>> visibleBlocks = List.of();
@@ -117,7 +119,12 @@ public final class BodyRuntime implements AutoCloseable {
             }
             String path = exchange.getRequestURI().getPath();
             if (exchange.getRequestMethod().equals("GET")) {
-                if (path.equals("/policy")) { respond(exchange,200,policySnapshot); return; }
+                if (path.equals("/policy")) {
+                    var served=policySnapshot;
+                    respond(exchange,200,served);
+                    servedTerrain=served.get("terrain_sections"); // delivered: see requeue()
+                    return;
+                }
                 if (path.equals("/state")) { respond(exchange, 200, snapshot); return; }
                 if (path.equals("/events")) {
                     String query = exchange.getRequestURI().getRawQuery();
@@ -336,7 +343,7 @@ public final class BodyRuntime implements AutoCloseable {
             var geometry = new RouteGeometry(localReader(p));
             var velocity = p.getDeltaMovement();
             var input = routeMotor.tick(new RouteMotor.Pose(p.getX(),p.getY(),p.getZ(),velocity.x,velocity.z,
-                    p.getYRot(),p.onGround(),p.getFoodData().getFoodLevel()),geometry);
+                    p.getYRot(),p.onGround(),p.getFoodData().getFoodLevel(),p.isInWater()),geometry);
             if (!routeMotor.active()) {
                 body.release(); expiryTick = -1;
             } else {
@@ -498,7 +505,8 @@ public final class BodyRuntime implements AutoCloseable {
                 ? AwarenessConfig.parse(request.getAsJsonObject("awareness")) : AwarenessConfig.legacy();
         String terrainEncoding = request.has("terrain_encoding") ? request.get("terrain_encoding").getAsString() : "cells";
         if (!Set.of("cells","sections-v1").contains(terrainEncoding)
-                || (terrainEncoding.equals("sections-v1") && nextAwareness.preset().equals("legacy")))
+                || (terrainEncoding.equals("sections-v1") && nextAwareness.preset().equals("legacy"))
+                || (nextAwareness.sections() && !terrainEncoding.equals("sections-v1")))
             throw new IllegalArgumentException("invalid_terrain_encoding");
         String limits = request.has("limits") ? text(request, "limits") : "none";
         if (!Set.of("none", "course").contains(limits)) throw new IllegalArgumentException("unknown_limits");
@@ -624,13 +632,21 @@ public final class BodyRuntime implements AutoCloseable {
                 var player=body.player();
                 filtered.put("survival",Map.of("eye_height",player.getEyeHeight(),
                         "air",player.getAirSupply(),"max_air",player.getMaxAirSupply(),
-                        "in_water",player.isInWater(),"on_climbable",player.onClimbable()));
+                        "in_water",player.isInWater(),"eye_in_water",player.isUnderWater(),
+                        "on_climbable",player.onClimbable()));
             }
             if(streaming && server.getTickCount()-sensorTick>=awareness.interval()) {
+                // A section batch nobody fetched is carried into the next one.
+                if(compactTerrain && servedTerrain!=terrainBatch) awarenessSensor.carry(awarenessSensor.sections());
                 visibleBlocks=awareness.preset().equals("legacy")?PolicySensor.visible(body.player(),server.getTickCount())
                         :awarenessSensor.sample(body.player(),server.getTickCount());
                 sensorTick=server.getTickCount();
-                if(compactTerrain) terrainBatch=new TerrainBatch(visibleBlocks,sensorTick);
+                if(compactTerrain) {
+                    terrainBatch=new TerrainBatch(visibleBlocks,sensorTick,awarenessSensor.sections());
+                    // The event log records each section once, when scanned; carried ones are
+                    // already logged (repeating them made 3 MB events and stalled /events).
+                    loggedBatch=new TerrainBatch(visibleBlocks,sensorTick,awarenessSensor.scanned());
+                }
             }
         }
         var resources=Map.of("average_mspt",server.getAverageTickTimeNanos()/1_000_000.0,
@@ -664,6 +680,7 @@ public final class BodyRuntime implements AutoCloseable {
             // Every simulation tick records body state; terrain follows the declared cadence.
             if(sensorTick!=server.getTickCount()) sample.remove("visible_blocks");
             if(sensorTick!=server.getTickCount()) sample.remove("terrain_sections");
+            else if(compactTerrain) sample.put("terrain_sections",loggedBatch);
             sample.put("map_update",sensorTick==server.getTickCount());
             emit("policy_sample","fabric_end_observation",Map.copyOf(sample));
         }

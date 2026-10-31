@@ -5,10 +5,27 @@ import time
 from collections import Counter
 from dataclasses import asdict
 
+from mclab import water_movement
 from mclab.execution import ControllerFailure, policy_state
 from mclab.navigation import empty, full_cube
 
 PROFILE = "dev-native-route-v1"
+MOTOR_ROUTE_POINTS = 32
+# Baritone Settings.planningTickLookahead: plan the next segment while this many
+# ticks of the current one remain, so the motor never brakes at a segment end.
+PLANNING_TICK_LOOKAHEAD = 150
+
+
+def remaining_ticks(route):
+    """Estimated ticks to drive `route` at sprint pace (route_search cost constants)."""
+    from mclab.route_search import JUMP_PENALTY, SPRINT
+
+    total = 0.0
+    for a, b in zip(route, route[1:], strict=False):
+        total += SPRINT * math.hypot(b[0] - a[0], b[2] - a[2]) + (
+            JUMP_PENALTY if b[1] > a[1] else 0.0
+        )
+    return total
 
 
 def ordinary_route(route):
@@ -22,8 +39,33 @@ def ordinary_route(route):
     return selected
 
 
+def flowing_cut(controller, route):
+    """Index of the first swim stance on flowing water, or None.
+
+    The body refuses flowing water as a swim stance, so such a node must never
+    be offered to the motor. Index 0 is the body's own stance and is skipped.
+    """
+    if not getattr(getattr(controller, "movement_policy", None), "allow_swim", False):
+        return None
+    cells = controller._known_cells()
+    for index, point in enumerate(route[1:], 1):
+        if water_movement.flowing_water(cells.get((point[0], point[1] - 1, point[2]))):
+            return index
+    return None
+
+
 def offered_route(controller):
-    route = ordinary_route(controller.route)
+    walkable = getattr(controller, "walkable_route", None)
+    route = ordinary_route(walkable() if walkable else controller.route)
+    cut = flowing_cut(controller, route)
+    if cut is not None:
+        if cut == 1:
+            # Nothing to drive before it: have the planner route around the edge.
+            controller.failed_edges.add((tuple(route[0]), tuple(route[1])))
+            controller.route.clear()
+            controller.search = None
+            controller._discard_prefetch()
+        route = route[:cut]
     result = getattr(controller, "last_result", None)
     if (
         getattr(controller, "terrain_policy", None) is not None
@@ -50,6 +92,7 @@ def prefetch_while_following(controller, route):
         getattr(controller, "planner_lane", None) is None
         or controller.prefetch is not None
         or controller.committed_step is not None
+        or getattr(controller, "route_steps", None)
     ):
         return
     end = route[-1]
@@ -96,17 +139,42 @@ def splice_route(controller, route, native, body):
     if not 0 < index < len(route) or len(result.route) < 2:
         return None
     source = route[index - 1]
+    active = route[index - 1 :]
     if math.hypot(body[0] - source[0] - 0.5, body[2] - source[2] - 0.5) > 1.2:
         return None  # Too far along for the motor's start check; retry next poll.
     joined = [tuple(p) for p in route[index - 1 :]] + [
         tuple(p) for p in result.route[1:]
     ]
-    if ordinary_route(joined) != joined:
-        return None  # A gap or more than 32 points: let the ordinary path decide.
+    head = joined[:MOTOR_ROUTE_POINTS]
+    if ordinary_route(head) != head:
+        return None  # A gap: let the ordinary path decide.
+    if flowing_cut(controller, head) is not None:
+        return None  # offered_route cuts and reroutes at flowing water.
+    if len(set(joined)) != len(joined):
+        # Prefetches from stale snapshots can lead back over the active route.
+        # A looping list never shrinks (route[index(node):]) and is re-offered
+        # forever (Step C run 20261030T002908756029Z R1: 200+ A-B-A-B-A routes).
+        return None
+    # Planned edits stay in the controller's route; the motor stops before them.
+    steps = {(s.source, s.target): s for s in result.steps}
+    full = joined
+    for index, pair in enumerate(zip(full, full[1:], strict=False)):
+        if pair in steps:
+            joined = full[: index + 1]
+            break
+    if len(joined) > MOTOR_ROUTE_POINTS:
+        # Splice early, truncated to the motor cap, once under the lookahead;
+        # the remainder stays in controller.route and is replanned from the new end.
+        if remaining_ticks(active) >= PLANNING_TICK_LOOKAHEAD:
+            return None
+        joined = joined[:MOTOR_ROUTE_POINTS]
+    if len(joined) < 2:
+        return None
     controller.search, controller.prefetch = prefetch, None
     controller.prefetch_adopted += 1
     controller.last_result = result
-    controller.route = list(joined)
+    controller.route = list(full)
+    controller.route_steps = steps
     controller.events.append(
         (
             "route_prefetch_adopted",
@@ -182,8 +250,6 @@ def submit_route(client, controller, stats, route):
 def drive_native(client, controller, wall_timeout):
     from mclab.control_loop import _fail, _running, record_selector
 
-    if controller.movement_policy.allow_swim:
-        raise ValueError("Native route profile does not support swimming")
     deadline = time.monotonic() + wall_timeout
     active_id = None
     active_route = []
@@ -258,9 +324,23 @@ def drive_native(client, controller, wall_timeout):
                     time.sleep(0.05)
                     continue
                 if report.get("state") != "edits_ready":
-                    raise ControllerFailure(
-                        "Native step failed: " + report.get("reason", "unknown")
-                    )
+                    # A refused or interrupted edit is a failed edge, not a failed
+                    # attempt: never retry it, release the forecast, replan from
+                    # fresh geometry (as the Python StepExecutor path does). Live:
+                    # native_edit_stance_changed invalidated a whole attempt
+                    # (run 20261030T012618920529Z R1).
+                    plan = active_step[1]
+                    controller.edits_broken += len(report.get("broken_positions", []))
+                    controller.edits_placed += len(report.get("placed_positions", []))
+                    controller.failed_edges.add((plan.source, plan.target))
+                    controller.terrain = None
+                    controller._clear_terrain_forecast()
+                    controller.route.clear()
+                    controller.search = None
+                    client.record("native_step_failed", report)
+                    active_step = None
+                    confirmation_deadline = None
+                    continue
                 confirmation_deadline = confirmation_deadline or time.monotonic() + 2
                 plan = active_step[1]
                 if not confirm_step(
@@ -279,9 +359,13 @@ def drive_native(client, controller, wall_timeout):
                 controller.edits_broken += len(report["broken_positions"])
                 controller.edits_placed += len(report["placed_positions"])
                 controller.own_footholds.update(plan.places)
-                controller.committed_source = plan.source
-                controller.committed_step = plan.target
-                controller.commit_started = observation["tick"]
+                if plan.kind not in {"pillar", "downward"}:
+                    # A pillar's (or dig-down's) StepMotor already moved the body:
+                    # a vertical [source, target] route is refused by RouteMotor
+                    # (Step C run 20261030T004308126362Z R4: route_edge_permission).
+                    controller.committed_source = plan.source
+                    controller.committed_step = plan.target
+                    controller.commit_started = observation["tick"]
                 controller.terrain = None
                 controller.route.clear()
                 controller.search = None
@@ -314,7 +398,14 @@ def drive_native(client, controller, wall_timeout):
                 client.record("native_route_finished", native)
                 if native.get("state") != "done":
                     stats["route_replans"] += 1
-                    if native.get("reason") == "route_no_progress":
+                    # Edges the motor cannot drive: replan around them. Without
+                    # the geometry case, run 20261030T194952532182Z resubmitted
+                    # one rejected diagonal until the 5 s stall cutoff.
+                    if native.get("reason") in {
+                        "route_no_progress",
+                        "route_swept_geometry_unknown_or_unsafe",
+                        "route_drop_requires_water",
+                    }:
                         index = native.get("next_index", 1)
                         route = active_route
                         if 0 < index < len(route):

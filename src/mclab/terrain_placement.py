@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from mclab.navigation import empty, full_cube
+from mclab.grid_cache import EMPTY, FULL, classify
 
 
 @dataclass(frozen=True)
@@ -17,8 +17,9 @@ def placement_target(cells, source, point, *, allow_bridge=False):
     x, y, z = point
     sx, sy, sz = source
     dx, dz = x - sx, z - sz
+    flags = getattr(cells, "cflags", None) or (lambda p: classify(cells.get(p)))
     below = (x, y - 1, z)
-    if full_cube(cells.get(below)):
+    if flags(below) & FULL:
         approach = None
         if y < sy and abs(dx) + abs(dz) == 1:
             approach = (sx + 0.5 + dx * 0.65, sy, sz + 0.5 + dz * 0.65)
@@ -28,8 +29,8 @@ def placement_target(cells, source, point, *, allow_bridge=False):
         not allow_bridge
         or y != sy - 1
         or abs(dx) + abs(dz) != 1
-        or not empty(cells.get(below))
-        or not full_cube(cells.get(anchor))
+        or not flags(below) & EMPTY
+        or not flags(anchor) & FULL
     ):
         return None
     face = (

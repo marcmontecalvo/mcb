@@ -23,6 +23,7 @@ from mclab.pathing_grid import (
     PROVENANCE_FIELDS,
     SECTION_CELLS,
     PathingGrid,
+    Section,
     offset_of,
 )
 from mclab.spatial_archive import MapArchive as MapArchive
@@ -223,6 +224,14 @@ class SpatialMemory:
                     ),
                 )
             )
+        bulk = getattr(observation, "bulk", ())
+        if bulk:
+            sids = [grid.state_id(state) for state in observation.palette]
+            built = self._build_bulk(bulk, sids, observed_at)
+            if self.policy.memory_mode == "persistent":
+                self._queue_bulk(built)
+            for key, section in built:
+                grid.sections[key] = section
         if self.policy.memory_mode == "persistent":
             self._queue(rows)
         for p, sid, pid in rows:
@@ -239,6 +248,46 @@ class SpatialMemory:
         self._evict()
         self.last_sample = sample
         self.revision += 1
+
+    def _build_bulk(self, bulk, sids, observed_at):
+        """Whole-section slice assignments (no per-cell Python work).
+
+        Fresh Sections are returned, so frozen snapshots keep the old ones.
+        """
+        grid, built = self.grid, []
+        for key, value, tick in bulk:
+            section = Section(grid.generation)
+            if isinstance(value, int):
+                section.states = array("H", [sids[value]]) * SECTION_CELLS
+            else:
+                section.states = array("H", [sids[i] for i in value])
+            pid = grid.provenance_id(tick, self.session, observed_at)
+            section.provenance = array("I", [pid]) * SECTION_CELLS
+            section.known = SECTION_CELLS
+            built.append((key, section))
+        return built
+
+    def _queue_bulk(self, built):
+        with self.queue_lock:
+            pending = self.pending_sections
+            new = [key for key, _ in built if key not in pending]
+            if len(pending) + len(new) > self.queue_limit:
+                self.gap = True
+                raise RuntimeError("Spatial persistence queue full; rescan required")
+            if self.pending_bytes + len(new) * PENDING_SECTION_BYTES > (
+                self.queue_byte_limit
+            ):
+                self.gap = True
+                raise RuntimeError("Spatial persistence byte budget; rescan required")
+            for key, section in built:
+                entry = pending.get(key)
+                if entry is None:
+                    entry = pending[key] = PendingSection()
+                    self.pending_bytes += PENDING_SECTION_BYTES
+                entry.states = array("H", section.states)
+                entry.provenance = array("I", section.provenance)
+                entry.dirty = bytearray(b"") * SECTION_CELLS
+            self.queue_lock.notify_all()
 
     def _queue(self, rows):
         with self.queue_lock:
@@ -467,7 +516,9 @@ class SpatialMemory:
         )
 
     def flush(self):
-        deadline = time.monotonic() + 10
+        # 10 s was exceeded at attempt end with 8,192-cell awareness sweeps (Step C
+        # run 20261030T011203175248Z R5); the archive is evidence, so wait longer.
+        deadline = time.monotonic() + 60
         with self.queue_lock:
             while self.pending_sections or self.writing:
                 remaining = deadline - time.monotonic()

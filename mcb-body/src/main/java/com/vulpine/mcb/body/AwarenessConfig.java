@@ -9,14 +9,14 @@ public record AwarenessConfig(String preset, int horizontalRadius, int verticalR
                               int entityRadius, int entityVerticalRadius, String entityVisibility,
                               int interval, int extraCells, int extraMillis) {
     public AwarenessConfig {
-        if (!Set.of("legacy", "visible", "chunk").contains(preset)
+        if (!Set.of("legacy", "visible", "chunk", "sections").contains(preset)
                 || horizontalRadius < 1 || horizontalRadius > 64
                 || verticalRadius < -1 || verticalRadius == 0 || verticalRadius > 64
-                || (verticalRadius == -1 && !preset.equals("chunk"))
+                || (verticalRadius == -1 && !preset.equals("chunk") && !preset.equals("sections"))
                 || entityRadius < 1 || entityRadius > 64
                 || entityVerticalRadius < 1 || entityVerticalRadius > 64
                 || !Set.of("visible", "unoccluded").contains(entityVisibility)
-                || interval < 1 || interval > 20 || extraCells < 1 || extraCells > 8192
+                || interval < 1 || interval > 20 || extraCells < 1 || extraCells > (preset.equals("sections") ? 65536 : 8192)
                 || extraMillis < 1 || extraMillis > 10)
             throw new IllegalArgumentException("invalid_awareness_config");
         if (preset.equals("legacy") && (horizontalRadius != 8 || verticalRadius != 4
@@ -30,7 +30,9 @@ public record AwarenessConfig(String preset, int horizontalRadius, int verticalR
     }
 
     public String profile() { return preset.equals("legacy") ? "local-visibility-v1" : "awareness-v1"; }
-    public boolean occluded() { return !preset.equals("chunk"); }
+    public boolean occluded() { return !preset.equals("chunk") && !preset.equals("sections"); }
+    /** Whole-section scanner over loaded chunks; requires the sections-v1 terrain encoding. */
+    public boolean sections() { return preset.equals("sections"); }
 
     public Map<String,Object> payload() {
         return Map.ofEntries(Map.entry("schema_version", 1), Map.entry("preset", preset),

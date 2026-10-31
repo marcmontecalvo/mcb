@@ -3,8 +3,9 @@
 import math
 from dataclasses import dataclass
 
-from mclab.collision_geometry import clear_body, clear_column, safe_cell
-from mclab.navigation import empty, full_cube, rotation, standable
+from mclab.collision_geometry import clear_body, clear_column
+from mclab.grid_cache import EMPTY, FULL, SAFE, classify
+from mclab.navigation import rotation, standable
 
 
 @dataclass(frozen=True)
@@ -33,29 +34,34 @@ def prepare_gap(cells, source, target, policy):
     width = int(span - 1)
     if width > policy.max_gap or width == 2 and not policy.allow_sprint:
         return None
+    return gap_plan(cells, source, target, policy, span)
+
+
+def gap_plan(cells, source, target, policy, span):
+    """prepare_gap after validation: integral level source/target, span 2 or 3."""
+    sx, sy, sz = source
+    tx, _, tz = target
+    width = int(span - 1)
     dx, dz = int((tx - sx) / span), int((tz - sz) / span)
-    if not full_cube(cells.get((sx, sy - 1, sz))) or not full_cube(
-        cells.get((tx, sy - 1, tz))
-    ):
+    flags = getattr(cells, "cflags", None) or (lambda p: classify(cells.get(p)))
+    if not flags((sx, sy - 1, sz)) & FULL or not flags((tx, sy - 1, tz)) & FULL:
         return None
-    if any(
-        not empty(cells.get((sx + dx * offset, sy - 1, sz + dz * offset)))
-        for offset in range(1, int(span))
-    ):
-        return None
+    for offset in range(1, int(span)):
+        if not flags((sx + dx * offset, sy - 1, sz + dz * offset)) & EMPTY:
+            return None
     runway = (sx - dx, sy, sz - dz)
     for offset in range(-1, int(span) + 3):
         x, z = sx + dx * offset, sz + dz * offset
+        if 0 < offset < span:
+            if not (flags((x, sy - 1, z)) & EMPTY and flags((x, sy - 2, z)) & EMPTY):
+                return None
+        else:
+            below = flags((x, sy - 1, z))
+            if not (below & SAFE and below & FULL):
+                return None
         if not clear_column(cells, x, z, sy, sy + 3.2):
             return None
-        if 0 < offset < span:
-            if not all(empty(cells.get((x, sy - depth, z))) for depth in (1, 2)):
-                return None
-        elif (
-            not safe_cell(cells.get((x, sy - 1, z)))
-            or not full_cube(cells.get((x, sy - 1, z)))
-            or not standable(cells, (x, sy, z))
-        ):
+        if not (0 < offset < span) and not standable(cells, (x, sy, z)):
             return None
     return GapJumpPlan(
         tuple(source), tuple(target), width, (dx, dz), runway, width == 2

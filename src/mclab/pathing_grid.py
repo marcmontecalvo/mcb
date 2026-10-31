@@ -17,6 +17,7 @@ from copy import deepcopy
 from mclab.collision_geometry import HAZARDS
 from mclab.navigation import empty, full_cube
 from mclab.terrain_steps import EXCAVATABLE
+from mclab.terrain_steps import FALLING as FALLING_BLOCKS
 
 SECTION_CELLS = 4096
 # states ('H', 2 bytes) + provenance ('I', 4 bytes) per cell, plus object overhead.
@@ -54,7 +55,7 @@ def state_flags(facts):
         flags |= LAVA
     if fluid != "minecraft:empty" or block in HAZARDS:
         flags |= HAZARD
-    if block in {"minecraft:sand", "minecraft:gravel"}:
+    if block in FALLING_BLOCKS:
         flags |= FALLING
     if block in EXCAVATABLE:
         flags |= BREAKABLE

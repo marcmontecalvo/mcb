@@ -103,3 +103,16 @@ Broader acquisition alone does not remove that limit or fix its routing. Durable
 map memory, compact chunk transport, client-subscription-equivalent access, wider
 route search, and performance tuning remain sprint work. These modes do not yet
 establish Baritone-equivalent awareness or improved route success.
+
+## `sections` preset (Oct 30, 2026)
+
+Whole-section scanner for matching Baritone's loaded-chunk knowledge
+(`config/stepc/awareness-sections-64.json`: radius 64, vertical +-48, 32768
+cost/update, 10 ms, every 5 ticks). Requires `terrain_encoding=sections-v1`.
+Every loaded 16x16x16 section in range is sent once (nearest first; a uniform
+section is one palette entry, cost 64; a mixed section is 4096 palette indices,
+cost 4096), then 24 sent sections per update are re-read (stale and near first)
+and re-sent only when their content changed. Unloaded chunks are never sent;
+moving the body only reorders the queue. Wire keys `bulk_cells`,
+`dense_sections`, `uniform_sections` are optional additions to
+`sparse_section_palette`. Python ingests them as section slice assignments.

@@ -20,7 +20,7 @@ from pathlib import Path
 from mclab import baritone_client, server
 from mclab.awareness import Awareness
 from mclab.bootstrap import sha256
-from mclab.control_loop import LOCKSTEP, NATIVE, PROFILES, drive
+from mclab.control_loop import LOCKSTEP, PROFILES, drive
 from mclab.execution import ControllerFailure, RecordedBridge, terminal_event
 from mclab.memory_policy import MemoryPolicy
 from mclab.modbuild import source_hash
@@ -377,8 +377,11 @@ def attempt(
                 bot.cancel()
         else:
             # The start event can precede the next policy snapshot by a tick.
+            # Poll /state, not /policy: the body counts a served /policy terrain
+            # batch as delivered, and these reads are discarded (cohort 15 R1: the
+            # sections just south of the start were consumed here and never resent).
             deadline = time.monotonic() + 5
-            while client.http("/policy")["state"] != "running":
+            while client.http("/state")["state"] != "running":
                 if time.monotonic() > deadline:
                     raise RuntimeError("Policy stream did not reach running")
                 time.sleep(0.05)
@@ -476,7 +479,8 @@ def run(
 ) -> dict:
     awareness = Awareness() if awareness is None else awareness
     _validate_run(seed, routes, entrants, conditions)
-    # 0 disables. The server ends an attempt whose body stays within one block this long.
+    # 0 disables. The server ends an attempt whose body stays within one block
+    # this long.
     if type(stall_seconds) is not int or not (
         stall_seconds == 0 or 3 <= stall_seconds <= 120
     ):
@@ -496,14 +500,6 @@ def run(
         or "segmented_goal" not in entrants
     ):
         raise ValueError("Movement policy requires a segmented_goal entrant")
-    if (
-        control_profile == NATIVE
-        and movement_policy is not None
-        and movement_policy.allow_swim
-    ):
-        raise ValueError(
-            "Native route profile supports land movement; swimming needs a legacy control profile"
-        )
     if memory_policy is not None and (
         not isinstance(memory_policy, MemoryPolicy) or "segmented_goal" not in entrants
     ):

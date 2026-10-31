@@ -1,9 +1,9 @@
 """Bounded full-cube hill steps and confirmed Survival interaction execution."""
 
 import math
-from collections import ChainMap
 from dataclasses import dataclass
 
+from mclab.grid_cache import EMPTY, FALLING, FALLS, FULL, KNOWN, WET, classify
 from mclab.navigation import empty, full_cube, rotation, standable
 from mclab.terrain_placement import placement_target
 
@@ -14,6 +14,88 @@ EXCAVATABLE = {
     "minecraft:dirt": "minecraft:iron_shovel",
     "minecraft:grass_block": "minecraft:iron_shovel",
 }
+_PICK, _SHOVEL, _AXE = (
+    "minecraft:iron_pickaxe",
+    "minecraft:iron_shovel",
+    "minecraft:iron_axe",
+)
+_COLORS = (
+    "white orange magenta light_blue yellow lime pink gray light_gray cyan "
+    "purple blue brown green red black"
+).split()
+# Step C (Phase 1): block -> (hardness, tool, tool is effective). Vanilla 1.21
+# hardness values. Iron tools mine all of these; Mojang's breaking formula is in
+# break_ticks. The mcb-body StepMotor TOOLS map must list the same blocks.
+WIDE_EXCAVATABLE = {
+    **{f"minecraft:{c}_terracotta": (1.25, _PICK, True) for c in _COLORS},
+    "minecraft:terracotta": (1.25, _PICK, True),
+    "minecraft:stone": (1.5, _PICK, True),
+    "minecraft:cobblestone": (2.0, _PICK, True),
+    "minecraft:andesite": (1.5, _PICK, True),
+    "minecraft:diorite": (1.5, _PICK, True),
+    "minecraft:granite": (1.5, _PICK, True),
+    "minecraft:tuff": (1.5, _PICK, True),
+    "minecraft:calcite": (0.75, _PICK, True),
+    "minecraft:deepslate": (3.0, _PICK, True),
+    "minecraft:sandstone": (0.8, _PICK, True),
+    "minecraft:red_sandstone": (0.8, _PICK, True),
+    "minecraft:coal_ore": (3.0, _PICK, True),
+    "minecraft:iron_ore": (3.0, _PICK, True),
+    "minecraft:dirt": (0.5, _SHOVEL, True),
+    "minecraft:coarse_dirt": (0.5, _SHOVEL, True),
+    "minecraft:rooted_dirt": (0.5, _SHOVEL, True),
+    "minecraft:grass_block": (0.6, _SHOVEL, True),
+    "minecraft:podzol": (0.5, _SHOVEL, True),
+    "minecraft:mycelium": (0.6, _SHOVEL, True),
+    "minecraft:clay": (0.6, _SHOVEL, True),
+    "minecraft:mud": (0.5, _SHOVEL, True),
+    "minecraft:snow_block": (0.2, _SHOVEL, True),
+    "minecraft:sand": (0.5, _SHOVEL, True),
+    "minecraft:red_sand": (0.5, _SHOVEL, True),
+    "minecraft:gravel": (0.6, _SHOVEL, True),
+    **{
+        f"minecraft:{w}_log": (2.0, _AXE, True)
+        for w in "oak spruce birch jungle acacia dark_oak mangrove cherry".split()
+    },
+    # Leaves: no axe speed bonus, but the axe slot is a harmless selection.
+    **{
+        f"minecraft:{w}_leaves": (0.2, _AXE, False)
+        for w in "oak spruce birch jungle acacia dark_oak mangrove cherry azalea".split(
+            " "
+        )
+    },
+}
+IRON_SPEED = 6.0  # ItemTier IRON mining speed; the natural kit carries iron tools
+BREAK_EXTRA_TICKS = 2.0  # Baritone blockBreakAdditionalPenalty (default 2)
+PLACE_TICKS = 20.0  # Baritone placeBlockCost (default 20)
+# MCB-specific, measured: each edit step stops, aims, confirms and restarts.
+# Live run 20261030T004308126362Z R3: ~36 ticks per two-block tunnel step
+# against ~24 modelled from break times alone.
+EDIT_STEP_TICKS = 15.0
+# MCB-specific, measured: re-aiming at each further block of a step. Live R2 of
+# that run broke stone in ~16 ticks per block against 10 modelled.
+BREAK_AIM_TICKS = 6.0
+
+
+_WIDE_TOOLS = {block: spec[1] for block, spec in WIDE_EXCAVATABLE.items()}
+
+
+def excavatable(policy):
+    """Breakable block -> tool. Tick-cost planning widens the legacy set."""
+    if getattr(policy, "planner_tick_costs", False):
+        return _WIDE_TOOLS
+    return EXCAVATABLE
+
+
+def break_ticks(block):
+    """Vanilla breaking time with the block's iron tool, in game ticks.
+
+    Per tick damage is speed / hardness / 30 when the tool can harvest the
+    block; a block breaks when damage reaches 1 (instant if one tick suffices).
+    """
+    hardness, _, effective = WIDE_EXCAVATABLE[block]
+    damage = (IRON_SPEED if effective else 1.0) / hardness / 30
+    return 1 if damage >= 1 else math.ceil(1 / damage)
 
 
 @dataclass(frozen=True)
@@ -34,6 +116,24 @@ class TerrainPolicy:
     max_support_stack: int = 1
     allow_pillar: bool = False
     max_pillar_height: int = 3
+    # Step C planner core (D11): each part has its own flag for ablations.
+    planner_tick_costs: bool = False
+    planner_unknown: bool = False
+    planner_edits: bool = False
+    unknown_penalty: float = 2.0
+    # Baritone v1.20.0 search mechanics (octile heuristic, jump penalty, partial
+    # path coefficients, previous-path favouring, tail cutoff) and its diagonal rule.
+    baritone_search: bool = False
+    baritone_diagonals: bool = False
+    # Baritone movement kinds missing from the planner: dig down, descend with
+    # breaks, planner pillar, ladders/vines, water landings, falling-block pricing.
+    baritone_moves: bool = False
+    # Swim edges priced in ticks (SWIM_TICKS x water multiplier), flowing water,
+    # surface->land exits and water landings. Needs movement_policy.allow_swim.
+    planner_swim: bool = False
+    # 0: legacy weighting (remaining distance priced like unknown space).
+    # 1..10: Baritone-form A* heuristic at sprint rate times this weight.
+    heuristic_weight: float = 0.0
 
     @classmethod
     def from_payload(cls, value):
@@ -63,9 +163,25 @@ class TerrainPolicy:
                 self.allow_place,
                 self.allow_bridge,
                 self.allow_pillar,
+                self.planner_tick_costs,
+                self.planner_unknown,
+                self.planner_edits,
+                self.baritone_search,
+                self.baritone_diagonals,
+                self.baritone_moves,
+                self.planner_swim,
             )
         ):
             raise ValueError("Terrain permissions must be booleans")
+        if (
+            type(self.unknown_penalty) not in (int, float)
+            or not 1 <= self.unknown_penalty <= 10
+        ):
+            raise ValueError("Unknown-space penalty must be between 1 and 10")
+        if type(self.heuristic_weight) not in (int, float) or not (
+            self.heuristic_weight == 0 or 1 <= self.heuristic_weight <= 10
+        ):
+            raise ValueError("Heuristic weight must be 0 (legacy) or 1..10")
         for name in ("break_budget", "place_budget", "reserve_blocks"):
             if (
                 type(getattr(self, name)) is not int
@@ -129,7 +245,22 @@ class StepPlan:
         return 1.4 + 5 * len(self.breaks) + 8 * len(self.places)
 
 
+class Inventory(tuple):
+    """Immutable inventory rows with memoised hotbar and supply lookups."""
+
+    def __init__(self, rows=()):
+        super().__init__()
+        self.hot, self.supply = {}, {}
+        for row in self:
+            slot = row.get("slot", -1)
+            if 0 <= slot < 9 and row.get("count", 0) > 0:
+                self.hot.setdefault(row.get("item"), slot)
+
+
 def hotbar(inventory, item):
+    hot = getattr(inventory, "hot", None)
+    if hot is not None:
+        return hot.get(item)
     return next(
         (
             r["slot"]
@@ -143,6 +274,16 @@ def hotbar(inventory, item):
 
 
 def building_supply(inventory, reserve, materials=BUILDING):
+    memo = getattr(inventory, "supply", None)
+    if memo is not None:
+        key = (reserve, materials)
+        if key not in memo:
+            memo[key] = _building_supply(inventory, reserve, materials)
+        return memo[key]
+    return _building_supply(inventory, reserve, materials)
+
+
+def _building_supply(inventory, reserve, materials):
     total = sum(
         row.get("count", 0)
         for row in inventory
@@ -160,7 +301,93 @@ def building_supply(inventory, reserve, materials=BUILDING):
     )
 
 
-def prepare_step(cells, source, target, policy, inventory, *, protected=()):
+def stack_supply(inventory, count, reserve, materials):
+    """Can ``count`` blocks be placed in a row from the hotbar supply?"""
+    memo = getattr(inventory, "supply", None)
+    key = (count, reserve, materials)
+    if memo is not None and key in memo:
+        return memo[key]
+    stock = [dict(row) for row in inventory]
+    ok = True
+    for _ in range(count):
+        slot = _building_supply(stock, reserve, materials)
+        if slot is None:
+            ok = False
+            break
+        next(row for row in stock if row["slot"] == slot)["count"] -= 1
+    if memo is not None:
+        memo[key] = ok
+    return ok
+
+
+def cut_allowed(cells, point, policy, inventory, protected, tools):
+    """May this block be broken? Unknown, fluid and falling neighbours decide.
+
+    With baritone_moves a falling block directly above is allowed (its stack is
+    priced by falling_stack) and so is a side falling block with known support
+    (Baritone MovementHelper.avoidBreaking/getMiningDurationTicks); an
+    unsupported side one is still refused.
+    """
+    flags = getattr(cells, "cflags", None) or (lambda p: classify(cells.get(p)))
+    block = (cells.get(point) or {}).get("block")
+    if (
+        point in protected
+        or block in policy.protected_blocks
+        or not policy.allow_break
+        or block not in tools
+        or not flags(point) & FULL
+        or hotbar(inventory, tools[block]) is None
+    ):
+        return False
+    px, py, pz = point
+    for dx, dy, dz in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, -1)):
+        found = flags((px + dx, py + dy, pz + dz))
+        if not found & KNOWN or found & WET:
+            return False
+        if found & FALLS:
+            if not policy.baritone_moves:
+                return False
+            if dy == 0 and not flags((px + dx, py - 1, pz + dz)) & FULL:
+                return False
+    return True
+
+
+def cut_ok(cells, point, policy, inventory, protected, tools, memo):
+    """cut_allowed, memoised: shared while no planned edit lies within one cell of
+    point, else per overlay (``cells.o_cut``).
+
+    The memo is only valid for one (policy, inventory, protected) triple, which
+    is the caller's responsibility (a RouteSearch owns exactly one).
+    """
+    near = getattr(cells, "near", None)
+    if near is None or memo is None:
+        return cut_allowed(cells, point, policy, inventory, protected, tools)
+    if point in near:
+        memo = cells.o_cut  # valid for this overlay only
+    allowed = memo.get(point)
+    if allowed is None:
+        allowed = memo[point] = cut_allowed(
+            cells, point, policy, inventory, protected, tools
+        )
+    return allowed
+
+
+def falling_stack(cells, point):
+    """Falling blocks stacked directly above point (they drop into the cut)."""
+    stack, (x, y, z) = [], point
+    flags = getattr(cells, "cflags", None)
+    if flags is not None:  # Grid: gravity bit, memoised
+        while flags((x, y + len(stack) + 1, z)) & FALLS:
+            stack.append((x, y + len(stack) + 1, z))
+        return stack
+    while ((cells.get((x, y + len(stack) + 1, z)) or {}).get("block")) in FALLING:
+        stack.append((x, y + len(stack) + 1, z))
+    return stack
+
+
+def prepare_step(
+    cells, source, target, policy, inventory, *, protected=(), cut_memo=None
+):
     """Plan a bounded support stack and four headroom cuts; unknown is forbidden."""
     x, y, z = source
     tx, ty, tz = target
@@ -170,8 +397,9 @@ def prepare_step(cells, source, target, policy, inventory, *, protected=()):
         return None
     support = (tx, ty - 1, tz)
     protected = set(protected) | set(policy.protected_positions)
+    flags = getattr(cells, "cflags", None) or (lambda p: classify(cells.get(p)))
     places = []
-    if not full_cube(cells.get(support)):
+    if not flags(support) & FULL:
         if not policy.allow_place:
             return None
         places.append(support)
@@ -190,67 +418,110 @@ def prepare_step(cells, source, target, policy, inventory, *, protected=()):
         places.reverse()
         if len(places) > policy.place_budget:
             return None
-        stock = [dict(row) for row in inventory]
-        predicted = {}
+        # Every stacked point has the previous (predicted full) block below it and
+        # the lowest passed the anchor test above, so placement_target cannot fail.
         for point in places:
-            cell = cells.get(point)
-            slot = building_supply(
-                stock, policy.reserve_blocks, policy.material_allowlist
-            )
             if (
                 point in protected
-                or (cell or {}).get("block") in policy.protected_blocks
-                or not empty(cell)
-                or slot is None
-                or placement_target(
-                    ChainMap(predicted, cells),
-                    source,
-                    point,
-                    allow_bridge=policy.allow_bridge,
-                )
-                is None
+                or (cells.get(point) or {}).get("block") in policy.protected_blocks
+                or not flags(point) & EMPTY
             ):
                 return None
-            row = next(row for row in stock if row["slot"] == slot)
-            row["count"] -= 1
-            predicted[point] = {
-                "block": row["item"],
-                "collision_boxes": [[0, 0, 0, 1, 1, 1]],
-            }
+        if not stack_supply(
+            inventory, len(places), policy.reserve_blocks, policy.material_allowlist
+        ):
+            return None
     clearance = [(tx, ty, tz), (tx, ty + 1, tz)]
     if ty > y:
         clearance += [(x, y + 2, z), (x, y + 3, z), (tx, ty + 2, tz)]
+    tools = excavatable(policy)
     cuts = []
     for point in dict.fromkeys(clearance):
-        cell = cells.get(point)
-        if empty(cell):
+        if flags(point) & EMPTY:
             continue
-        block = (cell or {}).get("block")
-        if (
-            point in protected
-            or block in policy.protected_blocks
-            or not policy.allow_break
-            or block not in EXCAVATABLE
-            or not full_cube(cell)
-            or hotbar(inventory, EXCAVATABLE[block]) is None
-        ):
+        if not cut_ok(cells, point, policy, inventory, protected, tools, cut_memo):
             return None
-        # Removing a block must not release unknown/fluid/falling neighbors.
-        px, py, pz = point
-        for dx, dy, dz in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, -1)):
-            neighbor = cells.get((px + dx, py + dy, pz + dz))
-            if (
-                neighbor is None
-                or neighbor.get("fluid", "minecraft:empty") != "minecraft:empty"
-                or neighbor.get("block") in {"minecraft:sand", "minecraft:gravel"}
-            ):
-                return None
         cuts.append(point)
     if len(cuts) > min(4, policy.break_budget):
         return None
     if not cuts and not places:
         return None
     return StepPlan(tuple(source), tuple(target), tuple(cuts), tuple(places))
+
+
+def _anchored(flags, source, point, allow_bridge):
+    """placement_target(...) is not None, from cell flags."""
+    x, y, z = point
+    if flags((x, y - 1, z)) & FULL:
+        return True
+    sx, sy, sz = source
+    dx, dz = x - sx, z - sz
+    return bool(
+        allow_bridge
+        and y == sy - 1
+        and abs(dx) + abs(dz) == 1
+        and flags((x, y - 1, z)) & EMPTY
+        and flags((sx, sy - 1, sz)) & FULL
+    )
+
+
+def plan_edit(cells, source, target, policy, inventory, protected, tools, cut_memo):
+    """prepare_step for a standable full-block source and adjacent target.
+
+    RouteSearch hot path: ``protected`` is already merged with the policy's
+    protected positions and ``tools`` is ``excavatable(policy)``.
+    """
+    x, y, z = source
+    tx, ty, tz = target
+    flags = cells.cflags
+    support = (tx, ty - 1, tz)
+    places = ()
+    if not flags(support) & FULL:
+        if not policy.allow_place:
+            return None
+        stack = [support]
+        while not _anchored(flags, source, stack[-1], policy.allow_bridge):
+            if len(stack) >= policy.max_support_stack:
+                return None
+            px, py, pz = stack[-1]
+            stack.append((px, py - 1, pz))
+        stack.reverse()
+        if len(stack) > policy.place_budget:
+            return None
+        # Each stacked point rests on the previous predicted block, so only the
+        # lowest needed the anchor test (placement_target cannot fail above it).
+        for point in stack:
+            if (
+                point in protected
+                or (cells.get(point) or {}).get("block") in policy.protected_blocks
+                or not flags(point) & EMPTY
+            ):
+                return None
+        if not stack_supply(
+            inventory, len(stack), policy.reserve_blocks, policy.material_allowlist
+        ):
+            return None
+        places = tuple(stack)
+    if ty == y:
+        clearance = ((tx, ty, tz), (tx, ty + 1, tz))
+    else:
+        clearance = (
+            (tx, ty, tz),
+            (tx, ty + 1, tz),
+            (x, y + 2, z),
+            (x, y + 3, z),
+            (tx, ty + 2, tz),
+        )
+    cuts = []
+    for point in clearance:
+        if flags(point) & EMPTY:
+            continue
+        if not cut_ok(cells, point, policy, inventory, protected, tools, cut_memo):
+            return None
+        cuts.append(point)
+    if len(cuts) > min(4, policy.break_budget) or not (cuts or places):
+        return None
+    return StepPlan(source, target, tuple(cuts), places)
 
 
 class StepExecutor:
@@ -388,7 +659,9 @@ class StepExecutor:
             )
             if allowed is None or point not in allowed.breaks:
                 return self.fail("cut preconditions changed")
-            self.slot = hotbar(inventory, EXCAVATABLE.get(cell.get("block")))
+            self.slot = hotbar(
+                inventory, excavatable(self.policy).get(cell.get("block"))
+            )
             aim = [v + 0.5 for v in point]
             expected = point
             face = None
@@ -473,7 +746,9 @@ class StepExecutor:
             # cut. Mine the admitted occluder and confirm its own cell, rather
             # than waiting forever or mining an arbitrary ray obstruction.
             hit = True
-            self.slot = hotbar(inventory, EXCAVATABLE[fresh[hit_position]["block"]])
+            self.slot = hotbar(
+                inventory, excavatable(self.policy)[fresh[hit_position]["block"]]
+            )
         if (
             not aligned
             or not hit

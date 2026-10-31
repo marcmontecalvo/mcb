@@ -141,10 +141,12 @@ Purpose: find out what actually breaks on real terrain before changing anything.
    use `chunk` with horizontal radius 64, full height. Record both values in the
    manifest. (Alternative: raise the awareness cap to 96; only if cheap.)
    Confirm the Baritone client's own render distance is ≥ the server view distance.
+   **Status:** Done in `water_movement.air_recovery_command` (BFS within air/`SWIM_TICKS` blocks); `can_surface` now scans to open air. The controller still calls `can_surface` and must switch to `air_recovery_command`.
 2. Run `natural run --entrant comparison` on the five existing seed-1337 routes
    (`results/natural/routes-1337.json`), calm and night, one repetition each first.
    Segmented MCB uses its development movement/terrain profiles with all
    currently-passing families enabled.
+   **Status:** Done (HAZARDS + `still_water`).
 3. Deliverable: a table like `NATURAL_TERRAIN_COMPARISON.md` plus a failure
    classification per MCB attempt: planner blind spot (unknown treated as wall),
    edit-vs-detour misjudgment, motor stall/stop time, survival, other.
@@ -256,22 +258,30 @@ Swimming is being built in parallel. Notes from the review of
    lily pad, ceiling) — the bot waits while drowning. Recovery should route to the
    nearest breathable cell within remaining air. `can_surface` checks only 2.4
    blocks up, not to open air.
+   **Status:** Done in `water_movement.air_recovery_command` (BFS within air/`SWIM_TICKS` blocks); `can_surface` now scans to open air. The controller still calls `can_surface` and must switch to `air_recovery_command`.
 2. `still_water()` accepts `minecraft:bubble_column` (water fluid, no collision, no
    `level` → defaults to `"0"`). A magma-driven down column is a drowning trap.
    Add it to `HAZARDS` or reject it in `still_water()`.
+   **Status:** Done (HAZARDS + `still_water`).
 3. Telemetry sends `isInWater()` but drowning depends on eye submersion. Add
    `eye_in_water` (`isUnderWater()`) and end air recovery when the head is out
    rather than at 90 % air; air refills while surface-swimming.
+   **Status:** Partial: `head_out_of_water(survival)` uses `eye_in_water`, falling back to `in_water`. Controller must use it instead of the 90 % air test.
 4. Entry/exit only at equal height. Add surface → land +1 (jump out) and
    land → water drops (water cancels fall damage).
+   **Status:** Partial: predicates `water_exit_up` and `water_landing` exist; `route_search.py` does not call them yet.
 5. Flowing water is all-or-nothing (`level != 0` rejected); give it a higher cost
    instead, and model push direction later.
+   **Status:** Partial: `water_cost_multiplier` (1.5x flowing); routing still rejects flowing; push direction not modelled.
 6. Swim cost should be ticks (≈2× walk) per D2.
+   **Status:** Done: `SWIM_TICKS`, `WALK_ON_WATER_PENALTY`; not yet used by `route_search.py`.
 7. Decide whether "get head above water" is allowed when `allow_swim` is false
    (survival vs the no-recovery-fallback rule) and record it in `DECISIONS.md`.
+   **Status:** Done: allowed as a reflex; see `DECISIONS.md`.
 8. Fixtures: all ten variants are the same 1-wide flush channel. Add raised banks,
    overhang during recovery, bubble column, flowing water, lily pad/ice, lava
    adjacency, deep water, knockback with swimming disabled.
+   **Status:** Done in `tests/test_water_movement.py`.
 
 ## Superseded and legacy documents
 

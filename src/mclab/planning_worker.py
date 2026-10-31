@@ -35,6 +35,7 @@ class PlanningWorker:
         self.error = None
         self.parked = None  # (token, search, job) of a wall-cut search
         self.stopping = False
+        self.running = False
         self.durations = deque(maxlen=1024)
         self.completed = self.cancelled = 0
         self.thread = threading.Thread(
@@ -122,8 +123,16 @@ class PlanningWorker:
             self.condition.notify()
             return self.serial
 
-    def cancel(self):
+    def cancel(self, token=None):
+        """Stop the current job; with a token, only if that job is still current.
+
+        One lane serves both the main search and the prefetch. Discarding an
+        already-superseded prefetch used to cancel the main search that had
+        replaced it, leaving it "pending" forever (run 20261031T002351544397Z R4).
+        """
         with self.condition:
+            if token is not None and token != self.serial:
+                return
             self.serial += 1
             self.pending = self.latest = self.error = self.parked = None
             self.condition.notify()
@@ -141,6 +150,7 @@ class PlanningWorker:
                 if self.stopping:
                     return
                 job, self.pending = self.pending, None
+                self.running = True
             (
                 token,
                 goal_revision,
@@ -208,6 +218,13 @@ class PlanningWorker:
                 with self.condition:
                     if self.serial == token and not self.stopping:
                         self.error = error
+            finally:
+                with self.condition:
+                    self.running = False
+
+    def idle(self):
+        with self.condition:
+            return self.pending is None and not self.running
 
     def status(self):
         with self.condition:
@@ -235,6 +252,9 @@ class PlanningWorker:
             raise RuntimeError("Route search worker did not stop")
 
 
+EDIT_PATIENCE_MS = 1000  # search time spent before following an edit-first partial
+
+
 class BackgroundSearch:
     """Nonblocking search adapter sharing the controller's bounded worker."""
 
@@ -257,21 +277,31 @@ class BackgroundSearch:
         self.revision = map_revision
         self.expanded = 0
         self.elapsed_ms = 0
-        self.token = worker.submit(
-            cells,
-            start,
-            goal,
-            map_revision=map_revision,
-            goal_revision=goal_revision,
-            goal_radius=goal_radius,
-            node_limit=node_limit,
-            slice_ms=slice_ms,
-            segment_length=16,
-            search_factory=search_factory,
+        self._job = (
+            (cells, start, goal),
+            dict(
+                map_revision=map_revision,
+                goal_revision=goal_revision,
+                goal_radius=goal_radius,
+                node_limit=node_limit,
+                slice_ms=slice_ms,
+                segment_length=16,
+                search_factory=search_factory,
+            ),
         )
+        self.token = worker.submit(*self._job[0], **self._job[1])
 
     def advance(self, **_):
         envelope = self.worker.poll(self.token)
+        if (
+            envelope is None
+            and not self.worker._current(self.token)
+            and self.worker.idle()
+        ):
+            # Another submission took the shared lane: this job will never
+            # publish. Once the lane is free, resubmit instead of reporting
+            # "pending" forever (waiting avoids two searches evicting each other).
+            self.token = self.worker.submit(*self._job[0], **self._job[1])
         if envelope is None:
             return RouteResult(
                 "searching",
@@ -281,8 +311,23 @@ class BackgroundSearch:
                 "background search pending",
             )
         self.expanded = envelope.result.expanded
+        if envelope.token != getattr(self, "_counted", None):
+            self._counted = envelope.token
+            self.searched_ms = getattr(self, "searched_ms", 0) + envelope.elapsed_ms
         self.elapsed_ms = envelope.elapsed_ms
-        if envelope.result.status == "incomplete" and len(envelope.result.route) < 2:
+        result = envelope.result
+        edit_first = len(result.route) >= 2 and any(
+            tuple(s.source) == tuple(result.route[0])
+            and tuple(s.target) == tuple(result.route[1])
+            for s in getattr(result, "steps", ())
+        )
+        # Never start digging/building from a wall-clock-cut search either: a
+        # ~600-node partial tunnelled 30 blocks where the finished search walks
+        # around (run 20261030T200723012823Z R2). Past the expansion cap the
+        # partial is used as before, and so is one after EDIT_PATIENCE_MS of
+        # search: waiting for the full cap stalled R1 5 s (run 20261030T203732413689Z).
+        edit_first = edit_first and self.searched_ms < EDIT_PATIENCE_MS
+        if result.status == "incomplete" and (len(result.route) < 2 or edit_first):
             # No move to follow yet: keep searching rather than idle on a dead result.
             # ponytail: still ends incomplete past the expansion cap; Step C (D3)
             # planning through unknown space replaces this known-only fallback.

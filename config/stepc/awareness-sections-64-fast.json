@@ -1,0 +1,12 @@
+{
+  "entity_radius_blocks": 64,
+  "entity_vertical_radius_blocks": 64,
+  "entity_visibility": "visible",
+  "extra_scan_budget_ms": 10,
+  "extra_scan_cells_per_update": 65536,
+  "horizontal_radius_blocks": 64,
+  "preset": "sections",
+  "schema_version": 1,
+  "update_interval_ticks": 2,
+  "vertical_radius_blocks": 48
+}

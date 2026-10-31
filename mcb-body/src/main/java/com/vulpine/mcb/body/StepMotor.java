@@ -5,6 +5,8 @@ import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.item.FallingBlockEntity;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -18,17 +20,81 @@ import java.util.Set;
 
 /** Executes a bounded planned edit through normal inputs; Python confirms stock/geometry. */
 final class StepMotor {
-    private static final Map<String,String> TOOLS = Map.of("minecraft:stone","minecraft:iron_pickaxe",
-            "minecraft:cobblestone","minecraft:iron_pickaxe","minecraft:dirt","minecraft:iron_shovel",
-            "minecraft:grass_block","minecraft:iron_shovel");
+    // Must match terrain_steps.WIDE_EXCAVATABLE (tests/test_planner_core.py checks).
+    // Python decides which blocks a plan may cut; this is the body-side allowlist.
+    private static final Map<String,String> TOOLS = Map.ofEntries(
+            Map.entry("minecraft:acacia_leaves","minecraft:iron_axe"),
+            Map.entry("minecraft:acacia_log","minecraft:iron_axe"),
+            Map.entry("minecraft:andesite","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:azalea_leaves","minecraft:iron_axe"),
+            Map.entry("minecraft:birch_leaves","minecraft:iron_axe"),
+            Map.entry("minecraft:birch_log","minecraft:iron_axe"),
+            Map.entry("minecraft:black_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:blue_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:brown_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:calcite","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:cherry_leaves","minecraft:iron_axe"),
+            Map.entry("minecraft:cherry_log","minecraft:iron_axe"),
+            Map.entry("minecraft:clay","minecraft:iron_shovel"),
+            Map.entry("minecraft:coal_ore","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:coarse_dirt","minecraft:iron_shovel"),
+            Map.entry("minecraft:cobblestone","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:cyan_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:dark_oak_leaves","minecraft:iron_axe"),
+            Map.entry("minecraft:dark_oak_log","minecraft:iron_axe"),
+            Map.entry("minecraft:deepslate","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:diorite","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:dirt","minecraft:iron_shovel"),
+            Map.entry("minecraft:granite","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:grass_block","minecraft:iron_shovel"),
+            Map.entry("minecraft:gravel","minecraft:iron_shovel"),
+            Map.entry("minecraft:gray_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:green_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:iron_ore","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:jungle_leaves","minecraft:iron_axe"),
+            Map.entry("minecraft:jungle_log","minecraft:iron_axe"),
+            Map.entry("minecraft:light_blue_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:light_gray_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:lime_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:magenta_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:mangrove_leaves","minecraft:iron_axe"),
+            Map.entry("minecraft:mangrove_log","minecraft:iron_axe"),
+            Map.entry("minecraft:mud","minecraft:iron_shovel"),
+            Map.entry("minecraft:mycelium","minecraft:iron_shovel"),
+            Map.entry("minecraft:oak_leaves","minecraft:iron_axe"),
+            Map.entry("minecraft:oak_log","minecraft:iron_axe"),
+            Map.entry("minecraft:orange_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:pink_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:podzol","minecraft:iron_shovel"),
+            Map.entry("minecraft:purple_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:red_sand","minecraft:iron_shovel"),
+            Map.entry("minecraft:red_sandstone","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:red_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:rooted_dirt","minecraft:iron_shovel"),
+            Map.entry("minecraft:sand","minecraft:iron_shovel"),
+            Map.entry("minecraft:sandstone","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:snow_block","minecraft:iron_shovel"),
+            Map.entry("minecraft:spruce_leaves","minecraft:iron_axe"),
+            Map.entry("minecraft:spruce_log","minecraft:iron_axe"),
+            Map.entry("minecraft:stone","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:tuff","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:white_terracotta","minecraft:iron_pickaxe"),
+            Map.entry("minecraft:yellow_terracotta","minecraft:iron_pickaxe"));
+    private static final Set<String> FALLING = Set.of("minecraft:gravel","minecraft:red_sand","minecraft:sand","minecraft:suspicious_gravel","minecraft:suspicious_sand");
     private record Operation(boolean place, BlockPos point) { }
     private final String id, kind;
     private final BlockPos source, target, exit;
     private final List<Operation> operations;
     private final Set<BlockPos> protectedPositions;
     private final Set<String> protectedBlocks, materials;
-    private final boolean bridge;
+    private final boolean bridge, downward;
     private final int reserve, tickLimit;
+    // Baritone Settings.pauseMiningForFallingBlocks: wait this long after a cut under a
+    // falling-block stack, and while any falling block is near, before trusting the cell.
+    private static final int SETTLE_TICKS = 6;
+    private final Set<BlockPos> settleWatch = new HashSet<>();
+    private int settleUntil = -1;
     private int index, started = -1, issueTick = -1, finishedTick = -1;
     private boolean issued, launched;
     private String state = "following", reason = "", placedItem = "";
@@ -59,7 +125,21 @@ final class StepMotor {
             throw new IllegalArgumentException("native_step_budget");
         int horizontal = Math.abs(source.getX()-target.getX())+Math.abs(source.getZ()-target.getZ());
         int rise=target.getY()-source.getY();
-        if (kind.equals("pillar")) {
+        downward = kind.equals("downward");
+        if (downward) {
+            // Baritone MovementDownward: break the block under the feet and drop one.
+            if (!bool(policy,"allow_break") || horizontal!=0 || rise!=-1 || breaks.size()!=1 || places.size()!=0
+                    || !point(breaks.get(0).getAsJsonArray()).equals(source.below())) throw new IllegalArgumentException("native_downward_plan");
+        } else if (kind.equals("descend")) {
+            // Baritone MovementDescend: clear the lower target's feet, head and headroom first.
+            if (horizontal!=1 || rise!=-1 || places.size()!=0 || breaks.size()<1 || breaks.size()>3)
+                throw new IllegalArgumentException("native_descend_plan");
+            for (var value:breaks) {
+                var b=point(value.getAsJsonArray());
+                if (b.getX()!=target.getX() || b.getZ()!=target.getZ() || b.getY()<target.getY() || b.getY()>target.getY()+2)
+                    throw new IllegalArgumentException("native_descend_plan");
+            }
+        } else if (kind.equals("pillar")) {
             if (!bool(policy,"allow_pillar") || horizontal!=0 || rise!=1 || exit==null || breaks.size()!=0
                     || places.size()!=1 || !point(places.get(0).getAsJsonArray()).equals(source))
                 throw new IllegalArgumentException("native_pillar_plan");
@@ -69,11 +149,13 @@ final class StepMotor {
         for (var value:breaks) addOperation(false,point(value.getAsJsonArray()),unique);
         for (var value:places) addOperation(true,point(value.getAsJsonArray()),unique);
         if (operations.isEmpty()) throw new IllegalArgumentException("native_step_requires_edits");
+        // Highest cell first so each cut exposes the next and nothing is mined through.
+        if (kind.equals("descend")) operations.sort(java.util.Comparator.comparingInt((Operation o)->o.point.getY()).reversed());
     }
     private void addOperation(boolean place,BlockPos p,Set<BlockPos> unique) {
         if (!unique.add(p) || protectedPositions.contains(p) || Math.abs(p.getX()-source.getX())>1
                 || Math.abs(p.getZ()-source.getZ())>1 || p.getY()<source.getY()-3 || p.getY()>source.getY()+3
-                || (!place && p.equals(source.below()))) throw new IllegalArgumentException("native_step_protected_or_bounds");
+                || (!place && !downward && p.equals(source.below()))) throw new IllegalArgumentException("native_step_protected_or_bounds");
         operations.add(new Operation(place,p));
     }
     private static boolean bool(JsonObject p,String key) {
@@ -139,6 +221,9 @@ final class StepMotor {
         return new BodyRuntime.Controls("native-step",tick,tick,tick+2,2,forward,0,yaw,pitch,jump,sneak,false,mine,false,false,use,slot);
     }
     private BodyRuntime.Controls stopInput(int tick,String why) { stop(why); return input(tick,0,0,0,false,false,false,false,0); }
+    private static boolean fallingNear(ServerPlayer p,BlockPos pos) {
+        return !p.level().getEntitiesOfClass(FallingBlockEntity.class,new AABB(pos).inflate(.5,0,.5).expandTowards(0,16,0)).isEmpty();
+    }
     private static double wrap(double x) { return ((x+180)%360+360)%360-180; }
 
     BodyRuntime.Controls tick(ServerPlayer p,int tick,RouteGeometry.Reader reader) {
@@ -146,7 +231,7 @@ final class StepMotor {
         if(tick-started>tickLimit) return stopInput(tick,"native_step_deadline");
         double distance=Math.hypot(p.getX()-source.getX()-.5,p.getZ()-source.getZ()-.5);
         boolean pillar=kind.equals("pillar");
-        if(distance>(pillar?.45:.85) || p.getY()<source.getY()-.2 || p.getY()>source.getY()+(pillar?1.4:.2))
+        if(distance>(pillar?.45:.85) || p.getY()<(downward?target.getY():source.getY())-.2 || p.getY()>source.getY()+(pillar?1.4:.2))
             return stopInput(tick,"native_step_displaced");
         var geometry=new RouteGeometry(reader);
         for(var cut:issuedBreaks) if(empty(read(reader,cut))) broken.add(cut);
@@ -155,6 +240,19 @@ final class StepMotor {
         if(pillar && (exit==null || !geometry.standable(new RouteMotor.Point(exit.getX(),exit.getY(),exit.getZ()))))
             return stopInput(tick,"native_pillar_exit_changed");
         if(index>=operations.size()) {
+            if(downward) {
+                if(!geometry.standable(new RouteMotor.Point(target.getX(),target.getY(),target.getZ())))
+                    return stopInput(tick,"native_downward_landing_changed");
+                if(!p.onGround() || Math.abs(p.getY()-target.getY())>.1) {
+                    // An off-centre body still stands on the neighbour's edge after the cut
+                    // (cohort 15 R1 rep 2: 99 ticks at x-.48). Walk over the hole, as
+                    // Baritone's MovementDownward centres the player.
+                    double cx=target.getX()+.5-p.getX(),cz=target.getZ()+.5-p.getZ();
+                    if(!p.onGround() || Math.hypot(cx,cz)<.15) return input(tick,0,0,0,false,false,false,false,0);
+                    double turn=wrap(Math.toDegrees(Math.atan2(-cx,cz))-p.getYRot());
+                    return input(tick,Math.abs(turn)<30?.5:0,Math.max(-45,Math.min(45,turn)),0,false,false,false,false,0);
+                }
+            }
             if(pillar && (!p.onGround() || Math.abs(p.getY()-target.getY())>.1)) return input(tick,0,0,0,false,false,false,false,0);
             state="edits_ready"; finishedTick=tick;
             return input(tick,0,0,0,false,false,false,false,0);
@@ -162,6 +260,11 @@ final class StepMotor {
         var op=operations.get(index); var cell=read(reader,op.point);
         if(cell==null) return stopInput(tick,"native_edit_geometry_unknown");
         if(protectedBlocks.contains(cell.get("block"))) return stopInput(tick,"native_edit_protected");
+        if(!op.place && empty(cell) && settleWatch.contains(op.point)) {
+            settleUntil=fallingNear(p,op.point)||settleUntil<0 ? tick+SETTLE_TICKS : settleUntil;
+            if(tick<settleUntil) return input(tick,0,0,0,false,false,false,false,0);
+            settleUntil=-1; settleWatch.remove(op.point);
+        } else if(!empty(cell)) settleUntil=-1;
         boolean complete=op.place?cube(cell):empty(cell);
         if(complete) {
             if(op.place) {
@@ -181,12 +284,22 @@ final class StepMotor {
         boolean sneak=false;
         if(!op.place) {
             if(!cube(cell) || !TOOLS.containsKey(cell.get("block"))) return stopInput(tick,"native_cut_not_permitted");
+            if(downward && !cube(read(reader,target.below()))) return stopInput(tick,"native_downward_landing_changed");
             for(var direction:List.of(net.minecraft.core.Direction.UP,net.minecraft.core.Direction.NORTH,
                     net.minecraft.core.Direction.SOUTH,net.minecraft.core.Direction.EAST,net.minecraft.core.Direction.WEST)) {
                 var neighbor=read(reader,op.point.relative(direction));
-                if(neighbor==null || !"minecraft:empty".equals(neighbor.getOrDefault("fluid","minecraft:empty"))
-                        || Set.of("minecraft:sand","minecraft:gravel").contains(neighbor.get("block")))
+                if(neighbor==null || !"minecraft:empty".equals(neighbor.getOrDefault("fluid","minecraft:empty")))
                     return stopInput(tick,"native_cut_neighbor_unsafe");
+                if(FALLING.contains(neighbor.get("block"))) {
+                    // Sand/gravel straight above may be cut under (Baritone prices the stack);
+                    // it then falls into the cell, which is waited out and mined again.
+                    // A side one only falls if its own support goes: allowed while that is solid
+                    // (matches the planner's cut_allowed and Baritone avoidBreaking).
+                    if(direction!=net.minecraft.core.Direction.UP) {
+                        if(!cube(read(reader,op.point.relative(direction).below())))
+                            return stopInput(tick,"native_cut_neighbor_unsafe");
+                    } else settleWatch.add(op.point);
+                }
             }
             selected=slot(p,TOOLS.get(cell.get("block"))); aim=Vec3.atCenterOf(op.point);
         } else {
@@ -214,14 +327,17 @@ final class StepMotor {
                 face=dx==1?"EAST":dx==-1?"WEST":dz==1?"SOUTH":"NORTH";
                 aim=new Vec3(source.getX()+.5+dx*.499,op.point.getY()+.5,source.getZ()+.5+dz*.499);
             }
+            // Full input while sneaking: sneak alone already slows to 30% and the
+            // vanilla edge clamp keeps the body on the block. 0.3 input on top cost
+            // ~30 ticks per placement (Step C run 20261030T023556227338Z: median 39).
             boolean approach=!pillar && op.point.getY()<source.getY() && Math.abs(dx)+Math.abs(dz)==1;
             if(approach && progress<.6) {
                 double turn=wrap(Math.toDegrees(Math.atan2(-dx,dz))-p.getYRot());
-                return input(tick,Math.abs(turn)<8?.3:0,Math.max(-45,Math.min(45,turn)),0,false,true,false,false,Math.max(0,selected));
+                return input(tick,Math.abs(turn)<8?1:0,Math.max(-45,Math.min(45,turn)),0,false,true,false,false,Math.max(0,selected));
             }
             if(!pillar && op.point.getY()>=source.getY() && progress>.1) {
                 double turn=wrap(Math.toDegrees(Math.atan2(-(source.getX()+.5-p.getX()),source.getZ()+.5-p.getZ()))-p.getYRot());
-                return input(tick,Math.abs(turn)<8?.3:0,Math.max(-45,Math.min(45,turn)),0,false,true,false,false,Math.max(0,selected));
+                return input(tick,Math.abs(turn)<8?1:0,Math.max(-45,Math.min(45,turn)),0,false,true,false,false,Math.max(0,selected));
             }
             sneak=approach;
         }
@@ -252,7 +368,7 @@ final class StepMotor {
                         net.minecraft.core.Direction.SOUTH,net.minecraft.core.Direction.EAST,net.minecraft.core.Direction.WEST)) {
                     var neighbor=read(reader,block.getBlockPos().relative(direction));
                     if(neighbor==null || !"minecraft:empty".equals(neighbor.getOrDefault("fluid","minecraft:empty"))
-                            || Set.of("minecraft:sand","minecraft:gravel").contains(neighbor.get("block"))) safe=false;
+                            || FALLING.contains(neighbor.get("block"))) safe=false;
                 }
                 if(safe) { miningPoint=block.getBlockPos(); selected=slot(p,TOOLS.get(occluder.get("block"))); hit=selected>=0; }
             }

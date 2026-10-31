@@ -152,7 +152,7 @@ def main() -> int:
     nat_run.add_argument("--view-distance", type=int, help="server chunks, 2..32")
     nat_run.add_argument(
         "--control-profile",
-        choices=["lockstep-three-tick-v1", "dev-pipelined-v1"],
+        choices=["lockstep-three-tick-v1", "dev-pipelined-v1", "dev-native-route-v1"],
         default="lockstep-three-tick-v1",
         help="segmented_goal only; other entrants stay lockstep",
     )
@@ -163,6 +163,9 @@ def main() -> int:
     )
     nat_run.add_argument(
         "--condition", choices=["calm", "mobs", "both"], default="calm"
+    )
+    nat_run.add_argument(
+        "--stall-seconds", type=int, default=10, help="0 (off) or 3..120"
     )
     experiment = sub.add_parser("experiments").add_subparsers(
         dest="operation", required=True
@@ -314,6 +317,7 @@ def main() -> int:
                     repetitions=args.repetitions,
                     view_distance=args.view_distance,
                     control_profile=args.control_profile,
+                    stall_seconds=args.stall_seconds,
                 )
             case "bootstrap":
                 server.assert_stopped()

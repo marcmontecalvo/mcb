@@ -15,15 +15,61 @@ from mclab.gap_jump import GapJumpExecutor, prepare_gap
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation import NavigationController, empty, standable
 from mclab.observation_worker import ObservationWorker
-from mclab.pillar_steps import executor_for, prepare_pillar
+from mclab.pillar_steps import executor_for as python_executor_for
+from mclab.pillar_steps import prepare_pillar
 from mclab.planning_worker import BackgroundSearch, PlanningWorker
 from mclab.route_search import RouteSearch
 from mclab.terrain_route import TerrainRouteSearch, known_step
 from mclab.terrain_steps import prepare_step
 from mclab.terrain_transport import ExpandedTerrain
 
+NATIVE_EDIT_KINDS = frozenset({"downward", "descend"})
+
+
+class NativeEdit:
+    """Stand-in executor for edit kinds only the in-mod StepMotor performs.
+
+    The native driver submits `plan` itself; the Python tick path cannot run
+    these, so it reports failure and the edge is replanned.
+    """
+
+    state, reason = "failed", "edit kind needs the native route profile"
+    breaks_confirmed = places_confirmed = 0
+    issued_places = ()
+
+    def __init__(self, plan, policy):
+        self.plan, self.policy = plan, policy
+
+    def decide(self, observation, cells):
+        return {}
+
+
+def executor_for(plan, policy):
+    if plan.kind in NATIVE_EDIT_KINDS:
+        return NativeEdit(plan, policy)
+    return python_executor_for(plan, policy)
+
+
+def native_edit_matches(plan, cells, supported):
+    """Fresh-geometry check of a downward/descend plan (shapes match the body's)."""
+    (x, y, z), (tx, ty, tz) = plan.source, plan.target
+    if plan.places or not plan.breaks or not supported(cells, plan.source):
+        return False
+    if any(cells.get(p) is None for p in plan.breaks):
+        return False  # Unknown cells are never treated as breakable air.
+    if plan.kind == "downward":
+        return (tx, ty, tz) == (x, y - 1, z) and tuple(plan.breaks) == (plan.target,)
+    return (
+        abs(tx - x) + abs(tz - z) == 1
+        and ty == y - 1
+        and 1 <= len(plan.breaks) <= 3
+        and all(p[0] == tx and p[2] == tz and ty <= p[1] <= ty + 2 for p in plan.breaks)
+    )
+
 
 class SegmentedController(NavigationController):
+    route_steps = {}  # Replaced, never mutated; instances set their own.
+
     def __init__(
         self,
         goal,
@@ -75,6 +121,10 @@ class SegmentedController(NavigationController):
         self.terrain_queue = []
         self.terrain_forecast = ()
         self.terrain_queue_policy = None
+        # Step C: edit edges planned by the main search, keyed (source, target).
+        self.route_steps = {}
+        self.previous_route = ()
+        self.inventory = ()
         if type(background_planning) is not bool:
             raise ValueError("background_planning must be a boolean")
         self.planner_lane = PlanningWorker() if background_planning else None
@@ -112,6 +162,7 @@ class SegmentedController(NavigationController):
 
     def cancel(self):
         self.goal_revision += 1
+        self.previous_route = ()
         if self.planner_lane is not None:
             self.planner_lane.cancel()
         self.prefetch = None
@@ -250,12 +301,35 @@ class SegmentedController(NavigationController):
         self.motor_cells = cells
         self.motor_sample = sample
 
+    def _remaining_policy(self):
+        return replace(
+            self.terrain_policy,
+            break_budget=max(
+                0, self.terrain_policy.break_budget - self.breaks_reserved
+            ),
+            place_budget=max(
+                0, self.terrain_policy.place_budget - self.places_reserved
+            ),
+        )
+
     def _new_search(self, cells, node, revision, factory=RouteSearch):
         if factory is RouteSearch:
+            favored = (
+                self.previous_route
+                if self.terrain_policy is not None
+                and self.terrain_policy.baritone_search
+                else ()
+            )
             factory = partial(
                 RouteSearch,
+                **({"favored": frozenset(favored)} if favored else {}),
                 movement_policy=self.movement_policy,
                 excluded=frozenset(self.failed_edges),
+                terrain_policy=None
+                if self.terrain_policy is None
+                else self._remaining_policy(),
+                inventory=self.inventory,
+                protected=frozenset(self.own_footholds),
             )
         if self.planner_lane is not None:
             return BackgroundSearch(
@@ -281,12 +355,13 @@ class SegmentedController(NavigationController):
 
     def _discard_prefetch(self):
         if self.prefetch is not None:
-            self.planner_lane.cancel()
+            self.planner_lane.cancel(getattr(self.prefetch, "token", None))
             self.prefetch = None
 
     def _start_prefetch(self):
         if (
             self.planner_lane is None
+            or self.route_steps  # The route's end lies past unexecuted edits.
             or self.prefetch is not None
             or self.last_result is None
             or self.last_result.status != "segment"
@@ -344,7 +419,8 @@ class SegmentedController(NavigationController):
             previous = first
             for candidate in self.route[2:4]:
                 if (
-                    candidate[1] != start[1]
+                    (previous, candidate) in self.route_steps
+                    or candidate[1] != start[1]
                     or (candidate[0] - previous[0], candidate[2] - previous[2])
                     != direction
                 ):
@@ -526,16 +602,41 @@ class SegmentedController(NavigationController):
             command["sprint"] = True
         return command
 
+    def walkable_route(self):
+        """The route up to its first planned edit: the motor must stop there."""
+        for index, pair in enumerate(zip(self.route, self.route[1:], strict=False)):
+            if pair in self.route_steps:
+                return self.route[: index + 1]
+        return self.route
+
+    def take_result(self, result):
+        self.last_result = result
+        self.route = list(result.route)
+        if len(self.route) > 1:  # Baritone favours the previous route on replans.
+            self.previous_route = tuple(map(tuple, self.route))
+        self.route_steps = {(s.source, s.target): s for s in result.steps}
+
+    def _begin_route_edit(self, node, observation):
+        """Hand a searched edit edge to the existing confirmed step path."""
+        plan = self.route_steps[tuple(self.route[0]), tuple(self.route[1])]
+        if plan.kind == "pillar" and plan.exit is None and len(self.route) > 2:
+            # Planner pillars omit the exit; the body and PillarExecutor need it.
+            plan = replace(plan, exit=tuple(self.route[2]))
+        self.terrain_queue = [plan]
+        self.terrain_forecast = (plan,)
+        self.terrain_queue_policy = self._remaining_policy()
+        self.breaks_reserved += len(plan.breaks)
+        self.places_reserved += len(plan.places)
+        self._begin_queued_step(node, observation)
+        if self.terrain is None:
+            # Fresh geometry disagrees with the plan: never retry the same edge.
+            self.failed_edges.add((plan.source, plan.target))
+        self.route.clear()
+        self.route_steps = {}
+        self.search = None
+
     def _next_step(self, node, observation):
-        policy = replace(
-            self.terrain_policy,
-            break_budget=max(
-                0, self.terrain_policy.break_budget - self.breaks_reserved
-            ),
-            place_budget=max(
-                0, self.terrain_policy.place_budget - self.places_reserved
-            ),
-        )
+        policy = self._remaining_policy()
         if self.terrain_search is None or self.terrain_search.start != node:
             self._discard_prefetch()
             revision, cells = self._planning_snapshot()
@@ -663,7 +764,9 @@ class SegmentedController(NavigationController):
         plan = self.terrain_queue[0]
         fresh = self._fresh(observation["tick"])
         valid = node == plan.source
-        if valid and (plan.breaks or plan.places):
+        if valid and plan.kind in NATIVE_EDIT_KINDS:
+            valid = native_edit_matches(plan, fresh, self._node_supported)
+        elif valid and (plan.breaks or plan.places):
             actual = (prepare_pillar if plan.kind == "pillar" else prepare_step)(
                 fresh,
                 plan.source,
@@ -724,9 +827,24 @@ class SegmentedController(NavigationController):
                         "motor_ms": duration,
                         "motor_cpu_ms": (time.thread_time_ns() - cpu_began) / 1_000_000,
                         "mode": self.mode,
+                        **self._planner_trace(),
                     },
                 )
             )
+
+    def _planner_trace(self):
+        """Why a stop is spent planning: result, search identity and worker job."""
+        result, search = self.last_result, self.search
+        lane = self.planner_lane
+        return {
+            "result": None
+            if result is None
+            else [result.status, result.reason, result.expanded, len(result.route)],
+            "search_start": None if search is None else list(search.start),
+            "search_token": getattr(search, "token", None),
+            "searched_ms": round(getattr(search, "searched_ms", 0)),
+            "lane_serial": getattr(lane, "serial", None),
+        }
 
     def _decide(self, observation, *, native=False):
         if self.cancelled:
@@ -740,6 +858,7 @@ class SegmentedController(NavigationController):
             raise ValueError("Awareness revision changed; fresh controller required")
         self._admit(observation)
         body = observation["body"]
+        self.inventory = tuple(dict(r) for r in body.get("inventory", []))
         if self.gap_jump is not None:
             jump = self.gap_jump
             command = jump.decide(observation, self._fresh(observation["tick"]))
@@ -771,19 +890,16 @@ class SegmentedController(NavigationController):
         p = body["position"]
         survival = body.get("survival", {})
         air, maximum_air = survival.get("air"), survival.get("max_air")
-        if (
-            self.movement_policy.allow_swim
-            and type(air) is int
-            and type(maximum_air) is int
-            and maximum_air > 0
-        ):
-            if air < maximum_air * 0.5 and not self.air_recovering:
+        if type(air) is int and type(maximum_air) is int and maximum_air > 0:
+            # Survival reflex: surfacing runs even when allow_swim is false.
+            out = water_movement.head_out_of_water(survival)
+            if air < maximum_air * 0.5 and not out and not self.air_recovering:
                 self.air_recovering = True
                 self.events.append(
                     ("air_recovery_started", {"tick": observation["tick"], "air": air})
                 )
             if self.air_recovering:
-                if air >= maximum_air * 0.9:
+                if out:
                     self.air_recovering = False
                     self.air_recoveries_completed += 1
                     self.events.append(
@@ -794,12 +910,12 @@ class SegmentedController(NavigationController):
                     )
                 else:
                     self.mode = "air_recovery"
-                    if survival.get("in_water") is True and water_movement.can_surface(
-                        self._fresh(observation["tick"]), body
-                    ):
+                    command = water_movement.air_recovery_command(
+                        self._fresh(observation["tick"]), body, self.movement_policy
+                    )
+                    if command:
                         self.water_controls += 1
-                        return {"jump": True}
-                    return {}
+                    return command
         height = (
             round(p[1] * 2) / 2 if self.movement_policy.allow_shapes else round(p[1])
         )
@@ -910,7 +1026,8 @@ class SegmentedController(NavigationController):
             if self.prefetch is not None and self.prefetch.start != node:
                 self._discard_prefetch()
         if self.route and not all(
-            self._node_supported(self._known_cells(), n) for n in self.route[:3]
+            self._node_supported(self._known_cells(), n)
+            for n in self.walkable_route()[:3]
         ):
             self.route.clear()
             self.search = None
@@ -936,6 +1053,13 @@ class SegmentedController(NavigationController):
             self.route.clear()
             self.search = None
         if len(self.route) < 2:
+            support = (node[0], math.ceil(node[1]) - 1, node[2])
+            if self.map_view is not None and self._known_cells().get(support) is None:
+                # First observations are admitted asynchronously; the body's near
+                # refresh always covers this cell. Planning before it arrived sent
+                # R1 on four blind fallback steps west (cohort 15).
+                self.mode = "awaiting_map"
+                return {}
             if self.prefetch is not None and self.prefetch.start == node:
                 self.search, self.prefetch = self.prefetch, None
                 self.prefetch_adopted += 1
@@ -957,11 +1081,12 @@ class SegmentedController(NavigationController):
             if self.search is None or self.search.start != node or exhausted_snapshot:
                 revision, cells = self._planning_snapshot()
                 self.search = self._new_search(cells, node, revision)
-            self.last_result = self.search.advance(
-                node_limit=self.search_nodes,
-                budget_ms=self.search_ms,
+            self.take_result(
+                self.search.advance(
+                    node_limit=self.search_nodes,
+                    budget_ms=self.search_ms,
+                )
             )
-            self.route = list(self.last_result.route)
             self.reason = self.last_result.reason
             if (
                 self.terrain_policy is not None
@@ -993,6 +1118,9 @@ class SegmentedController(NavigationController):
                     # New acquisition may expose an edge next observation.
                     self.search = None
                 return {}
+        if (tuple(self.route[0]), tuple(self.route[1])) in self.route_steps:
+            self._begin_route_edit(node, observation)
+            return {}
         self.mode = "following"
         self._start_prefetch()
         if native:
