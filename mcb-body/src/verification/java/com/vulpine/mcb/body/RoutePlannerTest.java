@@ -12,6 +12,9 @@ public final class RoutePlannerTest {
     private static Map<String, Object> stone() {
         return Map.of("block", "minecraft:stone", "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1)), "fluid", "minecraft:empty");
     }
+    private static Map<String, Object> bedrock() {
+        return Map.of("block", "minecraft:bedrock", "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1)), "fluid", "minecraft:empty");
+    }
     private static Map<String, Object> water() {
         return Map.of("block", "minecraft:water", "collision_boxes", List.of(), "fluid", "minecraft:water",
                 "properties", Map.of("level", "0"));
@@ -85,6 +88,30 @@ public final class RoutePlannerTest {
         var jumped = new RoutePlanner((x, y, z) -> trench.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0), across, 0, 3, true)
                 .withGaps(2).search(100_000);
         check(jumped.status().equals("reached") && jumped.route().stream().noneMatch(n -> n.x() == 3), "jumps the trench");
+        // Edits: a 2-high stone wall across a bedrock-walled corridor is cut through.
+        var corridor = floor(12);
+        for (int x = -2; x <= 12; x++) for (int y = 1; y <= 4; y++) {
+            corridor.put(new Key(x, y, 1), bedrock()); corridor.put(new Key(x, y, -1), bedrock());
+        }
+        corridor.put(new Key(4, 1, 0), stone()); corridor.put(new Key(4, 2, 0), stone());
+        var edits = new RoutePlanner.Edits(true, true, false, false, 1, 8, 8, 64, Map.of("minecraft:stone", 8.0),
+                java.util.Set.of("minecraft:stone"), java.util.Set.of(), java.util.Set.of(), "minecraft:cobblestone");
+        RoutePlanner.Node beyond = new RoutePlanner.Node(8, 1, 0);
+        check(!plan(corridor, beyond, 100_000).status().equals("reached"), "without edits the wall blocks the corridor");
+        var dug = new RoutePlanner((x, y, z) -> corridor.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0), beyond, 0, 3, true)
+                .withEdits(edits).search(100_000);
+        check(dug.status().equals("reached") && dug.steps().size() == 1 && !dug.steps().get(0).breaks().isEmpty(),
+                "digs through the wall (here: breaks the top block and climbs over)");
+        // A 1-wide hole (unknown below) in the corridor floor is filled with one support block.
+        var holed = floor(12);
+        for (int x = -2; x <= 12; x++) for (int y = 1; y <= 4; y++) {
+            holed.put(new Key(x, y, 1), bedrock()); holed.put(new Key(x, y, -1), bedrock());
+        }
+        holed.put(new Key(4, 0, 0), air()); holed.put(new Key(4, -1, 0), stone());
+        var filled = new RoutePlanner((x, y, z) -> holed.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0), beyond, 0, 0, true)
+                .withEdits(edits).search(100_000);
+        check(filled.status().equals("reached") && filled.steps().stream().anyMatch(p -> p.places().size() == 1),
+                "places a support block across a hole when drops are off");
         System.out.println("RoutePlanner: " + checks + " planner checks passed");
     }
 }

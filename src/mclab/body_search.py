@@ -1,14 +1,14 @@
 """Search run by the body's compiled planner core (ROADMAP item 8, stage E).
 
-The body plans walking, swimming, gaps, ladders, water landings and unknown-space
-exits (RoutePlanner.java, parity-checked against route_search.py). It has no edit
-edges yet, so a search the body finds unreachable falls back to the Python search,
-which can dig or build out.
+The body plans walking, swimming, gaps, ladders, water landings, unknown-space
+exits and edit edges (RoutePlanner.java, parity-checked against route_search.py).
+A search the body finds unreachable still falls back to the Python search.
 """
 
 import itertools
 
 from mclab.route_search import RouteResult, RouteSearch
+from mclab.terrain_steps import StepPlan
 
 BODY_NODE_LIMIT = 4000  # past the 3,000-node commit floor; ~10 ms of body time per tick
 SEGMENT = 16  # same segment as BackgroundSearch
@@ -48,6 +48,11 @@ def plan_payload(controller, start, plan_id):
         "node_limit": BODY_NODE_LIMIT,
         "favored": [list(p) for p in controller.previous_route][:4096],
         "excluded": [[list(a), list(b)] for a, b in controller.failed_edges][:4096],
+        **(
+            {"edits": edits_payload(t, controller.inventory, controller.own_footholds)}
+            if t.planner_edits and (t.allow_break or t.allow_place)
+            else {}
+        ),
     }
 
 
@@ -78,16 +83,64 @@ class BodySearch:
         route = tuple(tuple(p) for p in report["route"])
         self.expanded = report["expanded"]
         if report["status"] == "unreachable" or len(route) < 2:
-            # Known graph exhausted: only an edit (dig, build) gets out, so Python
-            # plans it. ponytail: no edit edges in Java yet (ROADMAP item 8, stage D).
+            # Known graph exhausted in the body: let the Python search confirm it.
             self.fallback = self._fallback_factory()
             self.token = getattr(self.fallback, "token", -1)
             return self.fallback.advance(**kwargs)
+        steps = tuple(
+            StepPlan(
+                tuple(p["source"]),
+                tuple(p["target"]),
+                tuple(map(tuple, p["breaks"])),
+                tuple(map(tuple, p["places"])),
+                kind=p["kind"],
+            )
+            for p in report.get("steps", ())
+        )
         result = RouteResult(
             report["status"],
             route,
             self.revision,
             self.expanded,
             f"body planner {report['status']}",
+            steps,
         )
         return RouteSearch._segment(result, SEGMENT)
+
+
+def edits_payload(policy, inventory, protected=()):
+    """What the Java core needs for edit edges, from the policy and hotbar.
+
+    Python keeps tool and supply rules (terrain_steps); the body gets the result:
+    breakable blocks (tool in the hotbar), break ticks, placeable stock above the
+    reserve, and every protected cell.
+    """
+    from mclab.terrain_steps import break_ticks, excavatable, hotbar
+
+    rows = [dict(r) for r in inventory]
+    tools = excavatable(policy)
+    stock = sum(
+        r.get("count", 0)
+        for r in rows
+        if r.get("item") in policy.material_allowlist and 0 <= r.get("slot", -1) < 9
+    )
+    return {
+        "allow_break": policy.allow_break,
+        "allow_place": policy.allow_place,
+        "allow_bridge": policy.allow_bridge,
+        "allow_pillar": policy.allow_pillar,
+        "max_support_stack": policy.max_support_stack,
+        "break_budget": policy.break_budget,
+        "place_budget": policy.place_budget,
+        "place_supply": max(0, stock - policy.reserve_blocks),
+        "break_ticks": {block: break_ticks(block) for block in tools},
+        "breakable": sorted(
+            b for b, tool in tools.items() if hotbar(rows, tool) is not None
+        ),
+        "protected": sorted(
+            {tuple(p) for p in protected}
+            | {tuple(p) for p in policy.protected_positions}
+        ),
+        "protected_blocks": list(policy.protected_blocks),
+        "material": policy.material_allowlist[0],
+    }

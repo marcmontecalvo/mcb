@@ -264,7 +264,8 @@ public final class BodyRuntime implements AutoCloseable {
                 request.get("sprint").getAsBoolean(), penalty)
                 .withMoves(request.get("swim").getAsBoolean(), request.get("extra").getAsBoolean())
                 .withGaps(maxGap)
-                .withHistory(nodes(request, "favored"), edges(request));
+                .withHistory(nodes(request, "favored"), edges(request))
+                .withEdits(request.has("edits") ? edits(request.getAsJsonObject("edits")) : null);
         while (plans.size() >= MAX_PLANS) { var oldest = plans.keySet().iterator().next(); plans.remove(oldest); }
         plans.put(id, planner); planLimits.put(id, limit);
         planResults.put(id, Map.of("plan_id", id, "state", "searching"));
@@ -281,6 +282,28 @@ public final class BodyRuntime implements AutoCloseable {
         if (out.size() > 4096) throw new IllegalArgumentException("plan_history_bounds");
         return out;
     }
+    private static List<Object> point(RoutePlanner.Node n) { return List.of(n.x(), n.y(), n.z()); }
+
+    /** Edit permissions and supplies computed by Python (mclab.body_search.edits_payload). */
+    private static RoutePlanner.Edits edits(JsonObject e) {
+        var ticks = new HashMap<String, Double>();
+        e.getAsJsonObject("break_ticks").entrySet().forEach(t -> ticks.put(t.getKey(), t.getValue().getAsDouble()));
+        var breakable = new HashSet<String>();
+        e.getAsJsonArray("breakable").forEach(b -> breakable.add(b.getAsString()));
+        var cells = new HashSet<RoutePlanner.Node>();
+        for (var p : e.getAsJsonArray("protected")) cells.add(node(p));
+        var blocks = new HashSet<String>();
+        e.getAsJsonArray("protected_blocks").forEach(b -> blocks.add(b.getAsString()));
+        int stack = e.get("max_support_stack").getAsInt(), breaks = e.get("break_budget").getAsInt(),
+                places = e.get("place_budget").getAsInt(), supply = e.get("place_supply").getAsInt();
+        if (stack < 1 || stack > 3 || breaks < 0 || breaks > 64 || places < 0 || places > 64 || supply < 0
+                || cells.size() > 4096 || ticks.size() > 512)
+            throw new IllegalArgumentException("plan_edit_bounds");
+        return new RoutePlanner.Edits(e.get("allow_break").getAsBoolean(), e.get("allow_place").getAsBoolean(),
+                e.get("allow_bridge").getAsBoolean(), e.get("allow_pillar").getAsBoolean(), stack, breaks, places, supply,
+                ticks, breakable, cells, blocks, e.get("material").getAsString());
+    }
+
     private static Set<List<RoutePlanner.Node>> edges(JsonObject request) {
         var out = new HashSet<List<RoutePlanner.Node>>();
         if (request.has("excluded")) for (var e : request.getAsJsonArray("excluded")) {
@@ -299,8 +322,12 @@ public final class BodyRuntime implements AutoCloseable {
             var result = entry.getValue().advance(planLimits.get(entry.getKey()), deadline);
             if (result.status().equals("searching")) continue;
             var route = result.route().stream().map(n -> List.<Object>of(n.x(), n.y(), n.z())).toList();
+            var steps = result.steps().stream().map(p -> Map.<String,Object>of("source", point(p.source()),
+                    "target", point(p.target()), "kind", p.kind(),
+                    "breaks", p.breaks().stream().map(BodyRuntime::point).toList(),
+                    "places", p.places().stream().map(BodyRuntime::point).toList())).toList();
             var report = Map.<String,Object>of("plan_id", entry.getKey(), "state", "done", "status", result.status(),
-                    "route", route, "expanded", result.expanded(), "tick", server.getTickCount());
+                    "route", route, "expanded", result.expanded(), "tick", server.getTickCount(), "steps", steps);
             planResults.put(entry.getKey(), report);
             emit("plan_finished", "fabric_end", Map.of("plan_id", entry.getKey(), "status", result.status(),
                     "expanded", result.expanded(), "length", route.size()));

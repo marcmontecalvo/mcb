@@ -18,6 +18,7 @@ import time
 from dataclasses import replace
 
 from mclab.awareness import Awareness
+from mclab.body_search import edits_payload
 from mclab.memory_policy import MemoryPolicy
 from mclab.movement_policy import MovementPolicy
 from mclab.route_search import RouteSearch
@@ -37,7 +38,19 @@ LAND = TerrainPolicy(
 )
 if os.environ.get("UNKNOWN"):  # planner_unknown: plan through unknown space (D3)
     LAND = replace(LAND, planner_unknown=True)
-SWIM = bool(os.environ.get("SWIM"))  # planner_swim + baritone_moves (no edits)
+EDITS = bool(os.environ.get("EDITS"))  # production profile with edit edges
+KIT = [
+    {"slot": 0, "item": "minecraft:iron_pickaxe", "count": 1},
+    {"slot": 1, "item": "minecraft:iron_shovel", "count": 1},
+    {"slot": 2, "item": "minecraft:iron_axe", "count": 1},
+    {"slot": 3, "item": "minecraft:cobblestone", "count": 64},
+    {"slot": 4, "item": "minecraft:dirt", "count": 64},
+]
+if EDITS:
+    LAND = TerrainPolicy.from_payload(
+        json.load(open(ROOT / "config/stepc/terrain-stepc-baritone-moves.json"))
+    )
+SWIM = EDITS or bool(os.environ.get("SWIM"))  # planner_swim + baritone_moves (no edits)
 if SWIM:
     LAND = replace(LAND, planner_swim=True, baritone_moves=True)
 MOVES = MovementPolicy(
@@ -106,6 +119,7 @@ def export(view, start, goal, target):
                     palette.append(facts)
                 rows.append([x, y, z, index[key]])
     payload = {
+        **({"edits": edits_payload(LAND, KIT)} if EDITS else {}),
         "unknown_penalty": LAND.unknown_penalty if LAND.planner_unknown else 0,
         "swim": SWIM,
         "max_gap": MOVES.max_gap,
@@ -144,6 +158,7 @@ def main():
         owned_snapshot=True,
         movement_policy=MOVES,
         terrain_policy=LAND,
+        inventory=KIT if EDITS else (),
     )
     began = time.perf_counter()
     while (

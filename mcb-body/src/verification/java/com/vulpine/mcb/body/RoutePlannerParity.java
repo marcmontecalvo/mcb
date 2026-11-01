@@ -37,6 +37,7 @@ public final class RoutePlannerParity {
                     .withMoves(root.has("swim") && root.get("swim").getAsBoolean(),
                             root.has("swim") && root.get("swim").getAsBoolean())
                     .withGaps(root.has("max_gap") ? root.get("max_gap").getAsInt() : 0)
+                    .withEdits(root.has("edits") ? edits(root.getAsJsonObject("edits")) : null)
                     .search(limit);
             best = Math.min(best, (System.nanoTime() - began) / 1e6);
         }
@@ -46,7 +47,28 @@ public final class RoutePlannerParity {
         out.put("expanded", result.expanded());
         out.put("cost", result.cost());
         out.put("ms", best);
+        out.put("steps", result.steps().stream().map(p -> Map.of("source", node(p.source()), "target", node(p.target()),
+                "kind", p.kind(), "breaks", p.breaks().stream().map(RoutePlannerParity::node).toList(),
+                "places", p.places().stream().map(RoutePlannerParity::node).toList())).toList());
         System.out.println(gson.toJson(out));
+    }
+
+    private static List<Object> node(RoutePlanner.Node n) { return List.of(n.x(), n.y(), n.z()); }
+
+    static RoutePlanner.Edits edits(com.google.gson.JsonObject e) {
+        var ticks = new HashMap<String, Double>();
+        e.getAsJsonObject("break_ticks").entrySet().forEach(t -> ticks.put(t.getKey(), t.getValue().getAsDouble()));
+        var breakable = new java.util.HashSet<String>();
+        e.getAsJsonArray("breakable").forEach(b -> breakable.add(b.getAsString()));
+        var cells = new java.util.HashSet<RoutePlanner.Node>();
+        e.getAsJsonArray("protected").forEach(p -> { var a = p.getAsJsonArray();
+            cells.add(new RoutePlanner.Node(a.get(0).getAsInt(), a.get(1).getAsDouble(), a.get(2).getAsInt())); });
+        var blocks = new java.util.HashSet<String>();
+        e.getAsJsonArray("protected_blocks").forEach(b -> blocks.add(b.getAsString()));
+        return new RoutePlanner.Edits(e.get("allow_break").getAsBoolean(), e.get("allow_place").getAsBoolean(),
+                e.get("allow_bridge").getAsBoolean(), e.get("allow_pillar").getAsBoolean(), e.get("max_support_stack").getAsInt(),
+                e.get("break_budget").getAsInt(), e.get("place_budget").getAsInt(), e.get("place_supply").getAsInt(),
+                ticks, breakable, cells, blocks, e.get("material").getAsString());
     }
 
     private static long key(int x, int y, int z) {

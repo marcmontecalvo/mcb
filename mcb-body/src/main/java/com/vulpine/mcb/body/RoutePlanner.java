@@ -19,7 +19,11 @@ final class RoutePlanner {
     record Node(int x, double y, int z) {
         double distance(Node o) { return Math.sqrt(sq(x - o.x) + sq(y - o.y) + sq(z - o.z)); }
     }
-    record Result(String status, List<Node> route, int expanded, double cost) { }
+    /** One planned edit edge (terrain_steps.StepPlan): kinds step, downward, descend, pillar. */
+    record Plan(Node source, Node target, List<Node> breaks, List<Node> places, String kind) { }
+    record Result(String status, List<Node> route, int expanded, double cost, List<Plan> steps) {
+        Result(String status, List<Node> route, int expanded, double cost) { this(status, route, expanded, cost, List.of()); }
+    }
 
     // Baritone ActionCosts and Settings, reimplemented (same values as route_search.py).
     static final double WALK = 20 / 4.317, SPRINT = 20 / 5.612, WALK_OFF = WALK * .8,
@@ -67,6 +71,23 @@ final class RoutePlanner {
         this.favored = favored; this.excluded = excluded; return this;
     }
     static final double FAVOR = .5;
+    // MCB-measured edit overheads (terrain_steps / route_search), ticks.
+    static final double EDIT_STEP = 15, PLACE = 20, BREAK_EXTRA = 2, BREAK_AIM = 6, STACK_PLACE = 20,
+            BRIDGE_PLACE = 15, EDIT_CHAIN = 10, FALL_SETTLE = 17;
+    private static final Set<String> FALLING = Set.of("minecraft:gravel", "minecraft:red_sand", "minecraft:sand",
+            "minecraft:suspicious_gravel", "minecraft:suspicious_sand");
+    /** Edit permissions and supplies, computed by Python from the policy and inventory. */
+    record Edits(boolean allowBreak, boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxSupportStack,
+                 int breakBudget, int placeBudget, int placeSupply, Map<String, Double> breakTicks, Set<String> breakable,
+                 Set<Node> protectedCells, Set<String> protectedBlocks, String material) { }
+    private Edits edits;
+    /** Turns on edit edges (route_search planner_edits): cut steps, support stacks, dig down, pillar. */
+    RoutePlanner withEdits(Edits edits) { this.edits = edits; return this; }
+    private final Map<Node, Plan> plans = new HashMap<>();
+    private final Map<Node, Integer> editDepth = new HashMap<>();
+    // Cells changed by the plan of the edge that reached the node being expanded.
+    private Map<Long, Map<String, Object>> overlay = Map.of();
+    private Set<Long> overlayColumns = Set.of();
 
     RoutePlanner(RouteGeometry.Reader reader, Node start, Node goal, double radius, int maxDrop, boolean sprint) {
         this(reader, start, goal, radius, maxDrop, sprint, 0);
@@ -151,6 +172,7 @@ final class RoutePlanner {
                 if (value < coefValue[i]) { coefValue[i] = value; coefBest[i] = node; }
             }
             if (distance(node) == 0) return terminal = result("reached", node, previous, expanded, cost);
+            setOverlay(plans.get(node));
             if (unknownPenalty > 0 && !node.equals(start) && frontierNode(node)) {
                 double total = cost + exitRemainder(node);
                 frontier.add(new double[]{total, cost, index, 1});
@@ -161,6 +183,8 @@ final class RoutePlanner {
                 double total = cost + move.cost * (favored.contains(move.target) ? FAVOR : 1);
                 if (total < costs.getOrDefault(move.target, Double.POSITIVE_INFINITY)) {
                     costs.put(move.target, total); previous.put(move.target, node);
+                    if (move.plan == null) { plans.remove(move.target); editDepth.put(move.target, editDepth.getOrDefault(node, 0)); }
+                    else { plans.put(move.target, move.plan); editDepth.put(move.target, editDepth.getOrDefault(node, 0) + 1); }
                     nodes.add(move.target);
                     frontier.add(new double[]{total + remaining(move.target), total, nodes.size() - 1, 0});
                 }
@@ -181,7 +205,9 @@ final class RoutePlanner {
         int n = r.route.size();
         if (n < CUTOFF_MIN) return r;
         var route = r.route.subList(0, Math.max(2, (int) (n * CUTOFF_FACTOR)));
-        return new Result(r.status, route, r.expanded, costs.get(route.get(route.size() - 1)));
+        var targets = new java.util.HashSet<>(route.subList(1, route.size()));
+        var steps = r.steps.stream().filter(p -> targets.contains(p.target)).toList();
+        return new Result(r.status, route, r.expanded, costs.get(route.get(route.size() - 1)), steps);
     }
 
     // Partial-route estimate (route_search._remaining(node, 1)): walk rate when planning
@@ -239,11 +265,16 @@ final class RoutePlanner {
         return false;
     }
 
-    private static Result result(String status, Node end, Map<Node, Node> previous, int expanded, double cost) {
+    private Result result(String status, Node end, Map<Node, Node> previous, int expanded, double cost) {
         var route = new ArrayList<Node>();
         for (Node node = end; node != null; node = previous.get(node)) route.add(node);
         Collections.reverse(route);
-        return new Result(status, route, expanded, cost);
+        var steps = new ArrayList<Plan>();
+        for (int i = 1; i < route.size(); i++) {
+            var plan = plans.get(route.get(i));
+            if (plan != null && plan.source.equals(route.get(i - 1))) steps.add(plan);
+        }
+        return new Result(status, route, expanded, cost, steps);
     }
 
     // Goal: horizontal disk of the radius at exact standing height (route_search._distance).
@@ -260,7 +291,9 @@ final class RoutePlanner {
         return COST_HEURISTIC * horizontal + vertical;
     }
 
-    private record Move(Node target, double cost) { }
+    private record Move(Node target, double cost, Plan plan) {
+        Move(Node target, double cost) { this(target, cost, null); }
+    }
 
     // Same order as route_search._moves: equal-cost ties keep the first move found.
     private List<Move> moves(Node node) {
@@ -268,6 +301,7 @@ final class RoutePlanner {
         int x = node.x, z = node.z; double y = node.y;
         if (extra && climbOnly(node)) { extraMoves(node, out); return out; }
         boolean onWater = swim && (surfaceNode(node) || flowingSurface(node));
+        boolean editReady = edits != null && integral(y) && blockStandable(node);
         var below = at(x, y - 1, z);
         boolean gapRoom = maxGap > 0 && integral(y) && below != null && dry(below) && fullCube(below);
         for (var d : DIRECTIONS) {
@@ -284,10 +318,12 @@ final class RoutePlanner {
                     if ((width < 2 || sprint) && gap(node, d, width + 1))
                         out.add(new Move(new Node(x + d[0] * (width + 1), y, z + d[1] * (width + 1)),
                                 WALK * (width + 1) + JUMP_PENALTY));
+            var reached = new java.util.HashSet<Node>();
             for (double ty : surfaces(x + d[0], z + d[1], y - maxDrop, y + 1)) {
                 var target = new Node(x + d[0], ty, z + d[1]);
-                if (stepClear(node, target)) out.add(new Move(target, heightCost(ty - y)));
+                if (allowed(node, target) && stepClear(node, target)) { reached.add(target); out.add(new Move(target, heightCost(ty - y))); }
             }
+            if (editReady) editEdges(node, d, reached, out);
         }
         for (var d : DIAGONALS) {
             var target = new Node(x + d[0], y, z + d[1]);
@@ -380,7 +416,174 @@ final class RoutePlanner {
     private void extraMoves(Node node, List<Move> out) {
         ladderMoves(node, out);
         if (!integral(node.y) || !blockStandable(node)) return;
-        if (swim) for (var d : DIRECTIONS) landings(node, d, out);
+        if (edits != null) {
+            var down = downward(node);
+            if (down != null && allowed(node, down.target)) out.add(new Move(down.target, priced(down, -1, node, fallTicks(1)), down));
+            var pillar = pillar(node);
+            if (pillar != null && allowed(node, pillar.target))
+                out.add(new Move(pillar.target, priced(pillar, 1, node, JUMP + JUMP_PENALTY), pillar));
+        }
+        for (var d : DIRECTIONS) {
+            if (edits != null) {
+                var target = new Node(node.x + d[0], node.y - 1, node.z + d[1]);
+                if (allowed(node, target)) {
+                    var plan = descend(node, target);
+                    if (plan != null) out.add(new Move(target, priced(plan, -1, node, Double.NaN), plan));
+                }
+            }
+            if (swim) landings(node, d, out);
+        }
+    }
+
+    // --- edit edges (terrain_steps.plan_edit, route_moves.prepare_*) ---
+
+    private boolean allowed(Node a, Node b) { return excluded.isEmpty() || !excluded.contains(List.of(a, b)); }
+    private boolean flagEmpty(int x, double y, int z) { return empty(at(x, y, z)); }
+    private boolean flagFull(int x, double y, int z) { return fullDry(at(x, y, z)); }
+
+    private void setOverlay(Plan plan) {
+        overlay = Map.of(); overlayColumns = Set.of();  // falling stacks are read from the base map
+        if (plan == null) return;
+        var changed = new HashMap<Long, Map<String, Object>>();
+        var columns = new java.util.HashSet<Long>();
+        Map<String, Object> air = Map.of("block", "minecraft:air", "fluid", "minecraft:empty", "collision_boxes", List.of());
+        for (var p : plan.breaks) {
+            changed.put(key(p.x, (int) p.y, p.z), air); columns.add(column(p.x, p.z));
+            if (extra) for (var q : fallingStack(p)) changed.put(key(q.x, (int) q.y, q.z), air);
+        }
+        for (var p : plan.places) {
+            changed.put(key(p.x, (int) p.y, p.z), Map.of("block", edits.material(), "fluid", "minecraft:empty",
+                    "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1))));
+            columns.add(column(p.x, p.z));
+        }
+        overlay = changed; overlayColumns = columns;
+    }
+
+    private List<Node> fallingStack(Node p) {
+        var stack = new ArrayList<Node>();
+        while (true) {
+            var c = cell(p.x, (int) p.y + stack.size() + 1, p.z);
+            if (c == null || !dry(c) || !FALLING.contains(c.get("block"))) return stack;
+            stack.add(new Node(p.x, p.y + stack.size() + 1, p.z));
+        }
+    }
+
+    /** terrain_steps.cut_allowed: known dry neighbours; falling ones only with a known support. */
+    private boolean cutAllowed(Node p) {
+        var c = at(p.x, p.y, p.z);
+        if (!edits.allowBreak() || edits.protectedCells().contains(p) || c == null
+                || edits.protectedBlocks().contains(c.get("block")) || !edits.breakable().contains(c.get("block"))
+                || !fullDry(c)) return false;
+        for (int[] d : new int[][]{{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, -1}}) {
+            var n = at(p.x + d[0], p.y + d[1], p.z + d[2]);
+            if (n == null || !dry(n)) return false;
+            if (FALLING.contains(n.get("block"))) {
+                if (!extra) return false;
+                if (d[1] == 0 && !flagFull(p.x + d[0], p.y - 1, p.z + d[2])) return false;
+            }
+        }
+        return true;
+    }
+
+    /** Points that need breaking, or null when any of them may not be broken (or too many). */
+    private List<Node> cuts(List<Node> points, int limit) {
+        var out = new ArrayList<Node>();
+        for (var p : new java.util.LinkedHashSet<>(points)) {
+            if (flagEmpty(p.x, p.y, p.z)) continue;
+            if (!cutAllowed(p)) return null;
+            out.add(p);
+        }
+        return out.size() <= limit ? out : null;
+    }
+
+    private boolean anchored(Node source, Node p) {
+        if (flagFull(p.x, p.y - 1, p.z)) return true;
+        int dx = p.x - source.x, dz = p.z - source.z;
+        return edits.allowBridge() && p.y == source.y - 1 && Math.abs(dx) + Math.abs(dz) == 1
+                && flagEmpty(p.x, p.y - 1, p.z) && flagFull(source.x, source.y - 1, source.z);
+    }
+
+    /** terrain_steps.plan_edit for a standable full-block source and an adjacent target (dy 0 or 1). */
+    private Plan planEdit(Node source, Node target) {
+        int x = source.x, z = source.z, tx = target.x, tz = target.z; double y = source.y, ty = target.y;
+        List<Node> places = List.of();
+        var support = new Node(tx, ty - 1, tz);
+        if (!flagFull(tx, ty - 1, tz)) {
+            if (!edits.allowPlace()) return null;
+            var stack = new ArrayList<Node>(List.of(support));
+            while (!anchored(source, stack.get(stack.size() - 1))) {
+                if (stack.size() >= edits.maxSupportStack()) return null;
+                var top = stack.get(stack.size() - 1);
+                stack.add(new Node(top.x, top.y - 1, top.z));
+            }
+            Collections.reverse(stack);
+            if (stack.size() > edits.placeBudget()) return null;
+            for (var p : stack) {
+                var c = at(p.x, p.y, p.z);
+                if (edits.protectedCells().contains(p) || (c != null && edits.protectedBlocks().contains(c.get("block")))
+                        || !empty(c)) return null;
+            }
+            if (edits.placeSupply() < stack.size()) return null;
+            places = List.copyOf(stack);
+        }
+        var clearance = ty == y
+                ? List.of(new Node(tx, ty, tz), new Node(tx, ty + 1, tz))
+                : List.of(new Node(tx, ty, tz), new Node(tx, ty + 1, tz), new Node(x, y + 2, z), new Node(x, y + 3, z),
+                new Node(tx, ty + 2, tz));
+        var cuts = new ArrayList<Node>();
+        for (var p : clearance) {
+            if (flagEmpty(p.x, p.y, p.z)) continue;
+            if (!cutAllowed(p)) return null;
+            cuts.add(p);
+        }
+        if (cuts.size() > Math.min(4, edits.breakBudget()) || (cuts.isEmpty() && places.isEmpty())) return null;
+        return new Plan(source, target, List.copyOf(cuts), places, "step");
+    }
+
+    private void editEdges(Node node, int[] d, Set<Node> reached, List<Move> out) {
+        for (int dy = 0; dy <= 1; dy++) {
+            var target = new Node(node.x + d[0], node.y + dy, node.z + d[1]);
+            if (reached.contains(target) || !allowed(node, target)) continue;
+            var plan = planEdit(node, target);
+            if (plan != null) out.add(new Move(target, priced(plan, dy, node, Double.NaN), plan));
+        }
+    }
+
+    /** MovementDownward: break the floor, drop 1 onto a known solid, safe y-2. */
+    private Plan downward(Node s) {
+        var support = at(s.x, s.y - 2, s.z);
+        if (!fullDry(support) || HAZARDS.contains(support.get("block"))) return null;
+        var c = cuts(List.of(new Node(s.x, s.y - 1, s.z)), edits.breakBudget());
+        return c == null || c.isEmpty() ? null : new Plan(s, new Node(s.x, s.y - 1, s.z), c, List.of(), "downward");
+    }
+    /** MovementDescend with breaks: clear target feet, head and the cell above. */
+    private Plan descend(Node s, Node t) {
+        var floor = at(t.x, t.y - 1, t.z);
+        if (!fullDry(floor) || HAZARDS.contains(floor.get("block"))) return null;
+        var c = cuts(List.of(t, new Node(t.x, s.y, t.z), new Node(t.x, s.y + 1, t.z)), edits.breakBudget());
+        return c == null || c.isEmpty() ? null : new Plan(s, t, c, List.of(), "descend");
+    }
+    /** MovementPillar: place under the feet while jumping (no head cut). */
+    private Plan pillar(Node s) {
+        if (!edits.allowPillar() || !edits.allowPlace() || edits.placeBudget() < 1 || edits.protectedCells().contains(s)
+                || !flagEmpty(s.x, s.y + 2, s.z) || !flagEmpty(s.x, s.y + 3, s.z) || edits.placeSupply() < 1) return null;
+        return new Plan(s, new Node(s.x, s.y + 1, s.z), List.of(), List.of(s), "pillar");
+    }
+
+    /** route_search._edit_cost + _chain: movement, MCB-measured edit overheads, then one more edit costs more. */
+    private double priced(Plan plan, int dy, Node node, double base) {
+        double breaking = 0;
+        for (var p : plan.breaks) {
+            var block = String.valueOf(at(p.x, p.y, p.z).get("block"));
+            breaking += edits.breakTicks().get(block) + BREAK_EXTRA + BREAK_AIM;
+            if (extra) for (var q : fallingStack(p))
+                breaking += edits.breakTicks().getOrDefault(String.valueOf(at(q.x, q.y, q.z).get("block")), 0.0) + BREAK_EXTRA + FALL_SETTLE;
+        }
+        int bridged = 0;
+        for (var p : plan.places) { var under = at(p.x, p.y - 1, p.z); if (under == null || boxes(under).isEmpty()) bridged++; }
+        return (Double.isNaN(base) ? heightCost(dy) : base) + EDIT_STEP + breaking + PLACE * plan.places.size()
+                + STACK_PLACE * Math.max(0, plan.places.size() - 1) + BRIDGE_PLACE * bridged
+                + EDIT_CHAIN * editDepth.getOrDefault(node, 0);
     }
     private void ladderMoves(Node node, List<Move> out) {
         int x = node.x, z = node.z; double y = node.y;
@@ -449,8 +652,13 @@ final class RoutePlanner {
 
     // --- collision geometry (mclab.collision_geometry) ---
 
+    private static long key(int x, int y, int z) {
+        return (((long) x & 0x3FFFFFF) << 38) | (((long) y & 0xFFF) << 26) | ((long) z & 0x3FFFFFF);
+    }
+    private static long column(int x, int z) { return (((long) x & 0xFFFFFFFFL) << 32) | ((long) z & 0xFFFFFFFFL); }
     private Map<String, Object> cell(int x, int y, int z) {
-        long key = (((long) x & 0x3FFFFFF) << 38) | (((long) y & 0xFFF) << 26) | ((long) z & 0x3FFFFFF);
+        long key = key(x, y, z);
+        if (!overlay.isEmpty()) { var edited = overlay.get(key); if (edited != null) return edited; }
         if (!cells.containsKey(key)) cells.put(key, reader.cell(x, y, z));
         return cells.get(key);
     }
@@ -480,8 +688,9 @@ final class RoutePlanner {
     }
 
     private double[] cellHeights(int x, int y, int z) {
-        long key = (((long) x & 0x3FFFFFF) << 38) | (((long) y & 0xFFF) << 26) | ((long) z & 0x3FFFFFF);
-        var cached = heights.get(key);
+        long key = key(x, y, z);
+        boolean edited = !overlayColumns.isEmpty() && overlayColumns.contains(column(x, z));
+        var cached = edited ? null : heights.get(key);
         if (cached != null) return cached;
         var cell = cell(x, y, z);
         var found = new ArrayList<Double>();
@@ -495,7 +704,7 @@ final class RoutePlanner {
                     }
         }
         double[] result = found.stream().mapToDouble(Double::doubleValue).toArray();
-        heights.put(key, result);
+        if (!edited) heights.put(key, result);
         return result;
     }
     // mclab.navigation.full_cube: any unit box (fluid is already checked by safe()).

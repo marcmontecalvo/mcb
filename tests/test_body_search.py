@@ -87,3 +87,41 @@ def test_only_policies_the_java_core_implements_use_it():
     assert not body_search.supported(PROD, MOVES, interact_reach=4.5)
     assert not body_search.supported(replace(PROD, baritone_search=False), MOVES)
     assert not body_search.supported(None, MOVES)
+
+
+def test_edit_payload_lists_tools_in_the_hotbar_and_stock_above_reserve():
+    kit = [
+        {"slot": 0, "item": "minecraft:iron_pickaxe", "count": 1},
+        {"slot": 3, "item": "minecraft:cobblestone", "count": 10},
+    ]
+    policy = replace(PROD, planner_edits=True, reserve_blocks=2)
+    payload = body_search.edits_payload(policy, kit, protected=[(1, 2, 3)])
+    assert "minecraft:stone" in payload["breakable"]
+    assert "minecraft:dirt" not in payload["breakable"]  # no shovel in the hotbar
+    assert payload["place_supply"] == 8 and payload["protected"] == [(1, 2, 3)]
+
+
+def test_reported_edit_steps_become_step_plans():
+    c, sent = controller()
+    c.inventory, c.own_footholds = (), set()
+    c._remaining_policy = lambda: replace(PROD, planner_edits=True)
+    search = body_search.BodySearch(c, (0, 1, 0), 3, fallback=None)
+    assert "edits" in sent[0]
+    c.plan_reports[search.plan_id] = {
+        "plan_id": search.plan_id,
+        "state": "done",
+        "status": "reached",
+        "route": [[0, 1, 0], [1, 2, 0], [2, 2, 0]],
+        "expanded": 30,
+        "steps": [
+            {
+                "source": [0, 1, 0],
+                "target": [1, 2, 0],
+                "kind": "step",
+                "breaks": [[1, 2, 0], [1, 3, 0]],
+                "places": [],
+            }
+        ],
+    }
+    (step,) = search.advance().steps
+    assert step.source == (0, 1, 0) and step.breaks == ((1, 2, 0), (1, 3, 0))
