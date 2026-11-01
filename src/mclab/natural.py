@@ -526,7 +526,7 @@ def run(
     show_markers=False,
     stall_seconds=10,
     baritone_settings=None,
-    body_planner=False,
+    body_planner=True,
     flee=None,
 ) -> dict:
     awareness = Awareness() if awareness is None else awareness

@@ -199,10 +199,16 @@ def main() -> int:
         action="store_true",
         help="Baritone with allowParkour (moves matched to MCB's gap jumps)",
     )
-    nat_run.add_argument(
+    planner = nat_run.add_mutually_exclusive_group()
+    planner.add_argument(
         "--body-planner",
         action="store_true",
-        help="plan in the body's compiled core (Python only for edits)",
+        help="plan in the body's compiled core (the default since Nov 1)",
+    )
+    planner.add_argument(
+        "--python-planner",
+        action="store_true",
+        help="plan in Python (the planner of cohorts up to 28 and the frozen runs)",
     )
     experiment = sub.add_parser("experiments").add_subparsers(
         dest="operation", required=True
@@ -353,7 +359,7 @@ def main() -> int:
                     baritone_settings={"allowParkour": True}
                     if args.baritone_parkour
                     else None,
-                    body_planner=args.body_planner,
+                    body_planner=not args.python_planner,
                     flee=_profile_flee(args),
                 )
             case "bootstrap":
