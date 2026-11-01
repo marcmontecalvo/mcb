@@ -1,6 +1,6 @@
 # Awareness and movement sprint: pause handoff
 
-> **Partly superseded (Oct 28, 2026):** The "Remaining work" ordering below is superseded. Runtime state, source hashes and latency findings remain valid reference. See [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+> **Partly superseded (Oct 28, 2026; updated Oct 31):** The "Remaining work" ordering below is superseded, and its source hashes and runtime state are out of date (see [ROADMAP.md](ROADMAP.md)). The latency findings remain valid reference. See [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
 
 Resumed at Marc's request later on October 27. This document preserves the pause
 checkpoint; use [the control-latency follow-up](CONTROL_LATENCY_FOLLOWUP_2026-10-27.md)

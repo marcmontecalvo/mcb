@@ -5,6 +5,10 @@ Current gate results remain in `gates.json`.
 
 ## Next sprint: awareness, movement, and block use
 
+> **History (Oct 31, 2026):** this sprint section is superseded by
+> [ROADMAP.md](ROADMAP.md) and the navigation direction document. The model
+> experiments below remain queued behind navigation.
+
 Marc requested a focused sprint for configurable world awareness, persistent map
 memory, broader movement, and terrain modification, with hill climbing as the
 main block-use task. The [ten-day sprint plan](AWARENESS_MOVEMENT_SPRINT.md)

@@ -1,6 +1,6 @@
 {
   "last_pause_reason": "User requested pause for usage reset at 11:56 a.m. Eastern; full sprint unfinished",
-  "latest_followup": "docs/MOVEMENT_ENGINE_FOLLOWUP_2026-10-27.md",
+  "latest_followup": "docs/ROADMAP.md",
   "pause_handoff": "docs/PAUSE_HANDOFF_2026-10-27.md",
   "plan": "docs/AWARENESS_MOVEMENT_SPRINT.md",
   "requirements": {
@@ -16,7 +16,7 @@
     },
     "bounded_compact_acquisition_transport": {
       "compact_snapshot": "sections-v1 sparse palettes implemented and high-resolution ten-case mixed/prefetch cohorts completed; byte-budgeted deltas remain pending",
-      "remaining": "Byte-budgeted deltas, delivery/backlog/resynchronization controls and broader performance verification",
+      "remaining": "Byte-budgeted deltas and broader performance verification. Delivery/backlog: done Oct 31 (unread sections carried forward; docs/AWARENESS_MODES.md 'Delivery')",
       "status": "partial"
     },
     "client_envelope_and_coverage_calibration": {
@@ -52,7 +52,9 @@
     },
     "ladders_and_dismount": {
       "live_cases_required": 10,
-      "status": "pending"
+      "status": "implemented_development",
+      "evidence": "route_moves.py ladder edges; RouteMotor ladders (mod fdc9e533)",
+      "remaining": "10 live fixture cases; ladder facing direction"
     },
     "legacy_requalification_and_restoration": {
       "current_source": "Gap fixtures and jump-height diagnostics installed; source 045fae7a8c5fec661ba3a49c9d4f5777e081b29c8379bbe487c37abd043c48f1 remains development-only pending final source-bound requalification",
@@ -141,7 +143,9 @@
     },
     "surface_water_and_air_recovery": {
       "live_cases_required": 10,
-      "status": "pending"
+      "status": "implemented_development",
+      "evidence": "docs/NAVIGATION_DIRECTION_2026-10-28.md section 5; tests/test_water_movement.py; natural R3 swims (docs/STEP_C_PROGRESS_2026-10-29.md cohorts 12d-14)",
+      "remaining": "10 live fixture cases"
     },
     "terrain_resource_protection_cost_knobs": {
       "remaining": "Material allowlists, protected IDs/coordinates and break/place/wear cost knobs implemented; actual tool durability, time/risk budgets and live forbidden-action cohorts remain",

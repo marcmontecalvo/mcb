@@ -116,3 +116,33 @@ and re-sent only when their content changed. Unloaded chunks are never sent;
 moving the body only reorders the queue. Wire keys `bulk_cells`,
 `dense_sections`, `uniform_sections` are optional additions to
 `sparse_section_palette`. Python ingests them as section slice assignments.
+
+### Delivery (Oct 31, 2026; mod `fdc9e533`)
+
+A section is sent once and resent only when its content changes, so delivery
+must be exact:
+
+- A batch counts as **delivered when `/policy` serves it**. If a newer sample is
+  taken before anyone read the current batch, its sections are **carried into the
+  next batch** (newest copy of a section wins; above 1,024 sections the overflow
+  is forgotten and rescanned). The first read after a late start therefore
+  delivers everything scanned so far, in one batch.
+- The `policy_sample` event log records each section once, when it is scanned.
+  Carried sections are not repeated there (repeating them made 3 MB events and
+  timed out `/events`). Consequence: the event log is *what the body scanned*, not
+  *what the controller received*; for the latter use the `policy_observation`
+  sample ticks (`scripts/analysis/replay_delivered.py`).
+- Do not read `/policy` just to poll for a state; that consumes a batch. Use `/state`.
+
+Before this, batches produced before the controller's first read (40–70 ticks
+after the course start) were lost: those are the start area, nearest first. On R1
+this sent MCB west into a pit and a flooded valley instead of Baritone's southern
+route (STEP_C_PROGRESS, "Oct 31").
+
+Profiles: use `awareness-sections-64.json` (32,768 cells every 5 ticks). The
+`-fast` profiles (more cells, every 2 ticks) are **rejected**: ingestion every 2
+ticks took Python time from the planner and made R1 slower (cohort 15d/15f).
+
+The "Acquisition and remaining work" section above describes the older presets.
+For `sections`, whole loaded chunks within the radius are known once delivered,
+which matches Baritone's loaded-chunk knowledge at the same view distance (D8).

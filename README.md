@@ -21,14 +21,16 @@ See [setup status](docs/SETUP_STATUS.md) and
 
 ## Local operation
 
-**Current direction:** start with the
+**Current direction:** start with the [roadmap](docs/ROADMAP.md) (status, ordered
+work, findings, and an index of every plan and ledger), then the
 [October 28 navigation direction](docs/NAVIGATION_DIRECTION_2026-10-28.md), which
 supersedes older planning docs where they conflict. The
-[October 27 handoff](docs/PAUSE_HANDOFF_2026-10-27.md) remains the reference for
-runtime state, source hashes and latency findings.
+[October 27 handoff](docs/PAUSE_HANDOFF_2026-10-27.md) is history for latency
+findings; its source hashes are out of date (the current body hash is in the roadmap).
 
-Development terrain sensing now supports configurable visible and chunk-awareness
-modes, separate entity settings, and native boundary checks. See
+Development terrain sensing supports configurable visible, chunk and `sections`
+(whole loaded sections, the current development preset) awareness modes, separate
+entity settings, and native boundary checks. See
 [awareness modes](docs/AWARENESS_MODES.md) for configuration and natural-run usage.
 
 The development segmented controller adds [durable spatial recall](docs/SPATIAL_NAVIGATION.md)

@@ -31,6 +31,21 @@ def water_map(width=4, start=2):
     return cells
 
 
+def test_surface_height_follows_a_deep_column_and_stops_at_a_ceiling():
+    # Cohort 18 R5 rep 2: on a lake bed 10 below the surface the 8-cell scan found
+    # nothing, so the start was "not known standable" until the stall cutoff.
+    water = {"block": "minecraft:water", "fluid": "minecraft:water"}
+    water |= {"properties": {"level": "0"}, "collision_boxes": []}
+    air = {"block": "minecraft:air", "fluid": "minecraft:empty"}
+    air |= {"properties": {}, "collision_boxes": []}
+    stone = {"block": "minecraft:stone", "fluid": "minecraft:empty"}
+    stone |= {"properties": {}, "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
+    deep = {(0, y, 0): water if y < 12 else air for y in range(0, 20)}
+    assert surface_height(deep, [0.5, 0, 0.5]) == 12
+    capped = dict(deep) | {(0, 5, 0): stone}  # a pocket under rock: no surface
+    assert surface_height(capped, [0.5, 0, 0.5]) is None
+
+
 def test_surface_nodes_keep_water_level_separate_from_actual_body_depth():
     cells = water_map()
     assert surface_node(cells, (0, 0, 3))
@@ -325,16 +340,6 @@ def bank(height=1):
     return cells
 
 
-def test_raised_bank_exit_up_one_block():
-    cells = bank(1)
-    cells[6, -1, 3] = water()  # keep pool column continuous to x=6
-    assert wm.water_exit_up(cells, (6, 0, 3), (7, 1, 3))
-    assert not wm.water_exit_up(cells, (6, 0, 3), (7, 2, 3))  # two high
-    assert not wm.water_exit_up(cells, (6, 0, 3), (7, 0, 3))  # flush is water_edge
-    cells[7, 2, 3] = STONE  # no headroom
-    assert not wm.water_exit_up(cells, (6, 0, 3), (7, 1, 3))
-
-
 def test_land_to_water_drop_needs_known_floor_and_still_water():
     cells = bank(5)
     assert wm.water_landing(cells, (7, 5, 3), (6, 0, 3), 10)
@@ -401,3 +406,53 @@ def test_previous_route_is_favored_only_with_baritone_search(tmp_path):
             )
         finally:
             controller.close()
+
+
+def test_previous_route_favours_the_whole_plan_not_the_segment(tmp_path):
+    # Cohort 17 R5: favouring only the 16-move segment let the next partial
+    # search forget the plan's tail and swim back and forth for 5,000 ticks.
+    from mclab.route_search import RouteResult
+
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "water")
+    controller = SegmentedController((0, 0, 9), memory)
+    try:
+        plan = tuple((0, 0, z) for z in range(10))
+        trimmed = RouteSearch._segment(RouteResult("segment", plan, 1, 50, "x"), 3)
+        assert trimmed.route == plan[:3] and trimmed.full_route == plan
+        controller.take_result(trimmed)
+        assert controller.route == list(plan[:3])
+        assert controller.previous_route == plan
+    finally:
+        controller.close()
+
+
+def test_partial_plan_tail_is_kept_unless_a_new_partial_is_closer(tmp_path):
+    from mclab.route_search import RouteResult
+
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "water")
+    controller = SegmentedController((0, 0, 40), memory)
+    try:
+        plan = tuple((0, 0, z) for z in range(30))  # partial toward the goal
+        controller.take_result(
+            RouteSearch._segment(RouteResult("incomplete", plan, 1, 9, "budget"), 16)
+        )
+        assert controller.plan_tail == plan[15:]
+        back = tuple((0, 0, z) for z in range(15, 5, -1))  # ends farther away
+        controller.take_result(RouteResult("incomplete", back, 2, 9, "budget"))
+        assert controller.route == list(plan[15:30])
+        assert controller.last_result.reason == "kept previous partial plan"
+        # A new partial that ends clearly closer wins.
+        controller.plan_tail = plan[15:]
+        ahead = tuple((0, 0, z) for z in range(15, 36))
+        controller.take_result(
+            RouteSearch._segment(RouteResult("incomplete", ahead, 3, 9, "b"), 16)
+        )
+        assert controller.route[-1] == (0, 0, 30)  # segment of the new plan
+        assert controller.plan_tail[-1] == (0, 0, 35)
+        # A tail edge the body rejected is never reused.
+        controller.plan_tail = plan[15:]
+        controller.failed_edges.add((plan[20], plan[21]))
+        controller.take_result(RouteResult("incomplete", back, 4, 9, "budget"))
+        assert controller.route == list(back)
+    finally:
+        controller.close()

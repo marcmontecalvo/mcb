@@ -1,6 +1,8 @@
 """Baritone movement kinds in the planner: each enabled by a flag, each refusable."""
 
 import json
+import math
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -12,7 +14,13 @@ from mclab.route_moves import (
     prepare_downward,
     prepare_pillar_edge,
 )
-from mclab.route_search import JUMP, WALK, WALK_OFF, RouteSearch, fall_ticks
+from mclab.route_search import (
+    FALL_SETTLE_TICKS,
+    JUMP,
+    WALK_OFF,
+    RouteSearch,
+    fall_ticks,
+)
 from mclab.terrain_steps import (
     BREAK_EXTRA_TICKS,
     TerrainPolicy,
@@ -305,7 +313,7 @@ def test_falling_block_above_a_cut_is_priced_not_refused():
     two, s2 = run(plug(2), (0, 1, 0), (4, 1, 0), policy(baritone_moves=True))
     assert off.status == "unreachable"
     assert one.status == two.status == "reached"
-    extra = break_ticks(SAND) + BREAK_EXTRA_TICKS
+    extra = break_ticks(SAND) + BREAK_EXTRA_TICKS + FALL_SETTLE_TICKS
     assert s2.costs[(4, 1, 0)] - s1.costs[(4, 1, 0)] == pytest.approx(extra)
 
 
@@ -389,17 +397,17 @@ def swim_world(flow_at=None):
     return cells
 
 
-def test_swim_edges_cost_swim_ticks_times_water_multiplier_and_exit_up():
-    exit_up = max(JUMP, WALK)
-    off, _ = run(swim_world(), (0, 1, 0), (5, 2, 0), policy(), SWIMMER)
-    assert off.status == "unreachable"  # no surface -> land exit without the flag
-    on, s = run(swim_world(), (0, 1, 0), (5, 2, 0), policy(planner_swim=True), SWIMMER)
+def test_swim_edges_cost_swim_ticks_times_water_multiplier():
+    on, s = run(swim_world(), (0, 1, 0), (4, 1, 0), policy(planner_swim=True), SWIMMER)
     assert on.status == "reached"
-    assert s.costs[(5, 2, 0)] == pytest.approx(4 * SWIM_TICKS + exit_up)
+    assert s.costs[(4, 1, 0)] == pytest.approx(4 * SWIM_TICKS)
     mixed = swim_world(flow_at=2)  # one edge enters flowing water at 1.5x
-    flowing, s = run(mixed, (0, 1, 0), (5, 2, 0), policy(planner_swim=True), SWIMMER)
+    flowing, s = run(mixed, (0, 1, 0), (4, 1, 0), policy(planner_swim=True), SWIMMER)
     assert flowing.status == "reached"
-    assert s.costs[(5, 2, 0)] == pytest.approx(4.5 * SWIM_TICKS + exit_up)
+    assert s.costs[(4, 1, 0)] == pytest.approx(4.5 * SWIM_TICKS)
+    # No jump out onto the bank one above the surface stance (cohort 19 R5).
+    up, _ = run(swim_world(), (0, 1, 0), (5, 2, 0), policy(planner_swim=True), SWIMMER)
+    assert up.status == "unreachable"
     legacy, _ = run(mixed, (0, 1, 0), (4, 1, 0), policy(), SWIMMER)
     assert legacy.status == "unreachable"  # flowing water needs planner_swim
 
@@ -410,3 +418,23 @@ def test_profile_enables_the_new_flags():
     )
     pol = TerrainPolicy.from_payload(json.loads(path.read_text()))
     assert pol.baritone_moves and pol.planner_swim and pol.baritone_search
+
+
+def test_diagonal_across_water_costs_swim_ticks_not_sprint():
+    # Cohort 20 R5: lake diagonals priced at SPRINT*sqrt2 (5.04) made a long swim
+    # look cheaper than the ridge. Baritone MovementDiagonal uses water speed.
+    cells = world(
+        range(0, 4),
+        range(0, 4),
+        range(-1, 4),
+        lambda x, y, z: (STONE if y == -1 else None),
+    )
+    for x in range(4):
+        for z in range(4):
+            put_water(cells, (x, 0, z))
+    pol = policy(planner_swim=True, baritone_diagonals=True)
+    on, s = run(
+        cells, (1, 1, 1), (2, 1, 2), pol, replace(SWIMMER, allow_diagonals=True)
+    )
+    assert on.status == "reached"
+    assert s.costs[(2, 1, 2)] == pytest.approx(SWIM_TICKS * math.sqrt(2))

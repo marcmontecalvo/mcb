@@ -340,6 +340,15 @@ collision boxes, replaceability and fluid identity. No manifest, target coordina
 safe route, expected answer or evaluator drop identity enters this endpoint.
 The contestant discovers a log by its visible ordinary block identity.
 
+**Terrain delivery (Oct 31, 2026, `sections` preset).** With
+`terrain_encoding=sections-v1`, a served `/policy` response marks its
+`terrain_sections` batch as delivered. Batches replaced unread are carried into
+the next batch, so nothing is lost before the first read; a client that reads
+`/policy` and discards the result loses that batch's sections for good. Poll
+`/state` (same merged `state` field) to wait for a run state. The `policy_sample`
+event carries only the sections newly scanned at that tick. Details:
+[AWARENESS_MODES.md](AWARENESS_MODES.md), "Delivery".
+
 `policy_sample` records self state each running server tick, native MSPT, and full
 visible maps when refreshed (`map_update`). Python records model-visible snapshots,
 periodic map-memory full snapshots/deltas, actions and apply times, errors and

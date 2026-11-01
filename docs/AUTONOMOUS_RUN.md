@@ -1,5 +1,9 @@
 # Autonomous implementation and test run
 
+> **History (Oct 31, 2026):** kept for its evidence and history. Current status and
+> pending work: [ROADMAP.md](ROADMAP.md); plan and decisions:
+> [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+
 Marc requested continued implementation/testing in this session, independent
 course trials wherever possible, and a final evidence-backed report. Keep this
 file and the gate ledger current across context compaction. Do not request another

@@ -146,6 +146,13 @@ def prepare_pillar_edge(
     return StepPlan(tuple(source), (x, y + 1, z), (), (tuple(source),), kind="pillar")
 
 
+def surface_water(cells, node):
+    """The water cell under a still or flowing surface stance, or None."""
+    if water.surface_node(cells, node) or flowing_surface(cells, node):
+        return cells.get((node[0], node[1] - 1, node[2]))
+    return None
+
+
 def swim_cost(s, cells, source, target):
     """Cost of a same-height water-surface edge, or None.
 
@@ -161,12 +168,7 @@ def swim_cost(s, cells, source, target):
     if not flat or abs(source[0] - target[0]) + abs(source[2] - target[2]) != 1:
         return None
 
-    def surface(node):
-        if water.surface_node(cells, node) or flowing_surface(cells, node):
-            return cells.get((node[0], node[1] - 1, node[2]))
-        return None
-
-    wet_source, wet_target = surface(source), surface(target)
+    wet_source, wet_target = surface_water(cells, source), surface_water(cells, target)
     if wet_source is None and wet_target is None:
         return None
     for node in (source, target):
@@ -176,17 +178,6 @@ def swim_cost(s, cells, source, target):
         ):
             return None
     return base * water.water_cost_multiplier(wet_target or wet_source)
-
-
-def water_exit(s, cells, node, dx, dz):
-    """Surface -> land +1 (planner_swim): jump out, priced like an ascend."""
-    target = (node[0] + dx, node[1] + 1, node[2] + dz)
-    if (
-        s.pswim
-        and (node, target) not in s.excluded
-        and water.water_exit_up(cells, node, target)
-    ):
-        yield target, s._height(1), None
 
 
 def extra_moves(s, cells, node):

@@ -9,8 +9,11 @@ the conflicting section legacy) rather than leaving two answers in the repo.
 
 Prepared from a review of the docs and `route_search.py`, `terrain_route.py`,
 `terrain_steps.py`, `navigation_segmented.py` and `water_movement.py` at the
-October 27 checkpoint (`55d160c` plus uncommitted work). Nothing below has been
-run live yet; every claim about performance is a hypothesis until Phase 0 measures it.
+October 27 checkpoint (`55d160c` plus uncommitted work). Nothing below had been
+run live then; every claim about performance was a hypothesis until Phase 0 measured it.
+
+**Current status and the ordered work list are in [ROADMAP.md](ROADMAP.md)** (updated
+Oct 31, 2026). This document keeps the decisions and the phase plan.
 
 ## 0. Update — October 28 midday (Marc). Overrides §3–§4 where they differ.
 
@@ -75,8 +78,19 @@ follower enforces the same invariants (never step into unknown, confirm edits).
 Acceptance: existing fixture families pass; zero late-command invalids on the
 five calm routes; ticks compared to Baritone per route.
 
+> **Step B status (Oct 31):** done for development: the body follows routes, steps,
+> gaps, swims, ladders and Baritone corner cuts (mod `fdc9e533`). Formal
+> qualification is still open (ROADMAP item 10).
+
 **C. Planner core (D11)** using Baritone-derived tick costs (D12), then the
 frozen comparison (Phase 7) and survival/Jev profiles (Phase 6).
+
+> **Step C status (Oct 31):** in progress; ledger in
+> [STEP_C_PROGRESS_2026-10-29.md](STEP_C_PROGRESS_2026-10-29.md). Cohort 14: 9/10.
+> R1 on current code: 608/621 ticks against Baritone's 581. The Oct 31 work found
+> that early awareness batches never reached the controller; with that fixed, the
+> earlier conclusion that planner throughput was R1's binding limit no longer holds
+> (see ROADMAP, "Oct 31 findings").
 
 Phase 5 (movement speed) is absorbed into B. Phase 3 (interaction goals) can be
 done any time; it is small.
@@ -141,12 +155,13 @@ Purpose: find out what actually breaks on real terrain before changing anything.
    use `chunk` with horizontal radius 64, full height. Record both values in the
    manifest. (Alternative: raise the awareness cap to 96; only if cheap.)
    Confirm the Baritone client's own render distance is ≥ the server view distance.
-   **Status:** Done in `water_movement.air_recovery_command` (BFS within air/`SWIM_TICKS` blocks); `can_surface` now scans to open air. The controller still calls `can_surface` and must switch to `air_recovery_command`.
+   **Status (Oct 31):** Done: parity runs use `view-distance=4`. Since Oct 30 MCB uses the
+   `sections` preset (whole loaded sections, radius 64); see [AWARENESS_MODES.md](AWARENESS_MODES.md).
 2. Run `natural run --entrant comparison` on the five existing seed-1337 routes
    (`results/natural/routes-1337.json`), calm and night, one repetition each first.
    Segmented MCB uses its development movement/terrain profiles with all
    currently-passing families enabled.
-   **Status:** Done (HAZARDS + `still_water`).
+   **Status:** Done: [PHASE0_NATURAL_BASELINE_2026-10-28.md](PHASE0_NATURAL_BASELINE_2026-10-28.md).
 3. Deliverable: a table like `NATURAL_TERRAIN_COMPARISON.md` plus a failure
    classification per MCB attempt: planner blind spot (unknown treated as wall),
    edit-vs-detour misjudgment, motor stall/stop time, survival, other.
@@ -258,7 +273,7 @@ Swimming is being built in parallel. Notes from the review of
    lily pad, ceiling) — the bot waits while drowning. Recovery should route to the
    nearest breathable cell within remaining air. `can_surface` checks only 2.4
    blocks up, not to open air.
-   **Status:** Done in `water_movement.air_recovery_command` (BFS within air/`SWIM_TICKS` blocks); `can_surface` now scans to open air. The controller still calls `can_surface` and must switch to `air_recovery_command`.
+   **Status (Oct 31):** Done: `water_movement.air_recovery_command`, called by the controller (`navigation_segmented.py`).
 2. `still_water()` accepts `minecraft:bubble_column` (water fluid, no collision, no
    `level` → defaults to `"0"`). A magma-driven down column is a drowning trap.
    Add it to `HAZARDS` or reject it in `still_water()`.
@@ -266,22 +281,22 @@ Swimming is being built in parallel. Notes from the review of
 3. Telemetry sends `isInWater()` but drowning depends on eye submersion. Add
    `eye_in_water` (`isUnderWater()`) and end air recovery when the head is out
    rather than at 90 % air; air refills while surface-swimming.
-   **Status:** Partial: `head_out_of_water(survival)` uses `eye_in_water`, falling back to `in_water`. Controller must use it instead of the 90 % air test.
+   **Status (Oct 31):** Done: the controller ends recovery on `head_out_of_water(survival)` (`eye_in_water`, falling back to `in_water`); the body reports `eye_in_water`.
 4. Entry/exit only at equal height. Add surface → land +1 (jump out) and
    land → water drops (water cancels fall damage).
-   **Status:** Partial: predicates `water_exit_up` and `water_landing` exist; `route_search.py` does not call them yet.
+   **Status (Oct 31):** Done: `route_moves.py` plans water exits one block up and landings into still water (with `planner_swim` / `baritone_moves`); the body follows them (`RouteMotor`, landings up to 24 blocks).
 5. Flowing water is all-or-nothing (`level != 0` rejected); give it a higher cost
    instead, and model push direction later.
-   **Status:** Partial: `water_cost_multiplier` (1.5x flowing); routing still rejects flowing; push direction not modelled.
+   **Status (Oct 31):** Partial: flowing water is priced at 1.5× under `planner_swim`; native routes are cut before flowing water; push direction is not modelled (ROADMAP item 14).
 6. Swim cost should be ticks (≈2× walk) per D2.
-   **Status:** Done: `SWIM_TICKS`, `WALK_ON_WATER_PENALTY`; not yet used by `route_search.py`.
+   **Status (Oct 31):** Done: swim edges are priced in ticks (`route_moves.py`, `planner_swim`).
 7. Decide whether "get head above water" is allowed when `allow_swim` is false
    (survival vs the no-recovery-fallback rule) and record it in `DECISIONS.md`.
    **Status:** Done: allowed as a reflex; see `DECISIONS.md`.
 8. Fixtures: all ten variants are the same 1-wide flush channel. Add raised banks,
    overhang during recovery, bubble column, flowing water, lily pad/ice, lava
    adjacency, deep water, knockback with swimming disabled.
-   **Status:** Done in `tests/test_water_movement.py`.
+   **Status:** Unit fixtures done in `tests/test_water_movement.py`; the 10-case live cohort is not run (ROADMAP item 15).
 
 ## Superseded and legacy documents
 
@@ -294,14 +309,19 @@ each document remains valid history or reference.
 | `HYBRID_ARCHITECTURE.md` | Jev choosing local waypoints/behaviors inside the motor loop | Plan/commitment separation, priorities, interrupt/resume, observation rules |
 | `BARITONE_MOTOR_DESIGN.md` | "Baritone as the long-range motor" as the default direction | Override/handoff mechanism if the pivot rule fires |
 | `ROLLING_TERRAIN_PLANNING.md`, `HILL_NAVIGATION.md` | "Known walking search first; terrain beam only when walking fails" as the route chooser | Four-move forecasts as execution sequencing; executors, confirmations, evidence |
-| `PAUSE_HANDOFF_2026-10-27.md` | "Remaining work" ordering | Runtime state, source hashes, latency findings |
+| `PAUSE_HANDOFF_2026-10-27.md` | "Remaining work" ordering; runtime state and source hashes (out of date since Oct 30) | Latency findings |
 | `NATURAL_TERRAIN_COMPARISON.md` | Conclusion favoring Baritone-as-motor (V8 ran with ±20-block local memory vs Baritone's full client world) | Raw results and setup as history |
+| `AWARENESS_MOVEMENT_SPRINT.md`, `AWARENESS_MOVEMENT_RESULTS.md`, `AUTONOMOUS_RUN.md`, `MOVEMENT_ENGINE_FOLLOWUP_2026-10-27.md`, `NAVIGATION_IMPLEMENTATION.md` | Work ordering and "remaining work" lists (Oct 31 banner) | Evidence and history |
+| `EXPERIMENT_QUEUE.md` | "Next sprint" section | Queued model experiments |
+| `STEP_C_PROGRESS_2026-10-29.md` cohort 13 notes | "Binding limit is planner throughput" for R1 (withdrawn Oct 31) | Everything else |
 
 `Minecraft_AI_Technical_Handoff.md` is the original specification and is not edited.
 `SPRINT_ACCEPTANCE.json` remains the acceptance tracker; its walking/breaking/placing
 "compete in the cost model" requirement is consistent with D4.
 
 ## Open questions for Marc
+
+The current list is in [ROADMAP.md](ROADMAP.md); these two are carried there.
 
 - Phase 0 awareness match: lower server `view-distance` to 4 for parity runs, or
   raise the awareness cap to cover 6? (Default here: lower to 4.)

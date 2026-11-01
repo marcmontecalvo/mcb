@@ -325,16 +325,20 @@ def test_wall_cut_partial_that_starts_with_an_edit_keeps_searching():
     # bot tunnelled 30 blocks; the finished search walks around.
     from types import SimpleNamespace
 
-    from mclab.planning_worker import BackgroundSearch
+    from mclab.planning_worker import (
+        MIN_COMMIT_NODES,
+        MIN_COMMIT_NODES_STOPPED,
+        BackgroundSearch,
+    )
     from mclab.route_search import RouteResult
     from mclab.terrain_steps import StepPlan
 
     route = ((0, 1, 0), (1, 1, 0), (2, 1, 0))
     edit = StepPlan((0, 1, 0), (1, 1, 0), breaks=((1, 1, 0),))
 
-    def make(steps, elapsed=250):
+    def make(steps, elapsed=250, expanded=600):
         result = RouteResult(
-            "incomplete", route, 1, 600, "background search budget", steps
+            "incomplete", route, 1, expanded, "background search budget", steps
         )
         resumed = []
         worker = SimpleNamespace(
@@ -350,8 +354,15 @@ def test_wall_cut_partial_that_starts_with_an_edit_keeps_searching():
 
     search, resumed = make((edit,))
     assert search.advance().status == "searching" and resumed == [1]
-    search, resumed = make(())
+    search, resumed = make(())  # a thin walking partial keeps searching too
+    assert search.advance().status == "searching" and resumed == [1]
+    search, resumed = make((), expanded=MIN_COMMIT_NODES)  # past the floor: used
+    assert search.advance(moving=True).status == "incomplete" and resumed == []
+    # A stopped body waits only to the lower floor; a moving one keeps searching.
+    search, resumed = make((), expanded=MIN_COMMIT_NODES_STOPPED)
     assert search.advance().status == "incomplete" and resumed == []
+    search, resumed = make((), expanded=MIN_COMMIT_NODES_STOPPED)
+    assert search.advance(moving=True).status == "searching" and resumed == [1]
     # Patience is bounded: after a second of search the edit-first partial is used.
     search, resumed = make((edit,), elapsed=1200)
     assert search.advance().status == "incomplete" and resumed == []
@@ -399,3 +410,38 @@ def test_controller_waits_for_the_start_cell_before_planning(tmp_path):
     finally:
         controller.close()
         memory.close()
+
+
+@pytest.mark.parametrize("floor", [40, 5])
+def test_thin_wall_cut_walking_partial_keeps_searching(monkeypatch, floor):
+    # Cohort 21 R4: a 589-node wall-cut partial committed a 32-cell detour; the
+    # finished search (~1,200 nodes) walked straight. Below the node floor a cut
+    # walking partial resumes; at or above it the partial is used as before.
+    import mclab.planning_worker as pw
+
+    monkeypatch.setattr(pw, "MIN_COMMIT_NODES", floor)
+
+    class SlowSearch(RouteSearch):
+        def advance(self, **kwargs):
+            time.sleep(0.002)
+            return super().advance(**{**kwargs, "node_limit": 1})
+
+    class TinyWallWorker(PlanningWorker):
+        def submit(self, *args, **kwargs):
+            return super().submit(*args, **{**kwargs, "wall_budget_ms": 20})
+
+    lane = floor_map([(x, 0) for x in range(60)])
+    worker = TinyWallWorker(search_factory=SlowSearch)
+    try:
+        search = pw.BackgroundSearch(
+            worker, lane, (0, 1, 0), (59, 1, 0), map_revision=1, goal_revision=1
+        )
+        result = wait_until(
+            lambda: (r := search.advance(moving=True)).status != "searching" and r
+        )
+        if floor == 40:
+            assert result.status == "reached" or result.expanded >= floor
+        else:
+            assert result.status == "incomplete" and result.expanded < 40
+    finally:
+        worker.close()

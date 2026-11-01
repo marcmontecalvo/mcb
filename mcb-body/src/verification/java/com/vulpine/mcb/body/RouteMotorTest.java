@@ -80,6 +80,13 @@ public final class RouteMotorTest {
         check(motor.active() && exit.jump() && !exit.sprint(),"jumps out onto a +1 bank without sprint");
         motor.tick(pose(5.5,2,.5,-90),g);
         check(motor.status().get("state").equals("done"),"exit onto land completes");
+        // A failed exit hop leaves the water every bob; airborne ticks must not reset the stall count.
+        var bob=new RouteMotor("bob",route.subList(3,5),SWIM);
+        for(int t=0;t<80 && bob.active();t++)
+            bob.tick(t%20<10 ? wet(4.7,.3,.5) : new RouteMotor.Pose(4.7,1.5,.5,0,0,-90,false,20,false),g);
+        check(!bob.active() && bob.status().get("reason").equals("route_no_progress"),"endless exit bobbing gives up");
+        check(RouteMotor.levelPitch(83.65)==-45 && RouteMotor.levelPitch(38.65)==-38.65
+                && RouteMotor.levelPitch(-10)==10 && RouteMotor.levelPitch(0)==0,"route following levels the view");
         var noSprint=new RouteMotor("s",route,new RouteMotor.Policy(true,false,true,3,true,false));
         noSprint.tick(pose(1.5,1,.5,-90),g);
         check(!noSprint.tick(wet(2.5,.3,.5),g).sprint(),"sprint policy off");
@@ -201,12 +208,27 @@ public final class RouteMotorTest {
             var edge=floor(); wall(edge,blocked[0],blocked[1]);
             var bent=motor(diagonal);
             var turn=bent.tick(start,geometry(edge));
-            check(bent.active() && turn.forward()==0 && turn.yaw()!=0 && !turn.sprint(),"edging turns toward the bend waypoint");
+            check(bent.active() && turn.forward()>0 && turn.yaw()!=0 && !turn.sprint(),"edging steers onto the bend waypoint and walks");
             check(arrives(motor(diagonal),geometry(edge),start),"edging follows the bend and arrives");
         }
+        // Cohort 25 R3 rep 2: mid-bend, the body 6 degrees off toward the blocked column. The
+        // .01 bend clearance must be swept on the exact bearing, not the leftover yaw.
+        var tight=floor(); wall(tight,1,0);
+        var mid=motor(diagonal); mid.tick(start,geometry(tight));
+        double bearing=Math.toDegrees(Math.atan2(-(.69-.5),1.31-.5));
+        var skew=mid.tick(new RouteMotor.Pose(.5,1,.5,0,0,bearing-6,true,20),geometry(tight));
+        check(mid.active() && skew.forward()>0 && Math.abs(skew.yaw()-6)<1e-6,"bend corrects a small heading error instead of stopping");
         var both=floor(); wall(both,1,0); wall(both,0,1);
         var shut=motor(diagonal); shut.tick(start,geometry(both));
         check(!shut.active() && shut.status().get("reason").equals("route_swept_geometry_unknown_or_unsafe"),"both sides blocked is rejected");
+        // Cohort 21 R4: a hop overshot its landing and the next sweep clipped a wall while
+        // airborne. In the air, coast; once landed the recentre-and-retry takes over.
+        var clipped=floor(); wall(clipped,2,1);
+        var hop=List.of(new RouteMotor.Point(1,1,0),new RouteMotor.Point(2,1,0));
+        var air=motor(hop); var coast=air.tick(new RouteMotor.Pose(1.6,1.3,.75,0,0,-90,false,20),geometry(clipped));
+        check(air.active() && coast.forward()==0 && !coast.jump(),"airborne blocked sweep coasts instead of stopping");
+        air.tick(new RouteMotor.Pose(1.6,1,.75,0,0,-90,true,20),geometry(clipped));
+        check(air.active(),"landed off-centre: recentres and retries");
         // Lava under a side rejects the cut.
         var lava=floor(); lava.put(new Key(1,0,0),Map.of("block","minecraft:lava","fluid","minecraft:lava","properties",Map.of("level","0"),"collision_boxes",List.of()));
         hole(lava,0,1);
@@ -300,6 +322,31 @@ public final class RouteMotorTest {
         check(up.active() && rise.forward()==0 && rise.yaw()==0 && rise.jump(),"below the stance in the column: hold jump, no steering");
         up.tick(wet(3.5,.05,.5),g);
         check(up.status().get("state").equals("done"),"feet within 1.0 below the stance arrive");
+        // On the bed of a 3-deep pool, under a surface-stance start: swim up, not route_start_displaced.
+        var deep=pool();
+        for(int x=2;x<=4;x++) { deep.put(new Key(x,-1,0),water("0")); deep.put(new Key(x,-2,0),water("0")); deep.put(new Key(x,-3,0),stone()); }
+        var sunk=new RouteMotor("s",route.subList(1,4),SWIM);
+        var lift=sunk.tick(new RouteMotor.Pose(2.5,-2,.5,0,0,-90,true,20,true),geometry(deep));
+        check(sunk.active() && lift.jump(),"sunk under a surface start holds jump instead of route_start_displaced");
+        var dry=new RouteMotor("d",route.subList(1,4),SWIM);
+        dry.tick(new RouteMotor.Pose(2.5,-2,.5,0,0,-90,true,20,false),geometry(deep));
+        check(!dry.active(),"far below the start out of water is still displaced");
+        lakeDropChecks();
+    }
+    /** Two-block ledge at z>=-7 (stone y=18..19, stance y=20) overhanging a lake (still water y=-2..0, stance y=1). */
+    private static void lakeDropChecks() {
+        var cells=new HashMap<Key,Map<String,Object>>();
+        for(int x=-2;x<=4;x++) for(int z=-12;z<=-3;z++) for(int y=-3;y<=26;y++) {
+            Map<String,Object> c=Map.of("block","minecraft:air","collision_boxes",List.of(),"fluid","minecraft:empty");
+            if(z>=-7 && (y==18 || y==19)) c=stone();
+            if(y==-3) c=stone();
+            if(y>=-2 && y<=0) c=water("0");
+            cells.put(new Key(x,y,z),c);
+        }
+        var g=geometry(cells);
+        var drop=new RouteMotor("lake",List.of(new RouteMotor.Point(1,20,-7),new RouteMotor.Point(1,1,-8),new RouteMotor.Point(1,1,-9)),SWIM);
+        drop.tick(new RouteMotor.Pose(1.49,20,-6.75,0,0,2,true,20,false),g);
+        check(drop.active(),"known 19-block drop into a lake starts (Baritone MovementFall into water)");
     }
     public static void main(String[] args) {
         var route=List.of(new RouteMotor.Point(0,1,0),new RouteMotor.Point(1,1,0),new RouteMotor.Point(2,1,0),new RouteMotor.Point(3,1,0));
@@ -391,7 +438,7 @@ public final class RouteMotorTest {
         var squeeze=motor(List.of(new RouteMotor.Point(0,1,0),new RouteMotor.Point(1,1,0),new RouteMotor.Point(2,1,0)));
         // Facing the target from z=.05: the hitbox's -z side would clip the wall.
         var centre=squeeze.tick(pose(.6,1,.05,Math.toDegrees(Math.atan2(-(1.5-.6),.5-.05))),geometry(walled));
-        check(squeeze.active() && centre.forward()==0 && centre.yaw()>8,"clipping step turns to recentre instead of failing");
+        check(squeeze.active() && centre.forward()>0 && centre.yaw()>8,"clipping step steers back to the centre instead of failing");
         check(squeeze.tick(pose(.5,1,.45,-90),geometry(walled)).forward()==0 && squeeze.active(),"recentred");
         check(squeeze.tick(pose(.5,1,.45,-90),geometry(walled)).forward()>0,"step proceeds from the centre");
         // Corner: steer and keep moving when one tick's turn covers it and the new

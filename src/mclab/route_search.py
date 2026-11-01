@@ -44,6 +44,10 @@ from mclab.terrain_steps import (
 WALK = 20 / 4.317  # WALK_ONE_BLOCK_COST
 SPRINT = 20 / 5.612  # SPRINT_ONE_BLOCK_COST
 SWIM = 20 / 2.2  # D2
+# Settling time per falling block stacked over a cut: the column drops into the cut
+# and the stance waits for it (cohort 14 R2 rep 2: ~66 ticks for 3 sand, 15 of them
+# breaking). Baritone prices only the breaks; that made the cut look cheap here.
+FALL_SETTLE_TICKS = 17
 WALK_OFF = WALK * 0.8  # WALK_OFF_BLOCK_COST
 CENTER_AFTER_FALL = WALK - WALK_OFF  # CENTER_AFTER_FALL_COST
 
@@ -93,6 +97,7 @@ class RouteResult:
     expanded: int
     reason: str
     steps: tuple = ()  # StepPlans for planned edit edges on this route
+    full_route: tuple = ()  # the untrimmed plan when ``route`` is a segment of it
 
 
 @functools.cache
@@ -301,7 +306,7 @@ class RouteSearch:
         breaking = sum(_break_cost(get(p)["block"]) for p in breaks)
         if self.moves and breaks:  # getMiningDurationTicks includeFalling
             breaking += sum(
-                break_ticks(get(q)["block"]) + BREAK_EXTRA_TICKS
+                break_ticks(get(q)["block"]) + BREAK_EXTRA_TICKS + FALL_SETTLE_TICKS
                 for p in breaks
                 for q in falling_stack(view, p)
             )
@@ -433,7 +438,8 @@ class RouteSearch:
                 if water_movement.surface_node(cells, node) or (
                     self.pswim and route_moves.flowing_surface(cells, node)
                 ):
-                    yield from route_moves.water_exit(self, cells, node, dx, dz)
+                    # No +1 exit: the surface stance is already one above Baritone's
+                    # feet-in-water node, so +1 here is +2 for the body (cohort 19 R5).
                     continue
             # A gap needs a hole under the adjacent cell and a full-cube support.
             if gap_room and flags((x + dx, y - 1, z + dz)) & EMPTY:
@@ -540,6 +546,13 @@ class RouteSearch:
         sides = (self._side(cells, x + dx, y, z), self._side(cells, x, y, z + dz))
         if None in sides or -1 in sides or sides == (0, 0):
             return None
+        if self.pswim:  # MovementDiagonal: water at either end swims, no sprint
+            wet = route_moves.surface_water(
+                cells, (x + dx, y, z + dz)
+            ) or route_moves.surface_water(cells, node)
+            if wet is not None:
+                rate = SWIM if self.ticks else 1.8
+                return rate * water_movement.water_cost_multiplier(wet) * math.sqrt(2)
         if 0 in sides:  # edging past one blocked side: walk pace, no sprint
             return WALK * math.sqrt(2) * (math.sqrt(2) - 0.001)
         return self._flat(diagonal=True)
@@ -742,4 +755,5 @@ class RouteSearch:
             result.expanded,
             result.reason,
             tuple(s for s in result.steps if s.target in targets),
+            result.route if len(route) < len(result.route) else (),
         )

@@ -1,5 +1,9 @@
 # Awareness, movement, and block-use sprint
 
+> **History (Oct 31, 2026):** kept for its evidence and history. Current status and
+> pending work: [ROADMAP.md](ROADMAP.md); plan and decisions:
+> [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+
 Planned October 26, 2026. Status: implementation plan; no new capability or
 qualification is claimed by this document. Budget: ten development days, with
 an integrated checkpoint after day five. Day allocations are estimates, not a

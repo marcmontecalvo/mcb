@@ -252,6 +252,15 @@ class PlanningWorker:
             raise RuntimeError("Route search worker did not stop")
 
 
+# A wall-cut walking partial below this many expansions keeps searching (up to
+# EDIT_PATIENCE_MS): cohort 21 R4 committed a 589-node partial into a 32-cell
+# detour; the finished search took ~1,200 nodes and walked straight. 1,500 helped
+# (cohort 23: R3 0.73x, R5 1.30x Baritone); cohort 22 R5 replays still preferred
+# the good route only at larger caps, so 3,000 (~0.4-0.7 s live). That cost
+# R1-R4 1-4% in stopped waits (cohort 24), so a stopped body uses cohort 23's
+# 1,500; the full floor applies only while the body still has route to drive.
+MIN_COMMIT_NODES = 3000
+MIN_COMMIT_NODES_STOPPED = 1500
 EDIT_PATIENCE_MS = 1000  # search time spent before following an edit-first partial
 
 
@@ -291,7 +300,7 @@ class BackgroundSearch:
         )
         self.token = worker.submit(*self._job[0], **self._job[1])
 
-    def advance(self, **_):
+    def advance(self, *, moving=False, **_):
         envelope = self.worker.poll(self.token)
         if (
             envelope is None
@@ -326,8 +335,12 @@ class BackgroundSearch:
         # around (run 20261030T200723012823Z R2). Past the expansion cap the
         # partial is used as before, and so is one after EDIT_PATIENCE_MS of
         # search: waiting for the full cap stalled R1 5 s (run 20261030T203732413689Z).
-        edit_first = edit_first and self.searched_ms < EDIT_PATIENCE_MS
-        if result.status == "incomplete" and (len(result.route) < 2 or edit_first):
+        patient = self.searched_ms < EDIT_PATIENCE_MS
+        floor = MIN_COMMIT_NODES if moving else MIN_COMMIT_NODES_STOPPED
+        thin = patient and result.expanded < floor
+        if result.status == "incomplete" and (
+            len(result.route) < 2 or (edit_first and patient) or thin
+        ):
             # No move to follow yet: keep searching rather than idle on a dead result.
             # ponytail: still ends incomplete past the expansion cap; Step C (D3)
             # planning through unknown space replaces this known-only fallback.

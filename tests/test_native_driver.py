@@ -125,6 +125,61 @@ def test_native_driver_hands_off_routes_without_python_tick_controls(
     assert any(kind == "native_route_finished" for kind, _ in records)
 
 
+@pytest.mark.parametrize(
+    "closer,disabled", [(False, False), (True, False), (False, True)]
+)
+def test_goal_no_progress_ends_attempt_only_when_best_distance_stalls(
+    monkeypatch, closer, disabled
+):
+    ticks = iter(range(0, 4000, 100))
+    sent, records = [], []
+    client = SimpleNamespace(
+        send=lambda op, **kw: sent.append(op) or {"sequence": 1},
+        acknowledge=lambda *_: None,
+        record=lambda *args: records.append(args),
+        events=[],
+        wait=lambda *_, **__: None,
+    )
+    controller = SimpleNamespace(
+        goal=(100, 1, 0),
+        route=[],
+        mode="idle",
+        terrain=None,
+        gap_jump=None,
+        committed_step=None,
+        movement_policy=MovementPolicy(),
+        decide=lambda _, **kw: None,
+        _admit=lambda _: None,
+        drain_events=lambda: [],
+    )
+    if disabled:  # stall_seconds = 0
+        controller.goal_progress_ticks = None
+    state = {"n": 0}
+
+    def policy(_client):
+        tick = next(ticks)
+        state["n"] += 1
+        # Oscillate 15 blocks wide (R5), or creep closer 1 block per 100 ticks.
+        x = 0.5 + (state["n"] if closer else 15 * (state["n"] % 2))
+        if state["n"] > 39:
+            raise ControllerFailure("test ran out of ticks")
+        return {"tick": tick, "body": {"position": [x, 1, 0.5]}}
+
+    monkeypatch.setattr(native_driver, "policy_state", policy)
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda *_: None)
+    native_driver.drive_native(client, controller, 10)
+    if closer or disabled:
+        assert client.last_controller_error == "test ran out of ticks"
+    else:
+        assert client.last_controller_error.startswith("goal_no_progress")
+        assert (
+            native_driver.GOAL_PROGRESS_TICKS
+            <= state["n"] * 100
+            <= native_driver.GOAL_PROGRESS_TICKS + 400
+        )
+
+
 def test_ambiguous_native_submission_is_cancelled_without_retry(monkeypatch):
     sent = []
     controller = SimpleNamespace(
@@ -265,6 +320,38 @@ def test_splice_truncates_to_motor_cap_once_under_planning_lookahead():
     c, route, joined = run(20)
     assert len(joined) == MOTOR_ROUTE_POINTS and joined[: len(route)] == route
     assert c.prefetch is None and len(c.route) > MOTOR_ROUTE_POINTS
+
+
+def test_splice_that_changes_nothing_is_not_resubmitted():
+    # Cohort 19 R5 rep 2: a body stuck at index 1 of a full 32-point route got the
+    # identical route every ~6 ticks for 3,900 ticks; each resubmission reset the
+    # motor's step deadline, so it never gave up on the edge.
+    from types import SimpleNamespace
+
+    from mclab.native_driver import MOTOR_ROUTE_POINTS, splice_route
+    from mclab.route_search import RouteResult
+
+    route = [(x, 1, 0) for x in range(MOTOR_ROUTE_POINTS)]
+    tail = tuple((x, 1, 0) for x in range(MOTOR_ROUTE_POINTS - 1, 40))
+    prefetch = SimpleNamespace(
+        start=route[-1], advance=lambda **_: RouteResult("segment", tail, 1, 9, "t")
+    )
+    c = SimpleNamespace(
+        prefetch=prefetch,
+        committed_step=None,
+        terrain=None,
+        terrain_queue=[],
+        search=None,
+        search_nodes=64,
+        search_ms=2,
+        prefetch_adopted=0,
+        last_result=None,
+        route=[],
+        events=[],
+        goal_revision=0,
+    )
+    assert splice_route(c, route, {"next_index": 1}, [0.5, 1, 0.5]) is None
+    assert c.prefetch is prefetch  # kept for the ordinary handoff at the end
 
 
 def test_allow_climb_key_only_in_body_request_when_enabled():

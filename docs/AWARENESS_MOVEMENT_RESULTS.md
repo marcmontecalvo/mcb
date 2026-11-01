@@ -1,5 +1,9 @@
 # Awareness and hill-navigation development results
 
+> **History (Oct 31, 2026):** kept for its evidence and history. Current status and
+> pending work: [ROADMAP.md](ROADMAP.md); plan and decisions:
+> [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+
 Updated October 27, 2026. The initial acquisition/store/search/motor path and the first
 hill block-use families work. The full [ten-day sprint](AWARENESS_MOVEMENT_SPRINT.md)
 remains incomplete. No new Baritone comparison or natural-terrain parity claim

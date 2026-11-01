@@ -348,8 +348,8 @@ public final class BodyRuntime implements AutoCloseable {
                 body.release(); expiryTick = -1;
             } else {
                 int tick = server.getTickCount();
-                body.controls(new Controls("native-route",tick,tick,tick+2,2,input.forward(),0,input.yaw(),0,
-                        input.jump(),false,input.sprint(),false,false,false,false,0));
+                body.controls(new Controls("native-route",tick,tick,tick+2,2,input.forward(),0,input.yaw(),
+                        RouteMotor.levelPitch(p.getXRot()),input.jump(),false,input.sprint(),false,false,false,false,0));
                 expiryTick = tick + 2;
             }
             if (!prior.get("state").equals(routeMotor.status().get("state"))

@@ -40,10 +40,17 @@ def surface_node(cells, node):
 
 
 def surface_height(cells, position):
+    """Surface stance straight up through the water the body is in, or None."""
     x, y, z = math.floor(position[0]), math.floor(position[1]), math.floor(position[2])
-    return next(
-        (h for h in range(y - 1, y + 9) if surface_node(cells, (x, h, z))), None
-    )
+    # Follow the water column to its top (a lake bed can lie 10+ below it: cohort
+    # 18 R5); anything that is not water ends the column, so never past a ceiling.
+    for h in range(y - 1, y + MAX_SURFACE_SCAN):
+        if surface_node(cells, (x, h, z)):
+            return h
+        cell = cells.get((x, h, z))
+        if h >= y and (cell is None or cell.get("fluid") != "minecraft:water"):
+            return None
+    return None
 
 
 def supported_node(cells, node, *, shapes=False):
@@ -201,23 +208,6 @@ def air_recovery_command(cells, body, policy):
     if abs(turn["yaw_delta"]) > 8:
         return {**turn, "jump": True}
     return {**turn, "forward": 1.0, "jump": ny >= math.floor(p[1])}
-
-
-def water_exit_up(cells, source, target):
-    """Water surface node -> adjacent land node one block higher (jump out)."""
-    return (
-        target[1] == source[1] + 1
-        and abs(source[0] - target[0]) + abs(source[2] - target[2]) == 1
-        and surface_node(cells, source)
-        and not surface_node(cells, target)
-        and standable(cells, target)
-        and collision_geometry.safe_cell(
-            cells.get((target[0], target[1] - 1, target[2]))
-        )
-        and collision_geometry.clear_column(
-            cells, source[0], source[2], source[1], target[1] + 1.8
-        )
-    )
 
 
 def water_landing(cells, source, target, max_height):

@@ -198,3 +198,23 @@ returns `{}` otherwise. Route search and `swim_command` still require
 With `allow_swim` the reflex may swim to the nearest breathable cell within the
 remaining air (air / `SWIM_TICKS` blocks). Recovery ends when the eyes are out of
 water (`eye_in_water`, falling back to `in_water`), not at 90 % air.
+
+## Terrain delivery and planning start (October 31, 2026)
+
+- **Delivered means read.** In the `sections` preset a terrain batch counts as
+  delivered only when `/policy` serves it; unread sections are carried into the
+  next batch. Rescanning them instead (tried first) cannot catch up with a
+  controller that starts 40–70 ticks late.
+- **The event log records scans, not deliveries.** `policy_sample` carries each
+  section once, when scanned. What the controller received is read from the
+  `policy_observation` sample ticks.
+- **No discarded `/policy` reads.** Harness code waits on `/state`.
+- **Plan only on a known start.** The controller does nothing ("awaiting_map")
+  until the cell under its feet is admitted, instead of walking blind fallback
+  steps. The body's near refresh always covers that cell, so the wait is bounded.
+- **One planning lane, scoped cancels.** Search and prefetch share one worker;
+  `cancel(token)` cancels only the job it names, and a superseded search
+  resubmits once the lane is idle.
+- **Normal awareness cadence.** `awareness-sections-64.json` (every 5 ticks) is
+  the development profile; the `-fast` profiles are rejected (they slowed the
+  planner).

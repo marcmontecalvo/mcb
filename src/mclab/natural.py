@@ -330,8 +330,27 @@ def attempt(
     player = _relaunch_client() if entrant == "baritone" else None
     client = _bridge(destination / "events.jsonl")
     client.show_path = show_markers  # the native driver publishes its planned path
+    resources = ExitStack()
     try:
         _new_identity(client, f"natural-{entrant}")
+        # Build the controller and its map before the course starts: built after
+        # course_started, the first /policy read came 3-31 ticks late (cohort 16).
+        controller = (
+            None
+            if entrant == "baritone"
+            else _controller(
+                entrant,
+                route,
+                seed,
+                destination,
+                client,
+                resources,
+                awareness,
+                memory_policy,
+                terrain_policy,
+                movement_policy,
+            )
+        )
         # The wire payload in each policy_observation is already replayable. The
         # expanded-cell recorder rewrites the whole accumulated map every 20th
         # observation inside the control loop; at chunk radius 64 that reached
@@ -385,37 +404,10 @@ def attempt(
                 if time.monotonic() > deadline:
                     raise RuntimeError("Policy stream did not reach running")
                 time.sleep(0.05)
+            if stall_ticks == 0 and controller is not None:
+                controller.goal_progress_ticks = None
             try:
-                with ExitStack() as resources, _motor_gc_policy():
-                    controller = GoalController(
-                        route["goal"], GOAL_RADIUS, awareness=awareness
-                    )
-                    if entrant == "segmented_goal":
-                        # Each snapshot restore creates an isolated map generation.
-                        # Never reuse geometry from a preceding benchmark attempt.
-                        memory = SpatialMemory(
-                            MapArchive(
-                                destination / "map.sqlite3",
-                                MapIdentity(
-                                    str((SNAPSHOTS / _level(seed)).resolve()),
-                                    client.episode_id,
-                                    "minecraft:overworld",
-                                    awareness,
-                                ),
-                            ),
-                            client.episode_id,
-                            policy=memory_policy,
-                        )
-                        resources.callback(memory.close)
-                        controller = SegmentedController(
-                            route["goal"],
-                            memory,
-                            radius=GOAL_RADIUS - 0.5,
-                            terrain_policy=terrain_policy or TerrainPolicy(),
-                            background_planning=True,
-                            movement_policy=movement_policy,
-                        )
-                        resources.callback(controller.close)
+                with _motor_gc_policy():
                     terminal = drive(
                         client,
                         controller,
@@ -442,13 +434,58 @@ def attempt(
                 status="invalid",
                 controller_error=client.last_controller_error,
             )
+            if client.last_controller_error.startswith("goal_no_progress"):
+                outcome["reason"] = "goal_no_progress"
         if entrant == "segmented_goal" and not error:
             outcome["navigation"] = navigation_status
         if getattr(client, "control_loop_summary", None) is not None:
             outcome["control_loop"] = client.control_loop_summary
         return outcome
     finally:
+        resources.close()
         client.close()
+
+
+def _controller(
+    entrant,
+    route,
+    seed,
+    destination,
+    client,
+    resources,
+    awareness,
+    memory_policy,
+    terrain_policy,
+    movement_policy,
+):
+    if entrant != "segmented_goal":
+        return GoalController(route["goal"], GOAL_RADIUS, awareness=awareness)
+    # Each snapshot restore creates an isolated map generation.
+    # Never reuse geometry from a preceding benchmark attempt.
+    memory = SpatialMemory(
+        MapArchive(
+            destination / "map.sqlite3",
+            MapIdentity(
+                str((SNAPSHOTS / _level(seed)).resolve()),
+                client.episode_id,
+                "minecraft:overworld",
+                awareness,
+            ),
+        ),
+        client.episode_id,
+        policy=memory_policy,
+    )
+    resources.callback(memory.close)
+    controller = SegmentedController(
+        route["goal"],
+        memory,
+        radius=GOAL_RADIUS - 0.5,
+        terrain_policy=terrain_policy or TerrainPolicy(),
+        background_planning=True,
+        movement_policy=movement_policy,
+    )
+    resources.callback(controller.close)
+    return controller
 
 
 def _error_chain(error):

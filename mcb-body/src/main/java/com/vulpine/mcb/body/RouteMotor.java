@@ -46,8 +46,16 @@ final class RouteMotor {
         default boolean climbable(Point point) { return false; }
         default boolean swimSafe(Pose pose, Point target, double originY, double distance, boolean jumping) { return false; }
     }
+    /**
+     * Pitch delta that levels the view (at most 45 degrees a tick). Swimming moves along
+     * the look vector: a pitch left at 84 degrees down by an edit drove the body onto a
+     * lake bed under held jump (cohort 21 R5 rep 2).
+     */
+    static double levelPitch(double xRot) { return Math.max(-45, Math.min(45, -xRot)); }
     /** Still water breaks any fall; the cap only bounds a malformed route. */
     static final int MAX_WATER_DROP = 24;
+    /** About two ~29-tick bobs with no horizontal progress. */
+    private static final int SWIM_STALL_TICKS = 70;
 
     private final String id;
     private final List<Point> route;
@@ -134,7 +142,13 @@ final class RouteMotor {
     Input tick(Pose pose, Geometry geometry) {
         if (!active()) return Input.STOP;
         ticks++; stepTicks++;
-        if (ticks == 1 && (route.get(0).distance(pose) > 1.5 || Math.abs(pose.y - route.get(0).y) > 1.5)) {
+        // Sunk in water under a surface-stance start (the planner lifts a wet start up its
+        // water column to the surface, up to 40): not displaced, the swim edge holds jump
+        // and rises. Cohort 16 R3 rep 2 stalled 2 blocks under its start, stopped here.
+        var start = route.get(0);
+        boolean underStart = pose.inWater && Math.floor(pose.x) == start.x && Math.floor(pose.z) == start.z
+                && pose.y < start.y && start.y - pose.y <= 40 && geometry.swimSurface(start);
+        if (ticks == 1 && !underStart && (start.distance(pose) > 1.5 || Math.abs(pose.y - start.y) > 1.5)) {
             // Baritone PathExecutor re-syncs to a later path position; a stale start
             // (the body walked or dropped during planning) is not a failure.
             int later = resyncIndex(pose);
@@ -161,7 +175,8 @@ final class RouteMotor {
             target = route.get(index);
         }
         if (stepTicks > 200) { stop("route_step_deadline"); return Input.STOP; }
-        double moved = Math.sqrt(Math.pow(pose.x - lastX, 2) + Math.pow(pose.z - lastZ, 2) + Math.pow(pose.y - lastY, 2));
+        double flat = Math.hypot(pose.x - lastX, pose.z - lastZ);
+        double moved = Math.sqrt(flat * flat + Math.pow(pose.y - lastY, 2));
         lastX = pose.x; lastZ = pose.z; lastY = pose.y;
         double distance = target.distance(pose);
         var source = route.get(index - 1);
@@ -176,7 +191,7 @@ final class RouteMotor {
         }
         if (recentring) return recentre(pose, geometry, source);
         if (climbEdge) return climb(pose, source, target, moved);
-        if (swimEdge) return swim(pose, geometry, source, target, moved);
+        if (swimEdge) return swim(pose, geometry, source, target, flat);
         // Only brake onto a point the route turns, climbs or ends at. Carrying speed
         // straight through a step-down lands on the next (standable) point.
         var after = index + 1 < route.size() ? route.get(index + 1) : null;
@@ -245,6 +260,9 @@ final class RouteMotor {
                 recentredAt = index; recentring = true;
                 return recentre(pose, geometry, source);
             }
+            // Airborne (a hop overshot its landing, cohort 21 R4): input barely steers in
+            // the air, so coast and let the grounded recentre retry; stepTicks bounds it.
+            if (!pose.grounded) return new Input(0, 0, false, false);
             stop("route_swept_geometry_unknown_or_unsafe"); return Input.STOP;
         }
         // Keep sprinting into a point the route runs straight through (including a
@@ -309,9 +327,10 @@ final class RouteMotor {
 
     private Input followBend(Pose pose, Geometry geometry, Point source) {
         double distance = bend.distance(pose);
-        double turn = wrap(yawTo(pose, bend) - pose.yaw);
-        double yaw = Math.max(-45, Math.min(45, turn));
-        if (Math.abs(turn) > 8) return new Input(0, yaw, false, false);
+        // Instant heading, swept on the exact bearing: the bend clears the blocked column by
+        // only .01, so a few degrees of leftover turn clipped it (cohort 25 R3 rep 2, tick 461).
+        double yaw = wrap(yawTo(pose, bend) - pose.yaw);
+        pose = new Pose(pose.x, pose.y, pose.z, pose.vx, pose.vz, pose.yaw + yaw, pose.grounded, pose.food, pose.inWater);
         if (!geometry.safeDiagonal(pose, bend, source.y, distance + .03, false, policy.maxDrop)) {
             bend = null; stop("route_swept_geometry_unknown_or_unsafe"); return Input.STOP;
         }
@@ -359,7 +378,8 @@ final class RouteMotor {
 
     // Derived from Baritone MovementTraverse/Ascend water handling: hold jump to stay at
     // the surface and swim toward the next stance (Settings.sprintInWater).
-    private Input swim(Pose pose, Geometry geometry, Point source, Point target, double moved) {
+    /** flat: horizontal movement since the last tick (bobbing alone is not progress). */
+    private Input swim(Pose pose, Geometry geometry, Point source, Point target, double flat) {
         double turn = wrap(yawTo(pose, target) - pose.yaw);
         double yaw = turn;
         // The sweep runs on the new heading: heading changes are instant (Baritone LookBehavior).
@@ -375,8 +395,10 @@ final class RouteMotor {
         if (!geometry.swimSafe(pose, target, source.y, travel, jump)) {
             stop("route_swept_geometry_unknown_or_unsafe"); return Input.STOP;
         }
-        if (moved < .01 && (pose.grounded || pose.inWater)) stalled++; else stalled = 0;
-        if (stalled > 30) { stop("route_no_progress"); return Input.STOP; }
+        // Count airborne ticks too: a failed exit hop leaves the water each bob, which
+        // used to reset the count forever (cohort 19 R5 rep 2 bobbed 3,900 ticks).
+        if (flat < .01) stalled++; else stalled = 0;
+        if (stalled > SWIM_STALL_TICKS) { stop("route_no_progress"); return Input.STOP; }
         boolean sprint = policy.sprint && pose.food > 6 && pose.inWater && forward == 1 && !exiting;
         return new Input(forward, yaw, jump, sprint);
     }
@@ -401,9 +423,8 @@ final class RouteMotor {
     private Input recentre(Pose pose, Geometry geometry, Point source) {
         double distance = source.distance(pose);
         if (distance <= .2) { recentring = false; return Input.STOP; }
-        double turn = wrap(yawTo(pose, source) - pose.yaw);
-        double yaw = Math.max(-45, Math.min(45, turn));
-        if (Math.abs(turn) > 8) return new Input(0, yaw, false, false);
+        double yaw = wrap(yawTo(pose, source) - pose.yaw);
+        pose = new Pose(pose.x, pose.y, pose.z, pose.vx, pose.vz, pose.yaw + yaw, pose.grounded, pose.food, pose.inWater);
         if (!geometry.safe(pose, source, source.y, distance + .03, false, policy.maxDrop)) {
             recentring = false; stop("route_swept_geometry_unknown_or_unsafe"); return Input.STOP;
         }

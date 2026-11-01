@@ -124,6 +124,7 @@ class SegmentedController(NavigationController):
         # Step C: edit edges planned by the main search, keyed (source, target).
         self.route_steps = {}
         self.previous_route = ()
+        self.plan_tail = ()  # unfollowed rest of the current partial plan
         self.inventory = ()
         if type(background_planning) is not bool:
             raise ValueError("background_planning must be a boolean")
@@ -162,7 +163,7 @@ class SegmentedController(NavigationController):
 
     def cancel(self):
         self.goal_revision += 1
-        self.previous_route = ()
+        self.previous_route = self.plan_tail = ()
         if self.planner_lane is not None:
             self.planner_lane.cancel()
         self.prefetch = None
@@ -609,11 +610,44 @@ class SegmentedController(NavigationController):
                 return self.route[: index + 1]
         return self.route
 
+    def _committed(self, result):
+        """Keep following the previous partial plan when a new partial is no closer.
+
+        Partials from neighbouring starts can end in opposite directions, and
+        following 16 moves of each oscillated: cohort 17 R5 swam between two lake
+        corners for 5,000 ticks; cohort 14 R2 walked to a wall and back 12 times.
+        Baritone follows the whole partial path before planning on from its end.
+        """
+        tail = self.plan_tail
+        if (
+            result.status != "incomplete"
+            or len(result.route) < 2
+            or len(tail) < 2
+            or tuple(result.route[0]) != tail[0]
+            or any(
+                edge in self.failed_edges for edge in zip(tail, tail[1:], strict=False)
+            )
+        ):
+            return result
+        end = (getattr(result, "full_route", ()) or result.route)[-1]
+        if math.dist(end, self.goal) < math.dist(tail[-1], self.goal) - 1:
+            return result
+        kept = replace(
+            result, route=tail, steps=(), reason="kept previous partial plan"
+        )
+        return RouteSearch._segment(kept, 16)
+
     def take_result(self, result):
+        result = self._committed(result)
         self.last_result = result
         self.route = list(result.route)
         if len(self.route) > 1:  # Baritone favours the previous route on replans.
-            self.previous_route = tuple(map(tuple, self.route))
+            # The whole plan, not the followed segment: favouring only the segment
+            # forgot the plan's tail, and partials ping-ponged (cohort 17 R5).
+            full = tuple(map(tuple, getattr(result, "full_route", ()) or self.route))
+            self.previous_route = full
+            partial_plan = result.status == "incomplete" and not result.steps
+            self.plan_tail = full[len(self.route) - 1 :] if partial_plan else ()
         self.route_steps = {(s.source, s.target): s for s in result.steps}
 
     def _begin_route_edit(self, node, observation):

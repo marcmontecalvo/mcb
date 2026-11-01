@@ -1,5 +1,9 @@
 # Navigation implementation boundary
 
+> **History (Oct 31, 2026):** kept for its evidence and history. Current status and
+> pending work: [ROADMAP.md](ROADMAP.md); plan and decisions:
+> [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+
 Updated October 25, 2026. The native C2–C5 reset profile and deterministic
 navigation runner are implemented. Reset qualification passed 20 matching
 seed-0 resets per course; see `NAVIGATION_QUALIFICATION.json`. That evidence

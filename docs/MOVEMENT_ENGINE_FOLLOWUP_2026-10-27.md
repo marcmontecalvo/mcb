@@ -1,5 +1,9 @@
 # Movement engine and comparison harness follow-up
 
+> **History (Oct 31, 2026):** kept for its evidence and history. Current status and
+> pending work: [ROADMAP.md](ROADMAP.md); plan and decisions:
+> [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md).
+
 The full sprint remains active. This increment follows
 [the latency checkpoint](CONTROL_LATENCY_FOLLOWUP_2026-10-27.md); it does not
 establish Baritone parity or requalify the changed native server source.

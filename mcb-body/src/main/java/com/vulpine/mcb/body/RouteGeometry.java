@@ -115,11 +115,14 @@ final class RouteGeometry implements RouteMotor.Geometry {
             double bottom = Double.NEGATIVE_INFINITY;
             for (double ox : new double[]{-.299999, .299999}) for (double oz : new double[]{-.299999, .299999}) {
                 int cx = (int) Math.floor(x + ox), cz = (int) Math.floor(z + oz);
-                double level;
-                if (waterAt(cx, cz, low)) level = low;
+                // Support first: a ledge overhanging the landing lake (water under it at the
+                // landing height) carries the corner at the ledge, not at the water. Cohort 16
+                // R5: every 19-block lake drop off a 2-block ledge was refused here.
+                double level = support(x + ox, z + oz, low, high);
+                if (Double.isFinite(level)) { /* stands on it */ }
+                else if (waterAt(cx, cz, low)) level = low;
                 else if (waterAt(cx, cz, high)) level = high;
                 else {
-                    level = support(x + ox, z + oz, low, high);
                     // Water-landing drop (Baritone MovementFall walks off and falls): a corner may
                     // overhang a neighbouring column that is known open air down to a safe floor.
                     if (!Double.isFinite(level)) {

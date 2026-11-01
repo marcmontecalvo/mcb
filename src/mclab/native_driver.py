@@ -14,6 +14,11 @@ MOTOR_ROUTE_POINTS = 32
 # Baritone Settings.planningTickLookahead: plan the next segment while this many
 # ticks of the current one remain, so the motor never brakes at a segment end.
 PLANNING_TICK_LOOKAHEAD = 150
+# End the attempt when the best goal distance has not improved by GOAL_PROGRESS_BLOCKS
+# for this long. Successful R5 runs (cohorts 19-20) went up to 1,385 ticks without a
+# new best; a stuck water exit went 3,934. 2400 ticks (2 min) sits between them.
+GOAL_PROGRESS_TICKS = 2400
+GOAL_PROGRESS_BLOCKS = 1.0
 
 
 def remaining_ticks(route):
@@ -131,7 +136,9 @@ def splice_route(controller, route, native, body):
     ):
         return None
     result = prefetch.advance(
-        node_limit=controller.search_nodes, budget_ms=controller.search_ms
+        node_limit=controller.search_nodes,
+        budget_ms=controller.search_ms,
+        moving=True,  # The body still drives the active route: waiting is free.
     )
     if result.status not in {"segment", "reached", "incomplete"}:
         return None
@@ -169,6 +176,11 @@ def splice_route(controller, route, native, body):
             return None
         joined = joined[:MOTOR_ROUTE_POINTS]
     if len(joined) < 2:
+        return None
+    if joined == [tuple(p) for p in active]:
+        # Nothing new (a full-length route whose body has not advanced): resubmitting
+        # resets the motor's step deadline. Cohort 19 R5 rep 2 got the same route
+        # every ~6 ticks for 3,900 ticks at a water exit it could not climb.
         return None
     controller.search, controller.prefetch = prefetch, None
     controller.prefetch_adopted += 1
@@ -267,6 +279,7 @@ def drive_native(client, controller, wall_timeout):
         "routes_spliced": 0,
     }
     client.last_controller_error = None
+    best_distance, best_tick = math.inf, None
     try:
         while time.monotonic() < deadline:
             if getattr(controller, "cancelled", False):
@@ -287,6 +300,21 @@ def drive_native(client, controller, wall_timeout):
             terminal = _running(client, observation)
             if terminal is not None:
                 return terminal
+            goal, tick = getattr(controller, "goal", None), observation.get("tick")
+            # stall_seconds = 0 turns off both stall cutoffs (natural.py sets None).
+            limit = getattr(controller, "goal_progress_ticks", GOAL_PROGRESS_TICKS)
+            if goal is not None and tick is not None and limit is not None:
+                distance = math.dist(observation["body"]["position"], goal)
+                if (
+                    best_tick is None
+                    or distance <= best_distance - GOAL_PROGRESS_BLOCKS
+                ):
+                    best_distance, best_tick = distance, tick
+                elif tick - best_tick >= limit:
+                    raise ControllerFailure(
+                        f"goal_no_progress: best {best_distance:.1f} blocks from goal "
+                        f"unimproved for {tick - best_tick} ticks"
+                    )
             if observation.get("reflex_follower", {}).get("state") == "following":
                 controller._admit(observation)
                 time.sleep(0.05)
@@ -403,6 +431,7 @@ def drive_native(client, controller, wall_timeout):
                     # one rejected diagonal until the 5 s stall cutoff.
                     if native.get("reason") in {
                         "route_no_progress",
+                        "route_step_deadline",
                         "route_swept_geometry_unknown_or_unsafe",
                         "route_drop_requires_water",
                     }:
