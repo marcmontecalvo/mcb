@@ -85,6 +85,57 @@ public final class RoutePlannerTest {
         var jumped = new RoutePlanner((x, y, z) -> trench.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0), across, 0, 3, true)
                 .withGaps(2).search(100_000);
         check(jumped.status().equals("reached") && jumped.route().stream().noneMatch(n -> n.x() == 3), "jumps the trench");
+        // Edits (stage D): a full 3-high stone wall across the floor. Without edits it blocks.
+        var solid = floor(12);
+        for (int z = -2; z <= 12; z++) for (int y = 1; y <= 4; y++) solid.put(new Key(5, y, z), stone());
+        RoutePlanner.Node beyond = new RoutePlanner.Node(8, 1, 0);
+        check(!plan(solid, beyond, 100_000).status().equals("reached"), "without edits the wall blocks the route");
+        var dug = withEdits(solid, beyond, true).search(100_000);
+        check(dug.status().equals("reached") && dug.steps().size() == 1 && dug.steps().get(0).breaks().size() == 2
+                && dug.steps().get(0).kind().equals("step"), "digs a two-block opening through the wall");
+        double expected = RoutePlanner.SPRINT + RoutePlanner.EDIT_STEP + 2 * STONE_BREAK;
+        var edge = dug.steps().get(0);
+        check(Math.abs(dug.cost() - (7 * RoutePlanner.SPRINT + expected)) < 1e-9 && edge.source().x() == 4,
+                "the cut is priced as a sprint block, the edit step and two stone breaks");
+        // Pit: start 2 deep in a 1x1 hole; pillaring (or a stacked step) gets out.
+        var pit = floor(12);
+        for (int x = -2; x <= 12; x++) for (int z = -2; z <= 12; z++) { pit.put(new Key(x, 1, z), stone()); pit.put(new Key(x, 2, z), stone()); }
+        pit.put(new Key(0, 1, 0), air()); pit.put(new Key(0, 2, 0), air());
+        var out = new RoutePlanner((x, y, z) -> pit.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(4, 3, 0), 0, 3, true).withMoves(false, true).withEdits(policy(false)).search(100_000);
+        check(out.status().equals("reached") && !out.steps().isEmpty(), "edits its way out of a pit");
+        // Bridge: the 2-deep trench with nothing known below, gaps off; one side-anchored block crosses it.
+        check(!withEdits(trench, across, false).search(100_000).status().equals("reached"),
+                "without side anchoring no support can be placed in the trench");
+        var bridged = withEdits(trench, across, true).search(100_000);
+        check(bridged.status().equals("reached") && bridged.steps().size() == 1
+                && bridged.steps().get(0).places().size() == 1 && bridged.steps().get(0).places().get(0)[1] == 0,
+                "bridges the trench with one side-anchored block");
+        // Dig down: the goal is under solid ground; MovementDownward breaks the floor.
+        var ground = floor(12);
+        for (int x = -2; x <= 12; x++) for (int z = -2; z <= 12; z++) ground.put(new Key(x, -1, z), stone());
+        var down = new RoutePlanner((x, y, z) -> ground.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(0, 0, 0), 0, 3, true).withMoves(false, true).withEdits(policy(false)).search(100_000);
+        check(down.status().equals("reached") && down.steps().get(0).kind().equals("downward"), "digs down onto known stone");
+        // Protected cells are never broken.
+        var guarded = new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), false, false, false,
+                1, 64, 64, 3, java.util.Set.of(RoutePlanner.key(5, 1, 0), RoutePlanner.key(5, 2, 0)), java.util.Set.of(),
+                "minecraft:cobblestone");
+        var around = new RoutePlanner((x, y, z) -> solid.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0), beyond, 0, 3, true)
+                .withEdits(guarded).search(100_000);
+        check(around.status().equals("reached") && around.steps().stream().noneMatch(e -> e.breaks().stream()
+                .anyMatch(p -> p[0] == 5 && p[2] == 0)), "protected cells are left alone");
         System.out.println("RoutePlanner: " + checks + " planner checks passed");
+    }
+
+    // route_search._break_cost("minecraft:stone"): 8 ticks with an iron pickaxe + 2 extra + 6 aim.
+    private static final double STONE_BREAK = 16;
+    private static RoutePlanner.EditPolicy policy(boolean bridge) {
+        return new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), true, bridge, true,
+                3, 64, 64, 3, java.util.Set.of(), java.util.Set.of(), "minecraft:cobblestone");
+    }
+    private static RoutePlanner withEdits(Map<Key, Map<String, Object>> cells, RoutePlanner.Node goal, boolean bridge) {
+        return new RoutePlanner((x, y, z) -> cells.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0), goal, 0, 3, true)
+                .withEdits(policy(bridge));
     }
 }

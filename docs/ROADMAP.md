@@ -6,19 +6,21 @@ the phase plan are in [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_
 (authoritative; it wins any conflict). Results live in the ledgers listed below.
 Update this file whenever an item here is finished or a new one is found.
 
-Last updated: November 1, 2026 (cohorts 16–28 on `main`). Installed mod source
-hash: `5ffbde56…` (adds the planner core class; cohorts 27–28 ran on `2eed1251`).
+Last updated: November 1, 2026 (cohorts 16–29 and the frozen calm comparison on
+`main`). Installed mod source hash: `68b3e8f6…` (Java edit edges, cohort 30); the
+qualified mod is still `a94dcdef`, so item 11 must be rerun before scored use.
+Cohorts 27–28 ran on `2eed1251`, cohort 29 on `0129b057`.
 
 ## Where things stand
 
 | Area | State | Detail |
 |---|---|---|
 | Mod split, D9 (step A) | Done (development evidence) | Direction doc §0 step A |
-| In-mod route follower, D10 (step B) | Done for development; formal qualification open | [STEP_B_PROGRESS](STEP_B_PROGRESS_2026-10-28.md), [STEP_B_RERUN](STEP_B_RERUN_2026-10-29.md) |
-| Planner core, D11 (step C) | In progress; cohort 28 is 10/10, every route within 1.09× of Baritone | [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md) (cohorts 1–28) |
+| In-mod route follower, D10 (step B) | Done for development. Its mod is requalified (item 11) and passed the frozen calm comparison (item 12); no separate step B sign-off is recorded | [STEP_B_PROGRESS](STEP_B_PROGRESS_2026-10-28.md), [STEP_B_RERUN](STEP_B_RERUN_2026-10-29.md) |
+| Planner core, D11 (step C) | In progress; cohort 28 is 10/10, every route within 1.09× of Baritone. The Java core (item 8) is opt-in; with edits (cohort 30) it is 10/10 and 1% slower in total, R3 8% | [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md) (cohorts 1–28) |
 | Baritone parity, D12 | Weights and moves reimplemented | [BARITONE_WEIGHTS_AND_MOVES](BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md), `config/weights/baritone-v1.20.0.json` |
 | Awareness parity, D8 | `sections` preset with delivery fixed (Oct 31) | [AWARENESS_MODES](AWARENESS_MODES.md) |
-| Swimming (§5 of the direction doc) | Planner and body done; live fixture cohorts not run | Direction doc §5 status lines |
+| Swimming (§5 of the direction doc) | Planner and body done; live water and ladder fixtures 10/10 each (item 16) | Direction doc §5 status lines |
 | Qualification | Current for mod `a94dcdef` (Nov 1) | [NAVIGATION_QUALIFICATION.json](NAVIGATION_QUALIFICATION.json), [gates.json](gates.json) |
 | Gates | G0–G3, G5 passed; G4 in progress; G6–G8 not run | [gates.json](gates.json) |
 
@@ -94,6 +96,12 @@ Details: [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md), cohorts 16–20.
 Each item names where its detail or evidence lives. Numbers are priority, not
 dependencies, except where noted.
 
+**Open after Nov 1, in the order to do them:** (1) item 8: stage D done (cohort 30); decide
+on R3 (delivered-map reading) and make the body planner the default, then requalify (item 11);
+(2) night diagnostics for item 12; (3) Marc's call on night survival (item 13);
+(4) the paired ~10% gap to Baritone (items 8, 9); (5) a live multi-edit chain
+(item 10).
+
 **Confirm and close gaps**
 
 1. Falling blocks over a cut: settle cost added (cohort 22); watch for repeats.
@@ -109,8 +117,8 @@ dependencies, except where noted.
    ends when the feet leave the water. Cohort 19 R5 peaked at 63.92 about 350 times
    under a bank top at 64.00. Baritone's ascend from water is our level exit; it
    has no +2. The planner has not offered this move since cohort 21.
-5. **More reps and a second seed** before trusting the 10/10: two reps on one
-   seed is development evidence only.
+5. Done Nov 1 (more reps and more seeds): covered by the frozen calm comparison
+   (item 12), 3 seeds × 10 routes × 3 reps, MCB 90/90.
 
 **Speed**
 
@@ -140,8 +148,13 @@ dependencies, except where noted.
    opt-in: body `plan_route` op (10 ms per tick), `BodySearch`, `--body-planner`.
    Cohort 29 with it: 10/10 but 15% slower (R5 skips a 2-block cut it cannot
    price; R2/R3 7–9% slower, likely because the body reads the live world in
-   range while Python plans on delivered cells). Open: stage D (edit edges in
-   Java) and planning on the delivered map in the body; then make it default. A Java search
+   range while Python plans on delivered cells). Stage D done Nov 1: every edit
+   kind in Java (dig/place steps, dig down, descend with breaks, pillar), same
+   routes, costs and edit plans as Python at all 20 frozen-comparison edit
+   decisions and on built maps; the Python fallback is removed. Cohort 30
+   (`20261101T135049338315Z`, mod `68b3e8f6`): 10/10, 7,488 ticks against
+   Python's 7,394; R5 digs the cut again, only R3 is still ~8% slower. Open:
+   R3 (planning on the delivered map in the body), then make it default. A Java search
    runs outside Python's interpreter lock, so it also answers item 7.
 9. **Partial-route quality.** ~1,000-node partials can still lead into pits and
    lakes (R5). Commitment to a plan's tail is done (cohort 18). Oct 31: the first
@@ -176,7 +189,8 @@ dependencies, except where noted.
     completed (total ticks 60,057 vs MCB 66,190, about 10% faster); the per-seed
     medians favour MCB on two seeds only because route lengths differ.
     MCB broke 12 blocks in total, Baritone 71. MCB took 1 damage on each 42424242 R8 attempt (3 total), no deaths.
-    Still open: night diagnostics for this item.
+    Still open: night diagnostics for this item, and the paired gap above (Baritone
+    about 10% faster route by route); items 8 and 9 are the likely fixes.
 
 **Features from the plan**
 
@@ -200,7 +214,8 @@ dependencies, except where noted.
     available (`follow_route` `flee`, profile `flee`) but no profile uses it; the
     reflex's hostile list now includes zombie villagers. **Open research:** night
     survival needs combat or shelter (direction doc "Later"), not route weights.
-    Screening Jev waits for the model track.
+    Screening Jev waits for the model track. Needs Marc's decision (see open
+    questions).
 14. Done Oct 31 (interaction goals, Phase 3): `RouteSearch(interact_reach=4.5)`
     and `SegmentedController(interact_reach=...)` treat the goal as a block to
     reach with the eye (feet + 1.62, centre ray, every crossed cell known and
@@ -233,6 +248,8 @@ imports allowed there).
 - Answered Oct 31: the frozen comparison runs Baritone with moves matched to
   MCB's (parkour on), which needs a new Baritone baseline; the compiled planner
   core (item 8) starts now; finished work is committed and pushed to `main`.
+- Open Nov 1: night survival (item 13). Route weights and a reactive flight both
+  failed the night acceptance; the choice is combat, shelter, or defer to "Later".
 - Carried from the direction doc: `race` profile block budgets; server view
   distance for parity runs (currently 4).
 
@@ -253,12 +270,12 @@ imports allowed there).
 
 | Document | Role |
 |---|---|
-| [STEP_C_PROGRESS_2026-10-29.md](STEP_C_PROGRESS_2026-10-29.md) | Planner-core cohorts 1–20 and causes; Oct 31 findings |
+| [STEP_C_PROGRESS_2026-10-29.md](STEP_C_PROGRESS_2026-10-29.md) | Planner-core cohorts 1–29 and causes; Oct 31 findings |
 | [STEP_B_PROGRESS_2026-10-28.md](STEP_B_PROGRESS_2026-10-28.md), [STEP_B_RERUN_2026-10-29.md](STEP_B_RERUN_2026-10-29.md) | In-mod follower work and its live rerun |
 | [PHASE0_NATURAL_BASELINE_2026-10-28.md](PHASE0_NATURAL_BASELINE_2026-10-28.md), [PHASE0_FIX_PLAN_2026-10-28.md](PHASE0_FIX_PLAN_2026-10-28.md), [PHASE0_FIXES_RESULTS_2026-10-28.md](PHASE0_FIXES_RESULTS_2026-10-28.md) | Phase 0 baseline and fixes (done) |
 | [SPRINT_ACCEPTANCE.json](SPRINT_ACCEPTANCE.json) | Acceptance tracker for the awareness/movement sprint |
 | [gates.json](gates.json) | Gate ledger G0–G8 |
-| [NAVIGATION_QUALIFICATION.json](NAVIGATION_QUALIFICATION.json) | Reset/navigation qualification (stale until item 10) |
+| [NAVIGATION_QUALIFICATION.json](NAVIGATION_QUALIFICATION.json) | Reset/navigation qualification (current for mod `a94dcdef`; rerun after any body change) |
 | `docs/*_PROOF.json`, `docs/G*_*.json` | Evidence files bound to source hashes |
 
 **Reference (how things work)**

@@ -1,25 +1,29 @@
 package com.vulpine.mcb.body;
 
+import com.google.gson.JsonObject;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
 
 /**
- * Compiled planner core, stage A (ROADMAP item 8): the land subset of mclab.route_search
- * under the production flags (tick costs, Baritone search and diagonals, shapes, no swim,
- * gaps, edits or unknown-space exits). Same costs, heuristic, partial-path rule and tail
- * cutoff, so routes match the Python planner on the same cells. Unknown cells are never
- * air or support. Not thread-safe: one search per instance.
+ * Compiled planner core (ROADMAP item 8): mclab.route_search under the production flags
+ * (tick costs, Baritone search and diagonals, shapes, swimming, gaps, ladders, water
+ * landings, unknown-space exits and, with withEdits, the edit edges). Same costs,
+ * heuristic, partial-path rule and tail cutoff, so routes match the Python planner on the
+ * same cells. Unknown cells are never air or support. Not thread-safe: one search per instance.
  */
 final class RoutePlanner {
     record Node(int x, double y, int z) {
         double distance(Node o) { return Math.sqrt(sq(x - o.x) + sq(y - o.y) + sq(z - o.z)); }
     }
-    record Result(String status, List<Node> route, int expanded, double cost) { }
+    record Result(String status, List<Node> route, int expanded, double cost, List<Edit> steps) { }
+    /** One planned edit edge (terrain_steps.StepPlan): blocks to break and to place, in order. */
+    record Edit(Node source, Node target, List<int[]> breaks, List<int[]> places, String kind) { }
 
     // Baritone ActionCosts and Settings, reimplemented (same values as route_search.py).
     static final double WALK = 20 / 4.317, SPRINT = 20 / 5.612, WALK_OFF = WALK * .8,
@@ -128,29 +132,32 @@ final class RoutePlanner {
         if (terminal != null) return terminal;
         if (best == null) {
             if (!(swim ? supported(start) : standable(start)))
-                return terminal = new Result("unreachable", List.of(), 0, 0);
+                return terminal = new Result("unreachable", List.of(), 0, 0, List.of());
             best = start;
             costs.put(start, 0.0); nodes.add(start);
             frontier.add(new double[]{remaining(start), 0, 0, 0});
         }
         int slice = 0;
         while (!frontier.isEmpty() && expanded < nodeLimit) {
-            if ((++slice & 63) == 0 && System.nanoTime() > deadlineNanos) return new Result("searching", List.of(), expanded, 0);
+            if ((++slice & 63) == 0 && System.nanoTime() > deadlineNanos) return new Result("searching", List.of(), expanded, 0, List.of());
             var entry = frontier.poll();
             int index = (int) entry[2];
             Node node = nodes.get(index);
             double cost = entry[1];
             if (cost != costs.get(node)) continue;
             if (entry[3] == 1)  // the cheapest way on runs through unknown space
-                return terminal = trim(result("segment", node, previous, expanded, cost), costs);
+                return terminal = trim(result("segment", node, cost));
             expanded++;
+            // Later edges from a node see the edits of the edge that reached it (route_search._view).
+            overlay = null;
+            if (edits != null) overlay = overlayOf(plans.get(node));
             double estimate = closeness(node);
             if (estimate < closeness(best)) best = node;
             for (int i = 0; i < COEFFICIENTS.length; i++) {
                 double value = estimate + cost / COEFFICIENTS[i];
                 if (value < coefValue[i]) { coefValue[i] = value; coefBest[i] = node; }
             }
-            if (distance(node) == 0) return terminal = result("reached", node, previous, expanded, cost);
+            if (distance(node) == 0) return terminal = result("reached", node, cost);
             if (unknownPenalty > 0 && !node.equals(start) && frontierNode(node)) {
                 double total = cost + exitRemainder(node);
                 frontier.add(new double[]{total, cost, index, 1});
@@ -161,6 +168,11 @@ final class RoutePlanner {
                 double total = cost + move.cost * (favored.contains(move.target) ? FAVOR : 1);
                 if (total < costs.getOrDefault(move.target, Double.POSITIVE_INFINITY)) {
                     costs.put(move.target, total); previous.put(move.target, node);
+                    if (edits != null) {
+                        int d = depth.getOrDefault(node, 0);
+                        if (move.edit == null) plans.remove(move.target); else { plans.put(move.target, move.edit); d++; }
+                        depth.put(move.target, d);
+                    }
                     nodes.add(move.target);
                     frontier.add(new double[]{total + remaining(move.target), total, nodes.size() - 1, 0});
                 }
@@ -172,16 +184,18 @@ final class RoutePlanner {
             for (var node : coefBest)
                 if (node != null && node.distance(start) > MIN_DIST_PATH) { end = node; break; }
         }
-        return terminal = trim(result(frontier.isEmpty() ? "unreachable" : "incomplete", end, previous, expanded,
-                costs.get(end)), costs);
+        overlay = null;
+        return terminal = trim(result(frontier.isEmpty() ? "unreachable" : "incomplete", end, costs.get(end)));
     }
 
     /** Settings.pathCutoff*: drop the last 10% of long non-goal routes. */
-    private static Result trim(Result r, Map<Node, Double> costs) {
+    private Result trim(Result r) {
         int n = r.route.size();
         if (n < CUTOFF_MIN) return r;
         var route = r.route.subList(0, Math.max(2, (int) (n * CUTOFF_FACTOR)));
-        return new Result(r.status, route, r.expanded, costs.get(route.get(route.size() - 1)));
+        var targets = new HashSet<>(route.subList(1, route.size()));
+        var steps = r.steps.stream().filter(e -> targets.contains(e.target)).toList();
+        return new Result(r.status, route, r.expanded, costs.get(route.get(route.size() - 1)), steps);
     }
 
     // Partial-route estimate (route_search._remaining(node, 1)): walk rate when planning
@@ -239,11 +253,16 @@ final class RoutePlanner {
         return false;
     }
 
-    private static Result result(String status, Node end, Map<Node, Node> previous, int expanded, double cost) {
+    private Result result(String status, Node end, double cost) {
         var route = new ArrayList<Node>();
         for (Node node = end; node != null; node = previous.get(node)) route.add(node);
         Collections.reverse(route);
-        return new Result(status, route, expanded, cost);
+        var steps = new ArrayList<Edit>();
+        for (int i = 1; i < route.size(); i++) {
+            var edit = plans.get(route.get(i));
+            if (edit != null && edit.source.equals(route.get(i - 1))) steps.add(edit);
+        }
+        return new Result(status, route, expanded, cost, steps);
     }
 
     // Goal: horizontal disk of the radius at exact standing height (route_search._distance).
@@ -260,7 +279,9 @@ final class RoutePlanner {
         return COST_HEURISTIC * horizontal + vertical;
     }
 
-    private record Move(Node target, double cost) { }
+    private record Move(Node target, double cost, Edit edit) {
+        Move(Node target, double cost) { this(target, cost, null); }
+    }
 
     // Same order as route_search._moves: equal-cost ties keep the first move found.
     private List<Move> moves(Node node) {
@@ -270,6 +291,7 @@ final class RoutePlanner {
         boolean onWater = swim && (surfaceNode(node) || flowingSurface(node));
         var below = at(x, y - 1, z);
         boolean gapRoom = maxGap > 0 && integral(y) && below != null && dry(below) && fullCube(below);
+        boolean editReady = edits != null && edits.stepEdits && integral(y) && blockStandable(node);
         for (var d : DIRECTIONS) {
             if (swim) {
                 var target = new Node(x + d[0], y, z + d[1]);
@@ -284,9 +306,17 @@ final class RoutePlanner {
                     if ((width < 2 || sprint) && gap(node, d, width + 1))
                         out.add(new Move(new Node(x + d[0] * (width + 1), y, z + d[1] * (width + 1)),
                                 WALK * (width + 1) + JUMP_PENALTY));
+            var reached = editReady ? new HashSet<Node>() : null;
             for (double ty : surfaces(x + d[0], z + d[1], y - maxDrop, y + 1)) {
                 var target = new Node(x + d[0], ty, z + d[1]);
-                if (stepClear(node, target)) out.add(new Move(target, heightCost(ty - y)));
+                if (stepClear(node, target)) {
+                    out.add(new Move(target, heightCost(ty - y)));
+                    if (reached != null) reached.add(target);
+                }
+            }
+            if (editReady) for (int dy = 0; dy <= 1; dy++) {  // route_search._edit_edges
+                var target = new Node(x + d[0], y + dy, z + d[1]);
+                if (!reached.contains(target)) addEdit(planEdit(node, target), heightCost(dy), node, out);
             }
         }
         for (var d : DIAGONALS) {
@@ -380,7 +410,14 @@ final class RoutePlanner {
     private void extraMoves(Node node, List<Move> out) {
         ladderMoves(node, out);
         if (!integral(node.y) || !blockStandable(node)) return;
-        if (swim) for (var d : DIRECTIONS) landings(node, d, out);
+        if (edits != null) {
+            addEdit(downward(node), fallTicks(1), node, out);  // MovementDownward: fall 1, no walk-off
+            addEdit(pillar(node), JUMP + JUMP_PENALTY, node, out);
+        }
+        for (var d : DIRECTIONS) {
+            if (edits != null) addEdit(descend(node, d), heightCost(-1), node, out);
+            if (swim) landings(node, d, out);
+        }
     }
     private void ladderMoves(Node node, List<Move> out) {
         int x = node.x, z = node.z; double y = node.y;
@@ -449,8 +486,16 @@ final class RoutePlanner {
 
     // --- collision geometry (mclab.collision_geometry) ---
 
+    static long key(int x, int y, int z) {
+        return (((long) x & 0x3FFFFFF) << 38) | (((long) y & 0xFFF) << 26) | ((long) z & 0x3FFFFFF);
+    }
+    private static long key(int[] p) { return key(p[0], p[1], p[2]); }
     private Map<String, Object> cell(int x, int y, int z) {
-        long key = (((long) x & 0x3FFFFFF) << 38) | (((long) y & 0xFFF) << 26) | ((long) z & 0x3FFFFFF);
+        long key = key(x, y, z);
+        if (overlay != null) {
+            var edited = overlay.get(key);
+            if (edited != null) return edited;
+        }
         if (!cells.containsKey(key)) cells.put(key, reader.cell(x, y, z));
         return cells.get(key);
     }
@@ -480,8 +525,8 @@ final class RoutePlanner {
     }
 
     private double[] cellHeights(int x, int y, int z) {
-        long key = (((long) x & 0x3FFFFFF) << 38) | (((long) y & 0xFFF) << 26) | ((long) z & 0x3FFFFFF);
-        var cached = heights.get(key);
+        long key = key(x, y, z);
+        var cached = overlay == null ? heights.get(key) : null;  // edited views are not cached
         if (cached != null) return cached;
         var cell = cell(x, y, z);
         var found = new ArrayList<Double>();
@@ -495,7 +540,7 @@ final class RoutePlanner {
                     }
         }
         double[] result = found.stream().mapToDouble(Double::doubleValue).toArray();
-        heights.put(key, result);
+        if (overlay == null) heights.put(key, result);
         return result;
     }
     // mclab.navigation.full_cube: any unit box (fluid is already checked by safe()).
@@ -526,5 +571,219 @@ final class RoutePlanner {
         return clearColumn(target.x, target.z, target.y, source.y + 1.8);
     }
 
+    // --- edit edges (stage D): terrain_steps.plan_edit, route_moves, route_search._edit_cost ---
+
+    /**
+     * Edit permissions and prices from the Python side (body_search.edit_payload). breakCosts
+     * lists only blocks that may be broken: the hotbar holds their tool and they are not
+     * protected; it is empty when breaking is off. placeSupply: blocks placeable in a row.
+     */
+    record EditPolicy(boolean stepEdits, Map<String, Double> breakCosts, Map<String, Double> fallCosts,
+                      boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxStack, int breakBudget,
+                      int placeBudget, int placeSupply, Set<Long> protectedCells, Set<String> protectedBlocks,
+                      String material) {
+        static EditPolicy fromJson(JsonObject o) {
+            var breakCosts = costs(o.getAsJsonObject("break_costs"));
+            var fallCosts = costs(o.getAsJsonObject("fall_costs"));
+            int maxStack = o.get("max_stack").getAsInt(), breakBudget = o.get("break_budget").getAsInt(),
+                    placeBudget = o.get("place_budget").getAsInt(), placeSupply = o.get("place_supply").getAsInt();
+            var cells = new HashSet<Long>();
+            for (var e : o.getAsJsonArray("protected")) {
+                var a = e.getAsJsonArray();
+                cells.add(key(a.get(0).getAsInt(), a.get(1).getAsInt(), a.get(2).getAsInt()));
+            }
+            var blocks = new HashSet<String>();
+            for (var e : o.getAsJsonArray("protected_blocks")) blocks.add(e.getAsString());
+            String material = o.get("material").getAsString();
+            if (maxStack < 1 || maxStack > 3 || breakBudget < 0 || breakBudget > 64 || placeBudget < 0 || placeBudget > 64
+                    || placeSupply < 0 || placeSupply > 3 || cells.size() > 4096 || blocks.size() > 256
+                    || !material.startsWith("minecraft:"))
+                throw new IllegalArgumentException("edit_bounds");
+            return new EditPolicy(o.get("step").getAsBoolean(), breakCosts, fallCosts, o.get("allow_place").getAsBoolean(),
+                    o.get("allow_bridge").getAsBoolean(), o.get("allow_pillar").getAsBoolean(), maxStack, breakBudget,
+                    placeBudget, placeSupply, cells, blocks, material);
+        }
+        private static Map<String, Double> costs(JsonObject o) {
+            var out = new HashMap<String, Double>();
+            for (var e : o.entrySet()) {
+                double v = e.getValue().getAsDouble();
+                if (!(v > 0 && v < 10_000) || out.size() >= 512) throw new IllegalArgumentException("edit_costs");
+                out.put(e.getKey(), v);
+            }
+            return out;
+        }
+    }
+
+    // MCB-measured edit overheads (route_search and terrain_steps constants of the same names).
+    static final double EDIT_STEP = 15, PLACE = 20, STACK_PLACE = 20, BRIDGE_PLACE = 15, EDIT_CHAIN = 10;
+    private static final int[][] CUT_SIDES = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, -1}};
+    private static final Set<String> FALLING = Set.of("minecraft:sand", "minecraft:red_sand", "minecraft:gravel",
+            "minecraft:suspicious_sand", "minecraft:suspicious_gravel");
+    private static final Map<String, Object> AIR = Map.of("block", "minecraft:air", "fluid", "minecraft:empty",
+            "collision_boxes", List.of());
+
+    private EditPolicy edits;
+    private Map<String, Object> placed;
+    private final Map<Node, Edit> plans = new HashMap<>();  // the edit edge that reached each node
+    private final Map<Node, Integer> depth = new HashMap<>();  // edit edges on the best path to each node
+    private Map<Long, Map<String, Object>> overlay;  // the expanding node's planned edits, or null
+
+    /** Turns on edit edges: dig/place steps (planner_edits) and, with extra moves, dig down, descend, pillar. */
+    RoutePlanner withEdits(EditPolicy edits) {
+        this.edits = edits;
+        this.placed = Map.of("block", edits.material, "fluid", "minecraft:empty",
+                "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1)));
+        return this;
+    }
+
+    /** route_search._changes: broken cells (and the falling stack over them) become air, placed ones cubes. */
+    private Map<Long, Map<String, Object>> overlayOf(Edit edit) {
+        if (edit == null) return null;
+        var out = new HashMap<Long, Map<String, Object>>();
+        for (var p : edit.breaks) {
+            out.put(key(p), AIR);
+            if (extra) for (var q : fallingStack(p)) out.put(key(q), AIR);
+        }
+        for (var p : edit.places) out.put(key(p), placed);
+        return out;
+    }
+
+    private void addEdit(Edit edit, double base, Node from, List<Move> out) {
+        if (edit == null) return;
+        double cost = editCost(edit, base, from);
+        if (cost < Double.POSITIVE_INFINITY) out.add(new Move(edit.target, cost, edit));
+    }
+
+    /** route_search._priced, summed in the same order so equal-cost ties match. */
+    private double editCost(Edit edit, double base, Node from) {
+        double breaking = 0;
+        for (var p : edit.breaks) breaking += edits.breakCosts.get(block(p));
+        if (extra && !edit.breaks.isEmpty()) {  // getMiningDurationTicks includeFalling
+            double falling = 0;
+            for (var p : edit.breaks) for (var q : fallingStack(p)) {
+                Double f = edits.fallCosts.get(block(q));
+                if (f == null) return Double.POSITIVE_INFINITY;  // no break time known for it
+                falling += f;
+            }
+            breaking += falling;
+        }
+        int n = edit.places.size(), bridged = 0;
+        for (var p : edit.places) {
+            var below = cell(p[0], p[1] - 1, p[2]);
+            if (below == null || boxes(below).isEmpty()) bridged++;
+        }
+        return base + EDIT_STEP + breaking + PLACE * n + STACK_PLACE * Math.max(0, n - 1) + BRIDGE_PLACE * bridged
+                + EDIT_CHAIN * depth.getOrDefault(from, 0);
+    }
+
+    private Object block(int[] p) { return cell(p[0], p[1], p[2]).get("block"); }
+
+    /** terrain_steps.falling_stack: gravity blocks stacked directly above p. */
+    private List<int[]> fallingStack(int[] p) {
+        var out = new ArrayList<int[]>();
+        for (int y = p[1] + 1; ; y++) {
+            var c = cell(p[0], y, p[2]);
+            if (c == null || !FALLING.contains(c.get("block"))) return out;
+            out.add(new int[]{p[0], y, p[2]});
+        }
+    }
+
+    /** terrain_steps.cut_allowed: a known dry full cube with a tool, no fluid or unknown beside or above it. */
+    private boolean cutAllowed(int[] p) {
+        var c = cell(p[0], p[1], p[2]);
+        if (!fullDry(c) || edits.protectedCells.contains(key(p)) || !edits.breakCosts.containsKey(c.get("block")))
+            return false;
+        for (var d : CUT_SIDES) {
+            var n = cell(p[0] + d[0], p[1] + d[1], p[2] + d[2]);
+            if (n == null || !dry(n)) return false;
+            // A falling block above is priced by its stack; one beside needs known support.
+            if (FALLING.contains(n.get("block"))
+                    && (!extra || (d[1] == 0 && !fullDry(cell(p[0] + d[0], p[1] - 1, p[2] + d[2]))))) return false;
+        }
+        return true;
+    }
+
+    /** Blocks to break among points (empty ones skipped); null when one of them may not be broken. */
+    private List<int[]> cuts(int[]... points) {
+        var out = new ArrayList<int[]>();
+        for (var p : points) {
+            if (empty(cell(p[0], p[1], p[2]))) continue;
+            if (!cutAllowed(p)) return null;
+            out.add(p);
+        }
+        return out;
+    }
+
+    /** terrain_steps.plan_edit: support stack under the target, then headroom cuts. */
+    private Edit planEdit(Node source, Node target) {
+        int x = source.x, y = (int) source.y, z = source.z, tx = target.x, ty = (int) target.y, tz = target.z;
+        List<int[]> places = List.of();
+        if (!fullDry(cell(tx, ty - 1, tz))) {
+            if (!edits.allowPlace) return null;
+            var stack = new ArrayList<int[]>();
+            stack.add(new int[]{tx, ty - 1, tz});
+            while (!anchored(x, y, z, stack.get(stack.size() - 1))) {
+                if (stack.size() >= edits.maxStack) return null;
+                var p = stack.get(stack.size() - 1);
+                stack.add(new int[]{p[0], p[1] - 1, p[2]});
+            }
+            Collections.reverse(stack);
+            if (stack.size() > edits.placeBudget || stack.size() > edits.placeSupply) return null;
+            for (var p : stack) {
+                var c = cell(p[0], p[1], p[2]);
+                if (edits.protectedCells.contains(key(p)) || !empty(c) || edits.protectedBlocks.contains(c.get("block")))
+                    return null;
+            }
+            places = stack;
+        }
+        var cuts = ty == y
+                ? cuts(new int[]{tx, ty, tz}, new int[]{tx, ty + 1, tz})
+                : cuts(new int[]{tx, ty, tz}, new int[]{tx, ty + 1, tz}, new int[]{x, y + 2, z}, new int[]{x, y + 3, z},
+                        new int[]{tx, ty + 2, tz});
+        if (cuts == null || cuts.size() > Math.min(4, edits.breakBudget) || (cuts.isEmpty() && places.isEmpty()))
+            return null;
+        return new Edit(source, target, cuts, places, "step");
+    }
+
+    /** terrain_steps._anchored: support below, or a permitted side anchor one below the source. */
+    private boolean anchored(int x, int y, int z, int[] p) {
+        if (fullDry(cell(p[0], p[1] - 1, p[2]))) return true;
+        return edits.allowBridge && p[1] == y - 1 && Math.abs(p[0] - x) + Math.abs(p[2] - z) == 1
+                && empty(cell(p[0], p[1] - 1, p[2])) && fullDry(cell(x, y - 1, z));
+    }
+
+    /** route_moves._cuts plus the callers' "nothing to break" rule. */
+    private List<int[]> budgeted(List<int[]> cuts) {
+        return cuts == null || cuts.isEmpty() || cuts.size() > edits.breakBudget ? null : cuts;
+    }
+
+    /** route_moves.prepare_downward: break the floor, drop 1 onto a known safe cube. */
+    private Edit downward(Node node) {
+        int x = node.x, y = (int) node.y, z = node.z;
+        var support = cell(x, y - 2, z);
+        if (!fullDry(support) || HAZARDS.contains(support.get("block"))) return null;
+        var cuts = budgeted(cuts(new int[]{x, y - 1, z}));
+        return cuts == null ? null : new Edit(node, new Node(x, node.y - 1, z), cuts, List.of(), "downward");
+    }
+
+    /** route_moves.prepare_descend: clear the target's feet, head and the cell above, onto a safe cube. */
+    private Edit descend(Node node, int[] d) {
+        int y = (int) node.y, tx = node.x + d[0], tz = node.z + d[1];
+        var floor = cell(tx, y - 2, tz);
+        if (!fullDry(floor) || HAZARDS.contains(floor.get("block"))) return null;
+        var cuts = budgeted(cuts(new int[]{tx, y - 1, tz}, new int[]{tx, y, tz}, new int[]{tx, y + 1, tz}));
+        return cuts == null ? null : new Edit(node, new Node(tx, node.y - 1, tz), cuts, List.of(), "descend");
+    }
+
+    /** route_moves.prepare_pillar_edge: place under the feet while jumping (no head cut). */
+    private Edit pillar(Node node) {
+        int x = node.x, y = (int) node.y, z = node.z;
+        if (!edits.allowPillar || !edits.allowPlace || edits.placeBudget < 1 || edits.placeSupply < 1
+                || edits.protectedCells.contains(key(x, y, z)) || !empty(cell(x, y + 2, z)) || !empty(cell(x, y + 3, z)))
+            return null;
+        return new Edit(node, new Node(x, node.y + 1, z), List.of(), List.of(new int[]{x, y, z}), "pillar");
+    }
+
     private static double sq(double v) { return v * v; }
 }
+

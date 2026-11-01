@@ -499,3 +499,25 @@ and partial ends differ. `--body-planner` stays opt-in. Needed before it becomes
 default: Java edit edges (stage D) and planning on the delivered map, not the live
 world.
 
+| 30: 29 + Java edit edges (stage D: dig/place steps, dig down, descend with breaks, pillar; no Python fallback; mod `68b3e8f6`) | `20261101T135049338315Z` | 615/611 | 574/576 | 799/797 | 842/841 | 919/914 |
+
+**Cohort 30 is 10/10: 7,488 ticks, against 7,394 for the Python planner (cohort 28)
+and 8,488 for cohort 29.** R5 digs the ridge cut again (2 blocks per rep, 919/914
+against 1,401/1,400). R1, R2 and R4 are within a few ticks of cohort 28. R3 is still
+~60 ticks slower (799/797 against 736/738), the same gap as cohort 29, which had no
+edits on R3 either, so it is not the edit port; the live-world reader remains the
+likely cause (unverified). Medians against Baritone: R1 1.06×, R2 1.08×, R3 0.85×,
+R4 1.05×, R5 1.08×.
+
+Parity before the run (`scripts/analysis/planner_parity.py`, new `EDITS=1`: the
+frozen-comparison terrain profile with the natural kit): same route, cost and edit
+plans as Python at all 20 edit decisions of the frozen-comparison runs (3 seeds,
+4,000-node limit), at all five cohort 28 starts (3,000 and 8,000 nodes, unknown
+planning on and off), and on built maps forcing a pillar, a side-anchored bridge, a
+falling-sand cut, dig-down and stair cuts. Java ran 5–10× faster (~50k nodes/s
+against ~5.5k). The body gets edit permissions and prices from Python
+(`body_search.edit_payload`: break cost per block whose tool is on the hotbar, block
+supply, protected cells) and returns each edit edge's plan; the controller executes
+it unchanged. Awareness: the body reader already follows the awareness preset
+(`sections`/`chunk` read all blocks in range like Baritone's loaded chunks;
+`visible`/`legacy` apply line-of-sight), so no separate filter was added.

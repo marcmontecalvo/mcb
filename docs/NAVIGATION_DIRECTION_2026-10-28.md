@@ -13,7 +13,7 @@ October 27 checkpoint (`55d160c` plus uncommitted work). Nothing below had been
 run live then; every claim about performance was a hypothesis until Phase 0 measured it.
 
 **Current status and the ordered work list are in [ROADMAP.md](ROADMAP.md)** (updated
-Oct 31, 2026). This document keeps the decisions and the phase plan.
+Nov 1, 2026). This document keeps the decisions and the phase plan.
 
 ## 0. Update — October 28 midday (Marc). Overrides §3–§4 where they differ.
 
@@ -79,15 +79,18 @@ Acceptance: existing fixture families pass; zero late-command invalids on the
 five calm routes; ticks compared to Baritone per route.
 
 > **Step B status (Oct 31):** done for development: the body follows routes, steps,
-> gaps, swims, ladders and Baritone corner cuts (mod `fdc9e533`). Formal
-> qualification is still open (ROADMAP item 10).
+> gaps, swims, ladders and Baritone corner cuts (mod `fdc9e533`). Nov 1: the mod
+> carrying it (`a94dcdef`) is requalified (ROADMAP item 11) and passed the frozen
+> calm comparison (item 12).
 
 **C. Planner core (D11)** using Baritone-derived tick costs (D12), then the
 frozen comparison (Phase 7) and survival/Jev profiles (Phase 6).
 
-> **Step C status (Oct 31):** in progress; ledger in
-> [STEP_C_PROGRESS_2026-10-29.md](STEP_C_PROGRESS_2026-10-29.md). Cohort 14: 9/10.
-> R1 on current code: 608/621 ticks against Baritone's 581. The Oct 31 work found
+> **Step C status (Nov 1):** in progress; ledger in
+> [STEP_C_PROGRESS_2026-10-29.md](STEP_C_PROGRESS_2026-10-29.md). Cohort 28: 10/10,
+> every route within 1.09× of Baritone. Frozen calm comparison (Phase 7): MCB 90/90
+> on 3 seeds, median ratio 0.90–1.13; night diagnostics open. Phase 6 night
+> acceptance not met (ROADMAP item 13). The compiled Java core is opt-in (item 8). The Oct 31 work found
 > that early awareness batches never reached the controller; with that fixed, the
 > earlier conclusion that planner throughput was R1's binding limit no longer holds
 > (see ROADMAP, "Oct 31 findings").
@@ -287,10 +290,10 @@ Swimming is being built in parallel. Notes from the review of
    **Status (Oct 31):** Done: the controller ends recovery on `head_out_of_water(survival)` (`eye_in_water`, falling back to `in_water`); the body reports `eye_in_water`.
 4. Entry/exit only at equal height. Add surface → land +1 (jump out) and
    land → water drops (water cancels fall damage).
-   **Status (Oct 31):** Done: `route_moves.py` plans water exits one block up and landings into still water (with `planner_swim` / `baritone_moves`); the body follows them (`RouteMotor`, landings up to 24 blocks).
+   **Status (Nov 1):** Land → water done: `route_moves.py` plans landings into still water. Surface → land +1 is not possible in vanilla (`jumpOutOfFluid` stops short of a bank 1 block above the surface); the `water_exit_up` move was removed and only the level exit remains (ROADMAP item 4). Landings (with `planner_swim` / `baritone_moves`); the body follows them (`RouteMotor`, landings up to 24 blocks).
 5. Flowing water is all-or-nothing (`level != 0` rejected); give it a higher cost
    instead, and model push direction later.
-   **Status (Oct 31):** Partial: flowing water is priced at 1.5× under `planner_swim`; native routes are cut before flowing water; push direction is not modelled (ROADMAP item 14).
+   **Status (Oct 31):** Partial: flowing water is priced at 1.5× under `planner_swim`; native routes are cut before flowing water; push direction is not modelled (ROADMAP item 15).
 6. Swim cost should be ticks (≈2× walk) per D2.
    **Status (Oct 31):** Done: swim edges are priced in ticks (`route_moves.py`, `planner_swim`).
 7. Decide whether "get head above water" is allowed when `allow_swim` is false
@@ -299,7 +302,7 @@ Swimming is being built in parallel. Notes from the review of
 8. Fixtures: all ten variants are the same 1-wide flush channel. Add raised banks,
    overhang during recovery, bubble column, flowing water, lily pad/ice, lava
    adjacency, deep water, knockback with swimming disabled.
-   **Status:** Unit fixtures done in `tests/test_water_movement.py`; the 10-case live cohort is not run (ROADMAP item 15).
+   **Status (Nov 1):** Unit fixtures done in `tests/test_water_movement.py`; live water and ladder cohorts 10/10 each (ROADMAP item 16).
 
 ## Superseded and legacy documents
 

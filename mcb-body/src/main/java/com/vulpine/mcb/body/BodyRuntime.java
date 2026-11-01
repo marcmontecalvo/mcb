@@ -265,6 +265,7 @@ public final class BodyRuntime implements AutoCloseable {
                 .withMoves(request.get("swim").getAsBoolean(), request.get("extra").getAsBoolean())
                 .withGaps(maxGap)
                 .withHistory(nodes(request, "favored"), edges(request));
+        if (request.has("edits")) planner.withEdits(RoutePlanner.EditPolicy.fromJson(request.getAsJsonObject("edits")));
         while (plans.size() >= MAX_PLANS) { var oldest = plans.keySet().iterator().next(); plans.remove(oldest); }
         plans.put(id, planner); planLimits.put(id, limit);
         planResults.put(id, Map.of("plan_id", id, "state", "searching"));
@@ -299,8 +300,14 @@ public final class BodyRuntime implements AutoCloseable {
             var result = entry.getValue().advance(planLimits.get(entry.getKey()), deadline);
             if (result.status().equals("searching")) continue;
             var route = result.route().stream().map(n -> List.<Object>of(n.x(), n.y(), n.z())).toList();
+            var steps = result.steps().stream().map(e -> Map.<String,Object>of(
+                    "source", List.<Object>of(e.source().x(), e.source().y(), e.source().z()),
+                    "target", List.<Object>of(e.target().x(), e.target().y(), e.target().z()),
+                    "breaks", e.breaks().stream().map(p -> List.of(p[0], p[1], p[2])).toList(),
+                    "places", e.places().stream().map(p -> List.of(p[0], p[1], p[2])).toList(),
+                    "kind", e.kind())).toList();
             var report = Map.<String,Object>of("plan_id", entry.getKey(), "state", "done", "status", result.status(),
-                    "route", route, "expanded", result.expanded(), "tick", server.getTickCount());
+                    "route", route, "steps", steps, "expanded", result.expanded(), "tick", server.getTickCount());
             planResults.put(entry.getKey(), report);
             emit("plan_finished", "fabric_end", Map.of("plan_id", entry.getKey(), "status", result.status(),
                     "expanded", result.expanded(), "length", route.size()));

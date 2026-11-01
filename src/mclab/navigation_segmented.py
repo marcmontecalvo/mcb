@@ -337,13 +337,8 @@ class SegmentedController(NavigationController):
                 self.terrain_policy, self.movement_policy, self.interact_reach
             )
         ):
-            # Compiled core in the body (item 8); Python only when edits are needed.
-            return body_search.BodySearch(
-                self,
-                node,
-                revision,
-                lambda: self._python_search(cells, node, revision, RouteSearch),
-            )
+            # Compiled core in the body (item 8), edit edges included.
+            return body_search.BodySearch(self, node, revision)
         return self._python_search(cells, node, revision, factory)
 
     def _python_search(self, cells, node, revision, factory):

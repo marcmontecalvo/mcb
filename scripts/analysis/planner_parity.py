@@ -6,6 +6,8 @@ Java core implements, then the Java core on the export, and compares them.
 
 Usage: GOAL="[x,y,z]" CAP=8000 uv run --locked python scripts/analysis/planner_parity.py
        <attempt>/events.jsonl <tick> "[x,y,z]"
+Flags: UNKNOWN=1 (plan through unknown space), SWIM=1 (swimming and Baritone moves),
+EDITS=1 (the production terrain profile with the natural kit: everything, edits included).
 """
 
 import json
@@ -18,6 +20,7 @@ import time
 from dataclasses import replace
 
 from mclab.awareness import Awareness
+from mclab.body_search import edit_payload
 from mclab.memory_policy import MemoryPolicy
 from mclab.movement_policy import MovementPolicy
 from mclab.route_search import RouteSearch
@@ -40,6 +43,19 @@ if os.environ.get("UNKNOWN"):  # planner_unknown: plan through unknown space (D3
 SWIM = bool(os.environ.get("SWIM"))  # planner_swim + baritone_moves (no edits)
 if SWIM:
     LAND = replace(LAND, planner_swim=True, baritone_moves=True)
+EDITS = bool(os.environ.get("EDITS"))  # the frozen-comparison terrain profile
+KIT = (
+    {"slot": 0, "item": "minecraft:iron_pickaxe", "count": 1},
+    {"slot": 1, "item": "minecraft:iron_shovel", "count": 1},
+    {"slot": 2, "item": "minecraft:iron_axe", "count": 1},
+    {"slot": 3, "item": "minecraft:cobblestone", "count": 64},
+)
+if EDITS:
+    SWIM = True
+    profile = ROOT / "config/stepc/terrain-stepc-baritone-moves.json"
+    LAND = TerrainPolicy.from_payload(json.loads(profile.read_text(encoding="utf-8")))
+    if os.environ.get("UNKNOWN") == "0":
+        LAND = replace(LAND, planner_unknown=False)
 MOVES = MovementPolicy(
     allow_diagonals=True,
     allow_sprint=True,
@@ -113,6 +129,7 @@ def export(view, start, goal, target):
         "goal": list(goal),
         "radius": 2.5,
         "max_drop": MOVES.max_drop,
+        **({"edits": edit_payload(LAND, KIT, ())} if EDITS else {}),
         "palette": palette,
         "cells": rows,
     }
@@ -144,6 +161,7 @@ def main():
         owned_snapshot=True,
         movement_policy=MOVES,
         terrain_policy=LAND,
+        inventory=KIT if EDITS else (),
     )
     began = time.perf_counter()
     while (
@@ -183,6 +201,24 @@ def main():
         "same route"
         if same
         else f"routes differ: py {r.route[-1]} java {j['route'][-1]}"
+    )
+    if EDITS:
+        py = [edit_key(e.source, e.target, e.breaks, e.places, e.kind) for e in r.steps]
+        jv = [edit_key(**e) for e in j["steps"]]
+        verdict = "same" if py == jv else f"differ\n py {py}\n jv {jv}"
+        print(f"edits: python {len(py)}, java {len(jv)}: {verdict}")
+
+
+def edit_key(source, target, breaks, places, kind):
+    def point(p):
+        return tuple(map(float, p))
+
+    return (
+        point(source),
+        point(target),
+        tuple(map(point, breaks)),
+        tuple(map(point, places)),
+        kind,
     )
 
 

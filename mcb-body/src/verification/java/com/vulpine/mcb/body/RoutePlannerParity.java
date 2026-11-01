@@ -27,17 +27,19 @@ public final class RoutePlannerParity {
         var start = new RoutePlanner.Node(s.get(0).getAsInt(), s.get(1).getAsDouble(), s.get(2).getAsInt());
         var goal = new RoutePlanner.Node(g.get(0).getAsInt(), g.get(1).getAsDouble(), g.get(2).getAsInt());
         int limit = Integer.parseInt(args[1]), repeats = args.length > 2 ? Integer.parseInt(args[2]) : 1;
+        var edits = root.has("edits") ? RoutePlanner.EditPolicy.fromJson(root.getAsJsonObject("edits")) : null;
         RoutePlanner.Result result = null;
         double best = Double.POSITIVE_INFINITY;
         for (int i = 0; i < repeats; i++) {
             long began = System.nanoTime();
-            result = new RoutePlanner((x, y, z) -> cells.get(key(x, y, z)), start, goal,
+            var planner = new RoutePlanner((x, y, z) -> cells.get(key(x, y, z)), start, goal,
                     root.get("radius").getAsDouble(), root.get("max_drop").getAsInt(), true,
                     root.has("unknown_penalty") ? root.get("unknown_penalty").getAsDouble() : 0)
                     .withMoves(root.has("swim") && root.get("swim").getAsBoolean(),
                             root.has("swim") && root.get("swim").getAsBoolean())
-                    .withGaps(root.has("max_gap") ? root.get("max_gap").getAsInt() : 0)
-                    .search(limit);
+                    .withGaps(root.has("max_gap") ? root.get("max_gap").getAsInt() : 0);
+            if (edits != null) planner.withEdits(edits);
+            result = planner.search(limit);
             best = Math.min(best, (System.nanoTime() - began) / 1e6);
         }
         var out = new LinkedHashMap<String, Object>();
@@ -45,6 +47,10 @@ public final class RoutePlannerParity {
         out.put("route", result.route().stream().map(n -> List.of(n.x(), n.y(), n.z())).toList());
         out.put("expanded", result.expanded());
         out.put("cost", result.cost());
+        out.put("steps", result.steps().stream().map(e -> Map.of("source", List.of(e.source().x(), e.source().y(), e.source().z()),
+                "target", List.of(e.target().x(), e.target().y(), e.target().z()), "kind", e.kind(),
+                "breaks", e.breaks().stream().map(p -> List.of(p[0], p[1], p[2])).toList(),
+                "places", e.places().stream().map(p -> List.of(p[0], p[1], p[2])).toList())).toList());
         out.put("ms", best);
         System.out.println(gson.toJson(out));
     }
