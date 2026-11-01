@@ -7,8 +7,8 @@ the phase plan are in [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_
 Update this file whenever an item here is finished or a new one is found.
 
 Last updated: November 1, 2026 (cohorts 16–29 and the frozen calm comparison on
-`main`). Installed mod source hash: `68b3e8f6…` (Java edit edges, cohort 30); the
-qualified mod is still `a94dcdef`, so item 11 must be rerun before scored use.
+`main`). Installed and qualified mod: `68b3e8f6…` (Java edit edges; requalified
+Nov 1, item 11).
 Cohorts 27–28 ran on `2eed1251`, cohort 29 on `0129b057`.
 
 ## Where things stand
@@ -21,7 +21,7 @@ Cohorts 27–28 ran on `2eed1251`, cohort 29 on `0129b057`.
 | Baritone parity, D12 | Weights and moves reimplemented | [BARITONE_WEIGHTS_AND_MOVES](BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md), `config/weights/baritone-v1.20.0.json` |
 | Awareness parity, D8 | `sections` preset with delivery fixed (Oct 31) | [AWARENESS_MODES](AWARENESS_MODES.md) |
 | Swimming (§5 of the direction doc) | Planner and body done; live water and ladder fixtures 10/10 each (item 16) | Direction doc §5 status lines |
-| Qualification | Current for mod `a94dcdef` (Nov 1) | [NAVIGATION_QUALIFICATION.json](NAVIGATION_QUALIFICATION.json), [gates.json](gates.json) |
+| Qualification | Current for mod `68b3e8f6` (Nov 1) | [NAVIGATION_QUALIFICATION.json](NAVIGATION_QUALIFICATION.json), [gates.json](gates.json) |
 | Gates | G0–G3, G5 passed; G4 in progress; G6–G8 not run | [gates.json](gates.json) |
 
 Latest numbers against Baritone (ticks, calm, seed 1337, Baritone run
@@ -179,6 +179,9 @@ re-planning done (cohorts 30-31); make the body planner the default (Marc's call
     passed all seven checks (awareness 15/15, 20 initial resets, 29 adversarial,
     C2–C5 20 resets each) on mod `a94dcdef`; promoted by `runtime/finalize-movement.py`
     to `docs/MOVEMENT_PARITY_PROOF.json`, G2 and `NAVIGATION_QUALIFICATION.json`.
+    Rerun Nov 1 for mod `68b3e8f6` (Java edit edges):
+    `results/awareness/20261101T144040539892Z-regression` passed all seven checks
+    (same counts) and was promoted the same way.
     Any later body change needs this rerun.
 12. **Frozen comparison, Phase 7:** 10 routes × ≥3 seeds × 3 reps; MCB ≥ 27/30
     and median ≤ 2× Baritone at matched awareness, plus night diagnostics.
@@ -281,7 +284,7 @@ imports allowed there).
 | [PHASE0_NATURAL_BASELINE_2026-10-28.md](PHASE0_NATURAL_BASELINE_2026-10-28.md), [PHASE0_FIX_PLAN_2026-10-28.md](PHASE0_FIX_PLAN_2026-10-28.md), [PHASE0_FIXES_RESULTS_2026-10-28.md](PHASE0_FIXES_RESULTS_2026-10-28.md) | Phase 0 baseline and fixes (done) |
 | [SPRINT_ACCEPTANCE.json](SPRINT_ACCEPTANCE.json) | Acceptance tracker for the awareness/movement sprint |
 | [gates.json](gates.json) | Gate ledger G0–G8 |
-| [NAVIGATION_QUALIFICATION.json](NAVIGATION_QUALIFICATION.json) | Reset/navigation qualification (current for mod `a94dcdef`; rerun after any body change) |
+| [NAVIGATION_QUALIFICATION.json](NAVIGATION_QUALIFICATION.json) | Reset/navigation qualification (current for mod `68b3e8f6`; rerun after any body change) |
 | `docs/*_PROOF.json`, `docs/G*_*.json` | Evidence files bound to source hashes |
 
 **Reference (how things work)**
