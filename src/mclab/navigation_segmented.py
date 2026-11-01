@@ -204,6 +204,18 @@ class SegmentedController(NavigationController):
         self.goal = tuple(goal)
         self.resume()
 
+    def retarget(self, goal):
+        """Move the goal without stopping (follow a player).
+
+        The route being driven is kept; the next re-plan or search heads for the
+        new goal. replace_goal cancels instead, which stops the motor.
+        """
+        self.goal = tuple(goal)
+        self.plan_tail = ()
+        self.search = None
+        self._discard_prefetch()
+        self.refreshed = None
+
     def status(self):
         samples = sorted(self.motor_latencies)
         memory_status = self.map_view.status if self.map_view else self.memory.status()

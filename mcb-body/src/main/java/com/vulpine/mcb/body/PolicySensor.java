@@ -69,6 +69,8 @@ public final class PolicySensor {
             entry.put("uuid",entity.getUUID().toString());
             entry.put("type",BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString());
             entry.put("position",List.of(entity.getX(),entity.getY(),entity.getZ()));
+            // Players carry their name: the companion follows a named player.
+            if(entity instanceof net.minecraft.world.entity.player.Player player) entry.put("name",player.getName().getString());
             if(entity instanceof net.minecraft.world.entity.item.ItemEntity item) {
                 entry.put("item",BuiltInRegistries.ITEM.getKey(item.getItem().getItem()).toString());
                 entry.put("count",item.getItem().getCount());

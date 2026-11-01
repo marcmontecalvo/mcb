@@ -351,6 +351,9 @@ def drive_native(client, controller, wall_timeout):
             terminal = _running(client, observation)
             if terminal is not None:
                 return terminal
+            follow = getattr(controller, "follow", None)
+            if follow is not None:  # follow a player: the goal moves with them
+                follow.update(controller, observation)
             goal, tick = getattr(controller, "goal", None), observation.get("tick")
             # stall_seconds = 0 turns off both stall cutoffs (natural.py sets None).
             limit = getattr(controller, "goal_progress_ticks", GOAL_PROGRESS_TICKS)

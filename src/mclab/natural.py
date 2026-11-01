@@ -22,6 +22,7 @@ from mclab.awareness import Awareness
 from mclab.bootstrap import sha256
 from mclab.control_loop import LOCKSTEP, PROFILES, drive
 from mclab.execution import ControllerFailure, RecordedBridge, terminal_event
+from mclab.follow import FollowTarget
 from mclab.memory_policy import MemoryPolicy
 from mclab.modbuild import source_hash
 from mclab.movement_policy import MovementPolicy
@@ -41,6 +42,7 @@ PROBE_STRIDE = 4
 ROUTE_MIN, ROUTE_MAX = 100, 150
 GOAL_RADIUS = 3
 TICK_LIMIT = 6000  # five minutes of game time
+LEADER_NAME = "Leader"  # mcb-lab LeaderWalk.NAME
 POLL_SECONDS = 0.25
 
 
@@ -384,6 +386,7 @@ def attempt(
             terrain_encoding="sections-v1"
             if entrant == "segmented_goal" and awareness.preset != "legacy"
             else "cells",
+            **({"leader": route["leader"]} if "leader" in route else {}),
         )
         client.acknowledge(request, "natural_accepted", timeout=10)
         client.wait(
@@ -414,7 +417,8 @@ def attempt(
                 if time.monotonic() > deadline:
                     raise RuntimeError("Policy stream did not reach running")
                 time.sleep(0.05)
-            if stall_ticks == 0 and controller is not None:
+            if (stall_ticks == 0 or "leader" in route) and controller is not None:
+                # A moving goal (follow) has no fixed distance to make progress on.
                 controller.goal_progress_ticks = None
             try:
                 with _motor_gc_policy():
@@ -496,6 +500,8 @@ def _controller(
         body_planner=BODY_PLANNER["enabled"],
     )
     controller.flee = BODY_PLANNER["flee"]  # cost profile's threat reflex
+    if "leader" in route:  # follow course: the lab's stand-in player
+        controller.follow = FollowTarget(LEADER_NAME)
     resources.callback(controller.close)
     return controller
 
@@ -754,3 +760,27 @@ def _validate_run(seed, routes, entrants, conditions):
             raise ValueError("Invalid natural route yaw")
         if math.dist(route["start"], route["goal"]) > 384:
             raise ValueError("Natural route exceeds server distance limit")
+        if "leader" in route:
+            _validate_leader(route["leader"], entrants)
+
+
+def _validate_leader(leader, entrants):
+    """Follow course: waypoints [[x, z], ...], speed (blocks/tick), pause_ticks."""
+    points = leader.get("waypoints") if isinstance(leader, dict) else None
+    if (
+        entrants != ("segmented_goal",)
+        and list(entrants) != ["segmented_goal"]
+        or not isinstance(points, list)
+        or not 2 <= len(points) <= 32
+        or any(
+            not isinstance(p, list)
+            or len(p) != 2
+            or any(type(v) is not int or abs(v) > 29_000_000 for v in p)
+            for p in points
+        )
+        or type(leader.get("speed")) not in {int, float}
+        or not 0 < leader["speed"] <= 0.4
+        or type(leader.get("pause_ticks")) is not int
+        or not 0 <= leader["pause_ticks"] <= 400
+    ):
+        raise ValueError("Invalid follow leader (segmented_goal only)")

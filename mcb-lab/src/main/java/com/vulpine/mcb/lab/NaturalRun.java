@@ -70,6 +70,11 @@ final class NaturalRun {
     private List<Vec3> path = List.of();
     private Vec3 stallAnchor;
     private int stallSince;
+    // Follow course (development): a stand-in player walks; success is keeping up.
+    private static final double FAR_BLOCKS = 8;
+    private final LeaderWalk leader;
+    private double leaderDistanceSum, leaderDistanceMax;
+    private int leaderSamples, leaderFarTicks;
 
     /** The subject may join after this request (a body spawned in parallel); it is resolved by name. */
     NaturalRun(MinecraftServer server, JsonObject request, String subjectName, String subjectKind,
@@ -93,6 +98,8 @@ final class NaturalRun {
         if(request.has("development_hill") && !subjectKind.equals("carpet_body"))
             throw new IllegalArgumentException("development_hill_requires_carpet_body");
         hill=request.has("development_hill")?new DevelopmentHill(server,request,start,goal):null;
+        leader = request.has("leader") ? new LeaderWalk(server, request.getAsJsonObject("leader"), start) : null;
+        if (leader != null && hill != null) throw new IllegalArgumentException("leader_with_hill");
         try { prepareWorld(); }
         catch(RuntimeException error) { restoreDevelopmentFixture(); throw error; }
     }
@@ -171,6 +178,10 @@ final class NaturalRun {
         var p = subject();
         if (status.equals("preparing")) {
             if (p == null) return;
+            if (leader != null && !leader.present()) {
+                try { leader.spawn(); } catch (Exception error) { finish("failed", "leader_spawn"); }
+                return;
+            }
             if (server.getTickCount() < readyTick || !p.onGround()) return;
             giveKit(p);
             status = "running"; startTick = server.getTickCount(); deadlineTick = startTick + tickLimit;
@@ -200,6 +211,7 @@ final class NaturalRun {
                 m -> m instanceof Enemy).size();
         peakHostiles = Math.max(peakHostiles, hostiles);
         if(hostiles>0) hostileExposureTicks++;
+        if (leader != null) { followTick(p); return; }
         double horizontal = Math.hypot(p.getX() - goal.x, p.getZ() - goal.z);
         minDistance = Math.min(minDistance, horizontal);
         if (horizontal <= radius && Math.abs(p.getY() - goal.y) <= (hill==null?GOAL_DY:0.25)
@@ -214,6 +226,22 @@ final class NaturalRun {
             finish("failed", "stalled"); return;
         }
         if (showMarkers && server.getTickCount() % MARKER_INTERVAL_TICKS == 0) drawMarkers();
+    }
+
+    /** Follow course: walk the leader, track the gap, succeed once it has stopped and been caught up. */
+    private void followTick(ServerPlayer p) {
+        var lead = leader.player();
+        if (lead == null) { finish("failed", "leader_missing"); return; }
+        try { leader.tick(); } catch (Exception error) { finish("failed", "leader_move"); return; }
+        double gap = Math.hypot(p.getX() - lead.getX(), p.getZ() - lead.getZ());
+        leaderDistanceSum += gap; leaderSamples++;
+        leaderDistanceMax = Math.max(leaderDistanceMax, gap);
+        if (gap > FAR_BLOCKS) leaderFarTicks++;
+        minDistance = Math.min(minDistance, gap);
+        if (leader.finished() && gap <= radius && Math.abs(p.getY() - lead.getY()) <= GOAL_DY) {
+            finish("success", "kept_up"); return;
+        }
+        if (server.getTickCount() >= deadlineTick) finish("failed", "tick_limit");
     }
 
     /** Latest planned path from the controller; drawn only when markers are on. */
@@ -273,6 +301,7 @@ final class NaturalRun {
         if (terminal()) return;
         status = outcome; reason = why; endTick = server.getTickCount();
         events.accept("course_episode_complete", fullState());
+        if (leader != null) leader.remove();
     }
 
     Map<String, Object> publicState() {
@@ -305,6 +334,12 @@ final class NaturalRun {
         result.put("mobs", mobs);
         result.put("stall_ticks", stallTicks);
         if(hill!=null) result.put("development_hill",hill.audit());
+        if (leader != null) {
+            result.put("leader_finished", leader.finished());
+            result.put("leader_distance_mean", leaderSamples == 0 ? -1 : leaderDistanceSum / leaderSamples);
+            result.put("leader_distance_max", leaderDistanceMax);
+            result.put("leader_far_ticks", leaderFarTicks);
+        }
         return Map.copyOf(result);
     }
 
