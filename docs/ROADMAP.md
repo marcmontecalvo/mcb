@@ -179,9 +179,14 @@ dependencies, except where noted.
     Every death was close-range: a creeper within 3 blocks, or a zombie villager
     and spider within 1.5, or three creepers and a husk within 2. Plan-time
     avoidance of mobs seen when the route was planned cannot escape an attacker
-    already beside the body. Next lever: a reactive flee when a hostile closes
-    within a few blocks (the body has `RouteReflex.retreat`; check when it fires),
-    then combat (direction doc "Later"). Screening Jev waits for the model track.
+    already beside the body. A longer reactive flight was tried and rejected:
+    `safe` with a 6-block sprinting retreat (creepers from 7 blocks;
+    `20261101T015007016363Z`) went 6/10, 2 deaths, damage 118, exposure 7,240, two stalls:
+    fleeing and re-planning kept the body among the mobs. The flight setting stays
+    available (`follow_route` `flee`, profile `flee`) but no profile uses it; the
+    reflex's hostile list now includes zombie villagers. **Open research:** night
+    survival needs combat or shelter (direction doc "Later"), not route weights.
+    Screening Jev waits for the model track.
 14. Done Oct 31 (interaction goals, Phase 3): `RouteSearch(interact_reach=4.5)`
     and `SegmentedController(interact_reach=...)` treat the goal as a block to
     reach with the eye (feet + 1.62, centre ray, every crossed cell known and

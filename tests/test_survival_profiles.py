@@ -116,10 +116,6 @@ def test_fallback_profile_follows_threat_night_health_and_stock():
     assert SITUATION.payload()["night"] is False
 
 
-def test_safe_profile_carries_a_longer_threat_flight_and_race_the_default():
-    assert load_profile("safe")["flee"] == {
-        "trigger": 5,
-        "creeper_trigger": 7,
-        "steps": 6,
-    }
-    assert load_profile("race")["flee"] is None
+def test_flee_is_off_in_every_shipped_profile():
+    # Nov 1 night rerun: a 6-block flight raised damage 93.8 -> 118 (ROADMAP item 13).
+    assert all(load_profile(name)["flee"] is None for name in PROFILES)
