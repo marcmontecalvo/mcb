@@ -461,6 +461,7 @@ public final class BodyRuntime implements AutoCloseable {
         lastRequestSequence = sequence;
         if (body == null) {
             // Without a body only liveness and an idempotent despawn are meaningful.
+            if (inbound.admin() && op.equals("dump_knowledge")) { dumpKnowledge(request, sequence); return; }
             if (inbound.admin() && (op.equals("heartbeat") || op.equals("despawn"))) {
                 emit("received", "fabric_start", Map.of("op", op, "request_sequence", sequence));
                 if (op.equals("despawn")) emit("despawned", "fabric_start", Map.of("request_sequence", sequence));
@@ -537,6 +538,10 @@ public final class BodyRuntime implements AutoCloseable {
                 emit("plan_accepted", "fabric_start", Map.of("request_sequence", sequence, "plan_id",
                         request.get("plan_id").getAsString()));
             }
+            case "dump_knowledge" -> dumpKnowledge(request, sequence);
+            case "craft" -> bodyAction("craft", sequence, player -> BodyActions.craft(server, player, request));
+            case "furnace" -> bodyAction("furnace", sequence, player -> BodyActions.furnace(server, player, request));
+            case "equip" -> bodyAction("equip", sequence, player -> BodyActions.equip(player, request));
             case "cancel_route" -> {
                 cancelRoute("explicit");
                 body.release(); expiryTick = -1;
@@ -573,6 +578,33 @@ public final class BodyRuntime implements AutoCloseable {
             }
             case "trace" -> { traceEnabled = true; traceEnd = server.getTickCount() + 200; }
             default -> throw new IllegalArgumentException("unknown_admin_operation");
+        }
+    }
+
+    /** Writes knowledge/&lt;pack_id&gt;/ (one server tick); needs no body. */
+    private void dumpKnowledge(JsonObject request, long sequence) {
+        try {
+            var root = KnowledgeDump.resolveRoot(request.get("dir").getAsString());
+            var result = new LinkedHashMap<String, Object>(new KnowledgeDump(server).run(root));
+            result.put("request_sequence", sequence);
+            emit("knowledge_dumped", "fabric_start", result);
+        } catch (Exception error) {
+            emit("knowledge_failed", "fabric_start", Map.of("request_sequence", sequence, "reason",
+                    String.valueOf(error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage())));
+        }
+    }
+
+    /** Legal menu actions of the body (craft, furnace, equip); emits &lt;name&gt;_done or &lt;name&gt;_failed. */
+    private void bodyAction(String name, long sequence, java.util.function.Function<ServerPlayer, Map<String, Object>> work) {
+        try {
+            if (!readyState.equals("ready") || body.player() == null) throw new BodyActions.Fail("body_not_ready");
+            var data = new LinkedHashMap<String, Object>(work.apply(body.player()));
+            data.put("request_sequence", sequence);
+            data.put("inventory", body.observe().get("inventory"));
+            emit(name + "_done", "fabric_start", data);
+        } catch (RuntimeException error) {
+            String reason = error instanceof BodyActions.Fail ? error.getMessage() : "invalid_request:" + error.getClass().getSimpleName();
+            emit(name + "_failed", "fabric_start", Map.of("request_sequence", sequence, "reason", reason));
         }
     }
 

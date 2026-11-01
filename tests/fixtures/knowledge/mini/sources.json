@@ -1,0 +1,40 @@
+{
+ "schema": 1,
+ "sources": {
+  "minecraft:oak_log": {
+   "where": "tree"
+  },
+  "minecraft:stone": {
+   "where": "underground",
+   "y": [
+    -64,
+    256
+   ]
+  },
+  "minecraft:coal_ore": {
+   "where": "underground",
+   "y": [
+    0,
+    320
+   ]
+  },
+  "minecraft:iron_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    72
+   ]
+  },
+  "minecraft:diamond_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    16
+   ]
+  },
+  "minecraft:sand": {
+   "where": "surface",
+   "near": "water"
+  }
+ }
+}

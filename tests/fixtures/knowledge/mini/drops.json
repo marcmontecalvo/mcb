@@ -1,0 +1,92 @@
+{
+ "schema": 1,
+ "tools": [
+  "hand",
+  "wood",
+  "stone",
+  "iron",
+  "diamond",
+  "netherite",
+  "silk_touch"
+ ],
+ "drops": {
+  "minecraft:oak_log": {
+   "hand": [
+    {
+     "item": "minecraft:oak_log",
+     "min": 1,
+     "max": 1
+    }
+   ]
+  },
+  "minecraft:stone": {
+   "hand": [],
+   "wood": [
+    {
+     "item": "minecraft:cobblestone",
+     "min": 1,
+     "max": 1
+    }
+   ],
+   "silk_touch": [
+    {
+     "item": "minecraft:stone",
+     "min": 1,
+     "max": 1
+    }
+   ]
+  },
+  "minecraft:cobblestone": {
+   "hand": [],
+   "wood": [
+    {
+     "item": "minecraft:cobblestone",
+     "min": 1,
+     "max": 1
+    }
+   ]
+  },
+  "minecraft:coal_ore": {
+   "hand": [],
+   "wood": [
+    {
+     "item": "minecraft:coal",
+     "min": 1,
+     "max": 1
+    }
+   ]
+  },
+  "minecraft:iron_ore": {
+   "hand": [],
+   "wood": [],
+   "stone": [
+    {
+     "item": "minecraft:raw_iron",
+     "min": 1,
+     "max": 1
+    }
+   ]
+  },
+  "minecraft:diamond_ore": {
+   "hand": [],
+   "wood": [],
+   "stone": [],
+   "iron": [
+    {
+     "item": "minecraft:diamond",
+     "min": 1,
+     "max": 1
+    }
+   ]
+  },
+  "minecraft:sand": {
+   "hand": [
+    {
+     "item": "minecraft:sand",
+     "min": 1,
+     "max": 1
+    }
+   ]
+  }
+ }
+}

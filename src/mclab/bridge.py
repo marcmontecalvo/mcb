@@ -35,6 +35,10 @@ BODY_OPS = frozenset(
         "awareness_check",
         "command_proof",
         "trace",
+        "dump_knowledge",
+        "craft",
+        "furnace",
+        "equip",
     }
 )
 # Lab ops that act on the current body by name.

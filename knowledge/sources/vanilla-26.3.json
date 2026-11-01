@@ -1,0 +1,199 @@
+{
+ "schema": 1,
+ "sources": {
+  "minecraft:oak_log": {
+   "where": "tree"
+  },
+  "minecraft:spruce_log": {
+   "where": "tree"
+  },
+  "minecraft:birch_log": {
+   "where": "tree"
+  },
+  "minecraft:jungle_log": {
+   "where": "tree"
+  },
+  "minecraft:acacia_log": {
+   "where": "tree"
+  },
+  "minecraft:dark_oak_log": {
+   "where": "tree"
+  },
+  "minecraft:cherry_log": {
+   "where": "tree"
+  },
+  "minecraft:mangrove_log": {
+   "where": "tree"
+  },
+  "minecraft:pale_oak_log": {
+   "where": "tree"
+  },
+  "minecraft:stone": {
+   "where": "underground",
+   "y": [
+    -64,
+    256
+   ]
+  },
+  "minecraft:granite": {
+   "where": "underground",
+   "y": [
+    -64,
+    256
+   ]
+  },
+  "minecraft:diorite": {
+   "where": "underground",
+   "y": [
+    -64,
+    256
+   ]
+  },
+  "minecraft:andesite": {
+   "where": "underground",
+   "y": [
+    -64,
+    256
+   ]
+  },
+  "minecraft:deepslate": {
+   "where": "underground",
+   "y": [
+    -64,
+    0
+   ]
+  },
+  "minecraft:dirt": {
+   "where": "surface"
+  },
+  "minecraft:grass_block": {
+   "where": "surface"
+  },
+  "minecraft:sand": {
+   "where": "surface",
+   "near": "water"
+  },
+  "minecraft:red_sand": {
+   "where": "surface",
+   "biomes": "badlands_desert"
+  },
+  "minecraft:gravel": {
+   "where": "surface",
+   "near": "water"
+  },
+  "minecraft:clay": {
+   "where": "surface",
+   "near": "water"
+  },
+  "minecraft:sugar_cane": {
+   "where": "surface",
+   "near": "water"
+  },
+  "minecraft:coal_ore": {
+   "where": "underground",
+   "y": [
+    0,
+    320
+   ]
+  },
+  "minecraft:deepslate_coal_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    0
+   ]
+  },
+  "minecraft:copper_ore": {
+   "where": "underground",
+   "y": [
+    -16,
+    112
+   ]
+  },
+  "minecraft:deepslate_copper_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    0
+   ]
+  },
+  "minecraft:iron_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    72
+   ]
+  },
+  "minecraft:deepslate_iron_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    0
+   ]
+  },
+  "minecraft:gold_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    32
+   ]
+  },
+  "minecraft:deepslate_gold_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    0
+   ]
+  },
+  "minecraft:redstone_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    15
+   ]
+  },
+  "minecraft:deepslate_redstone_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    0
+   ]
+  },
+  "minecraft:lapis_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    64
+   ]
+  },
+  "minecraft:deepslate_lapis_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    0
+   ]
+  },
+  "minecraft:diamond_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    16
+   ]
+  },
+  "minecraft:deepslate_diamond_ore": {
+   "where": "underground",
+   "y": [
+    -64,
+    0
+   ]
+  },
+  "minecraft:emerald_ore": {
+   "where": "underground",
+   "y": [
+    -16,
+    320
+   ],
+   "biomes": "mountains"
+  }
+ }
+}

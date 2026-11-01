@@ -1,0 +1,82 @@
+{
+ "schema": 1,
+ "blocks": {
+  "minecraft:oak_log": {
+   "item": "minecraft:oak_log",
+   "hardness": 2.0,
+   "needs_correct_tool": false,
+   "mineable": [
+    "axe"
+   ],
+   "gravity": false,
+   "needs_support": null,
+   "properties": {}
+  },
+  "minecraft:stone": {
+   "item": "minecraft:stone",
+   "hardness": 1.5,
+   "needs_correct_tool": true,
+   "mineable": [
+    "pickaxe"
+   ],
+   "gravity": false,
+   "needs_support": null,
+   "properties": {}
+  },
+  "minecraft:cobblestone": {
+   "item": "minecraft:cobblestone",
+   "hardness": 2.0,
+   "needs_correct_tool": true,
+   "mineable": [
+    "pickaxe"
+   ],
+   "gravity": false,
+   "needs_support": null,
+   "properties": {}
+  },
+  "minecraft:coal_ore": {
+   "item": "minecraft:coal_ore",
+   "hardness": 3.0,
+   "needs_correct_tool": true,
+   "mineable": [
+    "pickaxe"
+   ],
+   "gravity": false,
+   "needs_support": null,
+   "properties": {}
+  },
+  "minecraft:iron_ore": {
+   "item": "minecraft:iron_ore",
+   "hardness": 3.0,
+   "needs_correct_tool": true,
+   "mineable": [
+    "pickaxe"
+   ],
+   "gravity": false,
+   "needs_support": null,
+   "properties": {}
+  },
+  "minecraft:diamond_ore": {
+   "item": "minecraft:diamond_ore",
+   "hardness": 3.0,
+   "needs_correct_tool": true,
+   "mineable": [
+    "pickaxe"
+   ],
+   "gravity": false,
+   "needs_support": null,
+   "properties": {}
+  },
+  "minecraft:sand": {
+   "item": "minecraft:sand",
+   "hardness": 0.5,
+   "needs_correct_tool": false,
+   "mineable": [
+    "shovel"
+   ],
+   "gravity": true,
+   "needs_support": null,
+   "properties": {}
+  }
+ }
+}

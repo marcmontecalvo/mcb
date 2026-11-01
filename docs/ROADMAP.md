@@ -259,6 +259,29 @@ imports allowed there).
   core (item 8) starts now; finished work is committed and pushed to `main`.
 - Open Nov 1: night survival (item 13). Route weights and a reactive flight both
   failed the night acceptance; the choice is combat, shelter, or defer to "Later".
+- Answered Nov 1: build M0–M4 of
+  [BUILD_AND_GATHER_PLAN](BUILD_AND_GATHER_PLAN_2026-11-01.md) now, alongside
+  follow and chat; M5–M6 later. Formats: [KNOWLEDGE_PACK_FORMAT](KNOWLEDGE_PACK_FORMAT.md).
+  Defaults taken for §6 questions 2–4 (clear natural terrain only, anchor at the
+  speaker's feet, no chests yet) until Marc says otherwise.
+  Status Nov 1 (afternoon):
+  - **M0 done live.** The vanilla pack `knowledge/26.3-f7dba04d8b5b` (1.7 MB,
+    committed) took 0.42 s to dump. It has 2,042 recipes (361 of unhandled types,
+    e.g. `crafting_dye`, `crafting_transmute`, `brewing`) and 0 drop errors. The
+    first dump had the tier order scrambled (`Map.of` order); fixed.
+  - **M1 done** on the real house (`tests/fixtures/schematics/house-154fc7cd.litematic`,
+    1,227 blocks, matching the file).
+  - **M2 Python logic done.** The body `place_state` op and the build loop are
+    still open.
+  - **M3 ops built.** Live crafting and furnace check still open (needs a lab
+    fixture with items and stations).
+  - **M4 planner done.** Empty inventory → stone and iron pickaxe both plan on
+    the real pack. Open bugs: the iron plan equips and mines before crafting the
+    pickaxe; it makes a coal block for fuel; no mid-plan tool upgrade; surplus not
+    reused. Not plannable yet: stripped logs (axe use), mob drops (leather, wool),
+    flowers, moss.
+  - **Body mod changed** (now `62cf0d5e…`): qualification (item 11 procedure)
+    must be rerun before scored navigation runs.
 - Carried from the direction doc: `race` profile block budgets; server view
   distance for parity runs (currently 4).
 
@@ -271,6 +294,8 @@ imports allowed there).
 | [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md) | Authoritative plan: decisions D1–D12, phases, step order, swimming notes |
 | [DECISIONS.md](DECISIONS.md) | Decision log |
 | [ROADMAP.md](ROADMAP.md) | This file: status, ordered work, index |
+| [BUILD_AND_GATHER_PLAN_2026-11-01.md](BUILD_AND_GATHER_PLAN_2026-11-01.md) | Companion track: schematic building, knowledge pack from the game, AltoClef-style gathering (milestones M0–M6; M0–M4 in progress Nov 1) |
+| [KNOWLEDGE_PACK_FORMAT.md](KNOWLEDGE_PACK_FORMAT.md) | Contract: knowledge pack files and the `build.json` format |
 | [BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md](BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md) | Baritone weights and the move-by-move comparison |
 | [BARITONE_REFERENCE.md](BARITONE_REFERENCE.md) | Baritone baseline setup (pinned client, launcher, how it is run) |
 | `Minecraft_AI_Technical_Handoff.md` (repo root) | Original specification; never edited |

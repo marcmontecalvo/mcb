@@ -278,9 +278,28 @@ def main() -> int:
     execute = course.add_parser("execution-check")
     execute.add_argument("--count", type=int, default=10)
     execute.add_argument("--development", action="store_true")
+    schem = sub.add_parser("schematic").add_subparsers(dest="operation", required=True)
+    convert = schem.add_parser("convert")
+    convert.add_argument("input", type=Path)
+    convert.add_argument("-o", "--output", type=Path)
+    convert.add_argument("--knowledge", type=Path, help="knowledge/<pack_id>")
     args = parser.parse_args()
     try:
         match args.command:
+            case "schematic":
+                from mclab import schematic
+
+                output = args.output or args.input.with_suffix(".build.json")
+                built = schematic.convert(args.input, output, args.knowledge)
+                for item, count in built["materials"].items():
+                    print(f"{count:>7}  {item}")
+                for flag in built["flags"]:
+                    print(f"  FLAG {flag['count']}x {flag['state']}: {flag['how']}")
+                result = {
+                    "output": str(output),
+                    "size": built["size"],
+                    "palette_entries": len(built["palette"]),
+                }
             case "awareness":
                 if args.operation == "show":
                     overrides = {

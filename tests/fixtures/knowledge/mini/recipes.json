@@ -1,0 +1,374 @@
+{
+ "schema": 1,
+ "recipes": [
+  {
+   "id": "minecraft:oak_planks",
+   "type": "minecraft:crafting_shapeless",
+   "station": "inventory",
+   "ingredients": [
+    {
+     "options": [
+      "#minecraft:oak_logs"
+     ],
+     "count": 1
+    }
+   ],
+   "result": {
+    "item": "minecraft:oak_planks",
+    "count": 4
+   }
+  },
+  {
+   "id": "minecraft:stick",
+   "type": "minecraft:crafting_shaped",
+   "station": "inventory",
+   "ingredients": [
+    {
+     "options": [
+      "#minecraft:planks"
+     ],
+     "count": 2
+    }
+   ],
+   "result": {
+    "item": "minecraft:stick",
+    "count": 4
+   }
+  },
+  {
+   "id": "minecraft:crafting_table",
+   "type": "minecraft:crafting_shaped",
+   "station": "inventory",
+   "ingredients": [
+    {
+     "options": [
+      "#minecraft:planks"
+     ],
+     "count": 4
+    }
+   ],
+   "result": {
+    "item": "minecraft:crafting_table",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:wooden_pickaxe",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "#minecraft:planks"
+     ],
+     "count": 3
+    },
+    {
+     "options": [
+      "minecraft:stick"
+     ],
+     "count": 2
+    }
+   ],
+   "result": {
+    "item": "minecraft:wooden_pickaxe",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:wooden_axe",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "#minecraft:planks"
+     ],
+     "count": 3
+    },
+    {
+     "options": [
+      "minecraft:stick"
+     ],
+     "count": 2
+    }
+   ],
+   "result": {
+    "item": "minecraft:wooden_axe",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:stone_pickaxe",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "#minecraft:stone_tool_materials"
+     ],
+     "count": 3
+    },
+    {
+     "options": [
+      "minecraft:stick"
+     ],
+     "count": 2
+    }
+   ],
+   "result": {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:stone_axe",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "#minecraft:stone_tool_materials"
+     ],
+     "count": 3
+    },
+    {
+     "options": [
+      "minecraft:stick"
+     ],
+     "count": 2
+    }
+   ],
+   "result": {
+    "item": "minecraft:stone_axe",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:iron_pickaxe",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:iron_ingot"
+     ],
+     "count": 3
+    },
+    {
+     "options": [
+      "minecraft:stick"
+     ],
+     "count": 2
+    }
+   ],
+   "result": {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:iron_axe",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:iron_ingot"
+     ],
+     "count": 3
+    },
+    {
+     "options": [
+      "minecraft:stick"
+     ],
+     "count": 2
+    }
+   ],
+   "result": {
+    "item": "minecraft:iron_axe",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:furnace",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "#minecraft:stone_crafting_materials"
+     ],
+     "count": 8
+    }
+   ],
+   "result": {
+    "item": "minecraft:furnace",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:torch",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "#minecraft:coals"
+     ],
+     "count": 1
+    },
+    {
+     "options": [
+      "minecraft:stick"
+     ],
+     "count": 1
+    }
+   ],
+   "result": {
+    "item": "minecraft:torch",
+    "count": 4
+   }
+  },
+  {
+   "id": "minecraft:oak_stairs",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:oak_planks"
+     ],
+     "count": 6
+    }
+   ],
+   "result": {
+    "item": "minecraft:oak_stairs",
+    "count": 4
+   }
+  },
+  {
+   "id": "minecraft:oak_slab",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:oak_planks"
+     ],
+     "count": 3
+    }
+   ],
+   "result": {
+    "item": "minecraft:oak_slab",
+    "count": 6
+   }
+  },
+  {
+   "id": "minecraft:iron_block",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:iron_ingot"
+     ],
+     "count": 9
+    }
+   ],
+   "result": {
+    "item": "minecraft:iron_block",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:iron_ingot_from_iron_block",
+   "type": "minecraft:crafting_shapeless",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:iron_block"
+     ],
+     "count": 1
+    }
+   ],
+   "result": {
+    "item": "minecraft:iron_ingot",
+    "count": 9
+   }
+  },
+  {
+   "id": "minecraft:charcoal",
+   "type": "minecraft:smelting",
+   "station": "furnace",
+   "ingredients": [
+    {
+     "options": [
+      "#minecraft:logs_that_burn"
+     ],
+     "count": 1
+    }
+   ],
+   "result": {
+    "item": "minecraft:charcoal",
+    "count": 1
+   },
+   "cook_ticks": 200
+  },
+  {
+   "id": "minecraft:glass",
+   "type": "minecraft:smelting",
+   "station": "furnace",
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:sand"
+     ],
+     "count": 1
+    }
+   ],
+   "result": {
+    "item": "minecraft:glass",
+    "count": 1
+   },
+   "cook_ticks": 200
+  },
+  {
+   "id": "minecraft:iron_ingot_from_smelting_raw_iron",
+   "type": "minecraft:smelting",
+   "station": "furnace",
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:raw_iron"
+     ],
+     "count": 1
+    }
+   ],
+   "result": {
+    "item": "minecraft:iron_ingot",
+    "count": 1
+   },
+   "cook_ticks": 200
+  },
+  {
+   "id": "minecraft:iron_ingot_from_blasting_raw_iron",
+   "type": "minecraft:blasting",
+   "station": "blast_furnace",
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:raw_iron"
+     ],
+     "count": 1
+    }
+   ],
+   "result": {
+    "item": "minecraft:iron_ingot",
+    "count": 1
+   },
+   "cook_ticks": 100
+  }
+ ]
+}

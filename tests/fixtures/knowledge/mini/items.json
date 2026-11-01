@@ -1,0 +1,139 @@
+{
+ "schema": 1,
+ "items": {
+  "minecraft:oak_log": {
+   "stack": 64,
+   "fuel_ticks": 300
+  },
+  "minecraft:oak_wood": {
+   "stack": 64,
+   "fuel_ticks": 300
+  },
+  "minecraft:oak_planks": {
+   "stack": 64,
+   "fuel_ticks": 300
+  },
+  "minecraft:stick": {
+   "stack": 64,
+   "fuel_ticks": 100
+  },
+  "minecraft:crafting_table": {
+   "stack": 64,
+   "fuel_ticks": 300
+  },
+  "minecraft:wooden_pickaxe": {
+   "stack": 1,
+   "durability": 59,
+   "tool": {
+    "kind": "pickaxe",
+    "tier": "wood",
+    "speed": 2.0
+   },
+   "fuel_ticks": 200
+  },
+  "minecraft:wooden_axe": {
+   "stack": 1,
+   "durability": 59,
+   "tool": {
+    "kind": "axe",
+    "tier": "wood",
+    "speed": 2.0
+   },
+   "fuel_ticks": 200
+  },
+  "minecraft:stone_pickaxe": {
+   "stack": 1,
+   "durability": 131,
+   "tool": {
+    "kind": "pickaxe",
+    "tier": "stone",
+    "speed": 4.0
+   }
+  },
+  "minecraft:stone_axe": {
+   "stack": 1,
+   "durability": 131,
+   "tool": {
+    "kind": "axe",
+    "tier": "stone",
+    "speed": 4.0
+   }
+  },
+  "minecraft:iron_pickaxe": {
+   "stack": 1,
+   "durability": 250,
+   "tool": {
+    "kind": "pickaxe",
+    "tier": "iron",
+    "speed": 6.0
+   }
+  },
+  "minecraft:iron_axe": {
+   "stack": 1,
+   "durability": 250,
+   "tool": {
+    "kind": "axe",
+    "tier": "iron",
+    "speed": 6.0
+   }
+  },
+  "minecraft:furnace": {
+   "stack": 64
+  },
+  "minecraft:torch": {
+   "stack": 64
+  },
+  "minecraft:coal": {
+   "stack": 64,
+   "fuel_ticks": 1600
+  },
+  "minecraft:charcoal": {
+   "stack": 64,
+   "fuel_ticks": 1600
+  },
+  "minecraft:raw_iron": {
+   "stack": 64
+  },
+  "minecraft:iron_ingot": {
+   "stack": 64
+  },
+  "minecraft:iron_block": {
+   "stack": 64
+  },
+  "minecraft:cobblestone": {
+   "stack": 64
+  },
+  "minecraft:stone": {
+   "stack": 64
+  },
+  "minecraft:sand": {
+   "stack": 64
+  },
+  "minecraft:glass": {
+   "stack": 64
+  },
+  "minecraft:coal_ore": {
+   "stack": 64
+  },
+  "minecraft:iron_ore": {
+   "stack": 64
+  },
+  "minecraft:diamond": {
+   "stack": 64
+  },
+  "minecraft:diamond_ore": {
+   "stack": 64
+  },
+  "minecraft:nether_star": {
+   "stack": 64
+  },
+  "minecraft:oak_stairs": {
+   "stack": 64,
+   "fuel_ticks": 300
+  },
+  "minecraft:oak_slab": {
+   "stack": 64,
+   "fuel_ticks": 150
+  }
+ }
+}

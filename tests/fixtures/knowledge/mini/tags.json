@@ -1,0 +1,31 @@
+{
+ "schema": 1,
+ "items": {
+  "#minecraft:planks": [
+   "minecraft:oak_planks"
+  ],
+  "#minecraft:oak_logs": [
+   "minecraft:oak_log",
+   "minecraft:oak_wood"
+  ],
+  "#minecraft:logs_that_burn": [
+   "minecraft:oak_log",
+   "minecraft:oak_wood"
+  ],
+  "#minecraft:stone_tool_materials": [
+   "minecraft:cobblestone"
+  ],
+  "#minecraft:stone_crafting_materials": [
+   "minecraft:cobblestone"
+  ],
+  "#minecraft:coals": [
+   "minecraft:coal",
+   "minecraft:charcoal"
+  ]
+ },
+ "blocks": {
+  "#minecraft:logs": [
+   "minecraft:oak_log"
+  ]
+ }
+}

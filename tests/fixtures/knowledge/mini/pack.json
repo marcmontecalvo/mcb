@@ -1,0 +1,13 @@
+{
+ "schema": 1,
+ "pack_id": "26.3-000000000000",
+ "game_version": "26.3",
+ "data_version": 4671,
+ "mods": [
+  "minecraft@26.3"
+ ],
+ "datapacks": [
+  "vanilla"
+ ],
+ "created": "2026-11-01T00:00:00Z"
+}
