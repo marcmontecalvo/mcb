@@ -153,3 +153,22 @@ def water_completed(result, variant, recoveries):
             )
         )
     )
+
+
+def ladder_completed(result, variant):
+    """Climbed the fixture's ladder onto the cliff: arrival, no edits, no damage."""
+    edits = result.get("development_hill", {})
+    position = result.get("final_position")
+    return (
+        result.get("status") == "success"
+        and not result.get("controller_error")
+        and result.get("died") is False
+        and type(result.get("damage_taken")) in (int, float)
+        and result["damage_taken"] == 0
+        and isinstance(position, list)
+        and len(position) == 3
+        and all(type(v) in (int, float) and math.isfinite(v) for v in position)
+        and position[1] >= 80 + 4 + variant % 2 - 0.1
+        and edits.get("added") == edits.get("removed") == 0
+        and edits.get("changes") == []
+    )

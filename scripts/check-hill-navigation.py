@@ -2,7 +2,7 @@
 
 import argparse
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -15,6 +15,7 @@ from mclab.development_checks import (
     bridge_completed,
     drop_refused,
     gap_completed,
+    ladder_completed,
     pillar_completed,
     staircase_completed,
     water_completed,
@@ -49,6 +50,7 @@ def main():
             "pillar",
             "gap",
             "water",
+            "ladder",
             "all",
         ),
         default="all",
@@ -61,6 +63,13 @@ def main():
     parser.add_argument("--max-drop", type=int, choices=range(4), default=1)
     parser.add_argument("--max-gap", type=int, choices=range(3), default=0)
     parser.add_argument("--swim", action="store_true")
+    parser.add_argument("--climb", action="store_true")
+    parser.add_argument(
+        "--terrain-profile",
+        type=Path,
+        help="planner flags (e.g. config/stepc/terrain-stepc-baritone-moves.json);"
+        " each kind still sets its own break/place permissions",
+    )
     parser.add_argument("--collision-shapes", action="store_true")
     parser.add_argument("--bridges", action="store_true")
     parser.add_argument("--pillars", action="store_true")
@@ -92,11 +101,17 @@ def main():
         args.collision_shapes,
         args.max_gap,
         args.swim,
+        args.climb,
     )
     memory_policy = (
         MemoryPolicy.from_payload(read_json(args.memory_profile))
         if args.memory_profile
         else MemoryPolicy()
+    )
+    base_policy = (
+        TerrainPolicy.from_payload(read_json(args.terrain_profile))
+        if args.terrain_profile
+        else TerrainPolicy()
     )
     if (
         "level-name=world"
@@ -194,6 +209,8 @@ def main():
                         height = 0
                     if kind == "pillar":
                         height = 3 + variant % 2
+                    if kind == "ladder":
+                        height = 4 + variant % 2
                     start_height = 80 + (1 + variant % 3 if kind == "drop" else 0)
                     goal = [1280, 80 + height, 1291]
                     if kind == "staircase":
@@ -204,6 +221,8 @@ def main():
                         goal[2] = 1287 + variant // 2 + variant % 2
                     if kind == "water":
                         goal[2] = 1288 + variant // 2 + variant % 2
+                    if kind == "ladder":
+                        goal[2] = 1286 + variant // 2
                     if kind == "prefetch":
                         goal = [
                             1280 + variant % 3,
@@ -248,7 +267,8 @@ def main():
                         client.episode_id,
                         policy=memory_policy,
                     )
-                    policy = TerrainPolicy(
+                    policy = replace(
+                        base_policy,
                         allow_break=kind in {"cut", "mixed"},
                         allow_place=kind
                         in {"place", "mixed", "bridge", "staircase", "pillar"}
@@ -304,6 +324,10 @@ def main():
                             result["gap_verified"] = gap_completed(
                                 result, controller.gap_jumps_completed
                             )
+                        if kind == "ladder":
+                            result["ladder_verified"] = ladder_completed(
+                                result, variant
+                            )
                         if kind == "water" and not args.expect_refusal:
                             result["water_verified"] = water_completed(
                                 result, variant, controller.air_recoveries_completed
@@ -355,6 +379,8 @@ def main():
                             raise RuntimeError(
                                 "Water lacks swimming, air, exit or no-edit proof"
                             )
+                        if kind == "ladder" and not result["ladder_verified"]:
+                            raise RuntimeError("Ladder lacks climb/no-edit proof")
                         if (
                             kind == "gap"
                             and not args.expect_refusal

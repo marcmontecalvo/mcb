@@ -263,6 +263,8 @@ def drive_native(client, controller, wall_timeout):
     from mclab.control_loop import _fail, _running, record_selector
 
     deadline = time.monotonic() + wall_timeout
+    if getattr(controller, "body_planner", False):
+        controller.submit_plan = lambda payload: client.send("plan_route", **payload)
     active_id = None
     active_route = []
     active_step = None

@@ -37,8 +37,17 @@ LAND = TerrainPolicy(
 )
 if os.environ.get("UNKNOWN"):  # planner_unknown: plan through unknown space (D3)
     LAND = replace(LAND, planner_unknown=True)
+SWIM = bool(os.environ.get("SWIM"))  # planner_swim + baritone_moves (no edits)
+if SWIM:
+    LAND = replace(LAND, planner_swim=True, baritone_moves=True)
 MOVES = MovementPolicy(
-    allow_diagonals=True, allow_sprint=True, max_drop=3, allow_shapes=True, max_gap=0
+    allow_diagonals=True,
+    allow_sprint=True,
+    max_drop=3,
+    allow_shapes=True,
+    max_gap=2 if SWIM else 0,
+    allow_swim=SWIM,
+    allow_climb=SWIM,
 )
 
 
@@ -88,7 +97,7 @@ def export(view, start, goal, target):
                     continue
                 facts = {
                     k: cell[k]
-                    for k in ("block", "fluid", "collision_boxes")
+                    for k in ("block", "fluid", "collision_boxes", "properties")
                     if k in cell
                 }
                 key = json.dumps(facts, sort_keys=True)
@@ -98,6 +107,8 @@ def export(view, start, goal, target):
                 rows.append([x, y, z, index[key]])
     payload = {
         "unknown_penalty": LAND.unknown_penalty if LAND.planner_unknown else 0,
+        "swim": SWIM,
+        "max_gap": MOVES.max_gap,
         "start": list(start),
         "goal": list(goal),
         "radius": 2.5,

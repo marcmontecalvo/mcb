@@ -29,6 +29,7 @@ BODY_OPS = frozenset(
         "follow_route",
         "follow_step",
         "follow_gap",
+        "plan_route",
         "cancel_route",
         "sensor_check",
         "awareness_check",

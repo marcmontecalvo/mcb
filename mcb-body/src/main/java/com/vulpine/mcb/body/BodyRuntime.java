@@ -16,6 +16,7 @@ import java.security.MessageDigest;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -234,6 +235,76 @@ public final class BodyRuntime implements AutoCloseable {
             emit("interaction_rejected", "fabric_start", Map.of("reason", "real_player_reach_guard"));
         }
         if (!tickReflex()) { tickRoute(); tickStep(); tickGap(); }
+        tickPlans();
+    }
+
+    // Compiled planner core (ROADMAP item 8, stage E): searches run on the server thread in a
+    // bounded slice per tick, reading the same awareness-limited cells as the motors.
+    private static final long PLAN_SLICE_NANOS = 10_000_000L;
+    private static final int MAX_PLANS = 4;
+    private final Map<String,RoutePlanner> plans = new LinkedHashMap<>();
+    private final Map<String,Integer> planLimits = new HashMap<>();
+    private final Map<String,Map<String,Object>> planResults = new LinkedHashMap<>();
+
+    private void startPlan(JsonObject request) {
+        String id = request.get("plan_id").getAsString();
+        if (id.isEmpty() || id.length() > 64) throw new IllegalArgumentException("plan_id");
+        var s = request.getAsJsonArray("start"); var g = request.getAsJsonArray("goal");
+        var start = new RoutePlanner.Node(s.get(0).getAsInt(), s.get(1).getAsDouble(), s.get(2).getAsInt());
+        var goal = new RoutePlanner.Node(g.get(0).getAsInt(), g.get(1).getAsDouble(), g.get(2).getAsInt());
+        double radius = request.get("radius").getAsDouble(), penalty = request.get("unknown_penalty").getAsDouble();
+        int maxDrop = request.get("max_drop").getAsInt(), maxGap = request.get("max_gap").getAsInt();
+        int limit = request.get("node_limit").getAsInt();
+        if (radius < 0 || radius > 16 || maxDrop < 0 || maxDrop > 3 || maxGap < 0 || maxGap > 2
+                || limit < 1 || limit > 100_000 || !(penalty == 0 || (penalty >= 1 && penalty <= 10)))
+            throw new IllegalArgumentException("plan_bounds");
+        var planner = new RoutePlanner(localReader(body.player()), start, goal, radius, maxDrop,
+                request.get("sprint").getAsBoolean(), penalty)
+                .withMoves(request.get("swim").getAsBoolean(), request.get("extra").getAsBoolean())
+                .withGaps(maxGap)
+                .withHistory(nodes(request, "favored"), edges(request));
+        while (plans.size() >= MAX_PLANS) { var oldest = plans.keySet().iterator().next(); plans.remove(oldest); }
+        plans.put(id, planner); planLimits.put(id, limit);
+        planResults.put(id, Map.of("plan_id", id, "state", "searching"));
+        while (planResults.size() > MAX_PLANS) planResults.remove(planResults.keySet().iterator().next());
+    }
+
+    private static RoutePlanner.Node node(com.google.gson.JsonElement e) {
+        var a = e.getAsJsonArray();
+        return new RoutePlanner.Node(a.get(0).getAsInt(), a.get(1).getAsDouble(), a.get(2).getAsInt());
+    }
+    private static Set<RoutePlanner.Node> nodes(JsonObject request, String key) {
+        var out = new HashSet<RoutePlanner.Node>();
+        if (request.has(key)) for (var e : request.getAsJsonArray(key)) out.add(node(e));
+        if (out.size() > 4096) throw new IllegalArgumentException("plan_history_bounds");
+        return out;
+    }
+    private static Set<List<RoutePlanner.Node>> edges(JsonObject request) {
+        var out = new HashSet<List<RoutePlanner.Node>>();
+        if (request.has("excluded")) for (var e : request.getAsJsonArray("excluded")) {
+            var pair = e.getAsJsonArray(); out.add(List.of(node(pair.get(0)), node(pair.get(1))));
+        }
+        if (out.size() > 4096) throw new IllegalArgumentException("plan_history_bounds");
+        return out;
+    }
+
+    private void tickPlans() {
+        if (plans.isEmpty() || body == null || body.player() == null) return;
+        long deadline = System.nanoTime() + PLAN_SLICE_NANOS;
+        var done = new ArrayList<String>();
+        for (var entry : plans.entrySet()) {
+            if (System.nanoTime() > deadline) break;
+            var result = entry.getValue().advance(planLimits.get(entry.getKey()), deadline);
+            if (result.status().equals("searching")) continue;
+            var route = result.route().stream().map(n -> List.<Object>of(n.x(), n.y(), n.z())).toList();
+            var report = Map.<String,Object>of("plan_id", entry.getKey(), "state", "done", "status", result.status(),
+                    "route", route, "expanded", result.expanded(), "tick", server.getTickCount());
+            planResults.put(entry.getKey(), report);
+            emit("plan_finished", "fabric_end", Map.of("plan_id", entry.getKey(), "status", result.status(),
+                    "expanded", result.expanded(), "length", route.size()));
+            done.add(entry.getKey());
+        }
+        done.forEach(id -> { plans.remove(id); planLimits.remove(id); });
     }
 
     private Map<String,Object> routeStatus() {
@@ -443,6 +514,13 @@ public final class BodyRuntime implements AutoCloseable {
                 gapMotor=candidate;
                 nativeMode=true;
                 emit("gap_accepted","fabric_start",Map.of("request_sequence",sequence,"gap",gapMotor.status()));
+            }
+            case "plan_route" -> {
+                if (!readyState.equals("ready") || courseLimits || !extendedObservation)
+                    throw new IllegalStateException("native_plan_requires_development_body");
+                startPlan(request);
+                emit("plan_accepted", "fabric_start", Map.of("request_sequence", sequence, "plan_id",
+                        request.get("plan_id").getAsString()));
             }
             case "cancel_route" -> {
                 cancelRoute("explicit");
@@ -672,6 +750,7 @@ public final class BodyRuntime implements AutoCloseable {
             routed.put("step_follower",stepMotor==null?Map.of("state","idle"):stepMotor.status());
             routed.put("gap_follower",gapMotor==null?Map.of("state","idle"):gapMotor.status());
             routed.put("reflex_follower",reflexMotor==null?Map.of("state","idle"):reflexMotor.status());
+            routed.put("route_planner",List.copyOf(planResults.values()));
             observation=Map.copyOf(routed);
         }
         policySnapshot=observation;

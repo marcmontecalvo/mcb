@@ -103,8 +103,12 @@ dependencies, except where noted.
    fixed in cohort 26.
 3. Done (Oct 31): `stall_seconds = 0` also disables `goal_no_progress`
    (`controller.goal_progress_ticks = None`; `test_native_driver.py`).
-4. **Climbing out of water where the bank is +1:** no move does this now. Baritone
-   has none either (unverified); a place/pillar edit would be the route if needed.
+4. Closed Nov 1 (water exit onto a +1 bank): not possible in vanilla, so nothing
+   to build. `LivingEntity.jumpOutOfFluid` (26.3 bytecode) sets vertical speed 0.3
+   only while in water, against a wall, with the box 0.6 higher free; the boost
+   ends when the feet leave the water. Cohort 19 R5 peaked at 63.92 about 350 times
+   under a bank top at 64.00. Baritone's ascend from water is our level exit; it
+   has no +2. The planner has not offered this move since cohort 21.
 5. **More reps and a second seed** before trusting the 10/10: two reps on one
    seed is development evidence only.
 
@@ -118,9 +122,9 @@ dependencies, except where noted.
    rule out land with one lookup (`surface_water`, `_landings`). Now 4,184 / 5,244
    (grid with / without swimming), +9% / +17%; replayed routes unchanged. What is
    left is per-node interpreter cost: items 7 and 8.
-7. **Search outside the controller's interpreter lock.** Control, map admission and
-   search share one Python process: live search runs at about half the offline
-   speed. A separate process with a shared grid is the cheap step.
+7. Superseded Nov 1 by item 8 (search outside the interpreter lock): the Java
+   core runs in the body, outside Python's lock, at 5–10× Python's offline speed;
+   a separate Python process would copy map snapshots for about 2×.
 8. **Compiled planner core** (Java in the body). Started Oct 31 at Marc's request.
    Stage A done: `mcb-body/.../RoutePlanner.java` is the land subset of
    `route_search.py` (tick costs, Baritone search and diagonals, shapes).
@@ -163,8 +167,16 @@ dependencies, except where noted.
     `config/profiles/` with `--cost-profile`; visible hostiles feed the search;
     `jev_contract.py` (situation, decision, validation, deterministic fallback,
     source recorded). No fall-damage gate: dry drops stop at 3 blocks, below
-    vanilla's damage threshold. Open: the live night acceptance (`--condition
-    mobs`, `safe` against `race`); screening Jev itself waits for the model track.
+    vanilla's damage threshold. **Night acceptance run Nov 1 and not met.**
+    `race` (`20261101T010410539420Z`): 6/10, 3 deaths, damage 94.2,
+    exposure 3,736 hostile-ticks within 16. `safe` (`20261101T011522361531Z`):
+    7/10, 3 deaths, damage 93.8, exposure 6,162 (one R5 attempt took 3,239 ticks).
+    Every death was close-range: a creeper within 3 blocks, or a zombie villager
+    and spider within 1.5, or three creepers and a husk within 2. Plan-time
+    avoidance of mobs seen when the route was planned cannot escape an attacker
+    already beside the body. Next lever: a reactive flee when a hostile closes
+    within a few blocks (the body has `RouteReflex.retreat`; check when it fires),
+    then combat (direction doc "Later"). Screening Jev waits for the model track.
 14. Done Oct 31 (interaction goals, Phase 3): `RouteSearch(interact_reach=4.5)`
     and `SegmentedController(interact_reach=...)` treat the goal as a block to
     reach with the eye (feet + 1.62, centre ray, every crossed cell known and

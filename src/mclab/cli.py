@@ -187,6 +187,16 @@ def main() -> int:
         choices=["race", "safe", "frugal", "hunt", "escort"],
         help="Phase 6 named profile applied over the terrain profile",
     )
+    nat_run.add_argument(
+        "--baritone-parkour",
+        action="store_true",
+        help="Baritone with allowParkour (moves matched to MCB's gap jumps)",
+    )
+    nat_run.add_argument(
+        "--body-planner",
+        action="store_true",
+        help="plan in the body's compiled core (Python only for edits)",
+    )
     experiment = sub.add_parser("experiments").add_subparsers(
         dest="operation", required=True
     )
@@ -333,6 +343,10 @@ def main() -> int:
                     view_distance=args.view_distance,
                     control_profile=args.control_profile,
                     stall_seconds=args.stall_seconds,
+                    baritone_settings={"allowParkour": True}
+                    if args.baritone_parkour
+                    else None,
+                    body_planner=args.body_planner,
                 )
             case "bootstrap":
                 server.assert_stopped()

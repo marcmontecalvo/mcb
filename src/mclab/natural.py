@@ -242,6 +242,14 @@ def pick_routes(cells, count=5, rng_seed=0) -> list[dict]:
     return routes
 
 
+# Baritone settings applied after each client launch (set by run(); recorded in
+# the summary). Empty: Baritone defaults (parkour off). ponytail: module state,
+# one run per process.
+BARITONE_SETTINGS = {}
+# Plan in the body's compiled core (ROADMAP item 8); set by run(), recorded too.
+BODY_PLANNER = {"enabled": False}
+
+
 def _restore(seed: int) -> None:
     _stop()
     live = SERVER / _level(seed)
@@ -295,6 +303,8 @@ def _relaunch_client() -> str:
             continue
         if status.get("in_world"):
             time.sleep(5)  # let the client finish loading nearby chunks
+            if BARITONE_SETTINGS:
+                baritone_client.BaritoneClient().policy(**BARITONE_SETTINGS)
             return status["player"]
     raise TimeoutError("Baritone client did not join the natural world")
 
@@ -483,6 +493,7 @@ def _controller(
         terrain_policy=terrain_policy or TerrainPolicy(),
         background_planning=True,
         movement_policy=movement_policy,
+        body_planner=BODY_PLANNER["enabled"],
     )
     resources.callback(controller.close)
     return controller
@@ -513,8 +524,13 @@ def run(
     control_profile=LOCKSTEP,
     show_markers=False,
     stall_seconds=10,
+    baritone_settings=None,
+    body_planner=False,
 ) -> dict:
     awareness = Awareness() if awareness is None else awareness
+    BARITONE_SETTINGS.clear()
+    BARITONE_SETTINGS.update(baritone_settings or {})
+    BODY_PLANNER["enabled"] = bool(body_planner)
     _validate_run(seed, routes, entrants, conditions)
     # 0 disables. The server ends an attempt whose body stays within one block
     # this long.
@@ -627,6 +643,8 @@ def run(
         "server_view_distance_chunks": view_distance or _server_view_distance(),
         "policy_map_recording": "wire payloads only; no expanded-cell snapshots",
         "stall_seconds": stall_seconds,
+        "baritone_settings": dict(BARITONE_SETTINGS),
+        "body_planner": BODY_PLANNER["enabled"],
         "attempts": [],
     }
     with natural_world(seed, view_distance):

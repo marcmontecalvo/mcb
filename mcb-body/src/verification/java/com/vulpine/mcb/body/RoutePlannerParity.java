@@ -33,7 +33,11 @@ public final class RoutePlannerParity {
             long began = System.nanoTime();
             result = new RoutePlanner((x, y, z) -> cells.get(key(x, y, z)), start, goal,
                     root.get("radius").getAsDouble(), root.get("max_drop").getAsInt(), true,
-                    root.has("unknown_penalty") ? root.get("unknown_penalty").getAsDouble() : 0).search(limit);
+                    root.has("unknown_penalty") ? root.get("unknown_penalty").getAsDouble() : 0)
+                    .withMoves(root.has("swim") && root.get("swim").getAsBoolean(),
+                            root.has("swim") && root.get("swim").getAsBoolean())
+                    .withGaps(root.has("max_gap") ? root.get("max_gap").getAsInt() : 0)
+                    .search(limit);
             best = Math.min(best, (System.nanoTime() - began) / 1e6);
         }
         var out = new LinkedHashMap<String, Object>();

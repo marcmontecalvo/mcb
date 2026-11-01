@@ -195,3 +195,20 @@ def test_water_audit_requires_real_contact_and_stressed_air_recovery():
         {"final_position": [1280.5, 79, 1290.5]},
     ):
         assert not water_completed({**data, **changed}, 1, 1)
+
+
+def test_ladder_completion_needs_arrival_height_and_no_edits():
+    from mclab.development_checks import ladder_completed
+
+    ok = {
+        "status": "success",
+        "died": False,
+        "damage_taken": 0,
+        "final_position": [1280.5, 85.0, 1287.5],
+        "development_hill": {"added": 0, "removed": 0, "changes": []},
+    }
+    assert ladder_completed(ok, 1)
+    assert not ladder_completed({**ok, "final_position": [1280.5, 80.0, 1283.5]}, 1)
+    dug = {"added": 0, "removed": 1, "changes": [{"position": [1280, 81, 1284]}]}
+    assert not ladder_completed({**ok, "development_hill": dug}, 1)
+    assert not ladder_completed({**ok, "damage_taken": 2.0}, 1)

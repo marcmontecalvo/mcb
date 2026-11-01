@@ -10,7 +10,7 @@ from collections import deque
 from dataclasses import replace
 from functools import partial
 
-from mclab import collision_geometry, water_movement
+from mclab import body_search, collision_geometry, water_movement
 from mclab.gap_jump import GapJumpExecutor, prepare_gap
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation import NavigationController, empty, standable
@@ -71,6 +71,10 @@ def native_edit_matches(plan, cells, supported):
 class SegmentedController(NavigationController):
     route_steps = {}  # Replaced, never mutated; instances set their own.
     threats = ()  # D7 search input (visible hostiles), refreshed by _admit.
+    # Compiled planner in the body: the native driver sets submit_plan; _admit
+    # refreshes plan_reports (plan_id -> report) from each observation.
+    submit_plan = None
+    plan_reports = {}
 
     def __init__(
         self,
@@ -84,6 +88,7 @@ class SegmentedController(NavigationController):
         background_planning=False,
         movement_policy=None,
         interact_reach=None,
+        body_planner=False,
     ):
         super().__init__(
             sensor_profile=memory.archive.identity.awareness.sensor_profile
@@ -98,6 +103,7 @@ class SegmentedController(NavigationController):
         self.radius = radius
         # Phase 3 interaction goal: reach this block with the eye (None: stand there).
         self.interact_reach = interact_reach
+        self.body_planner = body_planner  # native driver wires submit_plan when set
         self.search_nodes, self.search_ms = search_nodes, search_ms
         self.search = None
         self.route = []
@@ -280,6 +286,9 @@ class SegmentedController(NavigationController):
     def _admit(self, observation):
         # D7 input for the next search: visible hostiles.
         self.threats = threats(observation)
+        reports = observation.get("route_planner")
+        if reports:
+            self.plan_reports = {r["plan_id"]: r for r in reports}
         if self.observation_lane is None:
             self.memory.ingest(observation)
             return
@@ -321,6 +330,23 @@ class SegmentedController(NavigationController):
         )
 
     def _new_search(self, cells, node, revision, factory=RouteSearch):
+        if (
+            factory is RouteSearch
+            and self.submit_plan is not None
+            and body_search.supported(
+                self.terrain_policy, self.movement_policy, self.interact_reach
+            )
+        ):
+            # Compiled core in the body (item 8); Python only when edits are needed.
+            return body_search.BodySearch(
+                self,
+                node,
+                revision,
+                lambda: self._python_search(cells, node, revision, RouteSearch),
+            )
+        return self._python_search(cells, node, revision, factory)
+
+    def _python_search(self, cells, node, revision, factory):
         if factory is RouteSearch:
             favored = (
                 self.previous_route

@@ -30,13 +30,13 @@ final class DevelopmentHill {
         this.server=server;
         kind=request.get("development_hill").getAsString();
         variant=request.get("hill_variant").getAsInt();
-        int height=Set.of("prefetch","drop","bridge","gap","water").contains(kind)?0:kind.equals("pillar")?3+variant%2:Set.of("mixed","staircase").contains(kind)?4:kind.equals("place")?2:3;
+        int height=Set.of("prefetch","drop","bridge","gap","water").contains(kind)?0:kind.equals("pillar")?3+variant%2:kind.equals("ladder")?4+variant%2:Set.of("mixed","staircase").contains(kind)?4:kind.equals("place")?2:3;
         int startHeight=kind.equals("drop")?1+variant%3:0;
-        int goalZ=kind.equals("prefetch")?40+variant%4+17*(variant/4):kind.equals("staircase")?8+variant:kind.equals("pillar")?5+variant/2:kind.equals("gap")?7+variant/2+variant%2:kind.equals("water")?8+variant/2+variant%2:11;
+        int goalZ=kind.equals("prefetch")?40+variant%4+17*(variant/4):kind.equals("staircase")?8+variant:kind.equals("pillar")?5+variant/2:kind.equals("gap")?7+variant/2+variant%2:kind.equals("water")?8+variant/2+variant%2:kind.equals("ladder")?6+variant/2:11;
         int goalX=kind.equals("prefetch")?variant%3:0;
-        int maxZ=kind.equals("prefetch")?80:Set.of("staircase","pillar","water").contains(kind)?20:14;
+        int maxZ=kind.equals("prefetch")?80:Set.of("staircase","pillar","water","ladder").contains(kind)?20:14;
         area=new AABB(X-6,Y-3,Z-3,X+7,Y+9,Z+maxZ+1);
-        if(!Set.of("walk","cut","place","mixed","prefetch","slab","stairs","drop","bridge","staircase","pillar","gap","water").contains(kind) || variant<0 || variant>9
+        if(!Set.of("walk","cut","place","mixed","prefetch","slab","stairs","drop","bridge","staircase","pillar","gap","water","ladder").contains(kind) || variant<0 || variant>9
                 || !start.equals(new Vec3(X+0.5,Y+startHeight,Z+0.5))
                 || !goal.equals(new Vec3(X+goalX+0.5,Y+height,Z+goalZ+0.5))
                 || request.get("mobs").getAsBoolean()
@@ -61,6 +61,10 @@ final class DevelopmentHill {
                 } else if(kind.equals("staircase")) {
                     if(Math.abs(pos.getX()-X)==1 || z==-3 || z==maxZ) { top=7; bedrock=true; }
                     else if(pos.getX()==X && z>=4+variant) { top=4; bedrock=true; }
+                } else if(kind.equals("ladder")) {
+                    // Bedrock corridor and cliff: the only way up is the ladder column.
+                    if(Math.abs(pos.getX()-X)==1 || z==-3 || z==maxZ) { top=8; bedrock=true; }
+                    else if(pos.getX()==X && z>=4+variant/2) { top=height; bedrock=true; }
                 } else if(Set.of("bridge","gap","water").contains(kind)) {
                     if(Math.abs(pos.getX()-X)==1 || z==-3 || z==maxZ) { top=7; bedrock=true; }
                 } else if(kind.equals("mixed")) {
@@ -77,7 +81,7 @@ final class DevelopmentHill {
                     else if(kind.equals("walk") || kind.equals("stairs")) top=z<2+offset?0:z<4+offset?1:z<6+offset?2:3;
                     else if(z>=4+offset) top=height;
                 }
-                boolean solid=pos.getY()<Y || ((Set.of("mixed","bridge","staircase","pillar","gap","water").contains(kind) || z<=12) && pos.getY()<Y+top);
+                boolean solid=pos.getY()<Y || ((Set.of("mixed","bridge","staircase","pillar","gap","water","ladder").contains(kind) || z<=12) && pos.getY()<Y+top);
                 var state=solid?(bedrock?Blocks.BEDROCK:Blocks.STONE).defaultBlockState():Blocks.AIR.defaultBlockState();
                 if(kind.equals("bridge") && pos.getX()==X && z>=2+variant%4
                         && z<2+variant%4+2+variant%3 && pos.getY()>=Y-2 && pos.getY()<Y)
@@ -88,6 +92,8 @@ final class DevelopmentHill {
                 if(kind.equals("water") && pos.getX()==X && z>=2+variant/2
                         && z<2+variant/2+3+variant%2 && pos.getY()>=Y-2 && pos.getY()<Y)
                     state=Blocks.WATER.defaultBlockState();
+                if(kind.equals("ladder") && pos.getX()==X && z==3+variant/2 && pos.getY()>=Y && pos.getY()<Y+height)
+                    state=Blocks.LADDER.defaultBlockState().setValue(BlockStateProperties.HORIZONTAL_FACING,Direction.NORTH);
                 if(kind.equals("slab") && top%1!=0 && z<=12 && pos.getY()==Y+Math.floor(top))
                     state=Blocks.STONE_SLAB.defaultBlockState();
                 if(kind.equals("stairs") && top>0 && pos.getY()==Y+top-1 && z<=12
