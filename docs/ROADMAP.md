@@ -163,8 +163,20 @@ dependencies, except where noted.
     Any later body change needs this rerun.
 12. **Frozen comparison, Phase 7:** 10 routes × ≥3 seeds × 3 reps; MCB ≥ 27/30
     and median ≤ 2× Baritone at matched awareness, plus night diagnostics.
-    Needs more routes and seeds, and a recorded decision on Baritone's settings
-    (see open questions).
+    **Calm part met Nov 1** (`scripts/frozen-comparison.ps1`, commit `3cf9426`,
+    development runs, Baritone with parkour, view distance 4, awareness-sections-64):
+    | Seed | MCB run | MCB ok | MCB median | Baritone run | Baritone ok | Baritone median | Ratio |
+    |---|---|---|---|---|---|---|---|
+    | 1337 | `20261101T023131287363Z` | 30/30 | 717.5 | `20261101T030328345130Z` | 30/30 | 773.5 | 0.93 |
+    | 9001 | `20261101T034420070608Z` | 30/30 | 670 | `20261101T041609691919Z` | 29/30 | 747 | 0.90 |
+    | 42424242 | `20261101T045505457355Z` | 30/30 | 674.5 | `20261101T052517944411Z` | 30/30 | 594.5 | 1.13 |
+    Baritone's miss (9001 R9 rep 3) is `invalid`, a harness error ("Stop the lab
+    server before replacing runtime/course files"), not a navigation failure.
+    Paired by route and rep, Baritone is faster in 77 of 89 attempts both
+    completed (total ticks 60,057 vs MCB 66,190, about 10% faster); the per-seed
+    medians favour MCB on two seeds only because route lengths differ.
+    MCB broke 12 blocks in total, Baritone 71. MCB took 1 damage on each 42424242 R8 attempt (3 total), no deaths.
+    Still open: night diagnostics for this item.
 
 **Features from the plan**
 
