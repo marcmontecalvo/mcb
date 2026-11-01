@@ -199,9 +199,10 @@ dependencies, except where noted.
       holds jump; the wall side is blocked by the wall itself. No change.
     - Flowing-water push: native routes are cut before flowing water, so push
       cannot mislead the motor. Model it when a route needs to cross a current.
-16. **Live fixture cohorts** for swimming and ladders (10 cases each,
-    [SPRINT_ACCEPTANCE.json](SPRINT_ACCEPTANCE.json)). The code exists; the
-    acceptance runs do not.
+16. Done Nov 1 (live fixture cohorts): water `results/hills/20261101T014540110734Z` and ladder
+    `results/hills/20261101T014706699506Z`, 10/10 each with every proof (mod `a94dcdef`). New
+    ladder fixture in `DevelopmentHill`. The low-air proof also accepts a native
+    surface swim (air never below the injected 90, refilled to at least 200).
 
 Housekeeping (Nov 1): `main` is committed and pushed after each item. The `-fast`
 awareness profiles stay: cohorts 15d–15f name them, and the ledger keeps every

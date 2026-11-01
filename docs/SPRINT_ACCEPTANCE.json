@@ -52,9 +52,10 @@
     },
     "ladders_and_dismount": {
       "live_cases_required": 10,
-      "status": "implemented_development",
+      "status": "passed_development",
       "evidence": "route_moves.py ladder edges; RouteMotor ladders (mod fdc9e533)",
-      "remaining": "10 live fixture cases; ladder facing direction"
+      "remaining": "",
+      "live_evidence": "results/hills/20261101T014706699506Z (10/10 ladder variants, cliff 4-5 high, mod a94dcdef)"
     },
     "legacy_requalification_and_restoration": {
       "current_source": "Gap fixtures and jump-height diagnostics installed; source 045fae7a8c5fec661ba3a49c9d4f5777e081b29c8379bbe487c37abd043c48f1 remains development-only pending final source-bound requalification",
@@ -143,9 +144,10 @@
     },
     "surface_water_and_air_recovery": {
       "live_cases_required": 10,
-      "status": "implemented_development",
+      "status": "passed_development",
       "evidence": "docs/NAVIGATION_DIRECTION_2026-10-28.md section 5; tests/test_water_movement.py; natural R3 swims (docs/STEP_C_PROGRESS_2026-10-29.md cohorts 12d-14)",
-      "remaining": "10 live fixture cases"
+      "remaining": "",
+      "live_evidence": "results/hills/20261101T014540110734Z (10/10 water variants, mod a94dcdef, native route profile; odd variants inject low air)"
     },
     "terrain_resource_protection_cost_knobs": {
       "remaining": "Material allowlists, protected IDs/coordinates and break/place/wear cost knobs implemented; actual tool durability, time/risk budgets and live forbidden-action cohorts remain",

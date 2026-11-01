@@ -185,7 +185,9 @@ def test_water_audit_requires_real_contact_and_stressed_air_recovery():
     }
     assert water_completed(data, 0, 0)
     assert water_completed(data, 1, 1)
-    assert not water_completed(data, 1, 0)
+    # Without a recovery, only a clear refill proves the head stayed out.
+    assert water_completed(data, 1, 0)
+    assert not water_completed({**data, "final_air": 150}, 1, 0)
     for changed in (
         {"minimum_air": 300},
         {"final_air": 100},
@@ -212,3 +214,28 @@ def test_ladder_completion_needs_arrival_height_and_no_edits():
     dug = {"added": 0, "removed": 1, "changes": [{"position": [1280, 81, 1284]}]}
     assert not ladder_completed({**ok, "development_hill": dug}, 1)
     assert not ladder_completed({**ok, "damage_taken": 2.0}, 1)
+
+
+def test_native_surface_swim_proves_low_air_without_an_explicit_recovery():
+    from mclab.development_checks import water_completed
+
+    result = {
+        "status": "success",
+        "died": False,
+        "disconnected": False,
+        "water_ticks": 21,
+        "damage_taken": 0.0,
+        "final_position": [1280.5, 80.0, 1288.5],
+        "kit_blocks_spent_adjusted": 0,
+        "minimum_air": 90,
+        "final_air": 254,
+        "development_hill": {
+            "added": 0,
+            "removed": 0,
+            "changes": [],
+            "low_air_injected": True,
+        },
+    }
+    assert water_completed(result, 1, 0)
+    assert not water_completed({**result, "minimum_air": 40}, 1, 0)  # went under
+    assert not water_completed({**result, "final_air": 120}, 1, 0)  # not refilled

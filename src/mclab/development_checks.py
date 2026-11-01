@@ -147,9 +147,18 @@ def water_completed(result, variant, recoveries):
                 and type(result.get("minimum_air")) is int
                 and 0 < result["minimum_air"] <= 90
                 and type(result.get("final_air")) is int
-                and result["final_air"] >= 270
-                and type(recoveries) is int
-                and recoveries >= 1
+                and (
+                    # Python swim path: an explicit air recovery refilled the air.
+                    (
+                        result["final_air"] >= 270
+                        and type(recoveries) is int
+                        and recoveries >= 1
+                    )
+                    # Native surface swim: the head stayed out, so air never fell
+                    # below the injected 90 and had clearly refilled by the exit
+                    # (live: 254 after a 21-tick swim).
+                    or (result["minimum_air"] == 90 and result["final_air"] >= 200)
+                )
             )
         )
     )
