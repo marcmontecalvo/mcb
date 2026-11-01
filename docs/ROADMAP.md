@@ -186,8 +186,10 @@ dependencies, except where noted.
     [SPRINT_ACCEPTANCE.json](SPRINT_ACCEPTANCE.json)). The code exists; the
     acceptance runs do not.
 
-Housekeeping: delete the `-fast` awareness profiles once the cohort-15 evidence no
-longer needs them; commit or push `main` (`origin/main` is behind).
+Housekeeping (Nov 1): `main` is committed and pushed after each item. The `-fast`
+awareness profiles stay: cohorts 15d–15f name them, and the ledger keeps every
+cohort reproducible. `scripts/analysis/` now passes ruff (long lines and late
+imports allowed there).
 
 ## Open questions for Marc
 
