@@ -16,6 +16,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -49,7 +50,7 @@ import java.util.TreeMap;
  */
 final class KnowledgeDump {
     private static final Gson GSON = new Gson();
-    private static final int ROLLS = 20;
+    private static final int ROLLS = 20, MANY_ROLLS = 200;
     private static final List<String> TOOL_KINDS = List.of("pickaxe", "axe", "shovel", "hoe", "sword", "shears");
     private static final List<String> DROP_KINDS = List.of("pickaxe", "axe", "shovel", "hoe");
     /** Drop tiers, lowest first (order matters: an omitted tier means "same as the one below"); value is the tool's item prefix. */
@@ -62,7 +63,12 @@ final class KnowledgeDump {
     private final ServerLevel level;
     private int dropErrors;
 
-    KnowledgeDump(MinecraftServer server) { this.server = server; this.level = server.overworld(); }
+    private final ServerPlayer killer;
+
+    /** killer: the body, used as the player killer when rolling entity loot; null skips mobs.json. */
+    KnowledgeDump(MinecraftServer server, ServerPlayer killer) {
+        this.server = server; this.level = server.overworld(); this.killer = killer;
+    }
 
     /** Output root: absolute, or relative to the server process directory; no ".." segments. */
     static Path resolveRoot(String dir) {
@@ -103,6 +109,8 @@ final class KnowledgeDump {
         write(dir, "tags.json", tags(counts));
         write(dir, "recipes.json", wrap("recipes", recipes(counts)));
         write(dir, "drops.json", drops(blockKinds, counts));
+        if (killer != null) write(dir, "mobs.json", mobs(counts));
+        else counts.put("mobs", "skipped_no_body");
         write(dir, "pack.json", pack);
         counts.put("drop_errors", dropErrors);
         counts.put("elapsed_ms", (System.nanoTime() - started) / 1_000_000.0);
@@ -302,32 +310,90 @@ final class KnowledgeDump {
         return out;
     }
 
-    /** Roll the block's loot table with this tool ROLLS times: item to min/max count and chance. */
+    /** Roll the block's loot table with this tool: 20 rolls, 200 when they vary (K5). */
     private JsonArray roll(BlockState state, ItemStack tool) {
-        var out = new JsonArray();
-        if (state.requiresCorrectToolForDrops() && !tool.isCorrectToolForDrops(state)) return out;
-        var stats = new TreeMap<String, int[]>(); // item to {min, max, rolls that dropped it}
+        if (state.requiresCorrectToolForDrops() && !tool.isCorrectToolForDrops(state)) return new JsonArray();
         try {
-            for (int i = 0; i < ROLLS; i++) {
-                var perRoll = new TreeMap<String, Integer>();
-                for (var drop : Block.getDrops(state, level, BlockPos.ZERO, null, null, tool))
-                    if (!drop.isEmpty()) perRoll.merge(id(drop.getItem()), drop.getCount(), Integer::sum);
-                perRoll.forEach((item, count) -> stats.merge(item, new int[]{count, count, 1},
-                        (a, b) -> new int[]{Math.min(a[0], b[0]), Math.max(a[1], b[1]), a[2] + b[2]}));
-            }
+            var rolls = new ArrayList<Map<String, Integer>>();
+            for (int i = 0; i < ROLLS; i++) rolls.add(blockRoll(state, tool));
+            if (KnowledgeLogic.varies(rolls)) for (int i = ROLLS; i < MANY_ROLLS; i++) rolls.add(blockRoll(state, tool));
+            return KnowledgeLogic.summarize(rolls);
         } catch (RuntimeException error) {
             dropErrors++;
             return new JsonArray();
         }
-        stats.forEach((item, s) -> {
-            var drop = new JsonObject();
-            drop.addProperty("item", item);
-            drop.addProperty("min", s[0]);
-            drop.addProperty("max", s[1]);
-            if (s[2] < ROLLS) drop.addProperty("chance", Math.round(1000.0 * s[2] / ROLLS) / 1000.0);
-            out.add(drop);
-        });
-        return out;
+    }
+
+    private Map<String, Integer> blockRoll(BlockState state, ItemStack tool) {
+        var perRoll = new TreeMap<String, Integer>();
+        for (var drop : Block.getDrops(state, level, BlockPos.ZERO, null, null, tool))
+            if (!drop.isEmpty()) perRoll.merge(id(drop.getItem()), drop.getCount(), Integer::sum);
+        return perRoll;
+    }
+
+    // ---- mobs (K7)
+    /** Hand-checked vanilla interactions: entity type to [item, gives, min, max, per_color]. */
+    private static final Map<String, List<Object[]>> INTERACTIONS = Map.of(
+            "minecraft:cow", List.<Object[]>of(new Object[]{"minecraft:bucket", "minecraft:milk_bucket", 1, 1, false}),
+            "minecraft:mooshroom", List.<Object[]>of(
+                    new Object[]{"minecraft:bucket", "minecraft:milk_bucket", 1, 1, false},
+                    new Object[]{"minecraft:bowl", "minecraft:mushroom_stew", 1, 1, false},
+                    new Object[]{"minecraft:shears", "minecraft:red_mushroom", 5, 5, false}),
+            "minecraft:sheep", List.<Object[]>of(new Object[]{"minecraft:shears", "minecraft:white_wool", 1, 3, true}));
+
+    private JsonObject mobs(Map<String, Object> counts) {
+        var table = new JsonObject();
+        for (var type : sorted(BuiltInRegistries.ENTITY_TYPE, t -> BuiltInRegistries.ENTITY_TYPE.getKey(t).toString())) {
+            net.minecraft.world.entity.Entity entity;
+            try { entity = type.create(level, net.minecraft.world.entity.EntitySpawnReason.COMMAND); }
+            catch (RuntimeException error) { continue; }
+            if (!(entity instanceof net.minecraft.world.entity.Mob mob)) continue;
+            String name = BuiltInRegistries.ENTITY_TYPE.getKey(type).toString();
+            boolean passive = mob instanceof net.minecraft.world.entity.animal.Animal;
+            var entry = new JsonObject();
+            entry.addProperty("category", type.getCategory().getName());
+            entry.addProperty("passive", passive);
+            entry.addProperty("health", mob.getMaxHealth());
+            var drops = new JsonArray();
+            try { drops = mobLoot(mob); } catch (RuntimeException error) { dropErrors++; }
+            entry.add("killed_by_player", drops);
+            var interactions = new JsonArray();
+            for (var i : INTERACTIONS.getOrDefault(name, List.of())) {
+                var o = new JsonObject();
+                o.addProperty("item", (String) i[0]);
+                o.addProperty("gives", (String) i[1]);
+                o.addProperty("min", (Integer) i[2]);
+                o.addProperty("max", (Integer) i[3]);
+                if ((Boolean) i[4]) o.addProperty("per_color", true);
+                interactions.add(o);
+            }
+            entry.add("interactions", interactions);
+            if (drops.size() > 0 || passive) table.add(name, entry);
+        }
+        counts.put("mobs", table.size());
+        return wrap("mobs", table);
+    }
+
+    /** Roll the entity's loot table with a player killer (200 rolls). */
+    private JsonArray mobLoot(net.minecraft.world.entity.Mob mob) {
+        var key = mob.getLootTable();
+        if (key.isEmpty()) return new JsonArray();
+        var lootTable = server.reloadableRegistries().getLootTable(key.get());
+        var rolls = new ArrayList<Map<String, Integer>>();
+        for (int i = 0; i < MANY_ROLLS; i++) {
+            var params = new LootParams.Builder(level)
+                    .withParameter(net.minecraft.world.level.storage.loot.parameters.LootContextParams.THIS_ENTITY, mob)
+                    .withParameter(net.minecraft.world.level.storage.loot.parameters.LootContextParams.ORIGIN, mob.position())
+                    .withParameter(net.minecraft.world.level.storage.loot.parameters.LootContextParams.DAMAGE_SOURCE, level.damageSources().playerAttack(killer))
+                    .withOptionalParameter(net.minecraft.world.level.storage.loot.parameters.LootContextParams.ATTACKING_ENTITY, killer)
+                    .withOptionalParameter(net.minecraft.world.level.storage.loot.parameters.LootContextParams.DIRECT_ATTACKING_ENTITY, killer)
+                    .withParameter(net.minecraft.world.level.storage.loot.parameters.LootContextParams.LAST_DAMAGE_PLAYER, killer)
+                    .create(LootContextParamSets.ENTITY);
+            var perRoll = new TreeMap<String, Integer>();
+            for (var drop : lootTable.getRandomItems(params)) if (!drop.isEmpty()) perRoll.merge(id(drop.getItem()), drop.getCount(), Integer::sum);
+            rolls.add(perRoll);
+        }
+        return KnowledgeLogic.summarize(rolls);
     }
 
     private static <T> List<T> sorted(Iterable<T> registry, java.util.function.Function<T, String> key) {

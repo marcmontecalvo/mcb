@@ -134,6 +134,91 @@
   "minecraft:oak_slab": {
    "stack": 64,
    "fuel_ticks": 150
+  },
+  "minecraft:shears": {
+   "stack": 1,
+   "durability": 238,
+   "tool": {
+    "kind": "shears",
+    "tier": "none",
+    "speed": 15.0
+   }
+  },
+  "minecraft:wooden_sword": {
+   "stack": 1,
+   "durability": 59,
+   "tool": {
+    "kind": "sword",
+    "tier": "wood",
+    "speed": 1.5
+   }
+  },
+  "minecraft:stone_sword": {
+   "stack": 1,
+   "durability": 131,
+   "tool": {
+    "kind": "sword",
+    "tier": "stone",
+    "speed": 1.5
+   }
+  },
+  "minecraft:iron_sword": {
+   "stack": 1,
+   "durability": 250,
+   "tool": {
+    "kind": "sword",
+    "tier": "iron",
+    "speed": 1.5
+   }
+  },
+  "minecraft:chest": {
+   "stack": 64,
+   "fuel_ticks": 300
+  },
+  "minecraft:shulker_box": {
+   "stack": 1
+  },
+  "minecraft:leather": {
+   "stack": 64
+  },
+  "minecraft:white_wool": {
+   "stack": 64
+  },
+  "minecraft:beef": {
+   "stack": 64
+  },
+  "minecraft:cooked_beef": {
+   "stack": 64
+  },
+  "minecraft:mutton": {
+   "stack": 64
+  },
+  "minecraft:cooked_mutton": {
+   "stack": 64
+  },
+  "minecraft:porkchop": {
+   "stack": 64
+  },
+  "minecraft:cooked_porkchop": {
+   "stack": 64
+  },
+  "minecraft:chicken": {
+   "stack": 64
+  },
+  "minecraft:cooked_chicken": {
+   "stack": 64
+  },
+  "minecraft:flint": {
+   "stack": 64
+  },
+  "minecraft:gravel": {
+   "stack": 64
+  },
+  "minecraft:red_dye": {
+   "stack": 64
+  },
+  "minecraft:white_bed": {
+   "stack": 1
   }
  }
 }

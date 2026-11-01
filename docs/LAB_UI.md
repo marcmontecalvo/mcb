@@ -191,6 +191,53 @@ declaration of equivalent awareness or qualification. Different configurations
 stay separate; there is no automatic pooling of cohorts. Original JSON remains
 available from each run's detail button, outside the comparison table.
 
+## Companion jobs
+
+Run type **Companion** starts one of the standalone scripts that drive the lab
+server through `mclab.bridge.Bridge`: the live checks (`scripts/check-crafting.py`,
+`check-placement.py`, `check-animals.py`, `check-containers.py`; only scripts that
+exist are offered), **Gather** (`run-gather.py`, optional iron pickaxe) or
+**Build** (`run-build.py`).
+
+- **Starting.** Pick the job. Gather and Build ask for start X Y Z (a feet cell on
+  open ground; integers within ±30,000,000). Build also takes a build file (a
+  dropdown of `tests/fixtures/schematics/*.build.json`, `builds/*.build.json` and
+  `results/companion/*/*.build.json`), offsets dx/dz and rotation 0/90/180/270.
+  Every input is validated server-side; build and schematic paths must resolve
+  inside those folders. There is no "Use my position" button: the lab state does
+  not expose player positions to the dashboard, so read X Y Z from F3.
+- **Convert schematic.** Choose a `.litematic` from `tests/fixtures/schematics/`
+  or `builds/`; the dashboard runs the `mclab schematic convert` code in process,
+  writes `builds/<name>.build.json` and shows the material list and flags. The
+  new file is selected in the build dropdown.
+- **Rules.** Companion jobs use the same session worker as course runs: one
+  active session, Stop after batch, Kill now. The lab server must already be
+  running (use **Start lab**); starting is refused otherwise. The scripts take
+  the arena lock (`recorder.exclusive_arena`) themselves, so the worker does not;
+  if another runner holds it the script fails and the job is an error. Kill sends
+  Ctrl+Break (SIGINT off Windows) so the script's `finally` despawns its body,
+  and forces the process after 120 s.
+- **Live view.** The script's stdout is the session console log (child runs with
+  `-u`). For the running job the dashboard follows the newest
+  `results/companion/<stamp>/` created after the job started and shows: the
+  optional `progress.json` stage/count bar, `build.json` totals (stop, steps,
+  counts, skipped) once written, the case tally from `summary.json`, and the last
+  12 op results from `events.jsonl` (`op done/failed/rejected`, reason).
+  Anything else writing into `results/companion/` at the same time can be
+  mistaken for the job's folder.
+- **History.** Rows show the job as the stage (`crafting`, `gather`, `build`, ...)
+  with passed/failed counts. The job is read from `job.json` (written by the
+  worker when the script exits), else `progress.json`'s `job`, else
+  `build.json` / `gather-*.json`; older folders read "companion check".
+
+### Progress hook
+
+`src/mclab/companion_progress.py`: `write_progress(folder, job=None, stage=None,
+done=None, total=None, detail=None)` atomically replaces `<folder>/progress.json`
+as `{"job", "stage", "done", "total", "detail", "updated_at"}`; `write_job(folder,
+job)` writes `job.json` as `{"job": name}`. Both ignore I/O errors and never
+raise. The dashboard polls them every 3 s; scripts need not call either.
+
 ## Extending
 
 `src/mclab/dashboard_runs.py` discovers original inputs, validates selections and

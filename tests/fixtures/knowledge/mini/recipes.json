@@ -369,6 +369,135 @@
     "count": 1
    },
    "cook_ticks": 100
+  },
+  {
+   "id": "minecraft:shears",
+   "type": "minecraft:crafting_shaped",
+   "station": "inventory",
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:iron_ingot"
+     ],
+     "count": 2
+    }
+   ],
+   "result": {
+    "item": "minecraft:shears",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:chest",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "#minecraft:planks"
+     ],
+     "count": 8
+    }
+   ],
+   "result": {
+    "item": "minecraft:chest",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:white_bed",
+   "type": "minecraft:crafting_shaped",
+   "station": "crafting_table",
+   "ingredients": [
+    {
+     "options": [
+      "#minecraft:wool"
+     ],
+     "count": 3
+    },
+    {
+     "options": [
+      "#minecraft:planks"
+     ],
+     "count": 3
+    }
+   ],
+   "result": {
+    "item": "minecraft:white_bed",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:cooked_beef",
+   "type": "minecraft:smelting",
+   "station": "furnace",
+   "cook_ticks": 200,
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:beef"
+     ],
+     "count": 1
+    }
+   ],
+   "result": {
+    "item": "minecraft:cooked_beef",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:cooked_mutton",
+   "type": "minecraft:smelting",
+   "station": "furnace",
+   "cook_ticks": 200,
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:mutton"
+     ],
+     "count": 1
+    }
+   ],
+   "result": {
+    "item": "minecraft:cooked_mutton",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:cooked_porkchop",
+   "type": "minecraft:smelting",
+   "station": "furnace",
+   "cook_ticks": 200,
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:porkchop"
+     ],
+     "count": 1
+    }
+   ],
+   "result": {
+    "item": "minecraft:cooked_porkchop",
+    "count": 1
+   }
+  },
+  {
+   "id": "minecraft:cooked_chicken",
+   "type": "minecraft:smelting",
+   "station": "furnace",
+   "cook_ticks": 200,
+   "ingredients": [
+    {
+     "options": [
+      "minecraft:chicken"
+     ],
+     "count": 1
+    }
+   ],
+   "result": {
+    "item": "minecraft:cooked_chicken",
+    "count": 1
+   }
   }
  ]
 }

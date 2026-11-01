@@ -110,6 +110,16 @@ final class KnowledgeLogic {
                 for (var e : enc.getAsJsonArray("ingredients")) slots.add(options(e));
                 out.addProperty("station", slots.size() <= 4 ? "inventory" : "crafting_table");
             }
+            case "minecraft:crafting_transmute" -> { // input + material -> result (recolouring, shulker boxes, bundles)
+                slots.add(options(enc.get("input")));
+                slots.add(options(enc.get("material")));
+                out.addProperty("station", "inventory");
+            }
+            case "minecraft:crafting_dye" -> { // target + dye -> dyed target
+                slots.add(options(enc.get("target")));
+                slots.add(options(enc.get("dye")));
+                out.addProperty("station", "inventory");
+            }
             case "minecraft:smithing_transform" -> {
                 for (var part : List.of("template", "base", "addition")) if (enc.has(part)) slots.add(options(enc.get(part)));
                 out.addProperty("station", "smithing_table");
@@ -180,4 +190,28 @@ final class KnowledgeLogic {
         return out;
     }
 
+    // ---- loot roll statistics (blocks and mobs)
+
+    /** True when the rolls are not all identical (so more rolls are worth it). */
+    static boolean varies(List<Map<String, Integer>> rolls) {
+        for (var roll : rolls) if (!roll.equals(rolls.get(0))) return true;
+        return false;
+    }
+
+    /** Per item: min/max count over the rolls that dropped it, and chance (if under 1) as the share of rolls. */
+    static JsonArray summarize(List<Map<String, Integer>> rolls) {
+        var stats = new java.util.TreeMap<String, int[]>(); // min, max, rolls that dropped it
+        for (var roll : rolls) roll.forEach((item, count) -> stats.merge(item, new int[]{count, count, 1},
+                (a, b) -> new int[]{Math.min(a[0], b[0]), Math.max(a[1], b[1]), a[2] + b[2]}));
+        var out = new JsonArray();
+        stats.forEach((item, v) -> {
+            var drop = new JsonObject();
+            drop.addProperty("item", item);
+            drop.addProperty("min", v[0]);
+            drop.addProperty("max", v[1]);
+            if (v[2] < rolls.size()) drop.addProperty("chance", Math.round(1000.0 * v[2] / rolls.size()) / 1000.0);
+            out.add(drop);
+        });
+        return out;
+    }
 }

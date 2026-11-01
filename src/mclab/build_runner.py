@@ -19,6 +19,9 @@ What the real body adapter must do (ops: docs/BODY_ACTION_OPS.md, wave 2):
   planner has been *delivered* (None for unknown; never poll /policy to get it),
   and ``inventory()`` maps item id -> count from the latest op event.
 
+``walk_to(pos)`` is optional: the footprint survey (``survey=True``) uses it to
+visit points around the footprint, falling back to ``goto_stance``.
+
 The loop treats ``out_of_reach`` and ``state_unreachable`` as "wrong stance": it
 asks for another stance (3 tries per cell, then the cell is skipped). Any other
 failure counts one try and the plan is recomputed. ``on_need_materials`` is where
@@ -75,11 +78,49 @@ class BuildReport:
     stop: str = ""  # done | blocked | need_materials | max_steps
     needed: dict[str, int] = field(default_factory=dict)
     counts: dict[str, int] = field(default_factory=dict)  # build_plan.progress
+    unknown: list[Pos] = field(default_factory=list)  # template cells never delivered
+    surveyed: int = 0  # perimeter points visited (B4)
 
     def progress(self) -> float:
         """Fraction of cells that are correct (1.0 for an empty template)."""
         total = sum(self.counts.values())
         return self.counts.get("correct", 0) / total if total else 1.0
+
+
+SURVEY_STEP = 6
+SURVEY_RADIUS = 3.0
+
+
+def perimeter(template: bp.Template, step: int = SURVEY_STEP) -> list[Pos]:
+    """Points on the rectangle one cell outside the footprint, corners included,
+    in walking order, at the template's base height."""
+    xs = [p[0] for p in template.cells]
+    zs = [p[2] for p in template.cells]
+    x0, x1, z0, z1 = min(xs) - 1, max(xs) + 1, min(zs) - 1, max(zs) + 1
+    y = min(p[1] for p in template.cells)
+    pts: list[Pos] = []
+    for x in [*range(x0, x1, step), x1]:
+        pts.append((x, y, z0))
+    for z in range(z0 + step, z1, step):
+        pts.append((x1, y, z))
+    for x in [*range(x1, x0, -step), x0]:
+        pts.append((x, y, z1))
+    for z in range(z1 - step, z0, -step):
+        pts.append((x0, y, z))
+    return list(dict.fromkeys(pts))
+
+
+def survey_footprint(template: bp.Template, body: BuildBody) -> int:
+    """Walk round the footprint so the awareness sensor delivers every section
+    before building (B4). Uses ``body.walk_to`` when the body has it, else a
+    ``goto_stance`` with a short reach. Failures are ignored: ``unknown`` cells
+    simply stay unknown and defer their placements."""
+    walk = getattr(body, "walk_to", None)
+    done = 0
+    for pt in perimeter(template):
+        ok = walk(pt) if walk else body.goto_stance(pt, SURVEY_RADIUS)
+        done += bool(ok)
+    return done
 
 
 def _dist2(a: Pos, b: Pos) -> int:
@@ -144,9 +185,12 @@ def run_build(
     max_steps: int = 5000,
     on_need_materials: Callable[[dict[str, int]], bool] | None = None,
     scaffolds: set | None = None,
+    survey: bool = False,
 ) -> BuildReport:
     """Build ``template`` through ``body``; see the module docstring."""
     report = BuildReport()
+    if survey:
+        report.surveyed = survey_footprint(template, body)
     scaffolds = set() if scaffolds is None else scaffolds
     runner = _Runner(body, report, max_steps)
     while True:
@@ -182,4 +226,5 @@ def run_build(
         for act in bp.cleanup_actions(template, body.world, scaffolds):
             runner.attempt(act)
     report.counts = bp.progress(template, body.world)
+    report.unknown = bp.diff(template, body.world).unknown
     return report

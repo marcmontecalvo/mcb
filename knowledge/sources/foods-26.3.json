@@ -1,0 +1,69 @@
+{
+ "schema": 1,
+ "foods": {
+  "minecraft:beef": {
+   "nutrition": 3,
+   "saturation": 1.8
+  },
+  "minecraft:cooked_beef": {
+   "nutrition": 8,
+   "saturation": 12.8
+  },
+  "minecraft:porkchop": {
+   "nutrition": 3,
+   "saturation": 1.8
+  },
+  "minecraft:cooked_porkchop": {
+   "nutrition": 8,
+   "saturation": 12.8
+  },
+  "minecraft:mutton": {
+   "nutrition": 2,
+   "saturation": 1.2
+  },
+  "minecraft:cooked_mutton": {
+   "nutrition": 6,
+   "saturation": 9.6
+  },
+  "minecraft:chicken": {
+   "nutrition": 2,
+   "saturation": 1.2
+  },
+  "minecraft:cooked_chicken": {
+   "nutrition": 6,
+   "saturation": 7.2
+  },
+  "minecraft:rabbit": {
+   "nutrition": 3,
+   "saturation": 1.8
+  },
+  "minecraft:cooked_rabbit": {
+   "nutrition": 5,
+   "saturation": 6.0
+  },
+  "minecraft:bread": {
+   "nutrition": 5,
+   "saturation": 6.0
+  },
+  "minecraft:apple": {
+   "nutrition": 4,
+   "saturation": 2.4
+  },
+  "minecraft:baked_potato": {
+   "nutrition": 5,
+   "saturation": 6.0
+  },
+  "minecraft:carrot": {
+   "nutrition": 3,
+   "saturation": 3.6
+  },
+  "minecraft:cooked_cod": {
+   "nutrition": 5,
+   "saturation": 6.0
+  },
+  "minecraft:cooked_salmon": {
+   "nutrition": 6,
+   "saturation": 9.6
+  }
+ }
+}

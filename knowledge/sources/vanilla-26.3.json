@@ -249,6 +249,26 @@
   "minecraft:pink_tulip": {
    "where": "surface",
    "biomes": "flower_forest"
+  },
+  "minecraft:cow": {
+   "where": "mob",
+   "biomes": "grassland"
+  },
+  "minecraft:sheep": {
+   "where": "mob",
+   "biomes": "grassland"
+  },
+  "minecraft:pig": {
+   "where": "mob",
+   "biomes": "forest_plains"
+  },
+  "minecraft:chicken": {
+   "where": "mob",
+   "biomes": "grassland"
+  },
+  "minecraft:rabbit": {
+   "where": "mob",
+   "biomes": "desert_flowers_plains"
   }
  }
 }

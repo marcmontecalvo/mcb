@@ -11,21 +11,77 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Collection, Mapping
-from dataclasses import dataclass, field
-from typing import NamedTuple
+from collections.abc import Collection, Iterable, Mapping
+from typing import Any, NamedTuple
 
-from mclab.knowledge import Knowledge
+from mclab.gather_check import Replay, check_order, summarize
+from mclab.gather_storage import add_storage
+from mclab.gather_tasks import (
+    DEFAULT_DURABILITY,
+    TIER_RANK,
+    UNKNOWN_TIER_RANK,
+    Craft,
+    Deposit,
+    Equip,
+    Gather,
+    Hunt,
+    Inventory,
+    Missing,
+    PlaceContainer,
+    PlaceStation,
+    PlanResult,
+    Shear,
+    Smelt,
+    Task,
+    Transform,
+    Withdraw,
+    container_contents,
+    normalize_inventory,
+)
+from mclab.knowledge import Drop, Knowledge
 from mclab.knowledge import Transform as TransformDef
+
+__all__ = [
+    "Craft",
+    "Deposit",
+    "Equip",
+    "Gather",
+    "Hunt",
+    "Missing",
+    "PlaceContainer",
+    "PlaceStation",
+    "PlanResult",
+    "Shear",
+    "Smelt",
+    "Task",
+    "Transform",
+    "Withdraw",
+    "check_order",
+    "food_needed",
+    "plan",
+    "summarize",
+]
 
 # ---- cost model constants -------------------------------------------------
 INF = math.inf
 HELD_COST = 0.1  # price of an item already in the inventory (any count)
 TRAVEL_TICKS_PER_BLOCK = 40.0  # walking/collecting overhead per block mined
-SEARCH_TICKS = {"tree": 120.0, "surface": 240.0, "underground": 400.0}
+SEARCH_TICKS = {"tree": 120.0, "surface": 240.0, "underground": 400.0, "mob": 200.0}
 DEFAULT_SEARCH_TICKS = 300.0  # `where` missing or unknown
 KNOWN_COST_FACTOR = 0.8  # a block type already seen nearby is cheaper to gather
 SEARCH_BATCH = 8  # one search is shared by this many blocks
+HUNT_TICKS = 160.0  # chase and kill one animal (bare hand)
+SHEAR_TICKS = 80.0  # chase and shear one animal
+WEAPON_DISCOUNT_PER_RANK = 0.1  # hunt cost factor drops by this per weapon tier rank
+MIN_WEAPON_FACTOR = 0.5
+CHANCE_HALF = 0.5  # drops with a lower chance get a bigger margin
+MARGIN_BASE = 0.5  # margin for chance p < 0.5 is max(2, ceil(MARGIN_BASE / p))
+MAX_MARGIN = 10
+FOOD_TICKS_PER_POINT = 80  # about 1 hunger point per 80 ticks of work and sprinting
+FOOD_FLOOR = 6  # sprinting stops at 6 food points; plan to stay above it
+WEAPON_KINDS = ("sword", "axe")
+CHEST = "minecraft:chest"
+HUNT_CATEGORIES = frozenset({"creature", "water_creature", "ambient"})
 MINE_TICKS_FACTOR = 30.0  # vanilla: ticks = hardness * 30 / tool speed (right tool)
 CRAFT_OVERHEAD = 10.0  # per craft/smelt operation
 TRANSFORM_OVERHEAD = 60.0  # place the block, use the tool on it, break it again
@@ -35,24 +91,15 @@ SMELT_WAIT_FACTOR = (
     0.25  # fraction of cook_ticks that is not overlapped with other work
 )
 SMELT_BATCH = 8  # items smelted per fuel purchase when pricing fuel in the model
-DEFAULT_DURABILITY = 1000
 MAX_SOLVE_ITERATIONS = 200
 EPS = 1e-9
+REST = "#rest"  # key suffix of the second half of a split gather
+MAX_TOOL_PASSES = 8
+MAX_POLICY_RANK = 3  # no diamond/netherite tools just to mine faster
 
 DEFAULT_STATIONS = frozenset({"inventory", "crafting_table", "furnace"})
 # Oak is the default wood: a slight discount so that ties resolve to it.
 DEFAULT_PREFER = {"minecraft:oak_log": 0.9}
-# Tool tier name -> rank on the drop-tier ladder (hand 0, wood 1, stone 2, iron 3 ...).
-TIER_RANK = {
-    "wood": 1,
-    "gold": 1,
-    "stone": 2,
-    "copper": 2,
-    "iron": 3,
-    "diamond": 4,
-    "netherite": 5,
-}
-UNKNOWN_TIER_RANK = 3
 GATHER_TOOL_KINDS = frozenset({"pickaxe", "axe", "shovel", "hoe", "shears"})
 GROUP_RANK = {"gather": 0, "inventory": 1, "crafting_table": 2, "furnace": 3}
 # Fuels the planner will buy; anything else (tools, chests) is never burnt.
@@ -70,82 +117,6 @@ MOB_DROPS = frozenset(
         "spider_eye rotten_flesh ink_sac rabbit_hide phantom_membrane"
     ).split()
 )
-
-
-# ---- public result types --------------------------------------------------
-@dataclass(frozen=True)
-class Gather:
-    block: str  # block id to mine
-    count: int  # blocks to mine
-    tool_kind: str | None  # None: bare hand
-    min_tier: str  # lowest drop tier that yields `item` ("hand", "wood", ...)
-    item: str  # item wanted from it
-    item_count: int
-
-
-@dataclass(frozen=True)
-class Craft:
-    recipe_id: str
-    times: int
-    station: str
-    result: str
-    ingredients: tuple[tuple[str, int], ...]  # concrete (item, total count) consumed
-    result_count: int = 1  # total items produced
-
-
-@dataclass(frozen=True)
-class Smelt:
-    recipe_id: str
-    count: int  # inputs to smelt
-    fuel: str
-    fuel_count: int
-    station: str
-    result: str
-    ingredient: str
-    result_count: int = 1  # total items produced
-
-
-@dataclass(frozen=True)
-class Transform:
-    """Place `input`, use a tool of `tool_kind` on it, break it: `count` times."""
-
-    transform_id: str
-    count: int
-    input: str
-    output: str
-    tool_kind: str
-    result_count: int = 1
-
-
-@dataclass(frozen=True)
-class PlaceStation:
-    kind: str
-
-
-@dataclass(frozen=True)
-class Equip:
-    item: str
-
-
-Task = Gather | Craft | Smelt | Transform | PlaceStation | Equip
-
-
-@dataclass(frozen=True)
-class Missing:
-    item: str
-    reason: str
-
-
-@dataclass(frozen=True)
-class PlanResult:
-    tasks: tuple[Task, ...]
-    missing: tuple[Missing, ...]
-    estimated_cost: float
-    surplus: Mapping[str, int] = field(default_factory=dict)  # made beyond the need
-
-    @property
-    def ok(self) -> bool:
-        return not self.missing
 
 
 # ---- model ----------------------------------------------------------------
@@ -166,6 +137,27 @@ class _Gat(NamedTuple):
     search: float
     need_tool: bool = False  # the drop appears only with a tool (shears on vines)
     known: bool = False  # seen nearby (known_blocks)
+    margin: int = 0  # spare blocks for chance/range drops (G4)
+
+
+class _Mob(NamedTuple):
+    entity: str
+    item: str
+    yield_: float  # expected items per animal (killed, or per shear)
+    margin: int
+    kind: str  # "hunt" | "shear"
+    tool_kind: str | None  # shears for "shear"
+    search: float
+    known: bool
+
+
+def margin_for(d: Drop) -> int:
+    """Spare blocks (or animals) to plan for a drop that is not certain (G4)."""
+    if d.chance >= 1 and d.min == d.max:
+        return 0
+    if d.chance >= CHANCE_HALF:
+        return 1
+    return min(MAX_MARGIN, max(2, math.ceil(MARGIN_BASE / d.chance - EPS)))
 
 
 class _Rec(NamedTuple):
@@ -177,13 +169,6 @@ class _Rec(NamedTuple):
     cook: int | None  # not None: a smelting-like recipe
 
 
-class _Upgrade(NamedTuple):
-    tool: _Tool
-    rec: _Rec
-    material: int  # units of the gathered item the tool's recipe consumes
-    others: tuple[tuple[tuple[str, ...], int], ...]  # the recipe's other ingredients
-
-
 # ("gather", _Gat) | ("craft", _Rec) | ("smelt", _Rec, fuel) | ("transform", def, tool)
 Option = tuple
 
@@ -193,6 +178,7 @@ class _Model:
         self,
         k: Knowledge,
         inventory: Mapping[str, int],
+        wear: Mapping[str, list[int]],
         stations: Mapping[str, object],
         executable: Collection[str],
         known_blocks: Collection[str],
@@ -200,6 +186,9 @@ class _Model:
     ) -> None:
         self.k = k
         self.inv = {i: n for i, n in inventory.items() if n > 0}
+        self.wear = wear
+        self.policy: dict[str, int] = {}  # tool kind -> tier rank ceiling (G2)
+        self._upstream: dict[str, frozenset[str]] = {}
         self.known = {s for s, where in stations.items() if where}
         self.executable = frozenset(executable)
         self.prefer = prefer
@@ -209,13 +198,19 @@ class _Model:
         }
         self.tools = self._index_tools()
         self.tool_by_item = {t.item: t for ts in self.tools.values() for t in ts}
-        self.gathers = self._index_gathers(set(k.sources) | self.known_blocks)
+        sourced = set(k.sources) | self.known_blocks
+        self.gathers = self._index_gathers(sourced)
+        self.mob_srcs = self._index_mobs(sourced)
+        self.weapon, self.weapon_factor = self._find_weapon()
         self.notes: dict[str, list[str]] = {}
         self.recs = self._index_recipes()
         self.transforms = self._index_transforms()
         self.fuels = self._index_fuels()
         self.producible = sorted(
-            set(self.gathers) | set(self.recs) | set(self.transforms)
+            set(self.gathers)
+            | set(self.recs)
+            | set(self.transforms)
+            | set(self.mob_srcs)
         )
         self.cost, self.best = self._solve(held=True)
         self.cost_n, self.best_n = self._solve(held=False)
@@ -224,6 +219,76 @@ class _Model:
     def tier_name(self, rank: int) -> str:
         return next((n for n, r in self.rank_of.items() if r == rank), str(rank))
 
+    def tier_rank(self, tier: str) -> int:
+        return TIER_RANK.get(tier, self.rank_of.get(tier, UNKNOWN_TIER_RANK))
+
+    def held_uses(self, tool: _Tool) -> int:
+        """Remaining uses of the held pieces of `tool` (wear is known per piece)."""
+        if tool.item in self.wear:
+            return sum(self.wear[tool.item])
+        return self.inv.get(tool.item, 0) * tool.dur
+
+    def _find_weapon(self) -> tuple[str | None, float]:
+        best: tuple[int, bool, str] | None = None
+        for item, n in self.inv.items():
+            tool = self.k.items.get(item, {}).get("tool")
+            if n > 0 and tool and tool["kind"] in WEAPON_KINDS:
+                if item in self.wear and not any(self.wear[item]):
+                    continue
+                key = (self.tier_rank(tool.get("tier", "")), tool["kind"] == "sword")
+                if best is None or key > best[:2]:
+                    best = (*key, item)
+        if best is None:
+            return None, 1.0
+        return best[2], max(MIN_WEAPON_FACTOR, 1 - WEAPON_DISCOUNT_PER_RANK * best[0])
+
+    def _index_mobs(self, sourced: set[str]) -> dict[str, list[_Mob]]:
+        out: dict[str, list[_Mob]] = {}
+        for entity, info in self.k.mobs.items():
+            if entity not in sourced or not info.get("passive"):
+                continue
+            if info.get("category") not in HUNT_CATEGORIES:
+                continue
+            search = SEARCH_TICKS["mob"]
+            known = entity in self.known_blocks
+            for d in self.k.mob_drops(entity):
+                if d.expected > 0:
+                    mob = _Mob(
+                        entity,
+                        d.item,
+                        d.expected,
+                        margin_for(d),
+                        "hunt",
+                        None,
+                        search,
+                        known,
+                    )
+                    out.setdefault(d.item, []).append(mob)
+            for inter in info.get("interactions") or ():
+                tool = self.k.items.get(inter.get("item"), {}).get("tool")
+                gives = inter.get("gives")
+                if not gives or not tool or tool["kind"] not in GATHER_TOOL_KINDS:
+                    continue
+                d = Drop(
+                    gives,
+                    inter.get("min", 1),
+                    inter.get("max", 1),
+                    inter.get("chance", 1.0),
+                )
+                if d.expected > 0:
+                    mob = _Mob(
+                        entity,
+                        gives,
+                        d.expected,
+                        margin_for(d),
+                        "shear",
+                        tool["kind"],
+                        search,
+                        known,
+                    )
+                    out.setdefault(gives, []).append(mob)
+        return out
+
     def _index_tools(self) -> dict[str, list[_Tool]]:
         out: dict[str, list[_Tool]] = {}
         for item, info in self.k.items.items():
@@ -231,7 +296,7 @@ class _Model:
             if not tool or tool["kind"] not in GATHER_TOOL_KINDS:
                 continue
             tier = tool.get("tier", "")
-            rank = TIER_RANK.get(tier, self.rank_of.get(tier, UNKNOWN_TIER_RANK))
+            rank = self.tier_rank(tier)
             dur = int(info.get("durability") or DEFAULT_DURABILITY)
             out.setdefault(tool["kind"], []).append(
                 _Tool(item, tool["kind"], rank, float(tool.get("speed", 1.0)), dur)
@@ -284,6 +349,7 @@ class _Model:
                             search,
                             False,
                             block in self.known_blocks,
+                            margin_for(d),
                         )
                     )
         return out
@@ -347,37 +413,88 @@ class _Model:
         return [(i, t) for i, t in self.fuels if i in keep]
 
     # costs
+    def ceiling_tool(self, kind: str, rank: int) -> _Tool | None:
+        tools = [t for t in self.tools.get(kind, ()) if t.rank == rank]
+        best = min(tools, key=lambda t: self.cost.get(t.item, INF), default=None)
+        return best if best and self.cost.get(best.item, INF) < INF else None
+
+    def policy_ranks(self, kind: str) -> list[int]:
+        ranks = {t.rank for t in self.tools.get(kind, ())}
+        return sorted(
+            r for r in ranks if r <= MAX_POLICY_RANK and self.ceiling_tool(kind, r)
+        )
+
+    def upstream(self, tool_item: str) -> frozenset[str]:
+        """Items the tool is (transitively) built from, tools for them included."""
+        if tool_item not in self._upstream:
+            saved, self.policy = self.policy, {}
+            try:
+                seen: set[str] = set()
+                stack = [tool_item]
+                while stack:
+                    i = stack.pop()
+                    if i not in seen:
+                        seen.add(i)
+                        stack.extend(_children(self, i, self.best))
+            finally:
+                self.policy = saved
+            self._upstream[tool_item] = frozenset(seen)
+        return self._upstream[tool_item]
+
+    def policy_tool(self, g: _Gat, item: str | None) -> _Tool | None:
+        """The ceiling tool the tool-progression pass fixed for this gather, if any.
+        Gathers of items the tool itself is made from keep the lowest-tier logic."""
+        if not self.policy or item is None or g.need_tool or not g.kind:
+            return None
+        ceiling = self.policy.get(g.kind)
+        if ceiling is None or g.rank > ceiling:
+            return None
+        tool = self.ceiling_tool(g.kind, ceiling)
+        if tool is None or item in self.upstream(tool.item):
+            return None
+        return tool
+
     def candidates(
-        self, g: _Gat, cost: Mapping[str, float] | None = None
+        self, g: _Gat, cost: Mapping[str, float] | None = None, item: str | None = None
     ) -> list[_Tool | None]:
         """Tools worth considering: bare hand, held tools, and the cheapest tool of
         exactly the tier the drop needs (a higher tier would be built from this very
-        tier). Only one craftable tool, so the dependency graph stays acyclic."""
+        tier). Only one craftable tool, so the dependency graph stays acyclic. With a
+        tool-progression policy the policy's tool replaces the craftable one."""
         cost = self.cost if cost is None else cost
+        pol = self.policy_tool(g, item)
         out: list[_Tool | None] = [] if g.need_tool else ([None] if g.rank == 0 else [])
         made: list[_Tool] = []
         for t in self.tools.get(g.kind, ()) if g.kind else ():
             if self.inv.get(t.item, 0) > 0 and t.rank >= g.rank:
                 out.append(t)
-            elif (g.rank > 0 and t.rank == g.rank) or g.need_tool:
+            elif pol is None and ((g.rank > 0 and t.rank == g.rank) or g.need_tool):
                 made.append(t)
-        if made and cost is not None:
+        if pol is not None:
+            if pol not in out:
+                out.append(pol)
+        elif made and cost is not None:
             out.append(min(made, key=lambda t: cost.get(t.item, INF)))
         return out
 
-    def upgrades(self, g: _Gat, item: str) -> list[_Upgrade]:
-        """Better tools of the same kind that are crafted from `item` itself."""
-        out: list[_Upgrade] = []
-        for tool in self.tools.get(g.kind, ()) if g.kind and not g.need_tool else ():
-            if tool.rank <= g.rank or self.inv.get(tool.item, 0):
-                continue
-            for r in self.recs.get(tool.item, ()):
-                mat = [n for opts, n in r.ing if item in opts]
-                if r.cook is None and mat:
-                    others = tuple((o, n) for o, n in r.ing if item not in o)
-                    out.append(_Upgrade(tool, r, sum(mat), others))
-                    break
-        return out
+    def material_of(self, tool: _Tool, item: str) -> int:
+        """Units of `item` one craft of `tool` consumes directly."""
+        for r in self.recs.get(tool.item, ()):
+            if r.cook is None and (mat := sum(n for o, n in r.ing if item in o)):
+                return mat
+        return 0
+
+    def transform_tool(self, default: str, tr: TransformDef, item: str) -> _Tool:
+        """Tool for a transform: the policy's ceiling tool when one is set, the
+        output is not part of it and no tool of the kind is held; else `default`."""
+        tool = self.tool_by_item[default]
+        ceiling = self.policy.get(tr.tool)
+        if ceiling is None or self.inv.get(default, 0):
+            return tool
+        pol = self.ceiling_tool(tr.tool, ceiling)
+        if pol is None or item in self.upstream(pol.item):
+            return tool
+        return pol
 
     def pick_tool(self, kind: str, cost: Mapping[str, float]) -> _Tool | None:
         """Tool for a transform: a held one if any, else the cheapest to make."""
@@ -429,6 +546,21 @@ class _Model:
                 if t is not None and self.inv.get(t.item, 0) == 0:
                     tool_c = cost.get(t.item, INF) / t.dur
                 out.append(((self.block_cost(g, t) + tool_c) / g.yield_, ("gather", g)))
+        for mob in self.mob_srcs.get(item, ()):
+            known = KNOWN_COST_FACTOR if mob.known else 1.0
+            ticks = (
+                HUNT_TICKS * self.weapon_factor if mob.kind == "hunt" else SHEAR_TICKS
+            )
+            c = ticks + mob.search / SEARCH_BATCH
+            if mob.kind == "shear":
+                tool = self.pick_tool(mob.tool_kind or "", cost)
+                if tool is None:
+                    continue
+                held = self.inv.get(tool.item, 0)
+                c += 0.0 if held else cost.get(tool.item, INF) / tool.dur
+                out.append((c * known / mob.yield_, ("shear", mob, tool.item)))
+            else:
+                out.append((c * known / mob.yield_, ("hunt", mob)))
         for tr in self.transforms.get(item, ()):
             tool = self.pick_tool(tr.tool, cost)
             if tool is not None:
@@ -524,13 +656,14 @@ def _children(m: _Model, item: str, best: Mapping[str, Option]) -> list[str]:
     opt = best.get(item)
     if opt is None:
         return []
+    if opt[0] == "hunt":
+        return []
+    if opt[0] == "shear":
+        return [opt[2]]
     if opt[0] == "gather":
-        out = [t.item for t in m.candidates(opt[1]) if t]
-        for up in m.upgrades(opt[1], item):  # upgrade craft needs these as well
-            out += _recipe_children(m, up.rec._replace(ing=up.others))
-        return out
+        return [t.item for t in m.candidates(opt[1], item=item) if t]
     if opt[0] == "transform":
-        return [opt[1].input, opt[2]]
+        return [opt[1].input, m.transform_tool(opt[2], opt[1], item).item]
     out = _recipe_children(m, opt[1])
     if opt[0] == "smelt":
         out += [f for f, _ in m.fuel_choices()]
@@ -577,17 +710,26 @@ class _Expander:
     """Walks the items consumers-first, summing demand and emitting each item's tasks.
     Items are expanded once, so a shared ingredient is crafted once for all users."""
 
-    def __init__(self, m: _Model, targets: Mapping[str, int]) -> None:
+    def __init__(
+        self,
+        m: _Model,
+        targets: Mapping[str, int],
+        tool_make: Mapping[str, int] | None = None,
+    ) -> None:
         self.m = m
         self.need: dict[str, int] = {i: n for i, n in targets.items() if n > 0}
+        self.tool_make = dict(tool_make or {})
+        for tool, n in self.tool_make.items():
+            self.need[tool] = self.need.get(tool, 0) + n
         self.have = dict(m.inv)
         self.best = dict(m.best)
-        self.tool_left: dict[str, int] = {}
+        self.uses: Counter[str] = Counter()
         self.tasks: dict[str, list[Task]] = {}
         self.deps: dict[str, set[str]] = {}
         self.missing: list[Missing] = []
         self.stations: set[str] = set()
         self.surplus: Counter[str] = Counter()
+        self.total = 0.0  # estimated ticks of work in the plan
 
     def run(self) -> None:
         for item in _consumers_first(self.m, list(self.need), self.best):
@@ -604,19 +746,21 @@ class _Expander:
             d = self.deps.setdefault(item, set())
             getattr(self, "_" + opt[0])(item, n, opt, d)
 
-    # tools
-    def _make_needed(self, tool: _Tool, uses: int) -> int:
-        left = self.tool_left.get(tool.item, self.have.get(tool.item, 0) * tool.dur)
-        return max(0, math.ceil((uses - left) / tool.dur))
+    # tools: uses are summed over the whole plan; the number of tools to craft is
+    # settled by re-running with `tool_make` until it covers the uses (see _expand)
+    def make_for(self, tool: _Tool, uses: int) -> int:
+        return max(0, math.ceil((uses - self.m.held_uses(tool)) / tool.dur))
+
+    def required_make(self) -> dict[str, int]:
+        return {
+            i: n
+            for i, u in self.uses.items()
+            if (n := self.make_for(self.m.tool_by_item[i], u)) > 0
+        }
 
     def _use_tool(self, tool: _Tool, uses: int, d: set[str]) -> None:
-        make = self._make_needed(tool, uses)
-        if tool.item not in self.tool_left:
-            self.tool_left[tool.item] = self.have.get(tool.item, 0) * tool.dur
-            self.have[tool.item] = 0
-        self.tool_left[tool.item] += make * tool.dur - uses
-        if make:
-            self.need[tool.item] = self.need.get(tool.item, 0) + make
+        self.uses[tool.item] += uses
+        self.have[tool.item] = 0
         d.add(tool.item)
 
     def _station(self, rec: _Rec, d: set[str]) -> None:
@@ -625,6 +769,7 @@ class _Expander:
         station_item = f"minecraft:{rec.station}"
         if rec.station not in self.stations:
             self.stations.add(rec.station)
+            self.total += PLACE_STATION_TICKS
             self.need[station_item] = self.need.get(station_item, 0) + 1
         d.add(station_item)
 
@@ -645,111 +790,130 @@ class _Expander:
     def _gather_cost(self, g: _Gat, tool: _Tool | None, blocks: int) -> float:
         total = blocks * self.m.block_cost(g, tool)
         if tool is not None:
-            make = self._make_needed(tool, blocks)
-            total += make * self.m.cost.get(tool.item, INF) if make else 0.0
+            before = self.uses[tool.item]
+            made = self.make_for(tool, before + blocks) - self.make_for(tool, before)
+            total += made * self.m.cost.get(tool.item, INF) if made else 0.0
         return total
 
-    def _upgrade_option(self, g, item, n, t0, up):
-        m, y = self.m, g.yield_
-        blocks0 = math.ceil(up.material / y - EPS)
-        count = 1
-        while True:
-            rest = math.ceil((n + (count - 1) * up.material) / y - EPS)
-            if count * up.tool.dur >= rest:
-                break
-            count += 1
-        own = max(
-            0.0, m.cost.get(up.tool.item, INF) - up.material * m.cost.get(item, 0.0)
-        )
-        total = (
-            self._gather_cost(g, t0, blocks0)
-            + rest * m.block_cost(g, up.tool)
-            + count * own
-        )
-        return total, t0, (up, blocks0, rest, count)
-
-    def _choose(self, g: _Gat, item: str, n: int, blocks: int):
+    def _choose(self, g: _Gat, item: str, blocks: int) -> _Tool | None | bool:
         options = [
-            (self._gather_cost(g, t, blocks), t, None) for t in self.m.candidates(g)
+            (self._gather_cost(g, t, blocks), i, t)
+            for i, t in enumerate(self.m.candidates(g, item=item))
         ]
-        for up in self.m.upgrades(g, item):
-            blocked = up.tool.item in self.need or up.tool.item in self.tasks
-            for t0 in self.m.candidates(g):
-                if t0 is not None and up.tool.rank > t0.rank and not blocked:
-                    options.append(self._upgrade_option(g, item, n, t0, up))
         options = [o for o in options if o[0] < INF]
-        return min(options, key=lambda o: o[0]) if options else None
+        return min(options)[2] if options else False
+
+    def _bootstrap(self, g: _Gat, item: str, n: int) -> tuple[_Tool, int] | None:
+        """For a gather of the very material the policy's tool is crafted from
+        (cobblestone for a stone pickaxe): (tool, blocks to mine with the lower tier
+        first). The rest is mined with the tool, after it is crafted."""
+        m = self.m
+        ceiling = m.policy.get(g.kind or "")
+        if ceiling is None or g.rank > ceiling or g.need_tool:
+            return None
+        tool = m.ceiling_tool(g.kind or "", ceiling)
+        if tool is None or m.inv.get(tool.item, 0) or item not in m.upstream(tool.item):
+            return None
+        material = m.material_of(tool, item)
+        if not material:
+            return None
+        return tool, min(n, material * self.tool_make.get(tool.item, 0))
 
     def _gather(self, item: str, n: int, opt: Option, d: set[str]) -> None:
         g: _Gat = opt[1]
-        blocks = math.ceil(n / g.yield_ - EPS)
-        choice = self._choose(g, item, n, blocks)
-        if choice is None:
-            self.missing.append(Missing(item, self.m.reason(item)))
+        split = self._bootstrap(g, item, n) if self.m.policy else None
+        if split is None or n <= split[1]:
+            self._mine(item, n, g, d, item)
             return
-        _, tool, upgrade = choice
-        if upgrade is not None:
-            self._upgraded(item, n, g, tool, upgrade, d)
-            return
-        extra = int(blocks * g.yield_ + EPS) - n
-        if extra > 0:
-            self.surplus[item] += extra
-        mine = Gather(
+        tool, first = split
+        if first > 0:
+            self._mine(item, first, g, d, item)
+        rest = n - first
+        key = item + REST
+        blocks = math.ceil(rest / g.yield_ - EPS) + g.margin
+        self.deps[key] = {tool.item}
+        self._use_tool(tool, blocks, self.deps[key])
+        self.total += blocks * self.m.block_cost(g, tool)
+        self.tasks[key] = [
+            Equip(tool.item),
+            self._gather_task(g, item, rest, blocks, tool),
+        ]
+
+    def _gather_task(
+        self, g: _Gat, item: str, n: int, blocks: int, tool: _Tool | None
+    ) -> Gather:
+        return Gather(
             g.block,
             blocks,
             g.kind if tool else None,
             self.m.tier_name(g.rank),
             item,
             n,
+            g.margin,
+            g.yield_,
         )
+
+    def _mine(self, item: str, n: int, g: _Gat, d: set[str], key: str) -> None:
+        blocks = math.ceil(n / g.yield_ - EPS) + g.margin
+        tool = self._choose(g, item, blocks)
+        if tool is False:
+            self.missing.append(Missing(item, self.m.reason(item)))
+            return
+        extra = int(blocks * g.yield_ + EPS) - n
+        if extra > 0:
+            self.surplus[item] += extra
+        mine = self._gather_task(g, item, n, blocks, tool)
+        self.total += blocks * self.m.block_cost(g, tool)
         if tool is None:
-            self.tasks[item] = [mine]
+            self.tasks[key] = [mine]
             return
         self._use_tool(tool, blocks, d)
-        self.tasks[item] = [Equip(tool.item), mine]
+        self.tasks[key] = [Equip(tool.item), mine]
 
-    def _upgraded(self, item, n, g, t0, upgrade, d) -> None:
-        """Mine with `t0` until the better tool can be crafted from the mined
-        material, then mine the rest with it (crafting replacements as needed)."""
-        up, blocks0, rest, count = upgrade
-        self._use_tool(t0, blocks0, d)
-        others = self._ingredients(up.rec, count, d, skip=item)
-        self._station(up.rec, d)
-        self.tool_left[up.tool.item] = count * up.tool.dur - rest
-        total = n + count * up.material
-        craft = Craft(
-            up.rec.id,
-            1,
-            up.rec.station,
-            up.tool.item,
-            ((item, up.material), *((i, c // count) for i, c in others.items())),
-            up.rec.out,
+    # mobs
+    def _animals(self, mob: _Mob, n: int) -> int:
+        animals = math.ceil(n / mob.yield_ - EPS) + mob.margin
+        extra = int(animals * mob.yield_ + EPS) - n
+        if extra > 0:
+            self.surplus[mob.item] += extra
+        return animals
+
+    def _hunt(self, item: str, n: int, opt: Option, d: set[str]) -> None:
+        mob: _Mob = opt[1]
+        animals = self._animals(mob, n)
+        weapon = self.m.weapon
+        self.total += (
+            animals
+            * (HUNT_TICKS * self.m.weapon_factor + mob.search / SEARCH_BATCH)
+            * (KNOWN_COST_FACTOR if mob.known else 1.0)
         )
+        hunt = Hunt(mob.entity, animals, item, n, weapon, mob.yield_, mob.margin)
+        self.tasks[item] = [Equip(weapon), hunt] if weapon else [hunt]
 
-        def mine(blocks: int, items: int) -> Gather:
-            return Gather(
-                g.block, blocks, g.kind, self.m.tier_name(g.rank), item, items
-            )
-
-        got = int(blocks0 * g.yield_ + EPS)
-        seq: list[Task] = [Equip(t0.item), mine(blocks0, got)]
-        left = rest
-        for _ in range(count):
-            seg = min(up.tool.dur, left)
-            left -= seg
-            items = total - got if left == 0 else int(seg * g.yield_ + EPS)
-            got += items
-            seq += [craft, Equip(up.tool.item), mine(seg, items)]
-        self.tasks[item] = seq
+    def _shear(self, item: str, n: int, opt: Option, d: set[str]) -> None:
+        mob: _Mob = opt[1]
+        tool = self.m.tool_by_item[opt[2]]
+        animals = self._animals(mob, n)
+        self.total += (
+            animals
+            * (SHEAR_TICKS + mob.search / SEARCH_BATCH)
+            * (KNOWN_COST_FACTOR if mob.known else 1.0)
+        )
+        self._use_tool(tool, animals, d)
+        self.tasks[item] = [
+            Equip(tool.item),
+            Shear(mob.entity, animals, item, n, mob.yield_, mob.margin),
+        ]
 
     # transforming
     def _transform(self, item: str, n: int, opt: Option, d: set[str]) -> None:
         tr: TransformDef = opt[1]
-        tool = self.m.tool_by_item[opt[2]]
+        tool = self.m.transform_tool(opt[2], tr, item)
         times = math.ceil(n / tr.count - EPS)
         if times * tr.count > n:
             self.surplus[item] += times * tr.count - n
         self.need[tr.input] = self.need.get(tr.input, 0) + times
+        self.total += times * TRANSFORM_OVERHEAD
         d.add(tr.input)
         self._use_tool(tool, times, d)
         self.tasks[item] = [
@@ -779,6 +943,7 @@ class _Expander:
             self.surplus[item] += times * rec.out - n
         used = self._ingredients(rec, times, d)
         self._station(rec, d)
+        self.total += times * CRAFT_OVERHEAD
         self.tasks[item] = [
             Craft(
                 rec.id, times, rec.station, item, tuple(used.items()), times * rec.out
@@ -792,6 +957,7 @@ class _Expander:
             self.surplus[item] += times * rec.out - n
         used = self._ingredients(rec, times, d)
         self._station(rec, d)
+        self.total += times * (CRAFT_OVERHEAD + (rec.cook or 200) * SMELT_WAIT_FACTOR)
         fuel, fuel_count = self._fuel(rec, times, opt[2])
         self.need[fuel] = self.need.get(fuel, 0) + fuel_count
         d.add(fuel)
@@ -809,51 +975,226 @@ class _Expander:
         ]
 
 
+def food_needed(estimated_ticks: float, current_food: float) -> int:
+    """Hunger points to buy for a job of `estimated_ticks`: the job uses about one
+    point per FOOD_TICKS_PER_POINT ticks (working and sprinting), and the bot should
+    stay above FOOD_FLOOR, so the current food above the floor is spent first."""
+    use = estimated_ticks / FOOD_TICKS_PER_POINT
+    return max(0, math.ceil(use - max(0.0, current_food - FOOD_FLOOR) - EPS))
+
+
+def _add_food(
+    m: _Model, targets: dict[str, int], food_target: int, held: Mapping[str, int]
+) -> Missing | None:
+    """Add the food item with the lowest cost per hunger point to `targets`."""
+    foods = m.k.foods
+    if not foods:
+        return Missing("food", "no food table")
+    need = food_target - sum(
+        n * foods[i]["nutrition"] for i, n in held.items() if i in foods
+    )
+    if need <= 0:
+        return None
+    options = [
+        (m.cost_n[i] / f["nutrition"], i)
+        for i, f in foods.items()
+        if m.cost_n.get(i, INF) < INF
+    ]
+    if not options:
+        return Missing("food", "no food source")
+    item = min(options)[1]
+    count = math.ceil(need / foods[item]["nutrition"] - EPS)
+    targets[item] = targets.get(item, 0) + held.get(item, 0) + count
+    return None
+
+
+Expansion = tuple[_Expander, list[Task]]
+
+
+def _expand(
+    m: _Model,
+    targets: Mapping[str, int],
+    policy: dict[str, int],
+) -> Expansion:
+    m.policy = policy
+    make: dict[str, int] = {}
+    for _ in range(MAX_TOOL_PASSES):
+        ex = _Expander(m, targets, make)
+        ex.run()
+        required = ex.required_make()
+        if all(n <= make.get(t, 0) for t, n in required.items()):
+            break
+        make = {t: max(make.get(t, 0), required.get(t, 0)) for t in make | required}
+    return ex, _insert_stations(_schedule(ex.tasks, ex.deps), ex.stations)
+
+
+def _best_expansion(m: _Model, targets: Mapping[str, int]) -> Expansion:
+    """Tool progression (G2/G3): expand once with the per-item tool logic, then try
+    a tier ceiling per tool kind (all gathers of that kind that the ceiling tool is
+    not itself built from use it) and keep a ceiling when the whole plan is cheaper
+    across ALL block types. Coordinate descent over the kinds, most mined first."""
+    best = _expand(m, targets, {})
+    policy: dict[str, int] = {}
+    mined: Counter[str] = Counter()
+    for t in best[1]:
+        if isinstance(t, Gather) and t.tool_kind and t.tool_kind != "shears":
+            mined[t.tool_kind] += t.count
+        elif isinstance(t, Transform):
+            mined[t.tool_kind] += t.count
+    for kind, _ in mined.most_common():
+        for rank in m.policy_ranks(kind):
+            trial = {**policy, kind: rank}
+            cand = _expand(m, targets, trial)
+            if (len(cand[0].missing), cand[0].total) < (
+                len(best[0].missing),
+                best[0].total - 1e-6,
+            ):
+                best, policy = cand, trial
+    return best
+
+
 def plan(
     targets: Mapping[str, int],
-    inventory: Mapping[str, int],
+    inventory: Inventory,
     knowledge: Knowledge,
     stations: Mapping[str, object] | None = None,
     *,
     executable_stations: Collection[str] = DEFAULT_STATIONS,
     known_blocks: Collection[str] = (),
     prefer: Mapping[str, float] | None = None,
+    food_target: int | None = None,
+    storage: Iterable[Mapping[str, Any]] | None = None,
+    with_chest: bool = True,
+    spare_chest: bool = False,
 ) -> PlanResult:
     """Ordered tasks that turn `inventory` into `targets`; unreachable parts are
     reported in `missing` instead of raising.
 
+    `inventory` is `{item: count}` or the body's observe list of
+    `{item, count, damage, max_damage}` (remaining durability is used).
     `prefer` maps item ids to cost multipliers (below 1 favours the item); it
-    defaults to DEFAULT_PREFER (oak). `known_blocks` are block ids seen nearby:
-    they are gatherable and cheap to find."""
+    defaults to DEFAULT_PREFER (oak). `known_blocks` are block ids and entity ids
+    seen nearby: they are gatherable and cheap to find.
+    `food_target` is a number of hunger points to have on top of the targets: the
+    cheapest food (hunt, then smelt the meat) is added. `storage` lists known
+    containers `{"kind", "pos", "contents"}`; their contents count as available
+    behind a Withdraw. (`with_chest` and `spare_chest` are internal: they stop the
+    chest-first retry and reserve one carried chest for storage.) When the plan
+    would exceed the inventory, gathers are batched with Deposits and a container
+    is placed (see gather_storage)."""
+    counts, wear = normalize_inventory(inventory)
+    boxes = [dict(b) for b in storage or ()]
+    planned = Counter(counts)
+    if spare_chest:  # one carried chest is kept back to be placed as storage
+        planned[CHEST] -= 1
+    reachable = +planned + container_contents(boxes)
     m = _Model(
         knowledge,
-        inventory,
+        reachable,
+        wear,
         stations or {},
         executable_stations,
         known_blocks,
         DEFAULT_PREFER if prefer is None else prefer,
     )
-    ex = _Expander(m, targets)
-    ex.run()
-    ordered = _insert_stations(_schedule(ex.tasks, ex.deps), ex.stations)
-    cost = sum(
-        m.cost.get(i, INF) * n for i, n in targets.items() if m.cost.get(i, INF) < INF
+    goal = {i: n for i, n in targets.items() if n > 0}
+    food_gap = (
+        _add_food(m, goal, food_target, reachable)
+        if food_target and food_target > 0
+        else None
     )
-    return PlanResult(tuple(ordered), tuple(ex.missing), cost, dict(ex.surplus))
+    ex, ordered = _best_expansion(m, goal)
+    done = add_storage(ordered, counts, boxes, knowledge, goal)
+    if done.needs_chest and with_chest:
+        return _chest_first(
+            targets, inventory, knowledge, stations, boxes, food_target,
+            executable_stations, known_blocks, prefer,
+        )  # fmt: skip
+    missing = (*ex.missing, *([food_gap] if food_gap else ()))
+    return PlanResult(done.tasks, missing, ex.total, dict(ex.surplus), done.stored)
+
+
+def _chest_first(
+    targets,
+    inventory,
+    knowledge,
+    stations,
+    boxes,
+    food_target,
+    executable,
+    known,
+    prefer,
+) -> PlanResult:
+    """No container to deposit into: plan a chest on its own first, replay it to get
+    the inventory and stations it leaves behind, and plan the job from there with
+    the chest in hand. (A chest inside the main plan would be crafted only after
+    the bulk crafts that need the space.)"""
+    kw: dict[str, Any] = {
+        "executable_stations": executable,
+        "known_blocks": known,
+        "prefer": prefer,
+        "storage": boxes,
+        "with_chest": False,
+    }
+    pre = plan({CHEST: 1}, inventory, knowledge, stations, **kw)
+    replay = Replay(knowledge, inventory, stations, boxes)
+    for i, t in enumerate(pre.tasks):
+        replay.step(i, t)
+    placed = {s: True for s in replay.placed if s != "inventory"}
+    after = [
+        {**b, "contents": dict(replay.boxes.get(_box_key(b), b.get("contents") or {}))}
+        for b in boxes
+    ]
+    main = plan(
+        targets,
+        replay.snapshot(),
+        knowledge,
+        placed,
+        **{**kw, "storage": after, "spare_chest": True},
+        food_target=food_target,
+    )
+    return PlanResult(
+        (*pre.tasks, *main.tasks),
+        (*pre.missing, *main.missing),
+        pre.estimated_cost + main.estimated_cost,
+        main.surplus,
+        main.stored,
+    )
+
+
+def _box_key(box: Mapping[str, Any]) -> Any:
+    return tuple(box["pos"]) if box.get("pos") is not None else "placed"
 
 
 def _schedule(tasks: dict[str, list[Task]], deps: dict[str, set[str]]) -> list[Task]:
     """Dependencies first; among ready items keep the current group (gather, one
     station) together, otherwise take the cheapest group first."""
+
+    def needs(i: str) -> set[str]:  # transitive dependencies of i
+        seen: set[str] = set()
+        todo = list(deps.get(i, ()))
+        while todo:
+            c = todo.pop()
+            if c not in seen:
+                seen.add(c)
+                todo.extend(deps.get(c, ()))
+        return seen
+
+    def waiting(i: str, c: str) -> bool:
+        """Is `i` still waiting for `c`? A split gather `c` is only complete when
+        its second half is done, except for the tool crafted in between."""
+        if c in tasks and c not in done:
+            return True
+        r = c + REST
+        return r in tasks and r not in done and i not in needs(r)
+
     remaining = list(reversed(tasks))
     done: set[str] = set()
     out: list[Task] = []
     last = None
     while remaining:
         ready = [
-            i
-            for i in remaining
-            if all(c in done or c not in tasks for c in deps.get(i, ()))
+            i for i in remaining if not any(waiting(i, c) for c in deps.get(i, ()))
         ]
         ready = (
             ready or remaining[:1]
@@ -884,88 +1225,3 @@ def _insert_stations(ordered: list[Task], wanted: set[str]) -> list[Task]:
             out.append(PlaceStation(station))
         out.append(task)
     return out
-
-
-# ---- validation and reporting ---------------------------------------------
-def check_order(
-    tasks: Collection[Task],
-    inventory: Mapping[str, int],
-    knowledge: Knowledge,
-    stations: Mapping[str, object] | None = None,
-) -> list[str]:
-    """Replay `tasks` from `inventory`; return one message per step that could not
-    run (missing tool, ingredient, fuel or station). Empty means the order is valid."""
-    inv = Counter({i: n for i, n in inventory.items() if n > 0})
-    placed = {"inventory"} | {s for s, where in (stations or {}).items() if where}
-    ranks = {
-        n: i for i, n in enumerate(t for t in knowledge.drop_tiers if t != "silk_touch")
-    }
-    problems: list[str] = []
-
-    def holds_tool(kind: str, tier: str) -> bool:
-        for item, n in inv.items():
-            tool = knowledge.items.get(item, {}).get("tool")
-            if n > 0 and tool and tool["kind"] == kind:
-                rank = TIER_RANK.get(tool.get("tier", ""), UNKNOWN_TIER_RANK)
-                if rank >= ranks.get(tier, 0):
-                    return True
-        return False
-
-    def take(step: int, task: Task, item: str, n: int) -> None:
-        if inv[item] < n:
-            problems.append(f"step {step} {task}: needs {n} {item}, has {inv[item]}")
-        inv[item] = max(0, inv[item] - n)
-
-    def need_station(step: int, task: Task, station: str) -> None:
-        if station not in placed:
-            problems.append(f"step {step} {task}: {station} not placed")
-
-    for step, task in enumerate(tasks):
-        if isinstance(task, Equip):
-            take(step, task, task.item, 0) if inv[task.item] else problems.append(
-                f"step {step} {task}: not held"
-            )
-        elif isinstance(task, PlaceStation):
-            take(step, task, f"minecraft:{task.kind}", 1)
-            placed.add(task.kind)
-        elif isinstance(task, Gather):
-            if task.tool_kind and not holds_tool(task.tool_kind, task.min_tier):
-                problems.append(f"step {step} {task}: no {task.tool_kind} held")
-            inv[task.item] += task.item_count
-        elif isinstance(task, Craft):
-            need_station(step, task, task.station)
-            for item, n in task.ingredients:
-                take(step, task, item, n)
-            inv[task.result] += task.result_count
-        elif isinstance(task, Smelt):
-            need_station(step, task, task.station)
-            take(step, task, task.ingredient, task.count)
-            take(step, task, task.fuel, task.fuel_count)
-            inv[task.result] += task.result_count
-        elif isinstance(task, Transform):
-            if not holds_tool(task.tool_kind, "hand"):
-                problems.append(f"step {step} {task}: no {task.tool_kind} held")
-            take(step, task, task.input, task.count)
-            inv[task.output] += task.result_count
-    return problems
-
-
-def summarize(result: PlanResult) -> str:
-    """Short human-readable account of a plan: gathers, crafts, smelts, gaps."""
-    gathers: Counter[str] = Counter()
-    crafts: Counter[str] = Counter()
-    for t in result.tasks:
-        if isinstance(t, Gather):
-            gathers[t.block] += t.count
-        elif isinstance(t, Craft | Smelt):
-            crafts[t.result] += t.result_count
-        elif isinstance(t, Transform):
-            crafts[t.output] += t.result_count
-    short = lambda i: i.removeprefix("minecraft:")  # noqa: E731
-    lines = [f"{len(result.tasks)} tasks, estimated cost {result.estimated_cost:.0f}"]
-    lines.append("gather: " + ", ".join(f"{short(b)} x{n}" for b, n in gathers.items()))
-    lines.append("make:   " + ", ".join(f"{short(i)} x{n}" for i, n in crafts.items()))
-    lines.append(
-        "missing: " + ", ".join(f"{short(m.item)} ({m.reason})" for m in result.missing)
-    )
-    return "\n".join(lines)

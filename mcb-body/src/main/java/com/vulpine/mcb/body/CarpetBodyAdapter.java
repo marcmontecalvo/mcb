@@ -274,8 +274,13 @@ public final class CarpetBodyAdapter {
         var inventory = new ArrayList<Map<String, Object>>();
         for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
             var stack = player.getInventory().getItem(i);
-            if (!stack.isEmpty()) inventory.add(Map.of("slot", i, "item",
-                    BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(), "count", stack.getCount()));
+            if (stack.isEmpty()) continue;
+            var entry = new java.util.LinkedHashMap<String, Object>();
+            entry.put("slot", i);
+            entry.put("item", BuiltInRegistries.ITEM.getKey(stack.getItem()).toString());
+            entry.put("count", stack.getCount());
+            if (stack.isDamageableItem()) { entry.put("damage", stack.getDamageValue()); entry.put("max_damage", stack.getMaxDamage()); }
+            inventory.add(entry);
         }
         var p = player.position();
         var v = player.getDeltaMovement();

@@ -201,6 +201,9 @@ def worker(path):
                         print(json.dumps(result), flush=True)
                     found = []
                     for artifact in new_artifacts(job):
+                        if job["kind"] == "companion":
+                            found.append(artifact.relative_to(ROOT).as_posix())
+                            continue
                         value = read_json(artifact)
                         if (
                             result.get("run_id")
@@ -365,7 +368,9 @@ class Dashboard:
                     for job in value["jobs"]:
                         if job["status"] == "running":
                             paths = new_directories(job)
-                            if paths:
+                            if paths and job["kind"] == "companion":
+                                job["live"] = runs.companion_live(paths[-1])
+                            elif paths:
                                 latest = paths[-1] / "summary.json"
                                 try:
                                     summary = read_json(latest)
@@ -385,6 +390,11 @@ class Dashboard:
 
     def start(self, request):
         jobs = runs.plan(request)
+        if any(j["kind"] == "companion" for j in jobs):
+            from mclab import server
+
+            if server.status()["state"] != "running":
+                raise ValueError("The lab server is not running; use Start lab first")
         # sessions() also reconciles workers that died unexpectedly.
         if any(s["status"] in ACTIVE for s in self.sessions()):
             raise ValueError("A session is already active")
@@ -555,6 +565,8 @@ def handler(dashboard):
                     )
                 if self.path == "/api/kill":
                     return self.reply(200, request_kill())
+                if self.path == "/api/convert":
+                    return self.reply(200, runs.convert_schematic(request.get("file")))
                 if self.path == "/api/delete":
                     with dashboard.lock:
                         return self.reply(200, delete_session(request.get("id")))

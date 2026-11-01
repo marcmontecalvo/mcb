@@ -1,3 +1,4 @@
+import json
 import socket
 import threading
 
@@ -50,3 +51,49 @@ def test_running_server_prevents_rebuilding(monkeypatch):
     monkeypatch.setattr(server, "status", lambda: {"state": "running"})
     with pytest.raises(RuntimeError, match="Stop the lab"):
         server.assert_stopped()
+
+
+def _stale_state(monkeypatch, tmp_path, pid):
+    state = tmp_path / "supervisor.json"
+    state.write_text(json.dumps({"port": 1, "token": "t", "pid": pid}))
+    monkeypatch.setattr(server, "STATE", state)
+    return state
+
+
+def test_status_is_stopped_when_the_recorded_supervisor_process_is_gone(
+    monkeypatch, tmp_path
+):
+    _stale_state(monkeypatch, tmp_path, 4_000_000)  # no such process
+    monkeypatch.setattr(server, "control", lambda *_: (_ for _ in ()).throw(OSError))
+    assert server.status()["state"] == "stopped"
+    server.assert_stopped()
+
+
+def test_status_stays_unreachable_while_the_supervisor_process_lives(
+    monkeypatch, tmp_path
+):
+    import os
+
+    _stale_state(monkeypatch, tmp_path, os.getpid())
+    monkeypatch.setattr(server, "control", lambda *_: (_ for _ in ()).throw(OSError))
+    assert server.status()["state"] == "unreachable"
+
+
+def test_pid_alive_knows_this_process_and_a_dead_one():
+    import os
+
+    assert server.pid_alive(os.getpid())
+    assert not server.pid_alive(4_000_000)
+
+
+def test_status_is_stopped_when_the_state_file_vanishes_mid_check(
+    monkeypatch, tmp_path
+):
+    state = _stale_state(monkeypatch, tmp_path, 1)
+
+    def gone(*_):
+        state.unlink()
+        raise OSError
+
+    monkeypatch.setattr(server, "control", gone)
+    assert server.status()["state"] == "stopped"

@@ -378,9 +378,13 @@ public final class LabRuntime implements AutoCloseable {
     /** Lab kit: inventory and nearby blocks for a named body. Never during a run. */
     private void kit(JsonObject request, long sequence) {
         try {
-            if (busy()) throw new IllegalStateException("course_policy_admission_closed");
+            // Allowed inside a running natural (development) session, never during course episodes.
+            boolean naturalSession = natural != null && natural.running() && pending == null && course == null
+                    && episode == null && referenceName == null;
+            if (busy() && !naturalSession) throw new IllegalStateException("course_policy_admission_closed");
             var player = LabFixture.named(server, text(request, "player"));
-            adopt(request, sequence);
+            if (naturalSession) validateIdentity(request, sequence);
+            else adopt(request, sequence);
             var data = new java.util.LinkedHashMap<String, Object>(LabKit.apply(server, player, request));
             data.put("request_sequence", sequence);
             emit("kit_done", "fabric_start", data);

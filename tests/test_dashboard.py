@@ -606,3 +606,213 @@ def test_catalog_lists_route_ids_per_route_file(workspace):
     write_json(workspace / "config/backends.json", {"backends": []})
     write_json(workspace / "courses/profiles.json", {"courses": {}})
     assert runs.catalog()["route_ids"] == {"config/routes.json": ["A", "B"]}
+
+
+def test_companion_check_list_is_a_readable_run():
+    path = runs.ROOT / "results/companion/20261101T000000000000Z/summary.json"
+    cases = [
+        {"case": "craft planks", "pass": True, "detail": "16"},
+        {"case": "furnace", "pass": False, "detail": "0 ingots"},
+    ]
+
+    [row] = runs.result_rows(path, cases)
+
+    assert row["suite"] == "companion"
+    assert row["status"] == "failed"
+    assert row["statuses"] == {"passed": 1, "failed": 1}
+
+
+@pytest.fixture
+def companion(workspace):
+    (workspace / "scripts").mkdir(exist_ok=True)
+    for name in ("check-crafting", "run-gather", "run-build"):
+        (workspace / f"scripts/{name}.py").write_text("")
+    for relative in ("tests/fixtures/schematics/a.build.json", "builds/b.build.json"):
+        (workspace / relative).parent.mkdir(parents=True, exist_ok=True)
+        (workspace / relative).write_text("{}")
+    return workspace
+
+
+def test_companion_plan_validates_every_input(companion):
+    base = {"kind": "companion", "job": "build", "start": [1, 64, -3]}
+    base["build"] = "builds/b.build.json"
+    [job] = runs.plan({**base, "dx": 4, "rotation": 90})
+    assert job["args"] == [
+        *("--start", "1", "64", "-3"),
+        *("--build", "builds/b.build.json", "--dx", "4", "--dz", "2"),
+        *("--rotation", "90"),
+    ]
+    [gather] = runs.plan(
+        {"kind": "companion", "job": "gather", "start": [0, 0, 0], "iron": True}
+    )
+    assert "--iron" in gather["args"]
+    assert gather["args"][-2:] == ["--seed", "1337"]  # lab world is flat
+    assert runs.plan({"kind": "companion", "job": "crafting"})[0]["args"] == []
+    bad = [
+        {"job": "animals"},  # script missing
+        {"job": "nope"},
+        {**base, "start": [30_000_001, 0, 0]},
+        {**base, "start": [1, 2]},
+        {**base, "start": [1.5, 2, 3]},
+        {**base, "start": [True, 2, 3]},
+        {**base, "rotation": 45},
+        {**base, "build": "../etc/x.build.json"},
+        {**base, "build": "builds/../scripts/run-build.py"},
+        {**base, "build": "builds/missing.build.json"},
+        {"job": "gather", "start": [0, 0, 0], "iron": "yes"},
+    ]
+    for changes in bad:
+        with pytest.raises(ValueError):
+            runs.plan({"kind": "companion", **changes})
+
+
+def test_companion_catalog_lists_builds_and_schematics(companion):
+    (companion / "results/companion/2026").mkdir(parents=True)
+    (companion / "results/companion/2026/c.build.json").write_text("{}")
+    (companion / "tests/fixtures/schematics/h.litematic").write_text("")
+    found = runs.companion_catalog()
+    assert found["checks"] == ["crafting"]
+    assert found["builds"] == [
+        "builds/b.build.json",
+        "results/companion/2026/c.build.json",
+        "tests/fixtures/schematics/a.build.json",
+    ]
+    assert found["schematics"] == ["tests/fixtures/schematics/h.litematic"]
+
+
+def test_convert_schematic_stays_inside_allowed_folders(companion, monkeypatch):
+    from mclab import schematic
+
+    (companion / "tests/fixtures/schematics/h.litematic").write_text("")
+    monkeypatch.setattr(
+        schematic,
+        "convert",
+        lambda src, out: {
+            "size": [1, 1, 1],
+            "materials": {"minecraft:dirt": 1},
+            "flags": [],
+        },
+    )
+    done = runs.convert_schematic("tests/fixtures/schematics/h.litematic")
+    assert done["output"] == "builds/h.build.json"
+    for relative in ("../h.litematic", "scripts/x.litematic", 5, "builds/b.build.json"):
+        with pytest.raises(ValueError):
+            runs.convert_schematic(relative)
+
+
+def test_companion_job_is_refused_while_lab_server_is_down(companion, monkeypatch):
+    from mclab import server
+
+    monkeypatch.setattr(server, "status", lambda: {"state": "stopped"})
+    with pytest.raises(ValueError, match="not running"):
+        ui.Dashboard().start({"kind": "companion", "job": "crafting"})
+    with pytest.raises(RuntimeError, match="not running"):
+        runs.execute(runs.plan({"kind": "companion", "job": "crafting"})[0])
+
+
+def test_run_companion_launches_script_and_labels_results(companion, monkeypatch):
+    from mclab import server
+
+    monkeypatch.setattr(server, "status", lambda: {"state": "running"})
+    launched = []
+
+    class Process:
+        def __init__(self, args, **kwargs):
+            launched.append((args, kwargs))
+            folder = companion / "results/companion/20261101T000000000000Z"
+            folder.mkdir(parents=True)
+            write_json(
+                folder / "summary.json", [{"case": "x", "pass": True, "detail": ""}]
+            )
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(runs.subprocess, "Popen", Process)
+    job = {**runs.plan({"kind": "companion", "job": "crafting"})[0], "before": []}
+    assert runs.execute(job)["status"] == "completed_companion"
+    args, kwargs = launched[0]
+    assert args[:3] == [runs.sys.executable, "-u", "-c"]
+    assert args[4].endswith("check-crafting.py")
+    assert kwargs["stdin"] is runs.subprocess.DEVNULL and "stdout" not in kwargs
+    summary = companion / "results/companion/20261101T000000000000Z/summary.json"
+    [row] = runs.result_rows(summary, read_json(summary))
+    assert row["stage"] == "crafting" and row["statuses"] == {"passed": 1}
+
+
+def test_run_companion_without_summary_is_an_error(companion, monkeypatch):
+    from mclab import server
+
+    monkeypatch.setattr(server, "status", lambda: {"state": "running"})
+
+    class Process:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def wait(self, timeout=None):
+            return 3
+
+    monkeypatch.setattr(runs.subprocess, "Popen", Process)
+    job = {**runs.plan({"kind": "companion", "job": "crafting"})[0], "before": []}
+    assert "code 3" in runs.execute(job)["error"]
+
+
+def test_companion_live_reads_progress_summary_and_op_events(companion):
+    from mclab import companion_progress as cp
+
+    folder = companion / "results/companion/20261101T000000000000Z"
+    folder.mkdir(parents=True)
+    cp.write_progress(folder, job="build", stage="placing", done=3, total=10)
+    write_json(
+        folder / "build.json", {"stop": "done", "steps": 7, "counts": {"correct": 2}}
+    )
+    lines = [
+        {"type": "observation", "payload": {}},
+        {"type": "server_event", "payload": {"type": "place_done", "tick": 5}},
+        {
+            "type": "server_event",
+            "payload": {"type": "break_failed", "data": {"reason": "far"}},
+        },
+        {
+            "type": "server_event",
+            "payload": {"type": "rejected", "data": {"op": "use", "reason": "x"}},
+        },
+    ]
+    (folder / "events.jsonl").write_text(
+        "garbage\n" + "\n".join(json.dumps(x) for x in lines) + "\n{trunc"
+    )
+    live = runs.companion_live(folder)
+    assert live["progress"]["done"] == 3
+    assert live["report"]["steps"] == 7
+    assert [(e["op"], e["result"], e["reason"]) for e in live["events"]] == [
+        ("place", "done", None),
+        ("break", "failed", "far"),
+        ("use", "rejected", "x"),
+    ]
+    assert cp.job_name(folder) == "build"
+
+
+def test_progress_helper_never_raises(tmp_path):
+    from mclab import companion_progress as cp
+
+    cp.write_progress(tmp_path / "missing", job="x")  # folder absent: ignored
+    assert cp.read_progress(tmp_path) is None
+    cp.write_job(tmp_path, "check-crafting")
+    assert cp.job_name(tmp_path) == "check-crafting"
+
+
+def test_sessions_show_live_companion_progress(companion):
+    from mclab import companion_progress as cp
+
+    job = {**runs.plan({"kind": "companion", "job": "crafting"})[0]}
+    job.update(status="running", before=[], started_at=time.time())
+    folder = companion / "results/companion/20261101T000000000000Z"
+    folder.mkdir(parents=True)
+    cp.write_progress(folder, stage="crafting", done=1, total=4)
+    path = companion / "results/sessions/20261101T000000-aaaaaaaa/session.json"
+    write_json(path, {"id": path.parent.name, "status": "running", "jobs": [job]})
+    dashboard = ui.Dashboard()
+    dashboard.process_path = path
+    dashboard.process = type("P", (), {"poll": lambda self: None})()
+    [session] = dashboard.sessions()
+    assert session["jobs"][0]["live"]["progress"]["total"] == 4

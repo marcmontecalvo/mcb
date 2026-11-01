@@ -31,6 +31,7 @@ import java.util.function.BiConsumer;
  */
 final class NaturalRun {
     static final int MAX_PROBE_RADIUS = 192;
+    static final int COMPANION_TICK_LIMIT = 1_200_000;
     private static final int GOAL_DY = 4;
     private static final int HUMAN_SETTLE_TICKS = 20;
     private static final int KIT_BLOCKS = 64;
@@ -87,9 +88,11 @@ final class NaturalRun {
         stallTicks = request.has("stall_ticks") ? request.get("stall_ticks").getAsInt() : 0;
         if (stallTicks != 0 && (stallTicks < 40 || stallTicks > 2400))
             throw new IllegalArgumentException("natural_stall_ticks");
-        if (radius < 1 || radius > 8 || tickLimit < 200 || tickLimit > 24000 || yaw < -180 || yaw >= 180)
+        // Companion sessions (carpet_body) are long-lived with a far goal; other subjects keep the short limits.
+        boolean companion = subjectKind.equals("carpet_body");
+        if (radius < 1 || radius > 8 || tickLimit < 200 || tickLimit > (companion ? COMPANION_TICK_LIMIT : 24000) || yaw < -180 || yaw >= 180)
             throw new IllegalArgumentException("natural_bounds");
-        if (start.distanceTo(goal) > MAX_PROBE_RADIUS * 2) throw new IllegalArgumentException("natural_route_too_long");
+        if (!companion && start.distanceTo(goal) > MAX_PROBE_RADIUS * 2) throw new IllegalArgumentException("natural_route_too_long");
         if(request.has("development_hill") && !subjectKind.equals("carpet_body"))
             throw new IllegalArgumentException("development_hill_requires_carpet_body");
         hill=request.has("development_hill")?new DevelopmentHill(server,request,start,goal):null;

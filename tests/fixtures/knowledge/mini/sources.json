@@ -35,6 +35,26 @@
   "minecraft:sand": {
    "where": "surface",
    "near": "water"
+  },
+  "minecraft:cow": {
+   "where": "mob",
+   "biomes": "grassland"
+  },
+  "minecraft:sheep": {
+   "where": "mob",
+   "biomes": "grassland"
+  },
+  "minecraft:pig": {
+   "where": "mob",
+   "biomes": "grassland"
+  },
+  "minecraft:chicken": {
+   "where": "mob",
+   "biomes": "grassland"
+  },
+  "minecraft:gravel": {
+   "where": "surface",
+   "near": "water"
   }
  }
 }

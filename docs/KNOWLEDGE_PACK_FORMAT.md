@@ -104,7 +104,36 @@ hand). A missing key means "same as the next lower tier". `min`/`max` come from
 simulating the loot table many times (no fortune); a drop seen in fewer than 100%
 of rolls has `"chance": p`. Only blocks with an item or a non-empty drop appear.
 
+### `mobs.json` (produced by the dump; added Nov 1, still schema 1)
+```json
+{"schema": 1, "mobs": {
+  "minecraft:cow": {"category": "creature", "passive": true, "health": 10.0,
+     "killed_by_player": [{"item": "minecraft:beef", "min": 1, "max": 3},
+                          {"item": "minecraft:leather", "min": 0, "max": 2, "chance": 0.6}],
+     "interactions": [{"item": "minecraft:bucket", "gives": "minecraft:milk_bucket"}]},
+  "minecraft:sheep": {"category": "creature", "passive": true, "health": 8.0,
+     "killed_by_player": [{"item": "minecraft:mutton", "min": 1, "max": 2},
+                          {"item": "minecraft:white_wool", "min": 1, "max": 1}],
+     "interactions": [{"item": "minecraft:shears", "gives": "minecraft:white_wool",
+                       "min": 1, "max": 3, "per_color": true}]}}}
+```
+- `killed_by_player`: the entity's loot table rolled with a player killer and an
+  empty hand, no looting (200 rolls; `chance` when not every roll dropped it).
+- `interactions`: hand-checked list for vanilla (shearing sheep and mooshrooms,
+  milking, bowls on mooshrooms); `per_color` means the wool matches the sheep's
+  colour.
+- Only `category` `creature` / `water_creature` / `ambient` entities with
+  `passive: true` are hunting targets (Marc, Nov 1: animals are allowed; hostile
+  mobs are a separate question).
+
+### `foods-26.3.json` (hand-written, `knowledge/sources/`)
+`{"schema": 1, "foods": {"minecraft:cooked_beef": {"nutrition": 8, "saturation": 12.8}, ...}}`,
+covering 16 vanilla foods. Loaded with `load_pack(..., foods=path)`; `mobs.json`
+is read from the pack root when present, and `mobs=` overrides it.
+
 ### `sources.json` (hand-written for vanilla; not produced by the dump)
+Mobs are listed here too, with `"where": "mob"`, e.g.
+`"minecraft:cow": {"where": "mob", "biomes": "grassland"}`.
 ```json
 {"schema": 1, "sources": {
   "minecraft:oak_log": {"where": "tree", "biomes": "temperate"},

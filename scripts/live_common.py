@@ -53,7 +53,10 @@ def call(bridge: Bridge, op: str, timeout: float = 15, **fields) -> dict:
 
     bridge.wait(lambda s: find() is not None, timeout=timeout)
     event = find()
-    return {"type": event["type"], **event["data"]}
+    data = event[
+        "data"
+    ]  # entity ops carry their own "type" (entity type); the event kind wins here
+    return {**data, "entity_type": data.get("type"), "type": event["type"]}
 
 
 def kit(bridge: Bridge, **fields) -> dict:

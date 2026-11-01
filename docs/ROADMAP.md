@@ -287,11 +287,11 @@ imports allowed there).
   - Current status per milestone, the code map, and every known gap with its
     planned fix (ids K1–K7, C1–C3, B1–B6, A1–A4, G0–G9, in waves 3–5) are in
     [BUILD_AND_GATHER_PLAN](BUILD_AND_GATHER_PLAN_2026-11-01.md) §7–§9.
-- Open Nov 1, for Marc ([BUILD_AND_GATHER_PLAN](BUILD_AND_GATHER_PLAN_2026-11-01.md)
-  §6 questions 5–6):
-  - May the bot shear sheep and kill passive animals for leather (gap G1;
-    touches item 13)?
-  - May it place its own storage chest at a build site (gap G5)?
+- Answered Nov 1 ([BUILD_AND_GATHER_PLAN](BUILD_AND_GATHER_PLAN_2026-11-01.md) §6):
+  - The bot may shear or kill animals and must eat cooked meat.
+  - It may craft and place chests; the operator may `/give` shulker boxes.
+  - Test runs start at sites with the needed resources nearby.
+  - Rule: real-world use, not artificial difficulty.
 - Carried from the direction doc: `race` profile block budgets; server view
   distance for parity runs (currently 4).
 

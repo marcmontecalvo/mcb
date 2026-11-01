@@ -1,13 +1,25 @@
 """Adapters for the local UI; existing runners and files remain authoritative."""
 
+import json
 import math
+import os
+import re
+import subprocess
+import sys
 from collections import Counter
 from statistics import median
 
+from mclab import companion_progress
 from mclab.dashboard_metrics import compare_data
 from mclab.paths import ROOT, read_json
 
 PROFILE_TYPES = ("awareness", "movement", "memory", "terrain")
+COMPANION_CHECKS = ("crafting", "placement", "animals", "containers")
+COMPANION_JOBS = (*COMPANION_CHECKS, "gather", "build")
+COORDINATE_LIMIT = 30_000_000
+SCHEMATIC_DIRS = ("tests/fixtures/schematics", "builds")
+BUILD_DIRS = (*SCHEMATIC_DIRS, "results/companion")
+KILL_GRACE_S = 120
 
 
 def project_file(relative):
@@ -93,6 +105,7 @@ def catalog():
             if b.get("enabled")
         ],
         "courses": read_json(ROOT / "courses/profiles.json")["courses"],
+        "companion": companion_catalog(),
         "config_files": [
             "config/lab.json",
             "courses/profiles.json",
@@ -101,6 +114,62 @@ def catalog():
             "config/initial_body_profile.json",
             "config/baselines.lock.json",
         ],
+    }
+
+
+def companion_files(suffix, directories):
+    """Project-relative files with this suffix; results/companion is one level deep."""
+    found = []
+    for directory in directories:
+        pattern = "*/*" if directory == "results/companion" else "*"
+        found += [p for p in (ROOT / directory).glob(pattern + suffix) if p.is_file()]
+    return sorted(p.relative_to(ROOT).as_posix() for p in found)
+
+
+def companion_catalog():
+    return {
+        "checks": [
+            name
+            for name in COMPANION_CHECKS
+            if (ROOT / "scripts" / script_name(name)).is_file()
+        ],
+        "builds": companion_files(".build.json", BUILD_DIRS),
+        "schematics": companion_files(".litematic", SCHEMATIC_DIRS),
+    }
+
+
+def companion_file(relative, suffix, directories, what):
+    """A file directly inside an allowed folder (resolved: no traversal or symlinks)."""
+    if not isinstance(relative, str) or not relative.endswith(suffix):
+        raise ValueError(f"Select a {what}")
+    path = (ROOT / relative).resolve()
+    root = ROOT.resolve()
+    flat = {(root / d).resolve() for d in directories if d != "results/companion"}
+    nested = (root / "results/companion").resolve()
+    in_nested = "results/companion" in directories and path.parent.parent == nested
+    if not path.is_file() or not (path.parent in flat or in_nested):
+        raise ValueError(f"Select an existing {what} from the list")
+    return path
+
+
+def convert_schematic(relative):
+    """mclab schematic convert, in-process: builds/<name>.build.json + material list."""
+    from mclab import schematic
+
+    source = companion_file(relative, ".litematic", SCHEMATIC_DIRS, "schematic")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", source.stem):
+        raise ValueError("Schematic file name has unsupported characters")
+    output = ROOT / "builds" / (source.stem + ".build.json")
+    output.parent.mkdir(exist_ok=True)
+    try:
+        built = schematic.convert(source, output)
+    except (OSError, ValueError, TypeError, KeyError, LookupError) as error:
+        raise ValueError(f"Conversion failed: {error}") from error
+    return {
+        "output": output.relative_to(ROOT).as_posix(),
+        "size": built["size"],
+        "materials": built["materials"],
+        "flags": built["flags"],
     }
 
 
@@ -245,11 +314,71 @@ def plan(request):
             jobs.append(
                 {"kind": kind, "backend": backend, "entrant": backend, "expected": 1}
             )
+    elif kind == "companion":
+        jobs.append(companion_job(request))
     else:
         raise ValueError("Unknown run type")
     if len(jobs) > 20:
         raise ValueError("Select at most 20 batches per session")
     return jobs
+
+
+def script_name(name):
+    if name == "gather":
+        return "run-gather.py"
+    return "run-build.py" if name == "build" else f"check-{name}.py"
+
+
+def companion_job(request):
+    name = request.get("job")
+    if name not in COMPANION_JOBS:
+        raise ValueError("Unknown companion job")
+    if not (ROOT / "scripts" / script_name(name)).is_file():
+        raise ValueError(f"scripts/{script_name(name)} does not exist yet")
+    job = {"kind": "companion", "companion": name, "entrant": name, "expected": 0}
+    args = []
+    if name in {"gather", "build"}:
+        start = request.get("start")
+        if not isinstance(start, list) or len(start) != 3:
+            raise ValueError("Enter start X Y Z")
+        job["start"] = [
+            integer(v, -COORDINATE_LIMIT, COORDINATE_LIMIT, "Start coordinate")
+            for v in start
+        ]
+        args += ["--start", *map(str, job["start"])]
+    if name == "gather":
+        iron = request.get("iron", False)
+        if type(iron) is not bool:
+            raise ValueError("Iron must be true or false")
+        job["iron"] = iron
+        args += ["--iron"] if iron else []
+        # The lab world is flat: gathering runs in a saved natural world.
+        seed = request.get("seed", 1337)
+        if seed is not None:
+            from mclab import natural
+
+            seed = integer(seed, -(2**63), 2**63 - 1, "Seed")
+            if not (natural.SNAPSHOTS / natural._level(seed) / "level.dat").is_file():
+                raise ValueError(f"No saved natural world for seed {seed}")
+            job["seed"] = seed
+            args += ["--seed", str(seed)]
+    if name == "build":
+        path = companion_file(request.get("build"), ".build.json", BUILD_DIRS, "build")
+        dx = integer(request.get("dx", 3), -1000, 1000, "dx")
+        dz = integer(request.get("dz", 2), -1000, 1000, "dz")
+        rotation = request.get("rotation", 0)
+        if type(rotation) is not int or rotation not in {0, 90, 180, 270}:
+            raise ValueError("Rotation must be 0, 90, 180 or 270")
+        job.update(
+            build=path.relative_to(ROOT.resolve()).as_posix(),
+            dx=dx,
+            dz=dz,
+            rotation=rotation,
+        )
+        args += ["--build", job["build"], "--dx", str(dx), "--dz", str(dz)]
+        args += ["--rotation", str(rotation)]
+    job["args"] = args
+    return job
 
 
 def selected_routes(value, route_ids):
@@ -269,6 +398,8 @@ def folder(job):
         return "natural"
     if job["kind"] == "models":
         return "model_execution"
+    if job["kind"] == "companion":
+        return "companion"
     return (
         "execution"
         if job["course"] == "C1"
@@ -297,6 +428,8 @@ def execute(job):
     """Pass original objects to original runners, including all admission checks."""
     if job["kind"] == "setup":
         return setup(job["operation"])
+    if job["kind"] == "companion":
+        return run_companion(job)
     if job["kind"] == "courses":
         if job["course"] == "C1":
             from mclab.execution import qualify_execution
@@ -351,6 +484,145 @@ def execute(job):
     )
 
 
+# Windows: Ctrl+Break reaches the script as KeyboardInterrupt so its finally
+# blocks despawn the body; elsewhere SIGINT does the same.
+_SHIM = (
+    "import os, runpy, signal, sys\n"
+    "sig = getattr(signal, 'SIGBREAK', signal.SIGINT)\n"
+    "signal.signal(sig, signal.default_int_handler)\n"
+    "script = sys.argv[1]\n"
+    "sys.argv = sys.argv[1:]\n"
+    "sys.path.insert(0, os.path.dirname(os.path.abspath(script)))\n"
+    "runpy.run_path(script, run_name='__main__')\n"
+)
+
+
+def stop_child(process):
+    """Ask the script to unwind (it despawns its body), then force after a grace."""
+    import signal
+
+    try:
+        process.send_signal(
+            signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGINT
+        )
+        process.wait(KILL_GRACE_S)
+    except (subprocess.TimeoutExpired, OSError):
+        process.kill()
+        process.wait()
+
+
+def companion_result_dir(job):
+    """Newest results/companion folder the job's start did not already see."""
+    seen = set(job.get("before", []))
+    found = [
+        p
+        for p in (ROOT / "results/companion").glob("*")
+        if p.is_dir() and p.relative_to(ROOT).as_posix() not in seen
+    ]
+    return max(found, key=lambda p: p.name, default=None)
+
+
+def run_companion(job):
+    """Run one companion script as a child process; its stdout is the session log."""
+    from mclab import server
+
+    if server.status()["state"] != "running":
+        raise RuntimeError("The lab server is not running; use Start lab first")
+    script = ROOT / "scripts" / script_name(job["companion"])
+    if not script.is_file():
+        raise RuntimeError(f"{script.name} not found")
+    flags = (
+        subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+        if os.name == "nt"
+        else 0
+    )
+    # Inherits the worker's stdout/stderr (console.log); -u keeps lines live.
+    # The script takes the arena lock itself, so the worker must not.
+    process = subprocess.Popen(
+        [sys.executable, "-u", "-c", _SHIM, str(script), *job["args"]],
+        cwd=ROOT,
+        stdin=subprocess.DEVNULL,
+        creationflags=flags,
+    )
+    try:
+        while True:
+            try:
+                code = process.wait(0.5)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+    except KeyboardInterrupt:
+        stop_child(process)
+        raise
+    folder = companion_result_dir(job)
+    if folder is not None and not (folder / companion_progress.JOB).exists():
+        companion_progress.write_job(folder, job["companion"])
+    if folder is None or not (folder / "summary.json").is_file():
+        return {"error": f"{script.name} exited with code {code} before summary.json"}
+    return {"status": "completed_companion", "returncode": code}
+
+
+def companion_live(folder, events=12):
+    """What a running companion job has produced so far (partial files tolerated)."""
+    live = {"folder": folder.relative_to(ROOT).as_posix()}
+    progress = companion_progress.read_progress(folder)
+    if progress:
+        live["progress"] = progress
+    cases = companion_progress.read_json_file(folder / "summary.json")
+    if isinstance(cases, list):
+        live["cases"] = [
+            {k: c.get(k) for k in ("case", "pass", "detail")}
+            for c in cases
+            if isinstance(c, dict)
+        ]
+    report = companion_progress.read_json_file(folder / "build.json")
+    if isinstance(report, dict):
+        live["report"] = {
+            "stop": report.get("stop"),
+            "steps": report.get("steps"),
+            "counts": report.get("counts"),
+            "skipped": len(report.get("skipped") or {}),
+            "final_diff": report.get("final_diff"),
+        }
+    live["events"] = companion_events(folder / "events.jsonl", events)
+    return live
+
+
+def companion_events(path, count):
+    """Last op results (X_done / X_failed / rejected) from a bounded tail."""
+    from mclab.dashboard import tail
+
+    rows = []
+    for line in tail(path, 400_000).splitlines():
+        try:
+            row = companion_event(json.loads(line))
+        except (ValueError, AttributeError, TypeError):
+            continue  # truncated first line or an in-progress append
+        if row:
+            rows.append(row)
+    return rows[-count:]
+
+
+def companion_event(event):
+    if event.get("type") != "server_event":
+        return None
+    payload = event["payload"]
+    kind = payload.get("type", "")
+    data = payload.get("data") or {}
+    if kind.endswith(("_done", "_failed")):
+        op, _, result = kind.rpartition("_")
+    elif kind.startswith("rejected"):
+        op, result = data.get("op", "?"), "rejected"
+    else:
+        return None
+    return {
+        "op": op,
+        "result": result,
+        "reason": data.get("reason"),
+        "tick": payload.get("tick"),
+    }
+
+
 def summary_paths():
     # Original suite/run layout; never recurse into archived executable sources.
     return sorted((ROOT / "results").glob("*/*/summary.json"))
@@ -358,6 +630,10 @@ def summary_paths():
 
 def result_rows(path, value):
     """Separate entrants in historical natural cohorts without altering evidence."""
+    if isinstance(value, list) and all(
+        isinstance(c, dict) and "case" in c and "pass" in c for c in value
+    ):
+        value = companion_summary(value, companion_progress.job_name(path.parent))
     if not isinstance(value, dict):
         raise ValueError("Run summary must be a JSON object")
     entrants = sorted(
@@ -382,6 +658,18 @@ def result_rows(path, value):
             for entrant in entrants
         ]
     return [result_row(path, value)]
+
+
+def companion_summary(cases, job=None):
+    """Companion scripts (check-*, run-*) write a plain list of cases."""
+    passed = all(c["pass"] for c in cases)
+    return {
+        "suite": "companion",
+        "controller": "mcb",
+        "course_id": job or "companion check",
+        "status": "passed" if passed else "failed",
+        "checks": [{**c, "status": "passed" if c["pass"] else "failed"} for c in cases],
+    }
 
 
 def outcomes(value):

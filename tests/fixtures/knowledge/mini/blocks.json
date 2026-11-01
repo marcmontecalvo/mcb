@@ -77,6 +77,17 @@
    "gravity": true,
    "needs_support": null,
    "properties": {}
+  },
+  "minecraft:gravel": {
+   "item": "minecraft:gravel",
+   "hardness": 0.6,
+   "needs_correct_tool": false,
+   "mineable": [
+    "shovel"
+   ],
+   "gravity": true,
+   "needs_support": null,
+   "properties": {}
   }
  }
 }

@@ -76,11 +76,27 @@ def _start() -> None:
     _wait_state({"running"}, 300)
 
 
+BACKUP = RUNTIME / "lab-server.properties.bak"
+
+
+def restore_lab() -> bool:
+    """Put back the lab properties a killed natural run left switched (server stopped
+    first). True when there was something to restore."""
+    if not BACKUP.exists():
+        return False
+    _stop()
+    PROPERTIES.write_text(BACKUP.read_text())
+    BACKUP.unlink()
+    return True
+
+
 @contextmanager
 def natural_world(seed: int, view_distance: int | None = None):
     """Point the stopped server at the natural world; always restore the lab world."""
     _stop()
+    restore_lab()  # a killed run cannot restore the lab itself: its backup outlives it
     original = PROPERTIES.read_text()
+    BACKUP.write_text(original)
     values = {
         "level-name": _level(seed),
         "level-type": "minecraft\\:normal",
@@ -94,6 +110,7 @@ def natural_world(seed: int, view_distance: int | None = None):
     finally:
         _stop()
         PROPERTIES.write_text(original)
+        BACKUP.unlink(missing_ok=True)
 
 
 def _bridge(path):

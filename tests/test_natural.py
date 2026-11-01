@@ -31,6 +31,7 @@ def test_view_distance_edit_and_restore(monkeypatch, tmp_path):
     original = "level-name=world\nview-distance=6\n"
     properties.write_text(original)
     monkeypatch.setattr(natural, "PROPERTIES", properties)
+    monkeypatch.setattr(natural, "BACKUP", tmp_path / "lab.bak")
     monkeypatch.setattr(natural, "_stop", lambda: None)
     with natural.natural_world(1337, 4):
         assert "view-distance=4" in properties.read_text()
@@ -192,3 +193,20 @@ def test_terrain_override_rejected_for_frozen_entrant_before_world_mutation(
     route = {"route_id": "R1", "start": [0, 80, 0], "goal": [0, 80, 100], "yaw": 0}
     with pytest.raises(ValueError, match="segmented_goal"):
         natural.run(1337, [route], terrain_policy=TerrainPolicy())
+
+
+def test_natural_world_restores_properties_left_switched_by_a_killed_run(
+    monkeypatch, tmp_path
+):
+    lab = "level-name=world\nlevel-seed=1\nlevel-type=minecraft:flat\n"
+    properties = tmp_path / "server.properties"
+    properties.write_text("level-name=natural-7\nlevel-seed=7\nlevel-type=x\n")
+    (tmp_path / "lab-server.properties.bak").write_text(lab)  # the dead run's backup
+    monkeypatch.setattr(natural, "PROPERTIES", properties)
+    monkeypatch.setattr(natural, "BACKUP", tmp_path / "lab-server.properties.bak")
+    monkeypatch.setattr(natural, "_stop", lambda: None)
+    with natural.natural_world(9):
+        assert "level-name=natural-9" in properties.read_text()
+        assert (tmp_path / "lab-server.properties.bak").read_text() == lab
+    assert properties.read_text() == lab
+    assert not (tmp_path / "lab-server.properties.bak").exists()

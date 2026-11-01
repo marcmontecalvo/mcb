@@ -351,6 +351,10 @@ def drive_native(client, controller, wall_timeout):
             terminal = _running(client, observation)
             if terminal is not None:
                 return terminal
+            # Companion goto: a controller may end the drive without ending the episode.
+            stop_reason = getattr(controller, "stop_reason", None)
+            if stop_reason is not None and (why := stop_reason(observation)):
+                return {"type": "navigation_stopped", "data": {"reason": why}}
             goal, tick = getattr(controller, "goal", None), observation.get("tick")
             # stall_seconds = 0 turns off both stall cutoffs (natural.py sets None).
             limit = getattr(controller, "goal_progress_ticks", GOAL_PROGRESS_TICKS)

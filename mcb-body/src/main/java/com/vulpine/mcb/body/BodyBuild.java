@@ -36,7 +36,23 @@ final class BodyBuild {
             Direction.SOUTH, Direction.WEST, Direction.UP);
 
     // ---- place_block
+    /** B7: placing is done while sneaking, so a use never opens the neighbour (table, chest, door). */
     static Map<String, Object> place(ServerPlayer player, JsonObject request) {
+        boolean sneaking = player.isShiftKeyDown();
+        player.setShiftKeyDown(true);
+        try { return placeSneaking(player, request); }
+        finally { player.setShiftKeyDown(sneaking); }
+    }
+
+    /** A5: the packet path's checks (spawn protection, mayInteract, build limits) before acting on a block. */
+    static void checkPermission(ServerPlayer player, BlockPos pos) {
+        var level = player.level();
+        if (pos.getY() > level.getMaxY() || pos.getY() < level.getMinY()) throw new BodyActions.Fail("protected");
+        if (level.getServer().isUnderSpawnProtection(level, pos, player) || !level.mayInteract(player, pos))
+            throw new BodyActions.Fail("protected");
+    }
+
+    private static Map<String, Object> placeSneaking(ServerPlayer player, JsonObject request) {
         BlockPos pos = pos(request);
         PlacementLogic.ParsedState target;
         try { target = PlacementLogic.parse(request.get("state").getAsString()); }
@@ -89,6 +105,7 @@ final class BodyBuild {
             throw new BodyActions.Fail("state_unreachable");
         }
         aim(player, chosenYaw, chosenPitch);
+        checkPermission(player, chosen.getBlockPos());
         player.gameMode.useItemOn(player, level, player.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND, chosen);
         if (player.containerMenu != player.inventoryMenu) player.closeContainer();
         String placed = render(level.getBlockState(pos));
@@ -150,6 +167,7 @@ final class BodyBuild {
         float yaw0 = player.getYRot(), pitch0 = player.getXRot();
         aim(player, (float) Math.toDegrees(Math.atan2(-(at.x - eye.x), at.z - eye.z)),
                 PlacementLogic.pitchTo(at.x - eye.x, at.y - eye.y, at.z - eye.z));
+        checkPermission(player, pos);
         var result = player.gameMode.useItemOn(player, level, player.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND, hit);
         if (player.containerMenu != player.inventoryMenu) player.closeContainer();
         if (!result.consumesAction()) { aim(player, yaw0, pitch0); throw new BodyActions.Fail("no_effect"); }

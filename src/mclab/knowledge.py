@@ -112,6 +112,15 @@ class Knowledge:
     sources: Mapping[str, Mapping[str, Any]]
     _by_result: Mapping[str, tuple[Recipe, ...]]
     transforms: tuple[Transform, ...] = ()
+    mobs: Mapping[str, Mapping[str, Any]] = MappingProxyType({})
+    foods: Mapping[str, Mapping[str, float]] = MappingProxyType({})
+
+    def mob_drops(self, entity: str) -> tuple[Drop, ...]:
+        """Drops of a mob killed by a player (mobs.json `killed_by_player`)."""
+        return tuple(
+            Drop(d["item"], d.get("min", 1), d.get("max", 1), d.get("chance", 1.0))
+            for d in (self.mobs.get(entity) or {}).get("killed_by_player", ())
+        )
 
     def recipes_for(self, item_id: str) -> tuple[Recipe, ...]:
         return self._by_result.get(item_id, ())
@@ -157,9 +166,12 @@ def load_pack(
     path: str | Path,
     sources: str | Path | None = None,
     transforms: str | Path | None = None,
+    foods: str | Path | None = None,
+    mobs: str | Path | None = None,
 ) -> Knowledge:
     """Load `knowledge/<pack_id>/`. `sources` overrides the pack's sources.json;
-    `transforms` is an optional hand-written transforms file."""
+    `transforms` is an optional hand-written transforms file; `foods` an optional
+    nutrition table; `mobs` overrides the pack's optional mobs.json (absent: none)."""
     root = Path(path)
     pack = _read(root / "pack.json")
     items = _read(root / "items.json")["items"]
@@ -205,4 +217,10 @@ def load_pack(
         sources=_freeze(src.get("sources", {})),
         _by_result=MappingProxyType({k: tuple(v) for k, v in by_result.items()}),
         transforms=_parse_transforms(transforms),
+        mobs=_freeze(
+            _read(
+                Path(mobs) if mobs else root / "mobs.json", required=mobs is not None
+            ).get("mobs", {})
+        ),
+        foods=_freeze(_read(Path(foods)).get("foods", {}) if foods else {}),
     )

@@ -21,6 +21,9 @@
   "#minecraft:coals": [
    "minecraft:coal",
    "minecraft:charcoal"
+  ],
+  "#minecraft:wool": [
+   "minecraft:white_wool"
   ]
  },
  "blocks": {

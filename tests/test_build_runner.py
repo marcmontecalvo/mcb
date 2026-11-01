@@ -5,6 +5,7 @@ from test_build_plan import (
     HOUSE,
     HOUSE_MATERIALS,
     flat_world,
+    make_build,
     real_house,
 )
 
@@ -93,6 +94,10 @@ class FakeBody:
         if not self._in_reach(pos):
             return br.Result(False, "out_of_reach")
         cur = self.w.get(pos, AIR)
+        if cur == "minecraft:dirt" and item and item.endswith(("_hoe", "_shovel")):
+            kind = "farmland" if item.endswith("_hoe") else "dirt_path"
+            self.w[pos] = "minecraft:" + kind
+            return br.Result(True)
         if cur == bp.POT and item and self.inv.get(item, 0) > 0:
             self.w[pos] = "minecraft:potted_" + item.removeprefix("minecraft:")
             self.inv[item] -= 1
@@ -235,3 +240,90 @@ def test_real_house_reaches_empty_diff(origin):
     assert bool(report.scaffolded) == (origin[1] > 0)
     assert all(body.w[p] in bp.AIR for p in report.scaffolded if p not in t.cells)
     assert report.used  # trapdoors opened, pots planted
+    assert not set(report.scaffolded) & {
+        p for p, s in t.cells.items() if s not in bp.AIR
+    }
+
+
+FARM = "minecraft:farmland[moisture=0]"
+
+
+def farm_template():
+    return bp.Template.from_build(make_build({(1, 0, 1): FARM}, (3, 1, 3)), (0, 0, 0))
+
+
+def test_farmland_is_dirt_then_a_hoe_use_and_the_hoe_is_a_need():
+    t = farm_template()
+    assert bp.tool_needs(t, {}) == {"minecraft:wooden_hoe": 1}
+    assert bp.tool_needs(t, {"minecraft:stone_hoe": 1}) == {}
+    body = FakeBody(
+        flat_world(), {"minecraft:dirt": 1, "minecraft:stone_hoe": 1}, BLOCKS
+    )
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done", report
+    assert body.w[(1, 0, 1)] == "minecraft:farmland"
+    assert report.placed == [(1, 0, 1)] and report.used == [(1, 0, 1)]
+
+
+def test_farmland_without_a_hoe_asks_for_one():
+    body = FakeBody(flat_world(), {"minecraft:dirt": 1}, BLOCKS)
+    report = br.run_build(farm_template(), body, BLOCKS)
+    assert report.stop == "need_materials"
+    assert report.needed == {"minecraft:wooden_hoe": 1}
+
+
+def test_scaffold_never_goes_into_template_cells():
+    w = flat_world()
+    world = lambda x, y, z: w.get((x, y, z))  # noqa: E731
+    reserved = {(1, y, 1) for y in range(3)}
+    assert bp._scaffold_pos((1, 3, 1), world, BLOCKS) == (1, 0, 1)
+    side = bp._scaffold_pos((1, 3, 1), world, BLOCKS, reserved, sideways=True)
+    assert side is not None and side not in reserved and side[1] == 0
+    assert bp._scaffold_pos((1, 3, 1), world, BLOCKS, reserved) is None
+
+
+def test_survey_walks_the_perimeter_and_reports_unknown_cells():
+    body, t = small_house_body()
+    report = br.run_build(t, body, BLOCKS, survey=True)
+    targets = {target for target, _ in body.stance_calls}
+    corners = {(0, 0, 0), (6, 0, 0), (0, 0, 6), (6, 0, 6)}
+    assert corners <= targets and report.surveyed == len(br.perimeter(t))
+    assert report.stop == "done" and report.unknown == []
+    short = FakeBody(flat_world(-2, 4), {k: 9 for k in BLOCKS}, BLOCKS)
+    cut = br.run_build(t, short, BLOCKS)
+    assert cut.unknown and cut.counts["unknown"] == len(cut.unknown)
+
+
+def test_survey_prefers_walk_to_when_the_body_has_it():
+    body, t = small_house_body()
+    walked = []
+    body.walk_to = lambda p, radius=1.5: walked.append(p) or True
+    br.run_build(t, body, BLOCKS, survey=True)
+    assert walked == br.perimeter(t) and not any(
+        c[0] in walked for c in body.stance_calls
+    )
+
+
+def test_small_house_fixture_builds_with_the_kit_of_its_material_list():
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).parent
+    build = json.loads(
+        (root / "fixtures/schematics/small-house.build.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    blocks = json.loads(
+        (root.parent / "knowledge/26.3-f7dba04d8b5b/blocks.json").read_text(
+            encoding="utf-8"
+        )
+    )["blocks"]
+    t = bp.Template.from_build(build, (2, 0, 2))
+    body = FakeBody(
+        flat_world(-2, 12), {**build["materials"], "minecraft:dirt": 20}, blocks
+    )
+    report = br.run_build(t, body, blocks, survey=True)
+    assert report.stop == "done" and report.skipped == {}, report
+    assert report.progress() == 1.0 and body.violations == []
+    assert report.used  # the trapdoor is opened

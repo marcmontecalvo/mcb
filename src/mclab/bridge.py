@@ -42,6 +42,10 @@ BODY_OPS = frozenset(
         "place_block",
         "use_block",
         "break_block",
+        "attack_entity",
+        "use_entity",
+        "eat",
+        "container",
     }
 )
 # Lab ops that act on the current body by name.

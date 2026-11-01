@@ -38,13 +38,64 @@ def control(operation: str, timeout: float = 3) -> dict:
         return json.load(response)
 
 
+def pid_alive(pid: int) -> bool:
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+    import ctypes
+
+    kernel = ctypes.windll.kernel32
+    kernel.OpenProcess.restype = ctypes.c_void_p
+    handle = kernel.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+    if not handle:
+        return False
+    code = ctypes.c_ulong()
+    ok = kernel.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code))
+    kernel.CloseHandle(ctypes.c_void_p(handle))
+    return bool(ok) and code.value == 259  # STILL_ACTIVE
+
+
 def status() -> dict:
     if not STATE.exists():
         return {"state": "stopped"}
     try:
         return control("status")
     except (OSError, ValueError, urllib.error.URLError):
+        try:
+            pid = read_json(STATE).get("pid")
+        except (OSError, ValueError):  # the supervisor removed it as we looked
+            return {"state": "stopped"}
+        if isinstance(pid, int) and not pid_alive(pid):
+            return {"state": "stopped", "detail": "supervisor process is gone"}
         return {"state": "unreachable", "detail": "Inspect runtime/server-console.log"}
+
+
+def _spawn_detached(output) -> subprocess.Popen:
+    """Start the supervisor outside the caller's process group and job, so killing
+    the script (Ctrl+C, TaskStop, a dashboard Kill) does not take the lab down."""
+    command = [sys.executable, "-m", "mclab.supervisor"]
+    options = {
+        "cwd": ROOT,
+        "stdin": subprocess.DEVNULL,
+        "stdout": output,
+        "stderr": output,
+    }
+    if os.name != "nt":
+        return subprocess.Popen(command, start_new_session=True, **options)
+    flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    try:  # leave a kill-on-close job when the job allows breakaway
+        return subprocess.Popen(
+            command,
+            creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB,
+            **options,
+        )
+    except OSError:
+        return subprocess.Popen(command, creationflags=flags, **options)
 
 
 def assert_stopped() -> None:
@@ -111,14 +162,8 @@ def _start(accept_eula: bool = False) -> dict:
     )
     logfile = RUNTIME / "supervisor.log"
     with logfile.open("ab") as output:
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "mclab.supervisor"],
-            cwd=ROOT,
-            stdin=subprocess.DEVNULL,
-            stdout=output,
-            stderr=output,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
+        proc = _spawn_detached(output)
+    write_json(STATE, {**read_json(STATE), "pid": proc.pid})
     for _ in range(100):
         current = status()
         if current["state"] in {"starting", "running"}:

@@ -80,6 +80,7 @@ public final class BodyRuntime implements AutoCloseable {
     private int reflexSequence;
     private boolean nativeMode;
     private BreakTask breakTask;
+    private BodyEntity.Task actionTask;
 
     public record Controls(String action_id, int observation_tick, int intended_apply_tick,
                            int expires_tick, int duration, double forward, double strafe,
@@ -237,6 +238,7 @@ public final class BodyRuntime implements AutoCloseable {
         }
         if (!tickReflex()) { tickRoute(); tickStep(); tickGap(); }
         tickBreak();
+        tickAction();
         tickPlans();
     }
 
@@ -323,6 +325,12 @@ public final class BodyRuntime implements AutoCloseable {
     }
 
     private void cancelRoute(String reason) {
+        if (actionTask != null) {
+            var task = actionTask;
+            actionTask = null;
+            if (body != null && body.player() != null) task.stop(body.player());
+            emit(task.name() + "_failed", "fabric_start", Map.of("request_sequence", task.requestSequence(), "reason", "cancelled:" + reason));
+        }
         if (breakTask != null) {
             emit("break_block_failed", "fabric_start", Map.of("request_sequence", breakTask.requestSequence,
                     "reason", "cancelled:" + reason));
@@ -483,7 +491,7 @@ public final class BodyRuntime implements AutoCloseable {
             if (!op.equals("controls")) throw new IllegalArgumentException("controls_endpoint_only");
             if (nativeMode || (routeMotor != null && routeMotor.active()) || (stepMotor != null && stepMotor.active())
                     || (gapMotor != null && gapMotor.active()) || (reflexMotor != null && reflexMotor.active())
-                    || breakTask != null)
+                    || breakTask != null || actionTask != null)
                 throw new IllegalArgumentException("route_active");
             var controls = GSON.fromJson(request.getAsJsonObject("controls"), Controls.class);
             validateControls(controls);
@@ -553,6 +561,10 @@ public final class BodyRuntime implements AutoCloseable {
             case "place_block" -> bodyAction("place_block", sequence, player -> { requireFree(); return BodyBuild.place(player, request); });
             case "use_block" -> bodyAction("use_block", sequence, player -> { requireFree(); return BodyBuild.use(player, request); });
             case "break_block" -> startBreak(request, sequence);
+            case "attack_entity" -> startAction("attack_entity", sequence, player -> BodyEntity.AttackTask.start(player, request, sequence));
+            case "eat" -> startAction("eat", sequence, player -> BodyEntity.EatTask.start(player, request, sequence));
+            case "use_entity" -> bodyAction("use_entity", sequence, player -> { requireFree(); return BodyEntity.use(player, request); });
+            case "container" -> bodyAction("container", sequence, player -> { requireFree(); return BodyContainer.run(player, request); });
             case "cancel_route" -> {
                 cancelRoute("explicit");
                 body.release(); expiryTick = -1;
@@ -596,7 +608,7 @@ public final class BodyRuntime implements AutoCloseable {
     private void dumpKnowledge(JsonObject request, long sequence) {
         try {
             var root = KnowledgeDump.resolveRoot(request.get("dir").getAsString());
-            var result = new LinkedHashMap<String, Object>(new KnowledgeDump(server).run(root));
+            var result = new LinkedHashMap<String, Object>(new KnowledgeDump(server, body == null ? null : body.player()).run(root));
             result.put("request_sequence", sequence);
             emit("knowledge_dumped", "fabric_start", result);
         } catch (Exception error) {
@@ -628,14 +640,51 @@ public final class BodyRuntime implements AutoCloseable {
         emit(name + "_failed", "fabric_start", data);
     }
 
+    /** nativeMode alone (a finished route) does not block body actions; only a running motor does. */
     private boolean routeActive() {
-        return nativeMode || (routeMotor != null && routeMotor.active()) || (stepMotor != null && stepMotor.active())
+        return (routeMotor != null && routeMotor.active()) || (stepMotor != null && stepMotor.active())
                 || (gapMotor != null && gapMotor.active()) || (reflexMotor != null && reflexMotor.active());
     }
 
     private void requireFree() {
         if (routeActive()) throw new BodyActions.Fail("route_active");
-        if (breakTask != null) throw new BodyActions.Fail("busy");
+        if (breakTask != null || actionTask != null) throw new BodyActions.Fail("busy");
+    }
+
+    private void startAction(String name, long sequence, java.util.function.Function<ServerPlayer, BodyEntity.Task> starter) {
+        try {
+            if (!readyState.equals("ready") || body.player() == null) throw new BodyActions.Fail("body_not_ready");
+            requireFree();
+            actionTask = starter.apply(body.player());
+        } catch (RuntimeException error) {
+            emitFailed(name, sequence, error);
+        }
+    }
+
+    /** Ticks attack_entity / eat: the task acts on the player each tick and reports done or a reason. */
+    private void tickAction() {
+        if (actionTask == null) return;
+        var task = actionTask;
+        var player = body == null ? null : body.player();
+        if (player == null || !player.isAlive() || !readyState.equals("ready")) {
+            actionTask = null;
+            emit(task.name() + "_failed", "fabric_start", Map.of("request_sequence", task.requestSequence(), "reason", "body_not_ready"));
+            return;
+        }
+        String outcome = task.step(player);
+        if (outcome == null) return;
+        actionTask = null;
+        if (!outcome.equals("done")) task.stop(player);
+        var data = new LinkedHashMap<String, Object>();
+        data.put("request_sequence", task.requestSequence());
+        data.put("inventory", body.observe().get("inventory"));
+        if (outcome.equals("done")) {
+            data.putAll(task.result(player));
+            emit(task.name() + "_done", "fabric_start", data);
+        } else {
+            data.put("reason", outcome);
+            emit(task.name() + "_failed", "fabric_start", data);
+        }
     }
 
     private void startBreak(JsonObject request, long sequence) {

@@ -57,6 +57,18 @@ public final class KnowledgeLogicTest {
         var broken = KnowledgeLogic.recipe("x:y", json("{\"type\":\"minecraft:smelting\"}"));
         check(broken.get("station").isJsonNull() && broken.has("raw"), "malformed recipe kept raw");
 
+        var dye = KnowledgeLogic.recipe("minecraft:leather_boots_dyed", json("""
+            {"type":"minecraft:crafting_dye","target":"minecraft:leather_boots","dye":"#minecraft:dyes","result":{"id":"minecraft:leather_boots"}}"""));
+        check(dye.get("station").getAsString().equals("inventory") && dye.getAsJsonArray("ingredients").size() == 2, "dye recipe parsed");
+        var transmute = KnowledgeLogic.recipe("minecraft:black_bundle", json("""
+            {"type":"minecraft:crafting_transmute","input":"#minecraft:bundles","material":"minecraft:black_dye","result":{"id":"minecraft:black_bundle"}}"""));
+        check(transmute.get("station").getAsString().equals("inventory") && transmute.get("result").getAsJsonObject().get("item").getAsString().equals("minecraft:black_bundle"), "transmute parsed");
+
+        var rolls = List.of(java.util.Map.of("a", 1, "b", 2), java.util.Map.of("a", 3), java.util.Map.of("a", 2, "b", 1), java.util.Map.of("a", 1));
+        check(KnowledgeLogic.varies(rolls) && !KnowledgeLogic.varies(List.of(java.util.Map.of("a", 1), java.util.Map.of("a", 1))), "varies");
+        var summary = KnowledgeLogic.summarize(rolls);
+        check(summary.toString().equals("[{\"item\":\"a\",\"min\":1,\"max\":3},{\"item\":\"b\",\"min\":1,\"max\":2,\"chance\":0.5}]"), "summary " + summary);
+
         System.out.println("KnowledgeLogic: " + checks + " checks passed");
     }
 }

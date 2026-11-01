@@ -93,3 +93,34 @@ def test_transforms_load_and_default_to_empty():
         "till_farmland",
         "flatten_dirt_path",
     }
+
+
+def test_mobs_json_is_loaded_when_present():
+    k = load_pack(MINI)
+
+    assert k.mobs[M + "cow"]["passive"] is True
+    assert [(d.item, d.chance) for d in k.mob_drops(M + "cow")] == [
+        (M + "beef", 1.0),
+        (M + "leather", 0.6),
+    ]
+    assert k.mobs[M + "sheep"]["interactions"][0]["item"] == M + "shears"
+
+
+def test_a_pack_without_mobs_json_loads_with_no_mobs(tmp_path):
+    root = tmp_path / "pack"
+    shutil.copytree(MINI, root)
+    (root / "mobs.json").unlink()
+
+    k = load_pack(root)
+
+    assert dict(k.mobs) == {}
+    assert k.mob_drops(M + "cow") == ()
+
+
+def test_foods_table_is_loaded_when_given():
+    foods = Path(__file__).parents[1] / "knowledge" / "sources" / "foods-26.3.json"
+
+    k = load_pack(MINI, foods=foods)
+
+    assert k.foods[M + "cooked_beef"]["nutrition"] == 8
+    assert dict(load_pack(MINI).foods) == {}

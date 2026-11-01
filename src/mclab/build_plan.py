@@ -40,6 +40,10 @@ REPLACEABLE = (
     )
 )
 POT = "minecraft:flower_pot"
+# Cells with no item: place dirt, then Use a tool of this kind ("#kind" is resolved
+# against the inventory in next_actions) on it (B2).
+TOOL_USES = {"minecraft:farmland": "#hoe", "minecraft:dirt_path": "#shovel"}
+TOOL_BASES = frozenset({"minecraft:dirt", "minecraft:grass_block"})
 SCAFFOLD_ITEMS = ("minecraft:dirt", "minecraft:cobblestone", "minecraft:netherrack")
 MAX_SCAFFOLD_DEPTH = 64
 
@@ -59,6 +63,7 @@ DEFAULT_IGNORE = (
             }
         ),
     ),
+    ("farmland", frozenset({"moisture"})),
     ("_stairs", frozenset({"shape"})),
     ("_fence", _SIDES),
     ("_wall", _SIDES | {"up"}),
@@ -205,6 +210,8 @@ def _use_item(target: str, current: str, ignore) -> tuple[bool, str | None]:
     """(a Use fixes it, item to hold): a door to toggle, a pot waiting for its plant."""
     tid, tp = parse_state(target)
     cid, cp = parse_state(current)
+    if tid in TOOL_USES and cid in TOOL_BASES:
+        return True, TOOL_USES[tid]
     if tid.startswith("minecraft:potted_") and cid == POT:
         plant = [i for i in state_materials(target)[0] if i != POT]
         return bool(plant), (plant[0] if plant else None)
@@ -397,18 +404,59 @@ def _gate(pos: Pos, state: str, world, blocks: dict) -> str | None:
     return None
 
 
-def _scaffold_pos(pos: Pos, world, blocks: dict) -> Pos | None:
-    """Lowest empty cell of the column under pos that rests on solid ground."""
-    x, y, z = pos
-    cur = y - 1
+def _column_scaffold(x: int, z: int, top: int, world, blocks: dict, reserved):
+    """Lowest empty cell of the column up to ``top`` that rests on solid ground;
+    None if the column up to ``top`` touches a reserved (template) cell (B3)."""
+    cur = top
     for _ in range(MAX_SCAFFOLD_DEPTH):
         cell = world(x, cur, z)
         if cell is None:
             return None
         if _is_solid(cell, blocks):
-            return (x, cur + 1, z) if cur + 1 < y else None
+            low = cur + 1
+            if low > top or any((x, y, z) in reserved for y in range(low, top + 1)):
+                return None
+            return (x, low, z)
         cur -= 1
     return None
+
+
+def _scaffold_pos(
+    pos: Pos, world, blocks: dict, reserved=frozenset(), sideways: bool = False
+) -> Pos | None:
+    """Scaffold cell for pos: its own column, or (sideways, for a floating cell) a
+    horizontal neighbour's column, never inside ``reserved`` template cells."""
+    x, y, z = pos
+    found = _column_scaffold(x, z, y - 1, world, blocks, reserved)
+    if found or not sideways:
+        return found
+    for dx, _, dz in (_VEC[d] for d in _CW):
+        found = _column_scaffold(x + dx, z + dz, y, world, blocks, reserved)
+        if found:
+            return found
+    return None
+
+
+def _held_tool(inventory: dict[str, int], kind: str) -> str | None:
+    return next(
+        (i for i, n in sorted(inventory.items()) if n > 0 and i.endswith("_" + kind)),
+        None,
+    )
+
+
+def tool_needs(template: Template, inventory: dict[str, int]) -> dict[str, int]:
+    """Tools the template's no-item cells need (a hoe for farmland, a shovel for
+    paths) that the inventory lacks; the cheapest (wooden) tool stands for any."""
+    kinds = {
+        TOOL_USES[parse_state(s)[0]][1:]
+        for s in template.cells.values()
+        if parse_state(s)[0] in TOOL_USES
+    }
+    return {
+        f"minecraft:wooden_{k}": 1
+        for k in sorted(kinds)
+        if not _held_tool(inventory, k)
+    }
 
 
 def _place_state(state: str) -> str:
@@ -416,6 +464,8 @@ def _place_state(state: str) -> str:
     ident, props = parse_state(state)
     if ident.startswith("minecraft:potted_"):
         return POT
+    if ident in TOOL_USES:
+        return "minecraft:dirt"
     if props.get("open") == "true" and props.get("half") != "upper":
         return format_state(ident, {**props, "open": "false"})
     return state
@@ -444,7 +494,19 @@ def next_actions(
         return [Break(p) for p in breaks[:limit]]
     if d.uses:
         uses = sorted(d.uses, key=lambda u: (u[0][1], u[0][0], u[0][2]))
-        return [Use(p, item) for p, item in uses[:limit]]
+        acts: list = []
+        missing: dict[str, int] = {}
+        for p, item in uses[:limit]:
+            if item and item.startswith("#"):
+                held = _held_tool(inventory, item[1:])
+                if held is None:
+                    missing[f"minecraft:wooden_{item[1:]}"] = 1
+                    continue
+                item = held
+            acts.append(Use(p, item))
+        if acts:
+            return acts
+        return [NeedMaterials(missing)]
 
     todo = []
     for pos, state in d.places:
@@ -473,6 +535,13 @@ def next_actions(
     remaining = Counter()
     for _, _, cost, _ in todo:
         remaining.update(cost)
+    for _, state in d.places:
+        tool = TOOL_USES.get(parse_state(state)[0])
+        if tool and not _held_tool(inventory, tool[1:]):
+            remaining[f"minecraft:wooden_{tool[1:]}"] = 1
+    reserved = frozenset(
+        p for p, s in template.cells.items() if parse_state(s)[0] not in AIR
+    )
     if any(n > inventory.get(item, 0) for item, n in remaining.items()):
         return [NeedMaterials(dict(remaining))]
 
@@ -482,7 +551,7 @@ def next_actions(
         if reason == "below" and _add(pos, _VEC["down"]) in pending:
             continue
         if reason in ("floating", "below"):
-            cell = _scaffold_pos(pos, world, blocks)
+            cell = _scaffold_pos(pos, world, blocks, reserved, reason == "floating")
             if cell is None:
                 continue
             item = next(

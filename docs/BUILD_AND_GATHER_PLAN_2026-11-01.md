@@ -237,13 +237,22 @@ Create raises two further needs, both later:
    they face, or at given x y z with rotation.
 4. **Shared chests.** Should the bot take materials from chests the players
    name? That would make M5 much faster in real play.
-5. New (Nov 1), needed for gap G1: may the bot kill passive animals (cows for
-   leather) and shear sheep? Shearing needs no combat; killing cows needs a
-   minimal `attack_entity`, which touches the open combat question (roadmap
-   item 13).
-6. New (Nov 1), needed for gap G5: for big builds (the house needs about 600 logs
-   and 106 iron ore), may the bot place its own storage chest at the build
-   site? Proposal: yes, one chest per build, removed at the end if Marc wants.
+5. Answered Nov 1 (Marc): **yes.** The bot may shear or kill sheep, cows and
+   other animals as needed. It must also eat: kill animals and cook the meat
+   (F1).
+6. Answered Nov 1 (Marc): **yes.** It may craft and place chests for storage.
+   Shulker boxes are supplied by the test harness, not by Marc by hand: either
+   in the starting kit, or in a supply chest the lab spawns near the
+   construction site. The purpose is to make collecting and storing blocks easy,
+   so the tests measure building and gathering.
+
+**Rule for all of this work (Marc, Nov 1):** the goal is real-world use, not
+making things hard for the bot. Test runs start somewhere with the resources the
+build needs nearby: the right wood types, stone, animals (S1). A run that
+shows the bot walking 5,000 blocks to find a tree is pointless. Operator grants of
+containers are allowed: the lab places a supply chest with shulker boxes at the
+build site, or puts them in the kit. The body itself still never creates items
+(D9).
 
 ## 7. Implementation status (Nov 1, 2026)
 
@@ -299,7 +308,7 @@ proposed order: wave 3 makes M2–M4 run live, wave 4 is M5, and wave 5 is M6.
 | K4 | 361 recipes of types we don't handle; `crafting_dye` (6) and `crafting_transmute` (33) matter for vanilla dyeing and recolouring | Parse both in `KnowledgeLogic.recipe` (input + dye → output); keep `brewing` and the special crafting types raw | 3 |
 | K5 | 20 rolls give noisy min/max/chance for rare drops (flint, saplings, apples) | 200 rolls for blocks whose first 20 rolls vary; the dump is fast enough | 3 |
 | K6 | No coverage report file yet (only counts in the event) | Write `coverage.json`: recipe types with counts and handled flag, and items unreachable with current handlers (run the planner over every item) | 5 |
-| K7 | Entity loot tables not dumped (needed for G1) | Add `mobs.json`: per entity, drops when killed by a player (rolled like blocks) and shear/milk results | 4 |
+| K7 | Entity loot tables not dumped (needed for G1) | Add `mobs.json`: per entity, drops when killed by a player (rolled like blocks) and shear/milk results | 3 |
 
 ### Converter (M1)
 
@@ -330,18 +339,20 @@ proposed order: wave 3 makes M2–M4 run live, wave 4 is M5, and wave 5 is M6.
 | A5 | Placement skips spawn-protection and `mayInteract` checks | Call the same permission checks the packet path uses before acting; matters on the play server, not the lab | 3 |
 | A2 | Body mod changed | Rerun qualification (roadmap item 11 procedure) before any scored navigation run | 3 |
 | A3 | Observed inventory has no tool damage, so the planner assumes held tools are new | Add `damage` and `max_damage` per stack to `observe()`; the planner uses remaining uses | 3 |
-| A4 | No chest ops (needed for G5 and §6 question 4) | `chest` op: `deposit` / `withdraw` with legal menu clicks, same pattern as `furnace` | 4 |
+| A4 | No chest ops (needed for G5 and §6 question 4) | `chest` op: `deposit` / `withdraw` with legal menu clicks, same pattern as `furnace`; also shulker boxes | 3 |
 
 ### Gathering (M4)
 
 | Id | Gap | Planned fix | Wave |
 |---|---|---|---|
 | G0 | **Executor not written** | `src/mclab/gather_runner.py`, same shape as `build_runner` (protocol + fake + real adapter):<br>• `Gather`: find the nearest known block in map memory, else explore by `where`; `goto_stance` and `break_block`; walk over the drops<br>• `Craft` / `Smelt` / `Equip`: the body ops<br>• `PlaceStation`: `place_block` on a free spot near the work, recorded in map memory<br>• `Transform`: place the log, `use_block` with the axe, `break_block`<br>• Re-plan from the observed inventory after every task and on any failure | 3 |
-| G1 | Mob drops (leather, wool, string, feather) unreachable, so bed and bookshelf can't be made | Sources of kind `mob` from K7. New tasks `Shear(entity)` (no combat) and `Hunt(entity, count)` (needs `attack_entity`). Wool by shearing first. Needs §6 question 5 | 4 |
+| G1 | Mob drops (leather, wool, string, feather) unreachable, so bed and bookshelf can't be made | Sources of kind `mob` from K7. New tasks `Shear(entity)` (shears on a sheep) and `Hunt(entity, count)` (body op `attack_entity` on passive animals; collect drops). Wool by shearing first. Approved by Marc (§6 question 5) | 3 |
+| F1 | No eating; long gather and build jobs will starve the bot | Body op `eat` (hold use on a food item until eaten). A hunger rule in the executors: eat when food ≤ 14 and food is held; if none, add a `Hunt` of the nearest food animal plus `Smelt` of the raw meat to the plan (cooked meat restores more). Food counts as a planner target alongside materials | 3 |
+| S1 | A test start may be far from the needed resources | Lab site finder. Given a material list, take the needed raw sources (log types, stone, ores, animals). For each candidate start, use `/locate biome` for the needed biomes, load the area and count logs per wood type, exposed stone and passive animals in a 96-block radius, then pick the best site. Fixed seeds plus chosen sites are recorded in the ledger so runs are reproducible | 4 |
 | G2 | Tool tiers are not optimised across block types (the house plan uses 4 wooden pickaxes because the stone pickaxe is "already needed for iron") | A tool-progression pass after expansion: total the mining work per tool kind, choose the tier sequence (wood → stone → iron) with the lowest total cost, and move gathers that a later tier does faster after that upgrade | 3 |
 | G3 | Upgrades only for the same tool kind and only from the gathered material | Covered by G2: the tool sequence is chosen globally, from any material in the plan | 3 |
 | G4 | Chance-based drops are planned at their expected value | Plan for `ceil(count / chance)` plus one, and re-plan after gathering (the planner is already stateless); `check_order` uses the minimum yield | 3 |
-| G5 | No inventory limit; the house needs about 600 logs and 106 iron ore | Inventory model from `items.json` stack sizes (36 slots). Split the plan into trips that fit and deposit into a storage chest at the build site (A4). The executor deposits when fewer than 4 slots are free. Needs §6 question 6 | 4 |
+| G5 | No inventory limit; the house needs about 600 logs and 106 iron ore | Inventory model from `items.json` stack sizes (36 slots). Split the plan into trips that fit and deposit into a storage chest at the build site (A4). The bot crafts and places the chests itself. The executor deposits when fewer than 4 slots are free. In tests the lab supplies shulker boxes (kit, or a supply chest at the site); they count as portable storage (a placeable container whose contents travel). Approved by Marc (§6 question 6) | 3 |
 | G6 | `check_order` does not simulate tool wear | Simulate durability per tool (one use per block; `max_damage` from the pack, current damage from A3) | 3 |
 | G7 | Sources' `y` and `biomes` hints are not used for cost or search | Executor: prefer blocks in map memory; for ores, branch-mine at the best `y` from `sources.json`. Planner: search cost scales with distance to the nearest known block | 4 |
 | G8 | Recipe remainders (bucket returned, bottles) not modelled | Read the remainder item from the recipe JSON (K4 parse) and credit it back | 4 |

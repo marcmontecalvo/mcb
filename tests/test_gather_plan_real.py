@@ -1,14 +1,20 @@
 """Gathering planner against the real vanilla pack dumped from the game."""
 
+import dataclasses
 import json
 import math
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 from mclab.gather_plan import (
     Craft,
     Equip,
     Gather,
+    Hunt,
+    PlaceContainer,
+    Shear,
     Smelt,
     Transform,
     check_order,
@@ -24,7 +30,22 @@ K = load_pack(
     PACK,
     sources=ROOT / "knowledge" / "sources" / "vanilla-26.3.json",
     transforms=ROOT / "knowledge" / "transforms" / "vanilla-26.3.json",
+    foods=ROOT / "knowledge" / "sources" / "foods-26.3.json",
 )
+REAL_MOBS = PACK / "mobs.json"
+# Until the Java re-dump lands, the contract-shaped vanilla mobs fixture stands in.
+K_MOBS = (
+    K
+    if REAL_MOBS.is_file()
+    else load_pack(
+        PACK,
+        sources=ROOT / "knowledge" / "sources" / "vanilla-26.3.json",
+        transforms=ROOT / "knowledge" / "transforms" / "vanilla-26.3.json",
+        foods=ROOT / "knowledge" / "sources" / "foods-26.3.json",
+        mobs=ROOT / "tests" / "fixtures" / "knowledge" / "vanilla-mobs.json",
+    )
+)
+K_NO_MOBS = dataclasses.replace(K, mobs={})
 M = "minecraft:"
 MOB_DROP_ITEMS = {
     M + "bookshelf",
@@ -44,9 +65,12 @@ def _idx(result, pred):
     return next(i for i, t in enumerate(result.tasks) if pred(t))
 
 
-def _planned(targets, inventory=None, **kw):
-    r = plan(targets, inventory or {}, K, **kw)
-    assert check_order(r.tasks, inventory or {}, K, kw.get("stations")) == []
+def _planned(targets, inventory=None, k=K_NO_MOBS, **kw):
+    r = plan(targets, inventory or {}, k, **kw)
+    problems = check_order(
+        r.tasks, inventory or {}, k, kw.get("stations"), kw.get("storage")
+    )
+    assert problems == []
     return r
 
 
@@ -107,7 +131,8 @@ def test_two_hundred_cobblestone_upgrades_to_stone_pickaxes():
     mined = sum(t.count for t in _of(r, Gather) if t.item == M + "cobblestone")
     assert mined >= 200 + 3
     first = next(t for t in _of(r, Gather) if t.item == M + "cobblestone")
-    assert first.count == 3
+    stone_picks = crafts[M + "stone_pickaxe"]
+    assert first.count == 3 * stone_picks  # mined with the wooden pickaxe
 
 
 def test_oak_is_preferred_by_default_and_known_blocks_override():
@@ -165,16 +190,39 @@ def test_stone_pickaxe_from_nothing_real_pack():
     assert len(r.tasks) <= 12
 
 
-def test_house_material_list_plans_with_only_mob_drops_missing():
+def _house():
     schem = load_litematic(
         ROOT / "tests" / "fixtures" / "schematics" / "house-154fc7cd.litematic"
     )
     blocks = json.loads((PACK / "blocks.json").read_text(encoding="utf-8"))
-    materials, _flags = material_list(schem, blocks)
+    return dict(material_list(schem, blocks)[0])
 
-    r = _planned(dict(materials))
 
-    print("\n" + summarize(r))
+def test_house_without_mob_data_reports_only_mob_drops_missing():
+    r = _planned(_house())
+
     assert {m.item for m in r.missing} <= MOB_DROP_ITEMS
     assert {m.reason for m in r.missing} == {"needs mob drop"}
     assert len(r.tasks) < 150
+
+
+def test_house_plans_fully_with_shearing_hunting_tools_and_storage():
+    r = _planned(_house(), k=K_MOBS)
+
+    print(summarize(r))
+    assert r.ok
+    assert len(r.tasks) < 150
+    assert {t.entity_type for t in _of(r, Shear)} == {M + "sheep"}
+    assert {t.entity_type for t in _of(r, Hunt)} == {M + "cow"}
+    assert _of(r, PlaceContainer)
+    wooden = sum(t.times for t in _of(r, Craft) if t.result == M + "wooden_pickaxe")
+    assert wooden == 1
+    assert not any(t.result == M + "diamond_axe" for t in _of(r, Craft))
+    assert r.stored
+
+
+@pytest.mark.skipif(not REAL_MOBS.is_file(), reason="pack has no mobs.json yet")
+def test_real_pack_mobs_give_leather_and_wool():
+    r = _planned({M + "leather": 3, M + "white_wool": 3}, k=K_MOBS)
+
+    assert _of(r, Hunt) and _of(r, Shear)
