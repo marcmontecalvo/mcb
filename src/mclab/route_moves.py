@@ -148,6 +148,10 @@ def prepare_pillar_edge(
 
 def surface_water(cells, node):
     """The water cell under a still or flowing surface stance, or None."""
+    # Both stances need water below; one lookup rules out land (ROADMAP item 6).
+    below = cells.get((node[0], node[1] - 1, node[2]))
+    if below is None or below.get("fluid") != "minecraft:water":
+        return None
     if water.surface_node(cells, node) or flowing_surface(cells, node):
         return cells.get((node[0], node[1] - 1, node[2]))
     return None
@@ -217,17 +221,16 @@ def _landings(s, cells, node, dx, dz):
     x, y, z = node
     for height in range(1, LANDING_MAX + 1):
         target = (x + dx, y - height, z + dz)
+        cell = cells.get(target)
+        # A solid or unknown body cell is never a landing stance (ROADMAP item 6).
+        if cell is None or cell.get("collision_boxes"):
+            return
         if (node, target) not in s.excluded and water.water_landing(
             cells, node, target, LANDING_MAX
         ):
             cost = rs.WALK_OFF + rs.fall_ticks(height) if s.ticks else 1 + 0.4 * height
             yield target, cost, None
-        cell = cells.get(target)
-        if (
-            cell is None
-            or cell.get("collision_boxes")
-            or cell.get("fluid", "minecraft:empty") != "minecraft:empty"
-        ):
+        if cell.get("fluid", "minecraft:empty") != "minecraft:empty":
             return
 
 

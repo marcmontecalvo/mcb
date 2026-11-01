@@ -109,9 +109,14 @@ dependencies, except where noted.
 
 **Speed**
 
-6. **Planner speed on the live grid view.** Offline, a grid view with swimming on
-   ran at ~1.7k nodes/s against ~5k nodes/s for a plain dict with swimming off.
-   The two variables are not yet separated; profile before fixing.
+6. Done Oct 31 (planner speed on the grid view). Separated on the cohort 25 R3
+   map, an 8,202-node search from the start, best of 7: grid with swimming 3,836
+   nodes/s, grid without 4,475, plain dict with 4,512, dict without 4,563. Both
+   costs were 10–20%, not 3×. Fixed: `GridView.get` converts whole-number float
+   heights inline (a third of lookups went through `_locate`), and swim checks
+   rule out land with one lookup (`surface_water`, `_landings`). Now 4,184 / 5,244
+   (grid with / without swimming), +9% / +17%; replayed routes unchanged. What is
+   left is per-node interpreter cost: items 7 and 8.
 7. **Search outside the controller's interpreter lock.** Control, map admission and
    search share one Python process: live search runs at about half the offline
    speed. A separate process with a shared grid is the cheap step.
@@ -139,9 +144,17 @@ dependencies, except where noted.
 13. **Survival weights and Jev profiles, Phase 6** (`race`, `safe`, `frugal`,
     `hunt`, `escort`), based on `config/weights/baritone-v1.20.0.json`.
 14. **Interaction goals, Phase 3** ("reach block X"): small and independent.
-15. **Movement leftovers:** flowing-water push, ladder facing, a cost for using up
-    blocks on long causeways, the placement-aim stall from an off-centre stance,
-    and the 0.01 edging-bend margin (R5's lake route choice is item 1).
+15. Closed Oct 31 (movement leftovers), each on evidence:
+    - 0.01 edging-bend margin: fixed by sweeping on the exact bearing (cohort 26,
+      no motor stops in 10 attempts).
+    - Causeway block cost: `placement_penalty` (4 per place) plus the escalating
+      edit-chain cost (cohort 9) already price it; no long causeway since cohort 12.
+    - Placement-aim stall from an off-centre stance: seen once (cohort 12a R2) and
+      not in cohorts 13–26. Reopen with the attempt if it recurs.
+    - Ladder facing: vanilla climbs any ladder while jump is held, and the motor
+      holds jump; the wall side is blocked by the wall itself. No change.
+    - Flowing-water push: native routes are cut before flowing water, so push
+      cannot mislead the motor. Model it when a route needs to cross a current.
 16. **Live fixture cohorts** for swimming and ladders (10 cases each,
     [SPRINT_ACCEPTANCE.json](SPRINT_ACCEPTANCE.json)). The code exists; the
     acceptance runs do not.
@@ -151,10 +164,9 @@ longer needs them; commit or push `main` (`origin/main` is behind).
 
 ## Open questions for Marc
 
-- Baritone's settings for the frozen comparison. MCB has parkour, swimming and
-  section awareness; Baritone runs with its defaults (parkour off).
-- Whether to start the compiled planner core (item 8) now or after items 6–7.
-- Whether to commit the Oct 31 work (cohorts 16–20 code and docs) to `main`.
+- Answered Oct 31: the frozen comparison runs Baritone with moves matched to
+  MCB's (parkour on), which needs a new Baritone baseline; the compiled planner
+  core (item 8) starts now; finished work is committed and pushed to `main`.
 - Carried from the direction doc: `race` profile block budgets; server view
   distance for parity runs (currently 4).
 

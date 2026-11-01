@@ -229,17 +229,21 @@ class GridView(Mapping):
             x, y, z = position
         except (TypeError, ValueError):
             return default
-        if type(x) is int and type(y) is int and type(z) is int:
-            section = self.sections.get((x >> 4, y >> 4, z >> 4))
-            if section is None:
+        if not (type(x) is int and type(y) is int and type(z) is int):
+            # Planner nodes carry float heights (65.0): convert inline, not via
+            # _locate (a third of all lookups took that path; ROADMAP item 6).
+            try:
+                ix, iy, iz = int(x), int(y), int(z)
+            except (TypeError, ValueError, OverflowError):
                 return default
-            sid = section.states[((x & 15) << 8) | ((y & 15) << 4) | (z & 15)]
-            return self.states[sid] if sid else default
-        located = self._locate(position)
-        if located is None:
+            if ix != x or iy != y or iz != z:
+                return default  # A half-block height never names a cell.
+            x, y, z = ix, iy, iz
+        section = self.sections.get((x >> 4, y >> 4, z >> 4))
+        if section is None:
             return default
-        section, offset, _ = located
-        return self.states[section.states[offset]]
+        sid = section.states[((x & 15) << 8) | ((y & 15) << 4) | (z & 15)]
+        return self.states[sid] if sid else default
 
     def __getitem__(self, position):
         located = self._locate(position)
