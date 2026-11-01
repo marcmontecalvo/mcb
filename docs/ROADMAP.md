@@ -17,7 +17,7 @@ Cohorts 27–28 ran on `2eed1251`, cohort 29 on `0129b057`.
 |---|---|---|
 | Mod split, D9 (step A) | Done (development evidence) | Direction doc §0 step A |
 | In-mod route follower, D10 (step B) | Done for development. Its mod is requalified (item 11) and passed the frozen calm comparison (item 12); no separate step B sign-off is recorded | [STEP_B_PROGRESS](STEP_B_PROGRESS_2026-10-28.md), [STEP_B_RERUN](STEP_B_RERUN_2026-10-29.md) |
-| Planner core, D11 (step C) | In progress; cohort 28 is 10/10, every route within 1.09× of Baritone. The Java core (item 8) is opt-in; with edits (cohort 30) it is 10/10 and 1% slower in total, R3 8% | [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md) (cohorts 1–28) |
+| Planner core, D11 (step C) | In progress; cohort 28 is 10/10, every route within 1.09× of Baritone. The Java core (item 8) is opt-in; with edits and continuous re-planning (cohort 31) it is 3% faster than the Python planner in total | [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md) (cohorts 1–28) |
 | Baritone parity, D12 | Weights and moves reimplemented | [BARITONE_WEIGHTS_AND_MOVES](BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md), `config/weights/baritone-v1.20.0.json` |
 | Awareness parity, D8 | `sections` preset with delivery fixed (Oct 31) | [AWARENESS_MODES](AWARENESS_MODES.md) |
 | Swimming (§5 of the direction doc) | Planner and body done; live water and ladder fixtures 10/10 each (item 16) | Direction doc §5 status lines |
@@ -96,8 +96,8 @@ Details: [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md), cohorts 16–20.
 Each item names where its detail or evidence lives. Numbers are priority, not
 dependencies, except where noted.
 
-**Open after Nov 1, in the order to do them:** (1) item 8: stage D done (cohort 30); decide
-on R3 (delivered-map reading) and make the body planner the default, then requalify (item 11);
+**Open after Nov 1, in the order to do them:** (1) item 8: stage D and continuous
+re-planning done (cohorts 30-31); make the body planner the default (Marc's call);
 (2) night diagnostics for item 12; (3) Marc's call on night survival (item 13);
 (4) the paired ~10% gap to Baritone (items 8, 9); (5) a live multi-edit chain
 (item 10).
@@ -153,8 +153,14 @@ on R3 (delivered-map reading) and make the body planner the default, then requal
    routes, costs and edit plans as Python at all 20 frozen-comparison edit
    decisions and on built maps; the Python fallback is removed. Cohort 30
    (`20261101T135049338315Z`, mod `68b3e8f6`): 10/10, 7,488 ticks against
-   Python's 7,394; R5 digs the cut again, only R3 is still ~8% slower. Open:
-   R3 (planning on the delivered map in the body), then make it default. A Java search
+   Python's 7,394; R5 digs the cut again, only R3 is still ~8% slower. R3's
+   cause was early commitment, not the live-world reader: plans came back at
+   once and each piece was locked in ~30 blocks ahead on the map of that moment.
+   Fixed with continuous re-planning from 6 nodes ahead whenever the map changes
+   (body planner only; the driven route is favoured, so it switches only to a
+   clearly cheaper way). Cohort 31 (`20261101T142832710853Z`, R2 rerun
+   `20261101T143807855604Z`): 9/9 valid (one harness `invalid`), 7,182 ticks,
+   3% under Python; R3 653/649. Open: make it the default. A Java search
    runs outside Python's interpreter lock, so it also answers item 7.
 9. **Partial-route quality.** ~1,000-node partials can still lead into pits and
    lakes (R5). Commitment to a plan's tail is done (cohort 18). Oct 31: the first

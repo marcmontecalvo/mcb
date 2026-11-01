@@ -198,7 +198,7 @@ def main():
         f"{j['ms']:8.1f} ms {j['expanded'] / max(j['ms'], 1e-6) * 1000:9.0f} nodes/s"
     )
     print(
-        "same route"
+        f"same route, ends {r.route[-1]}"
         if same
         else f"routes differ: py {r.route[-1]} java {j['route'][-1]}"
     )

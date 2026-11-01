@@ -19,6 +19,13 @@ PLANNING_TICK_LOOKAHEAD = 150
 # new best; a stuck water exit went 3,934. 2400 ticks (2 min) sits between them.
 GOAL_PROGRESS_TICKS = 2400
 GOAL_PROGRESS_BLOCKS = 1.0
+# Body planner only: re-plan continuously from this many nodes ahead of the motor
+# (~20 ticks, past a body plan's ~1-19 tick latency). Cohort 30 R3 locked each
+# piece in ~30 blocks ahead on the map of that moment and walked into a valley
+# that a map 60 ticks newer avoids (+60 ticks).
+REFRESH_AHEAD = 6
+# Extend an unchanged route only once this little of it is left to drive.
+EXTEND_TICKS = 60
 
 
 def remaining_ticks(route):
@@ -86,12 +93,23 @@ def offered_route(controller):
     return route
 
 
-def prefetch_while_following(controller, route):
+def refreshing(controller):
+    """The body planner is in use: plans are cheap, so the route ahead is re-planned."""
+    return bool(
+        getattr(controller, "body_planner", False)
+        and getattr(controller, "submit_plan", None) is not None
+    )
+
+
+def prefetch_while_following(controller, route, native=None):
     """Plan from the native segment's end while the motor drives toward it.
 
     Waiting for the motor to finish before searching cost a stop plus one full
     search budget at every segment end (run 20261029T190159944470Z: ~7 ticks
     standing per handoff, 15-34 handoffs per route).
+
+    With the body planner the plan starts REFRESH_AHEAD nodes ahead of the motor
+    instead, and is redone whenever the map changes (one plan in flight).
     """
     if (
         getattr(controller, "planner_lane", None) is None
@@ -101,9 +119,15 @@ def prefetch_while_following(controller, route):
     ):
         return
     end = route[-1]
+    revision, cells = controller._planning_snapshot()
+    if refreshing(controller) and native is not None:
+        index = native.get("next_index", 1)
+        end = route[min(len(route) - 1, max(index, 1) + REFRESH_AHEAD - 1)]
+        if (tuple(end), revision) == getattr(controller, "refreshed", None):
+            return  # Same start on the same map: the answer would not change.
+        controller.refreshed = (tuple(end), revision)
     if end == controller.goal:
         return
-    revision, cells = controller._planning_snapshot()
     controller.prefetch = controller._new_search(cells, end, revision)
     controller.prefetch_started += 1
     controller.events.append(
@@ -127,9 +151,11 @@ def splice_route(controller, route, native, body):
     work, gaps and committed steps keep the existing stop-and-decide path.
     """
     prefetch = getattr(controller, "prefetch", None)
+    refresh = refreshing(controller)
+    route = [tuple(p) for p in route]
     if (
         prefetch is None
-        or tuple(prefetch.start) != tuple(route[-1])
+        or (not refresh and tuple(prefetch.start) != route[-1])
         or controller.committed_step is not None
         or getattr(controller, "terrain", None) is not None
         or getattr(controller, "terrain_queue", None)
@@ -140,7 +166,12 @@ def splice_route(controller, route, native, body):
         budget_ms=controller.search_ms,
         moving=True,  # The body still drives the active route: waiting is free.
     )
+    if result.status == "searching":
+        return None
+    # A finished re-plan that is not used is dropped, so the next one can start.
+    drop = controller._discard_prefetch if refresh else (lambda: None)
     if result.status not in {"segment", "reached", "incomplete"}:
+        drop()
         return None
     index = native.get("next_index", 1)
     if not 0 < index < len(route) or len(result.route) < 2:
@@ -149,9 +180,11 @@ def splice_route(controller, route, native, body):
     active = route[index - 1 :]
     if math.hypot(body[0] - source[0] - 0.5, body[2] - source[2] - 0.5) > 1.2:
         return None  # Too far along for the motor's start check; retry next poll.
-    joined = [tuple(p) for p in route[index - 1 :]] + [
-        tuple(p) for p in result.route[1:]
-    ]
+    start = tuple(prefetch.start)
+    if start not in active:
+        drop()  # The motor has already passed the re-plan's start.
+        return None
+    joined = active[: active.index(start) + 1] + [tuple(p) for p in result.route[1:]]
     head = joined[:MOTOR_ROUTE_POINTS]
     if ordinary_route(head) != head:
         return None  # A gap: let the ordinary path decide.
@@ -161,6 +194,7 @@ def splice_route(controller, route, native, body):
         # Prefetches from stale snapshots can lead back over the active route.
         # A looping list never shrinks (route[index(node):]) and is re-offered
         # forever (Step C run 20261030T002908756029Z R1: 200+ A-B-A-B-A routes).
+        drop()
         return None
     # Planned edits stay in the controller's route; the motor stops before them.
     steps = {(s.source, s.target): s for s in result.steps}
@@ -177,16 +211,29 @@ def splice_route(controller, route, native, body):
         joined = joined[:MOTOR_ROUTE_POINTS]
     if len(joined) < 2:
         return None
-    if joined == [tuple(p) for p in active]:
+    if joined == active:
         # Nothing new (a full-length route whose body has not advanced): resubmitting
         # resets the motor's step deadline. Cohort 19 R5 rep 2 got the same route
         # every ~6 ticks for 3,900 ticks at a water exit it could not climb.
+        drop()
         return None
+    if refresh:
+        overlap = min(len(joined), len(active))
+        changed = joined[:overlap] != active[:overlap]
+        if not changed and (
+            len(joined) <= len(active) or remaining_ticks(active) >= EXTEND_TICKS
+        ):
+            drop()  # Same way on: resubmit only to extend a route running short.
+            return None
     controller.search, controller.prefetch = prefetch, None
     controller.prefetch_adopted += 1
     controller.last_result = result
     controller.route = list(full)
     controller.route_steps = steps
+    if refresh:
+        # Re-plans favour the route being driven (Baritone backtrackCostFavoring),
+        # so they switch only to a clearly cheaper way.
+        controller.previous_route = tuple(full)
     controller.events.append(
         (
             "route_prefetch_adopted",
@@ -413,7 +460,7 @@ def drive_native(client, controller, wall_timeout):
                 # Acquisition continues while the native motor runs independently.
                 controller._admit(observation)
                 if native.get("state") == "following":
-                    prefetch_while_following(controller, active_route)
+                    prefetch_while_following(controller, active_route, native)
                     joined = splice_route(
                         controller,
                         active_route,

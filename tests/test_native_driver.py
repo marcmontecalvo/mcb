@@ -354,6 +354,88 @@ def test_splice_that_changes_nothing_is_not_resubmitted():
     assert c.prefetch is prefetch  # kept for the ordinary handoff at the end
 
 
+def _refresh_controller(start, tail):
+    from types import SimpleNamespace
+
+    from mclab.route_search import RouteResult
+
+    c = SimpleNamespace(
+        prefetch=SimpleNamespace(
+            start=start, advance=lambda **_: RouteResult("segment", tail, 1, 9, "t")
+        ),
+        body_planner=True,
+        submit_plan=lambda payload: None,
+        committed_step=None,
+        terrain=None,
+        terrain_queue=[],
+        search=None,
+        search_nodes=64,
+        search_ms=2,
+        prefetch_adopted=0,
+        last_result=None,
+        route=[],
+        route_steps={},
+        previous_route=(),
+        events=[],
+        goal_revision=0,
+    )
+    c._discard_prefetch = lambda: setattr(c, "prefetch", None)
+    return c
+
+
+def test_body_planner_replans_ahead_and_switches_to_a_new_way():
+    # Cohort 30 R3: a piece planned ~30 blocks ahead on an old map was never
+    # revisited. A re-plan from a few nodes ahead now replaces the rest.
+    from mclab.native_driver import splice_route
+
+    route = [(x, 1, 0) for x in range(20)]
+    turn = ((6, 1, 0), (6, 1, 1), (6, 1, 2), (6, 1, 3))
+    c = _refresh_controller((6, 1, 0), turn)
+    joined = splice_route(c, route, {"next_index": 2}, [1.4, 1, 0.5])
+    assert joined == [(1, 1, 0), (2, 1, 0), (3, 1, 0), (4, 1, 0), (5, 1, 0), *turn]
+    assert c.prefetch is None and c.route == joined
+    assert c.previous_route == tuple(joined)  # the next re-plan favours this way
+
+
+def test_body_planner_drops_replans_that_change_nothing_or_start_behind():
+    from mclab.native_driver import splice_route
+
+    route = [(x, 1, 0) for x in range(30)]
+    # Same way on, plenty of route left: not resubmitted, dropped for the next one.
+    same = tuple((x, 1, 0) for x in range(6, 20))
+    c = _refresh_controller((6, 1, 0), same)
+    assert splice_route(c, route, {"next_index": 2}, [1.4, 1, 0.5]) is None
+    assert c.prefetch is None
+    # The motor already passed the re-plan's start.
+    c = _refresh_controller((3, 1, 0), ((3, 1, 0), (3, 1, 1)))
+    assert splice_route(c, route, {"next_index": 5}, [4.4, 1, 0.5]) is None
+    assert c.prefetch is None
+    # Same way on but the route is nearly driven: extend it.
+    short = [(x, 1, 0) for x in range(8)]
+    c = _refresh_controller((7, 1, 0), tuple((x, 1, 0) for x in range(7, 20)))
+    joined = splice_route(c, short, {"next_index": 2}, [1.4, 1, 0.5])
+    assert joined is not None and joined[-1] == (19, 1, 0)
+
+
+def test_body_planner_replan_starts_ahead_of_the_motor_once_per_map():
+    from mclab.native_driver import REFRESH_AHEAD, prefetch_while_following
+
+    route = [(x, 1, 0) for x in range(30)]
+    c = _refresh_controller(None, ())
+    c.prefetch = None
+    c.planner_lane = object()
+    c.goal = (99, 1, 0)
+    c.prefetch_started = 0
+    started = []
+    c._planning_snapshot = lambda: (7, {})
+    c._new_search = lambda cells, start, revision: started.append(start) or object()
+    prefetch_while_following(c, route, {"next_index": 3})
+    assert started == [route[3 + REFRESH_AHEAD - 1]]
+    c.prefetch = None
+    prefetch_while_following(c, route, {"next_index": 3})
+    assert len(started) == 1  # same start, same map revision: nothing new to learn
+
+
 def test_allow_climb_key_only_in_body_request_when_enabled():
     assert "allow_climb" not in MovementPolicy().payload()
     assert "allow_climb" not in MovementPolicy(allow_swim=True).payload()

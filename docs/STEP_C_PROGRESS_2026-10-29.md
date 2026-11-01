@@ -521,3 +521,33 @@ supply, protected cells) and returns each edit edge's plan; the controller execu
 it unchanged. Awareness: the body reader already follows the awareness preset
 (`sections`/`chunk` read all blocks in range like Baritone's loaded chunks;
 `visible`/`legacy` apply line-of-sight), so no separate filter was added.
+
+**Why cohort 30 R3 was slower.** Not the live-world reader. The Java run turned
+west at about tick 136 from (-77, 66, -27) into a valley (down to y 57, then up
+16 blocks to the goal); cohort 28 took the east line. Replayed on the delivered
+map at ticks 114-160, Python and Java both choose west (same route, same cost); on
+the map of tick 200 or later both choose east. With the body planner a plan comes
+back within a tick or two, and the native driver spliced each 32-node piece in as
+soon as it was planned, ~30 blocks ahead, on the map of that moment, and never
+revisited it. The Python planner was slower, so it decided later with more map.
+Planning speed does not shorten travel unless it is spent on something; the body
+rarely waited on a plan (median 0 ticks, worst 19).
+
+*Fixed* (`native_driver.py`, body planner only): the route ahead is re-planned
+continuously. Each plan starts `REFRESH_AHEAD` = 6 nodes ahead of the motor and
+is redone whenever the map revision changes (one in flight). A result is spliced
+in when it changes the route ahead, or extends it once less than 60 ticks are
+left. The route being driven is the favoured previous route (Baritone
+`backtrackCostFavoringCoefficient` 0.5), so a re-plan switches only to a clearly
+cheaper way. The Python planner path is unchanged.
+
+| 31: 30 + continuous re-planning (Python only; mod `68b3e8f6`) | `20261101T142832710853Z` | 609/609 | 571/invalid | 653/649 | 845/856 | 913/905 |
+
+**Cohort 31 is 9/9 valid, 7,182 ticks with the R2 rerun.** R2 rep 2 is `invalid`:
+a harness error ("Stop the lab server before replacing runtime/course files"), the
+same one as Baritone's frozen-comparison miss, not navigation. It is kept here;
+R2 was rerun twice (`20261101T143807855604Z`: 575/572). R3 now takes the east
+line, 653/649 against 799/797 (cohort 30) and 736/738 (Python, cohort 28). Total
+7,182 against Python's 7,394 (-2.9%) and cohort 30's 7,488. Medians against
+Baritone: R1 1.05×, R2 1.08×, R3 0.70×, R4 1.06×, R5 1.07×. Two reps on one seed:
+development evidence only.
