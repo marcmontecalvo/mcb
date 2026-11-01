@@ -6,8 +6,8 @@ the phase plan are in [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_
 (authoritative; it wins any conflict). Results live in the ledgers listed below.
 Update this file whenever an item here is finished or a new one is found.
 
-Last updated: October 31, 2026 (`main` at `23e0857` plus uncommitted Oct 31 work:
-cohorts 16–26). Installed mod source hash: `2eed1251…`.
+Last updated: November 1, 2026 (cohorts 16–28 on `main`). Installed mod source
+hash: `5ffbde56…` (adds the planner core class; cohorts 27–28 ran on `2eed1251`).
 
 ## Where things stand
 
@@ -15,7 +15,7 @@ cohorts 16–26). Installed mod source hash: `2eed1251…`.
 |---|---|---|
 | Mod split, D9 (step A) | Done (development evidence) | Direction doc §0 step A |
 | In-mod route follower, D10 (step B) | Done for development; formal qualification open | [STEP_B_PROGRESS](STEP_B_PROGRESS_2026-10-28.md), [STEP_B_RERUN](STEP_B_RERUN_2026-10-29.md) |
-| Planner core, D11 (step C) | In progress; cohort 26 is 10/10, every route within 1.08× of Baritone, no motor stops | [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md) (cohorts 1–26) |
+| Planner core, D11 (step C) | In progress; cohort 28 is 10/10, every route within 1.09× of Baritone | [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md) (cohorts 1–28) |
 | Baritone parity, D12 | Weights and moves reimplemented | [BARITONE_WEIGHTS_AND_MOVES](BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md), `config/weights/baritone-v1.20.0.json` |
 | Awareness parity, D8 | `sections` preset with delivery fixed (Oct 31) | [AWARENESS_MODES](AWARENESS_MODES.md) |
 | Swimming (§5 of the direction doc) | Planner and body done; live fixture cohorts not run | Direction doc §5 status lines |
@@ -37,10 +37,11 @@ Latest numbers against Baritone (ticks, calm, seed 1337, Baritone run
 - Cohort 25 (`20261031T200524257733Z`, mod `51e5089f`): R1 611/607, R2
   563/563, R3 703/772, R4 862/839, R5 899/902. 10/10; medians 1.05×, 1.06×,
   0.79×, 1.06×, 1.06×.
-- **Cohort 26 (`20261031T214556225885Z`, mod `2eed1251`, current code): R1
-  608/606, R2 563/564, R3 732/735, R4 836/830, R5 924/904.** 10/10, no motor
-  stops; medians 1.04×, 1.06×, 0.78×, 1.04×, 1.08×. Cohorts 21–25 and the fixes
-  between are in the ledger.
+- Cohort 26 (`20261031T214556225885Z`, mod `2eed1251`): R1 608/606, R2 563/564,
+  R3 732/735, R4 836/830, R5 924/904. 10/10, no motor stops.
+- **Cohort 28 (`20261101T005033322463Z`, current code): R1 623/619, R2 576/568,
+  R3 736/738, R4 841/848, R5 905/940.** 10/10; medians 1.07×, 1.08×, 0.79×, 1.05×,
+  1.09×. Cohorts 21–27 and the fixes between are in the ledger.
 
 ## Oct 31 findings that change earlier assumptions
 
@@ -120,14 +121,29 @@ dependencies, except where noted.
 7. **Search outside the controller's interpreter lock.** Control, map admission and
    search share one Python process: live search runs at about half the offline
    speed. A separate process with a shared grid is the cheap step.
-8. **Compiled planner core** (Java in the body, or a typed-array expand loop).
-   This changes the D9/D10 split, approved in principle; decide after 6–7 show what
-   is left. Handoff note: [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md) cohort 13.
+8. **Compiled planner core** (Java in the body). Started Oct 31 at Marc's request.
+   Stage A done: `mcb-body/.../RoutePlanner.java` is the land subset of
+   `route_search.py` (tick costs, Baritone search and diagonals, shapes).
+   Stage B done: `scripts/analysis/planner_parity.py` exports a delivered map and
+   runs both. Cohort 25 R3 start, 8,000 cap: same 6,010 expansions, route and
+   cost (608.08); Java 125,608 nodes/s against Python's 12,603 (10×). Cohort 27 R5
+   start at 1,500 / 3,000 / exhaustion: same partial routes, Java 5–8× faster.
+   Stage C started: unknown-space exits (D3 frontier, exit pricing, buried
+   dig-out rise, walk-rate partial estimate) match Python on both maps
+   (`UNKNOWN=1`; R3 8,000 cap: same route and cost 511.61, 84k against 13k
+   nodes/s). Next: swimming, gaps, ladders (stage C), edit edges (stage D),
+   body `plan_route` op, controller use, cohort (stage E). A Java search
+   runs outside Python's interpreter lock, so it also answers item 7.
 9. **Partial-route quality.** ~1,000-node partials can still lead into pits and
-   lakes (R5). Commitment to a plan's tail is done (cohort 18); a longer search
-   while standing still is the other option.
-10. **Several edits per plan.** Climbing out of a pit re-plans for ~1 s
-   (`EDIT_PATIENCE_MS`) before every single dig or place.
+   lakes (R5). Commitment to a plan's tail is done (cohort 18). Oct 31: the first
+   search of an attempt uses the full 3,000-node floor (cohort 27 R5 rep 2 went
+   into the lake from a 1,500-node start partial; 3,000 picks the ridge in
+   replay). Cohort 28: 10/10, no lake, R1/R2 5–15 ticks slower (accepted).
+10. **Several edits per plan.** Oct 31: `_begin_route_edit` queues the whole run
+   of consecutive edit edges from one search (each re-checked on fresh geometry
+   before it starts), instead of one search per edit. Unit test in
+   `test_planner_core.py`; cohorts 27–28 had only single edits, so no live
+   multi-edit chain yet.
 
 **Scored comparison**
 
@@ -141,9 +157,20 @@ dependencies, except where noted.
 
 **Features from the plan**
 
-13. **Survival weights and Jev profiles, Phase 6** (`race`, `safe`, `frugal`,
-    `hunt`, `escort`), based on `config/weights/baritone-v1.20.0.json`.
-14. **Interaction goals, Phase 3** ("reach block X"): small and independent.
+13. **Survival weights and Jev profiles, Phase 6.** Oct 31, code done:
+    `TerrainPolicy` survival terms (Baritone mob avoidance `mob_coefficient` /
+    `mob_radius`, `hazard_penalty` beside lava/fire); profiles in
+    `config/profiles/` with `--cost-profile`; visible hostiles feed the search;
+    `jev_contract.py` (situation, decision, validation, deterministic fallback,
+    source recorded). No fall-damage gate: dry drops stop at 3 blocks, below
+    vanilla's damage threshold. Open: the live night acceptance (`--condition
+    mobs`, `safe` against `race`); screening Jev itself waits for the model track.
+14. Done Oct 31 (interaction goals, Phase 3): `RouteSearch(interact_reach=4.5)`
+    and `SegmentedController(interact_reach=...)` treat the goal as a block to
+    reach with the eye (feet + 1.62, centre ray, every crossed cell known and
+    clear). Acceptance fixtures in `tests/test_planner_core.py`: ledge table
+    reached from below without climbing; never through a wall or unknown cell.
+    Not yet exposed in the natural-run CLI (no route needs it).
 15. Closed Oct 31 (movement leftovers), each on evidence:
     - 0.01 edging-bend margin: fixed by sweeping on the exact bearing (cohort 26,
       no motor stops in 10 attempts).

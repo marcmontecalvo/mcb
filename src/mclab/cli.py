@@ -114,6 +114,21 @@ def doctor() -> dict:
     return result
 
 
+def _terrain_with_profile(args):
+    """The run's terrain profile with the --cost-profile overrides applied."""
+    from mclab.profiles import apply_profile
+    from mclab.terrain_steps import TerrainPolicy
+
+    terrain = (
+        TerrainPolicy.from_payload(read_json(args.terrain_profile))
+        if args.terrain_profile
+        else None
+    )
+    if args.cost_profile:
+        terrain = apply_profile(args.cost_profile, terrain or TerrainPolicy())
+    return terrain
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -166,6 +181,11 @@ def main() -> int:
     )
     nat_run.add_argument(
         "--stall-seconds", type=int, default=10, help="0 (off) or 3..120"
+    )
+    nat_run.add_argument(
+        "--cost-profile",
+        choices=["race", "safe", "frugal", "hunt", "escort"],
+        help="Phase 6 named profile applied over the terrain profile",
     )
     experiment = sub.add_parser("experiments").add_subparsers(
         dest="operation", required=True
@@ -277,7 +297,6 @@ def main() -> int:
                 from mclab import natural
                 from mclab.memory_policy import MemoryPolicy
                 from mclab.movement_policy import MovementPolicy
-                from mclab.terrain_steps import TerrainPolicy
 
                 selected = (
                     awareness.Awareness.from_payload(read_json(args.awareness_profile))
@@ -299,11 +318,7 @@ def main() -> int:
                     if args.condition == "both"
                     else (args.condition == "mobs",),
                     awareness=selected,
-                    terrain_policy=TerrainPolicy.from_payload(
-                        read_json(args.terrain_profile)
-                    )
-                    if args.terrain_profile
-                    else None,
+                    terrain_policy=_terrain_with_profile(args),
                     memory_policy=MemoryPolicy.from_payload(
                         read_json(args.memory_profile)
                     )

@@ -1,0 +1,6 @@
+{
+  "name": "escort",
+  "description": "Stay near a player: race costs, goal follows the player within 3 blocks (Baritone FollowProcess).",
+  "terrain": {},
+  "goal": {"kind": "follow", "radius": 3}
+}

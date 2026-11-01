@@ -214,6 +214,9 @@ awareness remain the main harness issue. See
 - Acceptance: crafting table on a ledge 3–4 blocks above approach terrain is
   reached from below without climbing when reachable; table behind a wall is not
   "reached" through the wall.
+- **Status (Oct 31):** Done in the planner and controller (`interact_reach`);
+  acceptance fixtures pass offline. Ponytail: one ray to the block centre, so a
+  block visible only at its edge is not counted.
 
 ### Phase 4 — Unified search with macro edges
 

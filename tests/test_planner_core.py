@@ -8,7 +8,7 @@ import pytest
 
 from mclab import native_driver
 from mclab.navigation import standable
-from mclab.route_search import SPRINT, WALK, RouteSearch
+from mclab.route_search import SPRINT, WALK, RouteSearch, interacts
 from mclab.terrain_steps import WIDE_EXCAVATABLE, TerrainPolicy, break_ticks
 
 KIT = (
@@ -468,3 +468,91 @@ def test_diagonal_rejects_hazard_under_cut_over_cell():
         ),
     )
     assert (1, 2, 1) not in dict(s._edges((0, 2, 0)))
+
+
+def test_a_chain_of_route_edits_is_queued_whole_not_one_search_per_edit():
+    # ROADMAP item 10: a fresh search per edit waited EDIT_PATIENCE_MS before
+    # every dig of a pit escape. The searched chain is queued; each step is still
+    # re-checked against fresh geometry when it starts.
+    from mclab.navigation_segmented import SegmentedController
+
+    def step(source, target, kind="step"):
+        return SimpleNamespace(
+            source=source,
+            target=target,
+            breaks=((target[0], target[1] + 1, target[2]),),
+            places=(),
+            kind=kind,
+            exit=None,
+        )
+
+    a, b, c, d, e = (0, 1, 0), (1, 2, 0), (2, 3, 0), (3, 3, 0), (4, 3, 0)
+    steps = [step(a, b), step(b, c)]
+    started = []
+    controller = SimpleNamespace(
+        route=[a, b, c, d, e],
+        route_steps={(s.source, s.target): s for s in steps},
+        breaks_reserved=0,
+        places_reserved=0,
+        failed_edges=set(),
+        search="old",
+        terrain="started",
+        _remaining_policy=lambda: "policy",
+    )
+    controller._begin_queued_step = lambda node, obs: started.append(
+        controller.terrain_queue.pop(0)
+    )
+    SegmentedController._begin_route_edit(controller, a, {})
+    assert started == [steps[0]]
+    assert controller.terrain_queue == [steps[1]]  # walk (c, d) is not queued
+    assert controller.terrain_forecast == tuple(steps)
+    assert controller.breaks_reserved == 2
+    assert controller.route == [] and controller.search is None
+
+
+def test_interaction_goal_reaches_a_ledge_table_from_below_without_climbing():
+    # Phase 3 acceptance: a table on a ledge 3 above the approach is reached
+    # with the eye from the ground; the search never climbs the ledge.
+    def solid(x, y, z):
+        if y == 0:
+            return "minecraft:stone"
+        if x >= 4 and y <= 3:
+            return "minecraft:stone"
+        if (x, y, z) == (4, 4, 0):
+            return "minecraft:crafting_table"
+        return None
+
+    cells = world(range(-1, 7), range(-1, 2), solid, 8)
+    policy = TerrainPolicy(planner_tick_costs=True)
+    result = search(cells, (0, 1, 0), (4, 4, 0), policy, interact_reach=4.5)
+    assert result.status == "reached"
+    assert all(node[1] == 1 for node in result.route)
+    assert interacts(cells, result.route[-1], (4, 4, 0), 4.5)
+
+
+def test_interaction_goal_is_not_reached_through_a_wall_or_unknown_space():
+    def solid(x, y, z):
+        if y == 0:
+            return "minecraft:stone"
+        if x == 5:
+            return "minecraft:stone"  # full-height wall across the box
+        if (x, y, z) == (6, 1, 0):
+            return "minecraft:crafting_table"
+        return None
+
+    cells = world(range(-1, 8), range(-1, 2), solid, 8)
+    assert not interacts(cells, (4, 1, 0), (6, 1, 0), 4.5)
+    policy = TerrainPolicy(planner_tick_costs=True)
+    result = search(cells, (0, 1, 0), (6, 1, 0), policy, interact_reach=4.5)
+    assert result.status != "reached"
+    open_cells = world(
+        range(-1, 8),
+        range(-1, 2),
+        lambda x, y, z: solid(x, y, z)
+        if x != 5
+        else ("minecraft:stone" if y == 0 else None),
+        8,
+    )
+    assert interacts(open_cells, (4, 1, 0), (6, 1, 0), 4.5)
+    del open_cells[(5, 2, 0)]  # an unknown cell on the line of sight blocks it
+    assert not interacts(open_cells, (4, 1, 0), (6, 1, 0), 4.5)

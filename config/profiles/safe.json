@@ -1,0 +1,9 @@
+{
+  "name": "safe",
+  "description": "Avoid known hostiles and lava/fire edges.",
+  "terrain": {
+    "mob_coefficient": 3.0,
+    "mob_radius": 12,
+    "hazard_penalty": 40.0
+  }
+}

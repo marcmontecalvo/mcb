@@ -1,0 +1,8 @@
+{
+  "name": "frugal",
+  "description": "Spend as few blocks as possible: placements and breaks priced high.",
+  "terrain": {
+    "placement_penalty": 200.0,
+    "break_penalty": 20.0
+  }
+}

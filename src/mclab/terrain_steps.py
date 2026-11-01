@@ -134,6 +134,16 @@ class TerrainPolicy:
     # 0: legacy weighting (remaining distance priced like unknown space).
     # 1..10: Baritone-form A* heuristic at sprint rate times this weight.
     heuristic_weight: float = 0.0
+    # Survival terms (D7, Phase 6); defaults are off (race = Baritone parity).
+    # Baritone Avoidance: moves into cells within mob_radius of a known hostile
+    # cost x mob_coefficient (< 1 attracts: the hunt profile).
+    mob_coefficient: float = 1.0
+    mob_radius: int = 8
+    # Ticks added to a move into a cell beside lava, fire or another hazard.
+    # ponytail: no fall-damage gate (D7): dry drops are capped at 3 blocks, below
+    # vanilla's damage threshold, and longer drops land in water. Add one if
+    # max_drop ever exceeds 3.
+    hazard_penalty: float = 0.0
 
     @classmethod
     def from_payload(cls, value):
@@ -218,10 +228,17 @@ class TerrainPolicy:
             for p in self.protected_positions
         ):
             raise ValueError("Invalid protected positions")
+        if type(self.mob_coefficient) not in (int, float) or not (
+            0.1 <= self.mob_coefficient <= 10
+        ):
+            raise ValueError("Mob coefficient must be between 0.1 and 10")
+        if type(self.mob_radius) is not int or not 1 <= self.mob_radius <= 32:
+            raise ValueError("Mob radius must be 1..32 blocks")
         for value in (
             self.break_penalty,
             self.placement_penalty,
             self.tool_wear_penalty,
+            self.hazard_penalty,
         ):
             if (
                 type(value) not in (int, float)

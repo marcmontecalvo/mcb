@@ -18,7 +18,8 @@ from mclab.observation_worker import ObservationWorker
 from mclab.pillar_steps import executor_for as python_executor_for
 from mclab.pillar_steps import prepare_pillar
 from mclab.planning_worker import BackgroundSearch, PlanningWorker
-from mclab.route_search import RouteSearch
+from mclab.profiles import threats
+from mclab.route_search import RouteSearch, interacts
 from mclab.terrain_route import TerrainRouteSearch, known_step
 from mclab.terrain_steps import prepare_step
 from mclab.terrain_transport import ExpandedTerrain
@@ -69,6 +70,7 @@ def native_edit_matches(plan, cells, supported):
 
 class SegmentedController(NavigationController):
     route_steps = {}  # Replaced, never mutated; instances set their own.
+    threats = ()  # D7 search input (visible hostiles), refreshed by _admit.
 
     def __init__(
         self,
@@ -81,6 +83,7 @@ class SegmentedController(NavigationController):
         terrain_policy=None,
         background_planning=False,
         movement_policy=None,
+        interact_reach=None,
     ):
         super().__init__(
             sensor_profile=memory.archive.identity.awareness.sensor_profile
@@ -93,6 +96,8 @@ class SegmentedController(NavigationController):
             raise ValueError("Invalid movement policy")
         self.goal = tuple(goal)
         self.radius = radius
+        # Phase 3 interaction goal: reach this block with the eye (None: stand there).
+        self.interact_reach = interact_reach
         self.search_nodes, self.search_ms = search_nodes, search_ms
         self.search = None
         self.route = []
@@ -273,6 +278,8 @@ class SegmentedController(NavigationController):
         return self._planning_snapshot()[1] if self.map_view else self.memory.cells
 
     def _admit(self, observation):
+        # D7 input for the next search: visible hostiles.
+        self.threats = threats(observation)
         if self.observation_lane is None:
             self.memory.ingest(observation)
             return
@@ -331,6 +338,8 @@ class SegmentedController(NavigationController):
                 else self._remaining_policy(),
                 inventory=self.inventory,
                 protected=frozenset(self.own_footholds),
+                interact_reach=self.interact_reach,
+                threats=self.threats,
             )
         if self.planner_lane is not None:
             return BackgroundSearch(
@@ -354,6 +363,10 @@ class SegmentedController(NavigationController):
             owned_snapshot=True,
         )
 
+    def _at_goal(self, node, cells):
+        """Interaction goal: the eye at this stance reaches the target block."""
+        return interacts(cells, node, self.goal, self.interact_reach)
+
     def _discard_prefetch(self):
         if self.prefetch is not None:
             self.planner_lane.cancel(getattr(self.prefetch, "token", None))
@@ -371,7 +384,9 @@ class SegmentedController(NavigationController):
             return
         end = self.route[-1]
         if (
-            end[1] == self.goal[1]
+            self._at_goal(end, self._planning_snapshot()[1])
+            if self.interact_reach is not None
+            else end[1] == self.goal[1]
             and math.hypot(end[0] - self.goal[0], end[2] - self.goal[2]) <= self.radius
         ):
             return
@@ -651,16 +666,34 @@ class SegmentedController(NavigationController):
         self.route_steps = {(s.source, s.target): s for s in result.steps}
 
     def _begin_route_edit(self, node, observation):
-        """Hand a searched edit edge to the existing confirmed step path."""
-        plan = self.route_steps[tuple(self.route[0]), tuple(self.route[1])]
-        if plan.kind == "pillar" and plan.exit is None and len(self.route) > 2:
-            # Planner pillars omit the exit; the body and PillarExecutor need it.
-            plan = replace(plan, exit=tuple(self.route[2]))
-        self.terrain_queue = [plan]
-        self.terrain_forecast = (plan,)
+        """Hand the searched edit edges at the route's start to the confirmed step path.
+
+        The whole run of consecutive edits is queued, not just the first: a fresh
+        search per edit waited EDIT_PATIENCE_MS before every dig or place of a pit
+        escape (ROADMAP item 10). Each queued step is re-checked against fresh
+        geometry before it starts, and a mismatch replans.
+        """
+        queue = []
+        for index in range(len(self.route) - 1):
+            plan = self.route_steps.get(
+                (tuple(self.route[index]), tuple(self.route[index + 1]))
+            )
+            if plan is None:
+                break
+            if (
+                plan.kind == "pillar"
+                and plan.exit is None
+                and index + 2 < len(self.route)
+            ):
+                # Planner pillars omit the exit; the body and PillarExecutor need it.
+                plan = replace(plan, exit=tuple(self.route[index + 2]))
+            queue.append(plan)
+        plan = queue[0]
+        self.terrain_queue = queue
+        self.terrain_forecast = tuple(queue)
         self.terrain_queue_policy = self._remaining_policy()
-        self.breaks_reserved += len(plan.breaks)
-        self.places_reserved += len(plan.places)
+        self.breaks_reserved += sum(len(p.breaks) for p in queue)
+        self.places_reserved += sum(len(p.places) for p in queue)
         self._begin_queued_step(node, observation)
         if self.terrain is None:
             # Fresh geometry disagrees with the plan: never retry the same edge.
@@ -1029,11 +1062,12 @@ class SegmentedController(NavigationController):
         if self.terrain_search is not None:
             self._plan_terrain_step(node, observation)
             return {}
-        if (
-            math.hypot(p[0] - self.goal[0] - 0.5, p[2] - self.goal[2] - 0.5)
+        if body.get("on_ground", True) and (
+            self._at_goal(node, self._planning_snapshot()[1])
+            if self.interact_reach is not None
+            else math.hypot(p[0] - self.goal[0] - 0.5, p[2] - self.goal[2] - 0.5)
             <= self.radius
             and abs(p[1] - self.goal[1]) <= 0.25
-            and body.get("on_ground", True)
         ):
             self.mode = "arrived"
             return {}
@@ -1115,10 +1149,18 @@ class SegmentedController(NavigationController):
             if self.search is None or self.search.start != node or exhausted_snapshot:
                 revision, cells = self._planning_snapshot()
                 self.search = self._new_search(cells, node, revision)
+            # The first commitment sets the attempt's direction: hold it to the
+            # full 3,000-node floor, as if moving. Cohort 27 R5 rep 2 committed a
+            # ~1,500-node partial west into a lake (+370 ticks); replayed from the
+            # start, >=3,000 nodes pick the ridge (ROADMAP item 9).
+            first = not self.previous_route and isinstance(
+                self.search, BackgroundSearch
+            )
             self.take_result(
                 self.search.advance(
                     node_limit=self.search_nodes,
                     budget_ms=self.search_ms,
+                    **({"moving": True} if first else {}),
                 )
             )
             self.reason = self.last_result.reason

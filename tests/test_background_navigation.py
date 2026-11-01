@@ -445,3 +445,34 @@ def test_thin_wall_cut_walking_partial_keeps_searching(monkeypatch, floor):
             assert result.status == "incomplete" and result.expanded < 40
     finally:
         worker.close()
+
+
+def test_first_search_of_an_attempt_uses_the_full_node_floor(tmp_path):
+    # ROADMAP item 9: cohort 27 R5 rep 2 committed a ~1,500-node partial from the
+    # start into a lake; replays at >=3,000 nodes pick the ridge.
+    from mclab.planning_worker import BackgroundSearch
+    from mclab.route_search import RouteResult
+
+    cells = floor_map([(x, z) for x in range(-1, 8) for z in (-1, 0, 1)])
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController((6, 1, 0), memory, radius=0)
+
+    class Recorder(BackgroundSearch):
+        def __init__(self, revision):
+            self.start, self.revision, self.calls = (0, 1, 0), revision, []
+
+        def advance(self, **kwargs):
+            self.calls.append(kwargs.get("moving", False))
+            return RouteResult("searching", ((0, 1, 0),), self.revision, 0, "x")
+
+    try:
+        memory.ingest(observation(cells))
+        controller._admit = lambda _: None
+        controller.search = Recorder(memory.revision)
+        controller.decide(observation(cells))
+        controller.previous_route = ((0, 1, 0), (1, 1, 0))
+        controller.decide(observation(cells))
+        assert controller.search.calls == [True, False]
+    finally:
+        controller.close()
+        memory.close()

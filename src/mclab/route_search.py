@@ -105,6 +105,44 @@ def _break_cost(block):
     return break_ticks(block) + BREAK_EXTRA_TICKS + BREAK_AIM_TICKS
 
 
+def hazard_cell(cell):
+    """Known lava, fire or another D7 hazard (unknown is not counted)."""
+    return cell is not None and (
+        cell.get("block") in collision_geometry.HAZARDS
+        or "lava" in str(cell.get("fluid", ""))
+    )
+
+
+EYE_HEIGHT = 1.62
+RAY_STEP = 0.1
+
+
+def interacts(cells, node, target, reach):
+    """Phase 3 interaction goal: the eye at this stance reaches the target block.
+
+    Eye (feet + 1.62) to the block centre within reach, and every other cell the
+    line crosses known and collision-free. Unknown never counts as clear, so a
+    block behind a wall or unseen space is not reached through it.
+    """
+    eye = (node[0] + 0.5, node[1] + EYE_HEIGHT, node[2] + 0.5)
+    centre = (target[0] + 0.5, target[1] + 0.5, target[2] + 0.5)
+    distance = math.dist(eye, centre)
+    if distance > reach:
+        return False
+    steps = max(1, math.ceil(distance / RAY_STEP))
+    for i in range(steps):
+        point = tuple(
+            math.floor(a + (b - a) * i / steps)
+            for a, b in zip(eye, centre, strict=True)
+        )
+        if point == tuple(target):
+            return True
+        cell = cells.get(point)
+        if cell is None or cell.get("collision_boxes"):
+            return False
+    return True
+
+
 class RouteSearch:
     def __init__(
         self,
@@ -121,6 +159,8 @@ class RouteSearch:
         inventory=(),
         protected=(),
         favored=(),
+        interact_reach=None,
+        threats=(),
     ):
         # Caller hands an independent snapshot; retain our own nested copy.
         import copy
@@ -134,6 +174,14 @@ class RouteSearch:
         if len(self.start) != 3 or len(self.goal) != 3 or goal_radius < 0:
             raise ValueError("Invalid route endpoints")
         self.radius = goal_radius
+        # Phase 3: goal is a block to reach with the eye, not a place to stand.
+        self.reach = interact_reach
+        # D7 survival terms: hostile positions for the avoidance multiplier.
+        self.threats = tuple(tuple(t) for t in threats)
+        p = terrain_policy
+        self.survival = bool(
+            p and ((p.mob_coefficient != 1 and self.threats) or p.hazard_penalty)
+        )
         self.movement_policy = (
             MovementPolicy() if movement_policy is None else movement_policy
         )
@@ -196,6 +244,11 @@ class RouteSearch:
             )
 
     def _distance(self, node):
+        if self.reach is not None:
+            if interacts(self.grid, node, self.goal, self.reach):
+                return 0
+            eye = (node[0], node[1] + EYE_HEIGHT - 0.5, node[2])
+            return max(1e-9, math.dist(eye, self.goal) - self.reach)
         # Distance to the horizontal goal disk, with exact standing height.
         return max(
             max(
@@ -247,6 +300,11 @@ class RouteSearch:
                 - self.radius,
             )
         rise = self.goal[1] - node[1]
+        if self.reach is not None:
+            # Reaching a block needs the eye within reach, not the feet at its height.
+            gap = abs(rise - (EYE_HEIGHT - 0.5))
+            rise = math.copysign(max(0.0, gap - self.reach), rise - (EYE_HEIGHT - 0.5))
+            horizontal = max(0.0, horizontal + self.radius - self.reach)
         vertical = rise * JUMP if rise > 0 else -rise * fall_ticks(2) / 2
         if rate is None:
             rate = WALK if self.unknown else SPRINT
@@ -261,6 +319,29 @@ class RouteSearch:
             # 63 blocks dug). Exit estimates only; the A* heuristic is Baritone's.
             vertical += (rise - horizontal) * WALK
         return weight * (rate * horizontal + vertical)
+
+    def _survival(self, target, edge):
+        """D7 hazard terms on one edge's cost. Off unless a profile sets them."""
+        p = self.policy
+        if p.hazard_penalty:
+            x, y, z = target
+            if any(
+                hazard_cell(self.grid.get((x + dx, yy, z + dz)))
+                for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                for yy in (y - 1, y)
+            ):
+                edge += p.hazard_penalty
+        if p.mob_coefficient != 1 and self.threats:
+            radius = p.mob_radius * p.mob_radius
+            if any(
+                (target[0] - t[0]) ** 2
+                + (target[1] - t[1]) ** 2
+                + (target[2] - t[2]) ** 2
+                <= radius
+                for t in self.threats
+            ):
+                edge *= p.mob_coefficient
+        return edge
 
     # Edge costs: legacy unitless values, or Baritone-derived ticks.
     def _flat(self, diagonal=False):
@@ -675,6 +756,8 @@ class RouteSearch:
                 heapq.heappush(self.frontier, (cost + remainder, cost, 1, node))
                 self.exit = min(self.exit, (cost + remainder, node))
             for target, edge, plan in self._moves(node):
+                if self.survival:
+                    edge = self._survival(target, edge)
                 total = cost + edge * (FAVOR if target in self.favored else 1)
                 if total < self.costs.get(target, math.inf):
                     self.costs[target], self.previous[target] = total, node

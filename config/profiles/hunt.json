@@ -1,0 +1,8 @@
+{
+  "name": "hunt",
+  "description": "Avoidance inverted: moves near hostiles are cheaper (Baritone's own suggestion; 0.5 is a starting guess).",
+  "terrain": {
+    "mob_coefficient": 0.5,
+    "mob_radius": 16
+  }
+}

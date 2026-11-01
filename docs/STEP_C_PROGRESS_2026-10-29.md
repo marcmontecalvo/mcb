@@ -454,6 +454,26 @@ without the stop: 732/735 against 772. The rest of the R3 spread (cohort 25 rep 
 took 703 on the other line) is route choice from partial plans, not a defect.
 Two reps on one seed: development evidence only.
 
+| 27: 26 + grid float lookups, swim land early-outs, whole edit chains queued (Python only; mod `2eed1251`) | `20261101T003648618347Z` | 615/607 | 576/563 | 733/746 | 855/860 | 917/1271 |
+
+**Cohort 27 is 10/10.** R1–R4 and R5 rep 1 are within a few ticks of cohort 26.
+Edits barely ran (one step per R5 rep), so the edit-queue change was hardly
+exercised. R5 rep 2 (1,271) dropped into the lake: its first commitment was a
+~1,500-node partial west to (113,86,−3), and the prefetch from there landed in
+the lake at (108,63,−15). Replaying the start decision on each rep's delivered
+map: 1,500 nodes go west in both reps, 3,000 and 8,000 nodes go south along the
+ridge in both. Rep 1 had simply searched further before committing. Fixed for
+cohort 28: the first search of an attempt uses the full 3,000-node floor.
+
+| 28: 27 + first search of an attempt held to 3,000 nodes, D7/profile/interaction code inert by default (Python only; mod `2eed1251`) | `20261101T005033322463Z` | 623/619 | 576/568 | 736/738 | 841/848 | 905/940 |
+
+**Cohort 28 is 10/10.** Neither R5 rep went into the lake. Medians against
+Baritone: R1 1.07×, R2 1.08×, R3 0.79×, R4 1.05×, R5 1.09×. The start floor costs
+what the replay predicted: R1 and R2 are 5–15 ticks slower than cohort 26 (the
+extra ~0.5 s of start search). Total 7,394 ticks (cohort 26: 7,302; cohort 27,
+with the lake: 7,783). Accepted: a fixed ~10 ticks against a 370-tick detour; the
+compiled core (item 8) should remove most of the wait.
+
 Cohort 11 is the first 10/10. Median ratio to Baritone: R1 2.5×, R2 2.2×, R3
 1.5×, R4 1.9×, R5 4.1× (R5 still places ~62 blocks per attempt).
 

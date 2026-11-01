@@ -51,11 +51,19 @@ sourceSets {
     }
 }
 
-['AwarenessConfig', 'TerrainBatch', 'SectionScheduler', 'RouteMotor', 'StepMotor', 'GapMotor', 'RouteReflex'].each { name ->
+['AwarenessConfig', 'TerrainBatch', 'SectionScheduler', 'RouteMotor', 'StepMotor', 'GapMotor', 'RouteReflex', 'RoutePlanner'].each { name ->
     def task = tasks.register("verify${name}", JavaExec) {
         dependsOn tasks.named('geometryVerificationClasses')
         classpath = sourceSets.geometryVerification.runtimeClasspath
         mainClass = "com.vulpine.mcb.body.${name}Test"
     }
     tasks.named('check') { dependsOn task }
+}
+
+// Planner parity (ROADMAP item 8): gradlew routePlannerParity -Pargs="export.json 8000 5"
+tasks.register('routePlannerParity', JavaExec) {
+    dependsOn tasks.named('geometryVerificationClasses')
+    classpath = sourceSets.geometryVerification.runtimeClasspath
+    mainClass = 'com.vulpine.mcb.body.RoutePlannerParity'
+    args = (project.findProperty('args') ?: '').toString().tokenize(' ')
 }
