@@ -19,7 +19,7 @@ hash: `5ffbde56…` (adds the planner core class; cohorts 27–28 ran on `2eed12
 | Baritone parity, D12 | Weights and moves reimplemented | [BARITONE_WEIGHTS_AND_MOVES](BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md), `config/weights/baritone-v1.20.0.json` |
 | Awareness parity, D8 | `sections` preset with delivery fixed (Oct 31) | [AWARENESS_MODES](AWARENESS_MODES.md) |
 | Swimming (§5 of the direction doc) | Planner and body done; live fixture cohorts not run | Direction doc §5 status lines |
-| Qualification | Stale: the body source changed | [NAVIGATION_QUALIFICATION.json](NAVIGATION_QUALIFICATION.json), [gates.json](gates.json) |
+| Qualification | Current for mod `a94dcdef` (Nov 1) | [NAVIGATION_QUALIFICATION.json](NAVIGATION_QUALIFICATION.json), [gates.json](gates.json) |
 | Gates | G0–G3, G5 passed; G4 in progress; G6–G8 not run | [gates.json](gates.json) |
 
 Latest numbers against Baritone (ticks, calm, seed 1337, Baritone run
@@ -156,9 +156,11 @@ dependencies, except where noted.
 
 **Scored comparison**
 
-11. **Requalify the mod** (needs the body to stop changing): run
-    `runtime/requal-awareness.py` with the server stopped, then
-    `runtime/finalize-movement.py`. Scored navigation refuses to run until then.
+11. Done Nov 1 (requalify the mod): `results/awareness/20261101T020439115161Z-regression`
+    passed all seven checks (awareness 15/15, 20 initial resets, 29 adversarial,
+    C2–C5 20 resets each) on mod `a94dcdef`; promoted by `runtime/finalize-movement.py`
+    to `docs/MOVEMENT_PARITY_PROOF.json`, G2 and `NAVIGATION_QUALIFICATION.json`.
+    Any later body change needs this rerun.
 12. **Frozen comparison, Phase 7:** 10 routes × ≥3 seeds × 3 reps; MCB ≥ 27/30
     and median ≤ 2× Baritone at matched awareness, plus night diagnostics.
     Needs more routes and seeds, and a recorded decision on Baritone's settings

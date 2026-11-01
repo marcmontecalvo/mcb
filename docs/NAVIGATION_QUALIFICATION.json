@@ -1,47 +1,47 @@
 {
   "courses": {
     "C2": {
-      "mod_source_hash": "124b9292233ec0a91ac56e6e23ba3cc12bddd5a057fc25b688be2b67edbe248a",
+      "mod_source_hash": "a94dcdeffd15683d66ed26f612a75726a61ca292ef7301b7346a1d7cf2d1d6cd",
       "profile_hash": "5fae74b136aaf10179333f81139366a2d6d7aeb5faedb3255a7ff193643aafe1",
       "reset_checks_passed": 20,
-      "source_commit": "7876b569b1de8a22011d1cc824599fdb1ff49b16",
+      "source_commit": "78ba5fac910877fccd8a24fc2f04cf2954c2ebc4",
       "state_digest": "5345abb617faf39f03a7bf6b141e4adb96795af458d273422c4951682bdf19dd",
       "status": "passed",
-      "summary": "results/awareness/20261027T024304540828Z-regression/C2.json",
-      "summary_sha256": "58f50cd45610a0c366423794ff10d6c4149b57d486d65cf7acbc24235b0ef6a7"
+      "summary": "results/awareness/20261101T020439115161Z-regression/C2.json",
+      "summary_sha256": "37883530cec543690221b6792a4023dcdbb842689266941cb4561a34af92e960"
     },
     "C3": {
-      "mod_source_hash": "124b9292233ec0a91ac56e6e23ba3cc12bddd5a057fc25b688be2b67edbe248a",
+      "mod_source_hash": "a94dcdeffd15683d66ed26f612a75726a61ca292ef7301b7346a1d7cf2d1d6cd",
       "profile_hash": "5fae74b136aaf10179333f81139366a2d6d7aeb5faedb3255a7ff193643aafe1",
       "reset_checks_passed": 20,
-      "source_commit": "7876b569b1de8a22011d1cc824599fdb1ff49b16",
+      "source_commit": "78ba5fac910877fccd8a24fc2f04cf2954c2ebc4",
       "state_digest": "92963c6e5ad00cf89365611aeef208a324577874170331f909aa6e3a5e5b9684",
       "status": "passed",
-      "summary": "results/awareness/20261027T024304540828Z-regression/C3.json",
-      "summary_sha256": "967c284a8d106db6ce417f0fc03d15392ab30335efceb87d495295ed9edae6e0"
+      "summary": "results/awareness/20261101T020439115161Z-regression/C3.json",
+      "summary_sha256": "e880a1d247a423326872cfb1bbc04e4b7cffb284fc00c653ff3fe99f7bac4bf6"
     },
     "C4": {
-      "mod_source_hash": "124b9292233ec0a91ac56e6e23ba3cc12bddd5a057fc25b688be2b67edbe248a",
+      "mod_source_hash": "a94dcdeffd15683d66ed26f612a75726a61ca292ef7301b7346a1d7cf2d1d6cd",
       "profile_hash": "5fae74b136aaf10179333f81139366a2d6d7aeb5faedb3255a7ff193643aafe1",
       "reset_checks_passed": 20,
-      "source_commit": "7876b569b1de8a22011d1cc824599fdb1ff49b16",
+      "source_commit": "78ba5fac910877fccd8a24fc2f04cf2954c2ebc4",
       "state_digest": "9c3aa3a8ee440503ca42d643235bcc617221e6088b09f274438318b8d793920f",
       "status": "passed",
-      "summary": "results/awareness/20261027T024304540828Z-regression/C4.json",
-      "summary_sha256": "4ae87b775f89a9b2f7bfd7c4c7421971cf4370b428227e8053ba334950433c09"
+      "summary": "results/awareness/20261101T020439115161Z-regression/C4.json",
+      "summary_sha256": "1b07ca9f216b327613c63a71d30e53233d1c3c651e24bd9426ae11366bb6fae2"
     },
     "C5": {
-      "mod_source_hash": "124b9292233ec0a91ac56e6e23ba3cc12bddd5a057fc25b688be2b67edbe248a",
+      "mod_source_hash": "a94dcdeffd15683d66ed26f612a75726a61ca292ef7301b7346a1d7cf2d1d6cd",
       "profile_hash": "5fae74b136aaf10179333f81139366a2d6d7aeb5faedb3255a7ff193643aafe1",
       "reset_checks_passed": 20,
-      "source_commit": "7876b569b1de8a22011d1cc824599fdb1ff49b16",
+      "source_commit": "78ba5fac910877fccd8a24fc2f04cf2954c2ebc4",
       "state_digest": "f8b007de5e3b3fd09eb7f4acd215895d2d38d52707c2c89903a88542a0d1aa7e",
       "status": "passed",
-      "summary": "results/awareness/20261027T024304540828Z-regression/C5.json",
-      "summary_sha256": "a0760693602f5e2724589130875e7616579c653c37f6a92ed0727447b1288941"
+      "summary": "results/awareness/20261101T020439115161Z-regression/C5.json",
+      "summary_sha256": "8a98bcf6067b8687a05741fc37d0c7aae27f7542a552f3624c3e4ca2bd786bbc"
     }
   },
-  "reviewed_at": "2026-10-26",
+  "reviewed_at": "2026-10-31",
   "schema_version": 1,
   "scope": "development reset qualification, seed 0 x20 per course; not a G5 pass"
 }

@@ -1,0 +1,70 @@
+{
+  "checks": {
+    "C2": {
+      "artifact": "results/awareness/20261101T020439115161Z-regression/C2.json",
+      "sha256": "37883530cec543690221b6792a4023dcdbb842689266941cb4561a34af92e960",
+      "status": "passed_development_reset"
+    },
+    "C3": {
+      "artifact": "results/awareness/20261101T020439115161Z-regression/C3.json",
+      "sha256": "e880a1d247a423326872cfb1bbc04e4b7cffb284fc00c653ff3fe99f7bac4bf6",
+      "status": "passed_development_reset"
+    },
+    "C4": {
+      "artifact": "results/awareness/20261101T020439115161Z-regression/C4.json",
+      "sha256": "1b07ca9f216b327613c63a71d30e53233d1c3c651e24bd9426ae11366bb6fae2",
+      "status": "passed_development_reset"
+    },
+    "C5": {
+      "artifact": "results/awareness/20261101T020439115161Z-regression/C5.json",
+      "sha256": "8a98bcf6067b8687a05741fc37d0c7aae27f7542a552f3624c3e4ca2bd786bbc",
+      "status": "passed_development_reset"
+    },
+    "awareness": {
+      "artifact": "results/awareness/20261101T020439115161Z-regression/awareness.json",
+      "sha256": "f8e51424255b4dc3523baa523daac67f67d6ab7e4cc6a11df4ca5cec823284dc",
+      "status": "passed"
+    },
+    "initial_adversarial": {
+      "artifact": "results/awareness/20261101T020439115161Z-regression/initial_adversarial.json",
+      "sha256": "bacfe8fa25e49b4137eb0ce6d1887ca4ac578d774c667ac111b6d5d11218be29",
+      "status": "passed_development_subset"
+    },
+    "initial_resets": {
+      "artifact": "results/awareness/20261101T020439115161Z-regression/initial_resets.json",
+      "sha256": "bd2f93bbe7402a08dfe633f96f1cfe5ccb6d6e001b56af92ad78d583421d007b",
+      "status": "passed_development_subset"
+    }
+  },
+  "date": "2026-10-31",
+  "initial_adversarial_checks_passed": 29,
+  "initial_reset_checks_passed": 20,
+  "legacy_sensor_checks_passed": 11,
+  "limitations": [
+    "Development natural-terrain cohorts are recorded separately (docs/STEP_C_PROGRESS_2026-10-29.md); no Baritone parity claim"
+  ],
+  "mod_provenance": {
+    "jars": {
+      "mcb-body": {
+        "jar": "D:\\mcb\\runtime\\server\\mods\\mcb-body-0.1.0.jar",
+        "jar_sha256": "22b6b02b24037518338dcc100a07ac027535219161cc40df45b008fd90bf34d6"
+      },
+      "mcb-lab": {
+        "jar": "D:\\mcb\\runtime\\server\\mods\\mcb-lab-0.1.0.jar",
+        "jar_sha256": "c93068943530b7900856d4c53ff2e9c379ac30d955981a69747dfa61c3403ec2"
+      }
+    },
+    "schema_version": 2,
+    "source_hash": "a94dcdeffd15683d66ed26f612a75726a61ca292ef7301b7346a1d7cf2d1d6cd"
+  },
+  "native_awareness_checks_passed": 15,
+  "navigation_reset_checks_passed": {
+    "C2": 20,
+    "C3": 20,
+    "C4": 20,
+    "C5": 20
+  },
+  "schema_version": 1,
+  "scope": "Nov 1 mcb-body/mcb-lab changes; legacy reset/evaluator/sensor requalification",
+  "status": "passed_development_increment"
+}
