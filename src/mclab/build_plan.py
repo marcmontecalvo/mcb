@@ -8,10 +8,15 @@ Contract: docs/KNOWLEDGE_PACK_FORMAT.md, "Build file" and "blocks.json".
 
 from __future__ import annotations
 
-import base64
-import struct
 from collections import Counter
 from dataclasses import dataclass, field
+
+from mclab.schematic import (
+    format_state,
+    from_build_json,
+    parse_state,
+    state_materials,
+)
 
 Pos = tuple[int, int, int]
 
@@ -34,6 +39,7 @@ REPLACEABLE = (
         )
     )
 )
+POT = "minecraft:flower_pot"
 SCAFFOLD_ITEMS = ("minecraft:dirt", "minecraft:cobblestone", "minecraft:netherrack")
 MAX_SCAFFOLD_DEPTH = 64
 
@@ -48,7 +54,6 @@ DEFAULT_IGNORE = (
                 "persistent",
                 "power",
                 "powered",
-                "open",
                 "waterlogged",
                 "snowy",
             }
@@ -74,21 +79,7 @@ _NEIGHBOURS = tuple(_VEC.values())
 _RAIL_RANK = {"north": 0, "south": 1, "east": 2, "west": 3}
 
 
-# --- state strings --------------------------------------------------------------
-
-
-def parse_state(state: str) -> tuple[str, dict[str, str]]:
-    if "[" not in state:
-        return state, {}
-    ident, rest = state.split("[", 1)
-    pairs = (kv.split("=", 1) for kv in rest.rstrip("]").split(",") if kv)
-    return ident, {k: v for k, v in pairs}
-
-
-def format_state(ident: str, props: dict[str, str]) -> str:
-    if not props:
-        return ident
-    return ident + "[" + ",".join(f"{k}={props[k]}" for k in sorted(props)) + "]"
+# --- positions ------------------------------------------------------------------
 
 
 def _add(pos: Pos, vec: tuple[int, int, int]) -> Pos:
@@ -150,16 +141,6 @@ def transform_state(state: str, quarter_turns: int, mirror: bool) -> str:
 # --- template -------------------------------------------------------------------
 
 
-def decode_build(build: dict) -> tuple[tuple[int, int, int], list[str]]:
-    """Minimal build.json decoder: size and state strings in file order."""
-    sx, sy, sz = build["size"]
-    raw = base64.b64decode(build["blocks"])
-    if len(raw) != 2 * sx * sy * sz:
-        raise ValueError("build blocks length does not match size")
-    palette = build["palette"]
-    return (sx, sy, sz), [palette[i] for i in struct.unpack(f"<{len(raw) // 2}H", raw)]
-
-
 @dataclass(frozen=True)
 class Template:
     cells: dict[Pos, str]  # world position -> target state (air included)
@@ -174,15 +155,14 @@ class Template:
         if rotation not in (0, 90, 180, 270):
             raise ValueError("rotation must be 0, 90, 180 or 270")
         turns = rotation // 90
-        (sx, sy, sz), states = decode_build(build)
+        schem = from_build_json(build)
+        sx, sy, sz = schem.size
         cache: dict[str, str] = {}
         cells: dict[Pos, str] = {}
-        i = 0
         for y in range(sy):
             for z in range(sz):
                 for x in range(sx):
-                    state = states[i]
-                    i += 1
+                    state = schem.state_at(x, y, z)
                     if state not in cache:
                         cache[state] = transform_state(state, turns, mirror)
                     px, pz, w, d = (sx - 1 - x) if mirror else x, z, sx, sz  # noqa: E741
@@ -216,7 +196,27 @@ def _same(target: str, current: str, ignore) -> bool:
     if tid in FLUIDS:
         return True
     skip = _ignored(tid, ignore)
+    if tp.get("half") == "upper":
+        skip |= {"open"}  # follows the lower half, which is the one that is used
     return all(cp.get(k) == v for k, v in tp.items() if k not in skip)
+
+
+def _use_item(target: str, current: str, ignore) -> tuple[bool, str | None]:
+    """(a Use fixes it, item to hold): a door to toggle, a pot waiting for its plant."""
+    tid, tp = parse_state(target)
+    cid, cp = parse_state(current)
+    if tid.startswith("minecraft:potted_") and cid == POT:
+        plant = [i for i in state_materials(target)[0] if i != POT]
+        return bool(plant), (plant[0] if plant else None)
+    if (
+        tid == cid
+        and tp.get("open") in ("true", "false")
+        and cp.get("open") != tp["open"]
+        and tp.get("half") != "upper"  # using the lower half moves both halves
+        and _same(target, format_state(cid, {**cp, "open": tp["open"]}), ignore)
+    ):
+        return True, None
+    return False, None
 
 
 def _classify(target: str, current: str | None, ignore, keep_existing: bool) -> str:
@@ -229,6 +229,8 @@ def _classify(target: str, current: str | None, ignore, keep_existing: bool) -> 
         return "ok" if cid in AIR or cid in FLUIDS or keep_existing else "break"
     if _same(target, current, ignore):
         return "ok"
+    if _use_item(target, current, ignore)[0]:
+        return "use"
     return "place" if cid in REPLACEABLE else "break"
 
 
@@ -237,6 +239,7 @@ class Diff:
     breaks: list[Pos]
     places: list[tuple[Pos, str]]
     unknown: list[Pos]
+    uses: list[tuple[Pos, str | None]] = field(default_factory=list)
 
 
 def diff(
@@ -245,6 +248,7 @@ def diff(
     breaks: list[Pos] = []
     places: list[tuple[Pos, str]] = []
     unknown: list[Pos] = []
+    uses: list[tuple[Pos, str | None]] = []
     for pos, target in template.cells.items():
         verdict = _classify(target, world(*pos), ignore_props, keep_existing)
         if verdict == "break":
@@ -253,7 +257,9 @@ def diff(
             places.append((pos, target))
         elif verdict == "unknown":
             unknown.append(pos)
-    return Diff(breaks, places, unknown)
+        elif verdict == "use":
+            uses.append((pos, _use_item(target, world(*pos), ignore_props)[1]))
+    return Diff(breaks, places, unknown, uses)
 
 
 def progress(
@@ -267,7 +273,12 @@ def progress(
             counts["correct"] += parse_state(target)[0] not in AIR
         else:
             counts[
-                {"break": "wrong", "place": "missing", "unknown": "unknown"}[verdict]
+                {
+                    "break": "wrong",
+                    "use": "wrong",
+                    "place": "missing",
+                    "unknown": "unknown",
+                }[verdict]
             ] += 1
     return {k: counts[k] for k in ("correct", "wrong", "missing", "unknown")}
 
@@ -277,19 +288,26 @@ def progress(
 
 def item_for_state(state: str, blocks: dict) -> tuple[str, int] | None:
     """(item, count) to place this state; None for air, upper halves, no item."""
-    ident, props = parse_state(state)
-    if ident in AIR:
-        return None
+    ident = parse_state(state)[0]
     if ident in FLUIDS:
         return ident + "_bucket", 1
-    if props.get("half") == "upper" or props.get("part") == "head":
-        return None
     if ident == "minecraft:piston_head":
         return None
-    item = blocks.get(ident, {}).get("item")
-    if not item:
+    items, _ = state_materials(state, blocks)
+    if not items:
         return None
-    return item, 2 if props.get("type") == "double" else 1
+    # A potted plant places the pot first; the plant is used on it afterwards.
+    item = POT if POT in items else next(iter(items))
+    return item, items[item]
+
+
+def _cost(state: str, blocks: dict) -> dict[str, int]:
+    """Everything the inventory must hold to finish this cell."""
+    if not item_for_state(state, blocks):
+        return {}
+    if parse_state(state)[0] in FLUIDS:
+        return dict([item_for_state(state, blocks)])
+    return dict(state_materials(state, blocks)[0])
 
 
 # --- actions --------------------------------------------------------------------
@@ -306,6 +324,14 @@ class Place:
     state: str
     item: str
     count: int = 1
+
+
+@dataclass(frozen=True)
+class Use:
+    """Use the block (toggle a door, put a plant in a pot), optionally holding item."""
+
+    pos: Pos
+    item: str | None = None
 
 
 @dataclass(frozen=True)
@@ -345,6 +371,13 @@ def _support_cell(kind: str, props: dict[str, str], pos: Pos) -> Pos | None:
     return None
 
 
+def _support_kind(ident: str, props: dict[str, str], facts: dict) -> str | None:
+    # The pack lists lanterns as unsupported; they hang from above or stand on a block.
+    if ident.endswith("lantern"):
+        return "above" if props.get("hanging") == "true" else "below"
+    return facts.get("needs_support")
+
+
 def _gate(pos: Pos, state: str, world, blocks: dict) -> str | None:
     """None if placeable now, else why not: unknown, floating, below or support."""
     around = [world(*_add(pos, v)) for v in _NEIGHBOURS]
@@ -357,7 +390,7 @@ def _gate(pos: Pos, state: str, world, blocks: dict) -> str | None:
     below = _add(pos, _VEC["down"])
     if facts.get("gravity") and not _is_solid(world(*below), blocks):
         return "below"
-    kind = facts.get("needs_support")
+    kind = _support_kind(ident, props, facts)
     sup = _support_cell(kind, props, pos) if kind else None
     if sup and not _is_solid(world(*sup), blocks):
         return "below" if sup == below else "support"
@@ -376,6 +409,16 @@ def _scaffold_pos(pos: Pos, world, blocks: dict) -> Pos | None:
             return (x, cur + 1, z) if cur + 1 < y else None
         cur -= 1
     return None
+
+
+def _place_state(state: str) -> str:
+    """What the body places: closed (a Use opens it), a pot without its plant."""
+    ident, props = parse_state(state)
+    if ident.startswith("minecraft:potted_"):
+        return POT
+    if props.get("open") == "true" and props.get("half") != "upper":
+        return format_state(ident, {**props, "open": "false"})
+    return state
 
 
 def next_actions(
@@ -399,30 +442,37 @@ def next_actions(
     )
     if breaks:
         return [Break(p) for p in breaks[:limit]]
+    if d.uses:
+        uses = sorted(d.uses, key=lambda u: (u[0][1], u[0][0], u[0][2]))
+        return [Use(p, item) for p, item in uses[:limit]]
 
     todo = []
     for pos, state in d.places:
-        need = item_for_state(state, blocks)
-        if need:
-            todo.append((pos, state, *need))
+        cost = _cost(state, blocks)
+        if cost:
+            todo.append((pos, _place_state(state), cost, item_for_state(state, blocks)))
     if not todo:
         return []
     todo.sort(key=lambda t: (parse_state(t[1])[0] in FLUIDS, t[0][1], t[0][0], t[0][2]))
 
     left = dict(inventory)
     out: list = []
-    for pos, state, item, n in todo:
+    for pos, state, cost, (item, n) in todo:
         if len(out) >= limit:
             break
-        if left.get(item, 0) >= n and _gate(pos, state, world, blocks) is None:
-            left[item] -= n
+        if (
+            all(left.get(i, 0) >= c for i, c in cost.items())
+            and _gate(pos, state, world, blocks) is None
+        ):
+            for i, c in cost.items():
+                left[i] -= c
             out.append(Place(pos, state, item, n))
     if out:
         return out
 
     remaining = Counter()
-    for _, _, item, n in todo:
-        remaining[item] += n
+    for _, _, cost, _ in todo:
+        remaining.update(cost)
     if any(n > inventory.get(item, 0) for item, n in remaining.items()):
         return [NeedMaterials(dict(remaining))]
 

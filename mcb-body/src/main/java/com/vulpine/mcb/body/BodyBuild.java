@@ -1,0 +1,234 @@
+package com.vulpine.mcb.body;
+
+import com.google.gson.JsonObject;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+
+/**
+ * Placing and using blocks the way a player does: aim, then a real use through the player's game mode
+ * (the path a use packet takes). place_block first simulates the block's own getStateForPlacement
+ * (Baritone's method) to pick the face, hit point and facing that give the requested state.
+ */
+final class BodyBuild {
+    private BodyBuild() {}
+
+    private static final List<Direction> PLACE_ORDER = List.of(Direction.DOWN, Direction.NORTH, Direction.EAST,
+            Direction.SOUTH, Direction.WEST, Direction.UP);
+
+    // ---- place_block
+    static Map<String, Object> place(ServerPlayer player, JsonObject request) {
+        BlockPos pos = pos(request);
+        PlacementLogic.ParsedState target;
+        try { target = PlacementLogic.parse(request.get("state").getAsString()); }
+        catch (IllegalArgumentException e) { throw new BodyActions.Fail("invalid_state"); }
+        Identifier blockId = Identifier.tryParse(target.block());
+        if (blockId == null || !BuiltInRegistries.BLOCK.containsKey(blockId)) throw new BodyActions.Fail("invalid_state");
+        var block = BuiltInRegistries.BLOCK.getValue(blockId);
+        // The block's own item (wall_torch -> torch), unless the request names one.
+        String item = request.has("item") ? request.get("item").getAsString()
+                : BuiltInRegistries.ITEM.getKey(block.asItem()).toString();
+        var level = player.level();
+        if (!level.getBlockState(pos).canBeReplaced()) throw new BodyActions.Fail("occupied");
+        selectItem(player, item); // missing_item / unknown_item before any rotation changes
+        var stack = player.getItemInHand(InteractionHand.MAIN_HAND);
+        if (!(stack.getItem() instanceof BlockItem blockItem)) throw new BodyActions.Fail("not_placeable");
+
+        float yaw0 = player.getYRot(), pitch0 = player.getXRot();
+        boolean anySolid = false;
+        int[] stats = new int[2];
+        BlockHitResult chosen = null;
+        float chosenYaw = 0, chosenPitch = 0;
+        Vec3 eye = player.getEyePosition();
+        search:
+        for (Direction d : PLACE_ORDER) {
+            BlockPos neighbour = pos.relative(d);
+            var nstate = level.getBlockState(neighbour);
+            if (nstate.canBeReplaced() || nstate.getCollisionShape(level, neighbour).isEmpty()) continue;
+            anySolid = true;
+            for (BlockHitResult hit : hits(player, neighbour, List.of(d.getOpposite()), true, stats)) {
+                Vec3 at = hit.getLocation();
+                float pitch = PlacementLogic.pitchTo(at.x - eye.x, at.y - eye.y, at.z - eye.z);
+                for (String facing : PlacementLogic.yawOrder(target)) {
+                    float yaw = PlacementLogic.yawFor(facing);
+                    aim(player, yaw, pitch);
+                    var context = new BlockPlaceContext(player, InteractionHand.MAIN_HAND, stack, hit);
+                    if (!context.canPlace()) continue;
+                    BlockState candidate = placementState(blockItem, context);
+                    if (candidate == null) continue;
+                    if (PlacementLogic.matches(target, PlacementLogic.parse(render(candidate)))) {
+                        chosen = hit; chosenYaw = yaw; chosenPitch = pitch;
+                        break search;
+                    }
+                }
+            }
+        }
+        if (chosen == null) {
+            aim(player, yaw0, pitch0);
+            if (!anySolid) throw new BodyActions.Fail("no_support_face");
+            if (stats[0] == 0) throw new BodyActions.Fail("out_of_reach");
+            throw new BodyActions.Fail("state_unreachable");
+        }
+        aim(player, chosenYaw, chosenPitch);
+        player.gameMode.useItemOn(player, level, player.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND, chosen);
+        if (player.containerMenu != player.inventoryMenu) player.closeContainer();
+        String placed = render(level.getBlockState(pos));
+        if (!PlacementLogic.matches(target, PlacementLogic.parse(placed))) {
+            // The failure event carries the state found in the world.
+            throw new PlacedWrong(placed);
+        }
+        var out = new LinkedHashMap<String, Object>();
+        out.put("pos", List.of(pos.getX(), pos.getY(), pos.getZ()));
+        out.put("placed", placed);
+        out.put("face", chosen.getDirection().getSerializedName());
+        out.put("hit", vec(chosen.getLocation()));
+        out.put("yaw", chosenYaw);
+        out.put("pitch", chosenPitch);
+        return out;
+    }
+
+    private static final java.lang.reflect.Method PLACEMENT_STATE = placementStateMethod();
+
+    private static java.lang.reflect.Method placementStateMethod() {
+        try {
+            var method = BlockItem.class.getDeclaredMethod("getPlacementState", BlockPlaceContext.class);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+
+    /**
+     * What the item itself would place for this context: the same call BlockItem.place makes, so standing
+     * and wall variants (torches), survival and obstruction checks are the game's own.
+     */
+    private static BlockState placementState(BlockItem item, BlockPlaceContext context) {
+        var updated = item.updatePlacementContext(context);
+        if (updated == null) return null;
+        try {
+            return (BlockState) PLACEMENT_STATE.invoke(item, updated);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("placement_state_unavailable", e);
+        }
+    }
+
+    /** placed_wrong carries the state the world ended up with. */
+    static final class PlacedWrong extends RuntimeException {
+        final String placed;
+        PlacedWrong(String placed) { super("placed_wrong"); this.placed = placed; }
+    }
+
+    // ---- use_block
+    static Map<String, Object> use(ServerPlayer player, JsonObject request) {
+        BlockPos pos = pos(request);
+        var level = player.level();
+        var before = level.getBlockState(pos);
+        if (before.isAir()) throw new BodyActions.Fail("nothing_to_use");
+        if (request.has("item")) selectItem(player, request.get("item").getAsString());
+        var hit = nearestHit(player, pos);
+        Vec3 eye = player.getEyePosition(), at = hit.getLocation();
+        float yaw0 = player.getYRot(), pitch0 = player.getXRot();
+        aim(player, (float) Math.toDegrees(Math.atan2(-(at.x - eye.x), at.z - eye.z)),
+                PlacementLogic.pitchTo(at.x - eye.x, at.y - eye.y, at.z - eye.z));
+        var result = player.gameMode.useItemOn(player, level, player.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND, hit);
+        if (player.containerMenu != player.inventoryMenu) player.closeContainer();
+        if (!result.consumesAction()) { aim(player, yaw0, pitch0); throw new BodyActions.Fail("no_effect"); }
+        var out = new LinkedHashMap<String, Object>();
+        out.put("pos", List.of(pos.getX(), pos.getY(), pos.getZ()));
+        out.put("before", render(before));
+        out.put("after", render(level.getBlockState(pos)));
+        return out;
+    }
+
+    // ---- shared helpers
+    /** The closest visible, reachable point on the block (any face), as the real ray result. */
+    static BlockHitResult nearestHit(ServerPlayer player, BlockPos pos) {
+        int[] stats = new int[2];
+        var all = hits(player, pos, List.of(Direction.values()), false, stats);
+        if (all.isEmpty()) {
+            if (stats[0] == 0) throw new BodyActions.Fail("out_of_reach");
+            throw new BodyActions.Fail("no_line_of_sight");
+        }
+        Vec3 eye = player.getEyePosition();
+        return all.stream().min(Comparator.comparingDouble(h -> h.getLocation().distanceToSqr(eye))).orElseThrow();
+    }
+
+    /**
+     * Real ray hits on the given faces of a block: points on the face (centre and quarter points) within
+     * reach whose eye ray first meets that block. stats[0] counts points in reach, stats[1] visible ones.
+     */
+    static List<BlockHitResult> hits(ServerPlayer player, BlockPos block, List<Direction> faces, boolean exactFace, int[] stats) {
+        var level = player.level();
+        Vec3 eye = player.getEyePosition();
+        double reach = player.blockInteractionRange();
+        var out = new ArrayList<BlockHitResult>();
+        for (Direction face : faces) {
+            for (double[] offset : PlacementLogic.HIT_OFFSETS) {
+                double[] v = PlacementLogic.facePoint(face.getSerializedName(), offset[0], offset[1]);
+                Vec3 point = Vec3.atCenterOf(block).add(v[0], v[1], v[2]);
+                if (eye.distanceTo(point) > reach) continue;
+                stats[0]++;
+                Vec3 beyond = point.add(point.subtract(eye).normalize().scale(0.05));
+                var hit = level.clip(new ClipContext(eye, beyond, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
+                if (hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(block)) continue;
+                if (exactFace && hit.getDirection() != face) continue;
+                if (eye.distanceTo(hit.getLocation()) > reach) continue;
+                stats[1]++;
+                out.add(hit);
+            }
+        }
+        return out;
+    }
+
+    static void aim(ServerPlayer player, float yaw, float pitch) {
+        player.setYRot(yaw);
+        player.setXRot(pitch);
+        player.setYHeadRot(yaw);
+    }
+
+    /** Hold the item (moving it into the hotbar like equip does). */
+    static void selectItem(ServerPlayer player, String item) {
+        var json = new JsonObject();
+        json.addProperty("item", item);
+        BodyActions.equip(player, json);
+    }
+
+    static String render(BlockState state) {
+        var props = new TreeMap<String, String>();
+        for (Property<?> property : state.getProperties()) props.put(property.getName(), valueName(state, property));
+        return PlacementLogic.render(new PlacementLogic.ParsedState(
+                BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString(), props));
+    }
+
+    private static <T extends Comparable<T>> String valueName(BlockState state, Property<T> property) {
+        return property.getName(state.getValue(property));
+    }
+
+    static BlockPos pos(JsonObject request) {
+        var a = request.getAsJsonArray("pos");
+        if (a == null || a.size() != 3) throw new BodyActions.Fail("invalid_pos");
+        return new BlockPos(a.get(0).getAsInt(), a.get(1).getAsInt(), a.get(2).getAsInt());
+    }
+
+    static List<Double> vec(Vec3 v) { return List.of(v.x, v.y, v.z); }
+}

@@ -39,10 +39,13 @@ BODY_OPS = frozenset(
         "craft",
         "furnace",
         "equip",
+        "place_block",
+        "use_block",
+        "break_block",
     }
 )
 # Lab ops that act on the current body by name.
-BODY_SUBJECT_OPS = frozenset({"fixture", "death_proof", "knockback_proof"})
+BODY_SUBJECT_OPS = frozenset({"fixture", "death_proof", "knockback_proof", "kit"})
 REJECTIONS = frozenset(
     {"rejected", "rejected_at_execution", "course_reset_failed", "course_begin_failed"}
 )

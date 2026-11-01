@@ -270,6 +270,11 @@ Combat execution, multi-bot coordination (shared map memory, not colliding,
 following/escorting players), crafting/inventory, Waystones/teleport edges,
 underwater navigation.
 
+Update Nov 1, 2026: crafting, inventory, gathering and building from schematics
+are now planned and partly built in
+[BUILD_AND_GATHER_PLAN_2026-11-01.md](BUILD_AND_GATHER_PLAN_2026-11-01.md)
+(companion track). Its rules follow D6: no model in the loop.
+
 ## 5. Swimming work in progress — review notes
 
 Swimming is being built in parallel. Notes from the review of

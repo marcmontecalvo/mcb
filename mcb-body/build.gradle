@@ -51,7 +51,7 @@ sourceSets {
     }
 }
 
-['AwarenessConfig', 'TerrainBatch', 'SectionScheduler', 'RouteMotor', 'StepMotor', 'GapMotor', 'RouteReflex', 'RoutePlanner', 'KnowledgeLogic'].each { name ->
+['AwarenessConfig', 'TerrainBatch', 'SectionScheduler', 'RouteMotor', 'StepMotor', 'GapMotor', 'RouteReflex', 'RoutePlanner', 'KnowledgeLogic', 'PlacementLogic'].each { name ->
     def task = tasks.register("verify${name}", JavaExec) {
         dependsOn tasks.named('geometryVerificationClasses')
         classpath = sourceSets.geometryVerification.runtimeClasspath

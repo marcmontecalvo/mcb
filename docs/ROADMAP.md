@@ -275,13 +275,23 @@ imports allowed there).
     still open.
   - **M3 ops built.** Live crafting and furnace check still open (needs a lab
     fixture with items and stations).
-  - **M4 planner done.** Empty inventory → stone and iron pickaxe both plan on
-    the real pack. Open bugs: the iron plan equips and mines before crafting the
-    pickaxe; it makes a coal block for fuel; no mid-plan tool upgrade; surplus not
-    reused. Not plannable yet: stripped logs (axe use), mob drops (leather, wool),
-    flowers, moss.
-  - **Body mod changed** (now `62cf0d5e…`): qualification (item 11 procedure)
+  - **M4 planner done** on the real pack: order, fuel, surplus, tool upgrade and
+    preference bugs fixed (wave 2); axe stripping, vines, moss and flowers added.
+    The house plans in 76 tasks; only bed and bookshelf are unreachable (mob
+    drops). The executor is not written yet (G0).
+  - **M2 body ops and M3 done live** (wave 2): placement 46/46
+    (`results/companion/20261101T172441585144Z`), crafting and furnace 8/8
+    (`results/companion/20261101T172600197748Z`), via the lab `kit` fixture.
+  - **Body mod changed** (now `9e536f77…`): qualification (item 11 procedure)
     must be rerun before scored navigation runs.
+  - Current status per milestone, the code map, and every known gap with its
+    planned fix (ids K1–K7, C1–C3, B1–B6, A1–A4, G0–G9, in waves 3–5) are in
+    [BUILD_AND_GATHER_PLAN](BUILD_AND_GATHER_PLAN_2026-11-01.md) §7–§9.
+- Open Nov 1, for Marc ([BUILD_AND_GATHER_PLAN](BUILD_AND_GATHER_PLAN_2026-11-01.md)
+  §6 questions 5–6):
+  - May the bot shear sheep and kill passive animals for leather (gap G1;
+    touches item 13)?
+  - May it place its own storage chest at a build site (gap G5)?
 - Carried from the direction doc: `race` profile block budgets; server view
   distance for parity runs (currently 4).
 
@@ -294,8 +304,9 @@ imports allowed there).
 | [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md) | Authoritative plan: decisions D1–D12, phases, step order, swimming notes |
 | [DECISIONS.md](DECISIONS.md) | Decision log |
 | [ROADMAP.md](ROADMAP.md) | This file: status, ordered work, index |
-| [BUILD_AND_GATHER_PLAN_2026-11-01.md](BUILD_AND_GATHER_PLAN_2026-11-01.md) | Companion track: schematic building, knowledge pack from the game, AltoClef-style gathering (milestones M0–M6; M0–M4 in progress Nov 1) |
+| [BUILD_AND_GATHER_PLAN_2026-11-01.md](BUILD_AND_GATHER_PLAN_2026-11-01.md) | Companion track: schematic building, knowledge pack from the game, AltoClef-style gathering. Milestones M0–M6, status (§7), gap list with fixes (§8), M5/M6 detail (§9) |
 | [KNOWLEDGE_PACK_FORMAT.md](KNOWLEDGE_PACK_FORMAT.md) | Contract: knowledge pack files and the `build.json` format |
+| [BODY_ACTION_OPS.md](BODY_ACTION_OPS.md) | Contract: body action ops (craft, furnace, equip, place/use/break) and the lab `kit` fixture |
 | [BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md](BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md) | Baritone weights and the move-by-move comparison |
 | [BARITONE_REFERENCE.md](BARITONE_REFERENCE.md) | Baritone baseline setup (pinned client, launcher, how it is run) |
 | `Minecraft_AI_Technical_Handoff.md` (repo root) | Original specification; never edited |

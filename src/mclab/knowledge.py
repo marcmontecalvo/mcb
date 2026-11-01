@@ -48,6 +48,19 @@ class Drop:
         return self.chance * (self.min + self.max) / 2
 
 
+@dataclass(frozen=True)
+class Transform:
+    """An item made by using a tool on a placed block (strip a log with an axe).
+    `in_place` transforms change a block in the world and yield no item."""
+
+    id: str
+    input: str
+    tool: str  # tool kind: axe, hoe, shovel
+    output: str
+    count: int = 1
+    in_place: bool = False
+
+
 def _freeze(value: Any) -> Any:
     if isinstance(value, dict):
         return MappingProxyType({k: _freeze(v) for k, v in value.items()})
@@ -98,6 +111,7 @@ class Knowledge:
     drops: Mapping[str, Mapping[str, tuple[Drop, ...]]]
     sources: Mapping[str, Mapping[str, Any]]
     _by_result: Mapping[str, tuple[Recipe, ...]]
+    transforms: tuple[Transform, ...] = ()
 
     def recipes_for(self, item_id: str) -> tuple[Recipe, ...]:
         return self._by_result.get(item_id, ())
@@ -123,8 +137,29 @@ class Knowledge:
         return ()
 
 
-def load_pack(path: str | Path, sources: str | Path | None = None) -> Knowledge:
-    """Load `knowledge/<pack_id>/`. `sources` overrides the pack's sources.json."""
+def _parse_transforms(path: str | Path | None) -> tuple[Transform, ...]:
+    if path is None:
+        return ()
+    return tuple(
+        Transform(
+            t["id"],
+            t["input"],
+            t["tool"],
+            t["output"],
+            int(t.get("count", 1)),
+            bool(t.get("in_place", False)),
+        )
+        for t in _read(Path(path))["transforms"]
+    )
+
+
+def load_pack(
+    path: str | Path,
+    sources: str | Path | None = None,
+    transforms: str | Path | None = None,
+) -> Knowledge:
+    """Load `knowledge/<pack_id>/`. `sources` overrides the pack's sources.json;
+    `transforms` is an optional hand-written transforms file."""
     root = Path(path)
     pack = _read(root / "pack.json")
     items = _read(root / "items.json")["items"]
@@ -169,4 +204,5 @@ def load_pack(path: str | Path, sources: str | Path | None = None) -> Knowledge:
         ),
         sources=_freeze(src.get("sources", {})),
         _by_result=MappingProxyType({k: tuple(v) for k, v in by_result.items()}),
+        transforms=_parse_transforms(transforms),
     )

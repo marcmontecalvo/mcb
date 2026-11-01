@@ -28,6 +28,9 @@
   "minecraft:pale_oak_log": {
    "where": "tree"
   },
+  "minecraft:poplar_log": {
+   "where": "tree"
+  },
   "minecraft:stone": {
    "where": "underground",
    "y": [
@@ -194,6 +197,58 @@
     320
    ],
    "biomes": "mountains"
+  },
+  "minecraft:vine": {
+   "where": "tree",
+   "requires_tool": "shears"
+  },
+  "minecraft:moss_block": {
+   "where": "surface",
+   "biomes": "lush_caves"
+  },
+  "minecraft:blue_orchid": {
+   "where": "surface",
+   "biomes": "swamp"
+  },
+  "minecraft:lily_of_the_valley": {
+   "where": "surface",
+   "biomes": "forest"
+  },
+  "minecraft:dandelion": {
+   "where": "surface",
+   "biomes": "plains"
+  },
+  "minecraft:poppy": {
+   "where": "surface",
+   "biomes": "plains"
+  },
+  "minecraft:azure_bluet": {
+   "where": "surface",
+   "biomes": "flower_forest"
+  },
+  "minecraft:oxeye_daisy": {
+   "where": "surface",
+   "biomes": "plains"
+  },
+  "minecraft:cornflower": {
+   "where": "surface",
+   "biomes": "plains"
+  },
+  "minecraft:red_tulip": {
+   "where": "surface",
+   "biomes": "flower_forest"
+  },
+  "minecraft:orange_tulip": {
+   "where": "surface",
+   "biomes": "flower_forest"
+  },
+  "minecraft:white_tulip": {
+   "where": "surface",
+   "biomes": "flower_forest"
+  },
+  "minecraft:pink_tulip": {
+   "where": "surface",
+   "biomes": "flower_forest"
   }
  }
 }

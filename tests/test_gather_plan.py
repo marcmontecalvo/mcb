@@ -3,7 +3,15 @@ import shutil
 from dataclasses import replace
 from pathlib import Path
 
-from mclab.gather_plan import Craft, Equip, Gather, PlaceStation, Smelt, plan
+from mclab.gather_plan import (
+    Craft,
+    Equip,
+    Gather,
+    PlaceStation,
+    Smelt,
+    check_order,
+    plan,
+)
 from mclab.knowledge import load_pack
 
 MINI = Path(__file__).parent / "fixtures" / "knowledge" / "mini"
@@ -80,7 +88,8 @@ def test_iron_pickaxe_from_nothing_adds_furnace_fuel_and_smelting():
     ore = next(t for t in _of(r, Gather) if t.item == M + "raw_iron")
     assert (ore.block, ore.count, ore.min_tier) == (M + "iron_ore", 3, "stone")
     smelt = _of(r, Smelt)[0]
-    assert (smelt.count, smelt.fuel, smelt.fuel_count) == (3, M + "coal", 1)
+    # 3 smelts = 600 ticks: 2 planks (300 each) are cheaper than mining coal
+    assert (smelt.count, smelt.fuel, smelt.fuel_count) == (3, M + "oak_planks", 2)
     assert M + "furnace" in {t.result for t in _of(r, Craft)}
     ore_at = _index(r, lambda t: isinstance(t, Gather) and t.item == M + "raw_iron")
     equip_at = _index(
@@ -241,3 +250,9 @@ def test_replan_after_progress_shrinks_the_plan():
     second = plan({M + "stone_pickaxe": 1}, {M + "oak_planks": 12, M + "stick": 4}, K)
 
     assert len(second.tasks) < len(first.tasks)
+
+
+def test_check_order_accepts_every_mini_plan():
+    for target in ("stone_pickaxe", "iron_pickaxe", "furnace"):
+        r = plan({M + target: 1}, {}, K)
+        assert check_order(r.tasks, {}, K) == []

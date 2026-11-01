@@ -36,7 +36,7 @@ public final class LabRuntime implements AutoCloseable {
     static final int SUBJECT_PRESENT_TICKS = 5;
     private static final Gson GSON = new Gson();
     private static final Set<String> OPS = Set.of("natural_probe", "natural_start", "course_reset",
-            "reference_start", "fixture", "death_proof", "knockback_proof", "stop", "heartbeat",
+            "reference_start", "fixture", "death_proof", "knockback_proof", "kit", "stop", "heartbeat",
             "course_begin", "course_end", "course_test", "reference_stop", "natural_path");
     private static volatile LabRuntime active;
 
@@ -238,6 +238,7 @@ public final class LabRuntime implements AutoCloseable {
             case "course_reset" -> { courseReset(request, sequence); return; }
             case "reference_start" -> { referenceStart(request, sequence); return; }
             case "fixture", "death_proof", "knockback_proof" -> { proof(op, request, sequence); return; }
+            case "kit" -> { kit(request, sequence); return; }
             case "stop" -> {
                 if (!busy()) {
                     // Idle stop needs no identity: it only restores a dirty mechanics fixture.
@@ -372,6 +373,21 @@ public final class LabRuntime implements AutoCloseable {
             default -> throw new IllegalArgumentException("unknown_admin_operation");
         }
         emit("received", "fabric_start", Map.of("op", op, "request_sequence", sequence));
+    }
+
+    /** Lab kit: inventory and nearby blocks for a named body. Never during a run. */
+    private void kit(JsonObject request, long sequence) {
+        try {
+            if (busy()) throw new IllegalStateException("course_policy_admission_closed");
+            var player = LabFixture.named(server, text(request, "player"));
+            adopt(request, sequence);
+            var data = new java.util.LinkedHashMap<String, Object>(LabKit.apply(server, player, request));
+            data.put("request_sequence", sequence);
+            emit("kit_done", "fabric_start", data);
+        } catch (RuntimeException error) {
+            emit("kit_failed", "fabric_start", Map.of("request_sequence", sequence,
+                    "reason", String.valueOf(error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage())));
+        }
     }
 
     private void courseTest(JsonObject request, long sequence) {

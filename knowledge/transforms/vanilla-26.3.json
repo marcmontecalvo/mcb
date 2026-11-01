@@ -1,0 +1,196 @@
+{
+ "schema": 1,
+ "transforms": [
+  {
+   "id": "strip_acacia_log",
+   "input": "minecraft:acacia_log",
+   "tool": "axe",
+   "output": "minecraft:stripped_acacia_log",
+   "count": 1
+  },
+  {
+   "id": "strip_acacia_wood",
+   "input": "minecraft:acacia_wood",
+   "tool": "axe",
+   "output": "minecraft:stripped_acacia_wood",
+   "count": 1
+  },
+  {
+   "id": "strip_bamboo_block",
+   "input": "minecraft:bamboo_block",
+   "tool": "axe",
+   "output": "minecraft:stripped_bamboo_block",
+   "count": 1
+  },
+  {
+   "id": "strip_birch_log",
+   "input": "minecraft:birch_log",
+   "tool": "axe",
+   "output": "minecraft:stripped_birch_log",
+   "count": 1
+  },
+  {
+   "id": "strip_birch_wood",
+   "input": "minecraft:birch_wood",
+   "tool": "axe",
+   "output": "minecraft:stripped_birch_wood",
+   "count": 1
+  },
+  {
+   "id": "strip_cherry_log",
+   "input": "minecraft:cherry_log",
+   "tool": "axe",
+   "output": "minecraft:stripped_cherry_log",
+   "count": 1
+  },
+  {
+   "id": "strip_cherry_wood",
+   "input": "minecraft:cherry_wood",
+   "tool": "axe",
+   "output": "minecraft:stripped_cherry_wood",
+   "count": 1
+  },
+  {
+   "id": "strip_crimson_hyphae",
+   "input": "minecraft:crimson_hyphae",
+   "tool": "axe",
+   "output": "minecraft:stripped_crimson_hyphae",
+   "count": 1
+  },
+  {
+   "id": "strip_crimson_stem",
+   "input": "minecraft:crimson_stem",
+   "tool": "axe",
+   "output": "minecraft:stripped_crimson_stem",
+   "count": 1
+  },
+  {
+   "id": "strip_dark_oak_log",
+   "input": "minecraft:dark_oak_log",
+   "tool": "axe",
+   "output": "minecraft:stripped_dark_oak_log",
+   "count": 1
+  },
+  {
+   "id": "strip_dark_oak_wood",
+   "input": "minecraft:dark_oak_wood",
+   "tool": "axe",
+   "output": "minecraft:stripped_dark_oak_wood",
+   "count": 1
+  },
+  {
+   "id": "strip_jungle_log",
+   "input": "minecraft:jungle_log",
+   "tool": "axe",
+   "output": "minecraft:stripped_jungle_log",
+   "count": 1
+  },
+  {
+   "id": "strip_jungle_wood",
+   "input": "minecraft:jungle_wood",
+   "tool": "axe",
+   "output": "minecraft:stripped_jungle_wood",
+   "count": 1
+  },
+  {
+   "id": "strip_mangrove_log",
+   "input": "minecraft:mangrove_log",
+   "tool": "axe",
+   "output": "minecraft:stripped_mangrove_log",
+   "count": 1
+  },
+  {
+   "id": "strip_mangrove_wood",
+   "input": "minecraft:mangrove_wood",
+   "tool": "axe",
+   "output": "minecraft:stripped_mangrove_wood",
+   "count": 1
+  },
+  {
+   "id": "strip_oak_log",
+   "input": "minecraft:oak_log",
+   "tool": "axe",
+   "output": "minecraft:stripped_oak_log",
+   "count": 1
+  },
+  {
+   "id": "strip_oak_wood",
+   "input": "minecraft:oak_wood",
+   "tool": "axe",
+   "output": "minecraft:stripped_oak_wood",
+   "count": 1
+  },
+  {
+   "id": "strip_pale_oak_log",
+   "input": "minecraft:pale_oak_log",
+   "tool": "axe",
+   "output": "minecraft:stripped_pale_oak_log",
+   "count": 1
+  },
+  {
+   "id": "strip_pale_oak_wood",
+   "input": "minecraft:pale_oak_wood",
+   "tool": "axe",
+   "output": "minecraft:stripped_pale_oak_wood",
+   "count": 1
+  },
+  {
+   "id": "strip_poplar_log",
+   "input": "minecraft:poplar_log",
+   "tool": "axe",
+   "output": "minecraft:stripped_poplar_log",
+   "count": 1
+  },
+  {
+   "id": "strip_poplar_wood",
+   "input": "minecraft:poplar_wood",
+   "tool": "axe",
+   "output": "minecraft:stripped_poplar_wood",
+   "count": 1
+  },
+  {
+   "id": "strip_spruce_log",
+   "input": "minecraft:spruce_log",
+   "tool": "axe",
+   "output": "minecraft:stripped_spruce_log",
+   "count": 1
+  },
+  {
+   "id": "strip_spruce_wood",
+   "input": "minecraft:spruce_wood",
+   "tool": "axe",
+   "output": "minecraft:stripped_spruce_wood",
+   "count": 1
+  },
+  {
+   "id": "strip_warped_hyphae",
+   "input": "minecraft:warped_hyphae",
+   "tool": "axe",
+   "output": "minecraft:stripped_warped_hyphae",
+   "count": 1
+  },
+  {
+   "id": "strip_warped_stem",
+   "input": "minecraft:warped_stem",
+   "tool": "axe",
+   "output": "minecraft:stripped_warped_stem",
+   "count": 1
+  },
+  {
+   "id": "till_farmland",
+   "input": "minecraft:dirt",
+   "tool": "hoe",
+   "output": "minecraft:farmland",
+   "count": 1,
+   "in_place": true
+  },
+  {
+   "id": "flatten_dirt_path",
+   "input": "minecraft:dirt",
+   "tool": "shovel",
+   "output": "minecraft:dirt_path",
+   "count": 1,
+   "in_place": true
+  }
+ ]
+}

@@ -1,0 +1,185 @@
+"""Execution loop for the schematic builder (milestone M2).
+
+``run_build`` turns the pure planner (build_plan.next_actions) into body ops.
+It knows nothing about HTTP or routes: it talks to a ``BuildBody``.
+
+What the real body adapter must do (ops: docs/BODY_ACTION_OPS.md, wave 2):
+
+- ``place_block`` / ``use_block`` / ``break_block`` post the matching admin op
+  and wait for its ``<op>_done`` / ``<op>_failed`` event (matched by
+  ``request_sequence``). Return ``Result(True, data=event data)`` on done and
+  ``Result(False, reason=event reason, data=...)`` on failed. The ops never walk.
+- ``goto_stance(target, reach, avoid)`` runs the route planner with an
+  ``interact_reach`` goal on ``target`` and follows the route. It returns True
+  once the body stands on a cell from which ``target`` is within ``reach`` with a
+  clear line from the eye. Feet cells listed in ``avoid`` (stances that already
+  failed for this target) must not be chosen. It returns False when no stance is
+  reachable.
+- ``position()`` is the feet cell, ``world(x, y, z)`` is the state string the
+  planner has been *delivered* (None for unknown; never poll /policy to get it),
+  and ``inventory()`` maps item id -> count from the latest op event.
+
+The loop treats ``out_of_reach`` and ``state_unreachable`` as "wrong stance": it
+asks for another stance (3 tries per cell, then the cell is skipped). Any other
+failure counts one try and the plan is recomputed. ``on_need_materials`` is where
+the gathering planner plugs in: it receives ``{item: count}`` and returns True
+once the inventory has been refilled, False to stop.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Collection
+from dataclasses import dataclass, field
+from typing import NamedTuple, Protocol
+
+from mclab import build_plan as bp
+from mclab.build_plan import Pos
+
+REACH = 4.5
+MAX_TRIES = 3
+STANCE_REASONS = frozenset({"out_of_reach", "state_unreachable"})
+
+
+class Result(NamedTuple):
+    ok: bool
+    reason: str | None = None
+    data: dict = {}  # noqa: RUF012 - never mutated
+
+
+class BuildBody(Protocol):
+    def place_block(self, pos: Pos, state: str, item: str) -> Result: ...
+
+    def use_block(self, pos: Pos, item: str | None = None) -> Result: ...
+
+    def break_block(self, pos: Pos, tool: str | None = None) -> Result: ...
+
+    def goto_stance(
+        self, target_pos: Pos, reach: float, avoid: Collection[Pos] = ()
+    ) -> bool: ...
+
+    def position(self) -> Pos: ...
+
+    def world(self, x: int, y: int, z: int) -> str | None: ...
+
+    def inventory(self) -> dict[str, int]: ...
+
+
+@dataclass
+class BuildReport:
+    placed: list[Pos] = field(default_factory=list)
+    broken: list[Pos] = field(default_factory=list)
+    used: list[Pos] = field(default_factory=list)
+    scaffolded: list[Pos] = field(default_factory=list)
+    skipped: dict[Pos, str] = field(default_factory=dict)  # cell -> last reason
+    steps: int = 0  # body ops attempted
+    stop: str = ""  # done | blocked | need_materials | max_steps
+    needed: dict[str, int] = field(default_factory=dict)
+    counts: dict[str, int] = field(default_factory=dict)  # build_plan.progress
+
+    def progress(self) -> float:
+        """Fraction of cells that are correct (1.0 for an empty template)."""
+        total = sum(self.counts.values())
+        return self.counts.get("correct", 0) / total if total else 1.0
+
+
+def _dist2(a: Pos, b: Pos) -> int:
+    return sum((p - q) ** 2 for p, q in zip(a, b, strict=True))
+
+
+def _do(body: BuildBody, act) -> Result:
+    if isinstance(act, bp.Break):
+        return body.break_block(act.pos)
+    if isinstance(act, bp.Use):
+        return body.use_block(act.pos, act.item)
+    if isinstance(act, bp.Scaffold):
+        return body.place_block(act.pos, act.item, act.item)
+    return body.place_block(act.pos, act.state, act.item)
+
+
+def _record(report: BuildReport, act) -> None:
+    if isinstance(act, bp.Break):
+        report.broken.append(act.pos)
+    elif isinstance(act, bp.Use):
+        report.used.append(act.pos)
+    elif isinstance(act, bp.Scaffold):
+        report.scaffolded.append(act.pos)
+    else:
+        report.placed.append(act.pos)
+
+
+class _Runner:
+    def __init__(self, body: BuildBody, report: BuildReport, max_steps: int):
+        self.body, self.report, self.max_steps = body, report, max_steps
+        self.fails: dict[Pos, int] = {}
+        self.avoid: dict[Pos, set[Pos]] = {}
+
+    def attempt(self, act) -> None:
+        """Stance, act, record. Retries other stances while the failure says so."""
+        pos = act.pos
+        while self.fails.get(pos, 0) < MAX_TRIES and self.report.steps < self.max_steps:
+            self.report.steps += 1
+            avoid = self.avoid.setdefault(pos, set())
+            if not self.body.goto_stance(pos, REACH, avoid):
+                return self._fail(pos, "no_stance")
+            stance = self.body.position()
+            result = _do(self.body, act)
+            if result.ok:
+                return _record(self.report, act)
+            self._fail(pos, result.reason or "failed")
+            if result.reason not in STANCE_REASONS:
+                return
+            avoid.add(stance)
+
+    def _fail(self, pos: Pos, reason: str) -> None:
+        self.fails[pos] = self.fails.get(pos, 0) + 1
+        if self.fails[pos] >= MAX_TRIES:
+            self.report.skipped[pos] = reason
+
+
+def run_build(
+    template: bp.Template,
+    body: BuildBody,
+    blocks: dict,
+    *,
+    max_steps: int = 5000,
+    on_need_materials: Callable[[dict[str, int]], bool] | None = None,
+    scaffolds: set | None = None,
+) -> BuildReport:
+    """Build ``template`` through ``body``; see the module docstring."""
+    report = BuildReport()
+    scaffolds = set() if scaffolds is None else scaffolds
+    runner = _Runner(body, report, max_steps)
+    while True:
+        if report.steps >= max_steps:
+            report.stop = "max_steps"
+            break
+        skipped = report.skipped
+        acts = bp.next_actions(
+            template,
+            body.world,
+            blocks,
+            body.inventory(),
+            limit=8 + len(skipped),
+            scaffolds=scaffolds,
+        )
+        if acts and isinstance(acts[0], bp.NeedMaterials):
+            report.needed = dict(acts[0].items)
+            if on_need_materials is None or not on_need_materials(report.needed):
+                report.stop = "need_materials"
+                break
+            continue
+        acts = [a for a in acts if a.pos not in skipped]
+        if not acts:
+            d = bp.diff(template, body.world)
+            clean = not (d.breaks or d.places or d.unknown or d.uses)
+            report.stop = "done" if clean else "blocked"
+            break
+        here = body.position()
+        acts.sort(key=lambda a: _dist2(a.pos, here))
+        for act in acts:
+            runner.attempt(act)
+    if report.stop != "need_materials":
+        for act in bp.cleanup_actions(template, body.world, scaffolds):
+            runner.attempt(act)
+    report.counts = bp.progress(template, body.world)
+    return report

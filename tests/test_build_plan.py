@@ -1,9 +1,12 @@
 import base64
+import json
 import struct
+from pathlib import Path
 
 import pytest
 
 from mclab import build_plan as bp
+from mclab import schematic
 
 AIR = "minecraft:air"
 PLANKS = "minecraft:oak_planks"
@@ -109,9 +112,12 @@ def solid(w, pos):
     return s is not None and not s.startswith("minecraft:air")
 
 
-def check_and_apply(w, inv, act):
+def check_and_apply(w, inv, act, blocks=BLOCKS):
     if isinstance(act, bp.Break):
         w[act.pos] = AIR
+        return
+    if isinstance(act, bp.Use):
+        _apply_use(w, inv, act)
         return
     assert not isinstance(act, bp.NeedMaterials), act
     x, y, z = act.pos
@@ -122,6 +128,12 @@ def check_and_apply(w, inv, act):
         return
     ident, props = bp.parse_state(act.state)
     assert any(solid(w, bp._add(act.pos, v)) for v in bp._NEIGHBOURS), act
+    kind = bp._support_kind(ident, props, blocks.get(ident, {}))
+    sup = bp._support_cell(kind, props, act.pos) if kind else None
+    assert sup is None or solid(w, sup), f"{act.state} before its support"
+    if props.get("part") == "foot":
+        head = bp._add(act.pos, bp._VEC[props["facing"]])
+        w[head] = act.state.replace("part=foot", "part=head")
     if ident == "minecraft:wall_torch":
         face = bp._VEC[props["facing"]]
         assert solid(w, (x - face[0], y, z - face[2])), "torch before its wall"
@@ -133,16 +145,35 @@ def check_and_apply(w, inv, act):
     inv[act.item] -= act.count
 
 
-def run(template, w, inv, scaffolds=None, limit=8):
+def _flip(state):
+    old, new = ("true", "false") if "open=true" in state else ("false", "true")
+    return state.replace(f"open={old}", f"open={new}")
+
+
+def _apply_use(w, inv, act):
+    cur = w[act.pos]
+    if cur == bp.POT:
+        assert act.item, act
+        w[act.pos] = "minecraft:potted_" + act.item.removeprefix("minecraft:")
+        inv[act.item] -= 1
+        return
+    assert "open=" in cur, act
+    w[act.pos] = _flip(cur)
+    if "_door" in cur and "half=lower" in cur:
+        up = bp._add(act.pos, (0, 1, 0))
+        w[up] = _flip(w[up])
+
+
+def run(template, w, inv, scaffolds=None, limit=8, blocks=BLOCKS):
     scaffolds = set() if scaffolds is None else scaffolds
-    for _ in range(500):
+    for _ in range(1500):
         acts = bp.next_actions(
-            template, lambda *p: w.get(p), BLOCKS, inv, limit=limit, scaffolds=scaffolds
+            template, lambda *p: w.get(p), blocks, inv, limit=limit, scaffolds=scaffolds
         )
         if not acts or isinstance(acts[0], bp.NeedMaterials):
             return acts
         for a in acts:
-            check_and_apply(w, inv, a)
+            check_and_apply(w, inv, a, blocks)
     raise AssertionError("did not terminate")
 
 
@@ -265,9 +296,8 @@ def test_rotation_moves_cells_clockwise():
 
 def test_diff_ignores_recomputed_properties():
     t = bp.Template.from_build(make_build({(0, 0, 0): DOOR_LO}, (1, 1, 1)), (0, 0, 0))
-    assert (
-        bp.diff(t, lambda *p: DOOR_LO.replace("open=false", "open=true")).places == []
-    )
+    powered = DOOR_LO.replace("powered=false", "powered=true")
+    assert bp.diff(t, lambda *p: powered) == bp.Diff([], [], [])
     assert bp.diff(
         t, lambda *p: DOOR_LO.replace("facing=south", "facing=north")
     ).breaks == [(0, 0, 0)]
@@ -313,3 +343,109 @@ def test_scaffold_needs_material():
     w = flat_world()
     acts = bp.next_actions(t, lambda *p: w.get(p), BLOCKS, {COBBLE: 1})
     assert acts == [bp.NeedMaterials({"minecraft:dirt": 1})]
+
+
+TRAP_OPEN = "minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=false]"
+TRAP_SHUT = TRAP_OPEN.replace("open=true", "open=false")
+
+
+def at(w):
+    return lambda *p: w.get(p)
+
+
+def test_open_mismatch_is_a_use_not_a_break():
+    t = bp.Template.from_build(make_build({(0, 0, 0): TRAP_OPEN}, (1, 1, 1)), (0, 0, 0))
+    shut = lambda *p: TRAP_SHUT  # noqa: E731
+    d = bp.diff(t, shut)
+    assert (d.breaks, d.places, d.uses) == ([], [], [((0, 0, 0), None)])
+    assert bp.progress(t, shut)["wrong"] == 1
+    assert bp.next_actions(t, shut, BLOCKS, {}) == [bp.Use((0, 0, 0))]
+    powered = TRAP_OPEN.replace("powered=false", "powered=true")
+    assert bp.diff(t, lambda *p: powered).uses == []
+    wrong = TRAP_SHUT.replace("north", "east")  # a different facing is a wrong block
+    assert bp.diff(t, lambda *p: wrong).breaks == [(0, 0, 0)]
+
+
+def test_door_is_placed_closed_then_used_once():
+    open_lo = DOOR_LO.replace("open=false", "open=true")
+    open_up = open_lo.replace("half=lower", "half=upper")
+    cells = {(0, 0, 0): open_lo, (0, 1, 0): open_up}
+    t = bp.Template.from_build(make_build(cells, (1, 2, 1)), (0, 0, 0))
+    w = flat_world()
+    inv = {"minecraft:oak_door": 1}
+    (place,) = bp.next_actions(t, at(w), BLOCKS, inv)
+    assert "open=false" in place.state
+    check_and_apply(w, inv, place)
+    assert bp.next_actions(t, at(w), BLOCKS, inv) == [bp.Use((0, 0, 0))]
+    check_and_apply(w, inv, bp.Use((0, 0, 0)))
+    assert bp.next_actions(t, at(w), BLOCKS, inv) == []
+
+
+def test_potted_plant_places_pot_then_uses_plant():
+    pot = "minecraft:potted_blue_orchid"
+    t = bp.Template.from_build(make_build({(0, 0, 0): pot}, (1, 1, 1)), (0, 0, 0))
+    w = flat_world()
+    inv = {bp.POT: 1}
+    assert bp.next_actions(t, at(w), BLOCKS, inv) == [
+        bp.NeedMaterials({bp.POT: 1, "minecraft:blue_orchid": 1})
+    ]
+    inv["minecraft:blue_orchid"] = 1
+    (place,) = bp.next_actions(t, at(w), BLOCKS, inv)
+    assert (place.state, place.item) == (bp.POT, bp.POT)
+    check_and_apply(w, inv, place)
+    use = bp.Use((0, 0, 0), "minecraft:blue_orchid")
+    assert bp.next_actions(t, at(w), BLOCKS, inv) == [use]
+    check_and_apply(w, inv, use)
+    assert w[(0, 0, 0)] == pot
+    assert bp.next_actions(t, at(w), BLOCKS, inv) == []
+
+
+def test_lantern_hangs_from_above_or_stands_on_a_block():
+    hang = "minecraft:lantern[hanging=true,waterlogged=false]"
+    stand = hang.replace("true", "false")
+    blocks = {"minecraft:lantern": {"item": "minecraft:lantern"}, **BLOCKS}
+    w = flat_world()
+    w[(1, 1, 0)] = COBBLE  # a solid neighbour, but nothing above or below
+    assert bp._gate((0, 1, 0), hang, at(w), blocks) == "support"
+    assert bp._gate((0, 1, 0), stand, at(w), blocks) == "below"
+    w[(0, 2, 0)] = COBBLE
+    assert bp._gate((0, 1, 0), hang, at(w), blocks) is None
+    assert bp._gate((0, 1, 0), stand, at(w), blocks) == "below"
+    w[(0, 0, 0)] = COBBLE
+    assert bp._gate((0, 1, 0), stand, at(w), blocks) is None
+
+
+PACK = Path(__file__).parents[1] / "knowledge" / "26.3-f7dba04d8b5b" / "blocks.json"
+HOUSE_FILE = (
+    Path(__file__).parent / "fixtures" / "schematics" / "house-154fc7cd.litematic"
+)
+
+
+def real_house(origin=(1, 0, 1)):
+    """(template, blocks.json blocks, converter material list) for the real house."""
+    blocks = json.loads(PACK.read_text("utf-8"))["blocks"]
+    schem = schematic.load_litematic(HOUSE_FILE)
+    build = schematic.to_build_json(schem, {"blocks": blocks})
+    return bp.Template.from_build(build, origin), blocks, build["materials"]
+
+
+@pytest.mark.parametrize("origin", [(1, 0, 1), (1, 3, 1)])  # on the ground, floating
+def test_real_house_builds_with_empty_diff_and_no_scaffold_left(origin):
+    t, blocks, materials = real_house(origin)
+    w = flat_world(-2, 30, -1)
+    inv = {**materials, "minecraft:dirt": materials.get("minecraft:dirt", 0) + 300}
+    scaffolds: set = set()
+    assert run(t, w, inv, scaffolds, blocks=blocks) == []
+    assert bool(scaffolds) == (origin[1] > 0)
+    d = bp.diff(t, at(w))
+    assert (d.breaks, d.places, d.unknown, d.uses) == ([], [], [], [])
+    assert bp.progress(t, at(w))["missing"] == 0
+    for act in bp.cleanup_actions(t, at(w), scaffolds):
+        check_and_apply(w, inv, act, blocks)
+    assert bp.cleanup_actions(t, at(w), scaffolds) == []
+    for p in scaffolds:
+        assert w[p] in bp.AIR or bp._same(t.cells[p], w[p], bp.DEFAULT_IGNORE)
+    assert all(v >= 0 for v in inv.values())
+    open_traps = [p for p, v in t.cells.items() if "trapdoor" in v and "open=true" in v]
+    assert len(open_traps) == 12  # all end open, as in the file
+    assert all("open=true" in w[p] for p in open_traps)

@@ -75,3 +75,21 @@ def test_vanilla_sources_file_loads_as_override():
     assert k.sources[M + "diamond_ore"]["where"] == "underground"
     assert k.sources[M + "oak_log"]["where"] == "tree"
     assert len(k.sources) >= 30
+
+
+def test_transforms_load_and_default_to_empty():
+    root = Path(__file__).parent.parent / "knowledge"
+    assert load_pack(MINI).transforms == ()
+
+    k = load_pack(MINI, transforms=root / "transforms" / "vanilla-26.3.json")
+
+    strip = next(t for t in k.transforms if t.id == "strip_oak_log")
+    assert (strip.input, strip.tool, strip.output) == (
+        M + "oak_log",
+        "axe",
+        M + "stripped_oak_log",
+    )
+    assert {t.id for t in k.transforms if t.in_place} == {
+        "till_farmland",
+        "flatten_dirt_path",
+    }
