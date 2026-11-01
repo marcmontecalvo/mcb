@@ -114,3 +114,12 @@ def test_fallback_profile_follows_threat_night_health_and_stock():
     poor = jev.Situation(**{**SITUATION.__dict__, "blocks": 2})
     assert jev.fallback(poor).profile == "frugal"
     assert SITUATION.payload()["night"] is False
+
+
+def test_safe_profile_carries_a_longer_threat_flight_and_race_the_default():
+    assert load_profile("safe")["flee"] == {
+        "trigger": 5,
+        "creeper_trigger": 7,
+        "steps": 6,
+    }
+    assert load_profile("race")["flee"] is None

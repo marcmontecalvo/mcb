@@ -135,8 +135,13 @@ dependencies, except where noted.
    Stage C started: unknown-space exits (D3 frontier, exit pricing, buried
    dig-out rise, walk-rate partial estimate) match Python on both maps
    (`UNKNOWN=1`; R3 8,000 cap: same route and cost 511.61, 84k against 13k
-   nodes/s). Next: swimming, gaps, ladders (stage C), edit edges (stage D),
-   body `plan_route` op, controller use, cohort (stage E). A Java search
+   nodes/s). Stage C done Nov 1: swimming, water landings, ladders and gaps
+   match Python exactly on the R3 and R5 maps (9–13× faster). Stage E done as
+   opt-in: body `plan_route` op (10 ms per tick), `BodySearch`, `--body-planner`.
+   Cohort 29 with it: 10/10 but 15% slower (R5 skips a 2-block cut it cannot
+   price; R2/R3 7–9% slower, likely because the body reads the live world in
+   range while Python plans on delivered cells). Open: stage D (edit edges in
+   Java) and planning on the delivered map in the body; then make it default. A Java search
    runs outside Python's interpreter lock, so it also answers item 7.
 9. **Partial-route quality.** ~1,000-node partials can still lead into pits and
    lakes (R5). Commitment to a plan's tail is done (cohort 18). Oct 31: the first

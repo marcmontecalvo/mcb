@@ -247,7 +247,7 @@ def pick_routes(cells, count=5, rng_seed=0) -> list[dict]:
 # one run per process.
 BARITONE_SETTINGS = {}
 # Plan in the body's compiled core (ROADMAP item 8); set by run(), recorded too.
-BODY_PLANNER = {"enabled": False}
+BODY_PLANNER = {"enabled": False, "flee": None}
 
 
 def _restore(seed: int) -> None:
@@ -495,6 +495,7 @@ def _controller(
         movement_policy=movement_policy,
         body_planner=BODY_PLANNER["enabled"],
     )
+    controller.flee = BODY_PLANNER["flee"]  # cost profile's threat reflex
     resources.callback(controller.close)
     return controller
 
@@ -526,11 +527,13 @@ def run(
     stall_seconds=10,
     baritone_settings=None,
     body_planner=False,
+    flee=None,
 ) -> dict:
     awareness = Awareness() if awareness is None else awareness
     BARITONE_SETTINGS.clear()
     BARITONE_SETTINGS.update(baritone_settings or {})
     BODY_PLANNER["enabled"] = bool(body_planner)
+    BODY_PLANNER["flee"] = flee
     _validate_run(seed, routes, entrants, conditions)
     # 0 disables. The server ends an attempt whose body stays within one block
     # this long.
@@ -645,6 +648,7 @@ def run(
         "stall_seconds": stall_seconds,
         "baritone_settings": dict(BARITONE_SETTINGS),
         "body_planner": BODY_PLANNER["enabled"],
+        "flee": BODY_PLANNER["flee"],
         "attempts": [],
     }
     with natural_world(seed, view_distance):

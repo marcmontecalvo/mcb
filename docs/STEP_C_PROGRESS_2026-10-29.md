@@ -486,3 +486,16 @@ now 7–8); 50-block causeways and 30-step dig-outs (8); a cave exit under the g
 R3 rep 1); chained segments into a cave mouth, then deeper cave exits whose rise
 was priced as a jump instead of a dig-out (10, R3 rep 2; fixed by `_buried` in
 `route_search.py`, cohort 11).
+
+| 29: 28 with `--body-planner` (compiled core in the body, Python only for edits; mod `0129b057`) | `20261101T013038711889Z` | 608/621 | 613/599 | 790/784 | 833/839 | 1401/1400 |
+
+**Cohort 29 is 10/10 but slower: 8,488 ticks against 7,394.** R5 broke no blocks
+(cohort 28: 2) and walked ~480 ticks round the ridge cut: the Java core has no edit
+edges, so it never prices the dig and Python is asked only when the body finds the
+known graph exhausted. R2 and R3 (no edits in either cohort) are 7–9% slower. Likely
+cause, not verified: the body's reader returns every cell within awareness range
+from the live world, while Python plans on delivered cells only, so frontier exits
+and partial ends differ. `--body-planner` stays opt-in. Needed before it becomes the
+default: Java edit edges (stage D) and planning on the delivered map, not the live
+world.
+

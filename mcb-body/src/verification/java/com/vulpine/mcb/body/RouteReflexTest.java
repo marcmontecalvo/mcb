@@ -23,6 +23,14 @@ public final class RouteReflexTest {
         };
         check(RouteReflex.retreat(pose,zombie,unknown).isEmpty(),"never retreat into unknown");
         check(RouteReflex.retreat(new RouteMotor.Pose(.5,1,.5,0,0,0,false,20),zombie,safe).isEmpty(),"do not interrupt jump in flight");
+        // Night run deaths: a zombie villager was not a hostile; a lit creeper needs a long flight.
+        var villager=List.<Map<String,Object>>of(Map.of("type","minecraft:zombie_villager","position",List.of(1.5,1,.5)));
+        check(!RouteReflex.retreat(pose,villager,safe).isEmpty(),"zombie villagers are hostile");
+        var creeper=List.<Map<String,Object>>of(Map.of("type","minecraft:creeper","position",List.of(5.5,1,.5)));
+        check(RouteReflex.retreat(pose,creeper,safe).isEmpty(),"default flee ignores a creeper 5 blocks off");
+        var safeFlee=new RouteReflex.Flee(5,7,6);
+        var flight=RouteReflex.retreat(pose,creeper,safe,safeFlee);
+        check(flight.size()==7 && flight.get(6).x()==-6,"safe flee runs six blocks away from the creeper");
         System.out.println("RouteReflex: "+checks+" local retreat checks passed");
     }
 }

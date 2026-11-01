@@ -40,7 +40,17 @@ def load_profile(name):
     goal = data.get("goal", {"kind": "goto"})
     if goal.get("kind") not in GOAL_KINDS:
         raise ValueError(f"Invalid cost profile goal: {name}")
-    return {**data, "goal": goal}
+    flee = data.get("flee")
+    if flee is not None and (
+        not isinstance(flee, dict)
+        or flee.keys() != {"trigger", "creeper_trigger", "steps"}
+        or not 0 < flee["trigger"] <= 16
+        or not 0 < flee["creeper_trigger"] <= 16
+        or type(flee["steps"]) is not int
+        or not 1 <= flee["steps"] <= 12
+    ):
+        raise ValueError(f"Invalid cost profile flee: {name}")
+    return {**data, "goal": goal, "flee": flee}
 
 
 def apply_profile(name, terrain_policy):

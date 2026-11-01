@@ -248,6 +248,8 @@ def submit_route(client, controller, stats, route):
         route_id=route_id,
         route=[list(point) for point in route],
         movement_policy=controller.movement_policy.payload(),
+        # The cost profile's threat reflex (body default: one block, 2.8/4 trigger).
+        **({"flee": controller.flee} if getattr(controller, "flee", None) else {}),
     )
     client.acknowledge(request, "route_accepted")
     client.wait(

@@ -1,9 +1,14 @@
 {
   "name": "safe",
-  "description": "Avoid known hostiles and lava/fire edges.",
+  "description": "Avoid known hostiles and lava/fire edges; flee close hostiles (creepers past their 7-block fuse range).",
   "terrain": {
     "mob_coefficient": 3.0,
     "mob_radius": 12,
     "hazard_penalty": 40.0
+  },
+  "flee": {
+    "trigger": 5,
+    "creeper_trigger": 7,
+    "steps": 6
   }
 }

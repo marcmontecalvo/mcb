@@ -241,6 +241,8 @@ public final class BodyRuntime implements AutoCloseable {
     // Compiled planner core (ROADMAP item 8, stage E): searches run on the server thread in a
     // bounded slice per tick, reading the same awareness-limited cells as the motors.
     private static final long PLAN_SLICE_NANOS = 10_000_000L;
+    // Threat reflex setting from the cost profile (follow_route "flee"); default one block.
+    private RouteReflex.Flee flee = RouteReflex.Flee.DEFAULT;
     private static final int MAX_PLANS = 4;
     private final Map<String,RoutePlanner> plans = new LinkedHashMap<>();
     private final Map<String,Integer> planLimits = new HashMap<>();
@@ -343,10 +345,11 @@ public final class BodyRuntime implements AutoCloseable {
         var pose=new RouteMotor.Pose(p.getX(),p.getY(),p.getZ(),velocity.x,velocity.z,p.getYRot(),p.onGround(),p.getFoodData().getFoodLevel());
         var geometry=new RouteGeometry(localReader(p));
         if ((reflexMotor==null || !reflexMotor.active()) && operating && p.onGround()) {
-            var retreat=RouteReflex.retreat(pose,PolicySensor.entities(p,awareness),geometry);
+            var retreat=RouteReflex.retreat(pose,PolicySensor.entities(p,awareness),geometry,flee);
             if(!retreat.isEmpty()) {
                 cancelRoute("threat_reflex"); scheduled.clear(); body.release(); expiryTick=-1;
-                reflexMotor=new RouteMotor("retreat-"+(++reflexSequence),retreat,new RouteMotor.Policy(false,false,true,0));
+                // Multi-block flights sprint (a lit creeper is escaped beyond 7 blocks).
+                reflexMotor=new RouteMotor("retreat-"+(++reflexSequence),retreat,new RouteMotor.Policy(false,flee.steps()>1,true,0));
                 emit("reflex_started","fabric_start",reflexMotor.status());
             }
         }
@@ -490,6 +493,11 @@ public final class BodyRuntime implements AutoCloseable {
                 if (!readyState.equals("ready") || courseLimits || !extendedObservation)
                     throw new IllegalStateException("native_route_requires_development_body");
                 var candidate = RouteMotor.parse(request);
+                if (request.has("flee")) {
+                    var f = request.getAsJsonObject("flee");
+                    flee = new RouteReflex.Flee(f.get("trigger").getAsDouble(), f.get("creeper_trigger").getAsDouble(),
+                            f.get("steps").getAsInt());
+                }
                 cancelRoute("replaced");
                 scheduled.clear(); body.release(); expiryTick = -1;
                 routeMotor = candidate;

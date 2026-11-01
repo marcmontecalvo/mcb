@@ -114,6 +114,13 @@ def doctor() -> dict:
     return result
 
 
+def _profile_flee(args):
+    """The --cost-profile's threat reflex setting (None: the body default)."""
+    from mclab.profiles import load_profile
+
+    return load_profile(args.cost_profile)["flee"] if args.cost_profile else None
+
+
 def _terrain_with_profile(args):
     """The run's terrain profile with the --cost-profile overrides applied."""
     from mclab.profiles import apply_profile
@@ -347,6 +354,7 @@ def main() -> int:
                     if args.baritone_parkour
                     else None,
                     body_planner=args.body_planner,
+                    flee=_profile_flee(args),
                 )
             case "bootstrap":
                 server.assert_stopped()
