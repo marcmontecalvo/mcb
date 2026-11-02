@@ -72,14 +72,30 @@ class FakeGatherBody:
         return [dict(e) for e in self.ents if self._seen(e["position"])]
 
     def find_blocks(self, block):
+        """Like CompanionBody.find_blocks: only blocks with an open (air) face."""
+        return [p for p in self.find_all(block) if self._open_face(p)]
+
+    def _open_face(self, p) -> bool:
+        x, y, z = p
+        for dx, dy, dz in (
+            (1, 0, 0),
+            (-1, 0, 0),
+            (0, 1, 0),
+            (0, -1, 0),
+            (0, 0, 1),
+            (0, 0, -1),
+        ):
+            state = self.world(x + dx, y + dy, z + dz)
+            if state is not None and bp.parse_state(state)[0] in bp.AIR:
+                return True
+        return False
+
+    def find_all(self, block):
         return [
             p
             for p, s in self.w.items()
             if bp.parse_state(s)[0] == block and self._seen(p)
         ]
-
-    def find_all(self, block):
-        return self.find_blocks(block)  # the fake has no occlusion either way
 
     def wait_ticks(self, ticks):
         self.log.append(("wait", ticks))

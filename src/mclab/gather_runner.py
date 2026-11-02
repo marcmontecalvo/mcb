@@ -129,10 +129,13 @@ def _dist(a, b) -> float:
     return math.dist(a, b)
 
 
-def _near(pos, here) -> bool:
+def _near(pos, home) -> bool:
+    """Within the work site's reach: NEAR_STONE across, NEAR_DY above to BURIED_DEPTH
+    below (the window buried_tops offers the planner, so a dug-to block is minable;
+    run 20261102T042713034884Z dug to iron 11 below and then skipped it)."""
     return (
-        math.hypot(pos[0] - here[0], pos[2] - here[2]) <= NEAR_STONE
-        and abs(pos[1] - here[1]) <= NEAR_DY
+        math.hypot(pos[0] - home[0], pos[2] - home[2]) <= NEAR_STONE
+        and -NEAR_DY <= home[1] - pos[1] <= BURIED_DEPTH
     )
 
 

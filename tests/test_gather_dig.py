@@ -167,10 +167,12 @@ def test_surface_stone_touching_lava_is_never_mined():
 
 
 def test_planner_digs_to_buried_stone_when_digging_is_allowed():
-    # deeper than NEAR_DY: the fake shows buried stone as minable, the real body not
+    # outside the box is unknown, so its edge stone shows no open face
     world = layered(-30, stone_from=-8)
     world |= {(-3, y, z): M + "oak_log" for y in (0, 1) for z in range(-6, 7)}
-    body = FakeGatherBody(K, world, pos=(0, 0, 0), can_dig=True)
+    world |= {(x, y, z): M + "air" for x, z in BOX for y in range(0, 4)}
+    world.update({(-3, y, z): M + "oak_log" for y in (0, 1) for z in range(-6, 7)})
+    body = FakeGatherBody(K, world, pos=(0, 0, 0), can_dig=True, default=None)
     targets = {M + "stone_pickaxe": 1}
 
     report = run_gather(
@@ -268,10 +270,10 @@ def test_ore_under_the_feet_is_not_mined_over_a_cave():
 def test_underground_reach_is_measured_from_the_work_site_not_the_bot():
     from mclab.gather_tasks import Gather
 
-    # the bot has wandered down to y=-5; stone at y=-10 is near it but 10 below
+    # the bot has wandered down to y=-12; stone at y=-15 is near it but 15 below
     # the crafting table at the surface: not walked to (no ratchet down a cave)
-    world = layered(-30) | {(2, -10, 0): M + "stone"}
-    body = FakeGatherBody(K, world, {M + "wooden_pickaxe": 1}, pos=(0, -5, 0))
+    world = layered(-30) | {(2, -15, 0): M + "stone"}
+    body = FakeGatherBody(K, world, {M + "wooden_pickaxe": 1}, pos=(0, -12, 0))
     state = GatherState()
     state.stations["crafting_table"] = (0, 0, 0)
     broken = tracked(body)
@@ -279,7 +281,7 @@ def test_underground_reach_is_measured_from_the_work_site_not_the_bot():
 
     _Exec(body, K, state, 64).gather(task)
 
-    assert (2, -10, 0) not in broken
+    assert (2, -15, 0) not in broken
 
 
 def test_buried_tops_include_ore_a_little_above_the_work_site():
@@ -289,3 +291,12 @@ def test_buried_tops_include_ore_a_little_above_the_work_site():
     body = FakeGatherBody(K, world, pos=(0, 0, 0))
 
     assert (3, 2, 0) in buried_tops(body, M + "iron_ore", (0, 0, 0))
+
+
+def test_a_block_dug_to_is_within_mining_reach():
+    from mclab.gather_runner import BURIED_DEPTH, NEAR_DY, _near
+
+    home = (0, 0, 0)
+    assert _near((3, -BURIED_DEPTH, 0), home) and _near((3, NEAR_DY, 0), home)
+    assert not _near((3, -BURIED_DEPTH - 1, 0), home)
+    assert not _near((3, NEAR_DY + 1, 0), home)
