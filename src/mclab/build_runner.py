@@ -82,6 +82,8 @@ class BuildReport:
     counts: dict[str, int] = field(default_factory=dict)  # build_plan.progress
     unknown: list[Pos] = field(default_factory=list)  # template cells never delivered
     surveyed: int = 0  # perimeter points visited (B4)
+    # (cell, reason, stance) of every failed attempt, to diagnose from
+    failures: list[tuple[Pos, str, Pos]] = field(default_factory=list)
 
     def progress(self) -> float:
         """Fraction of cells that are correct (1.0 for an empty template)."""
@@ -163,11 +165,13 @@ class _Runner:
             self.report.steps += 1
             avoid = self.avoid.setdefault(pos, set())
             if not self.body.goto_stance(pos, REACH, avoid):
+                self.report.failures.append((pos, "no_stance", self.body.position()))
                 return self._fail(pos, "no_stance")
             stance = self.body.position()
             result = _do(self.body, act)
             if result.ok:
                 return _record(self.report, act)
+            self.report.failures.append((pos, result.reason or "failed", stance))
             self._fail(pos, result.reason or "failed")
             if result.reason not in STANCE_REASONS:
                 return
@@ -210,6 +214,7 @@ def run_build(
     on_need_materials: Callable[[dict[str, int]], bool] | None = None,
     scaffolds: set | None = None,
     survey: bool = False,
+    on_progress: Callable[[BuildReport, bool], None] | None = None,
 ) -> BuildReport:
     """Build ``template`` through ``body``; see the module docstring."""
     report = BuildReport()
@@ -251,8 +256,12 @@ def run_build(
         acts.sort(key=lambda a: _dist2(a.pos, here))
         for act in acts:
             runner.attempt(act)
+        if on_progress:
+            on_progress(report, False)
     if report.stop != "need_materials":
         _clean_up(runner, template, scaffolds)
     report.counts = bp.progress(template, body.world)
     report.unknown = bp.diff(template, body.world).unknown
+    if on_progress:
+        on_progress(report, True)
     return report

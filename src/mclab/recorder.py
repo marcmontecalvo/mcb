@@ -51,7 +51,22 @@ def exclusive_run(path: Path):
 @contextmanager
 def exclusive_arena():
     with exclusive_run(ROOT / "results/.arena.lock"):
-        yield
+        try:
+            yield
+        finally:
+            _prune()
+
+
+def _prune() -> None:
+    """Old raw logs go when a session ends; never allowed to fail the session."""
+    if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("MCLAB_NO_PRUNE"):
+        return  # tests must not sweep the real results
+    try:
+        from mclab import prune
+
+        print("prune:", prune.sweep())
+    except Exception as error:  # noqa: BLE001 - housekeeping only
+        print("prune skipped:", error)
 
 
 def arena_guard(function):

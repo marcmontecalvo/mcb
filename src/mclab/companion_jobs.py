@@ -132,28 +132,37 @@ def build_job(
     max_failures: int = 3,
     clock: Callable[[], int] | None = None,
     chests=(),
+    build_only: bool = False,
+    on_progress=None,
 ) -> JobReport:
     """``chests``: positions of chests known at the start. They are read first; shulker
     boxes are taken at once (they carry the gather's overflow), scaffolding stays put
-    until the gather is over and is taken just before the build."""
+    until the gather is over and is taken just before the build. ``build_only``: the
+    inventory already holds everything (a resumed checkpoint); no chests, no gathering.
+    ``on_progress(report, final)`` is passed to ``run_build``."""
     build = json.loads(Path(build_json_path).read_text(encoding="utf-8"))
     template = bp.Template.from_build(build, tuple(origin), rotation, mirror)
     protect(body, template)
     state = state or GatherState()
     report = JobReport()
     started = clock() if clock else 0
-    read_chests(chests, body, state)
-    _take({SHULKER: 2}, body, knowledge, state)
+    if not build_only:
+        read_chests(chests, body, state)
+        _take({SHULKER: 2}, body, knowledge, state)
     needed = materials_of(build, knowledge)
     needed.update(bp.tool_needs(template, body.inventory()))
     report.needed = dict(needed)
 
     # Remembered containers first: withdrawing is cheaper than gathering again.
     stored = _withdraw_plan(needed, body, state)
-    if stored.tasks:
+    if stored.tasks and not build_only:
         run_gather(stored, body, knowledge, state=state)
     held = Counter(body.inventory())
-    report.shortfall = {i: n - held[i] for i, n in needed.items() if n > held[i]}
+    report.shortfall = (
+        {}
+        if build_only
+        else {i: n - held[i] for i, n in needed.items() if n > held[i]}
+    )
 
     if report.shortfall and not any(held[p] for p in PICKAXES):
         wanted = {PICKAXES[0]: 1}
@@ -205,6 +214,7 @@ def build_job(
             knowledge.blocks,
             on_need_materials=refill,
             survey=survey,
+            on_progress=on_progress,
         )
     finally:
         body.precise_stance = False

@@ -393,6 +393,19 @@ imports allowed there).
       body standing inside the house at y 67. Cause not found: the failure event
       carries no target or stance; the next step is to log the target and the
       stance cell with each failed place before changing anything.
+    - **Checkpoints, resume and prune** (Nov 2): every `run-build.py` run writes
+      `checkpoints/NNNN.json` + `final.json` (`mclab/build_checkpoint.py`) and
+      `build.json` now has `failures` (cell, reason, stance cell). `--resume FILE`
+      restores the seed's world, the template cells and the inventory and runs only
+      the build (checked live: 43 cells restored from `0042.json` of
+      `20261102T201251437109Z`, 13 more placed). `mclab/prune.py` keeps `results/`
+      small (CLAUDE.md has the rule). **Open (B8)**, first failure data, kitted
+      house run `20261102T201251437109Z` (51/84): 30 distinct cells fail, all with
+      the body standing *on* the y=66 floor at feet y=67: floor holes
+      `(-16,66,-114)`, `(-14,66,-113)`, `(-14,66,-111)` and wall/roof cells.
+      Reproduce with `--resume .../checkpoints/0042.json` rather than a full run
+      (a hard kill of a run leaves the server on the seed world: `natural.restore_lab()`
+      then `mclab server start`).
   - **Body mod changed** (now `9e536f77…`): qualification (item 11 procedure)
     must be rerun before scored navigation runs.
   - Current status per milestone, the code map, and every known gap with its

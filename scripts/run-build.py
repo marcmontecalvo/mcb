@@ -5,6 +5,9 @@ Usage (lab server up, idle lab; start = a feet cell on open ground):
     rtk proxy uv run --locked python scripts/run-build.py --start X Y Z [--build FILE] [--dx 3 --dz 2]
     rtk proxy uv run --locked python scripts/run-build.py --start X Y Z --empty --seed 42424242
 
+A run writes checkpoints/NNN.json (every 10 actions) and final.json; ``--resume`` sets
+the same seed's world up from one and runs only the build (no gathering).
+
 Default (M2): kits the build's material list (plus dirt for scaffolds and a hoe/shovel if
 needed) and clears a box round the start. --empty (M5): empty inventory, nothing cleared;
 the bot gathers and crafts everything. Either way companion_jobs.build_job builds
@@ -20,6 +23,7 @@ from pathlib import Path
 
 from live_common import finish, kit, results_folder
 
+from mclab import build_checkpoint as ck
 from mclab import build_plan as bp
 from mclab.companion_body import (
     companion_world,
@@ -38,7 +42,13 @@ CLEAR = [10, 6, 10]
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--start", nargs=3, type=int, required=True)
+    parser.add_argument("--start", nargs=3, type=int)
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        help="a checkpoint (results/companion/<run>/checkpoints/NNN.json): set the world "
+        "up as it was then and run only the build",
+    )
     parser.add_argument("--build", type=Path, default=DEFAULT_BUILD)
     parser.add_argument("--dx", type=int, default=3)
     parser.add_argument("--dz", type=int, default=2)
@@ -55,11 +65,25 @@ def main() -> int:
         "--seed", type=int, help="run in a fresh copy of this natural seed's world"
     )
     args = parser.parse_args()
+    resume = ck.load(args.resume) if args.resume else None
+    if resume:
+        args.start, args.seed, args.rotation = (
+            resume["start"],
+            resume["seed"],
+            resume["rotation"],
+        )
+        args.build = ROOT / resume["build"]
+    elif not args.start:
+        parser.error("--start is required without --resume")
     folder = results_folder()
     folder.mkdir(parents=True, exist_ok=True)
     knowledge = load_vanilla_pack()
     build = json.loads(args.build.read_text(encoding="utf-8"))
-    origin = (args.start[0] + args.dx, args.start[1], args.start[2] + args.dz)
+    origin = (
+        tuple(resume["origin"])
+        if resume
+        else (args.start[0] + args.dx, args.start[1], args.start[2] + args.dz)
+    )
     template = bp.Template.from_build(build, origin, args.rotation)
     kit_items = materials_of(build, knowledge)
     if args.scaffolding:
@@ -75,7 +99,19 @@ def main() -> int:
         try:
             body, memory = start_session(bridge, folder, args.start, dig=True)
             chests = []
-            if args.empty:
+            if resume:
+                body.observe()
+                feet = body.position()
+                n = ck.restore(resume, feet, lambda **f: kit(bridge, **f))
+                bridge.ticks(60)  # let the sensor deliver the restored cells
+                rows.append(
+                    {
+                        "case": "resumed",
+                        "pass": True,
+                        "detail": f"{n} cells from {args.resume.name}",
+                    }
+                )
+            elif args.empty:
                 # a supply chest beside the start: scaffolding and two shulker boxes
                 # west of the start: the house stands east of it
                 chest = [args.start[0] - 2, args.start[1], args.start[2]]
@@ -101,6 +137,18 @@ def main() -> int:
                     inventory=[{"item": i, "count": n} for i, n in kit_items.items()],
                 )
             body.observe()
+            recorder = ck.Recorder(
+                folder,
+                template,
+                body,
+                {
+                    "seed": args.seed,
+                    "start": list(args.start),
+                    "build": args.build.resolve().relative_to(ROOT).as_posix(),
+                    "origin": list(origin),
+                    "rotation": args.rotation,
+                },
+            )
             job = build_job(
                 args.build,
                 origin,
@@ -109,6 +157,8 @@ def main() -> int:
                 knowledge,
                 clock=lambda: int(body.observe()["tick"]),
                 chests=chests,
+                build_only=bool(resume),
+                on_progress=recorder,
             )
             report = job.build
             phases = {
@@ -144,6 +194,9 @@ def main() -> int:
                     "unknown": [list(p) for p in report.unknown],
                     "skipped": {str(p): r for p, r in report.skipped.items()},
                     "scaffolded": [list(p) for p in report.scaffolded],
+                    "failures": [
+                        [list(p), why, list(at)] for p, why, at in report.failures
+                    ],
                     "final_diff": {
                         "breaks": len(d.breaks),
                         "places": len(d.places),

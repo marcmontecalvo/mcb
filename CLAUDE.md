@@ -28,9 +28,18 @@
   forms shown in the docs.
 - Unknown cells are never treated as support or air by the **motor**. (The planner may
   plan through unknown space at a penalty; see the direction document, D3.)
-- Keep every failed cohort in the evidence ledger; never pool earlier configurations
-  into a new denominator. Native changes require source-bound requalification before
-  legacy scored admission.
+- Git is the record of how the code was. `results/` is working data, not an archive:
+  `src/mclab/prune.py` keeps it small (it runs when an arena session ends, or
+  `python -m mclab.prune [--apply]`). The three newest runs of each family stay raw;
+  a run whose id appears in `docs/` keeps its databases and has `events.jsonl`
+  gzipped; any other old run loses its raw logs and databases. Small results
+  (`summary.json`, `build.json`, `checkpoints/`) always stay. To keep a run, cite its
+  id in `docs/ROADMAP.md`. `MCLAB_NO_PRUNE=1` turns the sweep off for a session.
+- Do not pool earlier configurations into a new denominator when comparing results.
+  Native changes require source-bound requalification before legacy scored admission.
+- To test a build from a known point, do not rerun gathering: each build run writes
+  `results/companion/<run>/checkpoints/NNNN.json` and `final.json`; restore one with
+  `run-build.py --resume <file>` (same seed, template cells and inventory, build only).
 - Swimming is implemented in the planner and body; status per item in §5 of the
   direction document.
 - Never poll `/policy` and discard the result: a served terrain batch counts as
