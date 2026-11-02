@@ -91,7 +91,9 @@ NATURAL_MOVEMENT = MovementPolicy(
     # runs low); run 20261102T041702403876Z explored across a lake and drowned on
     # its floor while the planner planned from the surface node.
     allow_swim=False,
-    allow_climb=True,
+    # no climbing either: run 20261102T052209764957Z stepped onto vines over a pond,
+    # slid into 2-deep water, and air recovery saw the vine above as no way up.
+    allow_climb=False,
 )
 DIG_TERRAIN = TerrainPolicy(
     break_budget=64,
