@@ -32,6 +32,7 @@ from typing import Protocol
 from mclab import build_plan as bp
 from mclab import gather_plan as gp
 from mclab.build_runner import REACH, STANCE_REASONS, BuildBody, Result
+from mclab.gather_dig import Digger
 from mclab.knowledge import Knowledge
 
 Pos = tuple[int, int, int]
@@ -45,7 +46,11 @@ EXPLORE_CAP = 64
 SMELT_TICKS_PER_ITEM = 200
 MAX_TRIES = 3
 SCAN_BATCH = 8  # candidates tried per map scan in gather
-DIG_DEPTH = 12  # dig_for: staircase steps down before giving up
+NEAR_STONE = 24.0  # exposed stone beyond this horizontal distance is not walked to
+NEAR_DY = 6  # nor stone this far above or below the bot (ravines, cliffs)
+MAX_DIGS = 3  # dig-down macros per gather task
+BURIED_DEPTH = 12  # dig_to_stone: buried stone down to this many blocks below the feet
+DIG_CANDIDATES = 3  # buried stone tops offered to the planner, nearest first
 UNDERGROUND = ("stone", "cobblestone", "deepslate", "andesite", "diorite", "granite")
 FOOD_CANDIDATES = 6
 FOOD_COUNT = 4
@@ -88,6 +93,11 @@ class GatherState:
     explored: set = field(default_factory=set)
     origin: Pos | None = None
     equipped: set[str] = field(default_factory=set)  # the planner re-lists Equip tasks
+    dig_tail: Pos | None = (
+        None  # where the last dig-down ended (its staircase is the way)
+    )
+    dig_dir: tuple[int, int] | None = None
+    dig_start_y: int | None = None  # surface height where that staircase began
 
 
 @dataclass
@@ -118,6 +128,43 @@ def _dist(a, b) -> float:
     return math.dist(a, b)
 
 
+def _near(pos, here) -> bool:
+    return (
+        math.hypot(pos[0] - here[0], pos[2] - here[2]) <= NEAR_STONE
+        and abs(pos[1] - here[1]) <= NEAR_DY
+    )
+
+
+FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
+
+
+def _sealed(body, pos: Pos) -> bool:
+    """No liquid or unknown cell touches ``pos``: breaking it opens no flow. Live run
+    20261102T005434368454Z: mining surface stone beside a lava pool killed the bot."""
+    for dx, dy, dz in FACES:
+        state = body.world(pos[0] + dx, pos[1] + dy, pos[2] + dz)
+        if state is None or bp.parse_state(state)[0] in bp.FLUIDS:
+            return False
+    return True
+
+
+def buried_tops(body, block: str, here: Pos) -> list[Pos]:
+    """Top cells of ``block`` columns below the bot within NEAR_STONE horizontally and
+    BURIED_DEPTH down, with a known dry cell above; shallow and near first."""
+    found = []
+    for x, y, z in body.find_all(block):
+        depth = here[1] - y
+        if not 1 <= depth <= BURIED_DEPTH:
+            continue
+        if math.hypot(x - here[0], z - here[2]) > NEAR_STONE:
+            continue
+        above = body.world(x, y + 1, z)
+        if above is None or bp.parse_state(above)[0] in (block, *bp.FLUIDS):
+            continue
+        found.append((x, y, z))
+    return sorted(found, key=lambda p: (here[1] - p[1]) + _dist(p[::2], here[::2]))
+
+
 def _cell(position) -> Pos:
     return (
         math.floor(position[0]),
@@ -137,6 +184,7 @@ class _Exec:
 
     def __init__(self, body: GatherBody, k: Knowledge, state: GatherState, cap: int):
         self.body, self.k, self.state, self.cap = body, k, state, cap
+        self.last_dig = ""
 
     # --- shared helpers -------------------------------------------------
     def reach_and_do(self, pos: Pos, do: Callable[[], Result], reach=REACH) -> Result:
@@ -176,26 +224,28 @@ class _Exec:
                     return True
         return False
 
-    def dig_for(self, block: str, skip: Collection[Pos]) -> bool:
-        """No ``block`` is exposed: dig a staircase down (+x, one step per block) until
-        one shows. Never digs into or stands on unknown cells, nor beside liquid."""
-        body = self.body
-        for _ in range(DIG_DEPTH):
-            if set(body.find_blocks(block)) - set(skip):
+    def dig_to_stone(self, block: str) -> bool:
+        """Baritone-style first stone: let the planner dig down to stand on the top of
+        known buried ``block`` (the sensor delivers whole sections, buried cells too).
+        Its cut rules refuse cells beside fluid or unknown cells, and the way back is
+        a planned route. Nearest and shallowest first; the planner judges the rest."""
+        dig_to = getattr(self.body, "dig_to", None)
+        if dig_to is None or self.state.dig_tail:  # an earlier staircase is the way
+            return False
+        here = self.body.position()
+        for top in buried_tops(self.body, block, here)[:DIG_CANDIDATES]:
+            if dig_to((top[0], top[1] + 1, top[2])):
                 return True
-            x, y, z = body.position()
-            ahead = [(x + 1, y + dy, z) for dy in (1, 0, -1)]
-            states = [body.world(*c) for c in ahead + [(x + 1, y - 2, z)]]
-            if any(s is None or "lava" in s or "water" in s for s in states):
-                return False
-            for cell, state in zip(ahead, states, strict=False):
-                if bp.parse_state(state)[0] in bp.AIR:
-                    continue
-                if not self.reach_and_do(cell, lambda c=cell: body.break_block(c)).ok:
-                    return False
-            if not body.walk_to((x + 1, y - 1, z), 0.8):
-                return False
-        return bool(set(body.find_blocks(block)) - set(skip))
+        return False
+
+    def dig_for(self, item: str, target: int) -> int:
+        """No usable stone: dig a player-style staircase (``gather_dig``) until
+        ``target`` of ``item`` is held. Returns the blocks broken; ``last_dig`` says
+        why it ended."""
+        digger = Digger(self)
+        digger.run(item, target)
+        self.last_dig = digger.reason
+        return digger.broken
 
     def collect(self, items: Collection[str] | None, near) -> None:
         """Walk onto the dropped item entities near ``near`` (None: any item)."""
@@ -256,13 +306,23 @@ class _Exec:
     def gather(self, t) -> Result:
         body = self.body
         target = body.inventory().get(t.item, 0) + max(1, t.item_count)
-        broken, skip = 0, set()
+        broken, skip, digs = 0, set(), 0
+        underground = t.block.removeprefix("minecraft:") in UNDERGROUND
         while broken < t.count and body.inventory().get(t.item, 0) < target:
             here = body.position()
             known = [p for p in body.find_blocks(t.block) if p not in skip]
-            if not known and t.block.removeprefix("minecraft:") in UNDERGROUND:
-                if self.dig_for(t.block, skip):
-                    continue
+            if (
+                underground
+            ):  # only stone the bot can plausibly walk to; never a ravine floor
+                known = [p for p in known if _near(p, here) and _sealed(body, p)]
+            if not known and underground and digs < MAX_DIGS:
+                digs += 1
+                before = body.inventory().get(t.item, 0)
+                self.dig_to_stone(t.block)  # else the staircase starts at the surface
+                self.dig_for(t.item, target)
+                # dirt broken on the way down is not progress toward t.count
+                broken += max(0, body.inventory().get(t.item, 0) - before)
+                continue
             if not known:
                 if not self.explore(
                     lambda: bool(set(body.find_blocks(t.block)) - skip)
@@ -474,6 +534,7 @@ def run_gather(
     max_failures: int = 3,
     max_tasks: int = 300,
     explore_cap: int = EXPLORE_CAP,
+    starter_tools: bool = True,
 ) -> GatherReport:
     """Run the plan's tasks through ``body``; see the module docstring."""
     state = state or GatherState()
@@ -497,7 +558,13 @@ def run_gather(
                 report.stop = "failed"
                 return report
         if targets is not None:
-            fresh = gp.plan(targets, body.inventory(), knowledge, state.stations)
+            fresh = gp.plan(
+                targets,
+                body.inventory(),
+                knowledge,
+                state.stations,
+                starter_tools=starter_tools,
+            )
             report.replans += 1
             tasks = [
                 t

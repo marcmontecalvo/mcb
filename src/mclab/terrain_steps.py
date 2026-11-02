@@ -274,7 +274,28 @@ class Inventory(tuple):
                 self.hot.setdefault(row.get("item"), slot)
 
 
+TOOL_TIERS = ("netherite", "diamond", "iron", "stone", "golden", "wooden")
+TOOL_KINDS = ("pickaxe", "shovel", "axe", "hoe")
+
+
 def hotbar(inventory, item):
+    """Hotbar slot holding ``item``. The excavation table names iron tools (natural
+    runs kit them); any tier of that tool counts, best first, so a survival body with
+    wooden tools may dig too. ponytail: breaks stay priced at iron speed, so a wooden
+    tool's dig looks about 3x cheaper than it is; price by the held tier if routes
+    start digging where walking would be quicker."""
+    slot = _hotbar(inventory, item)
+    kind = item.removeprefix("minecraft:iron_") if item else None
+    if slot is not None or kind == item or kind not in TOOL_KINDS:
+        return slot
+    for tier in TOOL_TIERS:
+        slot = _hotbar(inventory, f"minecraft:{tier}_{kind}")
+        if slot is not None:
+            return slot
+    return None
+
+
+def _hotbar(inventory, item):
     hot = getattr(inventory, "hot", None)
     if hot is not None:
         return hot.get(item)

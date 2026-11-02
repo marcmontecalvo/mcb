@@ -34,6 +34,7 @@ def trees_and_stone(n_logs=8, n_stone=8, far=0):
 
 
 def run(targets, body, **kw):
+    kw.setdefault("starter_tools", False)  # the mini pack has no shovel recipes
     return run_gather(plan(targets, body.inventory(), K), body, K, targets, **kw)
 
 
@@ -169,30 +170,3 @@ def test_containers_record_position_and_contents():
     (pos,) = report.state.containers
     assert report.state.containers[pos] == {M + "oak_log": 2}
     assert body.inventory()[M + "oak_log"] == 3
-
-
-def test_dig_for_stone_steps_down_until_stone_shows():
-    from mclab.gather_runner import GatherState, _Exec
-
-    world = floor()
-    world |= {
-        (x, y, z): M + "dirt"
-        for x in range(-6, 40)
-        for z in range(-2, 3)
-        for y in range(-6, 0)
-    }
-    world |= {(x, -4, z): M + "stone" for x in range(-6, 40) for z in range(-2, 3)}
-    body = FakeGatherBody(K, world, {M + "wooden_pickaxe": 1}, pos=(0, 0, 0), sight=2.5)
-    ex = _Exec(body, K, GatherState(), 64)
-
-    assert ex.dig_for(M + "stone", set())
-    assert body.pos[1] < 0  # stepped down
-    assert any(step[0] == "walk" for step in body.log)
-
-
-def test_dig_for_never_digs_into_unknown_cells():
-    from mclab.gather_runner import GatherState, _Exec
-
-    body = FakeGatherBody(K, floor(), default=None, pos=(0, 0, 0))
-    assert not _Exec(body, K, GatherState(), 64).dig_for(M + "stone", set())
-    assert not [entry for entry in body.log if entry[0] == "break"]

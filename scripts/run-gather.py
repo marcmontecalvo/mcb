@@ -51,7 +51,7 @@ def main() -> int:
         bridge = open_bridge(folder)
         memory = None
         try:
-            body, memory = start_session(bridge, folder, args.start)
+            body, memory = start_session(bridge, folder, args.start, dig=True)
             kit(bridge, inventory=[])
             body.observe()
             targets = [(M + "stone_pickaxe", "stone pickaxe")]
@@ -62,7 +62,13 @@ def main() -> int:
                     folder, job="gather", stage=label, done=i, total=len(targets)
                 )
                 wanted = {item: 1}
-                first = plan(wanted, body.inventory(), knowledge, state.stations)
+                first = plan(
+                    wanted,
+                    body.inventory(),
+                    knowledge,
+                    state.stations,
+                    starter_tools=True,
+                )
                 print(summarize(first))
                 report = run_gather(first, body, knowledge, wanted, state=state)
                 body.observe()

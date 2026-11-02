@@ -108,7 +108,9 @@ def build_job(
     report.shortfall = {i: n - held[i] for i, n in needed.items() if n > held[i]}
 
     if report.shortfall:
-        first = gp.plan(needed, body.inventory(), knowledge, state.stations)
+        first = gp.plan(
+            needed, body.inventory(), knowledge, state.stations, starter_tools=True
+        )
         report.gather = run_gather(
             first, body, knowledge, needed, state=state, max_failures=max_failures
         )
@@ -121,7 +123,9 @@ def build_job(
             return False
         refills += 1
         wanted = dict(shortfall)
-        fresh = gp.plan(wanted, body.inventory(), knowledge, state.stations)
+        fresh = gp.plan(
+            wanted, body.inventory(), knowledge, state.stations, starter_tools=True
+        )
         outcome = run_gather(
             fresh, body, knowledge, wanted, state=state, max_failures=max_failures
         )

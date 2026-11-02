@@ -28,7 +28,8 @@ Assumptions (the coordinator verifies them live)
    ``avoid`` it does the same. Stances are compared as integer feet cells.
 4. A goto gives up after ``goto_wall_s`` wall seconds, or when the planner says
    ``unreachable`` for ``UNREACHABLE_TICKS`` ticks, and returns False. The episode stays
-   open. Movement policy is default walking/jumping, no digging (terrain_policy None).
+   open. Default: walking/jumping, no digging; ``start_session(dig=True)`` lets the
+   planner dig (DIG_TERRAIN), as gather jobs need.
 5. Op ``_failed`` events map to ``Result(False, reason, data)``; a ``rejected`` event maps
    to ``Result(False, "rejected:<reason>")``; a wall timeout to ``Result(False, "timeout")``.
    ``bridge.wait`` heartbeats while waiting.
@@ -48,6 +49,7 @@ from mclab.bridge import REJECTIONS
 from mclab.build_runner import Result
 from mclab.control_loop import NATIVE, drive
 from mclab.execution import RecordedBridge, policy_state
+from mclab.movement_policy import MovementPolicy
 from mclab.navigation import standable
 from mclab.navigation_runner import _new_identity
 from mclab.navigation_segmented import SegmentedController
@@ -55,6 +57,7 @@ from mclab.paths import ROOT, SERVER, read_json
 from mclab.route_search import interacts
 from mclab.schematic import format_state
 from mclab.spatial_memory import MapArchive, MapIdentity, SpatialMemory
+from mclab.terrain_steps import TerrainPolicy
 
 Pos = tuple[int, int, int]
 
@@ -68,6 +71,55 @@ MAX_CANDIDATES = 3
 FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 SENSED_RADIUS = 40.0  # awareness delivers 64; beyond this a stance may be unsensed
 SEARCH_STALL_TICKS = 60  # a search that yields no move for this long is abandoned
+SETTLE_TICKS = 40  # settle(): longest wait for the map to show broken blocks
+SETTLE_STEP = 5
+STUCK_TICKS = 200  # a goto or walk whose position does not change for this long fails
+STUCK_MOVE = 0.5  # blocks that count as progress
+
+
+# Gather sessions move like natural cohort 30 (results/natural/20261101T135049338315Z,
+# 10/10, body planner): the planner may dig, pillar and bridge as Baritone does, so a
+# target under the ground is reached by a planned dig whose way back is a route too.
+# cut rules (RoutePlanner.cutAllowed): no break beside or under fluid or unknown cells.
+NATURAL_MOVEMENT = MovementPolicy(
+    allow_diagonals=True,
+    allow_sprint=True,
+    max_drop=3,
+    allow_shapes=True,
+    max_gap=2,
+    allow_swim=True,
+    allow_climb=True,
+)
+DIG_TERRAIN = TerrainPolicy(
+    break_budget=64,
+    place_budget=64,
+    material_allowlist=("minecraft:cobblestone", "minecraft:dirt"),
+    allow_bridge=True,
+    max_support_stack=3,
+    allow_pillar=True,
+    planner_tick_costs=True,
+    planner_unknown=True,
+    planner_edits=True,
+    baritone_search=True,
+    baritone_diagonals=True,
+    baritone_moves=True,
+    planner_swim=True,
+    heuristic_weight=1,
+)
+
+
+class StuckGuard:
+    """True once the position has stayed within STUCK_MOVE for STUCK_TICKS ticks."""
+
+    def __init__(self, ticks: int = STUCK_TICKS, move: float = STUCK_MOVE):
+        self.ticks, self.move = ticks, move
+        self.anchor: tuple[tuple[float, ...], int] | None = None
+
+    def stuck(self, position, tick: int) -> bool:
+        if self.anchor is None or math.dist(position, self.anchor[0]) >= self.move:
+            self.anchor = (tuple(position), tick)
+            return False
+        return tick - self.anchor[1] >= self.ticks
 
 
 class _GotoController(SegmentedController):
@@ -79,12 +131,18 @@ class _GotoController(SegmentedController):
         self.unreachable_since: int | None = None
         self.searching_since: int | None = None
         self.goal_progress_ticks = None  # companion goals may be far and slow
+        self.guard = StuckGuard()
 
     def stop_reason(self, observation) -> str | None:
         if self.mode == "arrived":
             return "arrived"
         if time.monotonic() > self.deadline:
             return "deadline"
+        body = observation.get("body") or {}
+        if "position" in body and self.guard.stuck(
+            body["position"], observation["tick"]
+        ):
+            return "stuck"
         if self.mode == "unreachable":
             self.unreachable_since = self.unreachable_since or observation["tick"]
             if observation["tick"] - self.unreachable_since >= UNREACHABLE_TICKS:
@@ -110,9 +168,11 @@ class CompanionBody:
         *,
         goto_wall_s: float = GOTO_WALL_S,
         movement_policy=None,
+        terrain_policy: TerrainPolicy | None = None,
     ):
         self.bridge, self.memory = bridge, memory
         self.goto_wall_s, self.movement_policy = goto_wall_s, movement_policy
+        self.terrain_policy = terrain_policy  # None: walk only, never dig
         self._obs: dict = {}
         self._inv: dict[str, int] = {}
         self._overlay: dict[Pos, tuple[str, int]] = {}
@@ -196,6 +256,18 @@ class CompanionBody:
 
     def wait_ticks(self, ticks: int) -> None:
         self.bridge.ticks(ticks)
+
+    def settle(self, cells, max_ticks: int = SETTLE_TICKS) -> bool:
+        """Wait until the sensed map shows every cell passable (just broken blocks reach
+        ``memory.cells`` a few ticks late; planning before that routes over the
+        surface instead). Live run 20261101T205857512430Z: 170 ticks per stair step."""
+        for _ in range(0, max_ticks, SETTLE_STEP):
+            self.observe()
+            known = [self.memory.cells.get(tuple(c)) for c in cells]
+            if all(c is not None and not c.get("collision_boxes") for c in known):
+                return True
+            self.wait_ticks(SETTLE_STEP)
+        return False
 
     # --- ops ---------------------------------------------------------------
     def _await(self, op: str, payload: dict, timeout: float):
@@ -290,6 +362,7 @@ class CompanionBody:
             interact_reach=reach,
             background_planning=True,
             movement_policy=self.movement_policy,
+            terrain_policy=self.terrain_policy,
             body_planner=reach is None,  # the body planner has no interact goal yet
             deadline=time.monotonic() + self.goto_wall_s,
         )
@@ -316,6 +389,16 @@ class CompanionBody:
     def walk_to(self, pos: Pos, radius: float = 1.5) -> bool:
         x, y, z = pos
         return self._navigate((x, self._stand_y(x, y, z), z), reach=None, radius=radius)
+
+    def find_all(self, block: str) -> list[Pos]:
+        """Delivered cells holding ``block``, buried ones included."""
+        return self._scan(block)
+
+    def dig_to(self, feet: Pos) -> bool:
+        """Stand at ``feet``, letting the planner dig there. False when digging is off."""
+        if self.terrain_policy is None:
+            return False
+        return self._navigate(tuple(feet), reach=None, radius=0.6)
 
     def stances(self, target: Pos, reach: float, avoid: Collection[Pos] = ()):
         """Known standable cells from which ``target`` is reached, nearest first."""
@@ -418,9 +501,12 @@ def _level_dir():
     return SERVER / "world"
 
 
-def start_session(bridge, folder, start, *, awareness: Awareness | None = None):
+def start_session(
+    bridge, folder, start, *, awareness: Awareness | None = None, dig: bool = False
+):
     """Begin the long ``natural_start`` episode that keeps /policy and the follower
-    open, and return ``(CompanionBody, SpatialMemory)``. Needs an idle lab."""
+    open, and return ``(CompanionBody, SpatialMemory)``. Needs an idle lab. ``dig``:
+    move and dig like natural cohort 30 (NATURAL_MOVEMENT, DIG_TERRAIN)."""
     # sections-v1 terrain needs the "sections" preset; same profile as natural runs.
     awareness = awareness or Awareness.from_payload(
         read_json(ROOT / "config/stepc/awareness-sections-64.json")
@@ -462,7 +548,13 @@ def start_session(bridge, folder, start, *, awareness: Awareness | None = None):
     memory = SpatialMemory(
         MapArchive(folder / "map.sqlite3", identity), bridge.episode_id
     )
-    body = CompanionBody(bridge, memory)
+    body = (
+        CompanionBody(
+            bridge, memory, movement_policy=NATURAL_MOVEMENT, terrain_policy=DIG_TERRAIN
+        )
+        if dig
+        else CompanionBody(bridge, memory)
+    )
     body.observe()
     return body, memory
 

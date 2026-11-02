@@ -282,6 +282,22 @@ imports allowed there).
   - **M2 body ops and M3 done live** (wave 2): placement 46/46
     (`results/companion/20261101T172441585144Z`), crafting and furnace 8/8
     (`results/companion/20261101T172600197748Z`), via the lab `kit` fixture.
+  - **M4 live, empty inventory → stone pickaxe, axe and shovel: done once**
+    (Nov 2, `results/companion/20261102T021647512245Z`, seed 20261026 from
+    (68, 71, -64), no damage taken). Seed 1337 near spawn is wooded badlands
+    (14–18 blocks of terracotta over stone): unfair for this test. Attempts
+    before it: `20261102T005434368454Z` died in lava (mined surface stone beside
+    a lava pool; now stone touching liquid or unknown cells is never mined),
+    `20261102T020413428498Z` mined 4 cobblestone but could not climb its 3-high
+    staircase (the route planner needs y+3 clear to step up; steps are now dug
+    4 high). Following Baritone, gather sessions now plan with digging on
+    (`start_session(dig=True)`: cohort 30 movement and terrain profile) and the
+    planner is offered buried stone tops (`dig_to_stone`). Digging with any tool
+    tier is allowed (`terrain_steps.hotbar`, `StepMotor.slot`; body mod changed,
+    qualification must be rerun before scored runs). Open: the planner's own dig
+    to buried stone ended "stuck" three times at the start of the success run,
+    and the staircase fallback did the digging; find out why. Then 3 seeds × 3
+    reps (M4 acceptance), and the iron pickaxe.
   - **Body mod changed** (now `9e536f77…`): qualification (item 11 procedure)
     must be rerun before scored navigation runs.
   - Current status per milestone, the code map, and every known gap with its

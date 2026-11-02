@@ -210,7 +210,22 @@ final class StepMotor {
                 && ((Number)b.get(3)).doubleValue()==1 && ((Number)b.get(4)).doubleValue()==1 && ((Number)b.get(5)).doubleValue()==1;
     }
     private Map<String,Object> read(RouteGeometry.Reader reader,BlockPos p) { return reader.cell(p.getX(),p.getY(),p.getZ()); }
+    /** Tiers tried, best first, when the table names an iron tool (terrain_steps.hotbar). */
+    private static final List<String> TOOL_TIERS = List.of("netherite","diamond","iron","stone","golden","wooden");
+
+    /** Hotbar slot of item; for an iron tool, any tier of that tool (a survival body digs with wood). */
     private static int slot(ServerPlayer p,String item) {
+        int exact=exactSlot(p,item);
+        if(exact>=0 || item==null || !item.startsWith("minecraft:iron_")) return exact;
+        String kind=item.substring("minecraft:iron_".length());
+        if(!List.of("pickaxe","shovel","axe","hoe").contains(kind)) return -1;
+        for(var tier:TOOL_TIERS) {
+            int n=exactSlot(p,"minecraft:"+tier+"_"+kind);
+            if(n>=0) return n;
+        }
+        return -1;
+    }
+    private static int exactSlot(ServerPlayer p,String item) {
         for(int n=0;n<9;n++) {
             var stack=p.getInventory().getItem(n);
             if(stack.getCount()>0 && BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().equals(item)) return n;

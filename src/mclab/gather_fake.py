@@ -37,7 +37,9 @@ class FakeGatherBody:
         drift: dict[str, int] | None = None,
         food_per_op: int = 0,
         sight: float | None = None,
+        can_dig: bool = False,
     ):
+        self.can_dig = can_dig  # dig_to works (a real body with DIG_TERRAIN)
         self.sight = sight  # find_blocks / entities only within this distance
         self.k, self.w, self.inv = knowledge, dict(world), dict(inventory or {})
         self.pos, self.ents, self._food = pos, [dict(e) for e in entities or []], food
@@ -76,6 +78,9 @@ class FakeGatherBody:
             if bp.parse_state(s)[0] == block and self._seen(p)
         ]
 
+    def find_all(self, block):
+        return self.find_blocks(block)  # the fake has no occlusion either way
+
     def wait_ticks(self, ticks):
         self.log.append(("wait", ticks))
 
@@ -89,6 +94,17 @@ class FakeGatherBody:
                 self.pos = spot
                 return True
         return False
+
+    def dig_to(self, feet):
+        """Planner dig stand-in: clear the feet and head cells, stand there."""
+        if not self.can_dig:
+            return False
+        self.log.append(("dig_to", tuple(feet)))
+        x, y, z = feet
+        for cell in ((x, y, z), (x, y + 1, z)):
+            if cell in self.w:
+                self.w[cell] = "minecraft:air"
+        return self.walk_to(feet)
 
     def walk_to(self, pos, radius=1.5):
         self.log.append(("walk", tuple(pos)))

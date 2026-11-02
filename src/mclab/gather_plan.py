@@ -719,8 +719,14 @@ class _Expander:
         self.m = m
         self.need: dict[str, int] = {i: n for i, n in targets.items() if n > 0}
         self.tool_make = dict(tool_make or {})
+        self.targets = frozenset(self.need)
         for tool, n in self.tool_make.items():
-            self.need[tool] = self.need.get(tool, 0) + n
+            # a tool that is also a target serves both: one craft, not two
+            self.need[tool] = (
+                max(self.need[tool], n)
+                if tool in self.targets
+                else self.need.get(tool, 0) + n
+            )
         self.have = dict(m.inv)
         self.best = dict(m.best)
         self.uses: Counter[str] = Counter()
@@ -760,7 +766,8 @@ class _Expander:
 
     def _use_tool(self, tool: _Tool, uses: int, d: set[str]) -> None:
         self.uses[tool.item] += uses
-        self.have[tool.item] = 0
+        if tool.item not in self.targets:  # a held target tool still serves as target
+            self.have[tool.item] = 0
         d.add(tool.item)
 
     def _station(self, rec: _Rec, d: set[str]) -> None:
@@ -1066,6 +1073,7 @@ def plan(
     storage: Iterable[Mapping[str, Any]] | None = None,
     with_chest: bool = True,
     spare_chest: bool = False,
+    starter_tools: bool = False,
 ) -> PlanResult:
     """Ordered tasks that turn `inventory` into `targets`; unreachable parts are
     reported in `missing` instead of raising.
@@ -1081,7 +1089,9 @@ def plan(
     behind a Withdraw. (`with_chest` and `spare_chest` are internal: they stop the
     chest-first retry and reserve one carried chest for storage.) When the plan
     would exceed the inventory, gathers are batched with Deposits and a container
-    is placed (see gather_storage)."""
+    is placed (see gather_storage). `starter_tools` follows the player method for a
+    stone pickaxe target: a wooden axe, pickaxe and shovel first (while no stone
+    pickaxe is held), and a stone axe and shovel with the stone pickaxe."""
     counts, wear = normalize_inventory(inventory)
     boxes = [dict(b) for b in storage or ()]
     planned = Counter(counts)
@@ -1098,6 +1108,8 @@ def plan(
         DEFAULT_PREFER if prefer is None else prefer,
     )
     goal = {i: n for i, n in targets.items() if n > 0}
+    if starter_tools and STONE_PICKAXE in goal:
+        goal = _with_starter_tools(goal, counts)
     food_gap = (
         _add_food(m, goal, food_target, reachable)
         if food_target and food_target > 0
@@ -1108,10 +1120,31 @@ def plan(
     if done.needs_chest and with_chest:
         return _chest_first(
             targets, inventory, knowledge, stations, boxes, food_target,
-            executable_stations, known_blocks, prefer,
+            executable_stations, known_blocks, prefer, starter_tools,
         )  # fmt: skip
     missing = (*ex.missing, *([food_gap] if food_gap else ()))
     return PlanResult(done.tasks, missing, ex.total, dict(ex.surplus), done.stored)
+
+
+STONE_PICKAXE = "minecraft:stone_pickaxe"
+# The wooden pickaxe is not listed: mining stone makes the planner craft it already.
+STARTER_WOODEN = ("minecraft:wooden_axe", "minecraft:wooden_shovel")
+STARTER_STONE = ("minecraft:stone_axe", "minecraft:stone_shovel")
+ADVANCED_PICKAXES = tuple(
+    f"minecraft:{t}_pickaxe" for t in ("iron", "diamond", "netherite")
+)
+
+
+def _with_starter_tools(
+    goal: dict[str, int], held: Mapping[str, int]
+) -> dict[str, int]:
+    extra = list(STARTER_STONE)
+    # stays in the plan while a stone pickaxe is held: the schedule may craft it first
+    if not any(held.get(p, 0) > 0 for p in ADVANCED_PICKAXES):
+        extra += STARTER_WOODEN
+    # held tools stay out of the goal: the planner's tool logic re-crafts a held tool
+    # that is also a target
+    return {**{i: 1 for i in extra if not held.get(i, 0)}, **goal}
 
 
 def _chest_first(
@@ -1124,6 +1157,7 @@ def _chest_first(
     executable,
     known,
     prefer,
+    starter_tools=False,
 ) -> PlanResult:
     """No container to deposit into: plan a chest on its own first, replay it to get
     the inventory and stations it leaves behind, and plan the job from there with
@@ -1135,6 +1169,7 @@ def _chest_first(
         "prefer": prefer,
         "storage": boxes,
         "with_chest": False,
+        "starter_tools": starter_tools,
     }
     pre = plan({CHEST: 1}, inventory, knowledge, stations, **kw)
     replay = Replay(knowledge, inventory, stations, boxes)
