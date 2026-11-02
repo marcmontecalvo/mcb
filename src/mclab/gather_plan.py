@@ -661,7 +661,13 @@ def _children(m: _Model, item: str, best: Mapping[str, Option]) -> list[str]:
     if opt[0] == "shear":
         return [opt[2]]
     if opt[0] == "gather":
-        return [t.item for t in m.candidates(opt[1], item=item) if t]
+        # An unworn held tool adds no demand; an ordering edge to it would only
+        # close the tool <-> material cycle (stone pickaxe <-> cobblestone).
+        return [
+            t.item
+            for t in m.candidates(opt[1], item=item)
+            if t and not (m.inv.get(t.item) and m.held_uses(t) >= m.inv[t.item] * t.dur)
+        ]
     if opt[0] == "transform":
         return [opt[1].input, m.transform_tool(opt[2], opt[1], item).item]
     out = _recipe_children(m, opt[1])

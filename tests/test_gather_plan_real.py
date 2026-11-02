@@ -226,3 +226,12 @@ def test_real_pack_mobs_give_leather_and_wool():
     r = _planned({M + "leather": 3, M + "white_wool": 3}, k=K_MOBS)
 
     assert _of(r, Hunt) and _of(r, Shear)
+
+
+def test_stone_is_gathered_for_a_furnace_when_two_pickaxes_are_held():
+    held = {M + "stone_pickaxe": 1, M + "wooden_pickaxe": 1}
+    r = _planned({M + "iron_pickaxe": 1}, held, stations={"crafting_table": (0, 0, 0)})
+
+    cobble = sum(t.item_count for t in _of(r, Gather) if t.item == M + "cobblestone")
+    assert r.ok
+    assert cobble >= 8

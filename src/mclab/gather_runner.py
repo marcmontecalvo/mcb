@@ -166,6 +166,15 @@ def buried_tops(body, block: str, here: Pos) -> list[Pos]:
     return sorted(found, key=lambda p: (here[1] - p[1]) + _dist(p[::2], here[::2]))
 
 
+def _floored(body, pos: Pos, here: Pos) -> bool:
+    """The block under the bot's feet may be mined only onto known solid ground one
+    below it (Baritone MovementDownward: a drop of exactly one, never into a cave)."""
+    if pos != (here[0], here[1] - 1, here[2]):
+        return True
+    below = body.world(pos[0], pos[1] - 1, pos[2])
+    return below is not None and bp.parse_state(below)[0] not in (*bp.AIR, *bp.FLUIDS)
+
+
 def _cell(position) -> Pos:
     return (
         math.floor(position[0]),
@@ -225,13 +234,14 @@ class _Exec:
                     return True
         return False
 
-    def dig_to_stone(self, block: str) -> bool:
+    def dig_to_stone(self, block: str, ignore_stair: bool = False) -> bool:
         """Baritone-style first stone: let the planner dig down to stand on the top of
         known buried ``block`` (the sensor delivers whole sections, buried cells too).
         Its cut rules refuse cells beside fluid or unknown cells, and the way back is
         a planned route. Nearest and shallowest first; the planner judges the rest."""
         dig_to = getattr(self.body, "dig_to", None)
-        if dig_to is None or self.state.dig_tail:  # an earlier staircase is the way
+        # an earlier staircase is the way down to stone (not to ore)
+        if dig_to is None or (self.state.dig_tail and not ignore_stair):
             return False
         here = self.body.position()
         for top in buried_tops(self.body, block, here)[:DIG_CANDIDATES]:
@@ -311,19 +321,29 @@ class _Exec:
         body = self.body
         target = body.inventory().get(t.item, 0) + max(1, t.item_count)
         broken, skip, digs = 0, set(), 0
-        underground = t.block.removeprefix("minecraft:") in UNDERGROUND
+        name = t.block.removeprefix("minecraft:")
+        ore = name.endswith("_ore")
+        underground = name in UNDERGROUND or ore
         while broken < t.count and body.inventory().get(t.item, 0) < target:
             here = body.position()
             known = [p for p in body.find_blocks(t.block) if p not in skip]
             if (
                 underground
             ):  # only stone the bot can plausibly walk to; never a ravine floor
-                known = [p for p in known if _near(p, here) and _sealed(body, p)]
+                known = [
+                    p
+                    for p in known
+                    if _near(p, here) and _sealed(body, p) and _floored(body, p, here)
+                ]
             if not known and underground and digs < MAX_DIGS:
                 digs += 1
                 before = body.inventory().get(t.item, 0)
-                self.dig_to_stone(t.block)  # else the staircase starts at the surface
-                self.dig_for(t.item, target)
+                if ore:  # a blind tunnel rarely meets ore: only a planned dig to it
+                    if not self.dig_to_stone(t.block, ignore_stair=True):
+                        digs = MAX_DIGS
+                else:  # else the staircase starts at the surface
+                    self.dig_to_stone(t.block)
+                    self.dig_for(t.item, target)
                 # dirt broken on the way down is not progress toward t.count
                 broken += max(0, body.inventory().get(t.item, 0) - before)
                 continue

@@ -232,3 +232,34 @@ def test_drops_caught_in_the_canopy_are_not_walked_to():
     _Exec(body, K, GatherState(), 64).collect({M + "oak_log"}, (1, 6, 0))
 
     assert not [step for step in body.log if step[0] == "walk"]
+
+
+def _iron_task(count=1):
+    from mclab.gather_tasks import Gather
+
+    return Gather(M + "iron_ore", count, "pickaxe", "stone", M + "raw_iron", count)
+
+
+def test_buried_iron_is_reached_by_a_planned_dig_not_a_staircase():
+    world = layered(-30, stone_from=-4) | {(3, -9, 0): M + "iron_ore"}
+    body = FakeGatherBody(
+        K, world, {M + "stone_pickaxe": 1}, pos=(0, 0, 0), can_dig=True
+    )
+
+    result = _Exec(body, K, GatherState(), 64).gather(_iron_task())
+
+    assert result.ok and body.inventory().get(M + "raw_iron") == 1
+    assert ("dig_to", (3, -8, 0)) in body.log
+
+
+def test_ore_under_the_feet_is_not_mined_over_a_cave():
+    from mclab.gather_runner import _floored
+
+    world = layered(-30, stone_from=-1) | {(0, -1, 0): M + "iron_ore"}
+    body = FakeGatherBody(K, world, pos=(0, 0, 0))
+    assert _floored(body, (0, -1, 0), (0, 0, 0))  # solid one below: a 1-block drop
+    assert _floored(body, (2, -1, 0), (0, 0, 0))  # not under the feet: any stance
+    body.w[(0, -2, 0)] = M + "air"  # a cave under the ore
+    assert not _floored(body, (0, -1, 0), (0, 0, 0))
+    body.w[(0, -2, 0)] = M + "lava"
+    assert not _floored(body, (0, -1, 0), (0, 0, 0))
