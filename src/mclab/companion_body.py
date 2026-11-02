@@ -77,7 +77,7 @@ STUCK_TICKS = 200  # a goto or walk whose position does not change for this long
 STUCK_MOVE = 0.5  # blocks that count as progress
 
 
-# Gather sessions move like natural cohort 30 (results/natural/20261101T135049338315Z,
+# Gather sessions move like natural cohort 30 (without swimming) (results/natural/20261101T135049338315Z,
 # 10/10, body planner): the planner may dig, pillar and bridge as Baritone does, so a
 # target under the ground is reached by a planned dig whose way back is a route too.
 # cut rules (RoutePlanner.cutAllowed): no break beside or under fluid or unknown cells.
@@ -87,7 +87,10 @@ NATURAL_MOVEMENT = MovementPolicy(
     max_drop=3,
     allow_shapes=True,
     max_gap=2,
-    allow_swim=True,
+    # ponytail: no swimming until the body has a drowning reflex (surface when air
+    # runs low); run 20261102T041702403876Z explored across a lake and drowned on
+    # its floor while the planner planned from the surface node.
+    allow_swim=False,
     allow_climb=True,
 )
 DIG_TERRAIN = TerrainPolicy(
@@ -105,7 +108,7 @@ DIG_TERRAIN = TerrainPolicy(
     baritone_search=True,
     baritone_diagonals=True,
     baritone_moves=True,
-    planner_swim=True,
+    planner_swim=False,
     heuristic_weight=1,
 )
 
