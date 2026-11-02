@@ -549,3 +549,37 @@ def test_downward_and_descend_steps_go_to_follow_step_with_plan_shape(
     assert fields["plan"]["target"] == plan.target
     assert fields["plan"]["breaks"] == plan.breaks and fields["plan"]["places"] == ()
     assert controller.failed_edges == {(plan.source, plan.target)}
+
+
+def test_companion_goto_failure_stops_the_goto_not_the_episode(monkeypatch):
+    sent = []
+    controller = SimpleNamespace(
+        route=[(0, 1, 0), (1, 1, 0)],
+        mode="following",
+        terrain=None,
+        gap_jump=None,
+        committed_step=None,
+        movement_policy=MovementPolicy(),
+        decide=lambda _, **kw: {},
+        drain_events=lambda: [],
+        stop_reason=lambda _: None,
+    )
+
+    def send(op, **_fields):
+        sent.append(op)
+        if op == "follow_route":
+            raise TimeoutError("route not confirmed")
+        return {"sequence": 2}
+
+    client = SimpleNamespace(
+        send=send, acknowledge=lambda *_: None, record=lambda *_: None
+    )
+    monkeypatch.setattr(
+        native_driver, "policy_state", lambda _: {"body": {"position": [0.5, 1, 0.5]}}
+    )
+    monkeypatch.setattr(control_loop, "_running", lambda *_: None)
+
+    end = native_driver.drive_native(client, controller, 10)
+
+    assert end["type"] == "navigation_stopped"
+    assert "course_end" not in sent and "release" in sent

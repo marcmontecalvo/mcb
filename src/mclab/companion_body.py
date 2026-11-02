@@ -93,7 +93,9 @@ NATURAL_MOVEMENT = MovementPolicy(
 DIG_TERRAIN = TerrainPolicy(
     break_budget=64,
     place_budget=64,
-    material_allowlist=("minecraft:cobblestone", "minecraft:dirt"),
+    # dirt only: cobblestone is what the gather is for (the planner pillars with the
+    # first listed material; run 20261102T030233328966Z spent it climbing out)
+    material_allowlist=("minecraft:dirt",),
     allow_bridge=True,
     max_support_stack=3,
     allow_pillar=True,

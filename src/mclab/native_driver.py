@@ -578,6 +578,8 @@ def drive_native(client, controller, wall_timeout):
             time.sleep(0.05)
         raise ControllerFailure("Native route wall deadline exceeded")
     except (ControllerFailure, TimeoutError) as error:
+        if getattr(controller, "stop_reason", None) is not None:
+            return _stop_goto(client, error)
         return _fail(client, error)
     finally:
         if (
@@ -595,3 +597,14 @@ def drive_native(client, controller, wall_timeout):
         )
         client.control_loop_summary = stats
         client.record("control_loop_summary", stats)
+
+
+def _stop_goto(client, error):
+    """Companion goto (a controller with ``stop_reason``): a failed drive fails the
+    goto, not the session. Live run 20261102T030233328966Z: one step confirmation
+    deadline ended the episode and every later goto with it."""
+    client.last_controller_error = str(error)
+    client.record("controller_error", {"error": str(error), "category": "goto"})
+    release = client.send("release")  # also clears scheduled routes and steps
+    client.acknowledge(release, "received")
+    return {"type": "navigation_stopped", "data": {"reason": f"error: {error}"}}
