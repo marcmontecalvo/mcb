@@ -336,7 +336,9 @@ class FakeGatherBody:
             return Result(False, "not_a_container")
         box = self.boxes.setdefault(pos, {})
         wanted = (
-            items
+            []
+            if action == "peek"
+            else items
             if items is not None
             else [
                 {"item": i, "count": n}

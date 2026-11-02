@@ -234,3 +234,19 @@ def test_find_blocks_reads_a_pathing_grid_view_by_palette(tmp_path):
     found = b.find_blocks("minecraft:oak_log")
     assert (5, 5, 5) not in found
     assert {(-20, 64, 5), (1, 2, 3)} <= set(found) < buried | {(-20, 64, 5), (1, 2, 3)}
+
+
+def test_a_stance_must_see_a_face_of_a_solid_neighbour():
+    from mclab.companion_body import sees_support
+
+    solid = {"block": "minecraft:oak_planks", "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
+    lattice = {"block": "minecraft:scaffolding", "collision_boxes": []}
+    target = (5, 69, 5)
+    cells = {(4, 69, 5): solid}  # the neighbour west of the target
+
+    assert sees_support(cells, (6, 66, 5), target)  # east of it: sees its east face
+    assert not sees_support(cells, (3, 66, 5), target)  # west of it: sees its back
+    assert sees_support({(5, 69, 4): lattice}, (5, 66, 3), target) is False
+    assert sees_support({(5, 69, 4): lattice}, (5, 66, 6), target)  # scaffolding counts
+    # the top of a scaffolding column is reached from the ground beside it
+    assert sees_support({(5, 68, 5): lattice}, (7, 66, 5), target)

@@ -75,6 +75,12 @@ SETTLE_TICKS = 40  # settle(): longest wait for the map to show broken blocks
 SETTLE_STEP = 5
 STUCK_TICKS = 200  # a goto or walk whose position does not change for this long fails
 STUCK_MOVE = 0.5  # blocks that count as progress
+DROP_RADIUS = 8.0  # collect_drops: items this close to the broken cells are picked up
+DROP_WAIT_TICKS = 40  # a tower of scaffolding drops a layer per few ticks
+MAX_PICKUPS = 16
+BODY_HALF_WIDTH = 0.3
+BODY_HEIGHT = 1.8
+PRECISE_RADIUS = 0.2  # centre-to-centre, so the box stays inside the stance cell (0.5 - 0.3)
 
 
 # Gather sessions move like natural cohort 30 (without swimming) (results/natural/20261101T135049338315Z,
@@ -114,6 +120,40 @@ DIG_TERRAIN = TerrainPolicy(
     heuristic_weight=1,
     allow_falling_neighbours=False,
 )
+
+
+def _clickable(cell) -> bool:
+    """A cell with a face to click: collision, or scaffolding (a lattice with none)."""
+    return bool(cell) and bool(
+        cell.get("collision_boxes") or cell.get("block") == "minecraft:scaffolding"
+    )
+
+
+# neighbour direction -> is the eye of a body at stance cell `node` (1.62 above its feet)
+# on the target side of that neighbour's face toward `target`
+_FACE_SEEN = {
+    (1, 0, 0): lambda n, t: n[0] <= t[0],
+    (-1, 0, 0): lambda n, t: n[0] >= t[0],
+    (0, 0, 1): lambda n, t: n[2] <= t[2],
+    (0, 0, -1): lambda n, t: n[2] >= t[2],
+    (0, 1, 0): lambda n, t: n[1] <= t[1] - 1,
+    (0, -1, 0): lambda n, t: n[1] >= t[1] - 1,
+}
+
+
+def sees_support(cells, node: Pos, target: Pos) -> bool:
+    """Does some solid neighbour of `target` have its face toward `target` turned to
+    the eye of a body standing at `node`? Live run: the second plank of a pair was
+    tried from the far side of the first, which shows it no face."""
+    for d, seen in _FACE_SEEN.items():
+        n = (target[0] + d[0], target[1] + d[1], target[2] + d[2])
+        cell = cells.get(n)
+        if _clickable(cell) and seen(node, target):
+            return True
+        # a column of scaffolding is extended by clicking its side, from anywhere beside it
+        if d == (0, -1, 0) and cell and cell.get("block") == "minecraft:scaffolding":
+            return True
+    return False
 
 
 class StuckGuard:
@@ -181,6 +221,7 @@ class CompanionBody:
         self.bridge, self.memory = bridge, memory
         self.goto_wall_s, self.movement_policy = goto_wall_s, movement_policy
         self.terrain_policy = terrain_policy  # None: walk only, never dig
+        self.precise_stance = False  # building: arrive near the cell centre, clear of the target
         self._obs: dict = {}
         self._inv: dict[str, int] = {}
         self._overlay: dict[Pos, tuple[str, int]] = {}
@@ -402,6 +443,29 @@ class CompanionBody:
         x, y, z = pos
         return self._navigate((x, self._stand_y(x, y, z), z), reach=None, radius=radius)
 
+    def collect_drops(self, near: Collection[Pos], radius: float = DROP_RADIUS) -> None:
+        """Wait for what fell (a scaffolding tower drops block by block), then walk onto
+        the dropped items within ``radius`` of the cells ``near``."""
+        self.wait_ticks(DROP_WAIT_TICKS)
+        centres = [(x + 0.5, y + 0.5, z + 0.5) for x, y, z in near]
+        skipped: set = set()
+        for _ in range(MAX_PICKUPS):
+            here = self.position()
+            drops = [
+                e
+                for e in self.entities()
+                if e.get("item")
+                and e.get("uuid") not in skipped
+                and e["position"][1] - here[1] <= 2
+                and any(math.dist(e["position"], c) <= radius for c in centres)
+            ]
+            if not drops:
+                return
+            e = min(drops, key=lambda e: math.dist(e["position"], here))
+            x, y, z = (math.floor(v) for v in e["position"])
+            if not self.walk_to((x, y, z), 0.8):
+                skipped.add(e.get("uuid"))
+
     def find_all(self, block: str) -> list[Pos]:
         """Delivered cells holding ``block``, buried ones included."""
         return self._scan(block)
@@ -417,6 +481,7 @@ class CompanionBody:
         cells, here = self.memory.cells, self.position()
         tx, ty, tz = target
         r = math.ceil(reach)
+        placing = self._placing(target)
         found = [
             node
             for node in (
@@ -426,10 +491,18 @@ class CompanionBody:
                 for dy in range(-r, 2)
             )
             if node not in avoid
+            # never inside the target: the feet cell, or the one below (head in it);
+            # live run: scaffolding has no collision, so the body stood in the tower
+            and node not in ((tx, ty, tz), (tx, ty - 1, tz))
             and standable(cells, node)
             and interacts(cells, node, target, reach)
+            and (not placing or sees_support(cells, node, target))
         ]
         return sorted(found, key=lambda n: (math.dist(n, here), n))
+
+    def _placing(self, target: Pos) -> bool:
+        """Building into an empty cell: the stance must see a face to click."""
+        return self.precise_stance and not _clickable(self.memory.cells.get(target))
 
     def _worth_searching(self, target: Pos) -> bool:
         """The interaction-goal search can only help where the map is still unsensed.
@@ -437,6 +510,17 @@ class CompanionBody:
         graph (8,192 expansions, route of one cell) and ends in "stalled". Live run
         20261101T203526520132Z: 60 such searches from a ravine floor."""
         return math.dist(self.position(), target) > SENSED_RADIUS
+
+    def _overlaps(self, target: Pos) -> bool:
+        """Does the body's box (0.6 wide, 1.8 tall) intersect the cell `target`?"""
+        x, y, z = self._obs["body"]["position"]
+        tx, ty, tz = target
+        half = BODY_HALF_WIDTH
+        return (
+            tx - half < x < tx + 1 + half
+            and tz - half < z < tz + 1 + half
+            and ty - BODY_HEIGHT < y < ty + 1
+        )
 
     def goto_stance(
         self, target_pos: Pos, reach: float, avoid: Collection[Pos] = ()
@@ -446,13 +530,19 @@ class CompanionBody:
             self.observe()
         here = self.position()
         cells = self.memory.cells
-        if here not in avoid and interacts(cells, here, target, reach):
+        # A precise stance (building) also needs the body out of the target cell: a
+        # block cannot be placed into a cell the body overlaps, and the 0.6 arrival
+        # radius lets it stand 0.4 into a neighbour (live run: 21 state_unreachable).
+        crowded = self.precise_stance and self._overlaps(target)
+        sees = not self._placing(target) or sees_support(cells, here, target)
+        if here not in avoid and interacts(cells, here, target, reach) and not crowded and sees:
             return True
         # Known stances first, walked with the body planner; the interaction-goal
         # search only for a target whose stance is not yet on the map.
         stances = self.stances(target, reach, avoid)[:MAX_CANDIDATES]
+        radius = PRECISE_RADIUS if self.precise_stance else 0.6
         for node in stances:
-            if self._navigate(node, reach=None, radius=0.6):
+            if self._navigate(node, reach=None, radius=radius):
                 return True
         if not stances and not avoid and self._worth_searching(target):
             if self._navigate(target, reach=reach, radius=2):
@@ -568,6 +658,11 @@ def start_session(
         else CompanionBody(bridge, memory)
     )
     body.observe()
+    if not standable(memory.cells, body.position()):
+        # live run 20261102T135116924480Z started inside a grass block: every route
+        # search expanded nothing, and the bot cut logs whose drops it never reached
+        end_session(bridge, memory)
+        raise RuntimeError(f"start {list(start)} is not a standable feet cell")
     return body, memory
 
 

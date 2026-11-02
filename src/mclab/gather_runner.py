@@ -11,6 +11,10 @@ what the bot really holds. It stops after ``max_failures`` failed tasks in a row
 the plan comes back empty (done) or reports only missing items, or after ``max_tasks``.
 Without ``targets`` the given task list is run once, with no re-planning.
 
+Watchdog: when the inventory has not changed for ``stall_s`` wall seconds (walking,
+exploring and route searches that collect nothing), the run stops with ``stalled``.
+Live run 20261102T120137588638Z explored a treeless shore for 100,000 ticks.
+
 Hunger (F1): before each task, food <= EAT_BELOW and food held -> ``eat``. If nothing is
 held and food <= HUNT_BELOW, a food target (the best food the planner can reach, usually
 cooked meat) joins ``targets`` at the next re-plan. Needs ``targets``.
@@ -24,6 +28,7 @@ remembered in ``GatherState`` (positions and contents).
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from itertools import product
@@ -46,6 +51,10 @@ EXPLORE_CAP = 64
 SMELT_TICKS_PER_ITEM = 200
 MAX_TRIES = 3
 SCAN_BATCH = 8  # candidates tried per map scan in gather
+# A candidate with no reachable stance skips its whole patch (live run
+# 20261102T140212509088Z: 12 stuck gotos at one lake-shore sand patch while dry sand
+# lay 20 blocks away).
+PATCH = 6.0
 NEAR_STONE = 24.0  # exposed stone beyond this horizontal distance is not walked to
 NEAR_DY = 6  # nor stone this far above or below the bot (ravines, cliffs)
 MAX_DIGS = 3  # dig-down macros per gather task
@@ -56,6 +65,7 @@ UNDERGROUND = ("stone", "cobblestone", "deepslate", "andesite", "diorite", "gran
 FOOD_CANDIDATES = 6
 FOOD_COUNT = 4
 RETRY_REASONS = STANCE_REASONS | {"no_line_of_sight"}
+STALL_S = 120.0  # no inventory change for this long ends the run ("stalled")
 
 
 class GatherBody(BuildBody, Protocol):
@@ -108,7 +118,7 @@ class GatherReport:
     replans: int = 0
     ate: int = 0
     food_targets: dict[str, int] = field(default_factory=dict)
-    stop: str = ""  # done | failed | missing | max_tasks
+    stop: str = ""  # done | failed | missing | max_tasks | stalled
     missing: list[str] = field(default_factory=list)
     state: GatherState = field(default_factory=GatherState)
 
@@ -196,9 +206,26 @@ def _held(inv: dict[str, int], suffix: str) -> str | None:
 class _Exec:
     """One run: the body, the knowledge and the shared state."""
 
-    def __init__(self, body: GatherBody, k: Knowledge, state: GatherState, cap: int):
+    def __init__(
+        self,
+        body: GatherBody,
+        k: Knowledge,
+        state: GatherState,
+        cap: int,
+        stall_s: float = STALL_S,
+        clock: Callable[[], float] = time.monotonic,
+    ):
         self.body, self.k, self.state, self.cap = body, k, state, cap
         self.last_dig = ""
+        self.stall_s, self.clock = stall_s, clock
+        self._seen, self._since = dict(body.inventory()), clock()
+
+    def stalled(self) -> bool:
+        """True once the inventory has not changed for ``stall_s`` seconds."""
+        inv = self.body.inventory()
+        if inv != self._seen:
+            self._seen, self._since = dict(inv), self.clock()
+        return self.clock() - self._since > self.stall_s
 
     # --- shared helpers -------------------------------------------------
     def reach_and_do(self, pos: Pos, do: Callable[[], Result], reach=REACH) -> Result:
@@ -206,6 +233,8 @@ class _Exec:
         avoid: set[Pos] = set()
         result = Result(False, "no_stance")
         for _ in range(MAX_TRIES):
+            if self.stalled():
+                return Result(False, "stalled")
             if not self.body.goto_stance(pos, reach, avoid):
                 return Result(False, "no_stance")
             stance = self.body.position()
@@ -226,6 +255,8 @@ class _Exec:
                 key = (radius, angle)
                 if key in st.explored:
                     continue
+                if self.stalled():
+                    return False
                 st.explored.add(key)
                 rad = math.radians(angle)
                 spot = (
@@ -278,6 +309,8 @@ class _Exec:
         skipped: set[str] = set()
         for _ in range(8):
             if enough is not None and enough():  # no pit-digging for spare drops
+                return
+            if self.stalled():
                 return
             here = self.body.position()
             drops = [
@@ -342,6 +375,8 @@ class _Exec:
         ore = name.endswith("_ore")
         underground = name in UNDERGROUND or ore
         while broken < t.count and body.inventory().get(t.item, 0) < target:
+            if self.stalled():
+                return Result(False, "stalled")
             here, home = body.position(), self.home()
             known = [p for p in body.find_blocks(t.block) if p not in skip]
             if (
@@ -373,6 +408,8 @@ class _Exec:
             # Several nearest per scan: a scan of a big map costs seconds, and most
             # near candidates (cliff faces, ravine walls) have no stance.
             for pos in sorted(known, key=lambda p: _dist(p, here))[:SCAN_BATCH]:
+                if pos in skip:  # its patch was skipped earlier in this batch
+                    continue
                 result = self.reach_and_do(pos, lambda p=pos: body.break_block(p))
                 if result.ok:
                     broken += 1
@@ -383,6 +420,8 @@ class _Exec:
                     )
                     break
                 skip.add(pos)
+                if result.reason == "no_stance":
+                    skip.update(p for p in known if _dist(p, pos) <= PATCH)
                 if result.reason in ("wrong_tool", "missing_tool"):
                     return result
         return Result(broken > 0, None if broken else "nothing_mined")
@@ -580,11 +619,14 @@ def run_gather(
     max_tasks: int = 300,
     explore_cap: int = EXPLORE_CAP,
     starter_tools: bool = True,
+    stall_s: float | None = None,  # None: STALL_S
+    clock: Callable[[], float] = time.monotonic,
 ) -> GatherReport:
     """Run the plan's tasks through ``body``; see the module docstring."""
     state = state or GatherState()
     report = GatherReport(state=state)
-    ex = _Exec(body, knowledge, state, explore_cap)
+    stall = STALL_S if stall_s is None else stall_s
+    ex = _Exec(body, knowledge, state, explore_cap, stall, clock)
     targets = dict(targets) if targets is not None else None
     tasks = list(plan_result.tasks)
     failures = executed = 0
@@ -599,6 +641,9 @@ def run_gather(
         else:
             failures += 1
             report.failures.append((_label(task), result.reason or "failed"))
+            if ex.stalled():
+                report.stop = "stalled"
+                return report
             if failures >= max_failures:
                 report.stop = "failed"
                 return report

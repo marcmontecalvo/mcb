@@ -51,7 +51,7 @@ def test_empty_inventory_to_stone_pickaxe_digs_down_for_cobblestone():
     assert report.stop == "done", report
     for tool in ("pickaxe", "axe", "shovel"):
         assert inv.get(M + "stone_" + tool) == 1, inv
-    assert inv.get(M + "wooden_axe") and inv.get(M + "wooden_shovel")
+    assert inv.get(M + "wooden_shovel") and not inv.get(M + "wooden_axe")
     assert min(y for _, y, _ in broken) <= -10  # reached the stone
     assert sum(1 for p in broken if body.w[p] == M + "air" and p[1] <= -10) >= 7
 
@@ -125,7 +125,8 @@ def test_starter_tools_plan(has_pickaxe):
     result = plan({M + "stone_pickaxe": 1}, inv, K, starter_tools=True)
     made = {getattr(t, "recipe_id", "") for t in result.tasks}
     assert not result.missing
-    assert (M + "wooden_axe" in made) == (not has_pickaxe)
+    assert (M + "wooden_shovel" in made) == (not has_pickaxe)
+    assert M + "wooden_axe" not in made  # logs wait for the stone axe
     assert M + "stone_axe" in made and M + "stone_shovel" in made
 
 

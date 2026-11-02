@@ -40,6 +40,8 @@ from mclab.build_plan import Pos
 
 REACH = 4.5
 MAX_TRIES = 3
+CLEANUP_ROUNDS = 3
+MAX_RECOVERIES = 3
 STANCE_REASONS = frozenset({"out_of_reach", "state_unreachable"})
 
 
@@ -177,6 +179,28 @@ class _Runner:
             self.report.skipped[pos] = reason
 
 
+def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
+    """Take the scaffolds back: break them (scaffolding: only the blocks on the ground,
+    the rest drops with them), then pick up what fell. A few rounds, since the blocks
+    that hung from a root go a few ticks later. True if anything was broken."""
+    body, broken = runner.body, False
+    for _ in range(CLEANUP_ROUNDS):
+        acts = [
+            a
+            for a in bp.cleanup_actions(template, body.world, scaffolds)
+            if a.pos not in runner.report.skipped
+        ]
+        if not acts:
+            break
+        for act in acts:
+            runner.attempt(act)
+        broken = True
+        collect = getattr(body, "collect_drops", None)  # optional, like walk_to
+        if collect:
+            collect([a.pos for a in acts])
+    return broken
+
+
 def run_build(
     template: bp.Template,
     body: BuildBody,
@@ -193,6 +217,7 @@ def run_build(
         report.surveyed = survey_footprint(template, body)
     scaffolds = set() if scaffolds is None else scaffolds
     runner = _Runner(body, report, max_steps)
+    recoveries = 0
     while True:
         if report.steps >= max_steps:
             report.stop = "max_steps"
@@ -207,6 +232,10 @@ def run_build(
             scaffolds=scaffolds,
         )
         if acts and isinstance(acts[0], bp.NeedMaterials):
+            if acts[0].scaffold and recoveries < MAX_RECOVERIES:
+                recoveries += 1  # out of scaffolds: take the standing ones back first
+                if _clean_up(runner, template, scaffolds):
+                    continue
             report.needed = dict(acts[0].items)
             if on_need_materials is None or not on_need_materials(report.needed):
                 report.stop = "need_materials"
@@ -223,8 +252,7 @@ def run_build(
         for act in acts:
             runner.attempt(act)
     if report.stop != "need_materials":
-        for act in bp.cleanup_actions(template, body.world, scaffolds):
-            runner.attempt(act)
+        _clean_up(runner, template, scaffolds)
     report.counts = bp.progress(template, body.world)
     report.unknown = bp.diff(template, body.world).unknown
     return report

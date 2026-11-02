@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 
+from mclab import scaffolding as sc
 from mclab.schematic import (
     format_state,
     from_build_json,
@@ -44,7 +45,12 @@ POT = "minecraft:flower_pot"
 # against the inventory in next_actions) on it (B2).
 TOOL_USES = {"minecraft:farmland": "#hoe", "minecraft:dirt_path": "#shovel"}
 TOOL_BASES = frozenset({"minecraft:dirt", "minecraft:grass_block"})
-SCAFFOLD_ITEMS = ("minecraft:dirt", "minecraft:cobblestone", "minecraft:netherrack")
+SCAFFOLD_ITEMS = (
+    sc.BLOCK,
+    "minecraft:dirt",
+    "minecraft:cobblestone",
+    "minecraft:netherrack",
+)
 MAX_SCAFFOLD_DEPTH = 64
 
 _SIDES = frozenset({"north", "east", "south", "west"})
@@ -350,6 +356,7 @@ class Scaffold:
 @dataclass(frozen=True)
 class NeedMaterials:
     items: dict[str, int] = field(default_factory=dict)
+    scaffold: bool = False  # for a scaffold: standing ones can be taken back first
 
 
 def _is_solid(state: str | None, blocks: dict) -> bool:
@@ -422,12 +429,18 @@ def _column_scaffold(x: int, z: int, top: int, world, blocks: dict, reserved):
 
 
 def _scaffold_pos(
-    pos: Pos, world, blocks: dict, reserved=frozenset(), sideways: bool = False
+    pos: Pos,
+    world,
+    blocks: dict,
+    reserved=frozenset(),
+    sideways: bool = False,
+    level: bool = False,
 ) -> Pos | None:
     """Scaffold cell for pos: its own column, or (sideways, for a floating cell) a
-    horizontal neighbour's column, never inside ``reserved`` template cells."""
+    horizontal neighbour's column, never inside ``reserved`` template cells. ``level``:
+    only a neighbour's column, built up to pos's own height."""
     x, y, z = pos
-    found = _column_scaffold(x, z, y - 1, world, blocks, reserved)
+    found = None if level else _column_scaffold(x, z, y - 1, world, blocks, reserved)
     if found or not sideways:
         return found
     for dx, _, dz in (_VEC[d] for d in _CW):
@@ -551,25 +564,53 @@ def next_actions(
         if reason == "below" and _add(pos, _VEC["down"]) in pending:
             continue
         if reason in ("floating", "below"):
-            cell = _scaffold_pos(pos, world, blocks, reserved, reason == "floating")
-            if cell is None:
-                continue
             item = next(
                 (i for i in SCAFFOLD_ITEMS if inventory.get(i, 0) > remaining[i]), None
             )
             if item is None:
-                return [NeedMaterials({SCAFFOLD_ITEMS[0]: 1})]
+                # the caller takes standing scaffolds back first; only then is
+                # dirt (gatherable, unlike scaffolding) asked for
+                return [NeedMaterials({SCAFFOLD_ITEMS[1]: 1}, scaffold=True)]
+            # A floating block is placed against the side of a column beside it, as high
+            # as it: scaffolding has no solid top to click from the ground (the eye is
+            # below it), and its side is clicked to extend a column upwards.
+            cell = _scaffold_pos(
+                pos,
+                world,
+                blocks,
+                reserved,
+                reason == "floating",
+                level=item == sc.BLOCK and reason == "floating",
+            )
+            if cell is None:
+                continue
             scaffolds.add(cell)
             return [Scaffold(cell, item)]
     return []
 
 
 def cleanup_actions(template: Template, world, scaffolds, ignore_props=DEFAULT_IGNORE):
-    """Breaks for scaffold cells still standing (top first), once the build is done."""
+    """Breaks for scaffold cells still standing (top first), once the build is done.
+
+    Scaffolding blocks hang from the ones standing on the ground: breaking those roots
+    drops the rest with them, so only the roots are broken (see mclab.scaffolding)."""
     out = []
+    ropes = {
+        p for p in scaffolds if (c := world(*p)) and parse_state(c)[0] == sc.BLOCK
+    }
+
+    def sturdy(p: Pos) -> bool:
+        below = world(p[0], p[1] - 1, p[2])
+        return (
+            below is not None
+            and parse_state(below)[0] not in REPLACEABLE
+            and parse_state(below)[0] != sc.BLOCK
+        )
+
+    falls = ropes - set(sc.roots(ropes, sturdy))
     for pos in sorted(scaffolds, key=lambda p: (-p[1], p[0], p[2])):
         cell = world(*pos)
-        if cell is None or parse_state(cell)[0] in AIR:
+        if cell is None or parse_state(cell)[0] in AIR or pos in falls:
             continue
         target = template.cells.get(pos)
         if target is not None and _same(target, cell, ignore_props):

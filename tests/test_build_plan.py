@@ -342,7 +342,7 @@ def test_scaffold_needs_material():
     t = bp.Template.from_build(make_build({(0, 0, 0): COBBLE}, (1, 1, 1)), (2, 5, 2))
     w = flat_world()
     acts = bp.next_actions(t, lambda *p: w.get(p), BLOCKS, {COBBLE: 1})
-    assert acts == [bp.NeedMaterials({"minecraft:dirt": 1})]
+    assert acts == [bp.NeedMaterials({"minecraft:dirt": 1}, scaffold=True)]
 
 
 TRAP_OPEN = "minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=false]"
@@ -449,3 +449,16 @@ def test_real_house_builds_with_empty_diff_and_no_scaffold_left(origin):
     open_traps = [p for p, v in t.cells.items() if "trapdoor" in v and "open=true" in v]
     assert len(open_traps) == 12  # all end open, as in the file
     assert all("open=true" in w[p] for p in open_traps)
+
+
+def test_cleanup_breaks_only_the_scaffolding_that_stands_on_the_ground():
+    scaff = "minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]"
+    w = flat_world()
+    tower = [(0, y, 0) for y in range(3)]
+    for p in tower:
+        w[p] = scaff
+    t = bp.Template.from_build(make_build({}, (1, 1, 1)), (5, 0, 5))
+
+    acts = bp.cleanup_actions(t, at(w), set(tower))
+
+    assert acts == [bp.Break((0, 0, 0))]  # the rest drops with it

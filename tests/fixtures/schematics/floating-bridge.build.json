@@ -1,0 +1,14 @@
+{
+ "schema": 1,
+ "name": "floating-bridge",
+ "size": [
+  2,
+  4,
+  1
+ ],
+ "palette": [
+  "minecraft:air",
+  "minecraft:oak_planks"
+ ],
+ "blocks": "AAAAAAAAAAAAAAAAAQABAA=="
+}

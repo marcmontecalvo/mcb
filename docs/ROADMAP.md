@@ -318,6 +318,81 @@ imports allowed there).
       (Baritone branch-mines at depth instead); 2–4 goto "stuck" stalls per run;
       `run-build.py` still runs with digging off; body mod changed twice:
       requalify before scored navigation runs.
+  - **M5 started** (Nov 2): `build_job` protects every template cell (air
+    included) from the route planner (`protected_positions`), so build jobs
+    now dig; `run-build.py --empty --seed N` is the M5 run (phase ticks in
+    `build.json`).
+    - Failed, kept: `beb62f5`+protection, seed 42424242 from (32, 70, -112),
+      `20261102T120137588638Z`. It cut 35 oak logs by hand in 18,500 ticks
+      (trees every ~30 blocks, first one 50 away) and never crafted, because
+      `starter_tools` only applied to stone pickaxe targets. Then it explored a
+      treeless shore at y=63 for ~100,000 ticks (6,820 route requests, nothing
+      collected) until stopped by hand. Fixes: build jobs run the M4 starter
+      phase first (stone pickaxe, axe, shovel; no wooden axe); a gather with no
+      inventory change for 120 s stops `stalled` and ends the job; plain sand
+      preferred over red sand. Seed 42424242 has at most 37 oak logs within
+      40 blocks of any generated chunk, so M5 sites come from a snapshot scan
+      (oak logs within 40, sand within 72, no surface water).
+    - Failed, kept: those fixes, seed 20261026 from (-19, 65, -116),
+      `20261102T135116924480Z`. The start was inside a grass block (the site
+      scan read heights one too low): it cut 4 logs it could reach, but every
+      route search expanded nothing, so no drop was collected; the watchdog
+      ended the job at ~6,500 ticks (checks were only between log breaks).
+      Fixes: `start_session` refuses a non-standable start; the watchdog also
+      checks before each stance goto and drop walk; `run-build.py` reports a
+      job that ends before building.
+    - Failed, kept: those fixes, seed 20261026 from (-19, 66, -116),
+      `20261102T140212509088Z`. Starter phase done: crafting table at tick
+      757, stone pickaxe 1,749, stone axe and shovel 2,190; 28 oak logs cut
+      with the stone axe by 4,494. Then sand: the nearest patch is a lake
+      shore, and the bot bounced between two points on partial ("incomplete")
+      routes for ~3,000 ticks (12 stuck gotos), while dry sand lay 20 blocks
+      west. The watchdog ended the job. Fix: a candidate with no reachable
+      stance skips every known candidate within 6 blocks (its patch).
+    - Failed, kept, but **gathering done**: that fix, same site,
+      `20261102T141238475772Z`. Empty inventory to every house material in
+      7,388 ticks (starter and main gather, no stall). Build 2,948 ticks: 63 of
+      84 blocks correct, then `blocked` with 21 missing (18 `state_unreachable`,
+      1 `no_stance`): floor planks beside the bot's stance, two wall planks, a
+      glass pane, and 9 roof stairs. Open (B8): diagnose `state_unreachable`
+      from stances right beside the target (suspect: "arrived" within 0.6 of
+      the stance centre, so the body may overlap the target cell) and stances
+      for roof-edge stairs. No scaffolds were placed.
+    - **Diagnosed and patched, not yet run live** (Nov 2): the stance arrival
+      check is `hypot(p - cell centre) <= 0.6`, and the body box is 0.6 wide, so it
+      could stand 0.4 into a neighbouring cell, including the one being placed
+      into. `CompanionBody.precise_stance` (set by `build_job` around
+      `run_build` only) arrives within 0.2 of the stance centre and re-centres
+      when the body box overlaps the target cell. Also: `run-build.py --empty`
+      now kits a chest 2 west of the start with 64 scaffolding and 2 shulker
+      boxes; `build_job(chests=...)` peeks it before moving, takes the shulkers,
+      and takes the scaffolding just before building (`minecraft:scaffolding` is
+      first in `SCAFFOLD_ITEMS`).
+    - **Scaffolding mechanics, live** (Nov 2, `mclab/scaffolding.py` holds the
+      rules: `distance` 0-7 stability, roots, what drops with a broken root;
+      fixture `tests/fixtures/schematics/floating-bridge.build.json`,
+      `run-build.py --scaffolding 8`, last pass `20261102T184038033110Z` 5/5:
+      two floating planks built, 4 scaffolds placed, 8 of 8 recovered). Found and
+      fixed on the way: (1) the body skipped any neighbour with empty collision as
+      a place target, which scaffolding has (Java `BodyBuild`); (2) a column grows
+      upward only by clicking its side **not sneaking** (the body now tries both
+      and requires the item's chosen cell to be the requested one); (3) the
+      lattice outline only registers near its top edge (extra hit samples);
+      (4) stances inside the target cell are excluded (the body stood in the
+      tower); (5) a placing stance must see a face of a solid neighbour
+      (`sees_support`; scaffolding columns count from any side); (6) a floating
+      block gets a same-height scaffold column beside it, since the top face of a
+      tower is above the eye. Cleanup breaks only roots and then collects drops
+      (`CompanionBody.collect_drops`); out of scaffolds, standing ones are taken
+      back before dirt is asked for. Body mod rebuilt: requalify before scored runs.
+    - **House from empty with the supply chest** (`20261102T184245183502Z`, seed
+      20261026): chest read, shulkers and scaffolding withdrawn (3 container ops,
+      all ok); gather 11,473 ticks, build 5,870 ticks; **70 of 84 correct** (was
+      63), 14 missing, no scaffolds needed. 12 cells skipped as `state_unreachable`,
+      mostly plain planks (floor edge, wall corners) and two roof stairs, with the
+      body standing inside the house at y 67. Cause not found: the failure event
+      carries no target or stance; the next step is to log the target and the
+      stance cell with each failed place before changing anything.
   - **Body mod changed** (now `9e536f77…`): qualification (item 11 procedure)
     must be rerun before scored navigation runs.
   - Current status per milestone, the code map, and every known gap with its

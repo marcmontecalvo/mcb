@@ -10,6 +10,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.phys.BlockHitResult;
@@ -74,30 +75,52 @@ final class BodyBuild {
         int[] stats = new int[2];
         BlockHitResult chosen = null;
         float chosenYaw = 0, chosenPitch = 0;
+        boolean chosenSneak = true;
+        // Scaffolding is the one block whose item reads the sneak key: a click on the side of a column
+        // goes to the top of the column only when not sneaking (ScaffoldingBlockItem.updatePlacementContext).
+        boolean[] sneaks = blockItem.getBlock() == Blocks.SCAFFOLDING ? new boolean[] {true, false} : new boolean[] {true};
         Vec3 eye = player.getEyePosition();
-        search:
+        // Blocks to click and the faces to click them on: each neighbour of the cell, on the face toward it.
+        var sources = new ArrayList<Source>();
         for (Direction d : PLACE_ORDER) {
             BlockPos neighbour = pos.relative(d);
             var nstate = level.getBlockState(neighbour);
-            if (nstate.canBeReplaced() || nstate.getCollisionShape(level, neighbour).isEmpty()) continue;
-            anySolid = true;
-            for (BlockHitResult hit : hits(player, neighbour, List.of(d.getOpposite()), true, stats)) {
+            // Scaffolding has no collision from the side (it is walked through) yet is clicked
+            // like any block; ScaffoldingBlockItem then picks the cell (the top of a column).
+            if (nstate.canBeReplaced()
+                    || (nstate.getCollisionShape(level, neighbour).isEmpty() && !nstate.is(Blocks.SCAFFOLDING))) continue;
+            sources.add(new Source(neighbour, List.of(d.getOpposite())));
+        }
+        if (sneaks.length > 1) {
+            // A column of scaffolding is extended by clicking its side (not sneaking): the top face
+            // is above the eye of a body standing beside a tall column.
+            for (BlockPos c = pos.below(); level.getBlockState(c).is(Blocks.SCAFFOLDING); c = c.below())
+                sources.add(new Source(c, List.of(Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST)));
+        }
+        anySolid = !sources.isEmpty();
+        search:
+        for (Source source : sources) {
+            for (BlockHitResult hit : hits(player, source.block(), source.faces(), true, stats)) {
                 Vec3 at = hit.getLocation();
                 float pitch = PlacementLogic.pitchTo(at.x - eye.x, at.y - eye.y, at.z - eye.z);
                 for (String facing : PlacementLogic.yawOrder(target)) {
                     float yaw = PlacementLogic.yawFor(facing);
                     aim(player, yaw, pitch);
-                    var context = new BlockPlaceContext(player, InteractionHand.MAIN_HAND, stack, hit);
-                    if (!context.canPlace()) continue;
-                    BlockState candidate = placementState(blockItem, context);
-                    if (candidate == null) continue;
-                    if (PlacementLogic.matches(target, PlacementLogic.parse(render(candidate)))) {
-                        chosen = hit; chosenYaw = yaw; chosenPitch = pitch;
-                        break search;
+                    for (boolean sneak : sneaks) {
+                        player.setShiftKeyDown(sneak);
+                        var context = new BlockPlaceContext(player, InteractionHand.MAIN_HAND, stack, hit);
+                        if (!context.canPlace()) continue;
+                        BlockState candidate = placementState(blockItem, context, pos);
+                        if (candidate == null) continue;
+                        if (PlacementLogic.matches(target, PlacementLogic.parse(render(candidate)))) {
+                            chosen = hit; chosenYaw = yaw; chosenPitch = pitch; chosenSneak = sneak;
+                            break search;
+                        }
                     }
                 }
             }
         }
+        player.setShiftKeyDown(chosenSneak);
         if (chosen == null) {
             aim(player, yaw0, pitch0);
             if (!anySolid) throw new BodyActions.Fail("no_support_face");
@@ -123,6 +146,8 @@ final class BodyBuild {
         return out;
     }
 
+    private record Source(BlockPos block, List<Direction> faces) {}
+
     private static final java.lang.reflect.Method PLACEMENT_STATE = placementStateMethod();
 
     private static java.lang.reflect.Method placementStateMethod() {
@@ -139,9 +164,10 @@ final class BodyBuild {
      * What the item itself would place for this context: the same call BlockItem.place makes, so standing
      * and wall variants (torches), survival and obstruction checks are the game's own.
      */
-    private static BlockState placementState(BlockItem item, BlockPlaceContext context) {
+    private static BlockState placementState(BlockItem item, BlockPlaceContext context, BlockPos expected) {
         var updated = item.updatePlacementContext(context);
-        if (updated == null) return null;
+        // Scaffolding may move the placement along a column; only the requested cell counts.
+        if (updated == null || !updated.getClickedPos().equals(expected)) return null;
         try {
             return (BlockState) PLACEMENT_STATE.invoke(item, updated);
         } catch (ReflectiveOperationException e) {

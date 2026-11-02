@@ -170,3 +170,41 @@ def test_containers_record_position_and_contents():
     (pos,) = report.state.containers
     assert report.state.containers[pos] == {M + "oak_log": 2}
     assert body.inventory()[M + "oak_log"] == 3
+
+
+def test_a_run_that_collects_nothing_stops_stalled():
+    # no trees anywhere: exploring finds nothing, and the watchdog ends the run
+    body = FakeGatherBody(K, floor())
+    now = [0.0]
+
+    def clock():
+        now[0] += 10.0  # every check is ten seconds later
+        return now[0]
+
+    report = run({M + "oak_planks": 4}, body, stall_s=120, clock=clock)
+
+    assert report.stop == "stalled", report
+    assert now[0] < 400  # ended within a few checks of the limit, not after the rings
+
+
+def test_an_unreachable_patch_is_skipped_as_a_whole():
+    # near shore patch (no stance anywhere in it), dry sand further away
+    world = floor()
+    shore = [(4 + i, 0, 4) for i in range(4)]
+    dry = [(20 + i, 0, 20) for i in range(4)]
+    world |= {p: M + "sand" for p in shore + dry}
+    body = FakeGatherBody(K, world)
+    real_goto, tried = body.goto_stance, []
+
+    def goto(target, reach, avoid=()):
+        if tuple(target) in shore:
+            tried.append(tuple(target))
+            return False
+        return real_goto(target, reach, avoid)
+
+    body.goto_stance = goto
+
+    report = run({M + "sand": 2}, body)
+
+    assert report.stop == "done", report
+    assert len(tried) == 1  # one try, then the whole patch is skipped

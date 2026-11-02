@@ -98,8 +98,9 @@ MAX_TOOL_PASSES = 8
 MAX_POLICY_RANK = 3  # no diamond/netherite tools just to mine faster
 
 DEFAULT_STATIONS = frozenset({"inventory", "crafting_table", "furnace"})
-# Oak is the default wood: a slight discount so that ties resolve to it.
-DEFAULT_PREFER = {"minecraft:oak_log": 0.9}
+# Oak is the default wood and plain sand the default sand (red sand is badlands
+# only): a slight discount so that ties resolve to them.
+DEFAULT_PREFER = {"minecraft:oak_log": 0.9, "minecraft:sand": 0.9}
 GATHER_TOOL_KINDS = frozenset({"pickaxe", "axe", "shovel", "hoe", "shears"})
 GROUP_RANK = {"gather": 0, "inventory": 1, "crafting_table": 2, "furnace": 3}
 # Fuels the planner will buy; anything else (tools, chests) is never burnt.
@@ -1096,7 +1097,7 @@ def plan(
     chest-first retry and reserve one carried chest for storage.) When the plan
     would exceed the inventory, gathers are batched with Deposits and a container
     is placed (see gather_storage). `starter_tools` follows the player method for a
-    stone pickaxe target: a wooden axe, pickaxe and shovel first (while no stone
+    stone pickaxe target: a wooden pickaxe and shovel first (while no stone
     pickaxe is held), and a stone axe and shovel with the stone pickaxe."""
     counts, wear = normalize_inventory(inventory)
     boxes = [dict(b) for b in storage or ()]
@@ -1135,7 +1136,8 @@ def plan(
 
 STONE_PICKAXE = "minecraft:stone_pickaxe"
 # The wooden pickaxe is not listed: mining stone makes the planner craft it already.
-STARTER_WOODEN = ("minecraft:wooden_axe", "minecraft:wooden_shovel")
+# No wooden axe: the stone axe follows within a minute, so logs wait for it.
+STARTER_WOODEN = ("minecraft:wooden_shovel",)
 STARTER_STONE = ("minecraft:stone_axe", "minecraft:stone_shovel")
 ADVANCED_PICKAXES = tuple(
     f"minecraft:{t}_pickaxe" for t in ("iron", "diamond", "netherite")

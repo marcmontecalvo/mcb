@@ -277,7 +277,7 @@ Baritone does. Calling the block directly picked the wrong torch.
 | M2 | **Python done:** diff, ordering, rotation/mirror, scaffolding, open/close by `Use`, potted plants, hanging lanterns, and a build loop with retry/skip. In simulation the real house builds to an empty diff at ground level and raised (with scaffold cleanup). **Body ops done live** (`place_block`, `use_block`, `break_block`). Open: the real adapter (B1) |  `tests/test_build_plan.py`, `tests/test_build_runner.py` |
 | M3 | **Done live** (`craft`, `furnace`, `equip`; lab `kit` fixture grants items, never the body) | `scripts/check-crafting.py` |
 | M4 | **Planner done** on the real pack (each plan below passes `check_order`):<br>• empty → stone pickaxe: 9 tasks<br>• empty → iron pickaxe: 15 tasks<br>• 200 cobblestone: upgrades to stone pickaxes<br>• house: 76 tasks; only bed and bookshelf unreachable (mob drops)<br>**Done live Nov 2:** empty inventory → iron pickaxe 9/9 (seeds 42424242, 31415926, 20261026 × 3; commit `90050ec`; no damage; 5,165–11,414 ticks). Cohorts and failures: ROADMAP | `tests/test_gather_plan.py`, `tests/test_gather_plan_real.py`, `tests/test_gather_dig.py`, `results/companion/20261102T0539…–063009…` |
-| M5 | Not started (§9) | — |
+| M5 | **Started Nov 2:** `build_job` digs with the template protected, runs the stone-tool starter phase first, and stops on a 120 s no-progress watchdog. Live: gathering for the small house done from empty inventory (7,388 ticks); build reached 63 of 84 blocks, blocked on `state_unreachable` (B8). Cohorts in ROADMAP | `tests/test_companion_jobs.py`, `results/companion/20261102T120137588638Z` |
 | M6 | Not started (§9) | — |
 
 ### Code map

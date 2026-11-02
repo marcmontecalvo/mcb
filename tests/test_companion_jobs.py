@@ -42,6 +42,10 @@ def test_empty_inventory_to_a_finished_small_template(tmp_path):
     assert report.needed == {PLANKS: 9, COBBLE: 3}
     assert report.shortfall == report.needed
     assert report.gather.stop == "done"
+    # stone tools first; the house's logs are then cut with the stone axe
+    assert "Craft:minecraft:stone_axe" in report.starter.done
+    assert "Craft:minecraft:wooden_axe" not in report.starter.done
+    assert report.gather.done[:2] == ["Equip:", "Gather:minecraft:oak_log"]
     assert report.build.surveyed > 0 and report.build.progress() == 1.0
     assert body.w[(4, 0, 4)] == PLANKS and body.w[(6, 1, 4)] == COBBLE
 
@@ -77,3 +81,75 @@ def test_remembered_containers_are_withdrawn_before_gathering(tmp_path):
 
     assert report.shortfall == {} and report.gather is None
     assert report.stop == "built"
+
+
+def test_a_supply_chest_is_read_first_shulkers_taken_scaffolding_kept_until_building(
+    tmp_path,
+):
+    scaffolding, shulker = M + "scaffolding", M + "shulker_box"
+    w = world()
+    w[(2, 0, 2)] = M + "chest"
+    body = FakeGatherBody(K, w)
+    body.boxes[(2, 0, 2)] = {scaffolding: 64, shulker: 2}
+    state = GatherState()
+    seen = {}
+    real_place = body.place_block
+
+    def watch(pos, st, item):
+        if item in (PLANKS, COBBLE):  # a house block, not a table or a chest
+            seen.setdefault("scaffolding_at_first_place", body.inv.get(scaffolding, 0))
+        return real_place(pos, st, item)
+
+    body.place_block = watch
+
+    report = build_job(
+        small_template(tmp_path), (4, 0, 4), 0, body, K, state=state, chests=[(2, 0, 2)]
+    )
+
+    assert (2, 0, 2) in state.containers  # the chest is remembered
+    assert body.boxes[(2, 0, 2)][shulker] == 0  # shulkers were taken at the start
+    assert body.boxes[(2, 0, 2)][scaffolding] == 0
+    assert seen["scaffolding_at_first_place"] == 64  # scaffolding taken before building
+    assert report.stop == "built"
+
+
+def test_a_precise_stance_needs_the_body_out_of_the_target_cell():
+    from mclab.companion_body import CompanionBody
+
+    body = CompanionBody.__new__(CompanionBody)
+    body._obs = {"body": {"position": [4.6, 0.0, 4.5]}}  # box x 4.3..4.9: clear of x=5
+    assert not body._overlaps((5, 0, 4))
+    body._obs = {"body": {"position": [4.75, 0.0, 4.5]}}  # box x 4.45..5.05
+    assert body._overlaps((5, 0, 4))
+    body._obs = {"body": {"position": [4.5, 0.0, 4.5]}}
+    assert not body._overlaps((5, 0, 4))
+
+
+def test_a_digging_body_is_kept_out_of_the_template(tmp_path):
+    from mclab.companion_body import DIG_TERRAIN
+
+    body = FakeGatherBody(K, world())
+    body.terrain_policy = DIG_TERRAIN
+    ticks = iter(range(0, 1000, 100))
+
+    report = build_job(
+        small_template(tmp_path), (4, 0, 4), 0, body, K, clock=lambda: next(ticks)
+    )
+
+    assert report.stop == "built"
+    protected = set(body.terrain_policy.protected_positions)
+    assert len(protected) == 3 * 2 * 3  # every cell, air included
+    assert (4, 0, 4) in protected and (6, 1, 6) in protected  # (6,1,6) is air
+    assert report.ticks == {"gather": 100, "build": 100}
+
+
+def test_a_stalled_gather_ends_the_job_before_building(tmp_path, monkeypatch):
+    from mclab import gather_runner
+
+    monkeypatch.setattr(gather_runner, "STALL_S", -1.0)  # every check is a stall
+    body = FakeGatherBody(K, world())
+
+    report = build_job(small_template(tmp_path), (4, 0, 4), 0, body, K)
+
+    assert report.stop == "gather_failed" and report.build is None
+    assert report.starter.stop == "stalled"
