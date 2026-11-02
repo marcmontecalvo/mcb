@@ -629,6 +629,11 @@ final class RoutePlanner {
     private Map<Long, Map<String, Object>> overlay;  // the expanding node's planned edits, or null
 
     /** Turns on edit edges: dig/place steps (planner_edits) and, with extra moves, dig down, descend, pillar. */
+    /** terrain_steps allow_falling_neighbours: false refuses any cut beside sand or gravel. */
+    private boolean fallingNeighbours = true;
+
+    RoutePlanner withFallingNeighbours(boolean allowed) { this.fallingNeighbours = allowed; return this; }
+
     RoutePlanner withEdits(EditPolicy edits) {
         this.edits = edits;
         this.placed = Map.of("block", edits.material, "fluid", "minecraft:empty",
@@ -698,7 +703,8 @@ final class RoutePlanner {
             if (n == null || !dry(n)) return false;
             // A falling block above is priced by its stack; one beside needs known support.
             if (FALLING.contains(n.get("block"))
-                    && (!extra || (d[1] == 0 && !fullDry(cell(p[0] + d[0], p[1] - 1, p[2] + d[2]))))) return false;
+                    && (!extra || !fallingNeighbours
+                        || (d[1] == 0 && !fullDry(cell(p[0] + d[0], p[1] - 1, p[2] + d[2]))))) return false;
         }
         return true;
     }

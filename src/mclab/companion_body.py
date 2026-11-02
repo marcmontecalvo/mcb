@@ -110,6 +110,7 @@ DIG_TERRAIN = TerrainPolicy(
     baritone_moves=True,
     planner_swim=False,
     heuristic_weight=1,
+    allow_falling_neighbours=False,
 )
 
 

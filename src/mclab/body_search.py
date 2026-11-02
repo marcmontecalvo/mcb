@@ -86,6 +86,11 @@ def edit_payload(policy, inventory, protected):
         "protected": sorted([int(v) for v in p] for p in cells),
         "protected_blocks": list(policy.protected_blocks),
         "material": policy.material_allowlist[0],
+        **(
+            {}  # absent: the body's default (allowed), so old requests are unchanged
+            if policy.allow_falling_neighbours
+            else {"falling_neighbours": False}
+        ),
     }
 
 

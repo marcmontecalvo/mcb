@@ -144,6 +144,9 @@ class TerrainPolicy:
     # vanilla's damage threshold, and longer drops land in water. Add one if
     # max_drop ever exceeds 3.
     hazard_penalty: float = 0.0
+    # False: never cut beside sand or gravel, even where baritone_moves prices the
+    # falling stack (companion: run 20261102T050751840297Z suffocated under gravel).
+    allow_falling_neighbours: bool = True
 
     @classmethod
     def from_payload(cls, value):
@@ -180,6 +183,7 @@ class TerrainPolicy:
                 self.baritone_diagonals,
                 self.baritone_moves,
                 self.planner_swim,
+                self.allow_falling_neighbours,
             )
         ):
             raise ValueError("Terrain permissions must be booleans")
@@ -383,7 +387,7 @@ def cut_allowed(cells, point, policy, inventory, protected, tools):
         if not found & KNOWN or found & WET:
             return False
         if found & FALLS:
-            if not policy.baritone_moves:
+            if not policy.baritone_moves or not policy.allow_falling_neighbours:
                 return False
             if dy == 0 and not flags((px + dx, py - 1, pz + dz)) & FULL:
                 return False

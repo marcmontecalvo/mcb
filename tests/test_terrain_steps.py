@@ -268,3 +268,26 @@ def test_pickup_ledger_cannot_confirm_a_placement_without_an_actual_inventory_de
     }
     executor.decide({"tick": 2, "body": body}, cells)
     assert executor.state == "failed" and executor.places_confirmed == 0
+
+
+def test_falling_neighbours_off_refuses_a_cut_under_gravel():
+    from mclab.terrain_steps import cut_allowed, excavatable
+
+    cells = terrain()
+    cells[0, 0, 1] = cell((0, 0, 1), True)
+    cells[0, 1, 1] = {**cell((0, 1, 1), True), "block": "minecraft:gravel"}
+    policy = TerrainPolicy(baritone_moves=True, planner_tick_costs=True)
+    args = (cells, (0, 0, 1))
+    rest = (inventory(), frozenset(), excavatable(policy))
+    assert cut_allowed(*args, policy, *rest)  # Baritone prices the falling stack
+    off = replace(policy, allow_falling_neighbours=False)
+    assert not cut_allowed(*args, off, *rest)
+
+
+def test_falling_neighbours_reaches_the_body_payload_only_when_off():
+    from mclab.body_search import edit_payload
+
+    policy = TerrainPolicy(planner_edits=True)
+    assert "falling_neighbours" not in edit_payload(policy, inventory(), ())
+    off = replace(policy, allow_falling_neighbours=False)
+    assert edit_payload(off, inventory(), ())["falling_neighbours"] is False

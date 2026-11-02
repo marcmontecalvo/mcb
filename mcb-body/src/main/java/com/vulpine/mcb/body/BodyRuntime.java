@@ -269,7 +269,11 @@ public final class BodyRuntime implements AutoCloseable {
                 .withMoves(request.get("swim").getAsBoolean(), request.get("extra").getAsBoolean())
                 .withGaps(maxGap)
                 .withHistory(nodes(request, "favored"), edges(request));
-        if (request.has("edits")) planner.withEdits(RoutePlanner.EditPolicy.fromJson(request.getAsJsonObject("edits")));
+        if (request.has("edits")) {
+            var edits = request.getAsJsonObject("edits");
+            planner.withEdits(RoutePlanner.EditPolicy.fromJson(edits));
+            if (edits.has("falling_neighbours")) planner.withFallingNeighbours(edits.get("falling_neighbours").getAsBoolean());
+        }
         while (plans.size() >= MAX_PLANS) { var oldest = plans.keySet().iterator().next(); plans.remove(oldest); }
         plans.put(id, planner); planLimits.put(id, limit);
         planResults.put(id, Map.of("plan_id", id, "state", "searching"));
