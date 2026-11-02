@@ -263,3 +263,29 @@ def test_ore_under_the_feet_is_not_mined_over_a_cave():
     assert not _floored(body, (0, -1, 0), (0, 0, 0))
     body.w[(0, -2, 0)] = M + "lava"
     assert not _floored(body, (0, -1, 0), (0, 0, 0))
+
+
+def test_underground_reach_is_measured_from_the_work_site_not_the_bot():
+    from mclab.gather_tasks import Gather
+
+    # the bot has wandered down to y=-5; stone at y=-10 is near it but 10 below
+    # the crafting table at the surface: not walked to (no ratchet down a cave)
+    world = layered(-30) | {(2, -10, 0): M + "stone"}
+    body = FakeGatherBody(K, world, {M + "wooden_pickaxe": 1}, pos=(0, -5, 0))
+    state = GatherState()
+    state.stations["crafting_table"] = (0, 0, 0)
+    broken = tracked(body)
+    task = Gather(M + "stone", 1, "pickaxe", "wood", M + "cobblestone", 1)
+
+    _Exec(body, K, state, 64).gather(task)
+
+    assert (2, -10, 0) not in broken
+
+
+def test_buried_tops_include_ore_a_little_above_the_work_site():
+    from mclab.gather_runner import buried_tops
+
+    world = layered(-30, stone_from=-1) | {(3, 2, 0): M + "iron_ore"}
+    body = FakeGatherBody(K, world, pos=(0, 0, 0))
+
+    assert (3, 2, 0) in buried_tops(body, M + "iron_ore", (0, 0, 0))

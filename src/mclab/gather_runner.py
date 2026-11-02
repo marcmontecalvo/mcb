@@ -150,12 +150,13 @@ def _sealed(body, pos: Pos) -> bool:
 
 
 def buried_tops(body, block: str, here: Pos) -> list[Pos]:
-    """Top cells of ``block`` columns below the bot within NEAR_STONE horizontally and
-    BURIED_DEPTH down, with a known dry cell above; shallow and near first."""
+    """Top cells of ``block`` columns around ``here`` (the work site) within NEAR_STONE
+    horizontally, NEAR_DY above to BURIED_DEPTH below, with a known dry cell above;
+    shallow and near first."""
     found = []
     for x, y, z in body.find_all(block):
         depth = here[1] - y
-        if not 1 <= depth <= BURIED_DEPTH:
+        if not -NEAR_DY <= depth <= BURIED_DEPTH:
             continue
         if math.hypot(x - here[0], z - here[2]) > NEAR_STONE:
             continue
@@ -163,7 +164,7 @@ def buried_tops(body, block: str, here: Pos) -> list[Pos]:
         if above is None or bp.parse_state(above)[0] in (block, *bp.FLUIDS):
             continue
         found.append((x, y, z))
-    return sorted(found, key=lambda p: (here[1] - p[1]) + _dist(p[::2], here[::2]))
+    return sorted(found, key=lambda p: abs(here[1] - p[1]) + _dist(p[::2], here[::2]))
 
 
 def _floored(body, pos: Pos, here: Pos) -> bool:
@@ -234,6 +235,13 @@ class _Exec:
                     return True
         return False
 
+    def home(self) -> Pos:
+        """The work site: the crafting table once placed, else where the bot stands.
+        Underground blocks are judged near from here, not from the bot, so a gather
+        cannot ratchet itself down a cave (run 20261102T040249954439Z: y 64 to 53)."""
+        table = self.state.stations.get("crafting_table")
+        return tuple(table) if table else self.body.position()
+
     def dig_to_stone(self, block: str, ignore_stair: bool = False) -> bool:
         """Baritone-style first stone: let the planner dig down to stand on the top of
         known buried ``block`` (the sensor delivers whole sections, buried cells too).
@@ -243,8 +251,7 @@ class _Exec:
         # an earlier staircase is the way down to stone (not to ore)
         if dig_to is None or (self.state.dig_tail and not ignore_stair):
             return False
-        here = self.body.position()
-        for top in buried_tops(self.body, block, here)[:DIG_CANDIDATES]:
+        for top in buried_tops(self.body, block, self.home())[:DIG_CANDIDATES]:
             if dig_to((top[0], top[1] + 1, top[2])):
                 return True
         return False
@@ -325,7 +332,7 @@ class _Exec:
         ore = name.endswith("_ore")
         underground = name in UNDERGROUND or ore
         while broken < t.count and body.inventory().get(t.item, 0) < target:
-            here = body.position()
+            here, home = body.position(), self.home()
             known = [p for p in body.find_blocks(t.block) if p not in skip]
             if (
                 underground
@@ -333,7 +340,7 @@ class _Exec:
                 known = [
                     p
                     for p in known
-                    if _near(p, here) and _sealed(body, p) and _floored(body, p, here)
+                    if _near(p, home) and _sealed(body, p) and _floored(body, p, here)
                 ]
             if not known and underground and digs < MAX_DIGS:
                 digs += 1
