@@ -209,3 +209,26 @@ def test_planner_digs_with_any_tier_of_the_tool():
         assert hotbar(inv, M + "iron_shovel") == 5  # best tier held
         assert hotbar(inv, M + "iron_pickaxe") is None
         assert hotbar(inv, M + "dirt") == 1  # materials unchanged
+
+
+def test_replan_crafts_the_wooden_shovel_before_mining_stone():
+    held = {M + "wooden_pickaxe": 1, M + "stick": 10, M + "oak_planks": 7}
+    result = plan(
+        {M + "stone_pickaxe": 1}, held, K, {"crafting_table": (0, 0, 0)},
+        starter_tools=True,
+    )  # fmt: skip
+    names = [getattr(t, "recipe_id", None) or type(t).__name__ for t in result.tasks]
+    assert names.index(M + "wooden_shovel") < names.index("Gather")
+
+
+def test_drops_caught_in_the_canopy_are_not_walked_to():
+    body = FakeGatherBody(
+        K,
+        layered(-3),
+        pos=(0, 0, 0),
+        entities=[{"uuid": "a", "item": M + "oak_log", "position": (1.5, 6.2, 0.5)}],
+    )
+
+    _Exec(body, K, GatherState(), 64).collect({M + "oak_log"}, (1, 6, 0))
+
+    assert not [step for step in body.log if step[0] == "walk"]

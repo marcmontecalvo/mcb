@@ -49,6 +49,7 @@ SCAN_BATCH = 8  # candidates tried per map scan in gather
 NEAR_STONE = 24.0  # exposed stone beyond this horizontal distance is not walked to
 NEAR_DY = 6  # nor stone this far above or below the bot (ravines, cliffs)
 MAX_DIGS = 3  # dig-down macros per gather task
+DROP_ABOVE = 2  # collect: drops higher above the feet than this are not walked to
 BURIED_DEPTH = 12  # dig_to_stone: buried stone down to this many blocks below the feet
 DIG_CANDIDATES = 3  # buried stone tops offered to the planner, nearest first
 UNDERGROUND = ("stone", "cobblestone", "deepslate", "andesite", "diorite", "granite")
@@ -259,6 +260,9 @@ class _Exec:
                 and (items is None or e["item"] in items)
                 and e.get("uuid") not in skipped
                 and _dist(e["position"], near) <= DROP_RADIUS
+                # ponytail: a drop resting on leaves is out of walking reach (live
+                # runs: 10 s "stuck" gotos to y+5..7); it may fall later and is lost.
+                and e["position"][1] - here[1] <= DROP_ABOVE
             ]
             if not drops:
                 return

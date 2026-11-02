@@ -1123,7 +1123,8 @@ def plan(
             executable_stations, known_blocks, prefer, starter_tools,
         )  # fmt: skip
     missing = (*ex.missing, *([food_gap] if food_gap else ()))
-    return PlanResult(done.tasks, missing, ex.total, dict(ex.surplus), done.stored)
+    tasks = _starter_first(done.tasks) if starter_tools else done.tasks
+    return PlanResult(tasks, missing, ex.total, dict(ex.surplus), done.stored)
 
 
 STONE_PICKAXE = "minecraft:stone_pickaxe"
@@ -1133,6 +1134,26 @@ STARTER_STONE = ("minecraft:stone_axe", "minecraft:stone_shovel")
 ADVANCED_PICKAXES = tuple(
     f"minecraft:{t}_pickaxe" for t in ("iron", "diamond", "netherite")
 )
+
+
+def _starter_first(tasks):
+    """Wooden starter tools are crafted before the first cobblestone gather. Nothing in
+    the plan consumes them, so a replan would put them last; the route planner digs
+    dirt only with a shovel on the hotbar (live run 20261102T021647512245Z: its dig to
+    buried stone stalled until the staircase did the work by hand)."""
+    starter = [t for t in tasks if getattr(t, "recipe_id", None) in STARTER_WOODEN]
+    if not starter:
+        return tasks
+    rest = [t for t in tasks if all(t is not s for s in starter)]
+    at = next(
+        (
+            n
+            for n, t in enumerate(rest)
+            if isinstance(t, Gather) and t.item == "minecraft:cobblestone"
+        ),
+        len(rest),
+    )
+    return (*rest[:at], *starter, *rest[at:])
 
 
 def _with_starter_tools(
