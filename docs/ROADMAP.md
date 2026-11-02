@@ -282,22 +282,29 @@ imports allowed there).
   - **M2 body ops and M3 done live** (wave 2): placement 46/46
     (`results/companion/20261101T172441585144Z`), crafting and furnace 8/8
     (`results/companion/20261101T172600197748Z`), via the lab `kit` fixture.
-  - **M4 live, empty inventory → stone pickaxe, axe and shovel: done once**
-    (Nov 2, `results/companion/20261102T021647512245Z`, seed 20261026 from
-    (68, 71, -64), no damage taken). Seed 1337 near spawn is wooded badlands
-    (14–18 blocks of terracotta over stone): unfair for this test. Attempts
-    before it: `20261102T005434368454Z` died in lava (mined surface stone beside
-    a lava pool; now stone touching liquid or unknown cells is never mined),
-    `20261102T020413428498Z` mined 4 cobblestone but could not climb its 3-high
-    staircase (the route planner needs y+3 clear to step up; steps are now dug
-    4 high). Following Baritone, gather sessions now plan with digging on
-    (`start_session(dig=True)`: cohort 30 movement and terrain profile) and the
-    planner is offered buried stone tops (`dig_to_stone`). Digging with any tool
-    tier is allowed (`terrain_steps.hotbar`, `StepMotor.slot`; body mod changed,
-    qualification must be rerun before scored runs). Open: the planner's own dig
-    to buried stone ended "stuck" three times at the start of the success run,
-    and the staircase fallback did the digging; find out why. Then 3 seeds × 3
-    reps (M4 acceptance), and the iron pickaxe.
+  - **M4 live, empty inventory → stone pickaxe, axe and shovel** (Nov 2, all
+    runs no damage). Cohorts are listed by code version; none are pooled.
+    - `8b20de6`: seed 20261026 from (68, 71, -64) 1/1 (`20261102T021647512245Z`).
+    - `ad8102b` (shovel before stone, canopy drops skipped): seed 20261026 2/2
+      (`024905580710Z`, `025142613958Z`); seed 42424242 from (32, 70, -112) 2/3
+      (`025438690629Z`, `025904699306Z`; failed `030233328966Z`: one step
+      confirmation deadline ended the whole session).
+    - `b2ccf51` (a failed goto no longer ends the session; pillars with dirt):
+      seed 42424242 1/1 (`031355605172Z`); seed 31415926 from (-48, 72, -52) 3/3
+      (`031831471777Z`, `032102867061Z`, `032314503187Z`), 1,909–3,505 ticks.
+    - Earlier failures: `20261102T005434368454Z` died in lava (stone beside a lava
+      pool; now stone touching liquid or unknown cells is never mined);
+      `20261102T020413428498Z` could not climb its 3-high staircase (the planner
+      needs y+3 clear to step up; steps are now 4 high). Seed 1337 near spawn is
+      wooded badlands (14–18 blocks of terracotta over stone), seed 9001 is ice:
+      not used.
+    - Method (Baritone-style): gather sessions plan with digging on
+      (`start_session(dig=True)`, cohort 30 movement and terrain profile); the
+      planner is offered buried stone tops (`dig_to_stone`), with the staircase
+      (`gather_dig.py`) as fallback. Digging with any tool tier
+      (`terrain_steps.hotbar`, `StepMotor.slot`; body mod changed).
+    - Open: 2–4 goto "stuck" stalls per run; `run-build.py` still runs with
+      digging off; next is the iron pickaxe.
   - **Body mod changed** (now `9e536f77…`): qualification (item 11 procedure)
     must be rerun before scored navigation runs.
   - Current status per milestone, the code map, and every known gap with its
