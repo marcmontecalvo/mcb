@@ -303,8 +303,21 @@ imports allowed there).
       planner is offered buried stone tops (`dig_to_stone`), with the staircase
       (`gather_dig.py`) as fallback. Digging with any tool tier
       (`terrain_steps.hotbar`, `StepMotor.slot`; body mod changed).
-    - Open: 2–4 goto "stuck" stalls per run; `run-build.py` still runs with
-      digging off; next is the iron pickaxe.
+  - **M4 done: empty inventory → iron pickaxe 9/9** (Nov 2, commit `90050ec`,
+    seeds 42424242 / 31415926 / 20261026 × 3, no damage, 5,165–11,414 ticks;
+    `20261102T053908375995Z` … `063009399753Z`). Each run also makes the stone
+    tools. Failed iron cohorts, kept separate: `348704c` 4/5 (cave ratchet:
+    reach now measured from the crafting table), `63ff2f2` 0/1 (drowned
+    exploring across a lake: no swimming), `1e883e0` 0/1 (dug to iron 11 below
+    and skipped it: one depth window), `7e764a9` 3/4 (suffocated under gravel:
+    no cuts beside sand or gravel, body mod), `f269ff2` 1/2 (drowned via vines
+    over a pond: no climbing). Also fixed: stale inventory made replans
+    over-mine (102 cobblestone), and a failed goto no longer ends the session.
+    - Open: no drowning reflex that works with swimming off (air recovery sees a
+      vine as blocked); exploring far for ore is where both drownings started
+      (Baritone branch-mines at depth instead); 2–4 goto "stuck" stalls per run;
+      `run-build.py` still runs with digging off; body mod changed twice:
+      requalify before scored navigation runs.
   - **Body mod changed** (now `9e536f77…`): qualification (item 11 procedure)
     must be rerun before scored navigation runs.
   - Current status per milestone, the code map, and every known gap with its
