@@ -123,13 +123,15 @@ class Digger:
         self.reason = why
         return None
 
-    def _collect(self, item: str, near: Pos) -> None:
+    def _collect(self, item: str, near: Pos, target: int) -> None:
         """A drop not picked up within about DROP_WAIT_TICKS: step onto its cell."""
         drops = [e for e in self.body.entities() if e.get("item") == item]
         if not drops:
             return
         self.body.wait_ticks(DROP_WAIT_TICKS)
-        self.ex.collect({item}, near)
+        self.ex.collect(
+            {item}, near, lambda: self.body.inventory().get(item, 0) >= target
+        )
         if self.body.position() != near:
             self.body.walk_to(near, 0.8)  # back onto the stair
 
@@ -179,5 +181,5 @@ class Digger:
             if not body.walk_to(new, 0.8):
                 self.reason = "walk_failed"
                 break
-            self._collect(item, new)
+            self._collect(item, new, target)
         return self.broken > 0

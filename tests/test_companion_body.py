@@ -70,7 +70,7 @@ def test_op_maps_done_failed_rejected_and_timeout():
         {"placed": "minecraft:dirt", "inventory": inv},
     )
     assert b.place_block((1, 0, 1), "minecraft:dirt", "minecraft:dirt").ok
-    assert b.inventory() == {"minecraft:dirt": 3}
+    assert b._inv == {"minecraft:dirt": 3}  # op result (inventory() re-observes)
 
     bridge.reply["use_block"] = ("failed", {"reason": "no_effect"})
     res = b.use_block((1, 0, 1), "minecraft:wooden_hoe")

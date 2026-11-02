@@ -105,7 +105,7 @@ def test_drops_out_of_reach_are_collected_by_stepping_onto_them(monkeypatch):
     digger.run(M + "cobblestone", 7)
 
     assert digger.reason == "done"
-    assert body.inventory()[M + "cobblestone"] == len(broken) >= 7
+    assert len(broken) >= body.inventory()[M + "cobblestone"] >= 7
     assert ("wait", 20) in body.log  # waited, then stepped onto the leftover drops
 
 
@@ -300,3 +300,20 @@ def test_a_block_dug_to_is_within_mining_reach():
     assert _near((3, -BURIED_DEPTH, 0), home) and _near((3, NEAR_DY, 0), home)
     assert not _near((3, -BURIED_DEPTH - 1, 0), home)
     assert not _near((3, NEAR_DY + 1, 0), home)
+
+
+def test_collect_stops_once_enough_is_held():
+    drops = [
+        {"uuid": str(n), "item": M + "cobblestone", "position": (n + 0.5, 0.2, 0.5)}
+        for n in range(1, 4)
+    ]
+    body = FakeGatherBody(K, layered(-3), pos=(0, 0, 0), entities=drops)
+
+    _Exec(body, K, GatherState(), 64).collect(
+        {M + "cobblestone"},
+        (2, 0, 0),
+        lambda: body.inventory().get(M + "cobblestone", 0) >= 1,
+    )
+
+    assert body.inventory()[M + "cobblestone"] == 1
+    assert len([s for s in body.log if s[0] == "walk"]) == 1

@@ -268,10 +268,17 @@ class _Exec:
         self.last_dig = digger.reason
         return digger.broken
 
-    def collect(self, items: Collection[str] | None, near) -> None:
+    def collect(
+        self,
+        items: Collection[str] | None,
+        near,
+        enough: Callable[[], bool] | None = None,
+    ) -> None:
         """Walk onto the dropped item entities near ``near`` (None: any item)."""
         skipped: set[str] = set()
         for _ in range(8):
+            if enough is not None and enough():  # no pit-digging for spare drops
+                return
             here = self.body.position()
             drops = [
                 e
@@ -369,7 +376,11 @@ class _Exec:
                 result = self.reach_and_do(pos, lambda p=pos: body.break_block(p))
                 if result.ok:
                     broken += 1
-                    self.collect({t.item}, pos)
+                    self.collect(
+                        {t.item},
+                        pos,
+                        lambda: body.inventory().get(t.item, 0) >= target,
+                    )
                     break
                 skip.add(pos)
                 if result.reason in ("wrong_tool", "missing_tool"):

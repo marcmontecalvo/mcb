@@ -208,6 +208,10 @@ class CompanionBody:
         return (math.floor(x), math.floor(y + 1e-6), math.floor(z))
 
     def inventory(self) -> dict[str, int]:
+        """Fresh from the body: an op result's inventory predates the pickup of its
+        own drop, so a stale count made each replan ask for more stone (run
+        20261102T042713034884Z: five stone passes, 102 cobblestone)."""
+        self.observe()
         return dict(self._inv)
 
     def food(self) -> int:
