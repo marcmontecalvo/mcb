@@ -87,6 +87,28 @@ def test_op_maps_done_failed_rejected_and_timeout():
     )
 
 
+def test_shared_body_walk_permissions_keep_doors_and_climbing_without_edits():
+    b, _, _ = body()
+    assert b.movement_policy == cb.NATURAL_MOVEMENT
+    assert b.terrain_policy.use_doors
+    assert b.movement_policy.allow_climb
+    assert not b.terrain_policy.allow_break and not b.terrain_policy.allow_place
+    assert b.dig_to((0, -1, 0)) is False
+    b.terrain_policy = cb.DIG_TERRAIN
+    assert b.policy_snapshot()["terrain"]["allow_break"]
+    assert b.terrain_policy.use_doors
+
+
+def test_navigation_policies_are_deduplicated_when_permissions_change():
+    b, _, _ = body()
+    assert b.policy_id() == b.policy_id() == 0
+    b.terrain_policy = cb.DIG_TERRAIN
+    assert b.policy_id() == 1
+    b.terrain_policy = cb.WALK_TERRAIN
+    assert b.policy_id() == 0
+    assert len(b.policies) == 2
+
+
 def test_world_is_delivered_cells_only_with_a_short_overlay():
     b, bridge, _ = body()
     assert b.world(2, 0, 0) == "minecraft:oak_stairs[facing=north,half=bottom]"

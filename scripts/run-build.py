@@ -26,6 +26,7 @@ from live_common import finish, kit, record_crash, results_folder
 
 from mclab import build_checkpoint as ck
 from mclab import build_plan as bp
+from mclab.build_debug import place_preview, preview_cells, write_walkthrough
 from mclab.companion_body import (
     companion_world,
     end_session,
@@ -55,6 +56,23 @@ def main() -> int:
     parser.add_argument("--dz", type=int, default=2)
     parser.add_argument("--rotation", type=int, default=0)
     parser.add_argument(
+        "--inspect",
+        action="store_true",
+        help="keep the completed attempt and preview in-game until a STOP file is created",
+    )
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="kit a reference copy beside the attempt; diagnostic run only",
+    )
+    parser.add_argument(
+        "--preview-offset",
+        nargs=3,
+        type=int,
+        metavar=("X", "Y", "Z"),
+        help="reference displacement from build origin (default: template width + 5 on X)",
+    )
+    parser.add_argument(
         "--empty", action="store_true", help="M5: start empty, gather everything"
     )
     parser.add_argument(
@@ -72,6 +90,10 @@ def main() -> int:
         "--seed", type=int, help="run in a fresh copy of this natural seed's world"
     )
     args = parser.parse_args()
+    if args.stage and not args.resume:
+        parser.error("--stage requires --resume")
+    if args.preview_offset and not args.preview:
+        parser.error("--preview-offset requires --preview")
     resume = ck.load(args.resume) if args.resume else None
     if resume:
         args.start, args.seed, args.rotation = (
@@ -92,6 +114,13 @@ def main() -> int:
         else (args.start[0] + args.dx, args.start[1], args.start[2] + args.dz)
     )
     template = bp.Template.from_build(build, origin, args.rotation)
+    preview = None
+    if args.preview:
+        width = (
+            max(p[0] for p in template.cells) - min(p[0] for p in template.cells) + 1
+        )
+        offset = args.preview_offset or [width + 5, 0, 0]
+        preview = preview_cells(template, offset)
     kit_items = materials_of(build, knowledge)
     if args.scaffolding:
         kit_items["minecraft:scaffolding"] = args.scaffolding
@@ -144,6 +173,16 @@ def main() -> int:
                     inventory=[{"item": i, "count": n} for i, n in kit_items.items()],
                 )
             body.observe()
+            if preview is not None and args.stage:
+                placed = place_preview(
+                    preview, body.position(), lambda **f: kit(bridge, **f)
+                )
+                (folder / "preview.json").write_text(
+                    json.dumps(
+                        {"offset": offset, "cells": placed, "diagnostic_only": True}
+                    ),
+                    encoding="utf-8",
+                )
             if args.stage:
                 (folder / "STOP").unlink(missing_ok=True)
                 write_progress(folder, job="build", stage="staged")
@@ -185,6 +224,8 @@ def main() -> int:
                 for name, g in (("starter", job.starter), ("gather", job.gather))
             }
             out = {
+                "policy": body.policy_snapshot(),
+                "diagnostic_preview": bool(args.preview),
                 "job_stop": job.stop,
                 "ticks": job.ticks,
                 "needed": job.needed,
@@ -200,6 +241,7 @@ def main() -> int:
                 }
             )
             if report is not None:
+                write_walkthrough(folder, template, report.failures)
                 bridge.ticks(60)  # let the sensor re-deliver the placed cells
                 body.observe()
                 d = bp.diff(template, body.world)
@@ -250,9 +292,29 @@ def main() -> int:
                     }
                 )
             out["ops"] = body.log
+            out["policies"] = body.policies
             (folder / "build.json").write_text(
                 json.dumps(out, indent=1), encoding="utf-8"
             )
+            # Place only after the job: a reference house must not supply gather
+            # materials or change the routes used by the attempted construction.
+            if preview is not None:
+                placed = place_preview(
+                    preview, body.position(), lambda **f: kit(bridge, **f)
+                )
+                (folder / "preview.json").write_text(
+                    json.dumps(
+                        {"offset": offset, "cells": placed, "diagnostic_only": True}
+                    ),
+                    encoding="utf-8",
+                )
+            if args.inspect:
+                (folder / "STOP").unlink(missing_ok=True)
+                write_progress(folder, job="build", stage="inspection")
+                print(f"INSPECT {folder} - create {folder / 'STOP'} to end", flush=True)
+                while not (folder / "STOP").exists():
+                    bridge.state()  # heartbeat while the human examines the build
+                    time.sleep(2)
         except Exception as error:  # noqa: BLE001 - recorded, run ends as failed
             record_crash(folder, rows, error)
         finally:

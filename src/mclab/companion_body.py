@@ -28,8 +28,8 @@ Assumptions (the coordinator verifies them live)
    ``avoid`` it does the same. Stances are compared as integer feet cells.
 4. A goto gives up after ``goto_wall_s`` wall seconds, or when the planner says
    ``unreachable`` for ``UNREACHABLE_TICKS`` ticks, and returns False. The episode stays
-   open. Default: walking/jumping, no digging; ``start_session(dig=True)`` lets the
-   planner dig (DIG_TERRAIN), as gather jobs need.
+   open. Default: shared movement with doors and climbing, no terrain edits;
+   ``start_session(dig=True)`` enables digging and support placement (DIG_TERRAIN).
 5. Op ``_failed`` events map to ``Result(False, reason, data)``; a ``rejected`` event maps
    to ``Result(False, "rejected:<reason>")``; a wall timeout to ``Result(False, "timeout")``.
    ``bridge.wait`` heartbeats while waiting.
@@ -43,6 +43,7 @@ import math
 import time
 from collections.abc import Collection
 from contextlib import contextmanager
+from dataclasses import asdict, replace
 
 from mclab.awareness import Awareness
 from mclab.bridge import REJECTIONS
@@ -126,6 +127,17 @@ DIG_TERRAIN = TerrainPolicy(
     allow_falling_neighbours=False,
     use_doors=True,
     climb_vines=False,
+)
+
+# One motor and action inventory. A task changes permissions, not body classes.
+WALK_TERRAIN = replace(
+    DIG_TERRAIN,
+    allow_break=False,
+    allow_place=False,
+    break_budget=0,
+    place_budget=0,
+    allow_bridge=False,
+    allow_pillar=False,
 )
 
 
@@ -289,8 +301,13 @@ class CompanionBody:
         terrain_policy: TerrainPolicy | None = None,
     ):
         self.bridge, self.memory = bridge, memory
-        self.goto_wall_s, self.movement_policy = goto_wall_s, movement_policy
-        self.terrain_policy = terrain_policy  # None: walk only, never dig
+        self.goto_wall_s = goto_wall_s
+        self.movement_policy = (
+            movement_policy if movement_policy is not None else NATURAL_MOVEMENT
+        )
+        self.terrain_policy = (
+            terrain_policy if terrain_policy is not None else WALK_TERRAIN
+        )
         # building: arrive near the cell centre, clear of the target
         self.precise_stance = False
         # set per placement by build_runner: the one face the block hangs on
@@ -299,6 +316,21 @@ class CompanionBody:
         self._inv: dict[str, int] = {}
         self._overlay: dict[Pos, tuple[str, int]] = {}
         self.log: list[dict] = []  # one row per op or goto, for the results folder
+        self.policies: list[dict] = []
+
+    def policy_id(self) -> int:
+        """Deduplicate large protected footprints across navigation records."""
+        snapshot = self.policy_snapshot()
+        if snapshot not in self.policies:
+            self.policies.append(snapshot)
+        return self.policies.index(snapshot)
+
+    def policy_snapshot(self) -> dict:
+        """Record the effective task permissions, separately from available ops."""
+        return {
+            "movement": asdict(self.movement_policy),
+            "terrain": asdict(self.terrain_policy),
+        }
 
     # --- observation -------------------------------------------------------
     def observe(self) -> dict:
@@ -502,7 +534,15 @@ class CompanionBody:
         self.observe()
         why = end.get("data", {}).get("reason") if end else None
         ok = end.get("type") == "navigation_stopped" and why == "arrived"
-        self.log.append({"goto": list(goal), "reach": reach, "ok": ok, "why": why})
+        self.log.append(
+            {
+                "goto": list(goal),
+                "reach": reach,
+                "ok": ok,
+                "why": why,
+                "policy_id": self.policy_id(),
+            }
+        )
         return ok
 
     def _stand_y(self, x: int, y: int, z: int) -> int:
@@ -545,7 +585,7 @@ class CompanionBody:
 
     def dig_to(self, feet: Pos) -> bool:
         """Stand at ``feet``, letting the planner dig there. False when digging is off."""
-        if self.terrain_policy is None:
+        if not self.terrain_policy.allow_break:
             return False
         return self._navigate(tuple(feet), reach=None, radius=0.6)
 
@@ -703,11 +743,19 @@ def _level_dir():
 
 
 def start_session(
-    bridge, folder, start, *, awareness: Awareness | None = None, dig: bool = False
+    bridge,
+    folder,
+    start,
+    *,
+    awareness: Awareness | None = None,
+    dig: bool = False,
+    movement_policy: MovementPolicy | None = None,
+    terrain_policy: TerrainPolicy | None = None,
 ):
     """Begin the long ``natural_start`` episode that keeps /policy and the follower
-    open, and return ``(CompanionBody, SpatialMemory)``. Needs an idle lab. ``dig``:
-    move and dig like natural cohort 30 (NATURAL_MOVEMENT, DIG_TERRAIN)."""
+    open, and return ``(CompanionBody, SpatialMemory)``. Needs an idle lab.
+    ``dig`` selects edit permissions; explicit movement/terrain policies override
+    the defaults, without changing the available action methods."""
     # sections-v1 terrain needs the "sections" preset; same profile as natural runs.
     awareness = awareness or Awareness.from_payload(
         read_json(ROOT / "config/stepc/awareness-sections-64.json")
@@ -749,12 +797,13 @@ def start_session(
     memory = SpatialMemory(
         MapArchive(folder / "map.sqlite3", identity), bridge.episode_id
     )
-    body = (
-        CompanionBody(
-            bridge, memory, movement_policy=NATURAL_MOVEMENT, terrain_policy=DIG_TERRAIN
-        )
-        if dig
-        else CompanionBody(bridge, memory)
+    body = CompanionBody(
+        bridge,
+        memory,
+        movement_policy=movement_policy,
+        terrain_policy=terrain_policy
+        if terrain_policy is not None
+        else (DIG_TERRAIN if dig else WALK_TERRAIN),
     )
     body.observe()
     if not standable(memory.cells, body.position()):

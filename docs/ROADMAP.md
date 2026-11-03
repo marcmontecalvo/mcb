@@ -434,15 +434,33 @@ imports allowed there).
       skipped cells now get two fresh rounds; the build waits for the sensor
       before calling itself blocked. Bottom up: nothing above a layer with a
       missing block. Not yet re-run: the whole job from an empty inventory.
-    - **Planned build-debugging aids** (Nov 2, not started):
-      1. `run-build.py --preview`: kit-place the finished template a few blocks
-         beside the build so a human can compare attempt and target in-game.
-      2. A failure walkthrough: from `build.json` `failures`, a list per cell
-         (target, block, reason, stance the body stood on) to stand on in-game.
+    - **Build-debugging aids** (implemented Nov 3; unit and live staging/preview checks passed):
+      1. `run-build.py --preview --inspect`: kit-place the finished template beside
+         the completed attempt, then hold for in-game comparison until `STOP`.
+         `--resume ... --stage --preview` inspects an existing checkpoint.
+      2. `walkthrough.md` and `walkthrough.json`: each failed attempt's target,
+         block, reason, actual stance, observer teleport command and diagnosis.
       3. Done: a failed `place_block` now carries `diagnosis` (eye, body, and per
          clickable neighbour: faces, points in reach / visible, and how many
          candidates the item refused, found obstructed or placed in the wrong
          orientation); `build.json` `failures` keeps it.
+      Usage and limits: [BUILD_DEBUGGING](BUILD_DEBUGGING.md).
+    - **Shared body review (Nov 3):** build/gather use `CompanionBody`, the same
+      `SegmentedController` and Java body motor as navigation. Companion walking
+      now shares movement/door/climbing settings with construction, with terrain
+      edits disabled; `dig=True` enables those edits. Explicit movement and terrain
+      overrides select permissions without replacing the body. Actual settings
+      are recorded by policy ID per navigation and in build/gather artifacts.
+      Preview/checkpoint staging passed live (2/2), run
+      `20261103T123516731671Z`: restored 100 cells and placed a 100-cell reference
+      at offset `[10, 0, 0]`; this is diagnostic proof, not construction qualification.
+      Full capability inventory:
+      [COMPANION_ABILITIES](COMPANION_ABILITIES.md).
+      Review found two remaining permission mismatches: **CAP-01**, both planners
+      may still propose climbing with the motor's climbing permission off; and
+      **CAP-02**, door settings are initialized by Java planning but are not
+      propagated consistently through Python fallback routes. These need fixes
+      before task permissions can be called fully consistent.
     - **Nov 3 state** (uncommitted work from Nov 2 committed Nov 3):
       - Added: door and ladder use in routes (`BuildingMoves.java`), the site
         scanner (`scripts/analysis/site_scan.py`), the large-house fixture
@@ -486,6 +504,8 @@ imports allowed there).
 | [BUILD_AND_GATHER_PLAN_2026-11-01.md](BUILD_AND_GATHER_PLAN_2026-11-01.md) | Companion track: schematic building, knowledge pack from the game, AltoClef-style gathering. Milestones M0–M6, status (§7), gap list with fixes (§8), M5/M6 detail (§9) |
 | [KNOWLEDGE_PACK_FORMAT.md](KNOWLEDGE_PACK_FORMAT.md) | Contract: knowledge pack files and the `build.json` format |
 | [BODY_ACTION_OPS.md](BODY_ACTION_OPS.md) | Contract: body action ops (craft, furnace, equip, place/use/break) and the lab `kit` fixture |
+| [COMPANION_ABILITIES.md](COMPANION_ABILITIES.md) | Minecraft ability inventory: 79 tracked abilities, primitives, workflows, actual controls and missing support |
+| [BUILD_DEBUGGING.md](BUILD_DEBUGGING.md) | Preview/reference copy, checkpoint inspection and failure walkthrough usage |
 | [BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md](BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md) | Baritone weights and the move-by-move comparison |
 | [BARITONE_REFERENCE.md](BARITONE_REFERENCE.md) | Baritone baseline setup (pinned client, launcher, how it is run) |
 | `Minecraft_AI_Technical_Handoff.md` (repo root) | Original specification; never edited |
