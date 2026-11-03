@@ -42,6 +42,8 @@ REACH = 4.5
 MAX_TRIES = 3
 CLEANUP_ROUNDS = 3
 MAX_RECOVERIES = 3
+SETTLE_TICKS = 60  # wait for the sensor before calling a build blocked
+RETRY_ROUNDS = 2  # fresh tries for skipped cells before stopping blocked
 STANCE_REASONS = frozenset({"out_of_reach", "state_unreachable"})
 
 
@@ -82,8 +84,8 @@ class BuildReport:
     counts: dict[str, int] = field(default_factory=dict)  # build_plan.progress
     unknown: list[Pos] = field(default_factory=list)  # template cells never delivered
     surveyed: int = 0  # perimeter points visited (B4)
-    # (cell, reason, stance) of every failed attempt, to diagnose from
-    failures: list[tuple[Pos, str, Pos]] = field(default_factory=list)
+    # (cell, reason, stance, body diagnosis) of every failed attempt, to diagnose from
+    failures: list[tuple[Pos, str, Pos, dict]] = field(default_factory=list)
 
     def progress(self) -> float:
         """Fraction of cells that are correct (1.0 for an empty template)."""
@@ -152,9 +154,22 @@ def _record(report: BuildReport, act) -> None:
         report.placed.append(act.pos)
 
 
+def _support(act, blocks: dict) -> Pos | None:
+    if not isinstance(act, bp.Place):
+        return None
+    ident, props = bp.parse_state(act.state)
+    kind = bp._support_kind(ident, props, blocks.get(ident, {}))
+    if kind not in ("facing_opposite", "any_face"):
+        return None
+    return bp._support_cell(kind, props, act.pos)
+
+
 class _Runner:
-    def __init__(self, body: BuildBody, report: BuildReport, max_steps: int):
+    def __init__(
+        self, body: BuildBody, report: BuildReport, max_steps: int, blocks: dict
+    ):
         self.body, self.report, self.max_steps = body, report, max_steps
+        self.blocks = blocks
         self.fails: dict[Pos, int] = {}
         self.avoid: dict[Pos, set[Pos]] = {}
 
@@ -164,14 +179,23 @@ class _Runner:
         while self.fails.get(pos, 0) < MAX_TRIES and self.report.steps < self.max_steps:
             self.report.steps += 1
             avoid = self.avoid.setdefault(pos, set())
+            # A block that hangs on one face (a wall torch) needs a stance that sees
+            # that face; an optional body attribute, like walk_to.
+            if hasattr(self.body, "required_support"):
+                self.body.required_support = _support(act, self.blocks)
             if not self.body.goto_stance(pos, REACH, avoid):
-                self.report.failures.append((pos, "no_stance", self.body.position()))
+                self.report.failures.append(
+                    (pos, "no_stance", self.body.position(), {})
+                )
                 return self._fail(pos, "no_stance")
             stance = self.body.position()
             result = _do(self.body, act)
             if result.ok:
                 return _record(self.report, act)
-            self.report.failures.append((pos, result.reason or "failed", stance))
+            detail = (result.data or {}).get("diagnosis") or {}
+            self.report.failures.append(
+                (pos, result.reason or "failed", stance, detail)
+            )
             self._fail(pos, result.reason or "failed")
             if result.reason not in STANCE_REASONS:
                 return
@@ -221,8 +245,9 @@ def run_build(
     if survey:
         report.surveyed = survey_footprint(template, body)
     scaffolds = set() if scaffolds is None else scaffolds
-    runner = _Runner(body, report, max_steps)
-    recoveries = 0
+    runner = _Runner(body, report, max_steps, blocks)
+    recoveries = retries = 0
+    settled = False
     while True:
         if report.steps >= max_steps:
             report.stop = "max_steps"
@@ -247,13 +272,32 @@ def run_build(
                 break
             continue
         acts = [a for a in acts if a.pos not in skipped]
+        if not acts and skipped and retries < RETRY_ROUNDS:
+            # The build around a skipped cell has changed since: try it again with
+            # fresh stances rather than stopping (a cell is fixed, not skipped).
+            retries += 1
+            skipped.clear()
+            runner.fails.clear()
+            runner.avoid.clear()
+            continue
         if not acts:
             d = bp.diff(template, body.world)
             clean = not (d.breaks or d.places or d.unknown or d.uses)
+            settle = getattr(body, "wait_ticks", None)  # optional, like walk_to
+            if not clean and settle and not settled:
+                # the sensor may not have delivered the last placements yet (run
+                # 20261102T233918895522Z: "blocked" with 1 missing, all 84 correct
+                # 60 ticks later)
+                settled = True
+                settle(SETTLE_TICKS)
+                continue
             report.stop = "done" if clean else "blocked"
             break
         here = body.position()
-        acts.sort(key=lambda a: _dist2(a.pos, here))
+        # nearest first, but inside corners before the walls that would close them in
+        acts.sort(
+            key=lambda a: (not bp.inside_corner(template, a.pos), _dist2(a.pos, here))
+        )
         for act in acts:
             runner.attempt(act)
         if on_progress:

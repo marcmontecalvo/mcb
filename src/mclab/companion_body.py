@@ -55,19 +55,22 @@ from mclab.navigation_runner import _new_identity
 from mclab.navigation_segmented import SegmentedController
 from mclab.paths import ROOT, SERVER, read_json
 from mclab.route_search import interacts
-from mclab.schematic import format_state
+from mclab.schematic import format_state, parse_state
 from mclab.spatial_memory import MapArchive, MapIdentity, SpatialMemory
 from mclab.terrain_steps import TerrainPolicy
 
 Pos = tuple[int, int, int]
+AIR_BLOCKS = {"minecraft:air", "minecraft:cave_air", "minecraft:void_air"}
 
-OVERLAY_TICKS = 40
+OVERLAY_TICKS = 200  # until the sensor has re-delivered the cell; 40 was too short (run 20261102T222239739886Z: "occupied")
 UNREACHABLE_TICKS = 60
 GOTO_WALL_S = 90.0
 OP_TIMEOUT_S = 20.0
 OP_TIMEOUTS = {"break_block": 45.0, "attack_entity": 30.0, "eat": 20.0}
 STAND_SEARCH = 6  # walk_to: vertical search for a standable cell in the column
-MAX_CANDIDATES = 3
+MAX_CANDIDATES = (
+    6  # 3 nearest were often all unreachable (on a wall top, behind a wall)
+)
 FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 SENSED_RADIUS = 40.0  # awareness delivers 64; beyond this a stance may be unsensed
 SEARCH_STALL_TICKS = 60  # a search that yields no move for this long is abandoned
@@ -80,7 +83,9 @@ DROP_WAIT_TICKS = 40  # a tower of scaffolding drops a layer per few ticks
 MAX_PICKUPS = 16
 BODY_HALF_WIDTH = 0.3
 BODY_HEIGHT = 1.8
-PRECISE_RADIUS = 0.2  # centre-to-centre, so the box stays inside the stance cell (0.5 - 0.3)
+PRECISE_RADIUS = (
+    0.2  # centre-to-centre, so the box stays inside the stance cell (0.5 - 0.3)
+)
 
 
 # Gather sessions move like natural cohort 30 (without swimming) (results/natural/20261101T135049338315Z,
@@ -141,14 +146,77 @@ _FACE_SEEN = {
 }
 
 
-def sees_support(cells, node: Pos, target: Pos) -> bool:
+EYE_HEIGHT = 1.62
+FACE_SAMPLES = ((0, 0), (0.4, 0.4), (-0.4, 0.4), (0.4, -0.4), (-0.4, -0.4))
+
+
+def _face_visible(cells, eye, block: Pos, d) -> bool:
+    """Is some point of ``block``'s face toward -d (the target side) seen from ``eye``
+    with no solid cell between? Live run 20261102T220426500869Z: an inside wall
+    corner, whose faces only show from near the corner, was tried from across the
+    room three times and skipped."""
+    axis = next(i for i in range(3) if d[i])
+    other = [i for i in range(3) if i != axis]
+    for u, v in FACE_SAMPLES:
+        point = [block[i] + 0.5 for i in range(3)]
+        point[axis] -= d[axis] * 0.5
+        point[other[0]] += u
+        point[other[1]] += v
+        if _ray_clear(cells, eye, point, block):
+            return True
+    return False
+
+
+def _ray_clear(cells, eye, point, block: Pos) -> bool:
+    """Every cell the segment eye->point passes through, exactly (grid traversal, as the
+    game's clip does), is clear except ``block``. Sampling the segment let a diagonal
+    ray slip between two walls meeting at an edge."""
+    cell = [math.floor(v) for v in eye]
+    end = tuple(math.floor(v) for v in point)
+    d = [point[i] - eye[i] for i in range(3)]
+    step = [1 if v > 0 else -1 for v in d]
+    t_max, t_delta = [], []
+    for i in range(3):
+        if d[i] == 0:
+            t_max.append(math.inf)
+            t_delta.append(math.inf)
+            continue
+        edge = cell[i] + (1 if d[i] > 0 else 0)
+        t_max.append((edge - eye[i]) / d[i])
+        t_delta.append(abs(1 / d[i]))
+    for _ in range(64):
+        c = tuple(cell)
+        if c == end or c == block:
+            return True
+        if c != tuple(math.floor(v) for v in eye) and _clickable(cells.get(c)):
+            return False
+        i = t_max.index(min(t_max))
+        if t_max[i] > 1:
+            return True
+        cell[i] += step[i]
+        t_max[i] += t_delta[i]
+    return True
+
+
+def sees_support(cells, node: Pos, target: Pos, required: Pos | None = None) -> bool:
     """Does some solid neighbour of `target` have its face toward `target` turned to
     the eye of a body standing at `node`? Live run: the second plank of a pair was
     tried from the far side of the first, which shows it no face."""
+    # the body arrives within PRECISE_RADIUS of the centre: a face must show from all of it
+    eyes = [
+        (node[0] + 0.5 + dx, node[1] + EYE_HEIGHT, node[2] + 0.5 + dz)
+        for dx, dz in ((0, 0), (0.2, 0.2), (-0.2, 0.2), (0.2, -0.2), (-0.2, -0.2))
+    ]
     for d, seen in _FACE_SEEN.items():
         n = (target[0] + d[0], target[1] + d[1], target[2] + d[2])
         cell = cells.get(n)
-        if _clickable(cell) and seen(node, target):
+        if required is not None and n != tuple(required):
+            continue  # the block hangs on this one face (a wall torch)
+        if (
+            _clickable(cell)
+            and seen(node, target)
+            and all(_face_visible(cells, eye, n, d) for eye in eyes)
+        ):
             return True
         # a column of scaffolding is extended by clicking its side, from anywhere beside it
         if d == (0, -1, 0) and cell and cell.get("block") == "minecraft:scaffolding":
@@ -221,7 +289,10 @@ class CompanionBody:
         self.bridge, self.memory = bridge, memory
         self.goto_wall_s, self.movement_policy = goto_wall_s, movement_policy
         self.terrain_policy = terrain_policy  # None: walk only, never dig
-        self.precise_stance = False  # building: arrive near the cell centre, clear of the target
+        # building: arrive near the cell centre, clear of the target
+        self.precise_stance = False
+        # set per placement by build_runner: the one face the block hangs on
+        self.required_support: Pos | None = None
         self._obs: dict = {}
         self._inv: dict[str, int] = {}
         self._overlay: dict[Pos, tuple[str, int]] = {}
@@ -478,7 +549,7 @@ class CompanionBody:
 
     def stances(self, target: Pos, reach: float, avoid: Collection[Pos] = ()):
         """Known standable cells from which ``target`` is reached, nearest first."""
-        cells, here = self.memory.cells, self.position()
+        cells, here = self._cells_now(), self.position()
         tx, ty, tz = target
         r = math.ceil(reach)
         placing = self._placing(target)
@@ -496,13 +567,32 @@ class CompanionBody:
             and node not in ((tx, ty, tz), (tx, ty - 1, tz))
             and standable(cells, node)
             and interacts(cells, node, target, reach)
-            and (not placing or sees_support(cells, node, target))
+            and (
+                not placing or sees_support(cells, node, target, self.required_support)
+            )
         ]
         return sorted(found, key=lambda n: (math.dist(n, here), n))
 
+    def _cells_now(self):
+        """The sensed map plus this body's own recent edits (the overlay): a wall
+        placed a moment ago is not sensed yet, and the sight check must not look
+        through it (run 20261102T221946087817Z)."""
+        tick = self._tick()
+        recent = {
+            pos: {
+                "block": parse_state(state)[0],
+                "collision_boxes": []
+                if parse_state(state)[0] in AIR_BLOCKS
+                else [[0, 0, 0, 1, 1, 1]],
+            }
+            for pos, (state, at) in self._overlay.items()
+            if tick - at <= OVERLAY_TICKS
+        }
+        return {**self.memory.cells, **recent} if recent else self.memory.cells
+
     def _placing(self, target: Pos) -> bool:
         """Building into an empty cell: the stance must see a face to click."""
-        return self.precise_stance and not _clickable(self.memory.cells.get(target))
+        return self.precise_stance and not _clickable(self._cells_now().get(target))
 
     def _worth_searching(self, target: Pos) -> bool:
         """The interaction-goal search can only help where the map is still unsensed.
@@ -529,13 +619,20 @@ class CompanionBody:
         if not self._obs:
             self.observe()
         here = self.position()
-        cells = self.memory.cells
+        cells = self._cells_now()
         # A precise stance (building) also needs the body out of the target cell: a
         # block cannot be placed into a cell the body overlaps, and the 0.6 arrival
         # radius lets it stand 0.4 into a neighbour (live run: 21 state_unreachable).
         crowded = self.precise_stance and self._overlaps(target)
-        sees = not self._placing(target) or sees_support(cells, here, target)
-        if here not in avoid and interacts(cells, here, target, reach) and not crowded and sees:
+        sees = not self._placing(target) or sees_support(
+            cells, here, target, self.required_support
+        )
+        if (
+            here not in avoid
+            and interacts(cells, here, target, reach)
+            and not crowded
+            and sees
+        ):
             return True
         # Known stances first, walked with the body planner; the interaction-goal
         # search only for a target whose stance is not yet on the map.

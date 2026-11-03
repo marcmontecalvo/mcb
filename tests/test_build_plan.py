@@ -462,3 +462,27 @@ def test_cleanup_breaks_only_the_scaffolding_that_stands_on_the_ground():
     acts = bp.cleanup_actions(t, at(w), set(tower))
 
     assert acts == [bp.Break((0, 0, 0))]  # the rest drops with it
+
+
+def test_a_missing_lower_cell_holds_back_the_layer_above():
+    cells = {(x, 0, 0): PLANKS for x in range(3)} | {
+        (x, 1, 0): PLANKS for x in range(3)
+    }
+    t = bp.Template.from_build(make_build(cells, (3, 2, 1)), (0, 0, 0))
+    w = flat_world()
+    w[(0, 0, 0)] = w[(2, 0, 0)] = PLANKS  # (1, 0, 0) is still a hole
+
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10})
+
+    assert [a.pos for a in acts] == [(1, 0, 0)]  # not the planks that would cover it
+
+
+def test_inside_corner_means_two_neighbours_at_right_angles():
+    cells = {(x, 0, 0): PLANKS for x in range(3)} | {
+        (0, 0, z): PLANKS for z in range(3)
+    }
+    t = bp.Template.from_build(make_build(cells, (3, 1, 3)), (0, 0, 0))
+
+    assert bp.inside_corner(t, (0, 0, 0))  # (1,0,0) and (0,0,1) meet here
+    assert not bp.inside_corner(t, (1, 0, 0))  # a straight run: neighbours opposite
+    assert not bp.inside_corner(t, (2, 0, 0))  # an end: one neighbour

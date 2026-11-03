@@ -66,6 +66,15 @@ final class BodyBuild {
                 : BuiltInRegistries.ITEM.getKey(block.asItem()).toString();
         var level = player.level();
         if (!level.getBlockState(pos).canBeReplaced()) throw new BodyActions.Fail("occupied");
+        // Grass, flowers, snow layers: replaceable, but their outline stops the eye rays to the
+        // faces behind them, so nothing reads as visible (live run 20261102T215645669803Z: every
+        // floor cell on grass). A player punches them out first; they break at once.
+        var occupant = level.getBlockState(pos);
+        if (!occupant.isAir() && occupant.getFluidState().isEmpty()
+                && occupant.getDestroySpeed(level, pos) == 0) {
+            checkPermission(player, pos);
+            player.gameMode.destroyBlock(pos);
+        }
         selectItem(player, item); // missing_item / unknown_item before any rotation changes
         var stack = player.getItemInHand(InteractionHand.MAIN_HAND);
         if (!(stack.getItem() instanceof BlockItem blockItem)) throw new BodyActions.Fail("not_placeable");
@@ -98,9 +107,23 @@ final class BodyBuild {
                 sources.add(new Source(c, List.of(Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST)));
         }
         anySolid = !sources.isEmpty();
+        // Why each clickable neighbour was rejected, reported when nothing works (state_unreachable).
+        var diagnosis = new ArrayList<Map<String, Object>>();
         search:
         for (Source source : sources) {
-            for (BlockHitResult hit : hits(player, source.block(), source.faces(), true, stats)) {
+            int[] own = new int[2];
+            var found = hits(player, source.block(), source.faces(), true, own);
+            stats[0] += own[0]; stats[1] += own[1];
+            var why = new LinkedHashMap<String, Object>();
+            why.put("block", List.of(source.block().getX(), source.block().getY(), source.block().getZ()));
+            why.put("state", render(level.getBlockState(source.block())));
+            why.put("faces", source.faces().stream().map(Direction::getSerializedName).toList());
+            why.put("points_in_reach", own[0]);
+            why.put("points_visible", own[1]);
+            int[] rejected = new int[3]; // cannot_place, no_state, wrong_state
+            var wrong = new java.util.TreeSet<String>();
+            diagnosis.add(why);
+            for (BlockHitResult hit : found) {
                 Vec3 at = hit.getLocation();
                 float pitch = PlacementLogic.pitchTo(at.x - eye.x, at.y - eye.y, at.z - eye.z);
                 for (String facing : PlacementLogic.yawOrder(target)) {
@@ -109,23 +132,31 @@ final class BodyBuild {
                     for (boolean sneak : sneaks) {
                         player.setShiftKeyDown(sneak);
                         var context = new BlockPlaceContext(player, InteractionHand.MAIN_HAND, stack, hit);
-                        if (!context.canPlace()) continue;
+                        if (!context.canPlace()) { rejected[0]++; continue; }
                         BlockState candidate = placementState(blockItem, context, pos);
-                        if (candidate == null) continue;
+                        if (candidate == null) { rejected[1]++; continue; }
                         if (PlacementLogic.matches(target, PlacementLogic.parse(render(candidate)))) {
                             chosen = hit; chosenYaw = yaw; chosenPitch = pitch; chosenSneak = sneak;
                             break search;
                         }
+                        rejected[2]++;
+                        if (wrong.size() < 4) wrong.add(render(candidate));
                     }
                 }
             }
+            why.put("cannot_place", rejected[0]);  // the item refuses the context (cell occupied)
+            why.put("no_state", rejected[1]);      // obstructed (an entity, the body), cannot survive, or moved
+            why.put("wrong_state", rejected[2]);   // placeable, but not in the requested orientation
+            why.put("wrong_states", List.copyOf(wrong));
         }
         player.setShiftKeyDown(chosenSneak);
         if (chosen == null) {
             aim(player, yaw0, pitch0);
             if (!anySolid) throw new BodyActions.Fail("no_support_face");
             if (stats[0] == 0) throw new BodyActions.Fail("out_of_reach");
-            throw new BodyActions.Fail("state_unreachable");
+            var eyeAt = List.of(eye.x, eye.y, eye.z);
+            throw new Unplaceable(Map.of("eye", eyeAt, "body", List.of(player.getX(), player.getY(), player.getZ()),
+                    "sources", diagnosis));
         }
         aim(player, chosenYaw, chosenPitch);
         checkPermission(player, chosen.getBlockPos());
@@ -173,6 +204,12 @@ final class BodyBuild {
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("placement_state_unavailable", e);
         }
+    }
+
+    /** state_unreachable with the search's account of every clickable neighbour. */
+    static final class Unplaceable extends BodyActions.Fail {
+        final Map<String, Object> diagnosis;
+        Unplaceable(Map<String, Object> diagnosis) { super("state_unreachable"); this.diagnosis = diagnosis; }
     }
 
     /** placed_wrong carries the state the world ended up with. */

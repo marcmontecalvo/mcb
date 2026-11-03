@@ -640,6 +640,7 @@ public final class BodyRuntime implements AutoCloseable {
         data.put("reason", error instanceof BodyActions.Fail || error instanceof BodyBuild.PlacedWrong
                 ? error.getMessage() : "invalid_request:" + error.getClass().getSimpleName());
         if (error instanceof BodyBuild.PlacedWrong wrong) data.put("placed", wrong.placed);
+        if (error instanceof BodyBuild.Unplaceable why) data.put("diagnosis", why.diagnosis);
         if (body != null && body.player() != null) data.put("inventory", body.observe().get("inventory"));
         emit(name + "_failed", "fabric_start", data);
     }

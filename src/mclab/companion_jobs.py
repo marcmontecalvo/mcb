@@ -108,7 +108,9 @@ def read_chests(chests, body, state: GatherState) -> None:
         if result.ok:
             contents: dict[str, int] = {}
             for stack in result.data.get("contents") or ():
-                contents[stack["item"]] = contents.get(stack["item"], 0) + stack["count"]
+                contents[stack["item"]] = (
+                    contents.get(stack["item"], 0) + stack["count"]
+                )
             state.containers[pos] = contents
 
 
@@ -159,9 +161,7 @@ def build_job(
         run_gather(stored, body, knowledge, state=state)
     held = Counter(body.inventory())
     report.shortfall = (
-        {}
-        if build_only
-        else {i: n - held[i] for i, n in needed.items() if n > held[i]}
+        {} if build_only else {i: n - held[i] for i, n in needed.items() if n > held[i]}
     )
 
     if report.shortfall and not any(held[p] for p in PICKAXES):

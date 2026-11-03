@@ -405,7 +405,30 @@ imports allowed there).
       `(-16,66,-114)`, `(-14,66,-113)`, `(-14,66,-111)` and wall/roof cells.
       Reproduce with `--resume .../checkpoints/0042.json` rather than a full run
       (a hard kill of a run leaves the server on the seed world: `natural.restore_lab()`
-      then `mclab server start`).
+      then `mclab server start`). `--resume FILE --stage` sets the world up and
+      waits (join `127.0.0.1:25575`) until the run folder gets a `STOP` file.
+    - **House placement fixed, replay from `0013.json`** (Nov 2, run
+      `20261102T233918895522Z`): all 84 blocks correct in the delivered map (was
+      51), build only, 12,188 ticks. Causes found with the diagnosis, in order:
+      eye rays sampled only near face centres (edge samples added); stances chosen
+      without a line-of-sight test (exact grid ray, overlay of own recent
+      placements included, visible from the whole arrival radius); a wall torch
+      needs a stance that sees its one support face; inside corners placed after
+      the walls that close them (now first in their layer; the check compared a
+      neighbour with itself); the door placed closed before the rest, which shut
+      the body in (it cannot open doors: **open item**, teach routes to use doors);
+      skipped cells now get two fresh rounds; the build waits for the sensor
+      before calling itself blocked. Bottom up: nothing above a layer with a
+      missing block. Not yet re-run: the whole job from an empty inventory.
+    - **Planned build-debugging aids** (Nov 2, not started):
+      1. `run-build.py --preview`: kit-place the finished template a few blocks
+         beside the build so a human can compare attempt and target in-game.
+      2. A failure walkthrough: from `build.json` `failures`, a list per cell
+         (target, block, reason, stance the body stood on) to stand on in-game.
+      3. Done: a failed `place_block` now carries `diagnosis` (eye, body, and per
+         clickable neighbour: faces, points in reach / visible, and how many
+         candidates the item refused, found obstructed or placed in the wrong
+         orientation); `build.json` `failures` keeps it.
   - **Body mod changed** (now `9e536f77…`): qualification (item 11 procedure)
     must be rerun before scored navigation runs.
   - Current status per milestone, the code map, and every known gap with its

@@ -484,6 +484,24 @@ def _place_state(state: str) -> str:
     return state
 
 
+def _is_door(state: str) -> bool:
+    return parse_state(state)[0].endswith("_door")
+
+
+def inside_corner(template: Template, pos: Pos) -> bool:
+    """Two template blocks beside ``pos`` at right angles. Placed after them it is a
+    pocket whose faces show only from inside it (run 20261102T223417173633Z), so it
+    goes first in its layer."""
+    x, y, z = pos
+    solid = [
+        (dx, dz)
+        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))
+        if parse_state(template.cells.get((x + dx, y, z + dz), "minecraft:air"))[0]
+        not in AIR
+    ]
+    return any(a[0] * b[0] + a[1] * b[1] == 0 for a in solid for b in solid if a != b)
+
+
 def next_actions(
     template: Template,
     world,
@@ -528,13 +546,46 @@ def next_actions(
             todo.append((pos, _place_state(state), cost, item_for_state(state, blocks)))
     if not todo:
         return []
-    todo.sort(key=lambda t: (parse_state(t[1])[0] in FLUIDS, t[0][1], t[0][0], t[0][2]))
 
+    todo.sort(
+        key=lambda t: (
+            parse_state(t[1])[0] in FLUIDS,
+            t[0][1],
+            not inside_corner(template, t[0]),
+            t[0][0],
+            t[0][2],
+        )
+    )
+
+    # Bottom up: nothing above the lowest layer that still has a block to place. A cell
+    # that keeps failing then holds the build up instead of being walled in (live run
+    # 20261102T212736219778Z: a missed floor corner got its wall on top, leaving a
+    # pocket no stance could see into). Cells waiting on another cell ("support":
+    # a torch on a wall, a lantern under a ceiling; "floating": hung from a block
+    # placed later), and cells short of materials (asked for once the rest is
+    # placed) do not hold their layer.
+    waiting = [
+        t[0][1]
+        for t in todo
+        if parse_state(t[1])[0] not in FLUIDS
+        and all(inventory.get(i, 0) >= c for i, c in t[2].items())
+        and not _is_door(t[1])
+        and _gate(t[0], t[1], world, blocks) not in ("support", "floating", "unknown")
+    ]
+    lowest = min(waiting, default=None)
+    others_left = any(not _is_door(t[1]) for t in todo)
     left = dict(inventory)
     out: list = []
     for pos, state, cost, (item, n) in todo:
         if len(out) >= limit:
             break
+        if lowest is not None and pos[1] > lowest:
+            continue
+        # The doorway is the body's way in and out: a door placed while other cells are
+        # still missing shut the body inside (it cannot open doors; run
+        # 20261102T225803126737Z: every walk "stuck" once the walls closed).
+        if _is_door(state) and others_left:
+            continue
         if (
             all(left.get(i, 0) >= c for i, c in cost.items())
             and _gate(pos, state, world, blocks) is None
@@ -595,9 +646,7 @@ def cleanup_actions(template: Template, world, scaffolds, ignore_props=DEFAULT_I
     Scaffolding blocks hang from the ones standing on the ground: breaking those roots
     drops the rest with them, so only the roots are broken (see mclab.scaffolding)."""
     out = []
-    ropes = {
-        p for p in scaffolds if (c := world(*p)) and parse_state(c)[0] == sc.BLOCK
-    }
+    ropes = {p for p in scaffolds if (c := world(*p)) and parse_state(c)[0] == sc.BLOCK}
 
     def sturdy(p: Pos) -> bool:
         below = world(p[0], p[1] - 1, p[2])

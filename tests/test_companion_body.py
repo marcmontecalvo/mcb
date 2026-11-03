@@ -250,3 +250,17 @@ def test_a_stance_must_see_a_face_of_a_solid_neighbour():
     assert sees_support({(5, 69, 4): lattice}, (5, 66, 6), target)  # scaffolding counts
     # the top of a scaffolding column is reached from the ground beside it
     assert sees_support({(5, 68, 5): lattice}, (7, 66, 5), target)
+
+
+def test_a_face_hidden_behind_a_wall_does_not_make_a_stance():
+    from mclab.companion_body import sees_support
+
+    solid = {"block": "minecraft:oak_planks", "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
+    target = (0, 1, 0)  # inside corner: floor below, walls west... seen past a wall
+    cells = {(0, 0, 0): solid}  # the floor block under the target
+    far = (3, 1, 3)
+
+    assert sees_support(cells, far, target)
+    cells[(1, 1, 1)] = cells[(1, 2, 1)] = cells[(2, 2, 2)] = cells[(1, 1, 0)] = solid
+    cells[(0, 1, 1)] = cells[(1, 2, 0)] = cells[(0, 2, 1)] = solid
+    assert not sees_support(cells, far, target)

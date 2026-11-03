@@ -30,7 +30,7 @@ public final class PlacementLogicTest {
         check(order.size() == 4 && order.get(0).equals("north") && order.get(1).equals("south"), "yaw order " + order);
         check(PlacementLogic.yawOrder(PlacementLogic.parse("minecraft:stone")).size() == 4, "default yaw order");
 
-        check(PlacementLogic.HIT_OFFSETS.length == 12 && PlacementLogic.HIT_OFFSETS[0][0] == 0, "hit grid");
+        check(PlacementLogic.HIT_OFFSETS.length == 19 && PlacementLogic.HIT_OFFSETS[0][0] == 0, "hit grid");
         for (String face : new String[] {"up", "down", "north", "south", "east", "west"}) {
             double[] centre = PlacementLogic.facePoint(face, 0, 0);
             double[] quarter = PlacementLogic.facePoint(face, 0.25, -0.25);

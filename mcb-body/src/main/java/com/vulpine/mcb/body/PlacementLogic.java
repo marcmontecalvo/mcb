@@ -94,7 +94,10 @@ final class PlacementLogic {
             {0.25, 0.25}, {-0.25, 0.25}, {0.25, -0.25}, {-0.25, -0.25},
             // near the top edge: scaffolding is only a slab on four posts, solid just there (last, so
             // every other block keeps the hit it had)
-            {0, 0.44}, {0.25, 0.44}, {-0.25, 0.44}};
+            {0, 0.44}, {0.25, 0.44}, {-0.25, 0.44},
+            // near the other edges: a face seen past a neighbour's rim shows only a strip at
+            // its far edge (a floor hole seen from beside it: run 20261102T220055011884Z)
+            {0, -0.44}, {0.44, 0}, {-0.44, 0}, {0.44, 0.44}, {-0.44, 0.44}, {0.44, -0.44}, {-0.44, -0.44}};
 
     /** Vector from a block's centre to a point on the given face: centre of the face plus (u, v). */
     static double[] facePoint(String face, double u, double v) {

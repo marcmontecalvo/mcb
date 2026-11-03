@@ -19,6 +19,7 @@ Pass: build stop == done, no unknown cells, and the diff against the delivered m
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 from live_common import finish, kit, results_folder
@@ -55,6 +56,12 @@ def main() -> int:
     parser.add_argument("--rotation", type=int, default=0)
     parser.add_argument(
         "--empty", action="store_true", help="M5: start empty, gather everything"
+    )
+    parser.add_argument(
+        "--stage",
+        action="store_true",
+        help="with --resume: set the world up, then wait (join at 127.0.0.1:25575) "
+        "until the run folder gets a file named STOP; no build",
     )
     parser.add_argument(
         "--scaffolding",
@@ -137,6 +144,16 @@ def main() -> int:
                     inventory=[{"item": i, "count": n} for i, n in kit_items.items()],
                 )
             body.observe()
+            if args.stage:
+                (folder / "STOP").unlink(missing_ok=True)
+                write_progress(folder, job="build", stage="staged")
+                print(f"STAGED {folder} - create {folder / 'STOP'} to end", flush=True)
+                while not (folder / "STOP").exists():
+                    time.sleep(2)
+                rows.append(
+                    {"case": "staged", "pass": True, "detail": args.resume.name}
+                )
+                return finish(folder, rows, "run-build")
             recorder = ck.Recorder(
                 folder,
                 template,
@@ -195,7 +212,8 @@ def main() -> int:
                     "skipped": {str(p): r for p, r in report.skipped.items()},
                     "scaffolded": [list(p) for p in report.scaffolded],
                     "failures": [
-                        [list(p), why, list(at)] for p, why, at in report.failures
+                        [list(p), why, list(at), detail]
+                        for p, why, at, detail in report.failures
                     ],
                     "final_diff": {
                         "breaks": len(d.breaks),

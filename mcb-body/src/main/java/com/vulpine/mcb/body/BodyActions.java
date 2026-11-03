@@ -39,7 +39,7 @@ final class BodyActions {
     private BodyActions() {}
 
     /** A refused action; the message is the reason code reported in the *_failed event. */
-    static final class Fail extends RuntimeException {
+    static class Fail extends RuntimeException {
         Fail(String reason) { super(reason); }
     }
 
