@@ -36,6 +36,11 @@ separately from the successful qualification retry.
 
 ## Resume and evidence
 
+The MCB Lab dashboard at `http://127.0.0.1:8770` now has a **Baseline checks**
+panel above Sessions. It refreshes every three seconds from the running batch's
+logs, showing stage completion, elapsed time, process status and console output.
+This is a read-only view; dashboard session controls do not control this batch.
+
 Background runner PID at launch: **90496**. It runs serially and stops on a
 failed smoke, cleanup, qualification, or house check. Gathering retains its
 known failure without preventing the navigation comparisons. Inspect outcome

@@ -14,6 +14,7 @@ import time
 import traceback
 import webbrowser
 from contextlib import ExitStack
+from datetime import datetime
 from http.client import HTTPConnection, HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -27,6 +28,75 @@ from mclab.recorder import exclusive_run
 SESSIONS = ROOT / "results/sessions"
 WORKER_LOCK = ROOT / "runtime/dashboard-worker.lock"
 ACTIVE = {"queued", "running"}
+
+
+def baseline_progress():
+    """Observe the separately launched migration batch without controlling it."""
+    from mclab.server import pid_alive
+
+    manifest = ROOT / "runtime/java-migration-candidate-manifest.json"
+    if not manifest.exists():
+        return None
+    value = read_json(manifest)
+    log = ROOT / "runtime/java-migration-post.log"
+    output = tail(log, 1_000_000)
+    stages = [
+        ("scripts/check-natural-ops.py", "Action smoke"),
+        ("runtime/clean-baseline-chest.py", "Fixture cleanup"),
+        ("runtime/requal-awareness.py", "Qualification (seven checks)"),
+        ("scripts/run-gather.py", "Empty-inventory gathering"),
+        ("scripts/run-build.py", "Supplied-material house"),
+        ("--condition calm", "Calm routes (10 attempts)"),
+        ("--condition mobs", "Safe night routes (5 attempts)"),
+    ]
+    jobs = [{"label": label, "status": "queued"} for _, label in stages]
+    current = None
+    for line in output.splitlines():
+        match = re.match(r"^(START|END) (\S+): (.*)$", line)
+        if not match:
+            continue
+        event, stamp, detail = match.groups()
+        if event == "START":
+            current = next(
+                (i for i, (command, _) in enumerate(stages) if command in detail),
+                None,
+            )
+            if current is not None:
+                jobs[current].update(status="running", started_at=stamp)
+        elif current is not None and re.fullmatch(r"exit=-?\d+", detail):
+            code = int(detail.removeprefix("exit="))
+            jobs[current].update(
+                status="finished" if code == 0 else "failed",
+                exit_code=code,
+                finished_at=stamp,
+            )
+            current = None
+    pid = value.get("runner_pid")
+    alive = type(pid) is int and pid > 0 and pid_alive(pid)
+    finished = sum("exit_code" in job for job in jobs)
+    status = "running" if alive else "interrupted"
+    if finished == len(jobs):
+        status = (
+            "completed with failures"
+            if any(job.get("exit_code", 0) != 0 for job in jobs)
+            else "completed"
+        )
+    if not alive:
+        for job in jobs:
+            if job["status"] == "running":
+                job["status"] = "interrupted"
+    started = next((job["started_at"] for job in jobs if "started_at" in job), None)
+    return {
+        "title": "Java migration baselines",
+        "status": status,
+        "jobs": jobs,
+        "finished": finished,
+        "total": len(jobs),
+        "started_at": datetime.fromisoformat(started).timestamp() if started else None,
+        "updated_at": log.stat().st_mtime if log.exists() else None,
+        "log": output[-12_000:],
+        "errors": tail(ROOT / "runtime/java-migration-post-error.log", 6000),
+    }
 
 
 def reopen_dashboard(port, no_browser):
@@ -520,6 +590,8 @@ def handler(dashboard):
                     return self.reply(200, {"state": server.status()["state"]})
                 if parsed.path == "/api/sessions":
                     return self.reply(200, dashboard.sessions())
+                if parsed.path == "/api/baseline-progress":
+                    return self.reply(200, baseline_progress())
                 if parsed.path == "/api/results":
                     return self.reply(200, dashboard.history())
                 if parsed.path == "/api/detail":
