@@ -147,6 +147,11 @@ class TerrainPolicy:
     # False: never cut beside sand or gravel, even where baritone_moves prices the
     # falling stack (companion: run 20261102T050751840297Z suffocated under gravel).
     allow_falling_neighbours: bool = True
+    # Companion moves (body planner and motor): walk through wooden doors and fence
+    # gates, opening them on the way; ladders and scaffolding are climbed but vines are
+    # not (run 20261102T052209764957Z: vines over a pond drowned the bot).
+    use_doors: bool = False
+    climb_vines: bool = True
 
     @classmethod
     def from_payload(cls, value):

@@ -248,6 +248,7 @@ public final class BodyRuntime implements AutoCloseable {
     // Threat reflex setting from the cost profile (follow_route "flee"); default one block.
     private RouteReflex.Flee flee = RouteReflex.Flee.DEFAULT;
     private static final int MAX_PLANS = 4;
+    private boolean useDoors = false, climbVines = true; // BuildingMoves, from start_plan edits
     private final Map<String,RoutePlanner> plans = new LinkedHashMap<>();
     private final Map<String,Integer> planLimits = new HashMap<>();
     private final Map<String,Map<String,Object>> planResults = new LinkedHashMap<>();
@@ -273,6 +274,9 @@ public final class BodyRuntime implements AutoCloseable {
             var edits = request.getAsJsonObject("edits");
             planner.withEdits(RoutePlanner.EditPolicy.fromJson(edits));
             if (edits.has("falling_neighbours")) planner.withFallingNeighbours(edits.get("falling_neighbours").getAsBoolean());
+            // companion moves: the last plan's setting holds for its route (BuildingMoves)
+            useDoors = edits.has("doors") && edits.get("doors").getAsBoolean();
+            climbVines = !edits.has("vines") || edits.get("vines").getAsBoolean();
         }
         while (plans.size() >= MAX_PLANS) { var oldest = plans.keySet().iterator().next(); plans.remove(oldest); }
         plans.put(id, planner); planLimits.put(id, limit);
@@ -359,7 +363,8 @@ public final class BodyRuntime implements AutoCloseable {
         return (x,y,z) -> {
             var pos = new net.minecraft.core.BlockPos(x,y,z);
             if (!p.level().isInsideBuildHeight(pos) || !AwarenessSensor.inRange(awareness,p.blockPosition(),pos)) return null;
-            return PolicySensor.cell(p,server.getTickCount(),pos,awareness.occluded());
+            return BuildingMoves.view(PolicySensor.cell(p,server.getTickCount(),pos,awareness.occluded()),
+                    useDoors, climbVines);
         };
     }
 
@@ -440,6 +445,7 @@ public final class BodyRuntime implements AutoCloseable {
         var p = body.player();
         var prior = routeMotor.status();
         try {
+            if (useDoors) BuildingMoves.openNear(p);
             var geometry = new RouteGeometry(localReader(p));
             var velocity = p.getDeltaMovement();
             var input = routeMotor.tick(new RouteMotor.Pose(p.getX(),p.getY(),p.getZ(),velocity.x,velocity.z,

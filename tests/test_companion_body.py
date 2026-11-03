@@ -264,3 +264,15 @@ def test_a_face_hidden_behind_a_wall_does_not_make_a_stance():
     cells[(1, 1, 1)] = cells[(1, 2, 1)] = cells[(2, 2, 2)] = cells[(1, 1, 0)] = solid
     cells[(0, 1, 1)] = cells[(1, 2, 0)] = cells[(0, 2, 1)] = solid
     assert not sees_support(cells, far, target)
+
+
+def test_companion_plans_ask_for_doors_and_no_vines_and_old_requests_are_unchanged():
+    from mclab.body_search import edit_payload
+    from mclab.companion_body import DIG_TERRAIN, NATURAL_MOVEMENT
+    from mclab.terrain_steps import TerrainPolicy
+
+    edits = edit_payload(DIG_TERRAIN, [], [])
+    assert edits["doors"] is True and edits["vines"] is False
+    assert NATURAL_MOVEMENT.allow_climb  # ladders and scaffolding
+    plain = edit_payload(TerrainPolicy(), [], [])
+    assert "doors" not in plain and "vines" not in plain

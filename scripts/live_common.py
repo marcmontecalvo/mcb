@@ -3,6 +3,7 @@
 
 import json
 import math
+import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -91,6 +92,14 @@ def state_matches(target: str, placed: str) -> bool:
     return block == placed_block and all(
         placed_props.get(k) == v for k, v in props.items() if k not in IGNORED
     )
+
+
+def record_crash(folder: Path, rows: list[dict], error: BaseException) -> None:
+    """Keep a driver crash: traceback to error.txt and a failing summary row."""
+    text = "".join(traceback.format_exception(error))
+    (folder / "error.txt").write_text(text, encoding="utf-8")
+    print(text, flush=True)
+    rows.append({"case": "driver crashed", "pass": False, "detail": f"{type(error).__name__}: {error}"})
 
 
 def finish(folder: Path, rows: list[dict], name: str) -> int:

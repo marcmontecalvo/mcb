@@ -12,7 +12,7 @@ import argparse
 import json
 import sys
 
-from live_common import finish, kit, results_folder
+from live_common import finish, kit, record_crash, results_folder
 
 from mclab.companion_body import (
     companion_world,
@@ -94,6 +94,8 @@ def main() -> int:
                         "detail": f"stop={report.stop} tasks={len(report.done)} failures={report.failures[:3]}",
                     }
                 )
+        except Exception as error:  # noqa: BLE001 - recorded, run ends as failed
+            record_crash(folder, rows, error)
         finally:
             try:
                 if memory is not None:

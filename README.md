@@ -19,6 +19,31 @@ Earlier failed configurations remain in the report, grouped by timing/source pro
 See [setup status](docs/SETUP_STATUS.md) and
 [implementation decisions](docs/DECISIONS.md).
 
+**Where to start:** [docs/ROADMAP.md](docs/ROADMAP.md) has current status, the ordered
+next steps and an index of every plan and ledger.
+
+## Companion track: gathering and building (Nov 3, 2026)
+
+The bot gathers, crafts and builds schematics from an empty inventory
+([plan](docs/BUILD_AND_GATHER_PLAN_2026-11-01.md)). M0–M4 are done: empty
+inventory to iron pickaxe passed 9/9 on Nov 2, and 7/9 after the latest changes
+(seed 20261026 regressed, under investigation). M5 (build from empty) is in progress:
+the 84-block small house passes 4/4, and the 1,228-block large house is next.
+
+```powershell
+# Gather from empty to an iron pickaxe on a natural seed
+rtk proxy uv run --locked python scripts/run-gather.py --start X Y Z --iron --seed 42424242
+# Build from empty (M5); omit --empty to kit the materials instead
+rtk proxy uv run --locked python scripts/run-build.py --start X Y Z --empty --seed 31415926 [--build FILE]
+# Build only, from a checkpoint of an earlier run
+rtk proxy uv run --locked python scripts/run-build.py --resume results/companion/<run>/checkpoints/NNNN.json
+# Find a site with every needed material nearby
+rtk proxy uv run --locked python scripts/analysis/site_scan.py WORLD_DIR
+```
+
+Each run writes `results/companion/<run>/summary.json`; if the driver crashes, the
+traceback is in `error.txt` and the summary has a failing "driver crashed" row.
+
 ## Local operation
 
 **Current direction:** start with the [roadmap](docs/ROADMAP.md) (status, ordered

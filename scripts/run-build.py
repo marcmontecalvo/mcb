@@ -22,7 +22,7 @@ import sys
 import time
 from pathlib import Path
 
-from live_common import finish, kit, results_folder
+from live_common import finish, kit, record_crash, results_folder
 
 from mclab import build_checkpoint as ck
 from mclab import build_plan as bp
@@ -253,6 +253,8 @@ def main() -> int:
             (folder / "build.json").write_text(
                 json.dumps(out, indent=1), encoding="utf-8"
             )
+        except Exception as error:  # noqa: BLE001 - recorded, run ends as failed
+            record_crash(folder, rows, error)
         finally:
             try:
                 if memory is not None:

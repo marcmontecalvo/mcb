@@ -152,12 +152,18 @@ def _near(pos, home) -> bool:
 FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
 
-def _sealed(body, pos: Pos) -> bool:
-    """No liquid or unknown cell touches ``pos``: breaking it opens no flow. Live run
-    20261102T005434368454Z: mining surface stone beside a lava pool killed the bot."""
+def _sealed(body, pos: Pos, unknown_ok: bool = False) -> bool:
+    """No liquid (nor, unless ``unknown_ok``, unknown) cell touches ``pos``: breaking it
+    opens no flow. Live run 20261102T005434368454Z: mining surface stone beside a lava
+    pool killed the bot. Surface blocks allow unknown neighbours: sand's underside is
+    rarely sensed (run 20261103T005102941195Z stalled with every candidate refused)."""
     for dx, dy, dz in FACES:
         state = body.world(pos[0] + dx, pos[1] + dy, pos[2] + dz)
-        if state is None or bp.parse_state(state)[0] in bp.FLUIDS:
+        if state is None:
+            if unknown_ok:
+                continue
+            return False
+        if bp.parse_state(state)[0] in bp.FLUIDS:
             return False
     return True
 
@@ -378,15 +384,17 @@ class _Exec:
             if self.stalled():
                 return Result(False, "stalled")
             here, home = body.position(), self.home()
-            known = [p for p in body.find_blocks(t.block) if p not in skip]
+            # Never a block touching water or lava, surface ones included: sand dug out
+            # of a shore let water into the pit (run 20261103T003648615312Z drowned).
+            known = [
+                p
+                for p in body.find_blocks(t.block)
+                if p not in skip and _sealed(body, p)
+            ]
             if (
                 underground
             ):  # only stone the bot can plausibly walk to; never a ravine floor
-                known = [
-                    p
-                    for p in known
-                    if _near(p, home) and _sealed(body, p) and _floored(body, p, here)
-                ]
+                known = [p for p in known if _near(p, home) and _floored(body, p, here)]
             if not known and underground and digs < MAX_DIGS:
                 digs += 1
                 before = body.inventory().get(t.item, 0)

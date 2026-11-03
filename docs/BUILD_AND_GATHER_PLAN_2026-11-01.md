@@ -256,6 +256,9 @@ build site, or puts them in the kit. The body itself still never creates items
 
 ## 7. Implementation status (Nov 1, 2026)
 
+Later status (M4 done, M5 in progress, Nov 3 state and next steps) is kept in
+[ROADMAP.md](ROADMAP.md), "Open after Nov 3" and "Nov 3 state".
+
 Wave 1 is commit `aa041b2`. Wave 2 is complete, with live checks on the lab
 server:
 - `scripts/check-placement.py`: 46/46, `results/companion/20261101T172441585144Z`.

@@ -91,6 +91,8 @@ def edit_payload(policy, inventory, protected):
             if policy.allow_falling_neighbours
             else {"falling_neighbours": False}
         ),
+        **({"doors": True} if policy.use_doors else {}),
+        **({} if policy.climb_vines else {"vines": False}),
     }
 
 

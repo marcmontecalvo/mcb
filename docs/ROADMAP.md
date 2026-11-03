@@ -6,7 +6,8 @@ the phase plan are in [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_
 (authoritative; it wins any conflict). Results live in the ledgers listed below.
 Update this file whenever an item here is finished or a new one is found.
 
-Last updated: November 1, 2026 (cohorts 16–29 and the frozen calm comparison on
+Last updated: November 3, 2026 (companion track: M5 state and next steps below,
+"Open after Nov 3"). Earlier: November 1 (cohorts 16–29 and the frozen calm comparison on
 `main`). Installed and qualified mod: `68b3e8f6…` (Java edit edges; requalified
 Nov 1, item 11).
 Cohorts 27–28 ran on `2eed1251`, cohort 29 on `0129b057`.
@@ -95,6 +96,19 @@ Details: [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md), cohorts 16–20.
 
 Each item names where its detail or evidence lives. Numbers are priority, not
 dependencies, except where noted.
+
+**Open after Nov 3 (companion track, M5), in the order to do them:**
+(1) rerun the large house (`--start -56 66 104 --seed 31415926 --empty --build
+tests/fixtures/schematics/house-large.build.json`); the Nov 2 attempt
+`20261103T031040847065Z` crashed in the Python driver about 1.5 s after the first
+route request, with no traceback kept. Live scripts now write `error.txt` and a
+failing "driver crashed" row, so the rerun will show the error;
+(2) fix that crash, then let the long gather run (about 400 oak logs, 230 birch logs,
+115 raw iron);
+(3) rerun the iron-pickaxe baseline on seed 20261026 with climbing off, to see
+whether turning climbing on caused 9/9 → 7/9; fix or revert the climb change;
+(4) requalify the body mod (item 11 procedure) before scored navigation runs.
+Detail under "Answered Nov 1" → "Nov 3 state" in the open questions below.
 
 **Open after Nov 1, in the order to do them:** (1) item 8: stage D and continuous
 re-planning done (cohorts 30-31); make the body planner the default (Marc's call);
@@ -429,6 +443,24 @@ imports allowed there).
          clickable neighbour: faces, points in reach / visible, and how many
          candidates the item refused, found obstructed or placed in the wrong
          orientation); `build.json` `failures` keeps it.
+    - **Nov 3 state** (uncommitted work from Nov 2 committed Nov 3):
+      - Added: door and ladder use in routes (`BuildingMoves.java`), the site
+        scanner (`scripts/analysis/site_scan.py`), the large-house fixture
+        (`tests/fixtures/schematics/house-large.build.json`, 1,228 blocks; spruce
+        → birch, mossy → plain), and crash recording in the live scripts.
+      - Gathering fixes: refuse a block touching known water or lava (the bot
+        drowned digging shoreline sand); surface blocks check only known water or
+        lava, since the cells under sand are rarely sensed.
+      - Small house from empty: 4/4 (`20261103T010332222541Z`). Scaffolding: 5/5
+        (`20261103T030849936261Z`).
+      - Iron-pickaxe baseline: **7/9, down from 9/9**. Seeds 42424242 and
+        31415926 3/3. Seed 20261026 failed twice: rep 2 the iron gather stalled;
+        rep 3 (`20261103T025858772778Z`) the bot was stuck in its own dig hole at
+        (46.6, 57, −72.4), 10 blocks below the crafting table, every route up
+        cancelled (`no_stance`). Suspect: climbing, now on in companion sessions.
+        Earlier M4 runs on this seed also had stalls, so it may be an old flake.
+      - Large house: crashed at start (`20261103T031040847065Z`), see "Open after
+        Nov 3" at the top of "Next work".
   - **Body mod changed** (now `9e536f77…`): qualification (item 11 procedure)
     must be rerun before scored navigation runs.
   - Current status per milestone, the code map, and every known gap with its
