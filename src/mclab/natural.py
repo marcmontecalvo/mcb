@@ -264,7 +264,7 @@ def pick_routes(cells, count=5, rng_seed=0) -> list[dict]:
 # one run per process.
 BARITONE_SETTINGS = {}
 # Plan in the body's compiled core (ROADMAP item 8); set by run(), recorded too.
-BODY_PLANNER = {"enabled": False, "flee": None}
+BODY_PLANNER = {"flee": None}
 
 
 def _restore(seed: int) -> None:
@@ -510,7 +510,6 @@ def _controller(
         terrain_policy=terrain_policy or TerrainPolicy(),
         background_planning=True,
         movement_policy=movement_policy,
-        body_planner=BODY_PLANNER["enabled"],
     )
     controller.flee = BODY_PLANNER["flee"]  # cost profile's threat reflex
     resources.callback(controller.close)
@@ -543,13 +542,11 @@ def run(
     show_markers=False,
     stall_seconds=10,
     baritone_settings=None,
-    body_planner=True,
     flee=None,
 ) -> dict:
     awareness = Awareness() if awareness is None else awareness
     BARITONE_SETTINGS.clear()
     BARITONE_SETTINGS.update(baritone_settings or {})
-    BODY_PLANNER["enabled"] = bool(body_planner)
     BODY_PLANNER["flee"] = flee
     _validate_run(seed, routes, entrants, conditions)
     # 0 disables. The server ends an attempt whose body stays within one block
@@ -614,7 +611,13 @@ def run(
             name: sha256(ROOT / "src/mclab" / name)
             for name in (
                 "navigation_segmented.py",
-                "route_search.py",
+                "body_search.py",
+                "planner_session.py",
+                "planner_map_transport.py",
+                "planner_values.py",
+                "interaction_goal.py",
+                "route_types.py",
+                "terrain_geometry.py",
                 "spatial_memory.py",
                 "pathing_grid.py",
                 "spatial_archive.py",
@@ -630,8 +633,6 @@ def run(
                 "terrain_transport.py",
                 "bridge.py",
                 "execution.py",
-                "terrain_route.py",
-                "planning_worker.py",
                 "terrain_steps.py",
                 "terrain_placement.py",
                 "pillar_steps.py",
@@ -664,7 +665,7 @@ def run(
         "policy_map_recording": "wire payloads only; no expanded-cell snapshots",
         "stall_seconds": stall_seconds,
         "baritone_settings": dict(BARITONE_SETTINGS),
-        "body_planner": BODY_PLANNER["enabled"],
+        "body_planner": True,
         "flee": BODY_PLANNER["flee"],
         "attempts": [],
     }

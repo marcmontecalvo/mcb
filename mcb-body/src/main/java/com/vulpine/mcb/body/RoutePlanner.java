@@ -51,16 +51,39 @@ final class RoutePlanner {
     private final Map<Long, double[]> heights = new HashMap<>();
     private final Node start, goal;
     private final double radius;
+    private Double reach;
+    private Set<Node> avoidStances = Set.of();
+    private double hazardPenalty, mobCoefficient = 1, mobRadius;
+    private List<double[]> threats = List.of();
+    private boolean ticks = true, baritoneSearch = true, baritoneDiagonal = true, diagonals = true, shapes = true;
+    private double heuristicWeight = 1;
+    private double breakPenalty = 3, placePenalty = 4, toolWearPenalty;
     private final int maxDrop;
     private final boolean sprint;
     // planner_unknown (D3): plan through unknown space; exits priced at this penalty.
     private final double unknownPenalty;
     private final Map<Long, Boolean> unknownColumns = new HashMap<>();
     // planner_swim + allow_swim, and baritone_moves (ladders, water landings; no edits here).
-    private boolean swim, extra;
+    private boolean swim, plannerSwim = true, extra, climb = true;
 
     /** Turns on swimming (planner_swim) and Baritone's extra moves (ladders, water landings). */
     RoutePlanner withMoves(boolean swim, boolean extra) { this.swim = swim; this.extra = extra; return this; }
+    RoutePlanner withPlannerSwim(boolean plannerSwim) { this.plannerSwim = plannerSwim; return this; }
+    RoutePlanner withClimb(boolean climb) { this.climb = climb; return this; }
+    RoutePlanner withInteraction(double reach) { this.reach = reach; return this; }
+    RoutePlanner withAvoidStances(Set<Node> avoidStances) { this.avoidStances = Set.copyOf(avoidStances); return this; }
+    RoutePlanner withSurvival(double hazardPenalty, double mobCoefficient, double mobRadius, List<double[]> threats) {
+        this.hazardPenalty = hazardPenalty; this.mobCoefficient = mobCoefficient;
+        this.mobRadius = mobRadius; this.threats = threats; return this;
+    }
+    RoutePlanner withPolicy(boolean ticks, boolean baritoneSearch, boolean baritoneDiagonal,
+                            boolean diagonals, boolean shapes, double heuristicWeight) {
+        this.ticks = ticks; this.baritoneSearch = baritoneSearch; this.baritoneDiagonal = baritoneDiagonal;
+        this.diagonals = diagonals; this.shapes = shapes; this.heuristicWeight = heuristicWeight; return this;
+    }
+    RoutePlanner withLegacyPricing(double breakPenalty, double placePenalty, double toolWearPenalty) {
+        this.breakPenalty = breakPenalty; this.placePenalty = placePenalty; this.toolWearPenalty = toolWearPenalty; return this;
+    }
     private int maxGap;
     /** Level gap jumps of 1..maxGap (max 2; width 2 needs sprint), Baritone MovementParkour. */
     RoutePlanner withGaps(int maxGap) { this.maxGap = Math.min(maxGap, 2); return this; }
@@ -131,11 +154,11 @@ final class RoutePlanner {
     Result advance(int nodeLimit, long deadlineNanos) {
         if (terminal != null) return terminal;
         if (best == null) {
-            if (!(swim ? supported(start) : standable(start)))
+            if (!stance(start))
                 return terminal = new Result("unreachable", List.of(), 0, 0, List.of());
             best = start;
             costs.put(start, 0.0); nodes.add(start);
-            frontier.add(new double[]{remaining(start), 0, 0, 0});
+            frontier.add(new double[]{heuristic(start), 0, 0, 0});
         }
         int slice = 0;
         while (!frontier.isEmpty() && expanded < nodeLimit) {
@@ -153,7 +176,7 @@ final class RoutePlanner {
             if (edits != null) overlay = overlayOf(plans.get(node));
             double estimate = closeness(node);
             if (estimate < closeness(best)) best = node;
-            for (int i = 0; i < COEFFICIENTS.length; i++) {
+            for (int i = 0; baritoneSearch && i < COEFFICIENTS.length; i++) {
                 double value = estimate + cost / COEFFICIENTS[i];
                 if (value < coefValue[i]) { coefValue[i] = value; coefBest[i] = node; }
             }
@@ -165,7 +188,7 @@ final class RoutePlanner {
             }
             for (var move : moves(node)) {
                 if (!excluded.isEmpty() && excluded.contains(List.of(node, move.target))) continue;
-                double total = cost + move.cost * (favored.contains(move.target) ? FAVOR : 1);
+                double total = cost + survival(move.target, move.cost) * (baritoneSearch && favored.contains(move.target) ? FAVOR : 1);
                 if (total < costs.getOrDefault(move.target, Double.POSITIVE_INFINITY)) {
                     costs.put(move.target, total); previous.put(move.target, node);
                     if (edits != null) {
@@ -174,14 +197,14 @@ final class RoutePlanner {
                         depth.put(move.target, d);
                     }
                     nodes.add(move.target);
-                    frontier.add(new double[]{total + remaining(move.target), total, nodes.size() - 1, 0});
+                    frontier.add(new double[]{total + heuristic(move.target), total, nodes.size() - 1, 0});
                 }
             }
         }
         Node end = exit;
         if (end == null) {
             end = best;
-            for (var node : coefBest)
+            for (var node : baritoneSearch ? coefBest : new Node[0])
                 if (node != null && node.distance(start) > MIN_DIST_PATH) { end = node; break; }
         }
         overlay = null;
@@ -191,7 +214,7 @@ final class RoutePlanner {
     /** Settings.pathCutoff*: drop the last 10% of long non-goal routes. */
     private Result trim(Result r) {
         int n = r.route.size();
-        if (n < CUTOFF_MIN) return r;
+        if (!baritoneSearch || n < CUTOFF_MIN) return r;
         var route = r.route.subList(0, Math.max(2, (int) (n * CUTOFF_FACTOR)));
         var targets = new HashSet<>(route.subList(1, route.size()));
         var steps = r.steps.stream().filter(e -> targets.contains(e.target)).toList();
@@ -201,14 +224,19 @@ final class RoutePlanner {
     // Partial-route estimate (route_search._remaining(node, 1)): walk rate when planning
     // through unknown space, else the Baritone heuristic.
     private double closeness(Node node) {
-        return unknownPenalty > 0 ? horizontal(node) * WALK + vertical(node, false, false) : remaining(node);
+        return ticks ? (unknownPenalty > 0 ? horizontal(node) * WALK + vertical(node, false, false) : remaining(node)) : distance(node);
     }
     private double horizontal(Node node) {
         double ax = Math.abs(node.x - goal.x), az = Math.abs(node.z - goal.z);
-        return Math.max(0, Math.abs(ax - az) + Math.min(ax, az) * SQRT2 - radius);
+        double h = Math.max(0, (baritoneSearch ? Math.abs(ax - az) + Math.min(ax, az) * SQRT2 : Math.hypot(ax, az)) - radius);
+        return reach == null ? h : Math.max(0, h + radius - reach);
     }
     private double vertical(Node node, boolean exitEstimate, boolean buried) {
         double rise = goal.y - node.y;
+        if (reach != null) {
+            rise -= 1.12;
+            rise = Math.copySign(Math.max(0, Math.abs(rise) - reach), rise);
+        }
         if (buried && rise > 0) return rise * DIG_RISE;
         double v = rise > 0 ? rise * JUMP : -rise * fallTicks(2) / 2;
         double h = horizontal(node);
@@ -217,7 +245,7 @@ final class RoutePlanner {
     }
     /** The unknown remainder from a frontier node, at the unknown penalty (D3). */
     private double exitRemainder(Node node) {
-        return unknownPenalty * (WALK * horizontal(node) + vertical(node, true, buried(node)));
+        return ticks ? unknownPenalty * (WALK * horizontal(node) + vertical(node, true, buried(node))) : unknownPenalty * distance(node);
     }
     /** Known solid cover over the node with no known air above it, below goal height. */
     private boolean buried(Node node) {
@@ -267,16 +295,56 @@ final class RoutePlanner {
 
     // Goal: horizontal disk of the radius at exact standing height (route_search._distance).
     double distance(Node node) {
+        if (reach != null) {
+            if (!avoidStances.contains(node) && interacts(node)) return 0;
+            return Math.max(1e-9, Math.sqrt(sq(node.x - goal.x) + sq(node.y + 1.12 - goal.y)
+                    + sq(node.z - goal.z)) - reach);
+        }
         return Math.max(Math.max(0, Math.hypot(node.x - goal.x, node.z - goal.z) - radius), Math.abs(node.y - goal.y));
+    }
+
+    private boolean interacts(Node node) {
+        double ex = node.x + .5, ey = node.y + 1.62, ez = node.z + .5;
+        double dx = goal.x + .5 - ex, dy = goal.y + .5 - ey, dz = goal.z + .5 - ez;
+        double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (distance > reach) return false;
+        int steps = Math.max(1, (int)Math.ceil(distance / .1));
+        for (int i = 0; i < steps; i++) {
+            int x = (int)Math.floor(ex + dx * i / steps), y = (int)Math.floor(ey + dy * i / steps);
+            int z = (int)Math.floor(ez + dz * i / steps);
+            if (x == goal.x && y == goal.y && z == goal.z) return true;
+            var c = baseCell(x, y, z);
+            if (c == null || !boxes(c).isEmpty()) return false;
+        }
+        return true;
+    }
+
+    private double survival(Node node, double edge) {
+        if (hazardPenalty != 0 && integral(node.y)) {
+            boolean hazard = false;
+            for (var d : DIRECTIONS) for (int y = (int)node.y - 1; y <= (int)node.y; y++) {
+                var c = baseCell(node.x + d[0], y, node.z + d[1]);
+                if (c != null && (HAZARDS.contains(c.get("block")) || String.valueOf(c.get("fluid")).contains("lava"))) hazard = true;
+            }
+            if (hazard) edge += hazardPenalty;
+        }
+        if (mobCoefficient != 1) for (var t : threats) {
+            if (sq(node.x - t[0]) + sq(node.y - t[1]) + sq(node.z - t[2]) <= sq(mobRadius)) {
+                edge *= mobCoefficient; break;
+            }
+        }
+        return edge;
     }
 
     // Baritone GoalXZ octile heuristic x COST_HEURISTIC plus GoalYLevel (route_search._remaining).
     double remaining(Node node) {
-        double ax = Math.abs(node.x - goal.x), az = Math.abs(node.z - goal.z);
-        double horizontal = Math.max(0, Math.abs(ax - az) + Math.min(ax, az) * SQRT2 - radius);
-        double rise = goal.y - node.y;
-        double vertical = rise > 0 ? rise * JUMP : -rise * fallTicks(2) / 2;
-        return COST_HEURISTIC * horizontal + vertical;
+        if (!ticks) return distance(node);
+        return (baritoneSearch ? COST_HEURISTIC : SPRINT) * horizontal(node) + vertical(node, false, false);
+    }
+    private double heuristic(Node node) {
+        if (unknownPenalty > 0 && heuristicWeight == 0)
+            return ticks ? unknownPenalty * (WALK * horizontal(node) + vertical(node, false, false)) : unknownPenalty * distance(node);
+        return (heuristicWeight == 0 ? 1 : heuristicWeight) * remaining(node);
     }
 
     private record Move(Node target, double cost, Edit edit) {
@@ -287,8 +355,8 @@ final class RoutePlanner {
     private List<Move> moves(Node node) {
         var out = new ArrayList<Move>(8);
         int x = node.x, z = node.z; double y = node.y;
-        if (extra && climbOnly(node)) { extraMoves(node, out); return out; }
-        boolean onWater = swim && (surfaceNode(node) || flowingSurface(node));
+        if (extra && climbOnly(node)) { if (climb) extraMoves(node, out); return out; }
+        boolean onWater = swim && (surfaceNode(node) || (plannerSwim && flowingSurface(node)));
         var below = at(x, y - 1, z);
         boolean gapRoom = maxGap > 0 && integral(y) && below != null && dry(below) && fullCube(below);
         boolean editReady = edits != null && edits.stepEdits && integral(y) && blockStandable(node);
@@ -305,11 +373,12 @@ final class RoutePlanner {
                 for (int width = 1; width <= maxGap; width++)
                     if ((width < 2 || sprint) && gap(node, d, width + 1))
                         out.add(new Move(new Node(x + d[0] * (width + 1), y, z + d[1] * (width + 1)),
-                                WALK * (width + 1) + JUMP_PENALTY));
+                                ticks ? WALK * (width + 1) + (baritoneSearch ? JUMP_PENALTY : 0) : width + 3.5));
             var reached = editReady ? new HashSet<Node>() : null;
-            for (double ty : surfaces(x + d[0], z + d[1], y - maxDrop, y + 1)) {
+            var possible = shapes ? surfaces(x + d[0], z + d[1], y - maxDrop, y + 1) : blockSurfaces(x + d[0], z + d[1], y);
+            for (double ty : possible) {
                 var target = new Node(x + d[0], ty, z + d[1]);
-                if (stepClear(node, target)) {
+                if (shapes ? stepClear(node, target) : blockStepClear(node, target)) {
                     out.add(new Move(target, heightCost(ty - y)));
                     if (reached != null) reached.add(target);
                 }
@@ -319,21 +388,41 @@ final class RoutePlanner {
                 if (!reached.contains(target)) addEdit(planEdit(node, target), heightCost(dy), node, out);
             }
         }
-        for (var d : DIAGONALS) {
+        if (diagonals) for (var d : DIAGONALS) {
             var target = new Node(x + d[0], y, z + d[1]);
-            if (!(swim ? supported(target) : standable(target))) continue;
+            if (!stance(target)) continue;
+            if (!baritoneDiagonal) {
+                if (stance(new Node(x + d[0], y, z)) && stance(new Node(x, y, z + d[1])))
+                    out.add(new Move(target, flat() * SQRT2));
+                continue;
+            }
             int a = side(x + d[0], y, z), b = side(x, y, z + d[1]);
             if (a < 0 || b < 0 || (a == 0 && b == 0)) continue;
-            if (swim) {  // MovementDiagonal: water at either end swims, no sprint
+            if (plannerSwim) {  // MovementDiagonal: water at either end swims, no sprint
                 var wet = surfaceWater(target);
                 if (wet == null) wet = surfaceWater(node);
-                if (wet != null) { out.add(new Move(target, SWIM * multiplier(wet) * SQRT2)); continue; }
+                if (wet != null) { out.add(new Move(target, (ticks ? SWIM : 1.8) * multiplier(wet) * SQRT2)); continue; }
             }
             // Edging past one blocked side: walk pace, no sprint (MovementDiagonal).
             out.add(new Move(target, a == 0 || b == 0 ? WALK * SQRT2 * (SQRT2 - .001) : flat() * SQRT2));
         }
         if (extra) extraMoves(node, out);
         return out;
+    }
+    private boolean stance(Node n) { return swim ? supported(n) : shapes ? standable(n) : blockStandable(n); }
+    private List<Double> blockSurfaces(int x, int z, double y) {
+        if (!integral(y)) return List.of();
+        var result = new ArrayList<Double>();
+        for (int dy = 0; dy <= 1; dy++) if (blockStandable(new Node(x, y + dy, z))) result.add(y + dy);
+        for (int dy = -1; dy >= -maxDrop; dy--) if (blockStandable(new Node(x, y + dy, z))) result.add(y + dy);
+        return result;
+    }
+    private boolean blockStepClear(Node from, Node to) {
+        if (!blockStandable(to) || !integral(from.y) || !integral(to.y)) return false;
+        int y = (int)from.y, ty = (int)to.y;
+        if (ty == y + 1) return empty(at(from.x, y + 2, from.z)) && empty(at(from.x, y + 3, from.z)) && empty(at(to.x, y + 3, to.z));
+        if (ty < y) for (int cy = ty; cy < y + 2; cy++) if (!empty(at(to.x, cy, to.z))) return false;
+        return true;
     }
 
     // --- swimming (water_movement, route_moves) ---
@@ -365,14 +454,18 @@ final class RoutePlanner {
     private static double multiplier(Map<String, Object> wet) { return water(wet, true) ? 1 : FLOWING; }
     /** water_movement.supported_node with shapes: a surface stance, or standable over a safe cell. */
     boolean supported(Node n) {
-        return surfaceNode(n) || (standable(n) && safe(cell(n.x, (int) Math.ceil(n.y) - 1, n.z)));
+        return surfaceNode(n) || ((shapes ? standable(n) : blockStandable(n)) && safe(cell(n.x, (int) Math.ceil(n.y) - 1, n.z)));
     }
     /** route_moves.swim_cost under planner_swim; 0 when there is no swim edge. */
     private double swimCost(Node source, Node target) {
+        if (!plannerSwim) {
+            return (surfaceNode(source) || surfaceNode(target)) && supported(source) && supported(target)
+                    ? (ticks ? SWIM : 1.8) : 0;
+        }
         var wetSource = surfaceWater(source); var wetTarget = surfaceWater(target);
         if (wetSource == null && wetTarget == null) return 0;
         for (var n : List.of(source, target)) if (!supported(n) && !flowingSurface(n)) return 0;
-        return SWIM * multiplier(wetTarget != null ? wetTarget : wetSource);
+        return (ticks ? SWIM : 1.8) * multiplier(wetTarget != null ? wetTarget : wetSource);
     }
 
     /** gap_jump.gap_plan: full-cube take-off and landing, 2-deep hole, clear runway and arc. */
@@ -408,7 +501,7 @@ final class RoutePlanner {
     private boolean openOrClimb(Map<String, Object> c) { return empty(c) || climbable(c); }
 
     private void extraMoves(Node node, List<Move> out) {
-        ladderMoves(node, out);
+        if (climb) ladderMoves(node, out);
         if (!integral(node.y) || !blockStandable(node)) return;
         if (edits != null) {
             addEdit(downward(node), fallTicks(1), node, out);  // MovementDownward: fall 1, no walk-off
@@ -424,8 +517,8 @@ final class RoutePlanner {
         if (!integral(y)) return;
         if (climbable(at(x, y, z))) {
             var up = new Node(x, y + 1, z); var down = new Node(x, y - 1, z);
-            if (climbable(at(x, y + 1, z)) && openOrClimb(at(x, y + 2, z))) out.add(new Move(up, LADDER_UP));
-            if (climbable(at(x, y - 1, z))) out.add(new Move(down, LADDER_DOWN));
+            if (climbable(at(x, y + 1, z)) && openOrClimb(at(x, y + 2, z))) out.add(new Move(up, ticks ? LADDER_UP : 1.4));
+            if (climbable(at(x, y - 1, z))) out.add(new Move(down, ticks ? LADDER_DOWN : 1.4));
             for (var d : DIRECTIONS) for (int dy = 0; dy <= 1; dy++) {
                 var target = new Node(x + d[0], y + dy, z + d[1]);
                 if (blockStandable(target)) out.add(new Move(target, heightCost(dy)));
@@ -445,7 +538,7 @@ final class RoutePlanner {
             var target = new Node(node.x + d[0], node.y - h, node.z + d[1]);
             var c = at(target.x, target.y, target.z);
             if (c == null || !boxes(c).isEmpty()) return;
-            if (waterLanding(node, target)) out.add(new Move(target, WALK_OFF + fallTicks(h)));
+            if (waterLanding(node, target)) out.add(new Move(target, ticks ? WALK_OFF + fallTicks(h) : 1 + .4 * h));
             if (!dry(c)) return;
         }
     }
@@ -462,10 +555,11 @@ final class RoutePlanner {
         return y < target.y - 1 && safe(floor) && !boxes(floor).isEmpty();
     }
 
-    private double flat() { return sprint ? SPRINT : WALK; }
+    private double flat() { return ticks ? (sprint ? SPRINT : WALK) : 1; }
 
     private double heightCost(double dy) {
-        if (dy > .5) return Math.max(JUMP, WALK) + JUMP_PENALTY;  // MovementAscend
+        if (!ticks) return 1 + .4 * Math.abs(dy);
+        if (dy > .5) return Math.max(JUMP, WALK) + (baritoneSearch ? JUMP_PENALTY : 0);  // MovementAscend
         if (dy < -.5) return WALK_OFF + Math.max(fallTicks(-dy), CENTER_AFTER_FALL);  // Descend/Fall
         return flat();
     }
@@ -474,7 +568,7 @@ final class RoutePlanner {
     private int side(int x, double y, int z) {
         int fy = (int) Math.floor(y);
         if (cell(x, fy, z) == null || cell(x, fy + 1, z) == null) return -1;
-        if (!clearColumn(x, z, y, y + 1.8)) return 0;
+        if (shapes ? !clearColumn(x, z, y, y + 1.8) : !(empty(at(x, y, z)) && empty(at(x, y + 1, z)))) return 0;
         for (int cy = fy - 1; cy > fy - 2 - maxDrop; cy--) {
             var below = cell(x, cy, z);
             if (below == null) continue;
@@ -496,6 +590,10 @@ final class RoutePlanner {
             var edited = overlay.get(key);
             if (edited != null) return edited;
         }
+        return baseCell(x, y, z);
+    }
+    private Map<String, Object> baseCell(int x, int y, int z) {
+        long key = key(x, y, z);
         if (!cells.containsKey(key)) cells.put(key, reader.cell(x, y, z));
         return cells.get(key);
     }
@@ -585,23 +683,39 @@ final class RoutePlanner {
         static EditPolicy fromJson(JsonObject o) {
             var breakCosts = costs(o.getAsJsonObject("break_costs"));
             var fallCosts = costs(o.getAsJsonObject("fall_costs"));
-            int maxStack = o.get("max_stack").getAsInt(), breakBudget = o.get("break_budget").getAsInt(),
-                    placeBudget = o.get("place_budget").getAsInt(), placeSupply = o.get("place_supply").getAsInt();
+            int maxStack = integer(o.get("max_stack")), breakBudget = integer(o.get("break_budget")),
+                    placeBudget = integer(o.get("place_budget")), placeSupply = integer(o.get("place_supply"));
             var cells = new HashSet<Long>();
             for (var e : o.getAsJsonArray("protected")) {
                 var a = e.getAsJsonArray();
-                cells.add(key(a.get(0).getAsInt(), a.get(1).getAsInt(), a.get(2).getAsInt()));
+                if (a.size() != 3) throw new IllegalArgumentException("edit_protected");
+                int x = integer(a.get(0)), y = integer(a.get(1)), z = integer(a.get(2));
+                if (Math.abs((long)x) > 30_000_000 || Math.abs((long)z) > 30_000_000 || y < -2048 || y > 2047)
+                    throw new IllegalArgumentException("edit_protected");
+                cells.add(key(x, y, z));
             }
             var blocks = new HashSet<String>();
             for (var e : o.getAsJsonArray("protected_blocks")) blocks.add(e.getAsString());
             String material = o.get("material").getAsString();
             if (maxStack < 1 || maxStack > 3 || breakBudget < 0 || breakBudget > 64 || placeBudget < 0 || placeBudget > 64
-                    || placeSupply < 0 || placeSupply > 3 || cells.size() > 4096 || blocks.size() > 256
+                    || placeSupply < 0 || placeSupply > 3 || cells.size() > 4_000_000 || blocks.size() > 4_000_000
                     || !material.startsWith("minecraft:"))
                 throw new IllegalArgumentException("edit_bounds");
-            return new EditPolicy(o.get("step").getAsBoolean(), breakCosts, fallCosts, o.get("allow_place").getAsBoolean(),
-                    o.get("allow_bridge").getAsBoolean(), o.get("allow_pillar").getAsBoolean(), maxStack, breakBudget,
+            return new EditPolicy(bool(o, "step"), breakCosts, fallCosts, bool(o, "allow_place"),
+                    bool(o, "allow_bridge"), bool(o, "allow_pillar"), maxStack, breakBudget,
                     placeBudget, placeSupply, cells, blocks, material);
+        }
+        private static int integer(com.google.gson.JsonElement e) {
+            if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) throw new IllegalArgumentException("edit_integer");
+            double n = e.getAsDouble();
+            if (!Double.isFinite(n) || n != Math.rint(n) || n < Integer.MIN_VALUE || n > Integer.MAX_VALUE)
+                throw new IllegalArgumentException("edit_integer");
+            return (int)n;
+        }
+        private static boolean bool(JsonObject o, String name) {
+            var e = o.get(name);
+            if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isBoolean()) throw new IllegalArgumentException("edit_boolean");
+            return e.getAsBoolean();
         }
         private static Map<String, Double> costs(JsonObject o) {
             var out = new HashMap<String, Double>();
@@ -661,6 +775,8 @@ final class RoutePlanner {
 
     /** route_search._priced, summed in the same order so equal-cost ties match. */
     private double editCost(Edit edit, double base, Node from) {
+        if (!ticks) return (edit.target.y > edit.source.y ? 1.4 : 1)
+                + (breakPenalty + toolWearPenalty) * edit.breaks.size() + placePenalty * edit.places.size();
         double breaking = 0;
         for (var p : edit.breaks) breaking += edits.breakCosts.get(block(p));
         if (extra && !edit.breaks.isEmpty()) {  // getMiningDurationTicks includeFalling

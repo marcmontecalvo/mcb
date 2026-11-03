@@ -3,6 +3,7 @@ package com.vulpine.mcb.body;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.reflect.TypeToken;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import net.minecraft.server.MinecraftServer;
@@ -50,6 +51,7 @@ public final class BodyRuntime implements AutoCloseable {
     private boolean stream;
     private boolean extendedObservation;
     private boolean courseLimits;
+    private boolean legacyMoving;
     private final String launchId = System.getProperty("mclab.launch_id", "unmanaged");
     private final ArrayBlockingQueue<Inbound> inbox = new ArrayBlockingQueue<>(64);
     private final ArrayDeque<Event> events = new ArrayDeque<>();
@@ -183,6 +185,32 @@ public final class BodyRuntime implements AutoCloseable {
         return value;
     }
 
+    private static int exactInt(com.google.gson.JsonElement value, String field) {
+        if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber())
+            throw new IllegalArgumentException(field);
+        double number = value.getAsDouble();
+        if (!Double.isFinite(number) || number != Math.rint(number) || number < Integer.MIN_VALUE || number > Integer.MAX_VALUE)
+            throw new IllegalArgumentException(field);
+        return (int)number;
+    }
+
+    private static long exactLong(com.google.gson.JsonElement value, String field) {
+        if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber())
+            throw new IllegalArgumentException(field);
+        try {
+            return value.getAsBigDecimal().longValueExact();
+        } catch (ArithmeticException | NumberFormatException error) {
+            throw new IllegalArgumentException(field, error);
+        }
+    }
+
+    private static boolean strictBoolean(JsonObject value, String field) {
+        var entry = value.get(field);
+        if (entry == null || !entry.isJsonPrimitive() || !entry.getAsJsonPrimitive().isBoolean())
+            throw new IllegalArgumentException(field);
+        return entry.getAsBoolean();
+    }
+
     public void preTick() {
         if (body != null && traceEnabled) emit("phase", "fabric_start", Map.of());
         for (var previous : retired) previous.pollReady();
@@ -191,6 +219,7 @@ public final class BodyRuntime implements AutoCloseable {
         if (traceEnabled && tick >= traceEnd) traceEnabled = false;
         if (body != null && System.nanoTime() - lastContactNanos > TimeUnit.SECONDS.toNanos(2)) {
             cancelRoute("watchdog");
+            legacyMoving = false;
             body.release();
             if (expiryTick >= 0) emit("released", "fabric_start", Map.of("reason", "watchdog"));
             expiryTick = -1;
@@ -218,6 +247,7 @@ public final class BodyRuntime implements AutoCloseable {
                 validateTiming(action.controls(), tick);
                 if (!readyState.equals("ready")) throw new IllegalStateException("body_not_ready");
                 body.controls(action.controls());
+                legacyMoving = action.controls().forward() != 0 || action.controls().strafe() != 0;
                 expiryTick = action.controls().expires_tick();
                 emit("applied", "fabric_start", Map.of("action_id", action.controls().action_id(),
                         "actual_apply_tick", tick, "request_sequence", action.request().get("sequence").getAsLong()));
@@ -230,12 +260,16 @@ public final class BodyRuntime implements AutoCloseable {
         // Otherwise expiry releases before Carpet, including after a rejected replacement.
         if (body != null && expiryTick >= 0 && tick >= expiryTick) {
             body.release();
+            legacyMoving = false;
             emit("released", "fabric_start", Map.of("reason", "expiry", "expires_tick", expiryTick));
             expiryTick = -1;
         }
         if (body != null && body.guardReach()) {
             emit("interaction_rejected", "fabric_start", Map.of("reason", "real_player_reach_guard"));
         }
+        if (body != null && body.player() != null && readyState.equals("ready") && !courseLimits
+                && extendedObservation && !nativeMode && legacyMoving && routePermissions.doors())
+            BuildingMoves.openNear(body.player());
         if (!tickReflex()) { tickRoute(); tickStep(); tickGap(); }
         tickBreak();
         tickAction();
@@ -248,50 +282,200 @@ public final class BodyRuntime implements AutoCloseable {
     // Threat reflex setting from the cost profile (follow_route "flee"); default one block.
     private RouteReflex.Flee flee = RouteReflex.Flee.DEFAULT;
     private static final int MAX_PLANS = 4;
-    private boolean useDoors = false, climbVines = true; // BuildingMoves, from start_plan edits
+    private RoutePermissions routePermissions = RoutePermissions.defaults();
     private final Map<String,RoutePlanner> plans = new LinkedHashMap<>();
+    private final Map<String,TerrainPlanner> terrainPlans = new LinkedHashMap<>();
+    private PlannerMap plannerMap = new PlannerMap();
+    private PlanData planData = new PlanData();
     private final Map<String,Integer> planLimits = new HashMap<>();
     private final Map<String,Map<String,Object>> planResults = new LinkedHashMap<>();
 
     private void startPlan(JsonObject request) {
         String id = request.get("plan_id").getAsString();
-        if (id.isEmpty() || id.length() > 64) throw new IllegalArgumentException("plan_id");
+        if (!id.matches("[A-Za-z0-9_.:-]{1,64}")) throw new IllegalArgumentException("plan_id");
+        if (request.has("mode") && request.get("mode").getAsString().equals("terrain")) {
+            startTerrainPlan(id, request);
+            return;
+        }
+        if (request.has("mode")) throw new IllegalArgumentException("plan_mode");
         var s = request.getAsJsonArray("start"); var g = request.getAsJsonArray("goal");
-        var start = new RoutePlanner.Node(s.get(0).getAsInt(), s.get(1).getAsDouble(), s.get(2).getAsInt());
-        var goal = new RoutePlanner.Node(g.get(0).getAsInt(), g.get(1).getAsDouble(), g.get(2).getAsInt());
+        var start = node(s); var goal = node(g);
         double radius = request.get("radius").getAsDouble(), penalty = request.get("unknown_penalty").getAsDouble();
-        int maxDrop = request.get("max_drop").getAsInt(), maxGap = request.get("max_gap").getAsInt();
-        int limit = request.get("node_limit").getAsInt();
-        if (radius < 0 || radius > 16 || maxDrop < 0 || maxDrop > 3 || maxGap < 0 || maxGap > 2
+        int maxDrop = exactInt(request.get("max_drop"), "max_drop"), maxGap = exactInt(request.get("max_gap"), "max_gap");
+        int limit = exactInt(request.get("node_limit"), "node_limit");
+        if (!Double.isFinite(radius) || radius < 0 || maxDrop < 0 || maxDrop > 3 || maxGap < 0 || maxGap > 2
                 || limit < 1 || limit > 100_000 || !(penalty == 0 || (penalty >= 1 && penalty <= 10)))
             throw new IllegalArgumentException("plan_bounds");
-        var planner = new RoutePlanner(localReader(body.player()), start, goal, radius, maxDrop,
-                request.get("sprint").getAsBoolean(), penalty)
-                .withMoves(request.get("swim").getAsBoolean(), request.get("extra").getAsBoolean())
+        var requestedEdits = request.has("edits") ? request.getAsJsonObject("edits") : null;
+        var planPermissions = RoutePermissions.edits(requestedEdits);
+        if (!request.has("map_generation")) throw new IllegalArgumentException("map_generation");
+        var selected = plannerMap.reader(exactLong(request.get("map_generation"), "map_generation"));
+        RouteGeometry.Reader reader = planPermissions.reader(selected);
+        var planner = new RoutePlanner(reader, start, goal, radius, maxDrop,
+                strictBoolean(request, "sprint"), penalty)
+                .withMoves(strictBoolean(request, "swim"), strictBoolean(request, "extra"))
+                .withPlannerSwim(!request.has("planner_swim") || strictBoolean(request, "planner_swim"))
+                .withClimb(request.has("allow_climb") && strictBoolean(request, "allow_climb"))
                 .withGaps(maxGap)
-                .withHistory(nodes(request, "favored"), edges(request));
+                .withHistory(nodes(request, "favored"), edges(request))
+                .withAvoidStances(nodes(request, "avoid_stances"));
+        if (request.has("tick_costs")) {
+            double weight = request.get("heuristic_weight").getAsDouble();
+            if (!Double.isFinite(weight) || weight < 0 || weight > 10) throw new IllegalArgumentException("heuristic_weight");
+            planner.withPolicy(strictBoolean(request, "tick_costs"), strictBoolean(request, "baritone_search"),
+                    strictBoolean(request, "baritone_diagonals"), strictBoolean(request, "allow_diagonals"),
+                    strictBoolean(request, "allow_shapes"), weight);
+            double breakPenalty = request.get("break_penalty").getAsDouble();
+            double placePenalty = request.get("placement_penalty").getAsDouble();
+            double toolWearPenalty = request.get("tool_wear_penalty").getAsDouble();
+            if (!Double.isFinite(breakPenalty) || !Double.isFinite(placePenalty) || !Double.isFinite(toolWearPenalty)
+                    || breakPenalty < 0 || placePenalty < 0 || toolWearPenalty < 0)
+                throw new IllegalArgumentException("legacy_pricing");
+            planner.withLegacyPricing(breakPenalty, placePenalty, toolWearPenalty);
+        }
+        if (request.has("interact_reach")) {
+            double reach = request.get("interact_reach").getAsDouble();
+            if (!Double.isFinite(reach) || reach <= 0) throw new IllegalArgumentException("interact_reach");
+            planner.withInteraction(reach);
+        }
+        if (request.has("hazard_penalty")) {
+            double hazard = request.get("hazard_penalty").getAsDouble();
+            double coefficient = request.get("mob_coefficient").getAsDouble();
+            double mobRadius = request.get("mob_radius").getAsDouble();
+            if (!Double.isFinite(hazard) || hazard < 0 || !Double.isFinite(coefficient)
+                    || coefficient < .1 || coefficient > 10 || !Double.isFinite(mobRadius) || mobRadius < 1 || mobRadius > 32)
+                throw new IllegalArgumentException("survival_bounds");
+            var threats = new ArrayList<double[]>();
+            for (var e : request.getAsJsonArray("threats")) {
+                var a = e.getAsJsonArray();
+                if (a.size() != 3 || threats.size() >= 4096) throw new IllegalArgumentException("threats");
+                double[] p = {a.get(0).getAsDouble(), a.get(1).getAsDouble(), a.get(2).getAsDouble()};
+                for (double v : p) if (!Double.isFinite(v)) throw new IllegalArgumentException("threats");
+                threats.add(p);
+            }
+            planner.withSurvival(hazard, coefficient, mobRadius, threats);
+        }
         if (request.has("edits")) {
             var edits = request.getAsJsonObject("edits");
             planner.withEdits(RoutePlanner.EditPolicy.fromJson(edits));
-            if (edits.has("falling_neighbours")) planner.withFallingNeighbours(edits.get("falling_neighbours").getAsBoolean());
-            // companion moves: the last plan's setting holds for its route (BuildingMoves)
-            useDoors = edits.has("doors") && edits.get("doors").getAsBoolean();
-            climbVines = !edits.has("vines") || edits.get("vines").getAsBoolean();
+            if (edits.has("falling_neighbours")) planner.withFallingNeighbours(strictBoolean(edits, "falling_neighbours"));
         }
-        while (plans.size() >= MAX_PLANS) { var oldest = plans.keySet().iterator().next(); plans.remove(oldest); }
+        if (plans.size() + terrainPlans.size() >= MAX_PLANS) throw new IllegalStateException("planner_capacity");
         plans.put(id, planner); planLimits.put(id, limit);
         planResults.put(id, Map.of("plan_id", id, "state", "searching"));
         while (planResults.size() > MAX_PLANS) planResults.remove(planResults.keySet().iterator().next());
     }
 
+    private void startTerrainPlan(String id, JsonObject request) {
+        if (!request.has("map_generation")) throw new IllegalArgumentException("map_generation");
+        var selected = plannerMap.reader(exactLong(request.get("map_generation"), "map_generation"));
+        var start = node(request.get("start")); var goal = node(request.get("goal"));
+        double radius = request.get("radius").getAsDouble();
+        int maxDrop = exactInt(request.get("max_drop"), "max_drop"), horizon = exactInt(request.get("horizon"), "horizon");
+        int width = exactInt(request.get("beam_width"), "beam_width"), limit = exactInt(request.get("node_limit"), "node_limit");
+        if (!Double.isFinite(radius) || radius < 0 || maxDrop < 0 || maxDrop > 3 || limit < 1 || limit > 100_000)
+            throw new IllegalArgumentException("terrain_bounds");
+        var p = request.getAsJsonObject("policy");
+        RouteGeometry.Reader reader = RoutePermissions.route(p).reader(selected);
+        int breaks = exactInt(p.get("break_budget"), "break_budget"), places = exactInt(p.get("place_budget"), "place_budget");
+        int reserve = exactInt(p.get("reserve_blocks"), "reserve_blocks"), stack = exactInt(p.get("max_support_stack"), "max_support_stack");
+        int pillar = exactInt(p.get("max_pillar_height"), "max_pillar_height");
+        double breakCost = p.get("break_penalty").getAsDouble(), placeCost = p.get("placement_penalty").getAsDouble();
+        double wear = p.get("tool_wear_penalty").getAsDouble();
+        if (breaks < 0 || breaks > 64 || places < 0 || places > 64 || reserve < 0 || reserve > 64
+                || stack < 1 || stack > 3 || pillar < 1 || pillar > 3 || !Double.isFinite(breakCost)
+                || !Double.isFinite(placeCost) || !Double.isFinite(wear) || breakCost < 0 || breakCost > 1000
+                || placeCost < 0 || placeCost > 1000 || wear < 0 || wear > 1000)
+            throw new IllegalArgumentException("terrain_policy_bounds");
+        var materials = new ArrayList<String>();
+        for (var e : p.getAsJsonArray("material_allowlist")) {
+            String material = e.getAsString();
+            if (!Set.of("minecraft:cobblestone", "minecraft:dirt").contains(material) || materials.size() >= 64)
+                throw new IllegalArgumentException("terrain_material");
+            materials.add(material);
+        }
+        var protectedBlocks = new HashSet<String>();
+        for (var e : p.getAsJsonArray("protected_blocks")) {
+            String block = e.getAsString();
+            if (!block.startsWith("minecraft:") || protectedBlocks.size() >= 4096) throw new IllegalArgumentException("protected_blocks");
+            protectedBlocks.add(block);
+        }
+        var policy = new TerrainPlanner.Policy(strictBoolean(p, "allow_break"), strictBoolean(p, "allow_place"),
+                breaks, places, reserve, materials, protectedBlocks, nodes(p, "protected_positions"), breakCost, placeCost, wear,
+                strictBoolean(p, "allow_bridge"), stack, strictBoolean(p, "allow_pillar"), pillar,
+                strictBoolean(p, "planner_tick_costs"), strictBoolean(p, "baritone_moves"),
+                strictBoolean(p, "allow_falling_neighbours"));
+        var inventory = new ArrayList<TerrainPlanner.Stock>();
+        for (var e : request.getAsJsonArray("inventory")) {
+            var row = e.getAsJsonObject();
+            int slot = exactInt(row.get("slot"), "terrain_inventory"), count = exactInt(row.get("count"), "terrain_inventory");
+            String item = row.get("item").getAsString();
+            if (slot < 0 || slot > 255 || count < 0 || count > 1_000_000 || inventory.size() >= 256 || !item.startsWith("minecraft:"))
+                throw new IllegalArgumentException("terrain_inventory");
+            inventory.add(new TerrainPlanner.Stock(slot, item, count));
+        }
+        var excluded = new HashSet<TerrainPlanner.Edge>();
+        for (var edge : edges(request)) excluded.add(new TerrainPlanner.Edge(edge.get(0), edge.get(1)));
+        if (plans.size() + terrainPlans.size() >= MAX_PLANS) throw new IllegalStateException("planner_capacity");
+        terrainPlans.put(id, new TerrainPlanner(reader, start, goal, radius, policy, inventory,
+                nodes(request, "protected"), excluded, maxDrop, horizon, width));
+        planLimits.put(id, limit);
+        planResults.put(id, Map.of("plan_id", id, "state", "searching"));
+        while (planResults.size() > MAX_PLANS) planResults.remove(planResults.keySet().iterator().next());
+    }
+
+    private void plannerMapFrame(JsonObject request) {
+        String kind = request.get("kind").getAsString();
+        switch (kind) {
+            case "begin" -> plannerMap.begin(exactLong(request.get("base"), "map_base"),
+                    exactLong(request.get("generation"), "map_generation"));
+            case "palette" -> {
+                List<Map<String, Object>> facts = GSON.fromJson(request.get("facts"),
+                        new TypeToken<List<Map<String, Object>>>() { }.getType());
+                plannerMap.palette(exactInt(request.get("first"), "map_palette_first"), facts);
+            }
+            case "section", "remove" -> {
+                var section = request.getAsJsonArray("section");
+                if (section == null || section.size() != 3) throw new IllegalArgumentException("map_section");
+                int x = exactInt(section.get(0), "map_section"), y = exactInt(section.get(1), "map_section"), z = exactInt(section.get(2), "map_section");
+                if (kind.equals("remove")) plannerMap.remove(x, y, z);
+                else plannerMap.section(x, y, z, request.get("states").getAsString());
+            }
+            case "commit" -> plannerMap.commit(exactLong(request.get("generation"), "map_generation"));
+            case "abort" -> plannerMap.abort();
+            case "status" -> { }
+            case "reset" -> {
+                if (!plans.isEmpty() || !terrainPlans.isEmpty()) throw new IllegalStateException("map_plans_active");
+                plannerMap = new PlannerMap();
+            }
+            case "batch" -> {
+                var frames = request.getAsJsonArray("frames");
+                if (frames == null || frames.isEmpty() || frames.size() > 256) throw new IllegalArgumentException("map_batch");
+                for (var item : frames) {
+                    var frame = item.getAsJsonObject();
+                    if (!Set.of("palette", "section", "remove").contains(frame.get("kind").getAsString()))
+                        throw new IllegalArgumentException("map_batch_kind");
+                    plannerMapFrame(frame);
+                }
+            }
+            default -> throw new IllegalArgumentException("map_frame_kind");
+        }
+    }
+
     private static RoutePlanner.Node node(com.google.gson.JsonElement e) {
         var a = e.getAsJsonArray();
-        return new RoutePlanner.Node(a.get(0).getAsInt(), a.get(1).getAsDouble(), a.get(2).getAsInt());
+        if (a.size() != 3 || !a.get(1).isJsonPrimitive() || !a.get(1).getAsJsonPrimitive().isNumber())
+            throw new IllegalArgumentException("plan_node");
+        int x = exactInt(a.get(0), "plan_node"), z = exactInt(a.get(2), "plan_node");
+        double y = a.get(1).getAsDouble();
+        if (Math.abs((long)x) > 30_000_000 || Math.abs((long)z) > 30_000_000 || !Double.isFinite(y)
+                || y < -2048 || y > 2048) throw new IllegalArgumentException("plan_node");
+        return new RoutePlanner.Node(x, y, z);
     }
     private static Set<RoutePlanner.Node> nodes(JsonObject request, String key) {
         var out = new HashSet<RoutePlanner.Node>();
         if (request.has(key)) for (var e : request.getAsJsonArray(key)) out.add(node(e));
-        if (out.size() > 4096) throw new IllegalArgumentException("plan_history_bounds");
+        if (out.size() > 4_000_000) throw new IllegalArgumentException("plan_history_bounds");
         return out;
     }
     private static Set<List<RoutePlanner.Node>> edges(JsonObject request) {
@@ -299,12 +483,12 @@ public final class BodyRuntime implements AutoCloseable {
         if (request.has("excluded")) for (var e : request.getAsJsonArray("excluded")) {
             var pair = e.getAsJsonArray(); out.add(List.of(node(pair.get(0)), node(pair.get(1))));
         }
-        if (out.size() > 4096) throw new IllegalArgumentException("plan_history_bounds");
+        if (out.size() > 4_000_000) throw new IllegalArgumentException("plan_history_bounds");
         return out;
     }
 
     private void tickPlans() {
-        if (plans.isEmpty() || body == null || body.player() == null) return;
+        if ((plans.isEmpty() && terrainPlans.isEmpty()) || body == null || body.player() == null) return;
         long deadline = System.nanoTime() + PLAN_SLICE_NANOS;
         var done = new ArrayList<String>();
         for (var entry : plans.entrySet()) {
@@ -326,6 +510,29 @@ public final class BodyRuntime implements AutoCloseable {
             done.add(entry.getKey());
         }
         done.forEach(id -> { plans.remove(id); planLimits.remove(id); });
+        done.clear();
+        for (var entry : terrainPlans.entrySet()) {
+            if (System.nanoTime() > deadline) break;
+            var result = entry.getValue().advance(planLimits.get(entry.getKey()), deadline);
+            if (result.status().equals("searching")) continue;
+            var route = result.route().stream().map(n -> List.<Object>of(n.x(), n.y(), n.z())).toList();
+            var steps = result.steps().stream().map(step -> {
+                var value = new HashMap<String, Object>();
+                value.put("source", List.of(step.source().x(), step.source().y(), step.source().z()));
+                value.put("target", List.of(step.target().x(), step.target().y(), step.target().z()));
+                value.put("breaks", step.breaks().stream().map(n -> List.of(n.x(), n.y(), n.z())).toList());
+                value.put("places", step.places().stream().map(n -> List.of(n.x(), n.y(), n.z())).toList());
+                value.put("kind", step.kind());
+                if (step.exit() != null) value.put("exit", List.of(step.exit().x(), step.exit().y(), step.exit().z()));
+                return value;
+            }).toList();
+            planResults.put(entry.getKey(), Map.of("plan_id", entry.getKey(), "state", "done", "status", result.status(),
+                    "route", route, "steps", steps, "expanded", result.expanded(), "reason", result.reason(), "tick", server.getTickCount()));
+            emit("plan_finished", "fabric_end", Map.of("plan_id", entry.getKey(), "status", result.status(),
+                    "expanded", result.expanded(), "length", route.size()));
+            done.add(entry.getKey());
+        }
+        done.forEach(id -> { terrainPlans.remove(id); planLimits.remove(id); });
     }
 
     private Map<String,Object> routeStatus() {
@@ -333,6 +540,7 @@ public final class BodyRuntime implements AutoCloseable {
     }
 
     private void cancelRoute(String reason) {
+        legacyMoving = false;
         if (actionTask != null) {
             var task = actionTask;
             actionTask = null;
@@ -360,11 +568,14 @@ public final class BodyRuntime implements AutoCloseable {
     }
 
     private RouteGeometry.Reader localReader(ServerPlayer p) {
+        return localReader(p, routePermissions);
+    }
+    private RouteGeometry.Reader localReader(ServerPlayer p, RoutePermissions permissions) {
         return (x,y,z) -> {
             var pos = new net.minecraft.core.BlockPos(x,y,z);
             if (!p.level().isInsideBuildHeight(pos) || !AwarenessSensor.inRange(awareness,p.blockPosition(),pos)) return null;
             return BuildingMoves.view(PolicySensor.cell(p,server.getTickCount(),pos,awareness.occluded()),
-                    useDoors, climbVines);
+                    permissions.doors(), permissions.vines());
         };
     }
 
@@ -406,6 +617,7 @@ public final class BodyRuntime implements AutoCloseable {
         }
         var previous = stepMotor.status();
         try {
+            if (routePermissions.doors()) BuildingMoves.openNear(body.player());
             var controls = stepMotor.tick(body.player(),server.getTickCount(),localReader(body.player()));
             if (stepMotor.active()) { body.controls(controls); expiryTick=server.getTickCount()+2; }
             else { body.release(); expiryTick=-1; }
@@ -424,6 +636,7 @@ public final class BodyRuntime implements AutoCloseable {
         }
         var previous=gapMotor.status();
         try {
+            if (routePermissions.doors()) BuildingMoves.openNear(body.player());
             var controls=gapMotor.tick(body.player(),server.getTickCount(),localReader(body.player()));
             if(gapMotor.active()) { body.controls(controls); expiryTick=server.getTickCount()+2; }
             else { body.release(); expiryTick=-1; }
@@ -445,7 +658,7 @@ public final class BodyRuntime implements AutoCloseable {
         var p = body.player();
         var prior = routeMotor.status();
         try {
-            if (useDoors) BuildingMoves.openNear(p);
+            if (routePermissions.doors()) BuildingMoves.openNear(p);
             var geometry = new RouteGeometry(localReader(p));
             var velocity = p.getDeltaMovement();
             var input = routeMotor.tick(new RouteMotor.Pose(p.getX(),p.getY(),p.getZ(),velocity.x,velocity.z,
@@ -523,17 +736,26 @@ public final class BodyRuntime implements AutoCloseable {
         }
         switch (op) {
             case "heartbeat" -> { }
+            case "route_policy" -> {
+                if (!readyState.equals("ready") || courseLimits || !extendedObservation || nativeMode)
+                    throw new IllegalStateException("route_policy_requires_development_body");
+                routePermissions = RoutePermissions.route(request);
+                emit("route_policy_accepted", "fabric_start", Map.of("request_sequence", sequence));
+            }
             case "follow_route" -> {
                 if (!readyState.equals("ready") || courseLimits || !extendedObservation)
                     throw new IllegalStateException("native_route_requires_development_body");
                 var candidate = RouteMotor.parse(request);
+                var permissions = RoutePermissions.route(request);
+                var nextFlee = flee;
                 if (request.has("flee")) {
                     var f = request.getAsJsonObject("flee");
-                    flee = new RouteReflex.Flee(f.get("trigger").getAsDouble(), f.get("creeper_trigger").getAsDouble(),
+                    nextFlee = new RouteReflex.Flee(f.get("trigger").getAsDouble(), f.get("creeper_trigger").getAsDouble(),
                             f.get("steps").getAsInt());
                 }
                 cancelRoute("replaced");
                 scheduled.clear(); body.release(); expiryTick = -1;
+                routePermissions = permissions; flee = nextFlee;
                 routeMotor = candidate;
                 nativeMode=true;
                 emit("route_accepted", "fabric_start", Map.of("request_sequence",sequence,"route",routeStatus()));
@@ -542,8 +764,10 @@ public final class BodyRuntime implements AutoCloseable {
                 if (!readyState.equals("ready") || courseLimits || !extendedObservation)
                     throw new IllegalStateException("native_step_requires_development_body");
                 var candidate = new StepMotor(request);
+                var permissions = RoutePermissions.route(request.getAsJsonObject("terrain_policy"));
                 cancelRoute("replaced");
                 scheduled.clear(); body.release(); expiryTick=-1;
+                routePermissions = permissions;
                 stepMotor=candidate;
                 nativeMode=true;
                 emit("step_accepted","fabric_start",Map.of("request_sequence",sequence,"step",stepMotor.status()));
@@ -552,7 +776,9 @@ public final class BodyRuntime implements AutoCloseable {
                 if(!readyState.equals("ready") || courseLimits || !extendedObservation)
                     throw new IllegalStateException("native_gap_requires_development_body");
                 var candidate=new GapMotor(request);
+                var permissions = RoutePermissions.route(request);
                 cancelRoute("replaced"); scheduled.clear(); body.release(); expiryTick=-1;
+                routePermissions = permissions;
                 gapMotor=candidate;
                 nativeMode=true;
                 emit("gap_accepted","fabric_start",Map.of("request_sequence",sequence,"gap",gapMotor.status()));
@@ -560,9 +786,41 @@ public final class BodyRuntime implements AutoCloseable {
             case "plan_route" -> {
                 if (!readyState.equals("ready") || courseLimits || !extendedObservation)
                     throw new IllegalStateException("native_plan_requires_development_body");
-                startPlan(request);
+                JsonObject planRequest = request;
+                if (request.has("plan_ref")) {
+                    planRequest = planData.take(request.get("plan_ref").getAsString());
+                    if (!request.get("plan_id").getAsString().equals(planRequest.get("plan_id").getAsString()))
+                        throw new IllegalArgumentException("plan_data_id");
+                }
+                startPlan(planRequest);
                 emit("plan_accepted", "fabric_start", Map.of("request_sequence", sequence, "plan_id",
                         request.get("plan_id").getAsString()));
+            }
+            case "planner_request" -> {
+                if (!readyState.equals("ready") || courseLimits || !extendedObservation)
+                    throw new IllegalStateException("planner_request_requires_development_body");
+                String kind = request.get("kind").getAsString();
+                if (kind.equals("begin")) planData.begin(request.get("plan_id").getAsString(),
+                        exactInt(request.get("encoded_length"), "encoded_length"), exactInt(request.get("raw_length"), "raw_length"),
+                        request.get("sha256").getAsString());
+                else if (kind.equals("part")) planData.append(request.get("plan_id").getAsString(),
+                        exactInt(request.get("offset"), "offset"), request.get("data").getAsString());
+                else if (kind.equals("abort")) planData.abort();
+                else throw new IllegalArgumentException("plan_data_kind");
+                emit("planner_request_accepted", "fabric_start", Map.of("request_sequence", sequence));
+            }
+            case "planner_map" -> {
+                if (!readyState.equals("ready") || courseLimits || !extendedObservation)
+                    throw new IllegalStateException("planner_map_requires_development_body");
+                plannerMapFrame(request);
+                emit("planner_map_accepted", "fabric_start", Map.of("request_sequence", sequence,
+                        "generation", plannerMap.generation()));
+            }
+            case "cancel_plan" -> {
+                String id = request.get("plan_id").getAsString();
+                plans.remove(id); terrainPlans.remove(id); planLimits.remove(id);
+                planResults.remove(id);
+                emit("plan_cancelled", "fabric_start", Map.of("request_sequence", sequence, "plan_id", id));
             }
             case "dump_knowledge" -> dumpKnowledge(request, sequence);
             case "craft" -> bodyAction("craft", sequence, player -> BodyActions.craft(server, player, request));
@@ -783,6 +1041,11 @@ public final class BodyRuntime implements AutoCloseable {
         if (!name.matches("[A-Za-z0-9_]{3,16}")) throw new IllegalArgumentException("invalid_name");
         var candidate = new CarpetBodyAdapter(server, at, name, yaw, pitch);
         retireBody();
+        plannerMap = new PlannerMap();
+        planData = new PlanData();
+        routePermissions = RoutePermissions.defaults(); flee = RouteReflex.Flee.DEFAULT;
+        legacyMoving = false;
+        plans.clear(); terrainPlans.clear(); planLimits.clear(); planResults.clear();
         runId = text(request, "run_id"); episodeId = text(request, "episode_id"); bodyId = text(request, "body_id");
         lastRequestSequence = sequence; lastContactNanos = receivedNanos; actionIds.clear();
         resetAwareness(nextAwareness);

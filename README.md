@@ -74,6 +74,12 @@ prefetch, compressed map sections, retention/history/byte-budget controls and
 compact section-palette transport. Its measured performance and unfinished sprint
 requirements are reported separately from historical qualification.
 
+Segmented navigation now plans in the Java body for position and interaction
+goals, survival weights and terrain forecasts; Python coordinates admitted map
+snapshots and checks execution. The Python search code is retained for offline
+comparison only. The changed body is development code and requires independent
+review and source-bound requalification before scored use.
+
 Run from this directory in PowerShell with Git and uv installed:
 
 ```powershell

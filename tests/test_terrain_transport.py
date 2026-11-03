@@ -56,6 +56,7 @@ def test_sparse_negative_section_expands_known_air_without_filling_unknowns():
 def test_validated_index_reuse_does_not_extend_the_fresh_motor_window():
     expanded = expand_terrain(observation())
     controller = object.__new__(SegmentedController)
+    controller.terrain_policy = None
     controller.observation_lane = SimpleNamespace(
         submit=lambda _: None, poll=lambda: None
     )

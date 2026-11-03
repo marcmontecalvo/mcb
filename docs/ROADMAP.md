@@ -8,8 +8,8 @@ Update this file whenever an item here is finished or a new one is found.
 
 Last updated: November 3, 2026 (companion track: M5 state and next steps below,
 "Open after Nov 3"). Earlier: November 1 (cohorts 16–29 and the frozen calm comparison on
-`main`). Installed and qualified mod: `68b3e8f6…` (Java edit edges; requalified
-Nov 1, item 11).
+`main`). Previously qualified mod: `68b3e8f6…` (Java edit edges; requalified
+Nov 1, item 11). Later body changes require source-bound requalification.
 Cohorts 27–28 ran on `2eed1251`, cohort 29 on `0129b057`.
 
 ## Where things stand
@@ -18,11 +18,11 @@ Cohorts 27–28 ran on `2eed1251`, cohort 29 on `0129b057`.
 |---|---|---|
 | Mod split, D9 (step A) | Done (development evidence) | Direction doc §0 step A |
 | In-mod route follower, D10 (step B) | Done for development. Its mod is requalified (item 11) and passed the frozen calm comparison (item 12); no separate step B sign-off is recorded | [STEP_B_PROGRESS](STEP_B_PROGRESS_2026-10-28.md), [STEP_B_RERUN](STEP_B_RERUN_2026-10-29.md) |
-| Planner core, D11 (step C) | In progress; cohort 28 is 10/10, every route within 1.09× of Baritone. The Java core (item 8) is opt-in; with edits and continuous re-planning (cohort 31) it is 3% faster than the Python planner in total | [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md) (cohorts 1–28) |
+| Planner core, D11 (step C) | Java-only segmented production implementation is ready for independent review and live requalification. Historical cohort 28 was 10/10; cohort 31's opt-in Java core was 3% faster than the Python planner in total | [JAVA_MIGRATION_INVENTORY](JAVA_MIGRATION_INVENTORY.md), [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md) |
 | Baritone parity, D12 | Weights and moves reimplemented | [BARITONE_WEIGHTS_AND_MOVES](BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md), `config/weights/baritone-v1.20.0.json` |
 | Awareness parity, D8 | `sections` preset with delivery fixed (Oct 31) | [AWARENESS_MODES](AWARENESS_MODES.md) |
 | Swimming (§5 of the direction doc) | Planner and body done; live water and ladder fixtures 10/10 each (item 16) | Direction doc §5 status lines |
-| Qualification | Current for mod `68b3e8f6` (Nov 1) | [NAVIGATION_QUALIFICATION.json](NAVIGATION_QUALIFICATION.json), [gates.json](gates.json) |
+| Qualification | Historical for mod `68b3e8f6` (Nov 1); not current for later body changes | [NAVIGATION_QUALIFICATION.json](NAVIGATION_QUALIFICATION.json), [gates.json](gates.json) |
 | Gates | G0–G3, G5 passed; G4 in progress; G6–G8 not run | [gates.json](gates.json) |
 
 Latest numbers against Baritone (ticks, calm, seed 1337, Baritone run
@@ -111,7 +111,7 @@ whether turning climbing on caused 9/9 → 7/9; fix or revert the climb change;
 Detail under "Answered Nov 1" → "Nov 3 state" in the open questions below.
 
 **Open after Nov 1, in the order to do them:** (1) item 8: stage D and continuous
-re-planning done (cohorts 30-31); make the body planner the default (Marc's call);
+re-planning done (cohorts 30-31); review and qualify the Nov 3 Java-only migration;
 (2) night diagnostics for item 12; (3) Marc's call on night survival (item 13);
 (4) the paired ~10% gap to Baritone (items 8, 9); (5) a live multi-edit chain
 (item 10).
@@ -165,7 +165,9 @@ re-planning done (cohorts 30-31); make the body planner the default (Marc's call
    range while Python plans on delivered cells). Stage D done Nov 1: every edit
    kind in Java (dig/place steps, dig down, descend with breaks, pillar), same
    routes, costs and edit plans as Python at all 20 frozen-comparison edit
-   decisions and on built maps; the Python fallback is removed. Cohort 30
+   decisions and on built maps; the edit-edge fallback for that supported Java
+   subset was removed. Unsupported interaction, survival and other policies
+   still used Python at that time. Cohort 30
    (`20261101T135049338315Z`, mod `68b3e8f6`): 10/10, 7,488 ticks against
    Python's 7,394; R5 digs the cut again, only R3 is still ~8% slower. R3's
    cause was early commitment, not the live-world reader: plans came back at
@@ -174,8 +176,10 @@ re-planning done (cohorts 30-31); make the body planner the default (Marc's call
    (body planner only; the driven route is favoured, so it switches only to a
    clearly cheaper way). Cohort 31 (`20261101T142832710853Z`, R2 rerun
    `20261101T143807855604Z`): 9/9 valid (one harness `invalid`), 7,182 ticks,
-   3% under Python; R3 653/649. Open: make it the default. A Java search
-   runs outside Python's interpreter lock, so it also answers item 7.
+   3% under Python; R3 653/649. The Nov 3 migration makes the Java planner the
+   production segmented path for all supported policies and retains Python
+   search only as an offline reference. Candidate live qualification remains open.
+   A Java search runs outside Python's interpreter lock, so it also answers item 7.
 9. **Partial-route quality.** ~1,000-node partials can still lead into pits and
    lakes (R5). Commitment to a plan's tail is done (cohort 18). Oct 31: the first
    search of an attempt uses the full 3,000-node floor (cohort 27 R5 rep 2 went
@@ -434,15 +438,33 @@ imports allowed there).
       skipped cells now get two fresh rounds; the build waits for the sensor
       before calling itself blocked. Bottom up: nothing above a layer with a
       missing block. Not yet re-run: the whole job from an empty inventory.
-    - **Planned build-debugging aids** (Nov 2, not started):
-      1. `run-build.py --preview`: kit-place the finished template a few blocks
-         beside the build so a human can compare attempt and target in-game.
-      2. A failure walkthrough: from `build.json` `failures`, a list per cell
-         (target, block, reason, stance the body stood on) to stand on in-game.
+    - **Build-debugging aids** (implemented Nov 3; unit and live staging/preview checks passed):
+      1. `run-build.py --preview --inspect`: kit-place the finished template beside
+         the completed attempt, then hold for in-game comparison until `STOP`.
+         `--resume ... --stage --preview` inspects an existing checkpoint.
+      2. `walkthrough.md` and `walkthrough.json`: each failed attempt's target,
+         block, reason, actual stance, observer teleport command and diagnosis.
       3. Done: a failed `place_block` now carries `diagnosis` (eye, body, and per
          clickable neighbour: faces, points in reach / visible, and how many
          candidates the item refused, found obstructed or placed in the wrong
          orientation); `build.json` `failures` keeps it.
+      Usage and limits: [BUILD_DEBUGGING](BUILD_DEBUGGING.md).
+    - **Shared body review (Nov 3):** build/gather use `CompanionBody`, the same
+      `SegmentedController` and Java body motor as navigation. Companion walking
+      now shares movement/door/climbing settings with construction, with terrain
+      edits disabled; `dig=True` enables those edits. Explicit movement and terrain
+      overrides select permissions without replacing the body. Actual settings
+      are recorded by policy ID per navigation and in build/gather artifacts.
+      Preview/checkpoint staging passed live (2/2), run
+      `20261103T123516731671Z`: restored 100 cells and placed a 100-cell reference
+      at offset `[10, 0, 0]`; this is diagnostic proof, not construction qualification.
+      Full capability inventory:
+      [COMPANION_ABILITIES](COMPANION_ABILITIES.md).
+      Review found two permission mismatches: **CAP-01**, planners proposed
+      climbing with motor climbing disabled; and **CAP-02**, door settings were
+      not reliably route-local. The Nov 3 migration implements propagation and
+      unit coverage; enabled/disabled live qualification remains open. See
+      [COMPANION_ABILITIES](COMPANION_ABILITIES.md).
     - **Nov 3 state** (uncommitted work from Nov 2 committed Nov 3):
       - Added: door and ladder use in routes (`BuildingMoves.java`), the site
         scanner (`scripts/analysis/site_scan.py`), the large-house fixture
@@ -486,6 +508,8 @@ imports allowed there).
 | [BUILD_AND_GATHER_PLAN_2026-11-01.md](BUILD_AND_GATHER_PLAN_2026-11-01.md) | Companion track: schematic building, knowledge pack from the game, AltoClef-style gathering. Milestones M0–M6, status (§7), gap list with fixes (§8), M5/M6 detail (§9) |
 | [KNOWLEDGE_PACK_FORMAT.md](KNOWLEDGE_PACK_FORMAT.md) | Contract: knowledge pack files and the `build.json` format |
 | [BODY_ACTION_OPS.md](BODY_ACTION_OPS.md) | Contract: body action ops (craft, furnace, equip, place/use/break) and the lab `kit` fixture |
+| [COMPANION_ABILITIES.md](COMPANION_ABILITIES.md) | Minecraft ability inventory: 79 tracked abilities, primitives, workflows, actual controls and missing support |
+| [BUILD_DEBUGGING.md](BUILD_DEBUGGING.md) | Preview/reference copy, checkpoint inspection and failure walkthrough usage |
 | [BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md](BARITONE_WEIGHTS_AND_MOVES_2026-10-30.md) | Baritone weights and the move-by-move comparison |
 | [BARITONE_REFERENCE.md](BARITONE_REFERENCE.md) | Baritone baseline setup (pinned client, launcher, how it is run) |
 | `Minecraft_AI_Technical_Handoff.md` (repo root) | Original specification; never edited |

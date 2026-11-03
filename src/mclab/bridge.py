@@ -30,6 +30,10 @@ BODY_OPS = frozenset(
         "follow_step",
         "follow_gap",
         "plan_route",
+        "cancel_plan",
+        "planner_map",
+        "planner_request",
+        "route_policy",
         "cancel_route",
         "sensor_check",
         "awareness_check",
@@ -275,7 +279,9 @@ class Bridge:
         if position is None:
             position = self.http("/lab/state")["fixture"]
         self.body_name = name or new_body_name()
-        return self._send("spawn", name=self.body_name, position=position, **fields)
+        request = self._send("spawn", name=self.body_name, position=position, **fields)
+        self.planner_map_epoch = getattr(self, "planner_map_epoch", 0) + 1
+        return request
 
     def _natural_carpet(self, **fields) -> dict:
         awareness = fields.pop("awareness", None)
@@ -385,6 +391,10 @@ class Bridge:
         )
 
     def close(self):
+        coordinator = getattr(self, "planner_map_coordinator", None)
+        if coordinator is not None:
+            coordinator.close()
+            self.planner_map_coordinator = None
         self._connection.close()
         self._lab_connection.close()
         self.stream.close()

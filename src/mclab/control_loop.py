@@ -103,6 +103,32 @@ def _running(client, observation):
 def drive(
     client, controller, wall_timeout=90, *, trace_processing=False, profile=LOCKSTEP
 ):
+    if profile != NATIVE and getattr(controller, "requires_body_planner", False):
+        from mclab.planner_session import attach, detach
+
+        attach(client, controller)
+        try:
+            return _drive(
+                client,
+                controller,
+                wall_timeout,
+                trace_processing=trace_processing,
+                profile=profile,
+            )
+        finally:
+            detach(controller)
+    return _drive(
+        client,
+        controller,
+        wall_timeout,
+        trace_processing=trace_processing,
+        profile=profile,
+    )
+
+
+def _drive(
+    client, controller, wall_timeout=90, *, trace_processing=False, profile=LOCKSTEP
+):
     """Renew motor commands independently of inference; never retry old commands."""
     if profile == NATIVE:
         if trace_processing:

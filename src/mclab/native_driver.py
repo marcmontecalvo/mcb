@@ -30,7 +30,7 @@ EXTEND_TICKS = 60
 
 def remaining_ticks(route):
     """Estimated ticks to drive `route` at sprint pace (route_search cost constants)."""
-    from mclab.route_search import JUMP_PENALTY, SPRINT
+    from mclab.planner_values import JUMP_PENALTY, SPRINT
 
     total = 0.0
     for a, b in zip(route, route[1:], strict=False):
@@ -96,7 +96,7 @@ def offered_route(controller):
 def refreshing(controller):
     """The body planner is in use: plans are cheap, so the route ahead is re-planned."""
     return bool(
-        getattr(controller, "body_planner", False)
+        getattr(controller, "requires_body_planner", False)
         and getattr(controller, "submit_plan", None) is not None
     )
 
@@ -112,7 +112,7 @@ def prefetch_while_following(controller, route, native=None):
     instead, and is redone whenever the map changes (one plan in flight).
     """
     if (
-        getattr(controller, "planner_lane", None) is None
+        not getattr(controller, "background_planning", False)
         or controller.prefetch is not None
         or controller.committed_step is not None
         or getattr(controller, "route_steps", None)
@@ -290,11 +290,19 @@ def confirm_step(plan, before, observation, fresh, report):
 def submit_route(client, controller, stats, route):
     route_id = f"native-{stats['routes_submitted'] + 1}"
     stats["routes_submitted"] += 1
+    terrain_policy = getattr(controller, "terrain_policy", None)
     request = client.send(
         "follow_route",
         route_id=route_id,
         route=[list(point) for point in route],
         movement_policy=controller.movement_policy.payload(),
+        use_doors=bool(terrain_policy and terrain_policy.use_doors),
+        climb_vines=bool(terrain_policy is None or terrain_policy.climb_vines),
+        **(
+            {"center_only": True, "arrival_radius": controller.center_radius}
+            if getattr(controller, "mode", None) == "centering"
+            else {}
+        ),
         # The cost profile's threat reflex (body default: one block, 2.8/4 trigger).
         **({"flee": controller.flee} if getattr(controller, "flee", None) else {}),
     )
@@ -312,8 +320,10 @@ def drive_native(client, controller, wall_timeout):
     from mclab.control_loop import _fail, _running, record_selector
 
     deadline = time.monotonic() + wall_timeout
-    if getattr(controller, "body_planner", False):
-        controller.submit_plan = lambda payload: client.send("plan_route", **payload)
+    if getattr(controller, "requires_body_planner", False):
+        from mclab.planner_session import attach
+
+        attach(client, controller)
     active_id = None
     active_route = []
     active_step = None
@@ -518,6 +528,14 @@ def drive_native(client, controller, wall_timeout):
                     gap_id=gap_id,
                     plan=asdict(controller.gap_jump.plan),
                     movement_policy=controller.movement_policy.payload(),
+                    use_doors=bool(
+                        controller.terrain_policy
+                        and controller.terrain_policy.use_doors
+                    ),
+                    climb_vines=bool(
+                        controller.terrain_policy is None
+                        or controller.terrain_policy.climb_vines
+                    ),
                 )
                 client.acknowledge(request, "gap_accepted")
                 client.wait(
@@ -566,6 +584,7 @@ def drive_native(client, controller, wall_timeout):
             if len(route) >= 2 and controller.mode in {
                 "following",
                 "terrain_step_motion",
+                "centering",
             }:
                 body = observation["body"]["position"]
                 if (
@@ -589,6 +608,10 @@ def drive_native(client, controller, wall_timeout):
         ):
             request = client.send("cancel_route")
             client.acknowledge(request, "route_cancelled")
+        if getattr(controller, "planner_map", None) is not None:
+            from mclab.planner_session import detach
+
+            detach(controller)
         stats["timing_rejections"] = sum(
             event.get("type") in {"rejected", "rejected_at_execution"}
             and event.get("data", {}).get("reason")

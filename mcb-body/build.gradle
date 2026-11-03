@@ -51,7 +51,7 @@ sourceSets {
     }
 }
 
-['AwarenessConfig', 'TerrainBatch', 'SectionScheduler', 'RouteMotor', 'StepMotor', 'GapMotor', 'RouteReflex', 'RoutePlanner', 'KnowledgeLogic', 'PlacementLogic', 'ActionLogic'].each { name ->
+['AwarenessConfig', 'TerrainBatch', 'SectionScheduler', 'RouteMotor', 'StepMotor', 'GapMotor', 'RouteReflex', 'RoutePlanner', 'RoutePermissions', 'PlannerMap', 'PlanData', 'TerrainPlanner', 'KnowledgeLogic', 'PlacementLogic', 'ActionLogic'].each { name ->
     def task = tasks.register("verify${name}", JavaExec) {
         dependsOn tasks.named('geometryVerificationClasses')
         classpath = sourceSets.geometryVerification.runtimeClasspath
@@ -65,5 +65,19 @@ tasks.register('routePlannerParity', JavaExec) {
     dependsOn tasks.named('geometryVerificationClasses')
     classpath = sourceSets.geometryVerification.runtimeClasspath
     mainClass = 'com.vulpine.mcb.body.RoutePlannerParity'
+    args = (project.findProperty('args') ?: '').toString().tokenize(' ')
+}
+
+tasks.register('terrainPlannerParity', JavaExec) {
+    dependsOn tasks.named('geometryVerificationClasses')
+    classpath = sourceSets.geometryVerification.runtimeClasspath
+    mainClass = 'com.vulpine.mcb.body.TerrainPlannerTest'
+    args 'parity'
+}
+
+tasks.register('routeDifferential', JavaExec) {
+    dependsOn tasks.named('geometryVerificationClasses')
+    classpath = sourceSets.geometryVerification.runtimeClasspath
+    mainClass = 'com.vulpine.mcb.body.RouteDifferential'
     args = (project.findProperty('args') ?: '').toString().tokenize(' ')
 }

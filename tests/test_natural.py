@@ -39,7 +39,7 @@ def test_view_distance_edit_and_restore(monkeypatch, tmp_path):
     assert properties.read_text() == original
 
 
-def test_native_swimming_passes_validation_and_reaches_the_world(monkeypatch):
+def test_native_swimming_passes_validation_and_reaches_the_world(monkeypatch, tmp_path):
     from mclab.movement_policy import MovementPolicy
 
     class Reached(Exception):
@@ -49,6 +49,12 @@ def test_native_swimming_passes_validation_and_reaches_the_world(monkeypatch):
         raise Reached
 
     monkeypatch.setattr(natural, "natural_world", world)
+    monkeypatch.setattr(natural, "read_json", lambda _: {"source_hash": "test"})
+    monkeypatch.setattr(natural, "source_hash", lambda: "test")
+    monkeypatch.setattr(natural, "SNAPSHOTS", tmp_path)
+    monkeypatch.setattr(natural, "RESULTS", tmp_path / "results")
+    (tmp_path / natural._level(1337)).mkdir()
+    (tmp_path / natural._level(1337) / "level.dat").touch()
     route = {"route_id": "R1", "start": [0, 80, 0], "goal": [0, 80, 100], "yaw": 0}
     with pytest.raises(Reached):
         natural.run(
@@ -56,6 +62,7 @@ def test_native_swimming_passes_validation_and_reaches_the_world(monkeypatch):
             [route],
             entrants=("segmented_goal",),
             control_profile="dev-native-route-v1",
+            view_distance=4,
             movement_policy=MovementPolicy(allow_swim=True, allow_climb=True),
         )
 

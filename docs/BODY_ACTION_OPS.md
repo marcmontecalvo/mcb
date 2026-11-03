@@ -8,8 +8,8 @@ Plan: [BUILD_AND_GATHER_PLAN_2026-11-01.md](BUILD_AND_GATHER_PLAN_2026-11-01.md)
 
 All actions are ones a player could do: real reach checks
 (`isWithinBlockInteractionRange`), a line of sight from the eye, items only from
-the inventory. Python moves the body to a stance first (route planner with
-`interact_reach`); these ops never walk.
+the inventory. The shared Java body planner moves to an interaction stance first
+under `interact_reach`; these ops never walk.
 
 ## Built (wave 1)
 

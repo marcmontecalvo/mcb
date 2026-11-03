@@ -82,6 +82,7 @@ def main() -> int:
                             "ate": report.ate,
                             "stations": {k: list(v) for k, v in state.stations.items()},
                             "ops": body.log,
+                            "policies": body.policies,
                         },
                         indent=1,
                     ),

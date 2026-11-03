@@ -8,19 +8,19 @@ import math
 import time
 from collections import deque
 from dataclasses import replace
-from functools import partial
 
 from mclab import body_search, collision_geometry, water_movement
+from mclab.building_view import BuildingView
 from mclab.gap_jump import GapJumpExecutor, prepare_gap
+from mclab.interaction_goal import interacts, interacts_at_position
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation import NavigationController, empty, standable
 from mclab.observation_worker import ObservationWorker
 from mclab.pillar_steps import executor_for as python_executor_for
 from mclab.pillar_steps import prepare_pillar
-from mclab.planning_worker import BackgroundSearch, PlanningWorker
 from mclab.profiles import threats
-from mclab.route_search import RouteSearch, interacts
-from mclab.terrain_route import TerrainRouteSearch, known_step
+from mclab.route_types import segment
+from mclab.terrain_geometry import known_step
 from mclab.terrain_steps import prepare_step
 from mclab.terrain_transport import ExpandedTerrain
 
@@ -69,6 +69,7 @@ def native_edit_matches(plan, cells, supported):
 
 
 class SegmentedController(NavigationController):
+    requires_body_planner = True
     route_steps = {}  # Replaced, never mutated; instances set their own.
     threats = ()  # D7 search input (visible hostiles), refreshed by _admit.
     # Compiled planner in the body: the native driver sets submit_plan; _admit
@@ -88,7 +89,6 @@ class SegmentedController(NavigationController):
         background_planning=False,
         movement_policy=None,
         interact_reach=None,
-        body_planner=False,
     ):
         super().__init__(
             sensor_profile=memory.archive.identity.awareness.sensor_profile
@@ -103,7 +103,6 @@ class SegmentedController(NavigationController):
         self.radius = radius
         # Phase 3 interaction goal: reach this block with the eye (None: stand there).
         self.interact_reach = interact_reach
-        self.body_planner = body_planner  # native driver wires submit_plan when set
         self.search_nodes, self.search_ms = search_nodes, search_ms
         self.search = None
         self.route = []
@@ -122,6 +121,7 @@ class SegmentedController(NavigationController):
         self.edits_broken = self.edits_placed = 0
         self.breaks_reserved = self.places_reserved = 0
         self.failed_edges = set()
+        self.avoid_goal_stances = set()
         self.events = []
         self.committed_step = None
         self.committed_source = None
@@ -139,7 +139,7 @@ class SegmentedController(NavigationController):
         self.inventory = ()
         if type(background_planning) is not bool:
             raise ValueError("background_planning must be a boolean")
-        self.planner_lane = PlanningWorker() if background_planning else None
+        self.background_planning = background_planning
         self.observation_lane = (
             ObservationWorker(memory) if background_planning else None
         )
@@ -175,8 +175,9 @@ class SegmentedController(NavigationController):
     def cancel(self):
         self.goal_revision += 1
         self.previous_route = self.plan_tail = ()
-        if self.planner_lane is not None:
-            self.planner_lane.cancel()
+        for search in (self.search, self.prefetch, self.terrain_search):
+            if isinstance(search, body_search.BodySearch):
+                search.cancel()
         self.prefetch = None
         self.gap_jump = None
         self.air_recovering = False
@@ -202,6 +203,7 @@ class SegmentedController(NavigationController):
     def replace_goal(self, goal):
         self.cancel()
         self.goal = tuple(goal)
+        self.avoid_goal_stances.clear()
         self.resume()
 
     def status(self):
@@ -244,8 +246,8 @@ class SegmentedController(NavigationController):
             "air_recovering": self.air_recovering,
             "air_recoveries_completed": self.air_recoveries_completed,
             "water_controls": self.water_controls,
-            "background_planning": self.planner_lane is not None,
-            "planner": self.planner_lane.status() if self.planner_lane else None,
+            "background_planning": self.background_planning,
+            "planner": {"kind": "body"},
             "prefetch_pending": self.prefetch is not None,
             "prefetch_started": self.prefetch_started,
             "prefetch_adopted": self.prefetch_adopted,
@@ -261,14 +263,10 @@ class SegmentedController(NavigationController):
             return
         self.cancel()
         try:
-            if self.planner_lane is not None:
-                self.planner_lane.close()
+            if self.observation_lane is not None:
+                self.observation_lane.close()
         finally:
-            try:
-                if self.observation_lane is not None:
-                    self.observation_lane.close()
-            finally:
-                self.closed = True
+            self.closed = True
 
     def _planning_snapshot(self):
         if self.map_view is not None:
@@ -281,7 +279,15 @@ class SegmentedController(NavigationController):
         return self.memory.planning_snapshot()
 
     def _known_cells(self):
-        return self._planning_snapshot()[1] if self.map_view else self.memory.cells
+        return self._motor_view(
+            self._planning_snapshot()[1] if self.map_view else self.memory.cells
+        )
+
+    def _motor_view(self, cells):
+        policy = self.terrain_policy
+        if policy is None or (not policy.use_doors and policy.climb_vines):
+            return cells
+        return BuildingView(cells, policy.use_doors, policy.climb_vines)
 
     def _admit(self, observation):
         # D7 input for the next search: visible hostiles.
@@ -329,73 +335,26 @@ class SegmentedController(NavigationController):
             ),
         )
 
-    def _new_search(self, cells, node, revision, factory=RouteSearch):
-        if (
-            factory is RouteSearch
-            and self.submit_plan is not None
-            and body_search.supported(
-                self.terrain_policy, self.movement_policy, self.interact_reach
-            )
-        ):
-            # Compiled core in the body (item 8), edit edges included.
-            return body_search.BodySearch(self, node, revision)
-        return self._python_search(cells, node, revision, factory)
-
-    def _python_search(self, cells, node, revision, factory):
-        if factory is RouteSearch:
-            favored = (
-                self.previous_route
-                if self.terrain_policy is not None
-                and self.terrain_policy.baritone_search
-                else ()
-            )
-            factory = partial(
-                RouteSearch,
-                **({"favored": frozenset(favored)} if favored else {}),
-                movement_policy=self.movement_policy,
-                excluded=frozenset(self.failed_edges),
-                terrain_policy=None
-                if self.terrain_policy is None
-                else self._remaining_policy(),
-                inventory=self.inventory,
-                protected=frozenset(self.own_footholds),
-                interact_reach=self.interact_reach,
-                threats=self.threats,
-            )
-        if self.planner_lane is not None:
-            return BackgroundSearch(
-                self.planner_lane,
-                cells,
-                node,
-                self.goal,
-                map_revision=revision,
-                goal_revision=self.goal_revision,
-                goal_radius=self.radius,
-                node_limit=self.search_nodes,
-                slice_ms=self.search_ms,
-                search_factory=factory,
-            )
-        return factory(
-            cells,
-            node,
-            self.goal,
-            map_revision=revision,
-            goal_radius=self.radius,
-            owned_snapshot=True,
-        )
+    def _new_search(self, cells, node, revision):
+        if self.submit_plan is None or getattr(self, "planner_map", None) is None:
+            raise RuntimeError("body planner is not attached")
+        return body_search.BodySearch(self, node, revision, cells)
 
     def _at_goal(self, node, cells):
         """Interaction goal: the eye at this stance reaches the target block."""
-        return interacts(cells, node, self.goal, self.interact_reach)
+        return tuple(node) not in self.avoid_goal_stances and interacts(
+            cells, node, self.goal, self.interact_reach
+        )
 
     def _discard_prefetch(self):
         if self.prefetch is not None:
-            self.planner_lane.cancel(getattr(self.prefetch, "token", None))
+            if isinstance(self.prefetch, body_search.BodySearch):
+                self.prefetch.cancel()
             self.prefetch = None
 
     def _start_prefetch(self):
         if (
-            self.planner_lane is None
+            not self.background_planning
             or self.route_steps  # The route's end lies past unexecuted edits.
             or self.prefetch is not None
             or self.last_result is None
@@ -479,12 +438,14 @@ class SegmentedController(NavigationController):
 
     def _fresh(self, tick):
         if self.observation_lane is not None:
-            return {
-                p: cell
-                for p, cell in self.motor_cells.items()
-                if 0 <= tick - cell.get("observed_tick", self.motor_tick) <= 5
-            }
-        return self.memory.fresh(tick)
+            return self._motor_view(
+                {
+                    p: cell
+                    for p, cell in self.motor_cells.items()
+                    if 0 <= tick - cell.get("observed_tick", self.motor_tick) <= 5
+                }
+            )
+        return self._motor_view(self.memory.fresh(tick))
 
     def _safe_motion(self, observation, waypoint, forward, jumping):
         if not self.movement_policy.allow_shapes:
@@ -671,7 +632,7 @@ class SegmentedController(NavigationController):
         kept = replace(
             result, route=tail, steps=(), reason="kept previous partial plan"
         )
-        return RouteSearch._segment(kept, 16)
+        return segment(kept, 16)
 
     def take_result(self, result):
         result = self._committed(result)
@@ -728,17 +689,12 @@ class SegmentedController(NavigationController):
         if self.terrain_search is None or self.terrain_search.start != node:
             self._discard_prefetch()
             revision, cells = self._planning_snapshot()
-            factory = partial(
-                TerrainRouteSearch,
-                policy=policy,
-                inventory=tuple(
-                    dict(r) for r in observation["body"].get("inventory", [])
-                ),
-                protected=frozenset(self.own_footholds),
-                excluded=frozenset(self.failed_edges),
-                movement_policy=self.movement_policy,
+            inventory = tuple(dict(r) for r in observation["body"].get("inventory", []))
+            if self.submit_plan is None or getattr(self, "planner_map", None) is None:
+                raise RuntimeError("body planner is not attached")
+            self.terrain_search = body_search.BodyTerrainSearch(
+                self, node, revision, cells, policy, inventory
             )
-            self.terrain_search = self._new_search(cells, node, revision, factory)
         result = self.terrain_search.advance(
             node_limit=self.search_nodes, budget_ms=self.search_ms
         )
@@ -923,7 +879,6 @@ class SegmentedController(NavigationController):
     def _planner_trace(self):
         """Why a stop is spent planning: result, search identity and worker job."""
         result, search = self.last_result, self.search
-        lane = self.planner_lane
         return {
             "result": None
             if result is None
@@ -931,7 +886,7 @@ class SegmentedController(NavigationController):
             "search_start": None if search is None else list(search.start),
             "search_token": getattr(search, "token", None),
             "searched_ms": round(getattr(search, "searched_ms", 0)),
-            "lane_serial": getattr(lane, "serial", None),
+            "lane_serial": None,
         }
 
     def _decide(self, observation, *, native=False):
@@ -1084,7 +1039,9 @@ class SegmentedController(NavigationController):
             self._plan_terrain_step(node, observation)
             return {}
         if body.get("on_ground", True) and (
-            self._at_goal(node, self._planning_snapshot()[1])
+            interacts_at_position(
+                self._planning_snapshot()[1], p, self.goal, self.interact_reach
+            )
             if self.interact_reach is not None
             else math.hypot(p[0] - self.goal[0] - 0.5, p[2] - self.goal[2] - 0.5)
             <= self.radius
@@ -1092,6 +1049,30 @@ class SegmentedController(NavigationController):
         ):
             self.mode = "arrived"
             return {}
+        center_for_position = self.interact_reach is None and tuple(node) == self.goal
+        center_for_interaction = self.interact_reach is not None and self._at_goal(
+            node, self._planning_snapshot()[1]
+        )
+        center_distance = math.hypot(p[0] - node[0] - 0.5, p[2] - node[2] - 0.5)
+        if center_for_interaction and center_distance <= 0.05:
+            self.avoid_goal_stances.add(tuple(node))
+            center_for_interaction = False
+            self.search = None
+        if (
+            (center_for_position or center_for_interaction)
+            and body.get("on_ground", True)
+            and not body.get("survival", {}).get("in_water", False)
+        ):
+            # The planner reaches cells, while a stance can require a tighter
+            # physical radius than the body's current offset within that cell.
+            self.mode = "centering"
+            self.center_radius = (
+                0.05 if center_for_interaction else min(self.radius, 0.2)
+            )
+            self.route = [node, node]
+            if native:
+                return {}
+            return self._move(observation, [node[0] + 0.5, node[1], node[2] + 0.5])
         if self.air_waypoint is not None:
             distance = math.hypot(
                 p[0] - self.air_waypoint[0], p[2] - self.air_waypoint[2]
@@ -1174,14 +1155,10 @@ class SegmentedController(NavigationController):
             # full 3,000-node floor, as if moving. Cohort 27 R5 rep 2 committed a
             # ~1,500-node partial west into a lake (+370 ticks); replayed from the
             # start, >=3,000 nodes pick the ridge (ROADMAP item 9).
-            first = not self.previous_route and isinstance(
-                self.search, BackgroundSearch
-            )
             self.take_result(
                 self.search.advance(
                     node_limit=self.search_nodes,
                     budget_ms=self.search_ms,
-                    **({"moving": True} if first else {}),
                 )
             )
             self.reason = self.last_result.reason

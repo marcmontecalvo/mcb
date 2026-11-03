@@ -21,13 +21,14 @@ import gc
 import heapq
 import math
 import time
-from dataclasses import dataclass
 
 from mclab import collision_geometry, route_moves, water_movement
 from mclab.gap_jump import gap_plan
 from mclab.grid_cache import EMPTY, FULL, KNOWN, LAVA, SOLID, Grid, OverlayGrid
+from mclab.interaction_goal import EYE_HEIGHT, interacts
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation import DIRECTIONS, empty, reconstruct, standable
+from mclab.route_types import RouteResult
 from mclab.terrain_steps import (
     BREAK_AIM_TICKS,
     BREAK_EXTRA_TICKS,
@@ -89,17 +90,6 @@ DIG_RISE = (
 )
 
 
-@dataclass(frozen=True)
-class RouteResult:
-    status: str
-    route: tuple
-    map_revision: int
-    expanded: int
-    reason: str
-    steps: tuple = ()  # StepPlans for planned edit edges on this route
-    full_route: tuple = ()  # the untrimmed plan when ``route`` is a segment of it
-
-
 @functools.cache
 def _break_cost(block):
     return break_ticks(block) + BREAK_EXTRA_TICKS + BREAK_AIM_TICKS
@@ -111,36 +101,6 @@ def hazard_cell(cell):
         cell.get("block") in collision_geometry.HAZARDS
         or "lava" in str(cell.get("fluid", ""))
     )
-
-
-EYE_HEIGHT = 1.62
-RAY_STEP = 0.1
-
-
-def interacts(cells, node, target, reach):
-    """Phase 3 interaction goal: the eye at this stance reaches the target block.
-
-    Eye (feet + 1.62) to the block centre within reach, and every other cell the
-    line crosses known and collision-free. Unknown never counts as clear, so a
-    block behind a wall or unseen space is not reached through it.
-    """
-    eye = (node[0] + 0.5, node[1] + EYE_HEIGHT, node[2] + 0.5)
-    centre = (target[0] + 0.5, target[1] + 0.5, target[2] + 0.5)
-    distance = math.dist(eye, centre)
-    if distance > reach:
-        return False
-    steps = max(1, math.ceil(distance / RAY_STEP))
-    for i in range(steps):
-        point = tuple(
-            math.floor(a + (b - a) * i / steps)
-            for a, b in zip(eye, centre, strict=True)
-        )
-        if point == tuple(target):
-            return True
-        cell = cells.get(point)
-        if cell is None or cell.get("collision_boxes"):
-            return False
-    return True
 
 
 class RouteSearch:

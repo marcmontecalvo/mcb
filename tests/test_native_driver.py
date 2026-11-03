@@ -5,7 +5,37 @@ import pytest
 from mclab import control_loop, native_driver
 from mclab.execution import ControllerFailure
 from mclab.movement_policy import MovementPolicy
-from mclab.terrain_steps import StepPlan
+from mclab.terrain_steps import StepPlan, TerrainPolicy
+
+
+def test_consecutive_native_routes_carry_their_own_door_and_vine_policy():
+    sent = []
+
+    class Client:
+        def send(self, op, **fields):
+            sent.append((op, fields))
+            return fields
+
+        def acknowledge(self, request, kind):
+            assert kind == "route_accepted"
+
+        def wait(self, predicate, timeout):
+            assert predicate({"route_follower": {"route_id": sent[-1][1]["route_id"]}})
+
+    controller = SimpleNamespace(
+        route=[],
+        movement_policy=MovementPolicy(),
+        terrain_policy=TerrainPolicy(use_doors=True, climb_vines=False),
+    )
+    stats = {"routes_submitted": 0}
+    route = [(0, 1, 0), (1, 1, 0)]
+    native_driver.submit_route(Client(), controller, stats, route)
+    controller.terrain_policy = TerrainPolicy(use_doors=False, climb_vines=True)
+    native_driver.submit_route(Client(), controller, stats, route)
+    assert [(fields["use_doors"], fields["climb_vines"]) for _, fields in sent] == [
+        (True, False),
+        (False, True),
+    ]
 
 
 def test_ordinary_route_stops_before_gap():
@@ -363,7 +393,8 @@ def _refresh_controller(start, tail):
         prefetch=SimpleNamespace(
             start=start, advance=lambda **_: RouteResult("segment", tail, 1, 9, "t")
         ),
-        body_planner=True,
+        requires_body_planner=True,
+        background_planning=True,
         submit_plan=lambda payload: None,
         committed_step=None,
         terrain=None,
@@ -423,7 +454,6 @@ def test_body_planner_replan_starts_ahead_of_the_motor_once_per_map():
     route = [(x, 1, 0) for x in range(30)]
     c = _refresh_controller(None, ())
     c.prefetch = None
-    c.planner_lane = object()
     c.goal = (99, 1, 0)
     c.prefetch_started = 0
     started = []

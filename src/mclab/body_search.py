@@ -8,14 +8,19 @@ edge's plan, which the controller executes like a Python-planned one.
 """
 
 import itertools
+from dataclasses import asdict
+from functools import cache
 
 from mclab.grid_cache import FALLING
-from mclab.route_search import FALL_SETTLE_TICKS, RouteResult, RouteSearch, _break_cost
+from mclab.planner_values import FALL_SETTLE_TICKS
+from mclab.route_types import RouteResult, segment
 from mclab.terrain_steps import (
+    BREAK_AIM_TICKS,
     BREAK_EXTRA_TICKS,
     WIDE_EXCAVATABLE,
     Inventory,
     StepPlan,
+    TerrainPolicy,
     break_ticks,
     excavatable,
     hotbar,
@@ -27,21 +32,9 @@ SEGMENT = 16  # same segment as BackgroundSearch
 _ids = itertools.count(1)
 
 
-def supported(terrain_policy, movement_policy, interact_reach=None):
-    """True when the Java core implements this policy (else plan in Python)."""
-    t, m = terrain_policy, movement_policy
-    return bool(
-        t is not None
-        and t.planner_tick_costs
-        and t.baritone_search
-        and t.baritone_diagonals
-        and t.heuristic_weight == 1
-        and t.mob_coefficient == 1
-        and not t.hazard_penalty
-        and m.allow_shapes
-        and m.allow_diagonals
-        and interact_reach is None
-    )
+@cache
+def _break_cost(block):
+    return break_ticks(block) + BREAK_EXTRA_TICKS + BREAK_AIM_TICKS
 
 
 def edit_payload(policy, inventory, protected):
@@ -85,7 +78,9 @@ def edit_payload(policy, inventory, protected):
         "place_supply": supply,
         "protected": sorted([int(v) for v in p] for p in cells),
         "protected_blocks": list(policy.protected_blocks),
-        "material": policy.material_allowlist[0],
+        "material": policy.material_allowlist[0]
+        if policy.material_allowlist
+        else "minecraft:cobblestone",
         **(
             {}  # absent: the body's default (allowed), so old requests are unchanged
             if policy.allow_falling_neighbours
@@ -97,33 +92,69 @@ def edit_payload(policy, inventory, protected):
 
 
 def plan_payload(controller, start, plan_id):
-    t, m = controller._remaining_policy(), controller.movement_policy
+    t = (
+        controller._remaining_policy()
+        if controller.terrain_policy is not None
+        else TerrainPolicy(allow_break=False, allow_place=False)
+    )
+    m = controller.movement_policy
     return {
         "plan_id": plan_id,
         "start": list(start),
         "goal": list(controller.goal),
         "radius": float(controller.radius),
+        **(
+            {"interact_reach": controller.interact_reach}
+            if controller.interact_reach is not None
+            else {}
+        ),
+        "avoid_stances": [
+            list(p) for p in getattr(controller, "avoid_goal_stances", ())
+        ],
         "max_drop": m.max_drop,
         "sprint": m.allow_sprint,
-        "swim": bool(m.allow_swim and t.planner_swim),
+        "swim": m.allow_swim,
+        "planner_swim": t.planner_swim,
         "extra": bool(t.baritone_moves),
+        "allow_climb": m.allow_climb,
+        "tick_costs": t.planner_tick_costs,
+        "baritone_search": t.baritone_search,
+        "baritone_diagonals": t.baritone_diagonals,
+        "allow_diagonals": m.allow_diagonals,
+        "allow_shapes": m.allow_shapes,
+        "heuristic_weight": t.heuristic_weight,
+        "break_penalty": t.break_penalty,
+        "placement_penalty": t.placement_penalty,
+        "tool_wear_penalty": t.tool_wear_penalty,
+        "hazard_penalty": t.hazard_penalty,
+        "mob_coefficient": t.mob_coefficient,
+        "mob_radius": t.mob_radius,
+        "threats": [list(p) for p in controller.threats],
         "max_gap": m.max_gap,
         "unknown_penalty": float(t.unknown_penalty) if t.planner_unknown else 0.0,
         "node_limit": BODY_NODE_LIMIT,
-        "favored": [list(p) for p in controller.previous_route][:4096],
-        "excluded": [[list(a), list(b)] for a, b in controller.failed_edges][:4096],
+        "favored": [list(p) for p in controller.previous_route],
+        "excluded": [[list(a), list(b)] for a, b in controller.failed_edges],
         "edits": edit_payload(t, controller.inventory, controller.own_footholds),
     }
+
+
+def _point(values):
+    return tuple(
+        int(value) if isinstance(value, float) and value.is_integer() else value
+        for value in values
+    )
 
 
 def step_plan(report):
     """A body-planned edit edge as the StepPlan the controller executes."""
     return StepPlan(
-        tuple(report["source"]),
-        tuple(report["target"]),
-        tuple(tuple(p) for p in report["breaks"]),
-        tuple(tuple(p) for p in report["places"]),
+        _point(report["source"]),
+        _point(report["target"]),
+        tuple(_point(p) for p in report["breaks"]),
+        tuple(_point(p) for p in report["places"]),
         report["kind"],
+        _point(report["exit"]) if report.get("exit") is not None else None,
     )
 
 
@@ -132,16 +163,59 @@ class BodySearch:
 
     token = -1  # never matches a worker job, so planner_lane.cancel(token) is a no-op
 
-    def __init__(self, controller, start, revision):
+    def __init__(self, controller, start, revision, cells=None):
         self.controller = controller
         self.start = tuple(start)
         self.revision = revision
         self.expanded = 0
         self.elapsed_ms = 0
         self.plan_id = f"plan-{next(_ids)}"
-        controller.submit_plan(plan_payload(controller, self.start, self.plan_id))
+        self.superseded = False
+        self.submitted = False
+        self.map_transfer = getattr(controller, "planner_map", None)
+        if self.map_transfer is not None:
+            if cells is None:
+                raise ValueError("body search requires a planning snapshot")
+            self.map_transfer.begin(self, cells)
+        else:
+            controller.submit_plan(self.payload())
+            self.submitted = True
+
+    def payload(self):
+        return plan_payload(self.controller, self.start, self.plan_id)
+
+    def cancel(self):
+        if self.superseded:
+            return
+        try:
+            if self.map_transfer is not None:
+                self.map_transfer.cancel(self)
+        finally:
+            self.superseded = True
+            if (
+                self.submitted
+                and getattr(self.controller, "cancel_plan", None) is not None
+            ):
+                self.controller.cancel_plan(self.plan_id)
 
     def advance(self, **kwargs):
+        if self.superseded:
+            raise RuntimeError("body search was superseded")
+        if not self.submitted:
+            generation = self.map_transfer.advance(self)
+            if generation is None:
+                return RouteResult(
+                    "searching", (self.start,), self.revision, 0, "planner map transfer"
+                )
+            transfer = getattr(self.map_transfer, "transfer", None)
+            if getattr(transfer, "recovered", False):
+                self.controller.events.append(
+                    ("planner_map_ack_recovered", {"generation": generation})
+                )
+            payload = self.payload()
+            payload["map_generation"] = generation
+            self.controller.submit_plan(payload)
+            self.submitted = True
         report = self.controller.plan_reports.get(self.plan_id)
         if report is None or report.get("state") != "done":
             return RouteResult(
@@ -150,10 +224,37 @@ class BodySearch:
         self.expanded = report["expanded"]
         result = RouteResult(
             report["status"],
-            tuple(tuple(p) for p in report["route"]),
+            tuple(_point(p) for p in report["route"]),
             self.revision,
             self.expanded,
-            f"body planner {report['status']}",
+            report.get("reason", f"body planner {report['status']}"),
             tuple(step_plan(s) for s in report.get("steps", ())),
         )
-        return RouteSearch._segment(result, SEGMENT)
+        return segment(result, SEGMENT)
+
+
+class BodyTerrainSearch(BodySearch):
+    """The legacy bounded terrain forecast, executed by the body."""
+
+    def __init__(self, controller, start, revision, cells, policy, inventory):
+        self.terrain_policy = policy
+        self.terrain_inventory = tuple(dict(row) for row in inventory)
+        super().__init__(controller, start, revision, cells)
+
+    def payload(self):
+        c = self.controller
+        return {
+            "mode": "terrain",
+            "plan_id": self.plan_id,
+            "start": list(self.start),
+            "goal": list(c.goal),
+            "radius": float(c.radius),
+            "max_drop": c.movement_policy.max_drop,
+            "horizon": 4,
+            "beam_width": 24,
+            "node_limit": c.search_nodes,
+            "policy": asdict(self.terrain_policy),
+            "inventory": list(self.terrain_inventory),
+            "protected": [list(p) for p in c.own_footholds],
+            "excluded": [[list(a), list(b)] for a, b in c.failed_edges],
+        }

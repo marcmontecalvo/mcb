@@ -15,6 +15,14 @@ run live then; every claim about performance was a hypothesis until Phase 0 meas
 **Current status and the ordered work list are in [ROADMAP.md](ROADMAP.md)** (updated
 Nov 1, 2026). This document keeps the decisions and the phase plan.
 
+**Development implementation update, Nov 3:** segmented production navigation
+uses the Java body planner for position and interaction goals, survival weights,
+and the bounded terrain forecast. Python sends versioned admitted map snapshots,
+policies and objectives, and confirms edits against fresh observations. The Python
+search implementations remain offline comparison oracles, not runtime fallbacks.
+The changed body still needs independent review and source-bound live qualification;
+historical results below remain tied to their original versions.
+
 ## 0. Update — October 28 midday (Marc). Overrides §3–§4 where they differ.
 
 After Phase 0 and the [Phase 0 fixes](PHASE0_FIXES_RESULTS_2026-10-28.md), Marc set
@@ -90,7 +98,7 @@ frozen comparison (Phase 7) and survival/Jev profiles (Phase 6).
 > [STEP_C_PROGRESS_2026-10-29.md](STEP_C_PROGRESS_2026-10-29.md). Cohort 28: 10/10,
 > every route within 1.09× of Baritone. Frozen calm comparison (Phase 7): MCB 90/90
 > on 3 seeds, median ratio 0.90–1.13; night diagnostics open. Phase 6 night
-> acceptance not met (ROADMAP item 13). The compiled Java core is opt-in (item 8). The Oct 31 work found
+> acceptance not met (ROADMAP item 13). At that time the compiled Java core was opt-in (item 8). The Oct 31 work found
 > that early awareness batches never reached the controller; with that fixed, the
 > earlier conclusion that planner throughput was R1's binding limit no longer holds
 > (see ROADMAP, "Oct 31 findings").
@@ -134,7 +142,7 @@ survivable, cheap to run per bot and able to fight when the situation calls for 
 |---|---|---|---|
 | Strategic planner | larger LLM | seconds, event-driven | task/subgoal, cost profile defaults |
 | Tactical | Jev | ≤1 s, event-driven, never blocking motion | goal choice, cost-profile adjustments, interrupt/resume, route-class choice |
-| Route planner | deterministic Python (this document) | continuous, ms | best route under current profile; edits and macros included |
+| Route planner | deterministic Java in `mcb-body`; Python provides admitted snapshots and policies | continuous, bounded slices | best route under current profile; edits and macros included |
 | Executors and motor | existing `StepExecutor`, pillar/bridge/gap/staircase executors, segmented motor | every tick | controls with fresh-geometry checks |
 
 The existing executors, fresh-geometry checks, edit/stock confirmation, failed-edge
