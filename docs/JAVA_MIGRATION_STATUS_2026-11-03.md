@@ -22,11 +22,26 @@ new cases passed independently and resolved that finding.
 | Check | Original build | Migrated build at handoff |
 | --- | --- | --- |
 | Natural action smoke | 14/14 | 14/14, `results/companion/20261103T190029116584Z` |
-| Source-bound regression | All seven stages passed | Background run pending |
-| Empty-inventory gathering | 0/2, existing `no_stance` failure | Background run pending |
-| Supplied-material house | 4/4, 84 correct cells | Background run pending |
-| Calm routes | 10/10, zero damage, 7,188 ticks | Background run pending |
-| Safe night routes | 5/5, four damage, 3,960 ticks; Python fallback | Background run pending |
+| Source-bound regression | All seven stages passed | All seven stages passed |
+| Empty-inventory gathering | 0/2, existing `no_stance` failure | 2/2 passed |
+| Supplied-material house | 4/4, 84 correct cells | 4/4, 84 correct cells; 14,362 build ticks versus 14,014 original |
+| Calm routes | 10/10, zero damage, 7,188 ticks | 10/10, zero damage, 7,726 ticks (7.5% more) |
+| Safe night routes | 5/5, four damage, 3,960 ticks; Python fallback | 4 successes, R3 invalid after creeper death; stage exit 1 |
+
+The queue completed at 14:57 Eastern. Night R3's server log confirms death by
+creeper. Subsequent planner and cleanup requests were rejected because the body
+was gone (`native_plan_requires_development_body`, then
+`route_policy_requires_development_body`), masking the terminal outcome as a
+generic RuntimeError/invalid attempt. Preserve the recorded invalid attempt;
+death-aware planning/cleanup and outcome classification need correction before
+retesting. R2 took 22.282 HP and R4 took 8 HP; successful-route damage alone was
+30.282 HP versus four HP in the original full cohort. This run does not establish
+survival parity.
+
+Migrated artifacts: gathering `results/companion/20261103T192408837819Z`, house
+`results/companion/20261103T192954992449Z`, calm
+`results/natural/20261103T194235139763Z`, night
+`results/natural/20261103T195252574413Z`.
 
 The smoke test includes a `use_entity` response of `not_found`; this does not
 qualify successful interaction with every entity. Baselines are development
@@ -55,6 +70,6 @@ attempts.
 - Original audit: `runtime/java-migration-prebaseline-audit.json`
 - Rollback jars and provenance: `runtime/java-migration-backups/ea973803/`
 
-At handoff, the remaining live results have **not** been reviewed or promoted
-to qualification ledgers. After the queue finishes, compare its exact summaries,
-record failures, and update this table. Do not rerun a second queue concurrently.
+The completed summaries have now been inspected. No qualification ledgers have
+been promoted. Migration implementation is complete, but the night outcome and
+calm timing regression remain open; final live parity is not claimed.
