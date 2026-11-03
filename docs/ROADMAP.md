@@ -1,5 +1,11 @@
 # MCB roadmap and document index
 
+**Java migration handoff (Nov 3):** implemented, independently reviewed and
+installed; live action smoke passed 14/14. Remaining qualification and paired
+baselines are running in the background. See
+[current migration status](JAVA_MIGRATION_STATUS_2026-11-03.md) for evidence,
+limitations, and resume paths. No final live qualification is claimed yet.
+
 **Start here.** This file is the single list of what is done, what is next, and
 where each plan or ledger lives. It holds no decisions of its own: decisions and
 the phase plan are in [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md)
