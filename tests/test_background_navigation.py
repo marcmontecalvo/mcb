@@ -2,10 +2,10 @@ import threading
 import time
 
 import pytest
+from reference_segmented import ReferenceSegmentedController as SegmentedController
 from test_route_search import floor_map
 from test_spatial_memory import identity
 
-from mclab.navigation_segmented import SegmentedController
 from mclab.planning_worker import PlanningWorker
 from mclab.route_search import RouteSearch
 from mclab.spatial_memory import MapArchive, SpatialMemory
@@ -120,7 +120,7 @@ def test_prefetch_is_created_while_moving_and_adopted_at_segment_boundary(tmp_pa
 def test_blocked_worker_does_not_block_controls_or_leak_a_cancelled_goal(
     tmp_path, monkeypatch
 ):
-    from mclab import navigation_segmented
+    import reference_segmented
 
     entered, release = threading.Event(), threading.Event()
 
@@ -135,7 +135,7 @@ def test_blocked_worker_does_not_block_controls_or_leak_a_cancelled_goal(
             kwargs["search_factory"] = GatedSearch
             return super().submit(*args, **kwargs)
 
-    monkeypatch.setattr(navigation_segmented, "PlanningWorker", GatedWorker)
+    monkeypatch.setattr(reference_segmented, "PlanningWorker", GatedWorker)
     cells = floor_map([(x, z) for x in range(-1, 8) for z in (-1, 0, 1)])
     memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
     controller = SegmentedController(
@@ -450,29 +450,17 @@ def test_thin_wall_cut_walking_partial_keeps_searching(monkeypatch, floor):
 def test_first_search_of_an_attempt_uses_the_full_node_floor(tmp_path):
     # ROADMAP item 9: cohort 27 R5 rep 2 committed a ~1,500-node partial from the
     # start into a lake; replays at >=3,000 nodes pick the ridge.
-    from mclab.planning_worker import BackgroundSearch
-    from mclab.route_search import RouteResult
+    from mclab.body_search import plan_payload
 
-    cells = floor_map([(x, z) for x in range(-1, 8) for z in (-1, 0, 1)])
     memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
     controller = SegmentedController((6, 1, 0), memory, radius=0)
 
-    class Recorder(BackgroundSearch):
-        def __init__(self, revision):
-            self.start, self.revision, self.calls = (0, 1, 0), revision, []
-
-        def advance(self, **kwargs):
-            self.calls.append(kwargs.get("moving", False))
-            return RouteResult("searching", ((0, 1, 0),), self.revision, 0, "x")
-
     try:
-        memory.ingest(observation(cells))
-        controller._admit = lambda _: None
-        controller.search = Recorder(memory.revision)
-        controller.decide(observation(cells))
+        first = plan_payload(controller, (0, 1, 0), "first")
         controller.previous_route = ((0, 1, 0), (1, 1, 0))
-        controller.decide(observation(cells))
-        assert controller.search.calls == [True, False]
+        later = plan_payload(controller, (0, 1, 0), "later")
+        assert first["node_limit"] >= 3000
+        assert later["node_limit"] >= 3000
     finally:
         controller.close()
         memory.close()

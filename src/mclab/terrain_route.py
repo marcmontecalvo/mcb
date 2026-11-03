@@ -14,30 +14,8 @@ from itertools import chain
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation import DIRECTIONS, empty, full_cube, standable
 from mclab.pillar_steps import prepare_pillar
+from mclab.terrain_geometry import known_step
 from mclab.terrain_steps import BUILDING, StepPlan, building_supply, prepare_step
-
-
-def known_step(cells, source, target, *, max_drop=1):
-    x, y, z = source
-    tx, ty, tz = target
-    if abs(tx - x) + abs(tz - z) != 1 or not -max_drop <= ty - y <= 1:
-        return False
-    if not standable(cells, source) or not standable(cells, target):
-        return False
-    if ty > y and not all(
-        empty(cells.get(p))
-        for p in (
-            (x, y + 2, z),
-            (x, y + 3, z),
-            (tx, ty + 2, tz),
-        )
-    ):
-        return False
-    if ty < y and not all(
-        empty(cells.get((tx, cy, tz))) for cy in range(math.floor(ty), math.ceil(y) + 2)
-    ):
-        return False
-    return True
 
 
 @dataclass(frozen=True)

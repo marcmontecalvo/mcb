@@ -82,7 +82,8 @@ def test_goal_radius_accepts_horizontal_disk_at_exact_height():
 
 
 def test_confirmed_foothold_is_followed_even_when_away_from_goal(tmp_path):
-    from mclab.navigation_segmented import SegmentedController
+    from reference_segmented import ReferenceSegmentedController as SegmentedController
+
     from mclab.terrain_steps import StepExecutor, StepPlan, TerrainPolicy
 
     cells = floor_map([(x, z) for x in range(-1, 2) for z in range(-2, 5)])
@@ -122,7 +123,8 @@ def test_confirmed_foothold_is_followed_even_when_away_from_goal(tmp_path):
 
 @pytest.mark.parametrize("obstructed", [False, True])
 def test_forecast_walk_is_followed_by_its_planned_placement(tmp_path, obstructed):
-    from mclab.navigation_segmented import SegmentedController
+    from reference_segmented import ReferenceSegmentedController as SegmentedController
+
     from mclab.terrain_steps import StepPlan, TerrainPolicy
 
     cells = floor_map([(x, z) for x in range(-1, 2) for z in range(-2, 4)])
@@ -171,7 +173,8 @@ def test_forecast_walk_is_followed_by_its_planned_placement(tmp_path, obstructed
 
 
 def test_cancelled_terrain_plan_cannot_reuse_reserved_material_budget(tmp_path):
-    from mclab.navigation_segmented import SegmentedController
+    from reference_segmented import ReferenceSegmentedController as SegmentedController
+
     from mclab.terrain_steps import TerrainPolicy
 
     cells = floor_map([(x, z) for x in range(-2, 3) for z in range(-2, 3)])
@@ -213,7 +216,7 @@ def test_cancelled_terrain_plan_cannot_reuse_reserved_material_budget(tmp_path):
 
 
 def test_search_snapshot_immutable_and_motor_rejects_stale_recall(tmp_path):
-    from mclab.navigation_segmented import SegmentedController
+    from reference_segmented import ReferenceSegmentedController as SegmentedController
 
     cells = floor_map([(0, 0), (1, 0), (2, 0), (3, 0)])
     search = RouteSearch(cells, (0, 1, 0), (3, 1, 0), map_revision=1)

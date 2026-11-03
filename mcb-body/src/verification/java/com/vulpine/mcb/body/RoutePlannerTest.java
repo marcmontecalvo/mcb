@@ -3,6 +3,7 @@ package com.vulpine.mcb.body;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Compiled planner core, stage A: land moves, costs, unknown handling, partial routes. */
 public final class RoutePlannerTest {
@@ -35,6 +36,12 @@ public final class RoutePlannerTest {
         check(Math.abs(open.cost() - 10 * RoutePlanner.SPRINT) < 1e-9, "flat edges cost a sprint block each");
         var diagonal = plan(floor(12), new RoutePlanner.Node(5, 1, 5), 100_000);
         check(diagonal.route().size() == 6, "open diagonal is taken");
+        var floorCache = floor(12);
+        var cardinal = new RoutePlanner((x, y, z) -> floorCache.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(5, 1, 5), 0, 3, true)
+                .withPolicy(false, false, false, false, false, 0).search(100_000);
+        check(cardinal.status().equals("reached") && cardinal.route().size() == 11 && cardinal.cost() == 10,
+                "legacy unit costs and disabled diagonals");
         // Wall with a gap: the route must use the gap.
         var walled = floor(12);
         for (int z = -2; z <= 12; z++) if (z != 6) { walled.put(new Key(5, 1, z), stone()); walled.put(new Key(5, 2, z), stone()); walled.put(new Key(5, 3, z), stone()); }
@@ -76,6 +83,40 @@ public final class RoutePlannerTest {
                 new RoutePlanner.Node(3, 4, 4), 0, 3, true).withMoves(true, true).search(100_000);
         check(climbed.status().equals("reached") && climbed.route().stream().anyMatch(n -> n.x() == 2 && n.y() == 3),
                 "climbs the ladder onto the wall");
+        var noClimb = new RoutePlanner((x, y, z) -> wall.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(3, 4, 4), 0, 3, true).withMoves(true, true).withClimb(false).search(100_000);
+        check(!noClimb.status().equals("reached"), "disabled climbing cannot use the ladder");
+        var interaction = floor(12);
+        interaction.put(new Key(4, 4, 0), stone());
+        var reachedBlock = new RoutePlanner((x, y, z) -> interaction.get(new Key(x, y, z)),
+                new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(4, 4, 0), 0, 3, true)
+                .withInteraction(4.5).search(100_000);
+        check(reachedBlock.status().equals("reached") && reachedBlock.route().get(reachedBlock.route().size() - 1).y() == 1,
+                "interaction reaches a raised target from below");
+        var avoidedStart = new RoutePlanner.Node(0, 1, 0);
+        var alternate = new RoutePlanner((x, y, z) -> interaction.get(new Key(x, y, z)),
+                avoidedStart, new RoutePlanner.Node(4, 4, 0), 0, 3, true)
+                .withInteraction(4.5).withAvoidStances(Set.of(avoidedStart)).search(100_000);
+        check(alternate.status().equals("reached") && !alternate.route().get(alternate.route().size() - 1).equals(avoidedStart),
+                "interaction goal excludes a refused stance");
+        var blockedRay = floor(12);
+        for (int z = -2; z <= 12; z++) for (int y = 1; y <= 6; y++) blockedRay.put(new Key(2, y, z), stone());
+        var blockedInteraction = new RoutePlanner((x, y, z) -> blockedRay.get(new Key(x, y, z)),
+                new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(4, 1, 0), 0, 3, true)
+                .withInteraction(4.5).search(100_000);
+        check(!blockedInteraction.status().equals("reached"), "interaction does not see through a wall");
+        var unsafe = floor(12);
+        unsafe.put(new Key(5, 0, 1), Map.of("block", "minecraft:lava", "fluid", "minecraft:lava", "collision_boxes", List.of()));
+        var safeRoute = new RoutePlanner((x, y, z) -> unsafe.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(10, 1, 0), 0, 3, true)
+                .withSurvival(40, 1, 8, List.of()).search(100_000);
+        check(safeRoute.status().equals("reached") && !safeRoute.route().contains(new RoutePlanner.Node(5, 1, 0)),
+                "hazard cost steers away from lava");
+        var avoidMob = new RoutePlanner((x, y, z) -> unsafe.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(10, 1, 0), 0, 3, true)
+                .withSurvival(0, 5, 2, List.of(new double[]{5, 1, 0})).search(100_000);
+        check(avoidMob.status().equals("reached") && avoidMob.route().stream().anyMatch(n -> Math.abs(n.z()) >= 2),
+                "mob cost steers away from a hostile");
         // Gap jump: a 1-wide trench, 2 deep with nothing known under it, across the floor.
         var trench = floor(12);
         for (int z = -2; z <= 12; z++) for (int y = -1; y <= 0; y++) trench.put(new Key(3, y, z), air());

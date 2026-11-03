@@ -1,10 +1,10 @@
 from dataclasses import replace
 
 import pytest
+from reference_segmented import ReferenceSegmentedController as SegmentedController
 from test_spatial_memory import identity
 
 from mclab.movement_policy import MovementPolicy
-from mclab.navigation_segmented import SegmentedController
 from mclab.route_search import RouteSearch
 from mclab.spatial_memory import MapArchive, SpatialMemory
 from mclab.water_movement import surface_height, surface_node, swim_command

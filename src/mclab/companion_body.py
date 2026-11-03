@@ -6,10 +6,9 @@ Ops: docs/BODY_ACTION_OPS.md. Navigation is reused, not rewritten.
 
 Navigation reuse
 - ``goto_stance(target, reach, avoid)``: a ``SegmentedController`` with
-  ``interact_reach=reach`` (route_search ``RouteSearch``/``interacts`` goal) driven by
-  ``control_loop.drive(..., profile=NATIVE)`` = ``native_driver.drive_native``, which
-  submits the planned route to the body's ``follow_route`` follower, as natural runs do.
-- ``walk_to(pos)``: the same controller with a stand-on goal (radius), body planner on.
+  ``interact_reach=reach`` is planned by the Java body and driven by
+  ``control_loop.drive(..., profile=NATIVE)`` and its ``follow_route`` follower.
+- ``walk_to(pos)``: the same body planner with a stand-on goal (radius).
 - ``native_driver.drive_native`` got one hook: a controller's ``stop_reason(observation)``
   may end the drive with ``{"type": "navigation_stopped"}``. Without it the drive only
   ends with the episode, and its own failure path (``_fail``) ends the episode.
@@ -22,8 +21,8 @@ Assumptions (the coordinator verifies them live)
    ``observe()`` feeds the policy observation it fetched into the memory, so no
    ``/policy`` read is discarded. After an op succeeds the new state is also kept in a
    short-lived overlay (``OVERLAY_TICKS``) until the sensor has re-delivered the cell.
-3. ``avoid``: the planner cannot exclude a stance. When ``avoid`` is non-empty, the
-   adapter picks the nearest known standable cell outside ``avoid`` from which
+3. ``avoid``: when ``avoid`` is non-empty, the adapter picks the nearest known
+   standable cell outside ``avoid`` from which
    ``interacts`` holds and walks onto it (``walk_to``); when the planned stance falls in
    ``avoid`` it does the same. Stances are compared as integer feet cells.
 4. A goto gives up after ``goto_wall_s`` wall seconds, or when the planner says
@@ -50,12 +49,12 @@ from mclab.bridge import REJECTIONS
 from mclab.build_runner import Result
 from mclab.control_loop import NATIVE, drive
 from mclab.execution import RecordedBridge, policy_state
+from mclab.interaction_goal import interacts
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation import standable
 from mclab.navigation_runner import _new_identity
 from mclab.navigation_segmented import SegmentedController
 from mclab.paths import ROOT, SERVER, read_json
-from mclab.route_search import interacts
 from mclab.schematic import format_state, parse_state
 from mclab.spatial_memory import MapArchive, MapIdentity, SpatialMemory
 from mclab.terrain_steps import TerrainPolicy
@@ -521,7 +520,6 @@ class CompanionBody:
             background_planning=True,
             movement_policy=self.movement_policy,
             terrain_policy=self.terrain_policy,
-            body_planner=reach is None,  # the body planner has no interact goal yet
             deadline=time.monotonic() + self.goto_wall_s,
         )
         try:

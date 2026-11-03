@@ -623,7 +623,13 @@ def test_companion_check_list_is_a_readable_run():
 
 
 @pytest.fixture
-def companion(workspace):
+def companion(workspace, monkeypatch):
+    from mclab import natural
+
+    snapshots = workspace / "runtime/natural"
+    (snapshots / natural._level(1337)).mkdir(parents=True)
+    (snapshots / natural._level(1337) / "level.dat").touch()
+    monkeypatch.setattr(natural, "SNAPSHOTS", snapshots)
     (workspace / "scripts").mkdir(exist_ok=True)
     for name in ("check-crafting", "run-gather", "run-build"):
         (workspace / f"scripts/{name}.py").write_text("")

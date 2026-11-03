@@ -189,7 +189,8 @@ def test_state_unreachable_retries_other_stances_then_skips():
     calls = [avoid for target, avoid in body.stance_calls if target == pane]
     # MAX_TRIES per round, a fresh round (no stances avoided) RETRY_ROUNDS more times
     assert len(calls) == br.MAX_TRIES * (1 + br.RETRY_ROUNDS)
-    assert [len(a) for a in calls[: br.MAX_TRIES]] == [0, 1, 2]  # each excludes the last
+    # Each attempt excludes the previous stance.
+    assert [len(a) for a in calls[: br.MAX_TRIES]] == [0, 1, 2]
     assert body.w[pane] in bp.AIR
 
 

@@ -70,9 +70,10 @@ The 17×9×17 occlusion-filtered map and evaluator restrictions remain future wo
 
 ## Development native route execution (Step B)
 
-`dev-native-route-v1` is an opt-in development control profile. Planning and edit
-policy stay in Python; the body executes movement and actions at START_SERVER_TICK
-using live position/velocity and fresh local sensor facts. It does not import the
+`dev-native-route-v1` is an opt-in development control profile. The Java body plans
+routes and executes movement and actions at START_SERVER_TICK; Python supplies
+admitted map snapshots and edit policy and confirms results against fresh facts.
+The body uses live position/velocity and fresh local sensor facts for motion. It does not import the
 lab or score itself. Legacy `/controls` timing, permission and qualification
 contracts are unchanged.
 
@@ -81,10 +82,15 @@ request sequence envelope:
 
 | Operation | Fields | Acknowledgement |
 | --- | --- | --- |
-| `follow_route` | `route_id`, `route` (2–32 `[x,y,z]` standing nodes), full `movement_policy` | `route_accepted` |
+| `follow_route` | `route_id`, `route` (2–32 `[x,y,z]` standing nodes), full `movement_policy`, `use_doors`, `climb_vines`; checked same-cell centering may also carry `center_only` and `arrival_radius` | `route_accepted` |
 | `follow_step` | `step_id`, `plan` (`source`, `target`, explicit `breaks`/`places`, `kind`, optional `exit`), full `terrain_policy` | `step_accepted` |
-| `follow_gap` | `gap_id`, gap `plan` (`source`, `target`), `movement_policy` | `gap_accepted` |
+| `follow_gap` | `gap_id`, gap `plan` (`source`, `target`), `movement_policy`, `use_doors`, `climb_vines` | `gap_accepted` |
 | `cancel_route` | no extra fields; cancels route, edits, gap and reflex inputs | `route_cancelled` |
+| `route_policy` | `use_doors`, `climb_vines`; latches development raw-control permissions when no native objective is active | `route_policy_accepted` |
+| `planner_map` | versioned `begin`, palette/section delta batches, `commit`, `abort`, `status`, or `reset` (only with no active plans) | `planner_map_accepted` with committed generation |
+| `planner_request` | ordered, checksummed compressed request frames for a plan too large for one HTTP message | `planner_request_accepted` |
+| `plan_route` | position or terrain mode, policy, endpoints and committed `map_generation`; large requests reference staged request data | `plan_accepted`, followed by a planner report |
+| `cancel_plan` | `plan_id` | `plan_cancelled` |
 
 Native objectives require a ready body spawned with `extended_observation: true`
 and without `limits: course`. Ordinary routes enforce adjacency, standing-height,
@@ -107,6 +113,16 @@ never force-loads a chunk, and does not use lab fixture observations. A local
 threat reflex can choose a checked retreat from nearby observed hostiles, avoiding
 unknown terrain and deferring takeover while airborne. This is not a combat
 controller or the later survival cost model.
+
+Planning reads the selected memory-policy snapshot, including admitted historical
+geometry where enabled. Committed generations use immutable copy-on-write sections;
+absence is unknown. A plan captures its own door/vine permissions and does not
+change an executing route. Map compression and framing stay below the 16 KiB HTTP
+request cap. A lost commit acknowledgement is reconciled against the body's
+generation; other failed partial transfers abort and surface an error. If the
+generation cannot be reconciled, the next attempt resets the map only after all
+plans have stopped. The motor
+continues to validate fresh local geometry before moving or editing.
 
 An objective replacement releases old inputs and clears scheduled controls. Raw
 `/controls` cannot be mixed into an active native route/edit/gap/reflex. Explicit

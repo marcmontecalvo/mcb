@@ -349,6 +349,18 @@ public final class RouteMotorTest {
         check(drop.active(),"known 19-block drop into a lake starts (Baritone MovementFall into water)");
     }
     public static void main(String[] args) {
+        var point = new RouteMotor.Point(0, 1, 0);
+        var center = new RouteMotor("center", List.of(point, point), new RouteMotor.Policy(false, false, false, 1), true, .1);
+        var centerInput = center.tick(pose(.95, 1, .5, 90), geometry(floor()));
+        check(center.active() && centerInput.forward() > 0, "off-center pose receives a checked centering command");
+        center.tick(pose(.58, 1, .5, 90), geometry(floor()));
+        check(center.status().get("state").equals("done"), "center route honors requested precise radius");
+        var unknownFloor = floor(); unknownFloor.remove(new Key(0, 0, 0));
+        var unsafeCenter = new RouteMotor("unsafe", List.of(point, point), new RouteMotor.Policy(false, false, false, 1), true, .1);
+        unsafeCenter.tick(pose(.95, 1, .5, 90), geometry(unknownFloor));
+        check(!unsafeCenter.active(), "center route refuses unknown support");
+        reject(() -> new RouteMotor("dup", List.of(point, point), new RouteMotor.Policy(false, false, false, 1)),
+                "duplicate points require explicit center mode");
         var route=List.of(new RouteMotor.Point(0,1,0),new RouteMotor.Point(1,1,0),new RouteMotor.Point(2,1,0),new RouteMotor.Point(3,1,0));
         var cells=floor(); var motor=motor(route);
         var command=motor.tick(pose(.5,1,.5,-90),geometry(cells));

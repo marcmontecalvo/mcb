@@ -66,11 +66,19 @@ final class RouteMotor {
     private int bendIndex = -1;
     private double lastX = Double.NaN, lastZ, lastY;
     private String state = "following", reason = "";
+    private final boolean centerOnly;
+    private final double arrivalRadius;
 
     RouteMotor(String id, List<Point> route, Policy policy) {
+        this(id, route, policy, false, .2);
+    }
+    RouteMotor(String id, List<Point> route, Policy policy, boolean centerOnly, double arrivalRadius) {
         if (id == null || !id.matches("[A-Za-z0-9_.:-]{1,80}")) throw new IllegalArgumentException("route_id");
         if (route == null || route.size() < 2 || route.size() > 32) throw new IllegalArgumentException("route_length");
         if (policy.maxDrop < 0 || policy.maxDrop > 3) throw new IllegalArgumentException("route_drop_policy");
+        if (!Double.isFinite(arrivalRadius) || arrivalRadius < 0 || arrivalRadius > .2
+                || (centerOnly && (route.size() != 2 || !route.get(0).equals(route.get(1)))))
+            throw new IllegalArgumentException("route_center_policy");
         for (int i = 0; i < route.size(); i++) {
             var p = route.get(i);
             if (!Double.isFinite(p.x) || !Double.isFinite(p.y) || !Double.isFinite(p.z)
@@ -82,10 +90,12 @@ final class RouteMotor {
             var previous = route.get(i - 1);
             double dx = Math.abs(p.x - previous.x), dz = Math.abs(p.z - previous.z), dy = p.y - previous.y;
             boolean vertical = dx + dz == 0 && policy.climb && Math.abs(dy) == 1;
+            if (centerOnly && dx == 0 && dz == 0 && dy == 0) continue;
             if (dx > 1 || dz > 1 || (dx + dz == 0 && !vertical) || (dx + dz > 1 && !policy.diagonals)
                     || dy > 1 || (!vertical && -dy > (policy.swim ? MAX_WATER_DROP : policy.maxDrop))) throw new IllegalArgumentException("route_edge_permission");
         }
         this.id = id; this.route = List.copyOf(route); this.policy = policy;
+        this.centerOnly = centerOnly; this.arrivalRadius = arrivalRadius;
     }
 
     static RouteMotor parse(JsonObject request) {
@@ -114,7 +124,10 @@ final class RouteMotor {
         }
         if(!request.get("route_id").isJsonPrimitive() || !request.getAsJsonPrimitive("route_id").isString())
             throw new IllegalArgumentException("route_id_type");
-        return new RouteMotor(request.get("route_id").getAsString(), points, policy);
+        boolean centerOnly = request.has("center_only") && bool(request, "center_only");
+        double arrivalRadius = request.has("arrival_radius") ? request.get("arrival_radius").getAsDouble() : .2;
+        if (!centerOnly && request.has("arrival_radius")) throw new IllegalArgumentException("route_center_policy");
+        return new RouteMotor(request.get("route_id").getAsString(), points, policy, centerOnly, arrivalRadius);
     }
 
     private static boolean bool(JsonObject value, String key) {
@@ -142,6 +155,9 @@ final class RouteMotor {
     Input tick(Pose pose, Geometry geometry) {
         if (!active()) return Input.STOP;
         ticks++; stepTicks++;
+        if (centerOnly && (!pose.grounded || pose.inWater || Math.abs(pose.y - route.get(0).y) > .2)) {
+            stop("route_center_not_grounded"); return Input.STOP;
+        }
         // Sunk in water under a surface-stance start (the planner lifts a wet start up its
         // water column to the surface, up to 40): not displaced, the swim edge holds jump
         // and rises. Cohort 16 R3 rep 2 stalled 2 blocks under its start, stopped here.
@@ -228,7 +244,7 @@ final class RouteMotor {
         // Instant heading (Baritone LookBehavior sets the exact rotation every tick; native
         // inputs are not bound by the legacy 45 degree rule). Never stop to turn: steer and
         // move in the same tick whenever the swept body on the new heading is safe.
-        double turn = target.distance(pose) < .08 ? 0 : wrap(yawTo(pose, target) - pose.yaw);
+        double turn = target.distance(pose) < .08 && !centerOnly ? 0 : wrap(yawTo(pose, target) - pose.yaw);
         double yaw = turn;
         if (Math.abs(turn) > 8) {
             var turned = new Pose(pose.x, pose.y, pose.z, pose.vx, pose.vz, pose.yaw + yaw, pose.grounded, pose.food, pose.inWater);
@@ -268,13 +284,13 @@ final class RouteMotor {
         // Keep sprinting into a point the route runs straight through (including a
         // step-down) and while airborne; Carpet cancels sprint at once on false.
         double reach = Math.hypot(pose.vx, pose.vz) * 2 + SPRINT_BLOCKS_PER_TICK * 2;
-        boolean sprint = sprintAscent
+        boolean sprint = !centerOnly && (sprintAscent
                 ? policy.sprint && pose.food > 6 && forward == 1 && geometry.safe(pose, target, source.y, reach, true, policy.maxDrop)
                 : policy.sprint && pose.food > 6 && !jumping && forward == 1
                 && target.y <= pose.y + .1
                 && (!cut || geometry.cornerSprintOk(source, route.get(index), policy.maxDrop))
                 && fits(geometry, cut, pose, target, source.y, reach, false)
-                && cornerClear(geometry, pose, target, targetIndex, reach);
+                && cornerClear(geometry, pose, target, targetIndex, reach));
         if (moved < .01 && pose.grounded && !jumping) stalled++; else stalled = 0;
         if (stalled > 30) { stop("route_no_progress"); return Input.STOP; }
         return new Input(forward, yaw, jumping, sprint);
@@ -354,7 +370,7 @@ final class RouteMotor {
     private boolean arrived(Pose pose, Geometry geometry, Point source, Point target) {
         if (Math.floor(pose.x) != target.x || Math.floor(pose.z) != target.z) return false;
         boolean last = index == route.size() - 1;
-        if (pose.grounded && Math.abs(pose.y - target.y) <= .2 && (!last || target.distance(pose) <= .2)) return true;
+        if (pose.grounded && Math.abs(pose.y - target.y) <= .2 && (!last || target.distance(pose) <= arrivalRadius)) return true;
         // Swimming bobs the feet up to a block under the surface stance.
         if (policy.swim && pose.inWater && pose.y >= target.y - 1.0 && pose.y <= target.y + .2
                 && (!last || target.distance(pose) <= .35) && geometry.swimSurface(target)) return true;

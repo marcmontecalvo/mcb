@@ -363,8 +363,11 @@ def ladder_world(block=LADDER, gap=None, fluid="minecraft:empty"):
 def test_climbable_column_gives_vertical_edges(block):
     kw = dict(allow_place=False, allow_break=False)
     cells = ladder_world(block)
-    off, _ = run(cells, (1, 1, -1), (1, 6, 1), policy(**kw))
-    on, s = run(cells, (1, 1, -1), (1, 6, 1), policy(baritone_moves=True, **kw))
+    climbing = MovementPolicy(allow_climb=True)
+    off, _ = run(cells, (1, 1, -1), (1, 6, 1), policy(**kw), climbing)
+    on, s = run(
+        cells, (1, 1, -1), (1, 6, 1), policy(baritone_moves=True, **kw), climbing
+    )
     assert off.status == "unreachable"
     assert on.status == "reached" and on.steps == ()
     assert (1, 3, 0) in on.route
@@ -376,7 +379,13 @@ def test_climbable_column_gives_vertical_edges(block):
 )
 def test_ladder_gaps_and_waterlogged_cells_are_not_climbable(cells):
     kw = dict(allow_place=False, allow_break=False)
-    r, _ = run(cells, (1, 1, -1), (1, 6, 1), policy(baritone_moves=True, **kw))
+    r, _ = run(
+        cells,
+        (1, 1, -1),
+        (1, 6, 1),
+        policy(baritone_moves=True, **kw),
+        MovementPolicy(allow_climb=True),
+    )
     assert r.status == "unreachable"
 
 

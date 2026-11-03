@@ -119,9 +119,9 @@ def test_invalid_gap_permissions_rejected(value):
 
 @pytest.mark.parametrize("native", [False, True])
 def test_controller_owns_gap_flight_and_cancel_clears_commitment(tmp_path, native):
+    from reference_segmented import ReferenceSegmentedController as SegmentedController
     from test_spatial_memory import identity
 
-    from mclab.navigation_segmented import SegmentedController
     from mclab.spatial_memory import MapArchive, SpatialMemory
 
     memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "gap")

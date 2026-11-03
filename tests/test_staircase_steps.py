@@ -98,7 +98,8 @@ def test_partial_scan_keeps_staircase_approach_until_upper_headroom_arrives():
 def test_controller_hands_off_before_walking_lookahead_consumes_staircase_entry(
     tmp_path,
 ):
-    from mclab.navigation_segmented import SegmentedController
+    from reference_segmented import ReferenceSegmentedController as SegmentedController
+
     from mclab.spatial_memory import MapArchive, SpatialMemory
 
     memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "staircase")
@@ -287,8 +288,9 @@ def test_stack_upper_layer_retreats_before_placing_into_leaning_body():
 
 @pytest.mark.parametrize("stance", [5.4344476997376, 5.43, 5.44, 5.5])
 def test_jump_support_sampling_matches_actual_body_width_at_step_edge(tmp_path, stance):
+    from reference_segmented import ReferenceSegmentedController as SegmentedController
+
     from mclab.movement_policy import MovementPolicy
-    from mclab.navigation_segmented import SegmentedController
     from mclab.spatial_memory import MapArchive, SpatialMemory
 
     cells = staircase_map(9)

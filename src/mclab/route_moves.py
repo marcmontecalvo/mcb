@@ -187,7 +187,8 @@ def swim_cost(s, cells, source, target):
 def extra_moves(s, cells, node):
     """(target, cost, StepPlan or None) for the baritone_moves edge kinds."""
     rs = _rs()
-    yield from _ladder_moves(s, cells, node)
+    if s.movement_policy.allow_climb:
+        yield from _ladder_moves(s, cells, node)
     x, y, z = node
     if y != math.floor(y) or not standable(cells, node):
         return
