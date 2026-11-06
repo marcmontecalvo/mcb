@@ -28,6 +28,23 @@ from mclab.recorder import exclusive_run
 SESSIONS = ROOT / "results/sessions"
 WORKER_LOCK = ROOT / "runtime/dashboard-worker.lock"
 ACTIVE = {"queued", "running"}
+QUALIFICATION_JOBS = {
+    "body-qualify": [sys.executable, "-u", "-m", "mclab.cli", "body", "qualify"],
+    "body-protocol-check": [
+        sys.executable,
+        "-u",
+        "-m",
+        "mclab.cli",
+        "body",
+        "protocol-check",
+    ],
+}
+# Both checks write their summaries under results/qualification (qualify.py,
+# protocolproof.py); resolved against ROOT per run so tests can relocate it.
+QUALIFICATION_SUMMARIES = {
+    "body-qualify": "results/qualification",
+    "body-protocol-check": "results/qualification",
+}
 
 
 def baseline_progress():
@@ -81,6 +98,17 @@ def baseline_progress():
             if any(job.get("exit_code", 0) != 0 for job in jobs)
             else "completed"
         )
+    finished_at = None
+    if status.startswith("completed"):
+        finished_times = [
+            datetime.fromisoformat(job["finished_at"]).timestamp()
+            for job in jobs
+            if job.get("finished_at")
+        ]
+        finished_at = max(finished_times, default=None)
+    elif status == "interrupted":
+        updated = log.stat().st_mtime if log.exists() else None
+        finished_at = updated
     if not alive:
         for job in jobs:
             if job["status"] == "running":
@@ -93,6 +121,7 @@ def baseline_progress():
         "finished": finished,
         "total": len(jobs),
         "started_at": datetime.fromisoformat(started).timestamp() if started else None,
+        "finished_at": finished_at,
         "updated_at": log.stat().st_mtime if log.exists() else None,
         "log": output[-12_000:],
         "errors": tail(ROOT / "runtime/java-migration-post-error.log", 6000),
@@ -143,6 +172,17 @@ def tail(path, size=100_000):
         return data.decode("utf-8", errors="replace")
     except FileNotFoundError:
         return ""
+
+
+def latest_summary(directory, started_at):
+    candidates = [
+        path
+        for path in directory.glob("*/summary.json")
+        if path.stat().st_mtime >= started_at - 1
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime_ns)
 
 
 def live_events(directory):
@@ -335,6 +375,106 @@ def worker(path):
         done.set()
 
 
+def qualification_worker(path):
+    """Run supported body checks serially and persist visible per-command status."""
+    session = read_json(path)
+    done = threading.Event()
+    current_process = None
+    threading.Thread(target=watch_kill, args=(path, done), daemon=True).start()
+    try:
+        with exclusive_run(WORKER_LOCK):
+            session.update(status="running", started_at=time.time())
+            save(path, session)
+            for job in session["jobs"]:
+                if path.with_name("stop-after-batch").exists():
+                    session["status"] = "stopped"
+                    break
+                job.update(status="running", started_at=time.time())
+                save(path, session)
+                print("Starting qualification: " + job["label"], flush=True)
+                try:
+                    current_process = subprocess.Popen(
+                        QUALIFICATION_JOBS[job["id"]],
+                        cwd=ROOT,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        creationflags=(
+                            subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+                        ),
+                    )
+                    job["pid"] = current_process.pid
+                    save(path, session)
+                    output_path = path.with_name("console.log")
+                    with output_path.open("a", encoding="utf-8") as output:
+                        for line in iter(current_process.stdout.readline, b""):
+                            output.write(line.decode("utf-8", errors="replace"))
+                            output.flush()
+                    job["exit_code"] = current_process.wait()
+                    current_process = None
+                    summary_path = latest_summary(
+                        ROOT / QUALIFICATION_SUMMARIES[job["id"]], job["started_at"]
+                    )
+                    if summary_path is not None:
+                        summary = read_json(summary_path)
+                        job["result_status"] = summary.get("status", "unknown")
+                        job["evidence"] = summary_path.relative_to(ROOT).as_posix()
+                    else:
+                        job["result_status"] = "missing_summary"
+                    passed = job.get("result_status") in {
+                        "passed",
+                        "passed_development_subset",
+                    }
+                    job["status"] = (
+                        "passed"
+                        if passed and job["exit_code"] == 0
+                        else "failed"
+                        if job["exit_code"] != 0
+                        or job.get("result_status")
+                        in {"failed", "invalid", "missing_summary"}
+                        else "completed"
+                    )
+                    if job["status"] == "failed":
+                        session["status"] = "failed"
+                except KeyboardInterrupt:
+                    if current_process is not None and current_process.poll() is None:
+                        current_process.terminate()
+                        try:
+                            current_process.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            current_process.kill()
+                            current_process.wait()
+                    current_process = None
+                    job.update(status="killed", error="Killed from the dashboard")
+                    session["status"] = "killed"
+                except Exception as error:
+                    if current_process is not None and current_process.poll() is None:
+                        current_process.terminate()
+                        current_process.wait(timeout=10)
+                    current_process = None
+                    job.update(status="error", error=str(error))
+                    session.update(status="error", error=str(error))
+                finally:
+                    job["finished_at"] = time.time()
+                    save(path, session)
+                if session["status"] in {"failed", "error", "killed"}:
+                    break
+            else:
+                session["status"] = "completed"
+    except KeyboardInterrupt:
+        session["status"] = "killed"
+    except Exception as error:
+        session.update(status="error", error=str(error))
+        traceback.print_exc()
+    finally:
+        for job in session["jobs"]:
+            if job["status"] == "queued":
+                job["status"] = "not run"
+        session["finished_at"] = time.time()
+        save(path, session)
+        done.set()
+
+
 def worker_busy():
     try:
         with exclusive_run(WORKER_LOCK):
@@ -407,11 +547,13 @@ class Dashboard:
         self.process_path = None
         self.cache = {}
 
-    def sessions(self):
+    def sessions(self, *, include_qualification=True):
         with self.lock:
             values = []
             for path in sorted(SESSIONS.glob("*/session.json"), reverse=True):
                 value = read_json(path)
+                if not include_qualification and value.get("kind") == "qualification":
+                    continue
                 if value["status"] in ACTIVE:
                     own_alive = (
                         self.process_path == path
@@ -437,6 +579,8 @@ class Dashboard:
                         save(path, value)
                     for job in value["jobs"]:
                         if job["status"] == "running":
+                            if value.get("kind") == "qualification":
+                                continue
                             paths = new_directories(job)
                             if paths and job["kind"] == "companion":
                                 job["live"] = runs.companion_live(paths[-1])
@@ -459,8 +603,32 @@ class Dashboard:
             return values
 
     def start(self, request):
-        jobs = runs.plan(request)
-        if any(j["kind"] == "companion" for j in jobs):
+        kind = request.get("kind")
+        if kind == "qualification":
+            requested = request.get("checks")
+            if not isinstance(requested, list) or not requested:
+                raise ValueError("Select one or more Gate Evaluations")
+            if len(set(requested)) != len(requested) or any(
+                check not in QUALIFICATION_JOBS for check in requested
+            ):
+                raise ValueError("Unknown or duplicate Gate Evaluation")
+            labels = {
+                "body-qualify": "Body mechanics qualification (39 checks)",
+                "body-protocol-check": "Body protocol qualification (24 checks)",
+            }
+            jobs = [
+                {"id": check, "label": labels[check], "status": "queued"}
+                for check in requested
+            ]
+            worker_target = "qualification"
+        elif kind in {"courses", "natural", "models", "companion", "setup", "session"}:
+            if kind == "session":
+                request = {**request, "kind": "setup"}
+            jobs = runs.plan(request)
+            worker_target = "session"
+        else:
+            raise ValueError("Unknown dashboard run type")
+        if any(j.get("kind") == "companion" for j in jobs):
             from mclab import server
 
             if server.status()["state"] != "running":
@@ -479,6 +647,8 @@ class Dashboard:
             path = SESSIONS / session_id / "session.json"
             value = {
                 "id": session_id,
+                "kind": worker_target,
+                "read_only": worker_target == "qualification",
                 "status": "queued",
                 "created_at": time.time(),
                 "jobs": [{**j, "status": "queued"} for j in jobs],
@@ -492,7 +662,9 @@ class Dashboard:
                             "-u",
                             "-m",
                             "mclab.dashboard",
-                            "--worker",
+                            "--qualification-worker"
+                            if worker_target == "qualification"
+                            else "--worker",
                             str(path),
                         ],
                         cwd=ROOT,
@@ -583,7 +755,10 @@ def handler(dashboard):
                         "text/html; charset=utf-8",
                     )
                 if parsed.path == "/api/catalog":
-                    return self.reply(200, runs.catalog())
+                    catalog = runs.catalog()
+                    catalog["companion"]["default_start"] = runs.COMPANION_DEFAULT_START
+                    catalog["companion"]["default_gather_seed"] = 42424242
+                    return self.reply(200, catalog)
                 if parsed.path == "/api/status":
                     from mclab import server
 
@@ -641,6 +816,12 @@ def handler(dashboard):
                     return self.reply(200, runs.convert_schematic(request.get("file")))
                 if self.path == "/api/delete":
                     with dashboard.lock:
+                        selected = session_path(request.get("id"))
+                        if read_json(selected).get("kind") == "qualification":
+                            raise ValueError(
+                                "Qualification evidence is preserved; remove it "
+                                "manually after review"
+                            )
                         return self.reply(200, delete_session(request.get("id")))
                 return self.reply(404, {"error": "Not found"})
             except (OSError, ValueError, TypeError, KeyError) as error:
@@ -654,6 +835,7 @@ def main():
     parser.add_argument("--port", type=int, default=8770)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--worker", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--qualification-worker", type=Path, help=argparse.SUPPRESS)
     parser.add_argument(
         "--sessions", action="store_true", help="List sessions and exit"
     )
@@ -666,6 +848,9 @@ def main():
     args = parser.parse_args()
     if args.worker:
         worker(args.worker)
+        return
+    if args.qualification_worker:
+        qualification_worker(args.qualification_worker)
         return
     if args.sessions:
         for path in sorted(SESSIONS.glob("*/session.json")):

@@ -19,6 +19,7 @@ COMPANION_JOBS = (*COMPANION_CHECKS, "gather", "build")
 COORDINATE_LIMIT = 30_000_000
 SCHEMATIC_DIRS = ("tests/fixtures/schematics", "builds")
 BUILD_DIRS = (*SCHEMATIC_DIRS, "results/companion")
+COMPANION_DEFAULT_START = [0, 64, 0]
 KILL_GRACE_S = 120
 
 
@@ -338,7 +339,7 @@ def companion_job(request):
     job = {"kind": "companion", "companion": name, "entrant": name, "expected": 0}
     args = []
     if name in {"gather", "build"}:
-        start = request.get("start")
+        start = request.get("start", COMPANION_DEFAULT_START)
         if not isinstance(start, list) or len(start) != 3:
             raise ValueError("Enter start X Y Z")
         job["start"] = [

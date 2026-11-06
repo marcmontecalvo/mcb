@@ -376,6 +376,92 @@ def test_launch_uses_existing_python_and_blocks_second_session(workspace, monkey
     assert value["jobs"][0]["seeds"] == [101]
 
 
+@pytest.mark.parametrize(
+    "checks",
+    [
+        ["body-qualify"],
+        ["body-protocol-check"],
+        ["body-qualify", "body-protocol-check"],
+    ],
+)
+def test_dashboard_starts_selected_gate_evaluations(workspace, monkeypatch, checks):
+    launched = []
+
+    class Process:
+        def __init__(self, args, **kwargs):
+            launched.append((args, kwargs))
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(ui.subprocess, "Popen", Process)
+    session_id = ui.Dashboard().start({"kind": "qualification", "checks": checks})["id"]
+    session = read_json(workspace / "results/sessions" / session_id / "session.json")
+    assert session["kind"] == "qualification"
+    assert [job["id"] for job in session["jobs"]] == checks
+    assert launched[0][0][-2] == "--qualification-worker"
+
+
+def test_dashboard_rejects_empty_or_unknown_gate_evaluations(workspace):
+    dashboard = ui.Dashboard()
+    for checks in ([], ["unknown"]):
+        with pytest.raises(ValueError):
+            dashboard.start({"kind": "qualification", "checks": checks})
+
+
+def test_qualification_worker_links_summaries_where_the_checks_write(
+    workspace, monkeypatch
+):
+    # qualify.py and protocolproof.py write their summaries to
+    # results/qualification/<stamp>/; a passing exit code with that summary
+    # present must never be recorded as missing_summary/failed.
+    from datetime import UTC, datetime
+    from io import BytesIO
+
+    path = workspace / "results/sessions/qual/session.json"
+    write_json(
+        path,
+        {
+            "id": "qual",
+            "kind": "qualification",
+            "status": "queued",
+            "jobs": [
+                {
+                    "id": "body-protocol-check",
+                    "label": "Body protocol qualification (24 checks)",
+                    "status": "queued",
+                }
+            ],
+        },
+    )
+
+    class Process:
+        pid = 4242
+
+        def __init__(self, args, **kwargs):
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+            write_json(
+                workspace / "results/qualification" / stamp / "summary.json",
+                {
+                    "status": "passed_development_subset",
+                    "suite": "supplementary_protocol_v1",
+                },
+            )
+            self.stdout = BytesIO(b"")
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(ui.subprocess, "Popen", Process)
+    ui.qualification_worker(path)
+    session = read_json(path)
+    assert session["status"] == "completed"
+    job = session["jobs"][0]
+    assert job["status"] == "passed"
+    assert job["result_status"] == "passed_development_subset"
+    assert job["evidence"].startswith("results/qualification/")
+
+
 def test_worker_links_original_summary_and_preserves_task_failure(
     workspace, monkeypatch
 ):
