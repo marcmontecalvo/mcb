@@ -12,10 +12,13 @@ the phase plan are in [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_
 (authoritative; it wins any conflict). Results live in the ledgers listed below.
 Update this file whenever an item here is finished or a new one is found.
 
-Last updated: November 3, 2026 (companion track: M5 state and next steps below,
-"Open after Nov 3"). Earlier: November 1 (cohorts 16–29 and the frozen calm comparison on
-`main`). Previously qualified mod: `68b3e8f6…` (Java edit edges; requalified
-Nov 1, item 11). Later body changes require source-bound requalification.
+Last updated: November 6, 2026 (companion track: "Open after Nov 6" below; iron
+baseline regression attributed — not the climb change; dashboard gate sessions landed).
+Earlier: November 3 (companion track: M5 state; Java migration baselines).
+Earlier: November 1 (cohorts 16–29 and the frozen calm comparison on
+`main`). Previously qualified mod: `c414e408…` (the Nov 3 migration build; the seven
+regression stages passed for it on Nov 3, `results/awareness/20261103T190042815691Z-regression`;
+no ledger promotion recorded). Later body changes require source-bound requalification.
 Cohorts 27–28 ran on `2eed1251`, cohort 29 on `0129b057`.
 
 ## Where things stand
@@ -103,18 +106,50 @@ Details: [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md), cohorts 16–20.
 Each item names where its detail or evidence lives. Numbers are priority, not
 dependencies, except where noted.
 
-**Open after Nov 3 (companion track, M5), in the order to do them:**
-(1) rerun the large house (`--start -56 66 104 --seed 31415926 --empty --build
-tests/fixtures/schematics/house-large.build.json`); the Nov 2 attempt
-`20261103T031040847065Z` crashed in the Python driver about 1.5 s after the first
-route request, with no traceback kept. Live scripts now write `error.txt` and a
-failing "driver crashed" row, so the rerun will show the error;
-(2) fix that crash, then let the long gather run (about 400 oak logs, 230 birch logs,
-115 raw iron);
-(3) rerun the iron-pickaxe baseline on seed 20261026 with climbing off, to see
-whether turning climbing on caused 9/9 → 7/9; fix or revert the climb change;
-(4) requalify the body mod (item 11 procedure) before scored navigation runs.
-Detail under "Answered Nov 1" → "Nov 3 state" in the open questions below.
+**Open after Nov 6 (companion track, M5), in the order to do them:**
+(1) the large house: the Nov 3 "driver crash 1.5 s after the first route request" is
+root-caused — every `follow_step` echoed the template's whole protection (4,410 cells,
+65 KB of JSON) over the body's 16 KB POST limit (HTTP 413, Nov 6 run
+`20261106T182735343056Z`). Fixed Python-only: `follow_step` now carries protection
+beside the plan's cells only (`native_driver.STEP_PROTECT_RADIUS` = 2 — the motor
+validates each edit cell and its source neighbour; a 16-cell window still cost 28 KB
+inside the template footprint), regression test with
+4,000 far cells added; live proof `20261106T185239143471Z`: the follow_step terrain
+policy is 756 bytes against 65,361 before, the run passed every earlier failure point
+and the gather continues). Sites tried Nov 6: the pond site (-56, 66, 104) stalled with 0
+tasks (`20261106T170919632775Z`, see (3)); the hill site (-24, 72, 40) failed
+`PlaceStation:crafting_table` with `no_support_face` (`20261106T182245230212Z`, see
+(5)); the flat flower-forest centre (-24, 64 56) reached the station and stone dig
+before the 413 (`20261106T182735343056Z`) and is rerun with the fix, in progress;
+(2) hole-escape quality: digging down to stone/iron and walking back fails about 1 in
+3 attempts at the seed 20261026 site, with climbing on or off — three `--no-climb`
+reps on Nov 6: `20261106T174543920887Z` failed after arriving at (43, 51, −81) (14
+stuck gotos to surface stances, then `Craft…no_stance`), `20261106T180108898761Z` and
+`20261106T181234719671Z` passed. The climb change is kept (scaffolding and ladders
+need `allow_climb`); it was not the 9/9 → 7/9 cause. This also threatens the
+large-house iron phase;
+(3) candidate economics: every stance of an unreachable candidate costs a ~10 s stuck
+goto, and the 120 s no-inventory-change watchdog ends a job after about 12 of them —
+at the pond site (-56, 66, 104) that killed the starter before any farther oak was
+tried (`20261106T170919632775Z`, 0 tasks, 12 gotos). A plan-only probe (a
+`plan_route` result without following) would reject stances the body planner already
+says it cannot route to;
+(4) promote the Nov 3 seven-stage regression for `c414e408…` into the ledgers (the
+finalize helper is not present under `runtime/`);
+(5) station placement economics: `PlaceStation` failures with `no_support_face` end
+the task without another cell being tried — `place_free` re-picks the same
+`free_spot` on every retry and `no_support_face` is not in `RETRY_REASONS`
+(`20261106T182245230212Z`, hill site). Fix: add it to the stance-retry reasons or
+rotate the `free_spot` offsets.
+
+**Closed from Nov 3:** (a) the large-house driver crash — root-caused Nov 6 to the
+`follow_step` protection echo crossing the 16 KB POST limit and fixed (see (1));
+(b) the seed 20261026 climb suspicion — disproved, see (2); (c) body requalification
+for scored runs — already evidenced for the current install `c414e408…` by
+`20261103T190042815691Z-regression` (all seven stages), so scored navigation may
+proceed on this build; (d) dashboard gate sessions: `body-qualify` 39/39 and `body
+protocol-check` 24/24 passed live through it today (sessions
+`20261106T170523-2dfe718d`, `20261106T165607-5c17fa92`).
 
 **Open after Nov 1, in the order to do them:** (1) item 8: stage D and continuous
 re-planning done (cohorts 30-31); review and qualify the Nov 3 Java-only migration;

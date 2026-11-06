@@ -11,10 +11,12 @@ through companion_body.CompanionBody + gather_runner.run_gather. Results folder:
 import argparse
 import json
 import sys
+from dataclasses import replace
 
 from live_common import finish, kit, record_crash, results_folder
 
 from mclab.companion_body import (
+    NATURAL_MOVEMENT,
     companion_world,
     end_session,
     open_bridge,
@@ -40,6 +42,12 @@ def main() -> int:
         type=int,
         help="run in a fresh copy of this natural seed's world (the lab world is flat)",
     )
+    parser.add_argument(
+        "--no-climb",
+        action="store_true",
+        help="disable climbing (ladders/scaffolding) for this run; the seed 20261026 "
+        "iron baseline dropped 9/9 to 7/9 when climbing turned on (Nov 3 suspect)",
+    )
     args = parser.parse_args()
     folder = results_folder()
     folder.mkdir(parents=True, exist_ok=True)
@@ -51,7 +59,17 @@ def main() -> int:
         bridge = open_bridge(folder)
         memory = None
         try:
-            body, memory = start_session(bridge, folder, args.start, dig=True)
+            body, memory = start_session(
+                bridge,
+                folder,
+                args.start,
+                dig=True,
+                movement_policy=(
+                    replace(NATURAL_MOVEMENT, allow_climb=False)
+                    if args.no_climb
+                    else None
+                ),
+            )
             kit(bridge, inventory=[])
             body.observe()
             targets = [(M + "stone_pickaxe", "stone pickaxe")]

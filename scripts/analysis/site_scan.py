@@ -22,7 +22,8 @@ M = "minecraft:"
 # need: (blocks that count, how many are wanted within the radius)
 NEEDS = {
     "oak_log": ({M + "oak_log"}, 400),
-    "spruce_log": ({M + "spruce_log"}, 260),
+    # house-large swapped spruce to birch on Nov 3; the template needs ~215 birch logs
+    "birch_log": ({M + "birch_log"}, 260),
     "stone": ({M + "stone", M + "cobblestone"}, 400),
     "andesite": ({M + "andesite"}, 20),
     "iron": ({M + "iron_ore", M + "deepslate_iron_ore"}, 130),
@@ -31,7 +32,6 @@ NEEDS = {
     "sugar_cane": ({M + "sugar_cane"}, 50),
     "clay": ({M + "clay"}, 12),  # 4 balls a block
     "sand": ({M + "sand"}, 10),
-    "vine": ({M + "vine"}, 40),
     "poppy": ({M + "poppy"}, 2),
     "lily_of_the_valley": ({M + "lily_of_the_valley"}, 1),
     "blue_orchid": ({M + "blue_orchid"}, 1),
