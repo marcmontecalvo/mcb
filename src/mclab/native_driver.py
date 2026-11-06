@@ -26,6 +26,11 @@ GOAL_PROGRESS_BLOCKS = 1.0
 REFRESH_AHEAD = 6
 # Extend an unchanged route only once this little of it is left to drive.
 EXTEND_TICKS = 60
+# follow_step carries only protection beside the plan's own cells: the motor
+# validates each edit cell and its source neighbour, nothing further away. The
+# whole house-large list did not fit the body's 16 KB POST limit, and even a
+# 16-cell window inside the template footprint still sent 28 KB.
+STEP_PROTECT_RADIUS = 2
 
 
 def remaining_ticks(route):
@@ -556,8 +561,23 @@ def drive_native(client, controller, wall_timeout):
                 stats["steps_submitted"] += 1
                 step_before = observation["body"]
                 terrain_policy = asdict(policy)
+                # The motor and terrain planner only consult protection within and
+                # beside this plan; sending the whole list re-smuggled a 4,410-cell
+                # house-large template past the body's 16 KB POST limit (run
+                # 20261106T182735343056Z, HTTP 413; the Nov 3 "driver crash 1.5 s
+                # after the first route request" was the same class).
+                anchors = {tuple(plan.source), tuple(plan.target)}
+                anchors.update(map(tuple, plan.breaks))
+                anchors.update(map(tuple, plan.places))
                 terrain_policy["protected_positions"] = sorted(
-                    set(policy.protected_positions) | controller.own_footholds
+                    cell
+                    for cell in set(policy.protected_positions)
+                    | set(controller.own_footholds)
+                    if any(
+                        max(abs(a - b) for a, b in zip(cell, anchor, strict=True))
+                        <= STEP_PROTECT_RADIUS
+                        for anchor in anchors
+                    )
                 )
                 controller.own_footholds.update(plan.places)
                 request = client.send(

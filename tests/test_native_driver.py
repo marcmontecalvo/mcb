@@ -581,6 +581,63 @@ def test_downward_and_descend_steps_go_to_follow_step_with_plan_shape(
     assert controller.failed_edges == {(plan.source, plan.target)}
 
 
+def test_follow_step_carries_only_protection_near_the_plan(monkeypatch):
+    # The full house-large protection (4,410 cells) rode every follow_step and
+    # crossed the body's 16 KB POST limit (HTTP 413, run 20261106T182735343056Z).
+    from mclab.terrain_steps import StepPlan, TerrainPolicy
+
+    far = tuple((x, 5, 4000) for x in range(4000))
+    plan = StepPlan((0, 5, 0), (0, 5, 1), ((0, 5, 1),), ((0, 6, 1),), "dig")
+    policy = TerrainPolicy(protected_positions=far + ((0, 5, 2), (0, 5, 10)))
+    rows = iter(
+        [
+            {"tick": 1, "route_follower": {"state": "idle"}},
+            {"tick": 2, "step_follower": {"step_id": "step-1", "state": "failed"}},
+            {"terminal": {"status": "success"}},
+        ]
+    )
+    sent = []
+    client = SimpleNamespace(
+        send=lambda op, **kw: sent.append((op, kw)) or {"sequence": 1},
+        acknowledge=lambda *_: None,
+        wait=lambda predicate, **kw: True,
+        record=lambda *a: None,
+    )
+    controller = SimpleNamespace(
+        route=[],
+        mode="terrain_editing",
+        terrain=SimpleNamespace(plan=plan, policy=policy),
+        gap_jump=None,
+        failed_edges=set(),
+        movement_policy=MovementPolicy(),
+        committed_step=None,
+        own_footholds={(1, 5, 0)},
+        edits_broken=0,
+        edits_placed=0,
+        search=None,
+        _admit=lambda _o: None,
+        _clear_terrain_forecast=lambda: None,
+        drain_events=lambda: [],
+        _discard_prefetch=lambda: None,
+        decide=lambda o, *, native=False: None,
+    )
+    monkeypatch.setattr(
+        native_driver,
+        "policy_state",
+        lambda _c: {"body": {"position": [0.5, 5, 0.5]}, **next(rows)},
+    )
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda _c, row: row.get("terminal"))
+    assert native_driver.drive_native(client, controller, 10) == {"status": "success"}
+    fields = sent[0][1]
+    got = set(fields["terrain_policy"]["protected_positions"])
+    assert (0, 5, 2) in got  # protected cell beside the plan
+    assert (1, 5, 0) in got  # own foothold beside the plan
+    # cells nine away are outside the motor's check and not echoed
+    assert (0, 5, 10) not in got
+    assert not any(cell[2] == 4000 for cell in got)
+
+
 def test_companion_goto_failure_stops_the_goto_not_the_episode(monkeypatch):
     sent = []
     controller = SimpleNamespace(
