@@ -115,12 +115,14 @@ beside the plan's cells only (`native_driver.STEP_PROTECT_RADIUS` = 2 — the mo
 validates each edit cell and its source neighbour; a 16-cell window still cost 28 KB
 inside the template footprint), regression test with
 4,000 far cells added; live proof `20261106T185239143471Z`: the follow_step terrain
-policy is 756 bytes against 65,361 before, the run passed every earlier failure point
-and the gather continues). Sites tried Nov 6: the pond site (-56, 66, 104) stalled with 0
+policy is 756 bytes against 65,361 before, the starter completed (16 tasks, one
+recovered `Craft…missing_ingredients`) and the main gather ended at tick ~16.5k on
+`Gather:minecraft:sand stalled` — the shoreline-candidate class of (3), not a crash).
+Sites tried Nov 6: the pond site (-56, 66, 104) stalled with 0
 tasks (`20261106T170919632775Z`, see (3)); the hill site (-24, 72, 40) failed
 `PlaceStation:crafting_table` with `no_support_face` (`20261106T182245230212Z`, see
 (5)); the flat flower-forest centre (-24, 64 56) reached the station and stone dig
-before the 413 (`20261106T182735343056Z`) and is rerun with the fix, in progress;
+before the 413 (`20261106T182735343056Z`) and is the site of the fix rerun above;
 (2) hole-escape quality: digging down to stone/iron and walking back fails about 1 in
 3 attempts at the seed 20261026 site, with climbing on or off — three `--no-climb`
 reps on Nov 6: `20261106T174543920887Z` failed after arriving at (43, 51, −81) (14
