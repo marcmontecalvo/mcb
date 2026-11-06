@@ -345,6 +345,8 @@ def drive_native(client, controller, wall_timeout):
         "routes_spliced": 0,
     }
     client.last_controller_error = None
+    # a plan-only probe controller parks the motor: submissions stay off
+    no_drive = bool(getattr(controller, "no_drive", False))
     best_distance, best_tick = math.inf, None
     try:
         while time.monotonic() < deadline:
@@ -525,7 +527,7 @@ def drive_native(client, controller, wall_timeout):
                 controller.decide(observation, native=True)
             finally:
                 record_selector(client, controller)
-            if controller.gap_jump is not None:
+            if controller.gap_jump is not None and not no_drive:
                 gap_id = f"gap-{stats['gaps_submitted'] + 1}"
                 stats["gaps_submitted"] += 1
                 request = client.send(
@@ -551,10 +553,14 @@ def drive_native(client, controller, wall_timeout):
                 )
                 active_gap = gap_id
                 continue
-            if controller.terrain is not None and (
-                controller.terrain.plan.breaks
-                or controller.terrain.plan.places
-                or controller.terrain.plan.kind != "step"
+            if (
+                controller.terrain is not None
+                and not no_drive
+                and (
+                    controller.terrain.plan.breaks
+                    or controller.terrain.plan.places
+                    or controller.terrain.plan.kind != "step"
+                )
             ):
                 plan, policy = controller.terrain.plan, controller.terrain.policy
                 step_id = f"step-{stats['steps_submitted'] + 1}"
@@ -601,11 +607,16 @@ def drive_native(client, controller, wall_timeout):
                 if controller.committed_step is not None
                 else offered_route(controller)
             )
-            if len(route) >= 2 and controller.mode in {
-                "following",
-                "terrain_step_motion",
-                "centering",
-            }:
+            if (
+                len(route) >= 2
+                and not no_drive
+                and controller.mode
+                in {
+                    "following",
+                    "terrain_step_motion",
+                    "centering",
+                }
+            ):
                 body = observation["body"]["position"]
                 if (
                     math.hypot(body[0] - route[0][0] - 0.5, body[2] - route[0][2] - 0.5)

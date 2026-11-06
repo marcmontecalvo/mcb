@@ -179,14 +179,51 @@ def test_goto_stance_walks_known_stances_before_any_interaction_search(monkeypat
     b._obs["body"]["position"] = [20.5, 0.0, 20.5]  # far: not in reach
     calls = []
 
-    def navigate(goal, *, reach, radius):
-        calls.append((goal, reach))
-        return False
+    def navigate(goal, *, reach, radius, probe=False):
+        if not probe:
+            calls.append((goal, reach))
+        return probe  # verdict: routable; the walk then fails
 
     monkeypatch.setattr(b, "_navigate", navigate)
     assert b.goto_stance((2, 0, 2), 4.5) is False
     assert 0 < len(calls) <= cb.MAX_CANDIDATES
     assert all(reach is None for _, reach in calls)  # body planner, stand-on goals
+
+
+def test_goto_stance_skips_candidates_the_planner_cannot_route(monkeypatch):
+    # roadmap item 1 (Nov 6): a stance across known water is unroutable, but testing
+    # that by walking it burned the StuckGuard's 10 s - 12 of them ended the job at
+    # 0 tasks (20261106T170919632775Z). The probe asks the planner first, parked.
+    b, _, _ = body()
+    b._obs["body"]["position"] = [20.5, 0.0, 20.5]  # far: not in reach
+    seen = []
+
+    def navigate(goal, *, reach, radius, probe=False):
+        seen.append((goal, probe))
+        return not (probe and goal == (2, 0, 0))  # no route to that first stance
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    monkeypatch.setattr(b, "stances", lambda *a, **k: [(2, 0, 0), (3, 0, 1)])
+    assert b.goto_stance((2, 0, 2), 4.5) is True
+    assert ((2, 0, 0), True) in seen
+    assert ((2, 0, 0), False) not in seen  # never walked
+    assert ((3, 0, 1), True) in seen and ((3, 0, 1), False) in seen
+
+
+def test_probe_drive_ends_on_the_first_planner_verdict():
+    from mclab.route_types import RouteResult
+
+    ctl = cb._GotoController.__new__(cb._GotoController)
+    ctl.probe, ctl.deadline, ctl.mode, ctl.last_result = True, 10**18, "planning", None
+    assert ctl.stop_reason({"tick": 1}) is None  # verdict pending: keep parked
+    ctl.last_result = RouteResult("unreachable", (), 0, 0, "no route")
+    assert ctl.stop_reason({"tick": 2}) == "unreachable"
+    ctl.mode = "unreachable"  # a fresher yes beats the stale no
+    ctl.last_result = RouteResult("reached", ((0, 0, 0),), 0, 0, "ok")
+    assert ctl.stop_reason({"tick": 3}) == "probed"
+    ctl.mode, ctl.last_result = "searching", None
+    ctl.deadline = 0
+    assert ctl.stop_reason({"tick": 4}) == "probed"  # no verdict: walk it as before
 
 
 def test_goto_controller_gives_up_on_a_search_that_never_yields_a_move():

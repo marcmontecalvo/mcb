@@ -78,6 +78,9 @@ SETTLE_TICKS = 40  # settle(): longest wait for the map to show broken blocks
 SETTLE_STEP = 5
 STUCK_TICKS = 200  # a goto or walk whose position does not change for this long fails
 STUCK_MOVE = 0.5  # blocks that count as progress
+PROBE_WALL_S = (
+    2.5  # plan-only stance probe: budget for the body planner's first verdict
+)
 DROP_RADIUS = 8.0  # collect_drops: items this close to the broken cells are picked up
 DROP_WAIT_TICKS = 40  # a tower of scaffolding drops a layer per few ticks
 MAX_PICKUPS = 16
@@ -254,9 +257,15 @@ class StuckGuard:
 class _GotoController(SegmentedController):
     """Segmented controller that ends its own drive (arrived, unreachable, deadline)."""
 
-    def __init__(self, *args, deadline: float, **kwargs):
+    probe = False  # plan-only drive: end on the first verdict, never move the motor
+    no_drive = False  # drive_native keeps every motor submission off
+
+    def __init__(self, *args, deadline: float, probe: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         self.deadline = deadline
+        if probe:
+            self.probe = True
+            self.no_drive = True
         self.unreachable_since: int | None = None
         self.searching_since: int | None = None
         self.goal_progress_ticks = None  # companion goals may be far and slow
@@ -265,6 +274,8 @@ class _GotoController(SegmentedController):
     def stop_reason(self, observation) -> str | None:
         if self.mode == "arrived":
             return "arrived"
+        if self.probe:
+            return self._probe_verdict()
         if time.monotonic() > self.deadline:
             return "deadline"
         body = observation.get("body") or {}
@@ -286,6 +297,26 @@ class _GotoController(SegmentedController):
                 return "stalled"
         else:
             self.searching_since = None
+        return None
+
+    def _probe_verdict(self) -> str | None:
+        """End the motor-parked probe on the planner's first firm answer.
+
+        The refresh loop replans the same start and goal on a static map, so one
+        done verdict is final: the oscillation of searching/unreachable modes kept
+        only the 200-tick StuckGuard alive, and 12 of those 10 s walks ended a
+        gather at 0 tasks (run 20261106T170919632775Z)."""
+        if self.mode in {"following", "terrain_step_motion", "centering"} or (
+            self.last_result is not None
+            and self.last_result.status in {"reached", "segment", "incomplete"}
+        ):
+            return "probed"  # route adopted: the real goto will drive it
+        if self.mode == "unreachable" or (
+            self.last_result is not None and self.last_result.status == "unreachable"
+        ):
+            return "unreachable"
+        if time.monotonic() > self.deadline:
+            return "probed"  # no verdict inside PROBE_WALL_S: walk it as before
         return None
 
 
@@ -511,7 +542,10 @@ class CompanionBody:
         return self.op("container", pos=list(pos), action=action, **extra)
 
     # --- navigation --------------------------------------------------------
-    def _navigate(self, goal: Pos, *, reach: float | None, radius: float) -> bool:
+    def _navigate(
+        self, goal: Pos, *, reach: float | None, radius: float, probe: bool = False
+    ) -> bool:
+        wall = PROBE_WALL_S if probe else self.goto_wall_s
         controller = _GotoController(
             goal,
             self.memory,
@@ -520,27 +554,28 @@ class CompanionBody:
             background_planning=True,
             movement_policy=self.movement_policy,
             terrain_policy=self.terrain_policy,
-            deadline=time.monotonic() + self.goto_wall_s,
+            deadline=time.monotonic() + wall,
+            probe=probe,
         )
         try:
-            end = drive(
-                self.bridge, controller, self.goto_wall_s + 60.0, profile=NATIVE
-            )
+            end = drive(self.bridge, controller, wall + 60.0, profile=NATIVE)
         finally:
             self.bridge.state()  # heartbeat: close() joins the worker threads
             controller.close()
         self.observe()
         why = end.get("data", {}).get("reason") if end else None
-        ok = end.get("type") == "navigation_stopped" and why == "arrived"
-        self.log.append(
-            {
-                "goto": list(goal),
-                "reach": reach,
-                "ok": ok,
-                "why": why,
-                "policy_id": self.policy_id(),
-            }
-        )
+        wanted = ("arrived", "probed") if probe else ("arrived",)
+        ok = end.get("type") == "navigation_stopped" and why in wanted
+        row = {
+            "goto": list(goal),
+            "reach": reach,
+            "ok": ok,
+            "why": why,
+            "policy_id": self.policy_id(),
+        }
+        if probe:
+            row["probe"] = True  # ops: a motor-parked verdict, not a walked goto
+        self.log.append(row)
         return ok
 
     def _stand_y(self, x: int, y: int, z: int) -> int:
@@ -679,6 +714,12 @@ class CompanionBody:
         stances = self.stances(target, reach, avoid)[:MAX_CANDIDATES]
         radius = PRECISE_RADIUS if self.precise_stance else 0.6
         for node in stances:
+            # Ask the planner before walking (roadmap item 1): a candidate across
+            # known water is unroutable, and testing that by walking it costs the
+            # 200-tick StuckGuard timer - 12 of those ended a job at 0 tasks
+            # (20261106T170919632775Z; the sand stall of 20261106T185239143471Z).
+            if not self._navigate(node, reach=None, radius=radius, probe=True):
+                continue
             if self._navigate(node, reach=None, radius=radius):
                 return True
         if not stances and not avoid and self._worth_searching(target):
