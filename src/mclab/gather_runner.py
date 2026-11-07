@@ -47,6 +47,7 @@ HUNT_BELOW = 10
 STATION_REACH = 3.5
 DROP_RADIUS = 10.0
 EXPLORE_STEP = 16
+SURFACE_SCAN = 24  # how far up/down an explore ring column is read for its surface
 EXPLORE_CAP = 64
 SMELT_TICKS_PER_ITEM = 200
 MAX_TRIES = 3
@@ -269,15 +270,24 @@ class _Exec:
                     return False
                 st.explored.add(key)
                 rad = math.radians(angle)
-                spot = (
-                    ox + round(radius * math.cos(rad)),
-                    oy,
-                    oz + round(radius * math.sin(rad)),
-                )
-                self.body.walk_to(spot, 2.0)
+                x = ox + round(radius * math.cos(rad))
+                z = oz + round(radius * math.sin(rad))
+                self.body.walk_to((x, self._surface_y(x, z, oy), z), 2.0)
                 if found():
                     return True
         return False
+
+    def _surface_y(self, x: int, z: int, base: int) -> int:
+        """Ring points go on top of their own column: the origin plane can be many
+        blocks under the surface the ring is exploring (large-house attempt 6 walked
+        every point at feet y=57, inside solid ground, and stuck on the optimistic
+        route down to it). Unknown cells keep the base height."""
+        for y in range(base + SURFACE_SCAN, base - SURFACE_SCAN, -1):
+            state = self.body.world(x, y, z)
+            if state is None or state in bp.AIR:
+                continue
+            return y + 1
+        return base
 
     def home(self) -> Pos:
         """The work site: the crafting table once placed, else where the bot stands.

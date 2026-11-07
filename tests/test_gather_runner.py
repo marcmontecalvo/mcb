@@ -212,6 +212,31 @@ def test_an_unreachable_patch_is_skipped_as_a_whole():
     assert len(tried) == 1  # one try, then the whole patch is skipped
 
 
+def test_explore_rings_walk_the_surface_not_the_origin_plane():
+    # large-house attempt 6 (20261107T031538873657Z): the origin was recorded while
+    # the bot stood at feet y=57, so every ring point was 4-18 blocks under the
+    # terrain it walked to, buried in solid ground
+    world = {
+        (x, y, z): M + "dirt"
+        for x in range(-48, 49)
+        for z in range(-48, 49)
+        for y in range(0, 6)
+    }
+    world |= {(x, 6, z): M + "oak_log" for x in (30, 31) for z in (4, 5)}
+    body = FakeGatherBody(K, world, pos=(0, -5, 0), sight=8)
+
+    report = run({M + "oak_planks": 4}, body, explore_cap=32)
+
+    assert report.stop == "done", report
+    walked = [c[1] for c in body.log if c[0] == "walk"]
+    rings = [
+        p
+        for p in walked
+        if p[0] * p[0] + p[2] * p[2] > 64  # ignore the initial short collect walks
+    ]
+    assert rings and all(y == 6 for _, y, _ in rings)
+
+
 def test_a_station_cell_without_support_rotates_to_the_next_free_cell():
     # run 20261106T182245230212Z: PlaceStation ended the task because the body
     # refused no_support_face on the one cell free_spot kept re-picking
