@@ -893,7 +893,11 @@ final class RoutePlanner {
         int y = (int) node.y, tx = node.x + d[0], tz = node.z + d[1];
         var floor = cell(tx, y - 2, tz);
         if (!fullDry(floor) || HAZARDS.contains(floor.get("block"))) return null;
-        var cuts = budgeted(cuts(new int[]{tx, y - 1, tz}, new int[]{tx, y, tz}, new int[]{tx, y + 1, tz}));
+        // The fourth cut (target feet+3) is what makes the step reversible: the +1 walk
+        // back needs the launch column clear to feet+3. 3-high stairs were walked down and
+        // never back up (gather_dig.py 8b20de6); the planner must not offer a one-way hole.
+        var cuts = budgeted(cuts(new int[]{tx, y - 1, tz}, new int[]{tx, y, tz}, new int[]{tx, y + 1, tz},
+                new int[]{tx, y + 2, tz}));
         return cuts == null ? null : new Edit(node, new Node(tx, node.y - 1, tz), cuts, List.of(), "descend");
     }
 

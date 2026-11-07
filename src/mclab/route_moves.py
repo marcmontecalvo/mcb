@@ -96,7 +96,12 @@ def prepare_downward(cells, source, policy, inventory, *, protected=(), cut_memo
 def prepare_descend(
     cells, source, target, policy, inventory, *, protected=(), cut_memo=None
 ):
-    """MovementDescend with breaks: clear target feet, head and the cell above."""
+    """MovementDescend with breaks: clear target feet, head and the two cells above.
+
+    The fourth cut (target feet+3) makes the step reversible: the +1 walk back needs
+    the launch column clear to feet+3 (3-high stairs were walked down and never back
+    up, gather_dig 8b20de6); the planner must not offer a one-way hole.
+    """
     x, y, z = source
     tx, ty, tz = target
     protected = set(protected) | set(policy.protected_positions)
@@ -111,7 +116,7 @@ def prepare_descend(
     floor = _flags(cells)((tx, ty - 1, tz))
     if not (floor & FULL and floor & SAFE):
         return None
-    points = [(tx, ty, tz), (tx, y, tz), (tx, y + 1, tz)]
+    points = [(tx, ty, tz), (tx, y, tz), (tx, y + 1, tz), (tx, y + 2, tz)]
     cuts = _cuts(cells, points, policy, inventory, protected, cut_memo)
     if not cuts:
         return None

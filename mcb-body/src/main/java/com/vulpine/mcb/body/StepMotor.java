@@ -131,12 +131,13 @@ final class StepMotor {
             if (!bool(policy,"allow_break") || horizontal!=0 || rise!=-1 || breaks.size()!=1 || places.size()!=0
                     || !point(breaks.get(0).getAsJsonArray()).equals(source.below())) throw new IllegalArgumentException("native_downward_plan");
         } else if (kind.equals("descend")) {
-            // Baritone MovementDescend: clear the lower target's feet, head and headroom first.
-            if (horizontal!=1 || rise!=-1 || places.size()!=0 || breaks.size()<1 || breaks.size()>3)
+            // Baritone MovementDescend: clear the lower target's feet, head and the
+            // two cells above (the fourth keeps the +1 ascent edge legal on return).
+            if (horizontal!=1 || rise!=-1 || places.size()!=0 || breaks.size()<1 || breaks.size()>4)
                 throw new IllegalArgumentException("native_descend_plan");
             for (var value:breaks) {
                 var b=point(value.getAsJsonArray());
-                if (b.getX()!=target.getX() || b.getZ()!=target.getZ() || b.getY()<target.getY() || b.getY()>target.getY()+2)
+                if (b.getX()!=target.getX() || b.getZ()!=target.getZ() || b.getY()<target.getY() || b.getY()>target.getY()+3)
                     throw new IllegalArgumentException("native_descend_plan");
             }
         } else if (kind.equals("pillar")) {

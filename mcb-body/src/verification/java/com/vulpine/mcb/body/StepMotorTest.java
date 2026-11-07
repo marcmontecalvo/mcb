@@ -54,7 +54,7 @@ public final class StepMotorTest {
         sp.add("breaks",JsonParser.parseString("[[1,1,0],[1,2,0],[1,3,0]]")); sp.addProperty("kind","descend");
         if(!new StepMotor(descend).active()) throw new AssertionError("valid descend"); checks++;
         bad=descend.deepCopy(); bad.getAsJsonObject("plan").add("breaks",JsonParser.parseString("[[0,1,0]]")); reject(bad);
-        bad=descend.deepCopy(); bad.getAsJsonObject("plan").add("breaks",JsonParser.parseString("[[1,4,0]]")); reject(bad);
+        bad=descend.deepCopy(); bad.getAsJsonObject("plan").add("breaks",JsonParser.parseString("[[1,5,0]]")); reject(bad);
         bad=descend.deepCopy(); bad.getAsJsonObject("plan").add("breaks",JsonParser.parseString("[]")); reject(bad);
         bad=descend.deepCopy(); bad.getAsJsonObject("plan").add("target",JsonParser.parseString("[1,2,0]")); reject(bad);
         bad=descend.deepCopy(); bad.getAsJsonObject("plan").add("target",JsonParser.parseString("[1,0,0]")); reject(bad);

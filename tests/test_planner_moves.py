@@ -149,7 +149,13 @@ def test_dig_down_refuses_protected_no_tool_budget_and_flag_off():
 def descend_world():
     def fill(x, y, z):
         if x == 1:
-            return STONE if y <= 1 else (DIRT if y <= 4 else None)
+            if y <= 1:
+                return STONE
+            if y <= 4:
+                return DIRT
+            # known air above the cut stack: descend is offered, and its reversibility
+            # check reads this cell (unknown here would refuse the edge)
+            return AIR if y == 5 else None
         return STONE if y <= 2 else None
 
     return world(range(-1, 4), range(-1, 2), range(0, 8), fill)
@@ -164,6 +170,18 @@ def test_descend_with_breaks_clears_feet_head_and_above():
     (plan,) = on.steps
     assert (plan.kind, plan.source, plan.target) == ("descend", (0, 3, 0), (1, 2, 0))
     assert set(plan.breaks) == {(1, 2, 0), (1, 3, 0), (1, 4, 0)} and plan.places == ()
+    # the fourth cell (feet+3) is what makes the step walkable back: a +1 ascent
+    # needs the launch column clear to feet+3, so a solid one is cut, and when it
+    # is unknown the whole edge is refused rather than digging a one-way hole.
+    cells[(1, 5, 0)] = cell((1, 5, 0), STONE)
+    deeper, _ = run(cells, (0, 3, 0), (1, 2, 0), policy(baritone_moves=True))
+    (plan,) = deeper.steps
+    assert set(plan.breaks) == {(1, 2, 0), (1, 3, 0), (1, 4, 0), (1, 5, 0)}
+    cells.pop((1, 5, 0))
+    refused = prepare_descend(
+        cells, (0, 3, 0), (1, 2, 0), policy(baritone_moves=True), KIT
+    )
+    assert refused is None
 
 
 @pytest.mark.parametrize(

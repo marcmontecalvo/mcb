@@ -63,8 +63,8 @@ def native_edit_matches(plan, cells, supported):
     return (
         abs(tx - x) + abs(tz - z) == 1
         and ty == y - 1
-        and 1 <= len(plan.breaks) <= 3
-        and all(p[0] == tx and p[2] == tz and ty <= p[1] <= ty + 2 for p in plan.breaks)
+        and 1 <= len(plan.breaks) <= 4
+        and all(p[0] == tx and p[2] == tz and ty <= p[1] <= ty + 3 for p in plan.breaks)
     )
 
 

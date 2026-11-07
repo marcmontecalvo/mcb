@@ -12,12 +12,13 @@ the phase plan are in [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_
 (authoritative; it wins any conflict). Results live in the ledgers listed below.
 Update this file whenever an item here is finished or a new one is found.
 
-Last updated: November 6, 2026 (companion track: "Open after Nov 6" below — the
-follow_step 413 and the plan-only stance probe are fixed and live-verified; what is
-left of the gather stalls is frontier optimism; iron baseline regression attributed
-— not the climb change; dashboard gate sessions landed; the Nov 3 seven-stage
-regression is promoted into `MOVEMENT_PARITY_PROOF.json`, G2 and
-`NAVIGATION_QUALIFICATION.json` for `c414e408…`).
+Last updated: November 7, 2026 (companion track: "Open after Nov 6" below — the
+follow_step 413, the plan-only stance probe, the reversible descend stair and the
+station-cell rotation are fixed and live-verified; what is left of the gather stalls
+is frontier optimism; the Nov 3 seven-stage regression is promoted into
+`MOVEMENT_PARITY_PROOF.json`, G2 and `NAVIGATION_QUALIFICATION.json` for `c414e408…`;
+the body changed again since (`2c4ba7da…`) and needs requalification before scored
+runs, open item (2)).
 Earlier: November 3 (companion track: M5 state; Java migration baselines).
 Earlier: November 1 (cohorts 16–29 and the frozen calm comparison on
 `main`). Previously qualified mod: `c414e408…` (the Nov 3 migration build; the seven
@@ -120,18 +121,14 @@ has sensed, and the walk pays for that. At the hill site the explore rings
 (`20261106T215445111262Z`, ticks 24.5k-27.2k: a 16-block ring walk needs >1,000
 ticks, so StuckGuard ends 13 of them); at the pond 6 of 61 candidates were walked on
 an optimistic routed verdict and stuck (`20261106T222704810114Z`);
-(2) hole-escape quality: digging down to stone/iron and walking back fails about 1 in
-3 attempts at the seed 20261026 site, with climbing on or off — three `--no-climb`
-reps on Nov 6: `20261106T174543920887Z` failed after arriving at (43, 51, −81) (14
-stuck gotos to surface stances, then `Craft…no_stance`), `20261106T180108898761Z` and
-`20261106T181234719671Z` passed. The climb change is kept (scaffolding and ladders
-need `allow_climb`); it was not the 9/9 → 7/9 cause. This also threatens the
-large-house iron phase;
-(3) station placement economics: `PlaceStation` failures with `no_support_face` end
-the task without another cell being tried — `place_free` re-picks the same
-`free_spot` on every retry and `no_support_face` is not in `RETRY_REASONS`
-(`20261106T182245230212Z`, hill site). Fix: add it to the stance-retry reasons or
-rotate the `free_spot` offsets.
+(2) requalify the changed body (install `2c4ba7da…`: reversible descend stairs, item
+(f) below) before scored navigation — the seven-stage regression and the CAP-01 ladder
+and CAP-02 door live checks on this build. Development runs (gather, build) may
+proceed; scored cohorts may not;
+(3) the supervisor teardown race: a `mclab natural` restore after a companion run hit
+`PermissionError` unlinking `runtime/supervisor.json` (`20261107T030649535487Z` —
+both cases `done`, only the teardown crashed). Retry with a short delay in
+`supervisor.py:115`.
 
 **Closed from Nov 3:** (a) the large-house driver crash — root-caused Nov 6 to the
 `follow_step` protection echo crossing the 16 KB POST limit and fixed (`follow_step`
@@ -147,7 +144,29 @@ protocol-check` 24/24 passed live through it today (sessions
 known-unreachable stances — the plan-only probe in `goto_stance` (a motor-parked
 verdict drive): the pond rerun `20261106T222704810114Z` rejected 55 of 61 candidates
 with zero walking, where the same site had burned its whole 120 s watchdog on 12
-stuck walks before. What remains is frontier optimism, open item (1).
+stuck walks before. What remains is frontier optimism, open item (1);
+(f) hole-escape quality — root cause Nov 7: the planner's `descend` edge cut only
+three cells (feet, head, one above), so the `+1` walk back (which needs the launch
+column clear to feet+3) was illegal and the return had to rely on dig-step cuts that
+`cutAllowed` legitimately refuses beside fluids or unknown cells: the bot entered a
+pocket it could not legally leave (rep `20261106T174543920887Z` sealed at
+(37, 47, −67), all replans correctly `unreachable`; the Nov 3 signature was the same
+class in the bot's own stairway at (45, 59, −72) — `20261107T024022988898Z` shows the
+probe saying *probed* 16 times before each identical stuck walk). Fixed on both
+engines (Java `RoutePlanner.descend`, Python `route_moves.prepare_descend` + the
+fresh-geometry validators): the stair now cuts the fourth cell so climbing back is a
+plain walk, and the edge is refused outright when that cell is unknown — the planner
+no longer offers one-way holes. This is the gather-code application of the
+`gather_dig` "steps are now 4 high" lesson (8b20de6), which never reached the planner
+edges. Reps: `20261107T025837067640Z` (`--no-climb`, 2/2) and
+`20261107T030649535487Z` (climbing on, both cases `done`) escape the shaft cleanly;
+the earlier no-climb `20261107T021314293841Z`/`022011728900Z` and climb-on
+`023229453454Z` passed before the change (the trap rate was ~1/3, so 2/2 post-fix is
+consistent, not proof — the mechanism proof is the refusal of one-way edges);
+(g) station placement economics — `place_free` now skips a cell the body refused with
+`no_support_face` (a cell property, not a stance problem) and takes the next free
+offset instead of re-picking the same cell three times
+(commit `f20385c`; unit test; the hill-site failure `20261106T182245230212Z` class).
 
 **Open after Nov 1, in the order to do them:** (1) item 8: stage D and continuous
 re-planning done (cohorts 30-31); review and qualify the Nov 3 Java-only migration;
