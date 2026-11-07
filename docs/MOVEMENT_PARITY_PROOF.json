@@ -1,42 +1,42 @@
 {
   "checks": {
     "C2": {
-      "artifact": "results/awareness/20261101T144040539892Z-regression/C2.json",
-      "sha256": "326f0ab2dfbdd3bbfd706334e9bcd8d06cc02cf85f27a5c590b5f0ebbe9f9095",
+      "artifact": "results/awareness/20261103T190042815691Z-regression/C2.json",
+      "sha256": "6e6818eba9c867f82260a92f13771372b407e7b2611a4bebc006684de5426315",
       "status": "passed_development_reset"
     },
     "C3": {
-      "artifact": "results/awareness/20261101T144040539892Z-regression/C3.json",
-      "sha256": "e0ed7c43519bae368c09f7c3fa4129ece436824ed52316eaf2de6b30a450617a",
+      "artifact": "results/awareness/20261103T190042815691Z-regression/C3.json",
+      "sha256": "d8c014a2f9fbfc85b0abb4df3fe1a0db24d9d7a7d28590279afef65121e61875",
       "status": "passed_development_reset"
     },
     "C4": {
-      "artifact": "results/awareness/20261101T144040539892Z-regression/C4.json",
-      "sha256": "168da2cd64c669e82b40e288beed5920593b809dcdd13d32df91360bbfe38018",
+      "artifact": "results/awareness/20261103T190042815691Z-regression/C4.json",
+      "sha256": "c5583077f52bdbbe2b23c11bd18ed6d544fd8c129ee44b724969aaaca1c1aff6",
       "status": "passed_development_reset"
     },
     "C5": {
-      "artifact": "results/awareness/20261101T144040539892Z-regression/C5.json",
-      "sha256": "a0ae2bceca89e822bb286f624c81e2440ec0a10528b317bfc324376f59ac5086",
+      "artifact": "results/awareness/20261103T190042815691Z-regression/C5.json",
+      "sha256": "d9369a1cadf8a931c758864ccd521a057d39e8f47aa92ee7014f116e663d6b4c",
       "status": "passed_development_reset"
     },
     "awareness": {
-      "artifact": "results/awareness/20261101T144040539892Z-regression/awareness.json",
-      "sha256": "4346d19acb6279d1c8425e60168971a0a93fe512874efc68ea599643a942d522",
+      "artifact": "results/awareness/20261103T190042815691Z-regression/awareness.json",
+      "sha256": "ac71530cc654384bd4471e8812bf7f4d0e87d996ad5979c9e70add1077cdccce",
       "status": "passed"
     },
     "initial_adversarial": {
-      "artifact": "results/awareness/20261101T144040539892Z-regression/initial_adversarial.json",
-      "sha256": "2682ccf9cf9e6e55fc759533cf59ce7d8e8c13cb37f2aa96eefee071f39d7967",
+      "artifact": "results/awareness/20261103T190042815691Z-regression/initial_adversarial.json",
+      "sha256": "d81b5dc3aa709ac4a510b57d7ca9922f94e6d441c35f2258d7e1647949675c59",
       "status": "passed_development_subset"
     },
     "initial_resets": {
-      "artifact": "results/awareness/20261101T144040539892Z-regression/initial_resets.json",
-      "sha256": "35cba01b041d23c4ac457e4db8d8821a39244d4d62b22c61981eaa106d6eba90",
+      "artifact": "results/awareness/20261103T190042815691Z-regression/initial_resets.json",
+      "sha256": "53a8ad400a4c3ee2af18bfda4b04fd2da2d306374ddb96ad750946c409422a58",
       "status": "passed_development_subset"
     }
   },
-  "date": "2026-11-01",
+  "date": "2026-11-06",
   "initial_adversarial_checks_passed": 29,
   "initial_reset_checks_passed": 20,
   "legacy_sensor_checks_passed": 11,
@@ -47,15 +47,15 @@
     "jars": {
       "mcb-body": {
         "jar": "D:\\mcb\\runtime\\server\\mods\\mcb-body-0.1.0.jar",
-        "jar_sha256": "a01ff4863223d822de27429d8be553b8c5228c4fb6c79b11d531caa51ca4fb4b"
+        "jar_sha256": "6cff2c5859f805411bfba679986791b80eeaae65fa7676adbdbb5145b228d95a"
       },
       "mcb-lab": {
         "jar": "D:\\mcb\\runtime\\server\\mods\\mcb-lab-0.1.0.jar",
-        "jar_sha256": "c93068943530b7900856d4c53ff2e9c379ac30d955981a69747dfa61c3403ec2"
+        "jar_sha256": "f3d06eb56098f4f622ee00f7122652002bb77e0c5a00fa315908e65824308948"
       }
     },
     "schema_version": 2,
-    "source_hash": "68b3e8f6f4df89d222fe413c2161acc0a2a1334e271a0354c862bf477604d1a9"
+    "source_hash": "c414e408b6b06a0cb52090d3f7953fa3a260ff475d00ec9e0b96c54056e80c82"
   },
   "native_awareness_checks_passed": 15,
   "navigation_reset_checks_passed": {
@@ -65,6 +65,6 @@
     "C5": 20
   },
   "schema_version": 1,
-  "scope": "Nov 1 mcb-body/mcb-lab changes; legacy reset/evaluator/sensor requalification",
+  "scope": "Nov 3 mcb-body Java migration; legacy reset/evaluator/sensor requalification",
   "status": "passed_development_increment"
 }

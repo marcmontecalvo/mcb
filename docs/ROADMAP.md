@@ -15,12 +15,15 @@ Update this file whenever an item here is finished or a new one is found.
 Last updated: November 6, 2026 (companion track: "Open after Nov 6" below — the
 follow_step 413 and the plan-only stance probe are fixed and live-verified; what is
 left of the gather stalls is frontier optimism; iron baseline regression attributed
-— not the climb change; dashboard gate sessions landed).
+— not the climb change; dashboard gate sessions landed; the Nov 3 seven-stage
+regression is promoted into `MOVEMENT_PARITY_PROOF.json`, G2 and
+`NAVIGATION_QUALIFICATION.json` for `c414e408…`).
 Earlier: November 3 (companion track: M5 state; Java migration baselines).
 Earlier: November 1 (cohorts 16–29 and the frozen calm comparison on
 `main`). Previously qualified mod: `c414e408…` (the Nov 3 migration build; the seven
-regression stages passed for it on Nov 3, `results/awareness/20261103T190042815691Z-regression`;
-no ledger promotion recorded). Later body changes require source-bound requalification.
+regression stages passed for it on Nov 3, `results/awareness/20261103T190042815691Z-regression`,
+promoted into the ledgers Nov 6 by `runtime/finalize-movement.py`). Later body changes
+require source-bound requalification.
 Cohorts 27–28 ran on `2eed1251`, cohort 29 on `0129b057`.
 
 ## Where things stand
@@ -124,9 +127,7 @@ stuck gotos to surface stances, then `Craft…no_stance`), `20261106T18010889876
 `20261106T181234719671Z` passed. The climb change is kept (scaffolding and ladders
 need `allow_climb`); it was not the 9/9 → 7/9 cause. This also threatens the
 large-house iron phase;
-(3) promote the Nov 3 seven-stage regression for `c414e408…` into the ledgers (the
-finalize helper is not present under `runtime/`);
-(4) station placement economics: `PlaceStation` failures with `no_support_face` end
+(3) station placement economics: `PlaceStation` failures with `no_support_face` end
 the task without another cell being tried — `place_free` re-picks the same
 `free_spot` on every retry and `no_support_face` is not in `RETRY_REASONS`
 (`20261106T182245230212Z`, hill site). Fix: add it to the stance-retry reasons or

@@ -46,14 +46,14 @@
   },
   "G2": {
     "adversarial_checks_passed": 29,
-    "date": "2026-11-01",
+    "date": "2026-11-06",
     "episode_evidence": "docs/MOVEMENT_PARITY_PROOF.json",
     "extensions_pending": [
       "C2-C8 qualification",
       "arbitrary fluid/block-entity restoration",
       "camera sensor profile"
     ],
-    "mod_source_hash": "68b3e8f6f4df89d222fe413c2161acc0a2a1334e271a0354c862bf477604d1a9",
+    "mod_source_hash": "c414e408b6b06a0cb52090d3f7953fa3a260ff475d00ec9e0b96c54056e80c82",
     "qualification_history": [
       {
         "date": "2026-10-26",
@@ -78,9 +78,15 @@
         "episode_evidence": "docs/MOVEMENT_PARITY_PROOF.json",
         "mod_source_hash": "a94dcdeffd15683d66ed26f612a75726a61ca292ef7301b7346a1d7cf2d1d6cd",
         "reset_evidence": "docs/MOVEMENT_PARITY_PROOF.json"
+      },
+      {
+        "date": "2026-11-01",
+        "episode_evidence": "docs/MOVEMENT_PARITY_PROOF.json",
+        "mod_source_hash": "68b3e8f6f4df89d222fe413c2161acc0a2a1334e271a0354c862bf477604d1a9",
+        "reset_evidence": "docs/MOVEMENT_PARITY_PROOF.json"
       }
     ],
-    "requalified_reason": "Compiled route planner edit edges (dig/place steps, dig down, descend with breaks, pillar) and plan_route edit policy and step reports; frozen legacy sensor/reset/evaluator re-verified",
+    "requalified_reason": "Nov 3 Java-only planner core migration in mcb-body (RoutePlanner, continuous re-planning, all edit kinds in Java) and the shared CompanionBody review with CAP-01/CAP-02 permission propagation; frozen legacy sensor/reset/evaluator re-verified",
     "reset_checks_passed": 20,
     "reset_evidence": "docs/MOVEMENT_PARITY_PROOF.json",
     "scope": "Frozen initial C1 reset, rules, causal evaluator, sensor and episode recorder",
