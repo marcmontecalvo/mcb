@@ -218,6 +218,11 @@ def test_probe_drive_ends_on_the_first_planner_verdict():
     assert ctl.stop_reason({"tick": 1}) is None  # verdict pending: keep parked
     ctl.last_result = RouteResult("unreachable", (), 0, 0, "no route")
     assert ctl.stop_reason({"tick": 2}) == "unreachable"
+    ctl.last_result = RouteResult("incomplete", (), 0, 0, "partial")
+    assert ctl.stop_reason({"tick": 2}) == "unreachable"
+    ctl.mode = "incomplete"
+    ctl.last_result = None
+    assert ctl.stop_reason({"tick": 2}) == "unreachable"
     ctl.mode = "unreachable"  # a fresher yes beats the stale no
     ctl.last_result = RouteResult("reached", ((0, 0, 0),), 0, 0, "ok")
     assert ctl.stop_reason({"tick": 3}) == "probed"

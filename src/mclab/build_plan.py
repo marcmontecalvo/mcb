@@ -510,6 +510,7 @@ def next_actions(
     limit: int = 8,
     scaffolds: set | None = None,
     ignore_props=DEFAULT_IGNORE,
+    skipped: set | None = None,
 ):
     """Next legal actions, or [] when nothing can be done now.
 
@@ -519,7 +520,12 @@ def next_actions(
     scaffolds = set() if scaffolds is None else scaffolds
     d = diff(template, world, ignore_props)
     breaks = sorted(
-        (p for p in d.breaks if p not in scaffolds), key=lambda p: (-p[1], p[0], p[2])
+        (
+            p
+            for p in d.breaks
+            if p not in scaffolds and (skipped is None or p not in skipped)
+        ),
+        key=lambda p: (p[1], p[0], p[2]),
     )
     if breaks:
         return [Break(p) for p in breaks[:limit]]

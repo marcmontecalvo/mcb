@@ -486,3 +486,33 @@ def test_inside_corner_means_two_neighbours_at_right_angles():
     assert bp.inside_corner(t, (0, 0, 0))  # (1,0,0) and (0,0,1) meet here
     assert not bp.inside_corner(t, (1, 0, 0))  # a straight run: neighbours opposite
     assert not bp.inside_corner(t, (2, 0, 0))  # an end: one neighbour
+
+
+def test_breaks_are_sorted_bottom_up_and_filter_skipped():
+    # Template has air at (0, 0, 0), (0, 1, 0), (0, 2, 0) and a plank at (1, 0, 0)
+    cells = {
+        (0, 0, 0): AIR,
+        (0, 1, 0): AIR,
+        (0, 2, 0): AIR,
+        (1, 0, 0): PLANKS,
+    }
+    t = bp.Template.from_build(make_build(cells, (2, 3, 1)), (0, 0, 0))
+    w = flat_world()
+    w[(0, 0, 0)] = "minecraft:oak_log"
+    w[(0, 1, 0)] = "minecraft:oak_leaves"
+    w[(0, 2, 0)] = "minecraft:oak_leaves"
+
+    inv = {PLANKS: 5}
+
+    # Breaks are sorted bottom-up
+    acts = bp.next_actions(t, at(w), BLOCKS, inv)
+    assert [a.pos for a in acts] == [(0, 0, 0), (0, 1, 0), (0, 2, 0)]
+
+    # Partial skipped breaks are filtered
+    acts = bp.next_actions(t, at(w), BLOCKS, inv, skipped={(0, 0, 0)})
+    assert [a.pos for a in acts] == [(0, 1, 0), (0, 2, 0)]
+
+    # If all breaks are skipped, next_actions proceeds to places
+    acts = bp.next_actions(t, at(w), BLOCKS, inv, skipped={(0, 0, 0), (0, 1, 0), (0, 2, 0)})
+    assert len(acts) == 1 and acts[0].pos == (1, 0, 0)
+

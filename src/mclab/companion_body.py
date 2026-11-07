@@ -308,11 +308,17 @@ class _GotoController(SegmentedController):
         gather at 0 tasks (run 20261106T170919632775Z)."""
         if self.mode in {"following", "terrain_step_motion", "centering"} or (
             self.last_result is not None
-            and self.last_result.status in {"reached", "segment", "incomplete"}
+            and self.last_result.status in {"reached", "segment"}
         ):
+            if self.last_result is not None and self.last_result.status == "incomplete":
+                return "unreachable"
             return "probed"  # route adopted: the real goto will drive it
-        if self.mode == "unreachable" or (
-            self.last_result is not None and self.last_result.status == "unreachable"
+        if (
+            self.mode in {"unreachable", "incomplete"}
+            or (
+                self.last_result is not None
+                and self.last_result.status in {"unreachable", "incomplete"}
+            )
         ):
             return "unreachable"
         if time.monotonic() > self.deadline:

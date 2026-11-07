@@ -260,6 +260,7 @@ def run_build(
             body.inventory(),
             limit=8 + len(skipped),
             scaffolds=scaffolds,
+            skipped=skipped,
         )
         if acts and isinstance(acts[0], bp.NeedMaterials):
             if acts[0].scaffold and recoveries < MAX_RECOVERIES:
