@@ -138,3 +138,89 @@ def test_forget_state_retries_a_transiently_locked_file(tmp_path):
     stub = LockedOnce(real)
     assert forget_state(stub, "me", pause=lambda *_: None) is True
     assert not real.exists()
+
+
+def test_start_respawns_a_console_killed_supervisor(monkeypatch, tmp_path):
+    settings = {
+        "game_port": 25565,
+        "bridge_port": 25566,
+        "lab_port": 25567,
+        "supervisor_port": 25568,
+    }
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    (server_dir / "fabric-server-launch.jar").write_bytes(b"")
+    (server_dir / "eula.txt").write_text("eula=true\n")
+    (server_dir / "server.properties").write_text(
+        f"server-ip=127.0.0.1\nserver-port={settings['game_port']}\n"
+        "pause-when-empty-seconds=-1\n"
+    )
+    monkeypatch.setattr(server, "SERVER", server_dir)
+    monkeypatch.setattr(server, "RUNTIME", tmp_path)
+    monkeypatch.setattr(server, "STATE", tmp_path / "supervisor.json")
+    monkeypatch.setattr(server, "config", lambda: settings)
+    monkeypatch.setattr(server, "port_free", lambda *_: True)
+    monkeypatch.setattr(server, "java", lambda: None)
+    monkeypatch.setattr(server.time, "sleep", lambda *_: None)
+
+    spawned = []
+
+    class FakeProc:
+        # The first two supervisors die to a stray console CTRL event (0xC000013A)
+        # before either answers or logs; the third one lives.
+        def __init__(self, index):
+            self.index, self.pid = index, 4000 + index
+
+        def poll(self):
+            return None if self.index == 2 else 0xC000013A
+
+    def spawn(_output):
+        spawned.append(FakeProc(len(spawned)))
+        return spawned[-1]
+
+    monkeypatch.setattr(
+        server,
+        "status",
+        lambda: {"state": "stopped" if len(spawned) < 3 else "running"},
+    )
+    monkeypatch.setattr(server, "_spawn_detached", spawn)
+
+    assert server._start()["state"] == "running"
+    assert len(spawned) == 3
+    # The state file carries the last spawn's pid so status() can date the file.
+    assert json.loads((tmp_path / "supervisor.json").read_text())["pid"] == 4002
+
+
+def test_start_reports_a_foreign_supervisor_exit(monkeypatch, tmp_path):
+    settings = {
+        "game_port": 25565,
+        "bridge_port": 25566,
+        "lab_port": 25567,
+        "supervisor_port": 25568,
+    }
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    (server_dir / "fabric-server-launch.jar").write_bytes(b"")
+    (server_dir / "eula.txt").write_text("eula=true\n")
+    (server_dir / "server.properties").write_text(
+        f"server-ip=127.0.0.1\nserver-port={settings['game_port']}\n"
+        "pause-when-empty-seconds=-1\n"
+    )
+    monkeypatch.setattr(server, "SERVER", server_dir)
+    monkeypatch.setattr(server, "RUNTIME", tmp_path)
+    monkeypatch.setattr(server, "STATE", tmp_path / "supervisor.json")
+    monkeypatch.setattr(server, "config", lambda: settings)
+    monkeypatch.setattr(server, "port_free", lambda *_: True)
+    monkeypatch.setattr(server, "java", lambda: None)
+    monkeypatch.setattr(server.time, "sleep", lambda *_: None)
+
+    class Dead:
+        pid = 4001
+
+        def poll(self):
+            return 3  # some other failure: not the console event
+
+    monkeypatch.setattr(server, "_spawn_detached", lambda _output: Dead())
+    monkeypatch.setattr(server, "status", lambda: {"state": "stopped"})
+    with pytest.raises(RuntimeError, match="Supervisor exited"):
+        server._start()

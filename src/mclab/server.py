@@ -161,15 +161,35 @@ def _start(accept_eula: bool = False) -> dict:
         },
     )
     logfile = RUNTIME / "supervisor.log"
-    with logfile.open("ab") as output:
-        proc = _spawn_detached(output)
-    write_json(STATE, {**read_json(STATE), "pid": proc.pid})
+    for attempt in range(4):
+        with logfile.open("ab") as output:
+            proc = _spawn_detached(output)
+        # Record the pid per attempt: a console-killed supervisor never reaches
+        # its teardown, so status() needs this pid to call the stale file dead.
+        write_json(STATE, {**read_json(STATE), "pid": proc.pid})
+        for _ in range(100):
+            current = status()
+            if current["state"] in {"starting", "running"}:
+                return current
+            code = proc.poll()
+            if code is not None and code not in (0xC000013A, -1073741510):
+                raise RuntimeError(f"Supervisor exited ({code:#x}); inspect {logfile}")
+            if code is not None and attempt == 3:
+                raise RuntimeError(
+                    f"Supervisor kept exiting on console events ({code:#x}); "
+                    f"inspect {logfile}"
+                )
+            time.sleep(0.1)
+        # A console control event aimed at a sibling teardown can kill the fresh
+        # supervisor before it writes anything (0xC000013A, no log line, dead pid);
+        # its successor starts clean.
+        if proc.poll() is None:
+            break
+        time.sleep(1.0)
     for _ in range(100):
         current = status()
         if current["state"] in {"starting", "running"}:
             return current
-        if proc.poll() is not None:
-            raise RuntimeError(f"Supervisor exited; inspect {logfile}")
         time.sleep(0.1)
     raise RuntimeError(f"Supervisor did not respond; inspect {logfile}")
 
