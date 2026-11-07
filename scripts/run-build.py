@@ -43,6 +43,7 @@ from mclab.companion_body import (
 from mclab.companion_jobs import build_job, load_vanilla_pack, materials_of
 from mclab.companion_progress import write_progress
 from mclab.gather_plan import Gather, Hunt, Shear, plan
+from mclab.gather_tasks import item_stack
 from mclab.paths import ROOT
 from mclab.recorder import exclusive_arena
 
@@ -57,12 +58,15 @@ COAL_FORMS = {
     "block": {"minecraft:coal_block": 4},  # unwrapped by a craft, not by mining
     "ore": {"minecraft:coal_ore": 32},  # one furnace queue
 }
-# containers west and north of the start (the house stands east and south of it)
-CAPS = [25, 27, 27, 27, 27, 27, 27, 27]
+# containers west and north of the start (the house stands east and south of it);
+# a container's slots are what limits it, and the server splits any stack it writes
+# at the item's own limit, so a cap counts slots: bin 0 gives three to BIN_TOOLS
+# (a scaffolding stack and two single-stack shulker boxes)
+CAPS = [24, 27, 27, 27, 27, 27, 27, 27]
 BIN_TOOLS = [
     {"item": "minecraft:scaffolding", "count": 64},
     {"item": "minecraft:shulker_box", "count": 2},
-]  # the first bin's two spare slots: what the build works with, not its materials
+]  # the first bin's three spare slots: what the build works with, not its materials
 OFFSETS = [
     [-2, 0, 0],
     [-2, 0, -1],
@@ -89,7 +93,7 @@ def supply_contents(build: dict, knowledge, coal: str) -> dict[str, int]:
     for _ in range(SUPPLY_ROUNDS):
         # planned against the layout the run will really lay out: a chest's slot
         # count changes how the planner batches and what it prefers to mine
-        done = plan(targets, {}, knowledge, storage=supply_boxes(give))
+        done = plan(targets, {}, knowledge, storage=supply_boxes(give, knowledge))
         if done.missing:
             raise RuntimeError(f"supply cannot cover the build: {done.missing}")
         wanted: Counter[str] = Counter()
@@ -102,9 +106,9 @@ def supply_contents(build: dict, knowledge, coal: str) -> dict[str, int]:
     raise RuntimeError(f"supply did not converge, still wanted: {sorted(wanted)}")
 
 
-def supply_bins(give: dict[str, int]) -> list[list[dict]]:
+def supply_bins(give: dict[str, int], knowledge) -> list[list[dict]]:
     """The stock packed into stack chunks per container, in placement order."""
-    bins = pack_into(give, CAPS)
+    bins = pack_into(give, knowledge, CAPS)
     if len(bins) > len(OFFSETS):
         raise RuntimeError(
             f"supply needs {len(bins)} containers, {len(OFFSETS)} laid out"
@@ -112,12 +116,12 @@ def supply_bins(give: dict[str, int]) -> list[list[dict]]:
     return bins
 
 
-def supply_boxes(give: dict[str, int]) -> list[dict]:
+def supply_boxes(give: dict[str, int], knowledge) -> list[dict]:
     """The same stock as planner storage: contents and the offset it stands at.
     Stack chunks add up to the kind's total (the planner's storage view has no
     slot model, the packing above is what gives one)."""
     boxes = []
-    for n, contents in enumerate(supply_bins(give)):
+    for n, contents in enumerate(supply_bins(give, knowledge)):
         held: Counter[str] = Counter()
         for c in (BIN_TOOLS if n == 0 else []) + contents:
             held[c["item"]] += c["count"]  # a kind can span chunks in one bin
@@ -125,13 +129,16 @@ def supply_boxes(give: dict[str, int]) -> list[dict]:
     return boxes
 
 
-def pack_into(items: dict[str, int], caps: list[int]) -> list[list[dict]]:
-    """Split into stack chunks and pack them into containers by slot count."""
-    chunks = [
-        {"item": i, "count": n}
-        for i, total in sorted(items.items())
-        for n in [64] * (total // 64) + ([total % 64] if total % 64 else [])
-    ]
+def pack_into(items: dict[str, int], knowledge, caps: list[int]) -> list[list[dict]]:
+    """Split into full-stack chunks and pack them into containers by slot count.
+    The chunk size is the item's own stack limit, not always 64: two doors are two
+    slots, and a container rejects a stack it cannot hold (`container_full`)."""
+    chunks: list[dict] = []
+    for item, total in sorted(items.items()):
+        size = item_stack(knowledge.items, item)
+        chunks += [{"item": item, "count": size} for _ in range(total // size)]
+        if total % size:
+            chunks.append({"item": item, "count": total % size})
     bins, k = [], 0
     for cap in caps:
         bins.append(chunks[k : k + cap])
@@ -289,7 +296,9 @@ def main() -> int:
                 # west and north of the start (the house stands east and south of
                 # it); the coal consumers are missing on purpose, crafted from the
                 # chosen coal form instead
-                bins = supply_bins(supply_contents(build, knowledge, args.coal))
+                bins = supply_bins(
+                    supply_contents(build, knowledge, args.coal), knowledge
+                )
                 place = []
                 for n, contents in enumerate(bins):
                     ox, _, oz = OFFSETS[n]
