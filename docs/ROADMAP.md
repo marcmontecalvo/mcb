@@ -202,7 +202,8 @@ mode and reaches the ore phase, where open (1) holds it;
 migration was reviewed (status doc) and qualified — seven stages for the current
 install `2c4ba7da…`, promoted; the CAP-01 ladder live check it exposed is open
 (companion-track item (2)); (2) done Nov 7: night diagnostics for item 12 ran — see
-the item 12 paragraph; (3) Marc's call on night survival (item 13); (4) the paired
+the item 12 paragraph; (3) Marc's call on night survival is in (Nov 7: the
+nightfall protocol — implement it); (4) the paired
 ~10% gap to Baritone (items 8, 9) — localized Nov 7 to five routes, see item 12;
 (5) a live multi-edit chain (item 10); (6) the night aborts: a 4+-block explosion
 knockback puts the body into `settling` and the first rejected `route_policy` or
@@ -356,9 +357,9 @@ cases).
     survival needs combat or shelter (direction doc "Later"), not route weights.
     Nov 7 diagnostics on the qualified build improved on Nov 1: 5/10 valid
     attempts, 0 deaths, 34.9 total damage (item 12; the other five were the
-    settling-window aborts of open (6), not navigation). The decision is still
-    Marc's. Screening Jev waits for the model track. Needs Marc's decision (see
-    open questions).
+    settling-window aborts of open (6), not navigation). Decided Nov 7: the
+    nightfall protocol (see open questions) — implementing it is the item now,
+    not the direction. Screening Jev waits for the model track.
 14. Done Oct 31 (interaction goals, Phase 3): `RouteSearch(interact_reach=4.5)`
     and `SegmentedController(interact_reach=...)` treat the goal as a block to
     reach with the eye (feet + 1.62, centre ray, every crossed cell known and
@@ -391,8 +392,20 @@ imports allowed there).
 - Answered Oct 31: the frozen comparison runs Baritone with moves matched to
   MCB's (parkour on), which needs a new Baritone baseline; the compiled planner
   core (item 8) starts now; finished work is committed and pushed to `main`.
-- Open Nov 1: night survival (item 13). Route weights and a reactive flight both
-  failed the night acceptance; the choice is combat, shelter, or defer to "Later".
+- Answered Nov 7: night survival (item 13) — Marc took the **nightfall protocol**:
+  dig/seal a 1×2 cell and wait for dawn (shelter, not combat; "for now"). Route
+  weights and reactive flight stay rejected. Pillar mechanics checked the same
+  day: pillar chains work — six pillars climbed a walled shaft in one column
+  (offline `RouteSearch` probe), and the four-cut descend makes planner-dug
+  shafts walk-out reversible (closed (f)). The gap is the seal itself: no edge
+  breaks the block straight above the stance in place (`prepare_pillar_edge`
+  refuses with y+2 not air; `StepMotor` admits no cuts in a pillar; a +1 step
+  breaks overhead only while moving sideways), and with unbreakable walls and a
+  cap overhead the search exhausts at one node. Per-step no-cut stays correct —
+  the missing piece is chaining. Two options: the protocol scripts the
+  in-place `break_block` (the gather Digger already breaks above head height)
+  before asking for routes, or the planner gains a cut-above/pillar chain —
+  the same live multi-edit-chain gap, open (5).
 - Answered Nov 1: build M0–M4 of
   [BUILD_AND_GATHER_PLAN](BUILD_AND_GATHER_PLAN_2026-11-01.md) now, alongside
   follow and chat; M5–M6 later. Formats: [KNOWLEDGE_PACK_FORMAT](KNOWLEDGE_PACK_FORMAT.md).
