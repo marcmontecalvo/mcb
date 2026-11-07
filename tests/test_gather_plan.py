@@ -476,3 +476,70 @@ def test_small_jobs_need_no_storage():
     r = plan({M + "stone_pickaxe": 1}, {}, K)
 
     assert not any(isinstance(t, PlaceContainer | Deposit | Withdraw) for t in r.tasks)
+
+
+def _coal_pack(tmp_path):
+    # the mini pack knows the coal item and the ore; the block and its unlock,
+    # and ore smelting, join as real-26.3 recipes
+    return _variant(
+        tmp_path,
+        extra_items=[M + "coal_block"],
+        extra_recipes=[
+            {
+                "id": M + "coal",
+                "type": "minecraft:crafting_shapeless",
+                "station": "inventory",
+                "ingredients": [{"options": [M + "coal_block"], "count": 1}],
+                "result": {"item": M + "coal", "count": 9},
+            },
+            # the real pack packs the other way as well, which cycles coal <-> block:
+            # the graph pass then trades the supplied block for mining
+            {
+                "id": M + "coal_block",
+                "type": "minecraft:crafting_shaped",
+                "station": "crafting_table",
+                "ingredients": [{"options": [M + "coal"], "count": 9}],
+                "result": {"item": M + "coal_block", "count": 1},
+            },
+            {
+                "id": M + "coal_from_smelting_coal_ore",
+                "type": "minecraft:smelting",
+                "station": "furnace",
+                "cook_ticks": 200,
+                "ingredients": [{"options": [M + "coal_ore"], "count": 1}],
+                "result": {"item": M + "coal", "count": 1},
+            },
+        ],
+    )
+
+
+def test_every_coal_form_pays_for_torches_from_the_supply_box(tmp_path):
+    # four crafts want four #minecraft:coals; a supplied coal, coal block or coal
+    # ore must convert inside the plan - a supplied box never sends the bot mining
+    k = _coal_pack(tmp_path)
+    for form, coal in (
+        ("item", {M + "coal": 4}),
+        ("block", {M + "coal_block": 1}),  # unlock: one block pays for nine
+        ("ore", {M + "coal_ore": 6}),  # one furnace batch
+    ):
+        box = [
+            {
+                "kind": "chest",
+                "pos": [1, 0, 1],
+                "contents": {M + "oak_log": 24, M + "cobblestone": 32, **coal},
+            }
+        ]
+
+        r = plan({M + "torch": 16}, {}, k, storage=box)
+        assert not r.missing, (form, r.missing)
+        assert check_order(r.tasks, {}, k, None, box) == [], form
+        assert not _of(r, Gather), form
+        assert any(isinstance(t, Withdraw) for t in r.tasks), form
+        if form == "block":
+            assert any(
+                isinstance(t, Craft) and t.recipe_id == M + "coal" for t in r.tasks
+            ), form
+        if form == "ore":
+            assert any(
+                isinstance(t, Smelt) and t.ingredient == M + "coal_ore" for t in r.tasks
+            ), form

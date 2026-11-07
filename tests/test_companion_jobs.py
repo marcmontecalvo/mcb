@@ -79,7 +79,10 @@ def test_remembered_containers_are_withdrawn_before_gathering(tmp_path):
 
     report = build_job(small_template(tmp_path), (4, 0, 4), 0, body, K, state=state)
 
-    assert report.shortfall == {} and report.gather is None
+    # the plan withdraws from the chest instead of mining: nothing is missing
+    # and no task touches the world
+    assert report.shortfall == {}
+    assert all(d.startswith("Withdraw") for d in report.gather.done)
     assert report.stop == "built"
 
 

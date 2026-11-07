@@ -4,13 +4,19 @@
 Usage (lab server up, idle lab; start = a feet cell on open ground):
     rtk proxy uv run --locked python scripts/run-build.py --start X Y Z [--build FILE] [--dx 3 --dz 2]
     rtk proxy uv run --locked python scripts/run-build.py --start X Y Z --empty --seed 42424242
+    uv run --locked python scripts/run-build.py --build tests/fixtures/schematics/house-large.build.json --supply --coal item --start -24 64 56 --seed 31415926
 
 A run writes checkpoints/NNN.json (every 10 actions) and final.json; ``--resume`` sets
 the same seed's world up from one and runs only the build (no gathering).
 
 Default (M2): kits the build's material list (plus dirt for scaffolds and a hoe/shovel if
 needed) and clears a box round the start. --empty (M5): empty inventory, nothing cleared;
-the bot gathers and crafts everything. Either way companion_jobs.build_job builds
+the bot gathers and crafts everything. --supply: empty hands, but the materials sit in
+containers beside the start - the bill of materials plus whatever a plan over that stock
+would still want out of the world - so the run withdraws, crafts and builds without ever
+searching for a block: it measures the build. Lanterns and the campfire stay out of the
+bins on purpose; the bot makes them from the --coal form (item, block or ore), the other
+thing under test. Either way companion_jobs.build_job builds
 tests/fixtures/schematics/small-house.build.json at start+(dx,0,dz) with digging on
 (start_session(dig=True)); the template's cells are protected from the route planner.
 Pass: build stop == done, no unknown cells, and the diff against the delivered map is empty.
@@ -20,6 +26,7 @@ import argparse
 import json
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 from live_common import finish, kit, record_crash, results_folder
@@ -35,11 +42,105 @@ from mclab.companion_body import (
 )
 from mclab.companion_jobs import build_job, load_vanilla_pack, materials_of
 from mclab.companion_progress import write_progress
+from mclab.gather_plan import Gather, Hunt, Shear, plan
 from mclab.paths import ROOT
 from mclab.recorder import exclusive_arena
 
 DEFAULT_BUILD = ROOT / "tests/fixtures/schematics/small-house.build.json"
 CLEAR = [10, 6, 10]
+# the blocks a coal form pays for: never given, always crafted
+COAL_CONSUMERS = ("minecraft:lantern", "minecraft:campfire")
+# each form covers the large house's coal bill (25) with a margin: a bin that runs
+# short would send the bot off smelting logs for charcoal instead of building
+COAL_FORMS = {
+    "item": {"minecraft:coal": 32},
+    "block": {"minecraft:coal_block": 4},  # unwrapped by a craft, not by mining
+    "ore": {"minecraft:coal_ore": 32},  # one furnace queue
+}
+# containers west and north of the start (the house stands east and south of it)
+CAPS = [25, 27, 27, 27, 27, 27, 27, 27]
+BIN_TOOLS = [
+    {"item": "minecraft:scaffolding", "count": 64},
+    {"item": "minecraft:shulker_box", "count": 2},
+]  # the first bin's two spare slots: what the build works with, not its materials
+OFFSETS = [
+    [-2, 0, 0],
+    [-2, 0, -1],
+    [-3, 0, 0],
+    [-3, 0, -1],
+    [-2, 0, -2],
+    [-3, 0, -2],
+    [-2, 0, -3],
+    [-3, 0, -3],
+]
+STATES = ["minecraft:chest", "minecraft:barrel"]
+SUPPLY_ROUNDS = 8
+SUPPLY_MARGIN = 4  # slack per raw item, so a batch margin never means a search
+
+
+def supply_contents(build: dict, knowledge, coal: str) -> dict[str, int]:
+    """What the bins must hold for the run to build without searching: the house's
+    blocks (except the coal consumers, crafted from the chosen `--coal` form) plus,
+    round after round, whatever a plan over that stock still wants to take from the
+    world - until the plan asks for nothing out there."""
+    targets = materials_of(build, knowledge)
+    give = {i: n for i, n in targets.items() if i not in COAL_CONSUMERS}
+    give.update(COAL_FORMS[coal])
+    for _ in range(SUPPLY_ROUNDS):
+        # planned against the layout the run will really lay out: a chest's slot
+        # count changes how the planner batches and what it prefers to mine
+        done = plan(targets, {}, knowledge, storage=supply_boxes(give))
+        if done.missing:
+            raise RuntimeError(f"supply cannot cover the build: {done.missing}")
+        wanted: Counter[str] = Counter()
+        for t in done.tasks:
+            if isinstance(t, Gather | Hunt | Shear):
+                wanted[t.item or t.block] += t.item_count or t.count
+        if not wanted:
+            return give
+        give.update({i: give.get(i, 0) + n + SUPPLY_MARGIN for i, n in wanted.items()})
+    raise RuntimeError(f"supply did not converge, still wanted: {sorted(wanted)}")
+
+
+def supply_bins(give: dict[str, int]) -> list[list[dict]]:
+    """The stock packed into stack chunks per container, in placement order."""
+    bins = pack_into(give, CAPS)
+    if len(bins) > len(OFFSETS):
+        raise RuntimeError(
+            f"supply needs {len(bins)} containers, {len(OFFSETS)} laid out"
+        )
+    return bins
+
+
+def supply_boxes(give: dict[str, int]) -> list[dict]:
+    """The same stock as planner storage: contents and the offset it stands at.
+    Stack chunks add up to the kind's total (the planner's storage view has no
+    slot model, the packing above is what gives one)."""
+    boxes = []
+    for n, contents in enumerate(supply_bins(give)):
+        held: Counter[str] = Counter()
+        for c in (BIN_TOOLS if n == 0 else []) + contents:
+            held[c["item"]] += c["count"]  # a kind can span chunks in one bin
+        boxes.append({"kind": "chest", "pos": OFFSETS[n], "contents": dict(held)})
+    return boxes
+
+
+def pack_into(items: dict[str, int], caps: list[int]) -> list[list[dict]]:
+    """Split into stack chunks and pack them into containers by slot count."""
+    chunks = [
+        {"item": i, "count": n}
+        for i, total in sorted(items.items())
+        for n in [64] * (total // 64) + ([total % 64] if total % 64 else [])
+    ]
+    bins, k = [], 0
+    for cap in caps:
+        bins.append(chunks[k : k + cap])
+        k += len(bins[-1])
+        if k >= len(chunks):
+            break
+    if k < len(chunks):
+        raise RuntimeError(f"supply needs more than {sum(caps)} slots")
+    return [b for b in bins if b]
 
 
 def main() -> int:
@@ -76,6 +177,19 @@ def main() -> int:
         "--empty", action="store_true", help="M5: start empty, gather everything"
     )
     parser.add_argument(
+        "--supply",
+        action="store_true",
+        help="empty hands, but the materials sit in supply containers beside the "
+        "start: withdraw, craft and build without ever searching for a block",
+    )
+    parser.add_argument(
+        "--coal",
+        choices=("item", "block", "ore"),
+        default="item",
+        help="with --supply: which coal form the chests hold; lanterns and the "
+        "campfire are never given, the bot must craft them from this coal",
+    )
+    parser.add_argument(
         "--stage",
         action="store_true",
         help="with --resume: set the world up, then wait (join at 127.0.0.1:25575) "
@@ -92,6 +206,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.stage and not args.resume:
         parser.error("--stage requires --resume")
+    if args.supply and (args.empty or args.resume):
+        parser.error("--supply is an empty-hands mode: not with --empty or --resume")
+    if args.coal != "item" and not args.supply:
+        parser.error("--coal requires --supply")
     if args.preview_offset and not args.preview:
         parser.error("--preview-offset requires --preview")
     resume = ck.load(args.resume) if args.resume else None
@@ -166,6 +284,33 @@ def main() -> int:
                     ],
                 )
                 chests.append(chest)
+            elif args.supply:
+                # the materials the plan would otherwise search for, in containers
+                # west and north of the start (the house stands east and south of
+                # it); the coal consumers are missing on purpose, crafted from the
+                # chosen coal form instead
+                bins = supply_bins(supply_contents(build, knowledge, args.coal))
+                place = []
+                for n, contents in enumerate(bins):
+                    ox, _, oz = OFFSETS[n]
+                    chests.append(
+                        [args.start[0] + ox, args.start[1], args.start[2] + oz]
+                    )
+                    place.append(
+                        {
+                            "state": STATES[n % 2] + "[facing=east]",
+                            "offset": OFFSETS[n],
+                            "contents": (BIN_TOOLS if n == 0 else []) + contents,
+                        }
+                    )
+                kit(
+                    bridge,
+                    inventory=[
+                        {"item": f"minecraft:iron_{t}", "count": 1}
+                        for t in ("pickaxe", "axe", "shovel", "hoe")
+                    ],
+                    place=place,
+                )
             else:
                 kit(
                     bridge,
@@ -226,6 +371,8 @@ def main() -> int:
             out = {
                 "policy": body.policy_snapshot(),
                 "diagnostic_preview": bool(args.preview),
+                "supplied": bool(args.supply),
+                "coal_form": args.coal if args.supply else None,
                 "job_stop": job.stop,
                 "ticks": job.ticks,
                 "needed": job.needed,

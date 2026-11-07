@@ -650,8 +650,13 @@ def run_gather(
     starter_tools: bool = True,
     stall_s: float | None = None,  # None: STALL_S
     clock: Callable[[], float] = time.monotonic,
+    storage: Callable[[], list] | None = None,
 ) -> GatherReport:
-    """Run the plan's tasks through ``body``; see the module docstring."""
+    """Run the plan's tasks through ``body``; see the module docstring.
+
+    ``storage`` (a callable built fresh at every re-plan) lists the known
+    containers, so re-plans withdraw from them instead of mining the item again.
+    """
     state = state or GatherState()
     report = GatherReport(state=state)
     stall = STALL_S if stall_s is None else stall_s
@@ -683,6 +688,7 @@ def run_gather(
                 knowledge,
                 state.stations,
                 starter_tools=starter_tools,
+                storage=storage() if storage else None,
             )
             report.replans += 1
             tasks = [

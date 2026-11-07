@@ -673,7 +673,9 @@ def _children(m: _Model, item: str, best: Mapping[str, Option]) -> list[str]:
         return [opt[1].input, m.transform_tool(opt[2], opt[1], item).item]
     out = _recipe_children(m, opt[1])
     if opt[0] == "smelt":
-        out += [f for f, _ in m.fuel_choices()]
+        # `_fuel` never burns the smelted item itself; listing it as a fuel candidate
+        # would self-cycle (coal from coal ore) and drop the held/container choice
+        out += [f for f, _ in m.fuel_choices() if f != opt[1].result]
     return out
 
 
@@ -756,8 +758,28 @@ class _Expander:
             if opt is None:
                 self.missing.append(Missing(item, self.m.reason(item)))
                 continue
+            opt = self._stock_conversion(item, n) or opt
             d = self.deps.setdefault(item, set())
             getattr(self, "_" + opt[0])(item, n, opt, d)
+
+    def _stock_conversion(self, item: str, n: int) -> Option | None:
+        """A recipe the cycle break (see `_consumers_first`) replaced with mining
+        that stock can pay for outright: unwrapping a supplied coal block into coal.
+        The graph pass has no quantities, so the swap is re-checked here, where the
+        amount needed and what the containers hold are both known."""
+        alt = self.m.best.get(item)
+        if alt is None or alt[0] != "craft" or alt == self.best.get(item):
+            return None
+        rec: _Rec = alt[1]
+        if rec.station not in {"inventory", *self.m.known, *self.stations}:
+            return None  # a station the order never expands would be added too late
+        times = math.ceil(n / rec.out - EPS)
+        if any(
+            self.have.get(self.m.pick(opts, self.m.cost), 0) < count * times
+            for opts, count in rec.ing
+        ):
+            return None
+        return alt
 
     # tools: uses are summed over the whole plan; the number of tools to craft is
     # settled by re-running with `tool_make` until it covers the uses (see _expand)

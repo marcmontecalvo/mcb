@@ -36,10 +36,21 @@ from mclab.knowledge import Knowledge, load_pack
 from mclab.paths import ROOT
 from mclab.schematic import from_build_json, material_list
 
-MAX_REFILLS = 3
+# A build supplied through chests refills item by item as layers run out.
+MAX_REFILLS = 12
 PICKAXES = tuple(
     f"minecraft:{t}_pickaxe" for t in ("stone", "iron", "diamond", "netherite")
 )
+
+
+def _storage_boxes(state: GatherState) -> list[dict]:
+    """The plan ``storage`` view of the remembered containers (live contents)."""
+    return [
+        {"kind": "chest", "pos": list(pos), "contents": dict(contents)}
+        for pos, contents in state.containers.items()
+    ]
+
+
 GATHER_ENDS = ("stalled", "failed")
 SHULKER = "minecraft:shulker_box"
 SCAFFOLD_STACK = 64
@@ -155,32 +166,58 @@ def build_job(
     needed.update(bp.tool_needs(template, body.inventory()))
     report.needed = dict(needed)
 
-    # Remembered containers first: withdrawing is cheaper than gathering again.
-    stored = _withdraw_plan(needed, body, state)
-    if stored.tasks and not build_only:
-        run_gather(stored, body, knowledge, state=state)
     held = Counter(body.inventory())
+    stored = Counter()
+    for contents in state.containers.values():
+        stored.update(contents)
+    # Remembered containers count before the world: the plan withdraws from them
+    # behind Withdraw tasks (``hand_over``) instead of mining the item again.
+    gap = {i: n - held[i] for i, n in needed.items() if n > held[i]}
     report.shortfall = (
-        {} if build_only else {i: n - held[i] for i, n in needed.items() if n > held[i]}
+        {}
+        if build_only
+        else {i: n - stored.get(i, 0) for i, n in gap.items() if n > stored.get(i, 0)}
     )
 
-    if report.shortfall and not any(held[p] for p in PICKAXES):
+    if gap and report.shortfall and not any(held[p] for p in PICKAXES):
         wanted = {PICKAXES[0]: 1}
         starter = gp.plan(
-            wanted, body.inventory(), knowledge, state.stations, starter_tools=True
+            wanted,
+            body.inventory(),
+            knowledge,
+            state.stations,
+            starter_tools=True,
+            storage=_storage_boxes(state),
         )
         report.starter = run_gather(
-            starter, body, knowledge, wanted, state=state, max_failures=max_failures
+            starter,
+            body,
+            knowledge,
+            wanted,
+            state=state,
+            max_failures=max_failures,
+            storage=lambda: _storage_boxes(state),
         )
         if report.starter.stop in GATHER_ENDS:
             report.stop = "gather_failed"
             return report
-    if report.shortfall:
+    if gap and not build_only:
         first = gp.plan(
-            needed, body.inventory(), knowledge, state.stations, starter_tools=True
+            needed,
+            body.inventory(),
+            knowledge,
+            state.stations,
+            starter_tools=True,
+            storage=_storage_boxes(state),
         )
         report.gather = run_gather(
-            first, body, knowledge, needed, state=state, max_failures=max_failures
+            first,
+            body,
+            knowledge,
+            needed,
+            state=state,
+            max_failures=max_failures,
+            storage=lambda: _storage_boxes(state),
         )
         if report.gather.stop in GATHER_ENDS:
             report.stop = "gather_failed"
@@ -196,10 +233,21 @@ def build_job(
         refills += 1
         wanted = dict(shortfall)
         fresh = gp.plan(
-            wanted, body.inventory(), knowledge, state.stations, starter_tools=True
+            wanted,
+            body.inventory(),
+            knowledge,
+            state.stations,
+            starter_tools=True,
+            storage=_storage_boxes(state),
         )
         outcome = run_gather(
-            fresh, body, knowledge, wanted, state=state, max_failures=max_failures
+            fresh,
+            body,
+            knowledge,
+            wanted,
+            state=state,
+            max_failures=max_failures,
+            storage=lambda: _storage_boxes(state),
         )
         report.refills.append(outcome)
         held_now = body.inventory()
