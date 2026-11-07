@@ -97,3 +97,44 @@ def test_status_is_stopped_when_the_state_file_vanishes_mid_check(
 
     monkeypatch.setattr(server, "control", gone)
     assert server.status()["state"] == "stopped"
+
+
+def test_forget_state_only_removes_its_own_launch(tmp_path):
+    from mclab.supervisor import forget_state
+
+    path = tmp_path / "supervisor.json"
+    path.write_text(json.dumps({"launch_id": "old"}))
+    # our launch: removed
+    assert forget_state(path, "old") is True
+    assert not path.exists()
+    # a successor already wrote its own launch: never touched
+    path.write_text(json.dumps({"launch_id": "new"}))
+    assert forget_state(path, "old") is False
+    assert path.exists()
+
+
+def test_forget_state_retries_a_transiently_locked_file(tmp_path):
+    from mclab.supervisor import forget_state
+
+    real = tmp_path / "supervisor.json"
+    real.write_text(json.dumps({"launch_id": "me"}))
+
+    class LockedOnce:
+        def __init__(self, path):
+            self.path, self.locked = path, True
+
+        def exists(self):
+            return self.path.exists()
+
+        def read_text(self, encoding=None):
+            return self.path.read_text(encoding=encoding)
+
+        def unlink(self):
+            if self.locked:
+                self.locked = False
+                raise PermissionError  # Windows reader still holds the file
+            self.path.unlink()
+
+    stub = LockedOnce(real)
+    assert forget_state(stub, "me", pause=lambda *_: None) is True
+    assert not real.exists()

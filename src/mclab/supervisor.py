@@ -5,11 +5,36 @@ import json
 import os
 import subprocess
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from mclab.bootstrap import java
 from mclab.paths import RUNTIME, SERVER, config, read_json
 from mclab.server import STATE, minecraft_status
+
+
+def forget_state(state_path, launch_id, pause=time.sleep, tries=20):
+    """Delete our own state file, never a successor's, and survive transient locks.
+
+    A restart writes the new state while this supervisor is still in teardown
+    (the C5 restart of the Nov 7 requalification; run 20261107T030649535487Z):
+    unlinking blindly then strands the new supervisor's launch, and Windows readers
+    hold the file for a moment. Only delete while the launch_id is still ours.
+    """
+    for _ in range(tries):
+        try:
+            if not state_path.exists():
+                return False
+            if (
+                json.loads(state_path.read_text(encoding="utf-8")).get("launch_id")
+                != launch_id
+            ):
+                return False
+            state_path.unlink()
+            return True
+        except (PermissionError, FileNotFoundError, ValueError):
+            pause(0.1)
+    return False
 
 
 def main() -> None:
@@ -113,7 +138,7 @@ def main() -> None:
                 process.stdin.write("stop\n")
                 process.stdin.flush()
                 process.wait(timeout=60)
-            STATE.unlink(missing_ok=True)
+            forget_state(STATE, state["launch_id"])
 
 
 if __name__ == "__main__":
