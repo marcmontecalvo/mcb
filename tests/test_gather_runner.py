@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from mclab.build_runner import Result
 from mclab.gather_fake import FakeGatherBody
 from mclab.gather_plan import plan
 from mclab.gather_runner import run_gather
@@ -7,6 +8,7 @@ from mclab.gather_tasks import (
     Deposit,
     Hunt,
     PlaceContainer,
+    PlaceStation,
     PlanResult,
     Shear,
     Withdraw,
@@ -208,3 +210,25 @@ def test_an_unreachable_patch_is_skipped_as_a_whole():
 
     assert report.stop == "done", report
     assert len(tried) == 1  # one try, then the whole patch is skipped
+
+
+def test_a_station_cell_without_support_rotates_to_the_next_free_cell():
+    # run 20261106T182245230212Z: PlaceStation ended the task because the body
+    # refused no_support_face on the one cell free_spot kept re-picking
+    body = FakeGatherBody(K, floor(), {M + "crafting_table": 1})
+    original, first = body.place_block, []
+
+    def refuse_once(pos, state, item):
+        if not first:
+            first.append(tuple(pos))
+            return Result(False, "no_support_face")
+        return original(pos, state, item)
+
+    body.place_block = refuse_once
+    tasks = PlanResult((PlaceStation("crafting_table"),), (), 0.0)
+
+    report = run_gather(tasks, body, K)
+
+    assert report.stop == "done", report
+    assert report.state.stations["crafting_table"] not in first
+    assert first  # the refused cell was actually tried

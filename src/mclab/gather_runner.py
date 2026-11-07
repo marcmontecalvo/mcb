@@ -65,6 +65,10 @@ UNDERGROUND = ("stone", "cobblestone", "deepslate", "andesite", "diorite", "gran
 FOOD_CANDIDATES = 6
 FOOD_COUNT = 4
 RETRY_REASONS = STANCE_REASONS | {"no_line_of_sight"}
+# A placed station whose six neighbours are all non-solid cannot hold: no stance
+# reaches it, so rotate to another free cell (run 20261106T182245230212Z ended the
+# task retrying one cell three times).
+PLACE_ROTATE_REASONS = frozenset({"no_support_face"})
 STALL_S = 120.0  # no inventory change for this long ends the run ("stalled")
 
 
@@ -336,13 +340,15 @@ class _Exec:
             if not self.body.walk_to(_cell(e["position"]), 0.8):
                 skipped.add(e.get("uuid"))
 
-    def free_spot(self) -> Pos | None:
+    def free_spot(self, skip: Collection[Pos] = ()) -> Pos | None:
         x, y, z = self.body.position()
         offsets = sorted(
             product(range(-2, 3), repeat=2), key=lambda d: abs(d[0]) + abs(d[1])
         )
         for dx, dz in offsets:
             c = (x + dx, y, z + dz)
+            if c in skip:
+                continue
             if (dx, dz) == (0, 0) or self.body.world(*c) not in bp.AIR:
                 continue
             below = self.body.world(c[0], c[1] - 1, c[2])
@@ -364,13 +370,18 @@ class _Exec:
         return min(near, key=lambda p: _dist(p, here)) if near else None
 
     def place_free(self, state: str, item: str) -> tuple[Result, Pos | None]:
-        spot = self.free_spot()
-        if spot is None:
-            return Result(False, "no_free_spot"), None
-        result = self.reach_and_do(
-            spot, lambda: self.body.place_block(spot, state, item)
-        )
-        return result, spot
+        tried: set[Pos] = set()
+        while (spot := self.free_spot(tried)) is not None:
+            tried.add(spot)
+            result = self.reach_and_do(
+                spot, lambda: self.body.place_block(spot, state, item)
+            )
+            # the body refuses a cell whose six neighbours are all non-solid: a
+            # different stance cannot place into it (run 20261106T182245230212Z
+            # ended the task retrying the same cell 3x)
+            if result.ok or result.reason not in PLACE_ROTATE_REASONS:
+                return result, spot
+        return Result(False, "no_free_spot"), None
 
     # --- tasks ----------------------------------------------------------
     def gather(self, t) -> Result:
