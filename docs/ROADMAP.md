@@ -13,17 +13,19 @@ the phase plan are in [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_
 Update this file whenever an item here is finished or a new one is found.
 
 Last updated: November 7, 2026 (companion track: "Open after Nov 6" below — the
-follow_step 413, the plan-only stance probe, the reversible descend stair and the
-station-cell rotation are fixed and live-verified; what is left of the gather stalls
-is frontier optimism; the Nov 3 seven-stage regression is promoted into
-`MOVEMENT_PARITY_PROOF.json`, G2 and `NAVIGATION_QUALIFICATION.json` for `c414e408…`;
-the body changed again since (`2c4ba7da…`) and needs requalification before scored
-runs, open item (2)).
+follow_step 413, the plan-only stance probe, the reversible descend stair, the
+surface-projected explore rings, the station-cell rotation and the supervisor restart
+race are fixed and live-verified; the seven-stage regression passed for the current
+`2c4ba7da…` and is promoted into `MOVEMENT_PARITY_PROOF.json`, G2 and
+`NAVIGATION_QUALIFICATION.json`; what is left of the gather stalls is frontier
+optimism, open item (1), and the CAP-01 ladder live checks newly fail on the migrated
+body, open item (2)).
 Earlier: November 3 (companion track: M5 state; Java migration baselines).
 Earlier: November 1 (cohorts 16–29 and the frozen calm comparison on
-`main`). Previously qualified mod: `c414e408…` (the Nov 3 migration build; the seven
-regression stages passed for it on Nov 3, `results/awareness/20261103T190042815691Z-regression`,
-promoted into the ledgers Nov 6 by `runtime/finalize-movement.py`). Later body changes
+`main`). Previously qualified mod: `2c4ba7da…` (four-cut reversible descents on the
+Nov 3 migration; seven stages passed `20261107T061310661915Z-regression`, promoted
+Nov 7 by `runtime/finalize-movement.py`; before it `c414e408…`,
+`results/awareness/20261103T190042815691Z-regression`). Later body changes
 require source-bound requalification.
 Cohorts 27–28 ran on `2eed1251`, cohort 29 on `0129b057`.
 
@@ -125,10 +127,21 @@ stops the large house short of done: attempt `20261107T035604701358Z` finished t
 starter 18/18, reached coal, then sat at `Gather:coal_ore` while the rings circled —
 buried ore needs digging at the frontier, which rings never offer (the ring-plane bug
 the earlier attempt exposed is closed (i));
-(2) requalify the changed body (install `2c4ba7da…`: reversible descend stairs, item
-(f) below) before scored navigation — the seven-stage regression and the CAP-01 ladder
-and CAP-02 door live checks on this build. Development runs (gather, build) may
-proceed; scored cohorts may not.
+(2) the CAP-01 ladder live checks on the qualified build — the seven-stage regression
+passed for `2c4ba7da…` (`20261107T061310661915Z-regression`, promoted by
+`runtime/finalize-movement.py` into the ledgers: G2 now points at it, the Nov 3 entry
+is in `qualification_history`; CAP-02 door evidence is the small-house run's
+`use_block`, closed (j)). The ladder fixture fails on both drives, first checked since
+the Java-only migration: body-planner native route
+(`20261107T065147743411Z`) — the first 6-point segment ends mid-climb, `RouteMotor`
+marks it done at feet y 81.75, releases, the body slides to the ladder foot, and 158
+replans answer unreachable/incomplete at 5 expansions; lockstep drive
+(`20261107T070729302498Z`, same profile) — four `late_or_distant_action` rejections ~every
+120 ticks exhaust the three-discard allowance and cancel the controller (without the
+baritone-moves terrain profile the `unreachable` verdicts are correct — ladders are
+extra moves, `extra=false`); climbing off refuses cleanly (`20261107T070046935107Z`,
+never above y 80). Scored navigation is qualified on this build; the ladder defect is
+newly found, not newly introduced.
 
 **Closed from Nov 3:** (a) the large-house driver crash — root-caused Nov 6 to the
 `follow_step` protection echo crossing the 16 KB POST limit and fixed (`follow_step`
