@@ -120,15 +120,15 @@ has sensed, and the walk pays for that. At the hill site the explore rings
 2-3-node segments with 300-400 tick freezes between them
 (`20261106T215445111262Z`, ticks 24.5k-27.2k: a 16-block ring walk needs >1,000
 ticks, so StuckGuard ends 13 of them); at the pond 6 of 61 candidates were walked on
-an optimistic routed verdict and stuck (`20261106T222704810114Z`);
+an optimistic routed verdict and stuck (`20261106T222704810114Z`). The same class now
+stops the large house short of done: attempt `20261107T035604701358Z` finished the
+starter 18/18, reached coal, then sat at `Gather:coal_ore` while the rings circled —
+buried ore needs digging at the frontier, which rings never offer (the ring-plane bug
+the earlier attempt exposed is closed (i));
 (2) requalify the changed body (install `2c4ba7da…`: reversible descend stairs, item
 (f) below) before scored navigation — the seven-stage regression and the CAP-01 ladder
 and CAP-02 door live checks on this build. Development runs (gather, build) may
-proceed; scored cohorts may not;
-(3) the supervisor teardown race: a `mclab natural` restore after a companion run hit
-`PermissionError` unlinking `runtime/supervisor.json` (`20261107T030649535487Z` —
-both cases `done`, only the teardown crashed). Retry with a short delay in
-`supervisor.py:115`.
+proceed; scored cohorts may not.
 
 **Closed from Nov 3:** (a) the large-house driver crash — root-caused Nov 6 to the
 `follow_step` protection echo crossing the 16 KB POST limit and fixed (`follow_step`
@@ -166,13 +166,30 @@ consistent, not proof — the mechanism proof is the refusal of one-way edges);
 (g) station placement economics — `place_free` now skips a cell the body refused with
 `no_support_face` (a cell property, not a stance problem) and takes the next free
 offset instead of re-picking the same cell three times
-(commit `f20385c`; unit test; the hill-site failure `20261106T182245230212Z` class).
+(commit `f20385c`; unit test; the hill-site failure `20261106T182245230212Z` class);
+(h) the supervisor restart race (open (3) of Nov 6) — two separate causes. The
+teardown `PermissionError` is fixed: `supervisor.py` retries a briefly-locked
+`runtime/supervisor.json` and only removes it while it still names its own launch
+(commit `9c09504`). What kept killing requalification attempts was different: a
+stray console CTRL event from a sibling command teardown reaped the fresh
+supervisor before it bound (`0xC000013A`, no log line, dead pid; requal attempts
+1-4, reproduced ~1 run in 15 by a start/stop hammer). `server._start` now respawns
+on that exit code, up to four attempts, and records each attempt's pid so
+`status()` can date a leftover state file (commit `a61a394`; unit tests);
+(i) the explore-ring plane bug — large-house attempt `20261107T031538873657Z`
+buried 8 of 10 targets because the rings enumerated at the origin's y (feet 57
+against a surface near 64); `explore()` now projects each ring spot onto the
+surface it will walk (commit `735067a`; unit test). Attempt 7 cleared that failure
+mode and reaches the ore phase, where open (1) holds it;
+(j) the small house from empty reran clean on the current body: seed 20261026 from
+(-19, 66, -116), 4/4 in `20261107T041939084513Z`; its ops carry the door
+`use_block` success that open (2) counts as CAP-02 evidence.
 
 **Open after Nov 1, in the order to do them:** (1) item 8: stage D and continuous
 re-planning done (cohorts 30-31); review and qualify the Nov 3 Java-only migration;
 (2) night diagnostics for item 12; (3) Marc's call on night survival (item 13);
-(4) the paired ~10% gap to Baritone (items 8, 9); (5) a live multi-edit chain
-(item 10).
+(4) the paired ~10% gap to Baritone (items 8, 9) — localized Nov 7 to five routes,
+see item 12; (5) a live multi-edit chain (item 10).
 
 **Confirm and close gaps**
 
@@ -275,7 +292,15 @@ re-planning done (cohorts 30-31); review and qualify the Nov 3 Java-only migrati
     medians favour MCB on two seeds only because route lengths differ.
     MCB broke 12 blocks in total, Baritone 71. MCB took 1 damage on each 42424242 R8 attempt (3 total), no deaths.
     Still open: night diagnostics for this item, and the paired gap above (Baritone
-    about 10% faster route by route); items 8 and 9 are the likely fixes.
+    about 10% faster route by route). Localized Nov 7, from the same three runs:
+    total-tick ratios (MCB/Baritone) 1.023 on 1337, 1.136 on 9001, 1.161 on
+    42424242 — seed 1337 is at parity and the gap sits in five routes: 9001 R4
+    (+706 ticks over its reps), R2 (+529), R6 (+461), 42424242 R6 (+587), R7
+    (+445); elsewhere route deltas are tens of ticks. In the worst attempts the
+    no-progress windows repeat identically across reps (120-290 ticks) with the
+    planner in `background search pending/resumed`; walking and edit costs are
+    equal. Same class as companion-track open (1) and item 9: replans over a
+    just-changed map stall instead of finishing. Items 8 and 9 are the likely fixes.
 
 **Features from the plan**
 
@@ -541,6 +566,10 @@ imports allowed there).
         Earlier M4 runs on this seed also had stalls, so it may be an old flake.
       - Large house: crashed at start (`20261103T031040847065Z`), see "Open after
         Nov 3" at the top of "Next work".
+      - Nov 7 reruns: small house from empty 4/4 again on the current body
+        (`20261107T041939084513Z`, closed (j)); the large house no longer crashes
+        and finishes its starter, then stalls in the ore phase (attempts
+        `20261107T031538873657Z` and `20261107T035604701358Z`; closed (i), open (1)).
   - **Body mod changed** (now `9e536f77…`): qualification (item 11 procedure)
     must be rerun before scored navigation runs.
   - Current status per milestone, the code map, and every known gap with its
