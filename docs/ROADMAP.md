@@ -198,11 +198,18 @@ mode and reaches the ore phase, where open (1) holds it;
 (-19, 66, -116), 4/4 in `20261107T041939084513Z`; its ops carry the door
 `use_block` success that open (2) counts as CAP-02 evidence.
 
-**Open after Nov 1, in the order to do them:** (1) item 8: stage D and continuous
-re-planning done (cohorts 30-31); review and qualify the Nov 3 Java-only migration;
-(2) night diagnostics for item 12; (3) Marc's call on night survival (item 13);
-(4) the paired ~10% gap to Baritone (items 8, 9) — localized Nov 7 to five routes,
-see item 12; (5) a live multi-edit chain (item 10).
+**Open after Nov 1, in the order to do them:** (1) done Nov 7: the Nov 3 Java-only
+migration was reviewed (status doc) and qualified — seven stages for the current
+install `2c4ba7da…`, promoted; the CAP-01 ladder live check it exposed is open
+(companion-track item (2)); (2) done Nov 7: night diagnostics for item 12 ran — see
+the item 12 paragraph; (3) Marc's call on night survival (item 13); (4) the paired
+~10% gap to Baritone (items 8, 9) — localized Nov 7 to five routes, see item 12;
+(5) a live multi-edit chain (item 10); (6) the night aborts: a 4+-block explosion
+knockback puts the body into `settling` and the first rejected `route_policy` or
+`planner_map` ends the attempt (`*_requires_development_body` is transient there,
+not a mode error) — the drives should retry briefly across the settling window
+instead of invalidating a mobile, unharmed body (`20261107T072139097255Z`, five
+cases).
 
 **Confirm and close gaps**
 
@@ -304,8 +311,18 @@ see item 12; (5) a live multi-edit chain (item 10).
     completed (total ticks 60,057 vs MCB 66,190, about 10% faster); the per-seed
     medians favour MCB on two seeds only because route lengths differ.
     MCB broke 12 blocks in total, Baritone 71. MCB took 1 damage on each 42424242 R8 attempt (3 total), no deaths.
-    Still open: night diagnostics for this item, and the paired gap above (Baritone
-    about 10% faster route by route). Localized Nov 7, from the same three runs:
+    Night diagnostics ran Nov 7 (seed 1337, mobs, native route profile,
+    `20261107T072139097255Z`): 5/10 reached their goals — 0 deaths, 34.9 total
+    damage, 2,495 hostile-exposure ticks (peak 6 within 16, one attempt at 956);
+    the other 5 were not navigation failures but harness aborts: 4
+    `route_policy_requires_development_body` and 1
+    `planner_map_requires_development_body`. The guard is the ready-gate: an
+    explosion or knockback that shifts the body 4+ blocks marks it `settling`
+    (`CarpetBodyAdapter.TELEPORT_DISTANCE_SQR` = 16) until three still ground
+    ticks, and the drive treats the first rejected request as fatal. See open
+    (6). The first run (`20261107T071110532226Z`, before a clean restart)
+    hit the same classes; a rerun is not the fix.
+    Paired calm gap: localized Nov 7, from the same three runs:
     total-tick ratios (MCB/Baritone) 1.023 on 1337, 1.136 on 9001, 1.161 on
     42424242 — seed 1337 is at parity and the gap sits in five routes: 9001 R4
     (+706 ticks over its reps), R2 (+529), R6 (+461), 42424242 R6 (+587), R7
@@ -337,8 +354,11 @@ see item 12; (5) a live multi-edit chain (item 10).
     available (`follow_route` `flee`, profile `flee`) but no profile uses it; the
     reflex's hostile list now includes zombie villagers. **Open research:** night
     survival needs combat or shelter (direction doc "Later"), not route weights.
-    Screening Jev waits for the model track. Needs Marc's decision (see open
-    questions).
+    Nov 7 diagnostics on the qualified build improved on Nov 1: 5/10 valid
+    attempts, 0 deaths, 34.9 total damage (item 12; the other five were the
+    settling-window aborts of open (6), not navigation). The decision is still
+    Marc's. Screening Jev waits for the model track. Needs Marc's decision (see
+    open questions).
 14. Done Oct 31 (interaction goals, Phase 3): `RouteSearch(interact_reach=4.5)`
     and `SegmentedController(interact_reach=...)` treat the goal as a block to
     reach with the eye (feet + 1.62, centre ray, every crossed cell known and
