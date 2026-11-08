@@ -627,7 +627,7 @@ def drive_native(client, controller, wall_timeout):
                 active_route = route
             time.sleep(0.05)
         raise ControllerFailure("Native route wall deadline exceeded")
-    except (ControllerFailure, TimeoutError) as error:
+    except (ControllerFailure, TimeoutError, RuntimeError) as error:
         if getattr(controller, "stop_reason", None) is not None:
             return _stop_goto(client, error)
         return _fail(client, error)

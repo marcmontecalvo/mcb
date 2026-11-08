@@ -73,3 +73,28 @@ def test_route_policy_is_scoped_to_each_planner_session():
         {"use_doors": False, "climb_vines": True},
     )
     client.planner_map_coordinator.close()
+
+
+def test_send_and_ack_retries_on_stale_queued_request():
+    class StaleOnceClient:
+        def __init__(self):
+            self.calls = []
+            self.stale_sent = False
+
+        def send(self, operation, **fields):
+            self.calls.append((operation, fields))
+            return {"sequence": len(self.calls)}
+
+        def acknowledge(self, request, kind):
+            if not self.stale_sent:
+                self.stale_sent = True
+                raise RuntimeError("Bridge rejected request 1: stale_queued_request")
+            return {"type": kind, "data": {"generation": 42}}
+
+    client = StaleOnceClient()
+    from mclab.planner_session import _send_and_ack
+
+    res = _send_and_ack(client, "planner_map", "planner_map_accepted", kind="batch")
+    assert res == {"type": "planner_map_accepted", "data": {"generation": 42}}
+    assert len(client.calls) == 2
+
