@@ -150,11 +150,15 @@ class Bridge:
         body = (
             None if payload is None else json.dumps(payload, allow_nan=False).encode()
         )
-        for attempt in range(2 if payload is None else 1):
+        is_idempotent = payload is None or (
+            isinstance(payload, dict) and payload.get("op") == "heartbeat"
+        )
+        for attempt in range(2):
+            sent = False
             try:
                 # Fully consume each response so the next poll can reuse its socket.
                 # A failed request is never retried: its admission may be ambiguous,
-                # except for read-only GET requests on a stale keepalive socket.
+                # except for idempotent ops or stale sockets that dropped before send.
                 connection.request(
                     "GET" if payload is None else "POST",
                     path,
@@ -164,13 +168,22 @@ class Bridge:
                         "Content-Type": "application/json",
                     },
                 )
+                sent = True
                 response = connection.getresponse()
                 with response:
                     data = response.read()
                 break
             except (OSError, http.client.HTTPException) as error:
                 connection.close()
-                if payload is None and attempt == 0:
+                if attempt == 0 and (
+                    is_idempotent
+                    or (
+                        not sent
+                        and isinstance(
+                            error, (ConnectionResetError, ConnectionAbortedError)
+                        )
+                    )
+                ):
                     continue
                 raise urllib.error.URLError(error) from error
         if not 200 <= response.status < 300:
