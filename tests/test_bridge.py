@@ -310,6 +310,34 @@ def test_ambiguous_motor_submission_is_not_retried(client, monkeypatch):
     assert len(sent) == 1 and client.submitted == 1 and client.sequence == 1
 
 
+def test_get_request_reconnects_once_on_stale_socket(client, monkeypatch):
+    attempts = 0
+
+    def fake_request(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ConnectionAbortedError(10053, "An established connection was aborted")
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            return json.dumps({"launch_id": "test-launch"}).encode()
+
+    monkeypatch.setattr(client._connection, "request", fake_request)
+    monkeypatch.setattr(client._connection, "getresponse", lambda: FakeResponse())
+    result = client.http("/events?after=0")
+    assert attempts == 2
+    assert result["launch_id"] == "test-launch"
+
+
 def test_human_inspection_applies_only_to_reviewed_specification():
     assert gates.inspected(
         "8632e6132b76947bc406ac6c5bbee311d1fe569c9b07cd1fdaa8afae93ea9bdf"

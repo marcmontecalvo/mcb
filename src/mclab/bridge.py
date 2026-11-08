@@ -150,24 +150,29 @@ class Bridge:
         body = (
             None if payload is None else json.dumps(payload, allow_nan=False).encode()
         )
-        try:
-            # Fully consume each response so the next poll can reuse its socket.
-            # A failed request is never retried: its admission may be ambiguous.
-            connection.request(
-                "GET" if payload is None else "POST",
-                path,
-                body=body,
-                headers={
-                    "Authorization": "Bearer " + self._token,
-                    "Content-Type": "application/json",
-                },
-            )
-            response = connection.getresponse()
-            with response:
-                data = response.read()
-        except (OSError, http.client.HTTPException) as error:
-            connection.close()
-            raise urllib.error.URLError(error) from error
+        for attempt in range(2 if payload is None else 1):
+            try:
+                # Fully consume each response so the next poll can reuse its socket.
+                # A failed request is never retried: its admission may be ambiguous,
+                # except for read-only GET requests on a stale keepalive socket.
+                connection.request(
+                    "GET" if payload is None else "POST",
+                    path,
+                    body=body,
+                    headers={
+                        "Authorization": "Bearer " + self._token,
+                        "Content-Type": "application/json",
+                    },
+                )
+                response = connection.getresponse()
+                with response:
+                    data = response.read()
+                break
+            except (OSError, http.client.HTTPException) as error:
+                connection.close()
+                if payload is None and attempt == 0:
+                    continue
+                raise urllib.error.URLError(error) from error
         if not 200 <= response.status < 300:
             raise urllib.error.HTTPError(
                 root + path,
