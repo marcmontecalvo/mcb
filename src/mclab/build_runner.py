@@ -177,6 +177,14 @@ class _Runner:
     def attempt(self, act) -> None:
         """Stance, act, record. Retries other stances while the failure says so."""
         pos = act.pos
+        if isinstance(act, bp.Break):
+            here = self.body.position()
+            if _dist2(here, pos) <= (REACH - 0.5) ** 2:
+                result = _do(self.body, act)
+                if result.ok:
+                    self.report.steps += 1
+                    return _record(self.report, act)
+
         while self.fails.get(pos, 0) < MAX_TRIES and self.report.steps < self.max_steps:
             self.report.steps += 1
             avoid = self.avoid.setdefault(pos, set())

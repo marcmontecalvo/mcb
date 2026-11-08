@@ -168,3 +168,34 @@ def test_clear_trees_in_footprint():
     count = tr.clear_trees_in_footprint(body, [(0, 64, 0), (1, 64, 0)])
     assert count == 1
     assert body.world(0, 64, 0) == "minecraft:air"
+
+
+def test_tree_feller_clears_leaves_on_no_line_of_sight():
+    world = {
+        (0, 63, 0): "minecraft:dirt",
+        (0, 64, 0): "minecraft:oak_log",  # Log 1
+        (0, 65, 0): "minecraft:oak_log",  # Log 2
+        (0, 66, 0): "minecraft:oak_log",  # Log 3
+        (0, 65, 1): "minecraft:oak_leaves",  # Leaf between stance and log
+    }
+
+    class LOSBody(FakeTreeBody):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.failed_once = False
+
+        def break_block(self, pos, tool=None):
+            if pos == (0, 66, 0) and not self.failed_once:
+                self.failed_once = True
+                return Result(False, "no_line_of_sight")
+            return super().break_block(pos, tool)
+
+    body = LOSBody(world, {"minecraft:iron_axe": 1}, pos=(0, 64, 1))
+    trees = tr.find_trees(body.world, [(0, 64, 0)])
+    feller = tr.TreeFeller(body)
+    ok = feller.fell(trees[0])
+    assert ok
+    assert body.world(0, 64, 0) == "minecraft:air"
+    assert body.world(0, 65, 0) == "minecraft:air"
+    assert body.world(0, 66, 0) == "minecraft:air"
+
