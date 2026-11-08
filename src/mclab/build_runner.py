@@ -84,6 +84,7 @@ class BuildReport:
     counts: dict[str, int] = field(default_factory=dict)  # build_plan.progress
     unknown: list[Pos] = field(default_factory=list)  # template cells never delivered
     surveyed: int = 0  # perimeter points visited (B4)
+    trees_cleared: int = 0  # trees felled by Tree Removal skill
     # (cell, reason, stance, body diagnosis) of every failed attempt, to diagnose from
     failures: list[tuple[Pos, str, Pos, dict]] = field(default_factory=list)
 
@@ -244,6 +245,9 @@ def run_build(
     report = BuildReport()
     if survey:
         report.surveyed = survey_footprint(template, body)
+    from mclab.tree_removal import clear_trees_in_footprint
+
+    report.trees_cleared = clear_trees_in_footprint(body, template.cells)
     scaffolds = set() if scaffolds is None else scaffolds
     runner = _Runner(body, report, max_steps, blocks)
     recoveries = retries = 0

@@ -519,13 +519,18 @@ def next_actions(
     """
     scaffolds = set() if scaffolds is None else scaffolds
     d = diff(template, world, ignore_props)
+    is_canopy_leaf = lambda p: (
+        (s := world(*p))
+        and "_leaves" in s
+        and template.cells.get(p, "minecraft:air") in AIR
+    )
     breaks = sorted(
         (
             p
             for p in d.breaks
             if p not in scaffolds and (skipped is None or p not in skipped)
         ),
-        key=lambda p: (p[1], p[0], p[2]),
+        key=lambda p: (is_canopy_leaf(p), p[1], p[0], p[2]),
     )
     if breaks:
         return [Break(p) for p in breaks[:limit]]
