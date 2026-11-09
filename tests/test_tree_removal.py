@@ -199,3 +199,87 @@ def test_tree_feller_clears_leaves_on_no_line_of_sight():
     assert body.world(0, 65, 0) == "minecraft:air"
     assert body.world(0, 66, 0) == "minecraft:air"
 
+
+def test_tree_feller_carves_corridor_through_leaves():
+    # Bot stands outside tree canopy with leaves blocking the path to the trunk
+    world = {
+        (0, 63, 0): "minecraft:dirt",
+        (0, 64, 0): "minecraft:oak_log",  # Log 1
+        (0, 65, 0): "minecraft:oak_log",  # Log 2
+        (0, 66, 0): "minecraft:oak_log",  # Log 3
+        # Leaves at feet and head height along approach path x=1 and x=2
+        (1, 64, 0): "minecraft:oak_leaves",
+        (1, 65, 0): "minecraft:oak_leaves",
+        (2, 64, 0): "minecraft:oak_leaves",
+        (2, 65, 0): "minecraft:oak_leaves",
+    }
+    body = FakeTreeBody(world, {"minecraft:iron_axe": 1}, pos=(4, 64, 0))
+    trees = tr.find_trees(body.world, [(0, 64, 0)])
+    feller = tr.TreeFeller(body)
+    ok = feller.fell(trees[0])
+    assert ok
+    # Leaves in corridor must have been broken
+    assert body.world(1, 64, 0) == "minecraft:air"
+    assert body.world(1, 65, 0) == "minecraft:air"
+    # All logs felled
+    assert body.world(0, 64, 0) == "minecraft:air"
+    assert body.world(0, 65, 0) == "minecraft:air"
+    assert body.world(0, 66, 0) == "minecraft:air"
+
+
+def test_tree_feller_protects_log1_if_upper_logs_remain():
+    # Tree where upper log fails to break
+    world = {
+        (0, 63, 0): "minecraft:dirt",
+        (0, 64, 0): "minecraft:oak_log",  # Log 1
+        (0, 65, 0): "minecraft:oak_log",  # Log 2
+        (0, 66, 0): "minecraft:oak_log",  # Log 3
+    }
+
+    class StubbornBody(FakeTreeBody):
+        def break_block(self, pos, tool=None):
+            if pos == (0, 66, 0):
+                return Result(False, "unbreakable")
+            return super().break_block(pos, tool)
+
+    body = StubbornBody(world, {"minecraft:iron_axe": 1}, pos=(1, 64, 0))
+    trees = tr.find_trees(body.world, [(0, 64, 0)])
+    feller = tr.TreeFeller(body)
+    feller.fell(trees[0])
+    # Log 3 failed to break, so Log 1 MUST NOT have been broken!
+    # Log 1 is never in break_log
+    broken_targets = [b[0] for b in body.break_log]
+    assert (0, 64, 0) not in broken_targets
+
+
+def test_tree_removal_ignores_placed_template_blocks():
+    # Placed house logs in world matching template
+    world = {
+        (0, 63, 0): "minecraft:stone_bricks",
+        (0, 64, 0): "minecraft:oak_log[axis=y]",
+        (0, 65, 0): "minecraft:oak_log[axis=y]",
+        (0, 66, 0): "minecraft:oak_log[axis=y]",
+    }
+
+    class MockTemplate:
+        cells = {
+            (0, 64, 0): "minecraft:oak_log[axis=y]",
+            (0, 65, 0): "minecraft:oak_log[axis=y]",
+            (0, 66, 0): "minecraft:oak_log[axis=y]",
+        }
+
+    template = MockTemplate()
+    body = FakeTreeBody(world, {"minecraft:iron_axe": 1}, pos=(1, 64, 0))
+
+    trees = tr.find_trees(body.world, list(template.cells.keys()), template=template)
+    assert len(trees) == 0
+
+    cleared = tr.clear_trees_in_footprint(body, list(template.cells.keys()), template=template)
+    assert cleared == 0
+    # Placed blocks must remain intact
+    assert body.world(0, 64, 0) == "minecraft:oak_log[axis=y]"
+    assert body.world(0, 65, 0) == "minecraft:oak_log[axis=y]"
+    assert body.world(0, 66, 0) == "minecraft:oak_log[axis=y]"
+    assert len(body.break_log) == 0
+
+

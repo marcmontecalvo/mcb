@@ -516,3 +516,19 @@ def test_breaks_are_sorted_bottom_up_and_filter_skipped():
     acts = bp.next_actions(t, at(w), BLOCKS, inv, skipped={(0, 0, 0), (0, 1, 0), (0, 2, 0)})
     assert len(acts) == 1 and acts[0].pos == (1, 0, 0)
 
+
+def test_axis_logs_gated_by_neighbor_along_axis():
+    # An axis=z log at (0, 1, 1) over solid ground (0, 0, 1) is NOT placeable
+    # if it lacks a solid neighbor along Z.
+    w = flat_world()  # Y=0 is solid grass
+    w[(0, 0, 1)] = "minecraft:grass_block"
+    
+    # Target state has axis=z
+    z_log = "minecraft:stripped_birch_log[axis=z]"
+    assert bp._gate((0, 1, 1), z_log, at(w), BLOCKS) == "floating"
+
+    # Once a neighbor along Z is placed at (0, 1, 0), it is placeable
+    w[(0, 1, 0)] = "minecraft:stone_bricks"
+    assert bp._gate((0, 1, 1), z_log, at(w), BLOCKS) is None
+
+

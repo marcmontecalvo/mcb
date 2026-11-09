@@ -358,6 +358,7 @@ def main() -> int:
                     "origin": list(origin),
                     "rotation": args.rotation,
                 },
+                every=5,
             )
             job = build_job(
                 args.build,

@@ -113,7 +113,6 @@ DIG_TERRAIN = TerrainPolicy(
     break_budget=64,
     place_budget=64,
     # dirt only: cobblestone is what the gather is for (the planner pillars with the
-    # first listed material; run 20261102T030233328966Z spent it climbing out)
     material_allowlist=("minecraft:dirt",),
     allow_bridge=True,
     max_support_stack=3,
@@ -214,7 +213,9 @@ def _ray_clear(cells, eye, point, block: Pos) -> bool:
     return True
 
 
-def sees_support(cells, node: Pos, target: Pos, required: Pos | None = None) -> bool:
+def sees_support(
+    cells, node: Pos, target: Pos, required: Pos | Collection[Pos] | None = None
+) -> bool:
     """Does some solid neighbour of `target` have its face toward `target` turned to
     the eye of a body standing at `node`? Live run: the second plank of a pair was
     tried from the far side of the first, which shows it no face."""
@@ -223,11 +224,19 @@ def sees_support(cells, node: Pos, target: Pos, required: Pos | None = None) -> 
         (node[0] + 0.5 + dx, node[1] + EYE_HEIGHT, node[2] + 0.5 + dz)
         for dx, dz in ((0, 0), (0.2, 0.2), (-0.2, 0.2), (0.2, -0.2), (-0.2, -0.2))
     ]
+    if required is not None:
+        if isinstance(required, tuple) and len(required) == 3 and isinstance(required[0], int):
+            allowed = {required}
+        else:
+            allowed = {tuple(p) for p in required}
+    else:
+        allowed = None
+
     for d, seen in _FACE_SEEN.items():
         n = (target[0] + d[0], target[1] + d[1], target[2] + d[2])
+        if allowed is not None and n not in allowed:
+            continue
         cell = cells.get(n)
-        if required is not None and n != tuple(required):
-            continue  # the block hangs on this one face (a wall torch)
         if (
             _clickable(cell)
             and seen(node, target)
@@ -289,7 +298,7 @@ class _GotoController(SegmentedController):
                 return "unreachable"
         else:
             self.unreachable_since = None
-        if self.mode in {"searching", "incomplete"}:
+        if self.mode in {"searching", "incomplete", "planning"}:
             # An interaction goal whose stance the known map cannot reach floods the
             # known graph for ever (live run 20261101T190355487393Z: 25 minutes).
             self.searching_since = self.searching_since or observation["tick"]
@@ -662,6 +671,7 @@ class CompanionBody:
         recent = {
             pos: {
                 "block": parse_state(state)[0],
+                "fluid": "minecraft:empty",
                 "collision_boxes": []
                 if parse_state(state)[0] in AIR_BLOCKS
                 else [[0, 0, 0, 1, 1, 1]],

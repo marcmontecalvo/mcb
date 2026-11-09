@@ -155,14 +155,21 @@ def _record(report: BuildReport, act) -> None:
         report.placed.append(act.pos)
 
 
-def _support(act, blocks: dict) -> Pos | None:
+def _support(act, blocks: dict) -> Pos | set[Pos] | None:
     if not isinstance(act, bp.Place):
         return None
     ident, props = bp.parse_state(act.state)
     kind = bp._support_kind(ident, props, blocks.get(ident, {}))
-    if kind not in ("facing_opposite", "any_face"):
-        return None
-    return bp._support_cell(kind, props, act.pos)
+    if kind in ("facing_opposite", "any_face"):
+        return bp._support_cell(kind, props, act.pos)
+    axis = props.get("axis")
+    if axis == "z":
+        return {(act.pos[0], act.pos[1], act.pos[2] - 1), (act.pos[0], act.pos[1], act.pos[2] + 1)}
+    if axis == "x":
+        return {(act.pos[0] - 1, act.pos[1], act.pos[2]), (act.pos[0] + 1, act.pos[1], act.pos[2])}
+    if axis == "y":
+        return {(act.pos[0], act.pos[1] - 1, act.pos[2]), (act.pos[0], act.pos[1] + 1, act.pos[2])}
+    return None
 
 
 class _Runner:
@@ -176,14 +183,15 @@ class _Runner:
 
     def attempt(self, act) -> None:
         """Stance, act, record. Retries other stances while the failure says so."""
+        if self.report.steps >= self.max_steps:
+            return
         pos = act.pos
-        if isinstance(act, bp.Break):
-            here = self.body.position()
-            if _dist2(here, pos) <= (REACH - 0.5) ** 2:
-                result = _do(self.body, act)
-                if result.ok:
-                    self.report.steps += 1
-                    return _record(self.report, act)
+        here = self.body.position()
+        if _dist2(here, pos) <= (REACH - 0.5) ** 2:
+            result = _do(self.body, act)
+            if result.ok:
+                self.report.steps += 1
+                return _record(self.report, act)
 
         while self.fails.get(pos, 0) < MAX_TRIES and self.report.steps < self.max_steps:
             self.report.steps += 1
@@ -255,7 +263,7 @@ def run_build(
         report.surveyed = survey_footprint(template, body)
     from mclab.tree_removal import clear_trees_in_footprint
 
-    report.trees_cleared = clear_trees_in_footprint(body, template.cells)
+    report.trees_cleared = clear_trees_in_footprint(body, template.cells, template=template)
     scaffolds = set() if scaffolds is None else scaffolds
     runner = _Runner(body, report, max_steps, blocks)
     recoveries = retries = 0
@@ -270,7 +278,7 @@ def run_build(
             body.world,
             blocks,
             body.inventory(),
-            limit=8 + len(skipped),
+            limit=32 + len(skipped),
             scaffolds=scaffolds,
             skipped=skipped,
         )

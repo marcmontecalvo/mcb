@@ -202,6 +202,11 @@ def build_job(
             report.stop = "gather_failed"
             return report
     if gap and not build_only:
+        def _clear_area():
+            from mclab.tree_removal import clear_trees_in_footprint
+
+            clear_trees_in_footprint(body, template.cells, template=template)
+
         first = gp.plan(
             needed,
             body.inventory(),
@@ -218,6 +223,7 @@ def build_job(
             state=state,
             max_failures=max_failures,
             storage=lambda: _storage_boxes(state),
+            idle_work=_clear_area,
         )
         if report.gather.stop in GATHER_ENDS:
             report.stop = "gather_failed"

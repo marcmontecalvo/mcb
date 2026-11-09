@@ -225,10 +225,12 @@ class _Exec:
         cap: int,
         stall_s: float = STALL_S,
         clock: Callable[[], float] = time.monotonic,
+        idle_work: Callable[[], None] | None = None,
     ):
         self.body, self.k, self.state, self.cap = body, k, state, cap
         self.last_dig = ""
         self.stall_s, self.clock = stall_s, clock
+        self.idle_work = idle_work
         self._seen, self._since = dict(body.inventory()), clock()
 
     def stalled(self) -> bool:
@@ -482,11 +484,22 @@ class _Exec:
         if not loaded.ok:
             return loaded
         want = self.body.inventory().get(t.result, 0) + t.result_count
+
+        # While smelting, move on to other tasks like clearing the area
+        if self.idle_work:
+            work = self.idle_work
+            self.idle_work = None
+            work()
+            if not self.body.goto_stance(pos, STATION_REACH):
+                return Result(False, "no_stance")
+
         for _ in range(2 * t.count + 4):
-            self.body.wait_ticks(min(SMELT_TICKS_PER_ITEM * t.count, 600))
             self.body.furnace(pos, "collect")
             if self.body.inventory().get(t.result, 0) >= want:
                 return Result(True)
+            held = self.body.inventory().get(t.result, 0)
+            remaining = max(1, want - held)
+            self.body.wait_ticks(min(SMELT_TICKS_PER_ITEM * remaining, 200))
         return Result(False, "smelt_incomplete")
 
     def place_station(self, t) -> Result:
@@ -651,6 +664,7 @@ def run_gather(
     stall_s: float | None = None,  # None: STALL_S
     clock: Callable[[], float] = time.monotonic,
     storage: Callable[[], list] | None = None,
+    idle_work: Callable[[], None] | None = None,
 ) -> GatherReport:
     """Run the plan's tasks through ``body``; see the module docstring.
 
@@ -660,7 +674,7 @@ def run_gather(
     state = state or GatherState()
     report = GatherReport(state=state)
     stall = STALL_S if stall_s is None else stall_s
-    ex = _Exec(body, knowledge, state, explore_cap, stall, clock)
+    ex = _Exec(body, knowledge, state, explore_cap, stall, clock, idle_work=idle_work)
     targets = dict(targets) if targets is not None else None
     tasks = list(plan_result.tasks)
     failures = executed = 0

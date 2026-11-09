@@ -329,3 +329,14 @@ def test_small_house_fixture_builds_with_the_kit_of_its_material_list():
     assert report.stop == "done" and report.skipped == {}, report
     assert report.progress() == 1.0 and body.violations == []
     assert report.used  # the trapdoor is opened
+
+
+def test_support_axis_blocks():
+    act_z = bp.Place((0, 1, 1), "minecraft:stripped_birch_log[axis=z]", "minecraft:stripped_birch_log")
+    sup_z = br._support(act_z, BLOCKS)
+    assert sup_z == {(0, 1, 0), (0, 1, 2)}
+
+    act_x = bp.Place((1, 1, 0), "minecraft:stripped_birch_log[axis=x]", "minecraft:stripped_birch_log")
+    sup_x = br._support(act_x, BLOCKS)
+    assert sup_x == {(0, 1, 0), (2, 1, 0)}
+

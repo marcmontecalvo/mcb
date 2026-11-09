@@ -404,6 +404,19 @@ def _gate(pos: Pos, state: str, world, blocks: dict) -> str | None:
     below = _add(pos, _VEC["down"])
     if facts.get("gravity") and not _is_solid(world(*below), blocks):
         return "below"
+    axis = props.get("axis")
+    if axis == "z" and not any(
+        _is_solid(world(*_add(pos, v)), blocks) for v in (_VEC["north"], _VEC["south"])
+    ):
+        return "floating"
+    if axis == "x" and not any(
+        _is_solid(world(*_add(pos, v)), blocks) for v in (_VEC["east"], _VEC["west"])
+    ):
+        return "floating"
+    if axis == "y" and not any(
+        _is_solid(world(*_add(pos, v)), blocks) for v in (_VEC["down"], _VEC["up"])
+    ):
+        return "floating"
     kind = _support_kind(ident, props, facts)
     sup = _support_cell(kind, props, pos) if kind else None
     if sup and not _is_solid(world(*sup), blocks):
@@ -558,10 +571,15 @@ def next_actions(
     if not todo:
         return []
 
+    def _ground_supported(pos):
+        below = world(pos[0], pos[1] - 1, pos[2])
+        return _is_solid(below, blocks)
+
     todo.sort(
         key=lambda t: (
             parse_state(t[1])[0] in FLUIDS,
             t[0][1],
+            not _ground_supported(t[0]),
             not inside_corner(template, t[0]),
             t[0][0],
             t[0][2],
@@ -581,6 +599,7 @@ def next_actions(
         if parse_state(t[1])[0] not in FLUIDS
         and all(inventory.get(i, 0) >= c for i, c in t[2].items())
         and not _is_door(t[1])
+        and (skipped is None or t[0] not in skipped)
         and _gate(t[0], t[1], world, blocks) not in ("support", "floating", "unknown")
     ]
     lowest = min(waiting, default=None)
