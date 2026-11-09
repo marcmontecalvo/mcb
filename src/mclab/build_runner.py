@@ -79,6 +79,7 @@ class BuildReport:
     scaffolded: list[Pos] = field(default_factory=list)
     skipped: dict[Pos, str] = field(default_factory=dict)  # cell -> last reason
     steps: int = 0  # body ops attempted
+    escapes: int = 0  # times the body climbed or dug out of a hole to reach a stance
     stop: str = ""  # done | blocked | need_materials | max_steps
     needed: dict[str, int] = field(default_factory=dict)
     counts: dict[str, int] = field(default_factory=dict)  # build_plan.progress
@@ -200,7 +201,7 @@ class _Runner:
             # that face; an optional body attribute, like walk_to.
             if hasattr(self.body, "required_support"):
                 self.body.required_support = _support(act, self.blocks)
-            if not self.body.goto_stance(pos, REACH, avoid):
+            if not self._stance(pos, avoid):
                 self.report.failures.append(
                     (pos, "no_stance", self.body.position(), {})
                 )
@@ -217,6 +218,17 @@ class _Runner:
             if result.reason not in STANCE_REASONS:
                 return
             avoid.add(stance)
+
+    def _stance(self, pos: Pos, avoid) -> bool:
+        """A stance for pos; if none is reachable, climb or dig out of a hole the body
+        is in (an optional body method, like walk_to) and try once more."""
+        if self.body.goto_stance(pos, REACH, avoid):
+            return True
+        escape = getattr(self.body, "escape_hole", None)  # optional
+        if escape is None or not escape(pos):
+            return False
+        self.report.escapes += 1
+        return self.body.goto_stance(pos, REACH, avoid)
 
     def _fail(self, pos: Pos, reason: str) -> None:
         self.fails[pos] = self.fails.get(pos, 0) + 1

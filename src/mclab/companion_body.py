@@ -744,6 +744,33 @@ class CompanionBody:
                     return True
         return False
 
+    def escape_hole(self, target: Pos) -> bool:
+        """The body is in a pit no stance for ``target`` can be walked out of. Climb:
+        walk to a standable cell up to 4 blocks higher (the planner pillars with dirt
+        to get there). Failing that, dig: break a solid wall block beside the body at
+        head height. True if the body moved or a block was broken."""
+        here = self.position()
+        cells = self._cells_now()
+        rims = [
+            node
+            for node in (
+                (here[0] + dx, here[1] + dy, here[2] + dz)
+                for dx in range(-3, 4)
+                for dz in range(-3, 4)
+                for dy in range(1, 5)
+            )
+            if standable(cells, node)
+        ]
+        rims.sort(key=lambda n: (math.dist(n, target), n))
+        for node in rims[:3]:
+            if self._navigate(node, reach=None, radius=0.6):
+                return True
+        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            wall = (here[0] + dx, here[1] + 1, here[2] + dz)
+            if _clickable(cells.get(wall)) and self.break_block(wall).ok:
+                return True
+        return False
+
 
 # --- live session helpers (scripts) ---------------------------------------------
 

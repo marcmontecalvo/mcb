@@ -532,3 +532,20 @@ def test_axis_logs_gated_by_neighbor_along_axis():
     assert bp._gate((0, 1, 1), z_log, at(w), BLOCKS) is None
 
 
+
+
+def test_floor_over_water_is_filled_with_dirt_before_it_is_placed():
+    # A floor block over water is never placed on the water: dirt fills the column
+    # first, from the bed up, and the fill stays in the build.
+    w = flat_world()
+    w[(2, 0, 0)] = "minecraft:water"
+    w[(1, 1, 0)] = PLANKS  # land beside the floor cell
+    template = bp.Template.from_build(
+        make_build({(1, 1, 0): PLANKS, (2, 1, 0): PLANKS}, (3, 2, 1)), (0, 0, 0)
+    )
+    acts = bp.next_actions(template, at(w), BLOCKS, {"minecraft:dirt": 5, PLANKS: 5})
+    assert acts == [bp.Scaffold((2, 0, 0), "minecraft:dirt")]
+
+    # no dirt: ask for it rather than placing the floor over water
+    acts = bp.next_actions(template, at(w), BLOCKS, {PLANKS: 5})
+    assert all(not isinstance(a, bp.Place) for a in acts)

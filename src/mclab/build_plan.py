@@ -52,6 +52,7 @@ SCAFFOLD_ITEMS = (
     "minecraft:netherrack",
 )
 MAX_SCAFFOLD_DEPTH = 64
+FILL_ITEM = "minecraft:dirt"  # fills water under a block; stays in the build
 
 _SIDES = frozenset({"north", "east", "south", "west"})
 # (id suffix, ignored properties); suffix "" applies to every block.
@@ -402,6 +403,8 @@ def _gate(pos: Pos, state: str, world, blocks: dict) -> str | None:
     ident, props = parse_state(state)
     facts = blocks.get(ident, {})
     below = _add(pos, _VEC["down"])
+    if ident not in FLUIDS and parse_state(world(*below))[0] in FLUIDS:
+        return "unfilled"  # over water: fill the column with dirt first, never float
     if facts.get("gravity") and not _is_solid(world(*below), blocks):
         return "below"
     axis = props.get("axis")
@@ -600,7 +603,8 @@ def next_actions(
         and all(inventory.get(i, 0) >= c for i, c in t[2].items())
         and not _is_door(t[1])
         and (skipped is None or t[0] not in skipped)
-        and _gate(t[0], t[1], world, blocks) not in ("support", "floating", "unknown")
+        and _gate(t[0], t[1], world, blocks)
+        not in ("support", "floating", "unknown", "unfilled")
     ]
     lowest = min(waiting, default=None)
     others_left = any(not _is_door(t[1]) for t in todo)
@@ -644,6 +648,15 @@ def next_actions(
         reason = _gate(pos, state, world, blocks)
         if reason == "below" and _add(pos, _VEC["down"]) in pending:
             continue
+        if reason == "unfilled":
+            # water under the block: dirt fills the column up from the bed. Permanent,
+            # so it is never added to the scaffolds that cleanup takes back.
+            if inventory.get(FILL_ITEM, 0) <= remaining[FILL_ITEM]:
+                return [NeedMaterials({FILL_ITEM: 1})]
+            cell = _scaffold_pos(pos, world, blocks, reserved)
+            if cell is None:
+                continue
+            return [Scaffold(cell, FILL_ITEM)]
         if reason in ("floating", "below"):
             item = next(
                 (i for i in SCAFFOLD_ITEMS if inventory.get(i, 0) > remaining[i]), None

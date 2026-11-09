@@ -340,3 +340,35 @@ def test_support_axis_blocks():
     sup_x = br._support(act_x, BLOCKS)
     assert sup_x == {(0, 1, 0), (2, 1, 0)}
 
+
+
+class _Pit:
+    """A body in a pit: no stance is reachable until it has escaped."""
+
+    def __init__(self, can_escape=True):
+        self.escaped, self.can_escape = False, can_escape
+
+    def position(self):
+        return (0, 0, 0)
+
+    def goto_stance(self, pos, reach, avoid=()):
+        return self.escaped
+
+    def escape_hole(self, pos):
+        if self.can_escape:
+            self.escaped = True
+        return self.can_escape
+
+
+def test_runner_escapes_a_pit_then_reaches_the_stance():
+    body, report = _Pit(), br.BuildReport()
+    runner = br._Runner(body, report, 100, BLOCKS)
+    assert runner._stance((1, 1, 1), set())
+    assert report.escapes == 1
+
+
+def test_runner_reports_no_stance_when_the_pit_cannot_be_left():
+    body, report = _Pit(can_escape=False), br.BuildReport()
+    runner = br._Runner(body, report, 100, BLOCKS)
+    assert not runner._stance((1, 1, 1), set())
+    assert report.escapes == 0
