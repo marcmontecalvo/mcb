@@ -187,6 +187,16 @@ final class AwarenessSensor {
         return id;
     }
 
+    /** Facts of a loaded cell (the same per-BlockState facts the sections carry), or null. */
+    Map<String,Object> facts(ServerPlayer player,BlockPos pos,int tick) {
+        if(!player.level().isInsideBuildHeight(pos)) return null;
+        var chunk=player.level().getChunkSource().getChunkNow(pos.getX()>>4,pos.getZ()>>4);
+        if(chunk==null) return null;
+        var state=chunk.getBlockState(pos);
+        Integer id=stateIds.get(state);
+        return stateFacts.get(id!=null?id:register(player,state,pos,tick));
+    }
+
     static long digest(SectionData data) {
         if(data.ids()==null) return -1L-data.uniform();
         long h=1;

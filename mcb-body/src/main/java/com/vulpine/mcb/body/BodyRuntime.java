@@ -322,8 +322,7 @@ public final class BodyRuntime implements AutoCloseable {
             throw new IllegalArgumentException("plan_bounds");
         var requestedEdits = request.has("edits") ? request.getAsJsonObject("edits") : null;
         var planPermissions = RoutePermissions.edits(requestedEdits);
-        if (!request.has("map_generation")) throw new IllegalArgumentException("map_generation");
-        var selected = plannerMap.reader(exactLong(request.get("map_generation"), "map_generation"));
+        var selected = mapReader(request);
         RouteGeometry.Reader reader = planPermissions.reader(selected);
         var planner = new RoutePlanner(reader, start, goal, radius, maxDrop,
                 strictBoolean(request, "sprint"), penalty)
@@ -380,9 +379,28 @@ public final class BodyRuntime implements AutoCloseable {
         while (planResults.size() > MAX_PLANS) planResults.remove(planResults.keySet().iterator().next());
     }
 
+    /**
+     * A flagless plan reads the uploaded generation it names. A "terrain":"live" plan reads
+     * the live world within terrain_radius of where the body stands now, over the committed
+     * upload (Python sends none for these), so planner and motor agree on terrain there.
+     */
+    private RouteGeometry.Reader mapReader(JsonObject request) {
+        var radius = LiveTerrain.radius(request);
+        if (radius == null) {
+            if (!request.has("map_generation")) throw new IllegalArgumentException("map_generation");
+            return plannerMap.reader(exactLong(request.get("map_generation"), "map_generation"));
+        }
+        // ponytail: whole-section presets only; occluded presets would see through walls.
+        if (awareness.occluded()) throw new IllegalArgumentException("live_terrain_occluded");
+        var p = body.player(); var center = p.blockPosition(); var sensor = awarenessSensor;
+        int tick = server.getTickCount();
+        return LiveTerrain.reader((x, y, z) -> sensor.facts(p, new net.minecraft.core.BlockPos(x, y, z), tick),
+                center.getX(), center.getY(), center.getZ(), radius[0], radius[1],
+                plannerMap.reader(plannerMap.generation()));
+    }
+
     private void startTerrainPlan(String id, JsonObject request) {
-        if (!request.has("map_generation")) throw new IllegalArgumentException("map_generation");
-        var selected = plannerMap.reader(exactLong(request.get("map_generation"), "map_generation"));
+        var selected = mapReader(request);
         var start = node(request.get("start")); var goal = node(request.get("goal"));
         double radius = request.get("radius").getAsDouble();
         int maxDrop = exactInt(request.get("max_drop"), "max_drop"), horizon = exactInt(request.get("horizon"), "horizon");
@@ -807,8 +825,10 @@ public final class BodyRuntime implements AutoCloseable {
                         throw new IllegalArgumentException("plan_data_id");
                 }
                 startPlan(planRequest);
+                var radius = LiveTerrain.radius(planRequest);
                 emit("plan_accepted", "fabric_start", Map.of("request_sequence", sequence, "plan_id",
-                        request.get("plan_id").getAsString()));
+                        request.get("plan_id").getAsString(), "terrain", radius == null ? "uploaded" : "live",
+                        "terrain_radius", radius == null ? List.of() : List.of(radius[0], radius[1])));
             }
             case "planner_request" -> {
                 if (!readyState.equals("ready") || courseLimits || !extendedObservation)
