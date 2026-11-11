@@ -49,6 +49,7 @@ DROP_RADIUS = 10.0
 EXPLORE_STEP = 16
 SURFACE_SCAN = 24  # how far up/down an explore ring column is read for its surface
 EXPLORE_CAP = 64
+MAX_IDLE_SLICES = 60  # bound on idle work done per smelt task
 SMELT_TICKS_PER_ITEM = 200
 MAX_TRIES = 3
 SCAN_BATCH = 8  # candidates tried per map scan in gather
@@ -59,6 +60,8 @@ PATCH = 6.0
 NEAR_STONE = 24.0  # exposed stone beyond this horizontal distance is not walked to
 NEAR_DY = 6  # nor stone this far above or below the bot (ravines, cliffs)
 MAX_DIGS = 3  # dig-down macros per gather task
+FALL_RETRIES = 2  # collect: waits for a still-falling drop before it is given up
+DROP_WAIT_TICKS = 40  # one wait for a falling drop to land (2 s)
 DROP_ABOVE = 2  # collect: drops higher above the feet than this are not walked to
 BURIED_DEPTH = 12  # dig_to_stone: buried stone down to this many blocks below the feet
 DIG_CANDIDATES = 3  # buried stone tops offered to the planner, nearest first
@@ -329,6 +332,8 @@ class _Exec:
     ) -> None:
         """Walk onto the dropped item entities near ``near`` (None: any item)."""
         skipped: set[str] = set()
+        falling: dict[str, int] = {}  # uuid -> pickup tries lost to its fall
+        later: set[str] = set()  # still falling: other drops first, then a wait
         for _ in range(8):
             if enough is not None and enough():  # no pit-digging for spare drops
                 return
@@ -348,9 +353,20 @@ class _Exec:
             ]
             if not drops:
                 return
-            e = min(drops, key=lambda e: _dist(e["position"], here))
-            if not self.body.walk_to(_cell(e["position"]), 0.8):
-                skipped.add(e.get("uuid"))
+            ready = [e for e in drops if e.get("uuid") not in later]
+            if not ready:  # only falling items left: let them land, then retry
+                self.body.wait_ticks(DROP_WAIT_TICKS)
+                later.clear()
+                continue
+            e = min(ready, key=lambda e: _dist(e["position"], here))
+            pickup = getattr(self.body, "walk_to_drop", self.body.walk_to)
+            got = pickup(_cell(e["position"]), 0.8)
+            uuid = e.get("uuid")
+            if got is None:  # ponytail: an item stuck above its ground is dropped after
+                falling[uuid] = falling.get(uuid, 0) + 1  # FALL_RETRIES waits
+                (skipped if falling[uuid] > FALL_RETRIES else later).add(uuid)
+            elif not got:
+                skipped.add(uuid)
 
     def free_spot(self, skip: Collection[Pos] = ()) -> Pos | None:
         x, y, z = self.body.position()
@@ -418,7 +434,8 @@ class _Exec:
                 underground
             ):  # only stone the bot can plausibly walk to; never a ravine floor
                 known = [p for p in known if _near(p, home) and _floored(body, p, here)]
-            if not known and underground and digs < MAX_DIGS:
+            # cap 0 (a build's refill) stays home: no mine under the site, no ring walk
+            if not known and underground and digs < MAX_DIGS and self.cap:
                 digs += 1
                 before = body.inventory().get(t.item, 0)
                 if ore:  # a blind tunnel rarely meets ore: only a planned dig to it
@@ -485,13 +502,26 @@ class _Exec:
             return loaded
         want = self.body.inventory().get(t.result, 0) + t.result_count
 
-        # While smelting, move on to other tasks like clearing the area
-        if self.idle_work:
-            work = self.idle_work
-            self.idle_work = None
-            work()
-            if not self.body.goto_stance(pos, STATION_REACH):
-                return Result(False, "no_stance")
+        # Keep moving while the furnace works: idle_work() does one bounded slice of
+        # useful work (clearing trees, cutting the build site) and returns True while
+        # more remains. Come back to collect every few slices, never stand and wait
+        # while there is something to do.
+        slices, loaded_at = 0, self.clock()
+        while self.idle_work and slices < MAX_IDLE_SLICES:
+            slices += 1
+            if not self.idle_work():
+                self.idle_work = None
+                break
+            # back to the furnace only when the batch can be done, not every few
+            # slices: that walk was the bot leaving a half-cleared tree
+            if self.clock() - loaded_at >= t.count * SMELT_TICKS_PER_ITEM / 20:
+                if not self.body.goto_stance(pos, STATION_REACH):
+                    break
+                self.body.furnace(pos, "collect")
+                if self.body.inventory().get(t.result, 0) >= want:
+                    return Result(True)
+        if not self.body.goto_stance(pos, STATION_REACH):
+            return Result(False, "no_stance")
 
         for _ in range(2 * t.count + 4):
             self.body.furnace(pos, "collect")

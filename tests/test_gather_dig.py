@@ -318,3 +318,20 @@ def test_collect_stops_once_enough_is_held():
 
     assert body.inventory()[M + "cobblestone"] == 1
     assert len([s for s in body.log if s[0] == "walk"]) == 1
+
+
+def test_a_map_upload_in_progress_is_not_a_search_stall():
+    from types import SimpleNamespace
+
+    from mclab.companion_body import SEARCH_STALL_TICKS, _GotoController
+
+    c = _GotoController.__new__(_GotoController)
+    c.probe, c.deadline, c.mode = False, float("inf"), "planning"
+    c.guard = SimpleNamespace(stuck=lambda *a: False)
+    c.unreachable_since = c.searching_since = None
+    c.last_result = SimpleNamespace(reason="planner map transfer")
+    assert c.stop_reason({"tick": 0}) is None
+    assert c.stop_reason({"tick": SEARCH_STALL_TICKS * 5}) is None
+    c.last_result = SimpleNamespace(reason="searching")
+    assert c.stop_reason({"tick": 1000}) is None
+    assert c.stop_reason({"tick": 1000 + SEARCH_STALL_TICKS}) == "stalled"

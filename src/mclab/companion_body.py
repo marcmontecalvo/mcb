@@ -38,8 +38,10 @@ Assumptions (the coordinator verifies them live)
 
 from __future__ import annotations
 
+import functools
 import math
 import time
+from collections import ChainMap
 from collections.abc import Collection
 from contextlib import contextmanager
 from dataclasses import asdict, replace
@@ -47,11 +49,11 @@ from dataclasses import asdict, replace
 from mclab.awareness import Awareness
 from mclab.bridge import REJECTIONS
 from mclab.build_runner import Result
+from mclab.collision_geometry import standable
 from mclab.control_loop import NATIVE, drive
 from mclab.execution import RecordedBridge, policy_state
 from mclab.interaction_goal import interacts
 from mclab.movement_policy import MovementPolicy
-from mclab.navigation import standable
 from mclab.navigation_runner import _new_identity
 from mclab.navigation_segmented import SegmentedController
 from mclab.paths import ROOT, SERVER, read_json
@@ -68,9 +70,11 @@ GOTO_WALL_S = 90.0
 OP_TIMEOUT_S = 20.0
 OP_TIMEOUTS = {"break_block": 45.0, "attack_entity": 30.0, "eat": 20.0}
 STAND_SEARCH = 6  # walk_to: vertical search for a standable cell in the column
+WALK_CELLS = 2500  # bound on the stance-ranking flood fill
 MAX_CANDIDATES = (
     6  # 3 nearest were often all unreachable (on a wall top, behind a wall)
 )
+WALK_ONLY_CANDIDATES = 2  # building: 2 probes is 5 s, the longest pause allowed
 FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 SENSED_RADIUS = 40.0  # awareness delivers 64; beyond this a stance may be unsensed
 SEARCH_STALL_TICKS = 60  # a search that yields no move for this long is abandoned
@@ -146,6 +150,24 @@ def _clickable(cell) -> bool:
     """A cell with a face to click: collision, or scaffolding (a lattice with none)."""
     return bool(cell) and bool(
         cell.get("collision_boxes") or cell.get("block") == "minecraft:scaffolding"
+    )
+
+
+def _tower_top(cells, node: Pos) -> bool:
+    """A stable stance above the top platform, rather than hanging inside the column."""
+    x, y, z = node
+    below, here, above = (
+        cells.get((x, y - 1, z)),
+        cells.get(node),
+        cells.get((x, y + 1, z)),
+    )
+    return bool(
+        below
+        and here
+        and above
+        and below.get("block") == "minecraft:scaffolding"
+        and here.get("block") in AIR_BLOCKS
+        and above.get("block") in AIR_BLOCKS
     )
 
 
@@ -225,7 +247,11 @@ def sees_support(
         for dx, dz in ((0, 0), (0.2, 0.2), (-0.2, 0.2), (0.2, -0.2), (-0.2, -0.2))
     ]
     if required is not None:
-        if isinstance(required, tuple) and len(required) == 3 and isinstance(required[0], int):
+        if (
+            isinstance(required, tuple)
+            and len(required) == 3
+            and isinstance(required[0], int)
+        ):
             allowed = {required}
         else:
             allowed = {tuple(p) for p in required}
@@ -269,7 +295,20 @@ class _GotoController(SegmentedController):
     probe = False  # plan-only drive: end on the first verdict, never move the motor
     no_drive = False  # drive_native keeps every motor submission off
 
-    def __init__(self, *args, deadline: float, probe: bool = False, **kwargs):
+    @property
+    def planner_radius(self):
+        # Plans use cell centres; the motor may finish 0.2 blocks off-centre.
+        # Leave that room so a boundary cell cannot produce a stationary
+        # "reached" plan while the actual body is still outside its goal.
+        return (
+            self.radius
+            if self.interact_reach is not None
+            else max(0.0, self.radius - 0.2)
+        )
+
+    def __init__(
+        self, *args, deadline: float, probe: bool = False, idle_state=None, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.deadline = deadline
         if probe:
@@ -279,15 +318,68 @@ class _GotoController(SegmentedController):
         self.searching_since: int | None = None
         self.goal_progress_ticks = None  # companion goals may be far and slow
         self.guard = StuckGuard()
+        self.idle_anchor = None
+        self.idle_since = time.monotonic()
+        self.idle_state = idle_state
 
     def stop_reason(self, observation) -> str | None:
         if self.mode == "arrived":
             return "arrived"
-        if self.probe:
-            return self._probe_verdict()
-        if time.monotonic() > self.deadline:
+        if not self.probe and time.monotonic() > self.deadline:
             return "deadline"
         body = observation.get("body") or {}
+        position = body.get("position")
+        if position is not None:
+            now = time.monotonic()
+            shared = getattr(self, "idle_state", None)
+            if shared is not None:
+                self.idle_anchor, self.idle_since = shared["anchor"], shared["since"]
+            step = observation.get("step_follower", {})
+            editing = step.get("state") == "following" and step.get("issued") is True
+            if editing:
+                self.guard.anchor = None
+            anchor = getattr(self, "idle_anchor", None)
+            if anchor is None or math.dist(position, anchor) >= STUCK_MOVE or editing:
+                self.idle_anchor, self.idle_since = tuple(position), now
+                if shared is not None:
+                    shared.update(anchor=self.idle_anchor, since=now)
+            elif now - self.idle_since >= 5.0:
+                print(
+                    f"STALL {now - self.idle_since:.1f}s navigation idle at {position}; "
+                    f"mode={self.mode}, route={observation.get('route_follower', {})}",
+                    flush=True,
+                )
+                if shared is not None:
+                    shared["since"] = now
+                return "stuck"
+            # A walk can begin on land and slip into a deeper pond mid-route.
+            # Enable recovery from the delivered water column on the next replan.
+            if (
+                body.get("survival", {}).get("in_water") is True
+                and not self.movement_policy.allow_swim
+                # a jump while wading lifts the feet off the half-rounded cell: the
+                # whole cell under them must be unstandable too (a pond, not a puddle)
+                and not any(
+                    standable(
+                        self._known_cells(),
+                        (math.floor(position[0]), y, math.floor(position[2])),
+                    )
+                    for y in (round(position[1] * 2) / 2, math.floor(position[1]))
+                )
+            ):
+                self.movement_policy = replace(self.movement_policy, allow_swim=True)
+        if self.probe:
+            return self._probe_verdict()
+        last = getattr(self, "last_result", None)
+        if (
+            self.mode == "incomplete"
+            and last is not None
+            and last.status == "incomplete"
+            and len(last.route) < 2
+        ):
+            # Acquisition revisions otherwise rerun the same exhausted search
+            # without a single usable move. Let the job try another stance.
+            return "incomplete"
         if "position" in body and self.guard.stuck(
             body["position"], observation["tick"]
         ):
@@ -298,7 +390,11 @@ class _GotoController(SegmentedController):
                 return "unreachable"
         else:
             self.unreachable_since = None
-        if self.mode in {"searching", "incomplete", "planning"}:
+        # ponytail: the first map upload is not a search. Run 20261110T023244861255Z
+        # cut it off at 60 ticks, 55 times in a row, so no route was ever planned.
+        last = getattr(self, "last_result", None)
+        uploading = last is not None and last.reason == "planner map transfer"
+        if self.mode in {"searching", "incomplete", "planning"} and not uploading:
             # An interaction goal whose stance the known map cannot reach floods the
             # known graph for ever (live run 20261101T190355487393Z: 25 minutes).
             self.searching_since = self.searching_since or observation["tick"]
@@ -322,17 +418,38 @@ class _GotoController(SegmentedController):
             if self.last_result is not None and self.last_result.status == "incomplete":
                 return "unreachable"
             return "probed"  # route adopted: the real goto will drive it
-        if (
-            self.mode in {"unreachable", "incomplete"}
-            or (
-                self.last_result is not None
-                and self.last_result.status in {"unreachable", "incomplete"}
-            )
+        if self.mode in {"unreachable", "incomplete"} or (
+            self.last_result is not None
+            and self.last_result.status in {"unreachable", "incomplete"}
         ):
             return "unreachable"
-        if time.monotonic() > self.deadline:
+        now = time.monotonic()
+        if now > self.deadline:
+            if (
+                self.last_result is not None
+                and self.last_result.reason == "planner map transfer"
+                and now <= self.deadline + PROBE_WALL_S
+            ):
+                # Aborting a nearly uploaded map makes the real walk resend it.
+                # Let this acknowledged generation finish, for one more probe wall
+                # at most: a body bobbing in water keeps resetting the idle watch.
+                return None
             return "probed"  # no verdict inside PROBE_WALL_S: walk it as before
         return None
+
+
+def _fresh_idle(op):
+    """A navigation op starts with a fresh five-second idle clock: the one it left
+    behind is as old as the craft, furnace wait or failed break since the last edit,
+    and its first check killed the walk as "stuck". Probes and walks inside the op
+    still share the clock."""
+
+    @functools.wraps(op)
+    def wrapped(self, *args, **kwargs):
+        self._navigation_idle.update(anchor=None, since=time.monotonic())
+        return op(self, *args, **kwargs)
+
+    return wrapped
 
 
 class CompanionBody:
@@ -362,6 +479,7 @@ class CompanionBody:
         self._overlay: dict[Pos, tuple[str, int]] = {}
         self.log: list[dict] = []  # one row per op or goto, for the results folder
         self.policies: list[dict] = []
+        self._navigation_idle = {"anchor": None, "since": time.monotonic()}
 
     def policy_id(self) -> int:
         """Deduplicate large protected footprints across navigation records."""
@@ -427,14 +545,21 @@ class CompanionBody:
         """Delivered cells holding ``block`` (no properties compared) that have a
         known open face: a block buried in stone cannot be reached without digging,
         and a gather loop that tried each one cost minutes."""
-        return [p for p in self._scan(block) if self._open_face(p)]
+        keep = set(self.terrain_policy.protected_positions)
+        return [p for p in self._scan(block) if p not in keep and self._open_face(p)]
 
     def _open_face(self, pos: Pos) -> bool:
         cells = self.memory.cells
         x, y, z = pos
         for dx, dy, dz in FACES:
             cell = cells.get((x + dx, y + dy, z + dz))
-            if cell is not None and not cell.get("collision_boxes"):
+            if (
+                cell is not None
+                and not cell.get("collision_boxes")
+                # A wet face is not a way in: mining swamp-bottom dirt drowned the
+                # body (run 20261110T011637401098Z, disconnected_or_dead).
+                and cell.get("block") not in ("minecraft:water", "minecraft:lava")
+            ):
                 return True
         return False
 
@@ -509,6 +634,12 @@ class CompanionBody:
 
     def _remember(self, pos: Pos, state: str | None) -> None:
         if state:
+            self._navigation_idle.update(
+                anchor=tuple(
+                    self._obs.get("body", {}).get("position", self.position())
+                ),
+                since=time.monotonic(),
+            )
             self._overlay[tuple(pos)] = (state, self._tick())
 
     def place_block(self, pos: Pos, state: str, item: str) -> Result:
@@ -557,9 +688,51 @@ class CompanionBody:
         return self.op("container", pos=list(pos), action=action, **extra)
 
     # --- navigation --------------------------------------------------------
+    def stage_fill(self) -> str | None:
+        """The planner prices a pillar or bridge edit from hotbar stock only. When the
+        policy allows placing and the allowed material sits in the main inventory
+        (slots 9-35) with none on the hotbar, equip it. Returns the item moved, else
+        None. (Run 20261109T204446994225Z: dirt only in slots 14 and 16, so
+        placeSupply was 0, every pillar edit was refused and the body stood in a pit
+        planning "unreachable".)"""
+        policy = self.terrain_policy
+        if not (policy.allow_pillar or policy.allow_bridge or policy.allow_place):
+            return None
+        rows = ((self._obs or {}).get("body") or {}).get("inventory") or []
+        for item in policy.material_allowlist:
+            held = [r for r in rows if r.get("item") == item and r.get("count", 0) > 0]
+            if held and not any(0 <= r.get("slot", -1) < 9 for r in held):
+                if self.equip(item).ok:
+                    self.observe()
+                    return item
+        return None
+
+    def _move_policy(self) -> MovementPolicy:
+        """ponytail: swimming stays off for routes (run 20261102 drowned crossing
+        lakes), but a body already in water has no standable start without it and
+        every plan came back unreachable (run 20261110T112815592970Z)."""
+        wet = self._obs.get("body", {}).get("survival", {}).get("in_water")
+        policy = self.movement_policy
+        # Wading in one-deep water is a standable start: no swimming needed, and
+        # turning it on there would let the route cross the deep pond.
+        if not wet or standable(self._cells_now(), self.position()):
+            return policy
+        return replace(policy, allow_swim=True)
+
     def _navigate(
         self, goal: Pos, *, reach: float | None, radius: float, probe: bool = False
     ) -> bool:
+        self.stage_fill()
+        # ponytail: the bridge keeps every event and observation and its ack waits
+        # rescan all of them; after 835 blocks (run 20261110T075452397123Z, 18.6 GB)
+        # the scans ate the whole 2.5 s probe and no route was ever planned again.
+        # events.jsonl has the full record; nothing here reads further back.
+        for kept in (
+            getattr(self.bridge, "events", None),
+            getattr(self.bridge, "samples", None),
+        ):
+            if isinstance(kept, list) and len(kept) > 20_000:
+                del kept[:-2_000]
         wall = PROBE_WALL_S if probe else self.goto_wall_s
         controller = _GotoController(
             goal,
@@ -567,10 +740,11 @@ class CompanionBody:
             radius=radius,
             interact_reach=reach,
             background_planning=True,
-            movement_policy=self.movement_policy,
+            movement_policy=self._move_policy(),
             terrain_policy=self.terrain_policy,
             deadline=time.monotonic() + wall,
             probe=probe,
+            idle_state=self._navigation_idle,
         )
         try:
             end = drive(self.bridge, controller, wall + 60.0, profile=NATIVE)
@@ -594,15 +768,36 @@ class CompanionBody:
         return ok
 
     def _stand_y(self, x: int, y: int, z: int) -> int:
-        cells = self.memory.cells
+        cells = self._cells_now()
         for dy in sorted(range(-STAND_SEARCH, STAND_SEARCH + 1), key=abs):
             if standable(cells, (x, y + dy, z)):
                 return y + dy
         return y
 
+    @_fresh_idle
     def walk_to(self, pos: Pos, radius: float = 1.5) -> bool:
         x, y, z = pos
-        return self._navigate((x, self._stand_y(x, y, z), z), reach=None, radius=radius)
+        goal = (x, self._stand_y(x, y, z), z)
+        # With placing off, ask the planner first (as goto_stance does): an
+        # unroutable walk stood still for the whole 10 s wall, 11 times in the
+        # site prep of run 20261111T021416142202Z.
+        if getattr(self, "walk_only", False) and not self._navigate(
+            goal, reach=None, radius=radius, probe=True
+        ):
+            return False
+        return self._navigate(goal, reach=None, radius=radius)
+
+    @_fresh_idle
+    def walk_to_drop(self, pos: Pos, radius: float = 0.8) -> bool | None:
+        """Pickups must not turn a nearby falling item into a canopy-climbing goal.
+        None: the item is still above its ground (falling); try again after a wait."""
+        x, y, z = pos
+        standing_y = self._stand_y(x, y, z)
+        if y - standing_y > 2:
+            return None
+        if standing_y - self.position()[1] > 2 or standing_y - y > 2:
+            return False
+        return self.walk_to((x, standing_y, z), radius)
 
     def collect_drops(self, near: Collection[Pos], radius: float = DROP_RADIUS) -> None:
         """Wait for what fell (a scaffolding tower drops block by block), then walk onto
@@ -624,13 +819,60 @@ class CompanionBody:
                 return
             e = min(drops, key=lambda e: math.dist(e["position"], here))
             x, y, z = (math.floor(v) for v in e["position"])
-            if not self.walk_to((x, y, z), 0.8):
+            if not self.walk_to_drop((x, y, z), 0.8):
                 skipped.add(e.get("uuid"))
 
     def find_all(self, block: str) -> list[Pos]:
         """Delivered cells holding ``block``, buried ones included."""
         return self._scan(block)
 
+    @contextmanager
+    def no_opening_doors(self):
+        """Finalize door states without navigation reopening previously fixed doors."""
+        saved = self.terrain_policy
+        self.terrain_policy = replace(saved, use_doors=False)
+        try:
+            yield
+        finally:
+            self.terrain_policy = saved
+
+    @contextmanager
+    def no_placing(
+        self, wall: float = 10.0, climb: bool = False, max_drop: int | None = None
+    ):
+        """Move without placing blocks, and give up a walk after ``wall`` seconds:
+        an unreachable goal otherwise replans for 90 s (42 s gaps with 18 plans,
+        run 20261110T020332013460Z). ``climb``: keep climbing (the build climbs its
+        scaffolding towers)."""
+        saved, saved_wall = self.terrain_policy, self.goto_wall_s
+        saved_move = self.movement_policy
+        # no vine climbing: site work is on the ground, and a route up the vines left
+        # the body standing on a swamp tree's canopy (run 20261110T024448883505Z)
+        self.movement_policy = replace(
+            saved_move,
+            allow_climb=saved_move.allow_climb and climb,
+            max_drop=saved_move.max_drop if max_drop is None else max_drop,
+        )
+        self.terrain_policy = replace(
+            saved,
+            allow_place=False,
+            allow_bridge=False,
+            allow_pillar=False,
+            place_budget=0,
+            # no planned dig-down either: a `downward` step dug a 2-deep hole beside a
+            # tree on the way to its stance (run 20261110T021445878238Z)
+            baritone_moves=False,
+        )
+        self.goto_wall_s = min(saved_wall, wall)
+        saved_only, self.walk_only = getattr(self, "walk_only", False), True
+        try:
+            yield
+        finally:
+            self.walk_only = saved_only
+            self.terrain_policy, self.goto_wall_s = saved, saved_wall
+            self.movement_policy = saved_move
+
+    @_fresh_idle
     def dig_to(self, feet: Pos) -> bool:
         """Stand at ``feet``, letting the planner dig there. False when digging is off."""
         if not self.terrain_policy.allow_break:
@@ -655,13 +897,39 @@ class CompanionBody:
             # never inside the target: the feet cell, or the one below (head in it);
             # live run: scaffolding has no collision, so the body stood in the tower
             and node not in ((tx, ty, tz), (tx, ty - 1, tz))
-            and standable(cells, node)
+            and (standable(cells, node) or _tower_top(cells, node))
             and interacts(cells, node, target, reach)
             and (
                 not placing or sees_support(cells, node, target, self.required_support)
             )
         ]
-        return sorted(found, key=lambda n: (math.dist(n, here), n))
+        # ponytail: stances the body can walk to come first. Sorted by distance
+        # alone, wall tops and roof cells two blocks away outranked the floor four
+        # away; each cost a failed 4000-node plan (run 20261110T095528994372Z: 284
+        # unreachable probes, a dirt tower per wall). Upgrade path: plan cost.
+        walk = self._walkable(cells, here) if found else ()
+        return sorted(found, key=lambda n: (n not in walk, math.dist(n, here), n))
+
+    def _walkable(self, cells, here: Pos) -> set[Pos]:
+        """Cells reachable from ``here`` on foot with no edits: 4 directions, one
+        up, ``max_drop`` down, at most WALK_CELLS cells. A ranking hint, not a
+        verdict (no diagonals, jumps or headroom between cells)."""
+        key = (here, self._tick() // 40)
+        if getattr(self, "_walk_memo", (None,))[0] == key:
+            return self._walk_memo[1]
+        drop = self.movement_policy.max_drop
+        seen, todo = {here}, [here]
+        while todo and len(seen) < WALK_CELLS:
+            x, y, z = todo.pop()
+            for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                for dy in range(1, -drop - 1, -1):
+                    node = (x + dx, y + dy, z + dz)
+                    if node not in seen and standable(cells, node):
+                        seen.add(node)
+                        todo.append(node)
+                        break
+        self._walk_memo = (key, seen)
+        return seen
 
     def _cells_now(self):
         """The sensed map plus this body's own recent edits (the overlay): a wall
@@ -679,7 +947,9 @@ class CompanionBody:
             for pos, (state, at) in self._overlay.items()
             if tick - at <= OVERLAY_TICKS
         }
-        return {**self.memory.cells, **recent} if recent else self.memory.cells
+        # ponytail: a lookup view, never a copy. Copying the whole sensed map here was
+        # 79% of build time, ~13 s per placed block (py-spy, run 20261110T024448883505Z)
+        return ChainMap(recent, self.memory.cells) if recent else self.memory.cells
 
     def _placing(self, target: Pos) -> bool:
         """Building into an empty cell: the stance must see a face to click."""
@@ -703,6 +973,7 @@ class CompanionBody:
             and ty - BODY_HEIGHT < y < ty + 1
         )
 
+    @_fresh_idle
     def goto_stance(
         self, target_pos: Pos, reach: float, avoid: Collection[Pos] = ()
     ) -> bool:
@@ -727,7 +998,22 @@ class CompanionBody:
             return True
         # Known stances first, walked with the body planner; the interaction-goal
         # search only for a target whose stance is not yet on the map.
-        stances = self.stances(target, reach, avoid)[:MAX_CANDIDATES]
+        stances = self.stances(target, reach, avoid)
+        if getattr(self, "walk_only", False):
+            # ponytail: with planner placing off an unwalkable stance cannot be
+            # reached, and each probe of one floods the search to its cap (2043 of
+            # 3350 plans in run 20261110T150634125260Z). One is kept in case the
+            # walk flood missed a jump.
+            # A scaffolding tower's top is climbed, not walked: the flood does not
+            # see it, so the tower built for a target was never the stance tried and
+            # the body stopped inside the column (run 20261110T223248667856Z).
+            walk = self._walkable(cells, here)
+            stances = [
+                n for n in stances if n in walk or _tower_top(cells, n)
+            ] or stances[:1]
+            # each probe is up to PROBE_WALL_S of standing still
+            stances = stances[:WALK_ONLY_CANDIDATES]
+        stances = stances[:MAX_CANDIDATES]
         radius = PRECISE_RADIUS if self.precise_stance else 0.6
         for node in stances:
             # Ask the planner before walking (roadmap item 1): a candidate across
@@ -744,6 +1030,7 @@ class CompanionBody:
                     return True
         return False
 
+    @_fresh_idle
     def escape_hole(self, target: Pos) -> bool:
         """The body is in a pit no stance for ``target`` can be walked out of. Climb:
         walk to a standable cell up to 4 blocks higher (the planner pillars with dirt
@@ -765,8 +1052,11 @@ class CompanionBody:
         for node in rims[:3]:
             if self._navigate(node, reach=None, radius=0.6):
                 return True
+        guarded = set(getattr(self.terrain_policy, "protected_positions", ()))
         for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             wall = (here[0] + dx, here[1] + 1, here[2] + dz)
+            if wall in guarded:  # never dig out through the house being built
+                continue
             if _clickable(cells.get(wall)) and self.break_block(wall).ok:
                 return True
         return False

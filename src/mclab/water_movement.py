@@ -35,6 +35,7 @@ def surface_node(cells, node):
         and math.isfinite(y)
         and int(y) == y
         and still_water(cells.get((x, y - 1, z)))
+        and collision_geometry.safe_cell(cells.get((x, y, z)))  # wading is not floating
         and collision_geometry.clear_column(cells, x, z, y, y + 2.5)
     )
 

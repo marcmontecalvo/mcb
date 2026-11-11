@@ -686,6 +686,10 @@ class SegmentedController(NavigationController):
 
     def _next_step(self, node, observation):
         policy = self._remaining_policy()
+        # ponytail: the terrain planner only takes whole-block nodes. A body resting
+        # on the edge of a partial block (a stonecutter, run 20261110T095528994372Z)
+        # reported y+0.5 and every plan was refused; plan from the cell it drops into.
+        node = (node[0], math.floor(node[1]), node[2])
         if self.terrain_search is None or self.terrain_search.start != node:
             self._discard_prefetch()
             revision, cells = self._planning_snapshot()
@@ -770,6 +774,14 @@ class SegmentedController(NavigationController):
             for oz in (-r, r)
         } - {node}
         supported = [c for c in touched if self._node_supported(cells, c)]
+        if not supported:
+            # A stair's low step is not a stance (its high half is in the body's
+            # column), so every plan from it was "unreachable, 0 expanded" and the
+            # build ended trapped on its own staircase (run 20261110T223248667856Z).
+            # Plan from the stair top instead: half a block up, a plain step.
+            top = (node[0], height + 0.5, node[2])
+            if self._node_supported(cells, top):
+                return top
         return min(
             supported,
             key=lambda c: (math.hypot(c[0] + 0.5 - p[0], c[2] + 0.5 - p[2]), c),
@@ -962,7 +974,9 @@ class SegmentedController(NavigationController):
         height = (
             round(p[1] * 2) / 2 if self.movement_policy.allow_shapes else round(p[1])
         )
-        if self.movement_policy.allow_swim:
+        if self.movement_policy.allow_swim and not collision_geometry.standable(
+            self._known_cells(), (math.floor(p[0]), height, math.floor(p[2]))
+        ):
             water_height = water_movement.surface_height(self._known_cells(), p)
             if water_height is not None:
                 height = water_height
@@ -1038,7 +1052,13 @@ class SegmentedController(NavigationController):
         if self.terrain_search is not None:
             self._plan_terrain_step(node, observation)
             return {}
-        if body.get("on_ground", True) and (
+        floating = (
+            self.movement_policy.allow_swim
+            and body.get("survival", {}).get("in_water") is True
+            and body.get("survival", {}).get("eye_in_water") is False
+            and water_movement.surface_node(self._known_cells(), node)
+        )
+        if (body.get("on_ground", True) or floating) and (
             interacts_at_position(
                 self._planning_snapshot()[1], p, self.goal, self.interact_reach
             )

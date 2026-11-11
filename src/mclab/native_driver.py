@@ -506,6 +506,7 @@ def drive_native(client, controller, wall_timeout):
                         "route_step_deadline",
                         "route_swept_geometry_unknown_or_unsafe",
                         "route_drop_requires_water",
+                        "route_target_unknown_or_changed",
                     }:
                         index = native.get("next_index", 1)
                         route = active_route
@@ -513,6 +514,17 @@ def drive_native(client, controller, wall_timeout):
                             controller.failed_edges.add(
                                 (route[index - 1], route[index])
                             )
+                            client.record(
+                                "native_route_edge_rejected",
+                                {
+                                    "source": route[index - 1],
+                                    "target": route[index],
+                                    "reason": native.get("reason"),
+                                    "position": observation["body"]["position"],
+                                    "tick": observation.get("tick"),
+                                },
+                            )
+                    controller.previous_route = ()
                     controller.route.clear()
                     controller.search = None
                     controller._discard_prefetch()

@@ -29,15 +29,16 @@ from pathlib import Path
 
 from mclab import build_plan as bp
 from mclab import gather_plan as gp
-from mclab.build_runner import BuildReport, run_build
+from mclab.build_runner import BuildReport, SiteCutter, run_build
 from mclab.gather_runner import STATION_REACH, GatherReport, GatherState, run_gather
-from mclab.gather_tasks import PlanResult, Withdraw
+from mclab.gather_tasks import Deposit, PlanResult, Withdraw
 from mclab.knowledge import Knowledge, load_pack
 from mclab.paths import ROOT
 from mclab.schematic import from_build_json, material_list
+from mclab.site_prep import site_area
 
 # A build supplied through chests refills item by item as layers run out.
-MAX_REFILLS = 12
+MAX_REFILLS = 40
 PICKAXES = tuple(
     f"minecraft:{t}_pickaxe" for t in ("stone", "iron", "diamond", "netherite")
 )
@@ -125,6 +126,34 @@ def read_chests(chests, body, state: GatherState) -> None:
             state.containers[pos] = contents
 
 
+TOOL_WORDS = ("_axe", "_pickaxe", "_shovel", "_hoe", "_sword", "shears", "bucket")
+
+
+def junk(inventory: dict[str, int], wanted: dict[str, int]) -> dict[str, int]:
+    """What a refill may put away: nothing the build wants, no tools, no scaffolding."""
+    return {
+        i: n
+        for i, n in inventory.items()
+        if n > 0
+        and i not in wanted
+        and i not in bp.SCAFFOLD_ITEMS
+        and i != SHULKER
+        and not any(w in i for w in TOOL_WORDS)
+    }
+
+
+def _stow_junk(wanted: dict[str, int], body, knowledge, state: GatherState) -> None:
+    # ponytail: the emptiest known chest takes the site-clearing leftovers (dirt,
+    # flowers, saplings). Run 20261110T124208809624Z stopped need_materials at 294
+    # blocks: the inventory was full of them, so the refill withdrew nothing.
+    spare = junk(body.inventory(), wanted)
+    if not spare or not state.containers:
+        return
+    pos = min(state.containers, key=lambda c: sum(state.containers[c].values()))
+    plan = PlanResult((Deposit(tuple(sorted(spare.items())), pos),), (), 0.0)
+    run_gather(plan, body, knowledge, state=state)
+
+
 def _take(items: dict[str, int], body, knowledge, state: GatherState) -> None:
     """Withdraw `items` from the remembered containers, as far as they hold them."""
     plan = _withdraw_plan(items, body, state)
@@ -147,15 +176,18 @@ def build_job(
     chests=(),
     build_only: bool = False,
     on_progress=None,
+    site_margin: int | None = 1,
 ) -> JobReport:
     """``chests``: positions of chests known at the start. They are read first; shulker
     boxes are taken at once (they carry the gather's overflow), scaffolding stays put
     until the gather is over and is taken just before the build. ``build_only``: the
     inventory already holds everything (a resumed checkpoint); no chests, no gathering.
-    ``on_progress(report, final)`` is passed to ``run_build``."""
+    ``on_progress(report, final)`` is passed to ``run_build``. ``site_margin``: blocks
+    of levelled ground prepared around the footprint before building (>= 0, default
+    1; None skips site preparation)."""
     build = json.loads(Path(build_json_path).read_text(encoding="utf-8"))
     template = bp.Template.from_build(build, tuple(origin), rotation, mirror)
-    protect(body, template)
+    protect(body, template, site_margin)
     state = state or GatherState()
     report = JobReport()
     started = clock() if clock else 0
@@ -202,10 +234,28 @@ def build_job(
             report.stop = "gather_failed"
             return report
     if gap and not build_only:
+
+        cutter = (
+            SiteCutter(
+                template,
+                body,
+                knowledge.blocks,
+                site_margin,
+                protected=tuple(tuple(c) for c in chests),
+                log=lambda m: print(m, flush=True),
+            )
+            if site_margin is not None
+            else None
+        )
+
         def _clear_area():
+            """One slice of useful work while a furnace smelts."""
+            if cutter is not None:
+                return cutter.slice()
             from mclab.tree_removal import clear_trees_in_footprint
 
             clear_trees_in_footprint(body, template.cells, template=template)
+            return False
 
         first = gp.plan(
             needed,
@@ -238,6 +288,15 @@ def build_job(
             return False
         refills += 1
         wanted = dict(shortfall)
+        _stow_junk({**needed, **wanted}, body, knowledge, state)
+        before = body.inventory()
+        # Chests first, and back to building on any gain. Run 20261110T170929838024Z
+        # was short one detector rail with the rest of the house in the chests: the
+        # full plan put the ore hunt first and walked the explore ring over a swamp.
+        _take(wanted, body, knowledge, state)
+        if any(body.inventory().get(i, 0) > before.get(i, 0) for i in wanted):
+            report.refills.append(GatherReport(stop="done"))
+            return True
         fresh = gp.plan(
             wanted,
             body.inventory(),
@@ -253,11 +312,17 @@ def build_job(
             wanted,
             state=state,
             max_failures=max_failures,
+            explore_cap=0,  # craft and cut what is in sight; never leave the site
             storage=lambda: _storage_boxes(state),
         )
         report.refills.append(outcome)
         held_now = body.inventory()
-        return all(held_now.get(i, 0) >= n for i, n in wanted.items())
+        # ponytail: any gain counts. The whole remaining house does not fit in one
+        # inventory, and demanding all of it stopped run 20261110T063137807602Z at
+        # 280 of 1227 blocks with the stock sitting in the chests.
+        return any(held_now.get(i, 0) > before.get(i, 0) for i in wanted) or all(
+            held_now.get(i, 0) >= n for i, n in wanted.items()
+        )
 
     _take({bp.SCAFFOLD_ITEMS[0]: SCAFFOLD_STACK}, body, knowledge, state)
     body.precise_stance = True  # placing needs the body centred and out of the cell
@@ -269,6 +334,9 @@ def build_job(
             on_need_materials=refill,
             survey=survey,
             on_progress=on_progress,
+            site_margin=site_margin,
+            log=lambda m: print(m, flush=True),
+            protected=tuple(tuple(c) for c in chests),
         )
     finally:
         body.precise_stance = False
@@ -279,10 +347,15 @@ def build_job(
     return report
 
 
-def protect(body, template: bp.Template) -> None:
-    """Keep a digging body's route planner out of the template's cells."""
+def protect(body, template: bp.Template, site_margin: int | None = None) -> None:
+    """Keep a digging body's route planner, and its gathering, out of the template's
+    cells and out of the ground of the site to be levelled: dirt dug for fill must
+    come from outside it (run 20261110T001441278034Z dug holes in its own site)."""
     policy = getattr(body, "terrain_policy", None)
     if policy is None:
         return
     cells = set(policy.protected_positions) | set(template.cells)
+    if site_margin is not None:
+        site = site_area(template, site_margin)
+        cells |= {(x, site.ground_y, z) for x, z in site.columns()}
     body.terrain_policy = replace(policy, protected_positions=tuple(sorted(cells)))

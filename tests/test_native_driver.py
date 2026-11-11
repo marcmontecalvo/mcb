@@ -88,8 +88,11 @@ def test_native_edit_confirmation_requires_geometry_and_pickup_adjusted_debit():
 
 
 @pytest.mark.parametrize("finish", ["done", "needs_replan"])
+@pytest.mark.parametrize(
+    "reason", ["route_no_progress", "route_target_unknown_or_changed"]
+)
 def test_native_driver_hands_off_routes_without_python_tick_controls(
-    monkeypatch, finish
+    monkeypatch, finish, reason
 ):
     rows = iter(
         [
@@ -103,7 +106,7 @@ def test_native_driver_hands_off_routes_without_python_tick_controls(
                 "route_follower": {
                     "route_id": "native-1",
                     "state": finish,
-                    "reason": "route_no_progress" if finish == "needs_replan" else "",
+                    "reason": reason if finish == "needs_replan" else "",
                     "next_index": 1,
                 },
             },
@@ -153,6 +156,20 @@ def test_native_driver_hands_off_routes_without_python_tick_controls(
     assert client.control_loop_summary["route_replans"] == int(finish == "needs_replan")
     assert bool(controller.failed_edges) == (finish == "needs_replan")
     assert any(kind == "native_route_finished" for kind, _ in records)
+    if finish == "needs_replan":
+        assert controller.previous_route == ()
+        rejected = [
+            data for kind, data in records if kind == "native_route_edge_rejected"
+        ]
+        assert rejected == [
+            {
+                "source": (0, 1, 0),
+                "target": (1, 1, 0),
+                "reason": reason,
+                "position": [0.5, 1, 0.5],
+                "tick": 10,
+            }
+        ]
 
 
 @pytest.mark.parametrize(

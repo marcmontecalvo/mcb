@@ -141,7 +141,9 @@ def test_a_digging_body_is_kept_out_of_the_template(tmp_path):
 
     assert report.stop == "built"
     protected = set(body.terrain_policy.protected_positions)
-    assert len(protected) == 3 * 2 * 3  # every cell, air included
+    # every template cell, air included, plus the site's ground (5x5 at margin 1)
+    assert len(protected) == 3 * 2 * 3 + 5 * 5
+    assert (3, -1, 3) in protected and (7, -1, 7) in protected
     assert (4, 0, 4) in protected and (6, 1, 6) in protected  # (6,1,6) is air
     assert report.ticks == {"gather": 100, "build": 100}
 
@@ -156,3 +158,18 @@ def test_a_stalled_gather_ends_the_job_before_building(tmp_path, monkeypatch):
 
     assert report.stop == "gather_failed" and report.build is None
     assert report.starter.stop == "stalled"
+
+
+def test_junk_is_what_the_build_does_not_want_and_never_tools_or_scaffolding():
+    from mclab.companion_jobs import junk
+
+    held = {
+        "minecraft:dirt": 29,
+        "minecraft:orange_tulip": 34,
+        "minecraft:oak_planks": 247,
+        "minecraft:iron_axe": 1,
+        "minecraft:scaffolding": 64,
+        "minecraft:shulker_box": 2,
+    }
+    # dirt stays: it is the fallback scaffold and the fill under a cell over water
+    assert junk(held, {"minecraft:oak_planks": 287}) == {"minecraft:orange_tulip": 34}

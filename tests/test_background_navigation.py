@@ -6,9 +6,59 @@ from reference_segmented import ReferenceSegmentedController as SegmentedControl
 from test_route_search import floor_map
 from test_spatial_memory import identity
 
+from mclab.movement_policy import MovementPolicy
 from mclab.planning_worker import PlanningWorker
 from mclab.route_search import RouteSearch
 from mclab.spatial_memory import MapArchive, SpatialMemory
+
+
+@pytest.mark.parametrize("depth, expected", [(1, 1), (2, 3)])
+def test_wet_route_starts_on_supported_bottom_only_when_head_is_dry(
+    tmp_path, depth, expected
+):
+    from mclab.movement_policy import MovementPolicy
+
+    cells = floor_map([(x, z) for x in range(-1, 4) for z in (-1, 0, 1)])
+    cells[0, 5, 0] = {
+        "position": [0, 5, 0],
+        "block": "minecraft:air",
+        "fluid": "minecraft:empty",
+        "collision_boxes": [],
+    }
+    for y in range(1, depth + 1):
+        cells[0, y, 0] = {
+            "position": [0, y, 0],
+            "block": "minecraft:water",
+            "fluid": "minecraft:water",
+            "collision_boxes": [],
+            "properties": {"level": "0"},
+        }
+    memory = SpatialMemory(MapArchive(tmp_path / "wet.db", identity()), "session")
+    controller = SegmentedController(
+        (3, 1, 0),
+        memory,
+        movement_policy=MovementPolicy(allow_shapes=True, allow_swim=True),
+    )
+    captured = []
+
+    class CapturedStart(Exception):
+        pass
+
+    def capture(p, height):
+        captured.append(height)
+        raise CapturedStart
+
+    controller._stance_node = capture
+    controller._known_cells = lambda: cells
+    obs = observation(cells)
+    obs["body"]["survival"] = {"in_water": True, "air": 300, "eye_in_water": False}
+    try:
+        with pytest.raises(CapturedStart):
+            controller.decide(obs, native=True)
+        assert captured == [expected]
+    finally:
+        controller.close()
+        memory.close()
 
 
 def test_incomplete_search_retries_after_new_map_snapshot(tmp_path):
@@ -284,6 +334,30 @@ def test_ledge_edge_stance_uses_the_supporting_cell(tmp_path):
         assert controller._stance_node([-0.5, 1, 0.5], 1) == (-1, 1, 0)
         # The ordinary case is unchanged.
         assert controller._stance_node([2.5, 1, 0.5], 1) == (2, 1, 0)
+    finally:
+        controller.close()
+        memory.close()
+
+
+def test_body_on_a_stairs_low_step_plans_from_the_stair_top(tmp_path):
+    # Run 20261110T223248667856Z: feet at y 66.5 on a stair, every plan
+    # "unreachable, 0 expanded", build stopped trapped on its own staircase.
+    cells = floor_map([(x, z) for x in range(-1, 3) for z in (-1, 0, 1)])
+    cells[0, 1, 0] = {
+        "position": [0, 1, 0],
+        "block": "minecraft:birch_stairs",
+        "collision_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]],
+    }
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController(
+        (2, 1, 0),
+        memory,
+        radius=0,
+        movement_policy=MovementPolicy(allow_shapes=True),
+    )
+    try:
+        memory.ingest(observation(cells, x=0.5))
+        assert controller._stance_node([0.5, 1.5, 0.75], 1.5) == (0, 2, 0)
     finally:
         controller.close()
         memory.close()

@@ -255,3 +255,29 @@ def test_search_snapshot_immutable_and_motor_rejects_stale_recall(tmp_path):
         assert controller.mode == "arrived"
     finally:
         memory.close()
+
+
+def test_one_deep_water_over_solid_ground_is_waded_but_two_deep_is_not():
+    from mclab.collision_geometry import standable
+
+    cells = floor_map([(x, z) for x in range(5) for z in range(3)])
+    water = {
+        "block": "minecraft:water",
+        "fluid": "minecraft:water",
+        "properties": {"level": "0"},
+        "collision_boxes": [],
+    }
+    for x in (1, 2, 3):
+        for z in range(3):
+            cells[x, 1, z] = dict(water, position=[x, 1, z])
+
+    assert standable(cells, (2, 1, 1))
+    from mclab.companion_body import NATURAL_MOVEMENT
+
+    result = RouteSearch(
+        cells, (0, 1, 1), (4, 1, 1), map_revision=1, movement_policy=NATURAL_MOVEMENT
+    ).advance(budget_ms=500)
+    assert result.status == "reached"
+
+    cells[2, 2, 1] = dict(water, position=[2, 2, 1])  # head under water: no stance
+    assert not standable(cells, (2, 1, 1))

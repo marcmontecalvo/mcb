@@ -102,7 +102,7 @@ def plan_payload(controller, start, plan_id):
         "plan_id": plan_id,
         "start": list(start),
         "goal": list(controller.goal),
-        "radius": float(controller.radius),
+        "radius": float(getattr(controller, "planner_radius", controller.radius)),
         **(
             {"interact_reach": controller.interact_reach}
             if controller.interact_reach is not None
@@ -248,7 +248,7 @@ class BodyTerrainSearch(BodySearch):
             "plan_id": self.plan_id,
             "start": list(self.start),
             "goal": list(c.goal),
-            "radius": float(c.radius),
+            "radius": float(getattr(c, "planner_radius", c.radius)),
             "max_drop": c.movement_policy.max_drop,
             "horizon": 4,
             "beam_width": 24,

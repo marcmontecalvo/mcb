@@ -61,6 +61,14 @@ def test_payload_carries_policy_history_and_limits():
     assert search.advance().status == "searching"
 
 
+def test_companion_planning_radius_can_reserve_motor_arrival_tolerance():
+    c, sent = controller()
+    c.planner_radius = 2.3
+    body_search.BodySearch(c, (0, 1, 0), 3)
+    assert sent[0]["radius"] == 2.3
+    assert c.radius == 2.5
+
+
 def test_body_search_submits_only_after_snapshot_is_committed():
     c, sent = controller()
     events = []

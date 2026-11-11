@@ -388,6 +388,35 @@ def test_air_recovery_surfaces_without_allow_swim_and_ends_with_head_out(tmp_pat
         controller.close()
 
 
+def test_surface_goal_can_finish_afloat_without_ground_contact(tmp_path):
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "water")
+    controller = SegmentedController(
+        (0, 0, 3), memory, movement_policy=MovementPolicy(allow_swim=True)
+    )
+    obs = {
+        "tick": 1,
+        "sensor_profile": "local-visibility-v1",
+        "visible_blocks": list(water_map().values()),
+        "body": {
+            "position": [0.5, -0.1, 3.5],
+            "yaw": 0,
+            "pitch": 0,
+            "on_ground": False,
+            "survival": {
+                "in_water": True,
+                "eye_in_water": False,
+                "air": 300,
+                "max_air": 300,
+            },
+        },
+    }
+    try:
+        controller.decide(obs)
+        assert controller.mode == "arrived"
+    finally:
+        controller.close()
+
+
 def test_previous_route_is_favored_only_with_baritone_search(tmp_path):
     from mclab.terrain_steps import TerrainPolicy
 

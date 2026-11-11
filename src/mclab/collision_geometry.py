@@ -22,6 +22,16 @@ def safe_cell(cell):
     )
 
 
+def wadeable(cell):
+    """Water with nothing solid in it: the body's feet may stand in this cell."""
+    return (
+        cell is not None
+        and cell.get("fluid") == "minecraft:water"
+        and cell.get("collision_boxes") == []
+        and cell.get("block") not in HAZARDS
+    )
+
+
 def clear_column(cells, x, z, bottom, top):
     """Known body clearance at the central 0.6-wide player footprint."""
     table = getattr(cells, "m_clear", None)  # memoised on a Grid
@@ -40,10 +50,16 @@ def clear_body(cells, x, z, bottom, top, *, cell_safe=safe_cell):
     """Check the actual world-space footprint, including partial side collisions."""
     left, right = x - BODY_RADIUS, x + BODY_RADIUS
     near, far = z - BODY_RADIUS, z + BODY_RADIUS
+    feet = math.floor(bottom + EPS)
     for cx in range(math.floor(left + EPS), math.ceil(right - EPS)):
         for cz in range(math.floor(near + EPS), math.ceil(far - EPS)):
-            for y in range(math.floor(bottom + EPS), math.ceil(top - EPS)):
+            for y in range(feet, math.ceil(top - EPS)):
                 cell = cells.get((cx, y, cz))
+                # Wading: water in the feet cell only, so the head stays dry. Without
+                # it one-deep swamp water had no stance at all and the body could not
+                # break a block right beside it (run 20261111T025206013862Z).
+                if y == feet and wadeable(cell):
+                    continue
                 if not cell_safe(cell) or "collision_boxes" not in cell:
                     return False
                 for box in cell["collision_boxes"]:
@@ -65,7 +81,11 @@ def _cell_heights(cells, x, y, z):
     if not safe_cell(cell):
         return ()
     block = cell.get("block", "")
-    if not (full_cube(cell) or block.endswith(("_slab", "_stairs"))):
+    if not (
+        full_cube(cell)
+        or block.endswith(("_slab", "_stairs"))
+        or block == "minecraft:scaffolding"
+    ):
         return ()
     heights = []
     for box in cell.get("collision_boxes", []):

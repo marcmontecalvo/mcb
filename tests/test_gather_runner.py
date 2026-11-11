@@ -80,6 +80,10 @@ def test_unknown_blocks_are_found_by_expanding_rings_and_capped():
     assert (
         max(abs(c) for call in nothing.log if call[0] == "walk" for c in call[1]) <= 32
     )
+    # cap 0 (a build's refill) never leaves the site
+    home = FakeGatherBody(K, {}, sight=8)
+    run({M + "oak_planks": 4}, home, explore_cap=0, max_failures=2)
+    assert not [call for call in home.log if call[0] == "walk"]
 
 
 def test_a_wrong_stance_retries_another_stance():
@@ -257,3 +261,65 @@ def test_a_station_cell_without_support_rotates_to_the_next_free_cell():
     assert report.stop == "done", report
     assert report.state.stations["crafting_table"] not in first
     assert first  # the refused cell was actually tried
+
+
+def test_smelt_works_instead_of_waiting_for_the_furnace():
+    world = trees_and_stone(n_logs=14, n_stone=12)
+    world.update({(i, 0, -10): M + "iron_ore" for i in range(4)})
+    world.update({(i, 0, -14): M + "coal_ore" for i in range(2)})
+    body = FakeGatherBody(K, world)
+    slices = []
+    work = lambda: slices.append(1) or len(slices) < 4  # noqa: E731
+    report = run({M + "iron_pickaxe": 1}, body, idle_work=work)
+    assert report.stop == "done" and len(slices) >= 1
+
+
+class DropBody:
+    """Two drops; the log is still falling for its first ``fall`` pickup tries."""
+
+    def __init__(self, fall):
+        self.fall, self.waits, self.picked = fall, 0, []
+        self.drops = {"log": (3.5, 1.5, 0.5), "stick": (1.5, 0.5, 0.5)}
+
+    def position(self):
+        return (0.5, 0, 0.5)
+
+    def entities(self):
+        return [
+            {"uuid": u, "item": "x", "position": list(p)} for u, p in self.drops.items()
+        ]
+
+    def walk_to(self, cell, radius):
+        raise AssertionError("walk_to_drop is the pickup")
+
+    def walk_to_drop(self, cell, radius):
+        uuid = next(u for u, p in self.drops.items() if cell[0] == int(p[0]))
+        if uuid == "log" and self.fall > 0:
+            return None  # still in the air
+        self.picked.append(uuid)
+        del self.drops[uuid]
+        return True
+
+    def wait_ticks(self, ticks):
+        self.waits += 1
+        self.fall -= 1
+
+
+def _collect(body):
+    from mclab import gather_runner as gr
+
+    ex = gr._Exec.__new__(gr._Exec)
+    ex.body, ex.stalled = body, lambda: False
+    ex.collect(None, (2.5, 0.5, 0.5))
+
+
+def test_collect_does_other_drops_first_then_retries_a_falling_one_after_a_wait():
+    body = DropBody(fall=1)
+    _collect(body)
+    assert body.picked == ["stick", "log"] and body.waits == 1
+
+
+def test_collect_gives_up_on_an_item_that_never_lands():
+    body = DropBody(fall=10**6)  # stuck on a leaf block
+    _collect(body)
+    assert body.picked == ["stick"] and 1 <= body.waits <= 3

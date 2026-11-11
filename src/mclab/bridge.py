@@ -381,7 +381,9 @@ class Bridge:
             heartbeat=heartbeat,
         )
 
-    def acknowledge(self, payload: dict, kind: str, timeout=5):
+    # 20 s: a 5.5 s server pause outlived the old 5 s and ended a healthy build
+    # at 423 blocks (run 20261110T035112317338Z, cancel_plan ack)
+    def acknowledge(self, payload: dict, kind: str, timeout=20):
         sequence = payload["sequence"]
 
         def matches(_state):
