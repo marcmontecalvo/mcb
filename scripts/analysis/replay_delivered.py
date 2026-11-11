@@ -7,6 +7,12 @@ Since mod fdc9e533 unread sections are carried into the next read and the event
 log records each section only when scanned, so every batch up to the latest read
 one counts as delivered. OLD_MOD=1 restores the read-batches-only rule.
 
+Since the mod keeps its own served-terrain store (ServedTerrain.java), a body plan
+reads every batch up to the request's terrain_tick (the last batch Python read)
+minus the sections that store evicted (planner_store_evicted events), plus any
+uploaded planner_map generation (archive-recalled sections only). Set
+TERRAIN_TICK to the plan_route request's terrain_tick to pin that point exactly.
+
 Usage: GOAL="[-152,72,-136]" CAP=1229 uv run --locked python     scripts/analysis/replay_delivered.py <attempt>/events.jsonl <tick> "[x,y,z]"
 Env: GOAL (required), CAP node cap (default 1229), TERRAIN / MOVEMENT profile paths.
 """
@@ -41,13 +47,22 @@ for line in open(f):
         d = json.loads(line)["payload"]["data"]
         if "terrain_sections" in d and d["tick"] <= upto:
             samples.append(d)
+    elif '"planner_store_evicted"' in h:
+        d = json.loads(line)["payload"]["data"]
+        samples.append({"evicted": d["sections"], "tick": d["tick"]})
 # Since mod fdc9e533 unread sections are carried into the next /policy read, so
 # every batch scanned up to the latest read one was delivered (older mods: only
 # read batches). Set OLD_MOD=1 for attempts before fdc9e533.
-last = max(got, default=-1)
+last = int(os.environ.get("TERRAIN_TICK", max(got, default=-1)))
 mem = None
 n = 0
 for d in samples:
+    if "evicted" in d:
+        # The mod's store forgot these; the body planner no longer knew them.
+        if mem is not None and d["tick"] <= last:
+            for key in d["evicted"]:
+                mem.grid.sections.pop(tuple(key), None)
+        continue
     st = d["terrain_sections"]["sample_tick"]
     if (st not in got) if os.environ.get("OLD_MOD") else st > last:
         continue
