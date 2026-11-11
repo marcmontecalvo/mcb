@@ -8,3 +8,4 @@ results/
 .gradle/
 **/build/
 .env
+/build_inspect.log
