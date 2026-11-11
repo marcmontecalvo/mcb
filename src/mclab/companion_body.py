@@ -57,7 +57,7 @@ from mclab.movement_policy import MovementPolicy
 from mclab.navigation_runner import _new_identity
 from mclab.navigation_segmented import SegmentedController
 from mclab.paths import ROOT, RUNTIME, SERVER, read_json
-from mclab.place_graph import PlaceGraph
+from mclab.place_graph import Connection, PlaceGraph
 from mclab.schematic import format_state, parse_state
 from mclab.spatial_memory import (
     MapArchive,
@@ -78,6 +78,11 @@ WORLD_MEMORY = RUNTIME / "world-memory"
 _restored_world = False  # set inside companion_world(seed): a reset snapshot copy
 # Placed blocks worth a waypoint: the crafting table marks the gathering site.
 RECORDED_BLOCKS = ("crafting_table", "furnace", "chest", "barrel")
+# walk_far: legs well inside the 64-block sensed radius, so the leg's end is
+# usually observed terrain; a trip ends after MAX_STALLS legs that gained less
+# than MIN_PROGRESS blocks toward the goal.
+LEG, LEG_RADIUS, MIN_PROGRESS, MAX_STALLS = 48.0, 4.0, 4.0, 2
+START_NEAR = 16.0  # go_to starts from a place only when standing this close
 OP_TIMEOUT_S = 20.0
 OP_TIMEOUTS = {"break_block": 45.0, "attack_entity": 30.0, "eat": 20.0}
 STAND_SEARCH = 6  # walk_to: vertical search for a standable cell in the column
@@ -696,9 +701,68 @@ class CompanionBody:
             self.places.remember(kind, pos)
 
     def go_to(self, name: str) -> bool:
-        """Walk to a named place of this world; False when the name is unknown."""
-        place = self.places.named(name) if self.places is not None else None
-        return place is not None and self.walk_to(place.position)
+        """Walk to a named place of this world; False when the name is unknown.
+
+        From the place the bot stands at (within START_NEAR), follow the place
+        graph's walked connections when they reach the target, else go straight.
+        Every stop actually reached records the connection it walked."""
+        if self.places is None or (target := self.places.named(name)) is None:
+            return False
+        here = self.position()
+        start = self.places.nearest(here)
+        if start is not None and math.dist(start.position, here) > START_NEAR:
+            start = None
+        stops = [target]
+        if start is not None and start.id != target.id:
+            by_id = {p.id: p for p in self.places.listed()}
+            path = self.places.route(start.id, target.id, verified_after_ns=0)
+            stops = [by_id[i] for i in path[1:]] or stops
+        for stop in stops:
+            if not self.walk_far(stop.position):
+                return False
+            if start is not None and start.id != stop.id:
+                self.places.put_connection(
+                    Connection(
+                        start.id,
+                        stop.id,
+                        "walk",
+                        max(1.0, math.dist(start.position, stop.position)),
+                        (),
+                        "walked",
+                        time.time_ns(),
+                    )
+                )
+            start = stop
+        return True
+
+    def walk_far(self, goal: Pos, radius: float = 1.5) -> bool:
+        """Walk to a goal of any distance in legs of at most LEG blocks.
+
+        One walk_to ends at its 90 s wall long before 2,000 blocks; a leg ends
+        inside the sensed horizon, so each plan is short and fresh. Legs follow
+        the straight line at the current height (walk_to snaps it to a stance).
+        ponytail: no chunk-level reachability; an ocean or a wall on the line is
+        found leg by leg, and MAX_STALLS legs without progress end the trip."""
+        here, stalls = self.position(), 0
+        while (gap := math.dist(here[::2], goal[::2])) > radius:
+            t = min(1.0, LEG / gap)
+            x, z = (
+                round(a + (b - a) * t)
+                for a, b in zip(here[::2], goal[::2], strict=True)
+            )
+            last = t == 1.0
+            ok = self.walk_to(
+                (x, goal[1] if last else here[1], z), radius if last else LEG_RADIUS
+            )
+            now = self.position()
+            if ok and last:
+                return True
+            closer = math.dist(here[::2], goal[::2]) - math.dist(now[::2], goal[::2])
+            stalls = 0 if closer >= MIN_PROGRESS else stalls + 1
+            if stalls >= MAX_STALLS:
+                return False
+            here = now
+        return True
 
     def use_block(self, pos: Pos, item: str | None = None) -> Result:
         extra = {"item": item} if item else {}

@@ -122,7 +122,7 @@ class PlaceGraph:
     def named(self, name):
         return next((p for p in self.listed() if p.name == name), None)
 
-    def nearest(self, position, kind):
+    def nearest(self, position, kind=None):
         return min(
             self.listed(kind),
             key=lambda p: math.dist(p.position, position),

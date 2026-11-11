@@ -1,4 +1,5 @@
 import json
+import math
 
 from test_spatial_memory import identity
 
@@ -78,3 +79,60 @@ def test_body_records_useful_blocks_and_walks_to_a_named_place(tmp_path):
     body.places.add("camp", (9, 70, 9))
     assert body.go_to("camp") is True and walked == [(9, 70, 9)]
     assert body.go_to("nowhere") is False
+
+
+def walker(tmp_path, *, step=48.0, stuck_after=None):
+    """A body whose walk_to moves at most ``step`` blocks toward the goal."""
+    body = CompanionBody(None, None)
+    body.places = graph(tmp_path)
+    body._obs = {"body": {"position": [0, 64, 0]}}
+    legs = []
+
+    def walk_to(pos, radius=1.5):
+        here = body._obs["body"]["position"]
+        legs.append((tuple(here), tuple(pos)))
+        if stuck_after is not None and len(legs) > stuck_after:
+            return False
+        gap = math.dist(here, pos)
+        t = 1.0 if gap <= step else step / gap
+        body._obs["body"]["position"] = [
+            a + (b - a) * t for a, b in zip(here, pos, strict=True)
+        ]
+        return t == 1.0
+
+    body.walk_to = walk_to
+    return body, legs
+
+
+def test_a_far_walk_is_split_into_legs_inside_the_planner_horizon(tmp_path):
+    body, legs = walker(tmp_path)
+    assert body.walk_far((2000, 64, 0)) is True
+    assert body.position() == (2000, 64, 0)
+    assert len(legs) > 2000 / 64
+    assert all(math.dist(a, b) <= 48.5 for a, b in legs)
+
+
+def test_a_far_walk_gives_up_when_legs_stop_making_progress(tmp_path):
+    body, legs = walker(tmp_path, stuck_after=3)
+    assert body.walk_far((2000, 64, 0)) is False
+    assert len(legs) < 10
+
+
+def test_going_to_a_named_place_follows_and_records_walked_connections(tmp_path):
+    body, legs = walker(tmp_path)
+    g = body.places
+    home = g.add("home", (0, 64, 0), kind="home")
+    g.add("ford", (0, 64, 300))
+    g.add("camp", (300, 64, 300))
+    g.put_connection(Connection("home", "ford", "walk", 300, (), "walked", 1))
+    g.put_connection(Connection("ford", "camp", "walk", 300, (), "walked", 1))
+    assert body.go_to("camp") is True
+    # the walk went through the ford rather than the straight diagonal
+    assert any(b == (0, 64, 300) for _, b in legs)
+    # and the legs actually walked are now verified connections
+    assert g.route("home", "camp", verified_after_ns=2) == ("home", "ford", "camp")
+    # a direct trip records its own connection from the nearest start place
+    body._obs["body"]["position"] = list(home.position)
+    g.add("tower", (0, 64, -500))
+    assert body.go_to("tower") is True
+    assert g.route("home", "tower", verified_after_ns=2) == ("home", "tower")
