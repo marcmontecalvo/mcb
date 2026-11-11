@@ -143,3 +143,24 @@ def test_check_scripts_never_use_world_memory():
             assert "companion_world(" in text or "world_memory=False" in text, (
                 script.name
             )
+
+
+def test_remembered_cells_are_never_fresh_motor_evidence_even_at_a_reused_tick(
+    tmp_path,
+):
+    # Item 6: memory.cells (with recalled history) feeds stance choice and planning
+    # only; motor decisions read memory.fresh, which must exclude other sessions
+    # even when the new session's tick counter reaches the old observed_tick.
+    world, store = level(tmp_path, 7), tmp_path / "memory"
+    old = SpatialMemory(world_archive(world, Awareness(), store), "session-1")
+    old.ingest(at(0, 0, 0, tick=5))
+    old.close()
+    memory = SpatialMemory(world_archive(world, Awareness(), store), "session-2")
+    try:
+        memory.ingest(at(20, 0, 0, tick=5))
+        memory.recall_surroundings()
+        assert (0, 0, 0) in memory.cells
+        assert (0, 0, 0) not in memory.fresh(5)
+        assert (20, 0, 0) in memory.fresh(5)
+    finally:
+        memory.close()

@@ -150,7 +150,12 @@ class SpatialMemory:
 
     @property
     def cells(self):
-        """Live known-cell mapping (current mode: only current cells)."""
+        """Live known-cell mapping (current mode: only current cells).
+
+        Includes cells recalled from earlier sessions: stance choice and planning
+        only. Python motor commands read fresh() (this session, <=5 ticks) and the
+        mod's RouteMotor checks its own live sensor, so history never acts as
+        support or air for the motor."""
         if self.policy.memory_mode == "current":
             return self._current_cells()
         return self.grid.view()

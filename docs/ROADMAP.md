@@ -142,6 +142,13 @@ dependencies, except where noted.
   packed `block_states` decoder (~60 lines on `mclab.nbt`), a distinct
   provenance session (e.g. `world-file:<mtime>`) and an env toggle (default off)
   that fills only absent sections.
+- Known limits, left as is: a copied world with the same level name and seed
+  shares a namespace; places are kept per awareness mode (part of the
+  identity); recall relies on rowid order (never VACUUM the world db);
+  `PlaceGraph.add` on an existing name drops that place's connections. An
+  observation gap found at open drops that world's stored terrain (places
+  stay) before recall resumes; an unreadable level.dat seed turns world memory
+  off for the session.
 
 **Dashboard for house builds (Nov 10):** the dashboard now lists build runs,
 killed ones included, with stats from `build.json` and a streamed, cached pass
