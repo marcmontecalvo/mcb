@@ -18,15 +18,21 @@ import java.util.function.ToDoubleFunction;
  */
 final class BreakTask {
     static final int TIMEOUT_TICKS = 400;
-    /** Ticks without an entity-free ray before entity_in_way (run 20261111T135214868983Z: a sheep froze a break 15 s). */
-    static final int ENTITY_WAIT_TICKS = 10;
+    /**
+     * Ticks over the whole task without an entity-free ray before entity_in_way (run 20261111T135214868983Z: a
+     * sheep froze a break 15 s). Counted in total, not in a row: each held tick aborts the dig in Carpet
+     * (ABORT_DESTROY_BLOCK), so a mob crossing the ray now and then would otherwise restart it until the timeout.
+     */
+    static final int ENTITY_WAIT_TICKS = 20;
 
     final long requestSequence;
     final BlockPos pos;
     final BlockState original;
     int ticks;
-    /** Consecutive ticks with an entity on every ray; while nonzero BodyRuntime holds the attack so nothing is hit. */
+    /** Ticks so far with an entity on every ray. */
     int blocked;
+    /** False this tick when an entity is on every ray: BodyRuntime holds the attack so nothing is hit. */
+    boolean clear = true;
 
     private BreakTask(long requestSequence, BlockPos pos, BlockState original) {
         this.requestSequence = requestSequence;
@@ -70,7 +76,8 @@ final class BreakTask {
             hit = clearest(BodyBuild.hits(player, pos, List.of(Direction.values()), false, new int[2]),
                     h -> h.getLocation().distanceToSqr(eye), h -> CarpetBodyAdapter.entityOnRay(player, h.getLocation()));
         }
-        blocked = blockedAfter(blocked, hit != null);
+        clear = hit != null;
+        blocked = blockedAfter(blocked, clear);
         if (hit == null) return;
         var at = hit.getLocation();
         BodyBuild.aim(player, (float) Math.toDegrees(Math.atan2(-(at.x - eye.x), at.z - eye.z)),
@@ -82,9 +89,9 @@ final class BreakTask {
         return points.stream().filter(entityOnRay.negate()).min(Comparator.comparingDouble(distance)).orElse(null);
     }
 
-    /** Blocked-tick count after this tick; entity_in_way once ENTITY_WAIT_TICKS pass without a clear ray. */
+    /** Blocked-tick count after this tick; entity_in_way once more than ENTITY_WAIT_TICKS were blocked. */
     static int blockedAfter(int blocked, boolean clear) {
-        if (clear) return 0;
+        if (clear) return blocked;
         if (++blocked > ENTITY_WAIT_TICKS) throw new BodyActions.Fail("entity_in_way");
         return blocked;
     }
