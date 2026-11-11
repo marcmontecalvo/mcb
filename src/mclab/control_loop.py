@@ -210,6 +210,8 @@ def _drive(
                 ),
                 None,
             )
+            if rejection is None:
+                discarded = 0  # the limit counts consecutive stale actions
             if rejection and terminal_event(client) is None:
                 reason = rejection["data"]["reason"]
                 if reason in TIMING_REJECTIONS:

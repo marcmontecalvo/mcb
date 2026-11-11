@@ -360,3 +360,27 @@ def test_death_race_returns_the_terminal_outcome_not_a_controller_error():
     assert server.last_controller_error is None
     assert "release" not in [op for op, _ in server.sent]
     assert [k for k, _ in server.records].count("rejection_at_episode_end") >= 1
+
+
+def _lockstep(server):
+    def wait(predicate, **_kwargs):
+        while not predicate({}):
+            server.state()
+
+    server.wait = wait
+    server.state()  # the first observed tick
+    return drive(server, Interactor(), 30)
+
+
+def test_lockstep_stale_limit_counts_only_consecutive_late_actions():
+    # Run results/hills/20261111T164517150274Z: the 4th late action of a whole
+    # variant ended it one block from the goal although hundreds had applied.
+    server = FakeServer(range(10, 200), late={f"action-{i}" for i in (5, 10, 15, 20)})
+    assert _lockstep(server)["data"]["status"] == "success"
+    assert len(server.controls()) > 20
+
+
+def test_lockstep_four_consecutive_late_actions_still_fail():
+    server = FakeServer(range(10, 200), late={f"action-{i}" for i in (3, 4, 5, 6)})
+    assert _lockstep(server)["data"]["status"] == "failed"
+    assert "late_or_distant_action" in server.last_controller_error
