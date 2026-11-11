@@ -732,7 +732,7 @@ def test_companion_plan_validates_every_input(companion):
     assert job["args"] == [
         *("--start", "1", "64", "-3"),
         *("--build", "builds/b.build.json", "--dx", "4", "--dz", "2"),
-        *("--rotation", "90"),
+        *("--rotation", "90", "--margin", "1"),
     ]
     [gather] = runs.plan(
         {"kind": "companion", "job": "gather", "start": [0, 0, 0], "iron": True}

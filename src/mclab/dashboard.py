@@ -21,6 +21,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
+from mclab import build_stats
 from mclab import dashboard_runs as runs
 from mclab.paths import ROOT, read_json, write_json
 from mclab.recorder import exclusive_run
@@ -546,6 +547,7 @@ class Dashboard:
         self.process = None
         self.process_path = None
         self.cache = {}
+        self.scanner = build_stats.Scanner()
 
     def sessions(self, *, include_qualification=True):
         with self.lock:
@@ -682,6 +684,21 @@ class Dashboard:
                 raise
             return {"id": session_id}
 
+    def builds(self):
+        """House-building runs, newest first, with the stats known so far; logs
+        not scanned yet are queued and the row says so."""
+        rows = []
+        for row in build_stats.runs(ROOT / "results/companion"):
+            folder = row.pop("folder")
+            stats = build_stats.stats(folder)
+            if folder.name in self.scanner.errors:
+                stats["state"] = "unreadable"
+                stats["error"] = self.scanner.errors[folder.name]
+            elif stats["state"] == "pending":
+                self.scanner.want(folder)
+            rows.append({**row, "stats": stats})
+        return rows
+
     def history(self):
         values = []
         with self.lock:
@@ -758,6 +775,7 @@ def handler(dashboard):
                     catalog = runs.catalog()
                     catalog["companion"]["default_start"] = runs.COMPANION_DEFAULT_START
                     catalog["companion"]["default_gather_seed"] = 42424242
+                    catalog["companion"]["seeds"] = runs.natural_seeds()
                     return self.reply(200, catalog)
                 if parsed.path == "/api/status":
                     from mclab import server
@@ -767,6 +785,8 @@ def handler(dashboard):
                     return self.reply(200, dashboard.sessions())
                 if parsed.path == "/api/baseline-progress":
                     return self.reply(200, baseline_progress())
+                if parsed.path == "/api/builds":
+                    return self.reply(200, dashboard.builds())
                 if parsed.path == "/api/results":
                     return self.reply(200, dashboard.history())
                 if parsed.path == "/api/detail":

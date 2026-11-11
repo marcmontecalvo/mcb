@@ -9,7 +9,7 @@ import sys
 from collections import Counter
 from statistics import median
 
-from mclab import companion_progress
+from mclab import build_stats, companion_progress
 from mclab.dashboard_metrics import compare_data
 from mclab.paths import ROOT, read_json
 
@@ -356,13 +356,8 @@ def companion_job(request):
         # The lab world is flat: gathering runs in a saved natural world.
         seed = request.get("seed", 1337)
         if seed is not None:
-            from mclab import natural
-
-            seed = integer(seed, -(2**63), 2**63 - 1, "Seed")
-            if not (natural.SNAPSHOTS / natural._level(seed) / "level.dat").is_file():
-                raise ValueError(f"No saved natural world for seed {seed}")
-            job["seed"] = seed
-            args += ["--seed", str(seed)]
+            job["seed"] = natural_seed(seed)
+            args += ["--seed", str(job["seed"])]
     if name == "build":
         path = companion_file(request.get("build"), ".build.json", BUILD_DIRS, "build")
         dx = integer(request.get("dx", 3), -1000, 1000, "dx")
@@ -378,8 +373,56 @@ def companion_job(request):
         )
         args += ["--build", job["build"], "--dx", str(dx), "--dz", str(dz)]
         args += ["--rotation", str(rotation)]
+        args += build_options(request, job)
     job["args"] = args
     return job
+
+
+def natural_seeds():
+    """Seeds that have a saved natural world a gather or build can run in."""
+    from mclab import natural
+
+    found = []
+    for path in natural.SNAPSHOTS.glob("natural-*/level.dat"):
+        try:
+            found.append(int(path.parent.name.removeprefix("natural-")))
+        except ValueError:
+            continue
+    return sorted(found)
+
+
+def natural_seed(value):
+    from mclab import natural
+
+    seed = integer(value, -(2**63), 2**63 - 1, "Seed")
+    if not (natural.SNAPSHOTS / natural._level(seed) / "level.dat").is_file():
+        raise ValueError(f"No saved natural world for seed {seed}")
+    return seed
+
+
+def build_options(request, job):
+    """run-build.py's own options, refused here the way its parser refuses them."""
+    args = []
+    seed = request.get("seed")  # None: build in the flat lab world
+    if seed is not None:
+        job["seed"] = natural_seed(seed)
+        args += ["--seed", str(job["seed"])]
+    margin = integer(request.get("margin", 1), 0, 16, "Margin")
+    flags = {}
+    for name in ("supply", "inspect"):
+        flags[name] = request.get(name, False)
+        if type(flags[name]) is not bool:
+            raise ValueError(f"{name.capitalize()} must be true or false")
+    coal = request.get("coal", "item")
+    if coal not in ("item", "block", "ore"):
+        raise ValueError("Coal must be item, block or ore")
+    if coal != "item" and not flags["supply"]:
+        raise ValueError("A coal form needs supply chests")
+    job.update(margin=margin, coal=coal, **flags)
+    args += ["--margin", str(margin)]
+    if flags["supply"]:
+        args += ["--supply", "--coal", coal]
+    return args + (["--inspect"] if flags["inspect"] else [])
 
 
 def selected_routes(value, route_ids):
@@ -554,13 +597,26 @@ def run_companion(job):
                 continue
     except KeyboardInterrupt:
         stop_child(process)
+        record_launch(job)
         raise
-    folder = companion_result_dir(job)
+    folder = record_launch(job)
     if folder is not None and not (folder / companion_progress.JOB).exists():
         companion_progress.write_job(folder, job["companion"])
     if folder is None or not (folder / "summary.json").is_file():
         return {"error": f"{script.name} exited with code {code} before summary.json"}
     return {"status": "completed_companion", "returncode": code}
+
+
+def record_launch(job):
+    """Leave what the run was started with in its folder: build.json does not say
+    which build file, seed or options, and run comparison needs to know."""
+    folder = companion_result_dir(job)
+    if folder is not None and not (folder / build_stats.LAUNCH).exists():
+        keys = ("companion", "build", "seed", "start", "args")
+        companion_progress._write(
+            folder / build_stats.LAUNCH, {k: job.get(k) for k in keys}
+        )
+    return folder
 
 
 def companion_live(folder, events=12):
@@ -585,7 +641,13 @@ def companion_live(folder, events=12):
             "skipped": len(report.get("skipped") or {}),
             "final_diff": report.get("final_diff"),
         }
-    live["events"] = companion_events(folder / "events.jsonl", events)
+    # a running job's logs are plain files; the names live in build_stats
+    live["events"] = [
+        row
+        for path in build_stats.event_logs(folder)
+        if path.suffix != ".gz"
+        for row in companion_events(path, events)
+    ][-events:]
     return live
 
 

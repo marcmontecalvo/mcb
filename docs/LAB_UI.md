@@ -202,7 +202,17 @@ exist are offered), **Gather** (`run-gather.py`, optional iron pickaxe) or
 - **Starting.** Pick the job. Gather and Build ask for start X Y Z (a feet cell on
   open ground; integers within ±30,000,000). Build also takes a build file (a
   dropdown of `tests/fixtures/schematics/*.build.json`, `builds/*.build.json` and
-  `results/companion/*/*.build.json`), offsets dx/dz and rotation 0/90/180/270.
+  `results/companion/*/*.build.json`) and a **world**: a saved natural seed
+  (`runtime/natural/natural-<seed>/`, passed as `--seed`) or the flat lab world
+  (no `--seed`; nothing to gather there, so tick **Stock supply chests**). The
+  form shows the last run of the chosen build with a **Use** button that copies
+  its start and seed. **Stock supply chests** is `--supply`, with the coal form
+  (`--coal item|block|ore`) beside it. Under *Placement and inspection*: offsets
+  dx/dz, rotation 0/90/180/270, `--margin` (0-16, default 1) and `--inspect`
+  (the body stays until a file named `STOP` appears in the run folder, or Kill
+  now). `--resume`, `--empty`, `--stage`, `--preview` and `--scaffolding` are
+  command-line only. The worker writes what it started the run with to
+  `launch.json` in the run folder.
   Every input is validated server-side; build and schematic paths must resolve
   inside those folders. There is no "Use my position" button: the lab state does
   not expose player positions to the dashboard, so read X Y Z from F3.
@@ -222,13 +232,59 @@ exist are offered), **Gather** (`run-gather.py`, optional iron pickaxe) or
   `results/companion/<stamp>/` created after the job started and shows: the
   optional `progress.json` stage/count bar, `build.json` totals (stop, steps,
   counts, skipped) once written, the case tally from `summary.json`, and the last
-  12 op results from `events.jsonl` (`op done/failed/rejected`, reason).
+  12 op results from the event log (`op done/failed/rejected`, reason).
   Anything else writing into `results/companion/` at the same time can be
   mistaken for the job's folder.
 - **History.** Rows show the job as the stage (`crafting`, `gather`, `build`, ...)
   with passed/failed counts. The job is read from `job.json` (written by the
   worker when the script exits), else `progress.json`'s `job`, else
   `build.json` / `gather-*.json`; older folders read "companion check".
+
+### House builds: stats and comparison
+
+The **House builds** section lists every `results/companion/<run>/` that has a
+`build.json`, checkpoints or a `progress.json` with job `build`, whether or not
+it wrote `summary.json` (a killed run does not). Each row is compared with the
+previous run of the same build file; clicking a row opens the full comparison,
+and the baseline can be changed to any other build run. A red banner or cell
+means worse by 10% or more: result, total time, building time, blocks per
+minute, longest wait without a successful edit and stalls. Incomplete plans can
+also reflect insufficient known terrain, so they are not labeled search-limit failures.
+
+`src/mclab/build_stats.py` computes the numbers (also
+`python -m mclab.build_stats <run folder>...`):
+
+- From `build.json`: result (`stop`, else `job_stop`), house cells correct /
+  missing / wrong / unknown, site cleared / filled / blocked / trees, stalls and
+  recoveries, cells given up by reason, refill trips, shortfall. A run with no
+  `build.json` reads `progress.json` (stalls, site counts), a `KILLED*.txt` /
+  `ENDED*.txt` note, or `error.txt`.
+- From one streamed pass over the event log (plain or `.gz`; only the first
+  bytes of each line are examined, the large sensing lines are never parsed):
+  total time (first request to last work request or selected result), estimated
+  house blocks placed and blocks per minute while building, placements and breaks
+  the body refused by reason, route plans by status, longest wait without a
+  successful edit. Site materials and stations are excluded from that estimate,
+  including if they are part of the actual template.
+- Time per phase is **estimated** from the log, which has no phase markers:
+  gathering ends at the last craft/furnace/container result before building;
+  tree clearing ends at the last log broken after that; site preparation ends
+  and building starts at the first placed block that is not dirt, scaffolding
+  or a station. Refill trips during the build count as building.
+- The build file and seed come from `launch.json`, else the first checkpoint;
+  runs with neither show "not recorded" and have no automatic baseline.
+
+Results are cached in `<run>/build_stats.json` (keyed by the log's size and
+time, and kept after `prune` removes the log). The dashboard computes missing
+ones in a background thread, newest first, and skips a log written in the last
+60 s. Log file names live in one place, `build_stats.LOG_NAMES`, read through
+`event_logs()` / `iter_events()`: add `timeline.jsonl` and `blocks.jsonl` there
+when the log is split (`seen.jsonl` holds nothing the stats read).
+Log activity is not proof that a build is still working: an inspection may keep
+the log active after the result is recorded. The dashboard has no reliable
+inspection-wait marker or graceful finish control. Cache versions that cannot be
+recomputed after log pruning are shown as unavailable rather than current stats.
+The metric inventory and audit limitations are in [DASHBOARD_BUILD_REVIEW.md](DASHBOARD_BUILD_REVIEW.md).
 
 ### Progress hook
 
