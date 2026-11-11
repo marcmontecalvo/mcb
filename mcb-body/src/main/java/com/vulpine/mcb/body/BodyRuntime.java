@@ -37,6 +37,12 @@ import java.util.concurrent.TimeUnit;
 public final class BodyRuntime implements AutoCloseable {
     private static final Gson GSON = new Gson();
     private static final int MAX_RETIRED_BODIES = 32;
+    /**
+     * A queued request older than this many server ticks is refused: the world moved on under it.
+     * Counted in ticks, not wall time, so one long tick (tick 6000, likely the autosave, took 2.25 s in run
+     * 20261111T135214868983Z) cannot age a request against a world that did not change.
+     */
+    static final int STALE_QUEUED_TICKS = 40;
     private static volatile BodyRuntime active;
     private final MinecraftServer server;
     private volatile Map<String,Object> policySnapshot = Map.of();
@@ -89,7 +95,7 @@ public final class BodyRuntime implements AutoCloseable {
                            double yaw_delta, double pitch_delta, boolean jump, boolean sneak,
                            boolean sprint, boolean mine, boolean attack_pulse,
                            boolean use_hold, boolean use_pulse, int hotbar_slot) {}
-    public record Inbound(JsonObject json, boolean admin, long receivedNanos) {}
+    public record Inbound(JsonObject json, boolean admin, long receivedNanos, int receivedTick) {}
     public record Scheduled(int tick, JsonObject request, Controls controls) {}
     public record Event(int schema_version, String launch_id, String run_id, String episode_id,
                         String body_id, long sequence, int tick, String phase, String type,
@@ -146,7 +152,7 @@ public final class BodyRuntime implements AutoCloseable {
                     return;
                 }
                 var request = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
-                if (!inbox.offer(new Inbound(request, path.equals("/admin"), System.nanoTime()))) {
+                if (!inbox.offer(new Inbound(request, path.equals("/admin"), System.nanoTime(), server.getTickCount()))) {
                     respond(exchange, 429, Map.of("error", "queue_full"));
                     return;
                 }
@@ -211,6 +217,8 @@ public final class BodyRuntime implements AutoCloseable {
         return entry.getAsBoolean();
     }
 
+    static boolean staleQueued(int receivedTick, int tick) { return tick - receivedTick > STALE_QUEUED_TICKS; }
+
     public void preTick() {
         if (body != null && traceEnabled) emit("phase", "fabric_start", Map.of());
         for (var previous : retired) previous.pollReady();
@@ -229,7 +237,7 @@ public final class BodyRuntime implements AutoCloseable {
             if (request == null) break;
             received++;
             try {
-                if (System.nanoTime() - request.receivedNanos() > TimeUnit.SECONDS.toNanos(2)) {
+                if (staleQueued(request.receivedTick(), tick)) {
                     throw new IllegalArgumentException("stale_queued_request");
                 }
                 admit(request);
