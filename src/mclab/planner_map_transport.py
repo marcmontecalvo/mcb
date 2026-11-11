@@ -297,6 +297,11 @@ class PlannerMapTransfer:
     def close(self):
         try:
             self.cancel()
+        except RuntimeError as error:
+            # A despawned body took its staging area with it (a transfer kept
+            # staged for resumption outlives the session): nothing to abort.
+            if not str(error).endswith(": no_body"):
+                raise
         finally:
             self.worker.shutdown(wait=True, cancel_futures=True)
 
