@@ -294,6 +294,7 @@ class _GotoController(SegmentedController):
 
     probe = False  # plan-only drive: end on the first verdict, never move the motor
     no_drive = False  # drive_native keeps every motor submission off
+    walk_wall = 0.0  # wall of the walk a successful probe turns into
 
     @property
     def planner_radius(self):
@@ -307,10 +308,17 @@ class _GotoController(SegmentedController):
         )
 
     def __init__(
-        self, *args, deadline: float, probe: bool = False, idle_state=None, **kwargs
+        self,
+        *args,
+        deadline: float,
+        probe: bool = False,
+        idle_state=None,
+        walk_wall: float = 0.0,
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.deadline = deadline
+        self.walk_wall = walk_wall
         if probe:
             self.probe = True
             self.no_drive = True
@@ -417,24 +425,22 @@ class _GotoController(SegmentedController):
         ):
             if self.last_result is not None and self.last_result.status == "incomplete":
                 return "unreachable"
-            return "probed"  # route adopted: the real goto will drive it
+            return self._walk_on()  # route adopted: drive it, do not plan it again
         if self.mode in {"unreachable", "incomplete"} or (
             self.last_result is not None
             and self.last_result.status in {"unreachable", "incomplete"}
         ):
             return "unreachable"
-        now = time.monotonic()
-        if now > self.deadline:
-            if (
-                self.last_result is not None
-                and self.last_result.reason == "planner map transfer"
-                and now <= self.deadline + PROBE_WALL_S
-            ):
-                # Aborting a nearly uploaded map makes the real walk resend it.
-                # Let this acknowledged generation finish, for one more probe wall
-                # at most: a body bobbing in water keeps resetting the idle watch.
-                return None
-            return "probed"  # no verdict inside PROBE_WALL_S: walk it as before
+        if time.monotonic() > self.deadline:
+            # No verdict inside PROBE_WALL_S: walk it as before, keeping the
+            # in-flight map upload and search (run 20261111T134723510228Z).
+            return self._walk_on()
+        return None
+
+    def _walk_on(self) -> None:
+        """Turn the parked probe into the walk on the same plan and upload."""
+        self.probe = self.no_drive = False
+        self.deadline = time.monotonic() + self.walk_wall
         return None
 
 
@@ -733,6 +739,7 @@ class CompanionBody:
         ):
             if isinstance(kept, list) and len(kept) > 20_000:
                 del kept[:-2_000]
+        # A probe whose route is found becomes the walk (_walk_on): one plan.
         wall = PROBE_WALL_S if probe else self.goto_wall_s
         controller = _GotoController(
             goal,
@@ -745,16 +752,21 @@ class CompanionBody:
             deadline=time.monotonic() + wall,
             probe=probe,
             idle_state=self._navigation_idle,
+            walk_wall=self.goto_wall_s,
         )
         try:
-            end = drive(self.bridge, controller, wall + 60.0, profile=NATIVE)
+            end = drive(
+                self.bridge,
+                controller,
+                (PROBE_WALL_S if probe else 0.0) + self.goto_wall_s + 60.0,
+                profile=NATIVE,
+            )
         finally:
             self.bridge.state()  # heartbeat: close() joins the worker threads
             controller.close()
         self.observe()
         why = end.get("data", {}).get("reason") if end else None
-        wanted = ("arrived", "probed") if probe else ("arrived",)
-        ok = end.get("type") == "navigation_stopped" and why in wanted
+        ok = end.get("type") == "navigation_stopped" and why == "arrived"
         row = {
             "goto": list(goal),
             "reach": reach,
@@ -762,8 +774,8 @@ class CompanionBody:
             "why": why,
             "policy_id": self.policy_id(),
         }
-        if probe:
-            row["probe"] = True  # ops: a motor-parked verdict, not a walked goto
+        if controller.probe:
+            row["probe"] = True  # ops: ended parked on a verdict, never walked
         self.log.append(row)
         return ok
 
@@ -781,11 +793,9 @@ class CompanionBody:
         # With placing off, ask the planner first (as goto_stance does): an
         # unroutable walk stood still for the whole 10 s wall, 11 times in the
         # site prep of run 20261111T021416142202Z.
-        if getattr(self, "walk_only", False) and not self._navigate(
-            goal, reach=None, radius=radius, probe=True
-        ):
-            return False
-        return self._navigate(goal, reach=None, radius=radius)
+        return self._navigate(
+            goal, reach=None, radius=radius, probe=getattr(self, "walk_only", False)
+        )
 
     @_fresh_idle
     def walk_to_drop(self, pos: Pos, radius: float = 0.8) -> bool | None:
@@ -1020,9 +1030,9 @@ class CompanionBody:
             # known water is unroutable, and testing that by walking it costs the
             # 200-tick StuckGuard timer - 12 of those ended a job at 0 tasks
             # (20261106T170919632775Z; the sand stall of 20261106T185239143471Z).
-            if not self._navigate(node, reach=None, radius=radius, probe=True):
-                continue
-            if self._navigate(node, reach=None, radius=radius):
+            # A found route is walked by the same controller, not planned twice
+            # (two plans per stance in run 20261111T135214868983Z).
+            if self._navigate(node, reach=None, radius=radius, probe=True):
                 return True
         if not stances and not avoid and self._worth_searching(target):
             if self._navigate(target, reach=reach, radius=2):

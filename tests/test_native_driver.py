@@ -687,3 +687,49 @@ def test_companion_goto_failure_stops_the_goto_not_the_episode(monkeypatch):
 
     assert end["type"] == "navigation_stopped"
     assert "course_end" not in sent and "release" in sent
+
+
+def test_probe_that_turns_into_the_walk_drives_its_adopted_route(monkeypatch):
+    # Run 20261111T135214868983Z: a probe found the route, was cancelled, and the
+    # walk planned it again. The probe now unparks itself; the driver must notice.
+    rows = iter([{"tick": 1}, {"tick": 2}, {"terminal": {"status": "success"}}])
+    sent = []
+    client = SimpleNamespace(
+        send=lambda op, **kw: sent.append(op) or {"sequence": 1},
+        acknowledge=lambda *_: None,
+        wait=lambda predicate, **kw: predicate(
+            {"route_follower": {"route_id": "native-1"}}
+        ),
+        record=lambda *args: None,
+    )
+    controller = SimpleNamespace(
+        route=[],
+        mode="following",
+        terrain=None,
+        gap_jump=None,
+        failed_edges=set(),
+        movement_policy=MovementPolicy(),
+        committed_step=None,
+        no_drive=True,
+        _admit=lambda _: None,
+        _discard_prefetch=lambda: None,
+        drain_events=lambda: [],
+    )
+
+    def decide(observation, *, native=False):
+        controller.route = [(0, 1, 0), (1, 1, 0)]
+
+    def stop_reason(observation):
+        if observation.get("tick") == 2:
+            controller.no_drive = False  # verdict: walk the adopted route
+
+    controller.decide, controller.stop_reason = decide, stop_reason
+    monkeypatch.setattr(
+        native_driver,
+        "policy_state",
+        lambda _c: {"body": {"position": [0.5, 1, 0.5]}, **next(rows)},
+    )
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda _c, row: row.get("terminal"))
+    assert native_driver.drive_native(client, controller, 10) == {"status": "success"}
+    assert sent == ["follow_route", "cancel_route"]

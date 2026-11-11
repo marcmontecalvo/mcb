@@ -223,7 +223,7 @@ def test_probes_cannot_restart_the_five_second_idle_clock(monkeypatch, capsys):
     first = probe(2.5)
     assert first.stop_reason(obs) is None
     now[0] = 2.51
-    assert first.stop_reason(obs) == "probed"
+    assert first.stop_reason(obs) is None and first.probe is False  # walks on
     second = probe(10)
     now[0] = 4.99
     assert second.stop_reason(obs) is None
@@ -322,9 +322,8 @@ def test_goto_stance_walks_known_stances_before_any_interaction_search(monkeypat
     calls = []
 
     def navigate(goal, *, reach, radius, probe=False):
-        if not probe:
-            calls.append((goal, reach))
-        return probe  # verdict: routable; the walk then fails
+        calls.append((goal, reach))
+        return False  # the walk fails
 
     monkeypatch.setattr(b, "_navigate", navigate)
     assert b.goto_stance((2, 0, 2), 4.5) is False
@@ -342,14 +341,39 @@ def test_goto_stance_skips_candidates_the_planner_cannot_route(monkeypatch):
 
     def navigate(goal, *, reach, radius, probe=False):
         seen.append((goal, probe))
-        return not (probe and goal == (2, 0, 0))  # no route to that first stance
+        return goal != (2, 0, 0)  # no route to that first stance
 
     monkeypatch.setattr(b, "_navigate", navigate)
     monkeypatch.setattr(b, "stances", lambda *a, **k: [(2, 0, 0), (3, 0, 1)])
     assert b.goto_stance((2, 0, 2), 4.5) is True
-    assert ((2, 0, 0), True) in seen
-    assert ((2, 0, 0), False) not in seen  # never walked
-    assert ((3, 0, 1), True) in seen and ((3, 0, 1), False) in seen
+    # Every walk starts as a parked probe; a found route is walked by that same
+    # controller, never planned a second time (run 20261111T135214868983Z).
+    assert seen == [((2, 0, 0), True), ((3, 0, 1), True)]
+
+
+@pytest.mark.parametrize("walk_only", [False, True])
+def test_walk_to_plans_once_and_probes_only_when_walk_only(monkeypatch, walk_only):
+    b, _, _ = body()
+    b.walk_only = walk_only
+    seen = []
+    monkeypatch.setattr(b, "_stand_y", lambda x, y, z: y)
+    monkeypatch.setattr(
+        b, "_navigate", lambda goal, **kw: seen.append(kw["probe"]) or True
+    )
+    assert b.walk_to((3, 0, 3)) is True
+    assert seen == [walk_only]
+
+
+def test_probe_with_a_route_becomes_the_walk_instead_of_ending(monkeypatch):
+    from mclab.route_types import RouteResult
+
+    monkeypatch.setattr(cb.time, "monotonic", lambda: 7.0)
+    ctl = cb._GotoController.__new__(cb._GotoController)
+    ctl.probe, ctl.no_drive, ctl.deadline = True, True, 10**18
+    ctl.mode, ctl.walk_wall = "following", 90.0
+    ctl.last_result = RouteResult("reached", ((0, 0, 0), (1, 0, 0)), 0, 0, "ok")
+    assert ctl.stop_reason({"tick": 1}) is None
+    assert (ctl.probe, ctl.no_drive, ctl.deadline) == (False, False, 97.0)
 
 
 def test_probe_drive_ends_on_the_first_planner_verdict():
@@ -367,10 +391,10 @@ def test_probe_drive_ends_on_the_first_planner_verdict():
     assert ctl.stop_reason({"tick": 2}) == "unreachable"
     ctl.mode = "unreachable"  # a fresher yes beats the stale no
     ctl.last_result = RouteResult("reached", ((0, 0, 0),), 0, 0, "ok")
-    assert ctl.stop_reason({"tick": 3}) == "probed"
-    ctl.mode, ctl.last_result = "searching", None
+    assert ctl.stop_reason({"tick": 3}) is None and ctl.probe is False  # walks it
+    ctl.probe, ctl.mode, ctl.last_result = True, "searching", None
     ctl.deadline = 0
-    assert ctl.stop_reason({"tick": 4}) == "probed"  # no verdict: walk it as before
+    assert ctl.stop_reason({"tick": 4}) is None and ctl.probe is False  # walk anyway
 
 
 def test_probe_finishes_map_transfer_without_resetting_five_second_watch(monkeypatch):
@@ -385,12 +409,12 @@ def test_probe_finishes_map_transfer_without_resetting_five_second_watch(monkeyp
     ctl.last_result = SimpleNamespace(status="searching", reason="planner map transfer")
     ctl.guard = cb.StuckGuard()
     observation = {"tick": 1, "body": {"position": [0.5, 0, 0.5]}}
+    ctl.walk_wall = 90.0
     assert ctl.stop_reason(observation) is None
     now[0] = 3.0
-    assert ctl.stop_reason(observation) is None  # preserve the in-flight generation
-    ctl.last_result.reason = "body plan pending"
-    assert ctl.stop_reason(observation) == "probed"  # committed map can be reused
-    ctl.last_result.reason = "planner map transfer"
+    # past the probe wall mid-upload: become the walk, keeping the upload
+    assert ctl.stop_reason(observation) is None and ctl.no_drive is False
+    assert ctl.deadline == 93.0
     now[0] = 5.0
     assert ctl.stop_reason(observation) == "stuck"  # still bounded by wall time
 
@@ -678,8 +702,8 @@ def _stale_idle_body(monkeypatch):
     def navigate(goal, *, reach, radius, probe=False):
         seen.append(dict(b._navigation_idle))
         b._navigation_idle.update(anchor=(1.0, 0.0, 1.0), since=now[0])
-        now[0] += 3  # a probe, then the walk: one operation, one shared clock
-        return probe and len(seen) < 2
+        now[0] += 3  # two walks inside one operation share one clock
+        return False
 
     monkeypatch.setattr(b, "_navigate", navigate)
     return b, seen
@@ -705,9 +729,9 @@ def test_each_navigation_op_starts_with_a_fresh_idle_clock(monkeypatch, op):
     assert seen[0] == {"anchor": None, "since": 100.0}
 
 
-def test_probe_and_walk_inside_one_op_share_the_idle_clock(monkeypatch):
+def test_walks_inside_one_op_share_the_idle_clock(monkeypatch):
     b, seen = _stale_idle_body(monkeypatch)
-    monkeypatch.setattr(b, "stances", lambda *a, **k: [(3, 0, 3)])
+    monkeypatch.setattr(b, "stances", lambda *a, **k: [(3, 0, 3), (4, 0, 3)])
     b.goto_stance((2, 0, 2), 4.5)
     assert len(seen) == 2 and seen[1]["since"] == 100.0  # not reset between them
 
@@ -720,25 +744,6 @@ def test_drop_pickup_defers_an_item_still_falling_instead_of_giving_up(monkeypat
         b, "_navigate", lambda *a, **k: (_ for _ in ()).throw(AssertionError)
     )
     assert b.walk_to_drop((1, 75, 0), 0.8) is None  # not False: retry once it lands
-
-
-def test_parked_probe_upload_extension_is_capped_even_while_the_body_drifts(
-    monkeypatch,
-):
-    from types import SimpleNamespace
-
-    now = [0.0]
-    monkeypatch.setattr(cb.time, "monotonic", lambda: now[0])
-    ctl = cb._GotoController.__new__(cb._GotoController)
-    ctl.probe, ctl.deadline, ctl.mode = True, 2.5, "planning"
-    ctl.last_result = SimpleNamespace(status="searching", reason="planner map transfer")
-    ctl.guard = cb.StuckGuard()
-    seen = []
-    for t in (1.0, 3.0, 4.9, 5.1):  # bobbing in water: 0.6 block each check
-        now[0] = t
-        x = 0.5 + 0.6 * len(seen)
-        seen.append(ctl.stop_reason({"tick": 1, "body": {"position": [x, 62, 0.5]}}))
-    assert seen == [None, None, None, "probed"]
 
 
 @pytest.mark.parametrize(

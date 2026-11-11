@@ -345,8 +345,6 @@ def drive_native(client, controller, wall_timeout):
         "routes_spliced": 0,
     }
     client.last_controller_error = None
-    # a plan-only probe controller parks the motor: submissions stay off
-    no_drive = bool(getattr(controller, "no_drive", False))
     best_distance, best_tick = math.inf, None
     try:
         while time.monotonic() < deadline:
@@ -372,6 +370,9 @@ def drive_native(client, controller, wall_timeout):
             stop_reason = getattr(controller, "stop_reason", None)
             if stop_reason is not None and (why := stop_reason(observation)):
                 return {"type": "navigation_stopped", "data": {"reason": why}}
+            # A plan-only probe parks the motor until its verdict turns it into
+            # the walk (companion_body._GotoController._walk_on).
+            no_drive = bool(getattr(controller, "no_drive", False))
             goal, tick = getattr(controller, "goal", None), observation.get("tick")
             # stall_seconds = 0 turns off both stall cutoffs (natural.py sets None).
             limit = getattr(controller, "goal_progress_ticks", GOAL_PROGRESS_TICKS)
