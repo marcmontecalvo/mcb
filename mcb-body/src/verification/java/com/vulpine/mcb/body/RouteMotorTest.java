@@ -50,10 +50,61 @@ public final class RouteMotorTest {
         return cells;
     }
     private static void swimAndLandingChecks() {
+        var channel=floor();
+        for (int x=0;x<=2;x++) channel.put(new Key(x,1,0),water("0"));
+        channel.put(new Key(3,1,0),stone());
+        var path=List.of(new RouteMotor.Point(0,1,0),new RouteMotor.Point(1,1,0),
+                new RouteMotor.Point(2,1,0),new RouteMotor.Point(3,2,0));
+        var traverse=motor(path);
+        traverse.tick(wet(.5,1.04,.5),geometry(channel));
+        traverse.tick(wet(1.5,1.04,.5),geometry(channel));
+        check(traverse.status().get("next_index").equals(2),"ungrounded wading advances the first intermediate waypoint");
+        traverse.tick(wet(2.5,1.04,.5),geometry(channel));
+        check(traverse.status().get("next_index").equals(3),"ungrounded wading advances to the bank rather than oscillating");
+        traverse.tick(pose(3.5,2,.5,-90),geometry(channel));
+        check(traverse.status().get("state").equals("done"),"multi-waypoint wading completes without swimming");
+        var skipped=motor(path);
+        skipped.tick(wet(.5,1.04,.5),geometry(channel));
+        skipped.tick(wet(2.5,1.04,.5),geometry(channel));
+        check(skipped.status().get("next_index").equals(3),"wet supported overshoot resynchronizes to a later waypoint");
+        var shallow=floor();
+        shallow.put(new Key(0,1,0),water("0"));
+        shallow.put(new Key(1,1,0),stone());
+        var wader=motor(List.of(new RouteMotor.Point(0,1,0),new RouteMotor.Point(1,2,0)));
+        var rise=wader.tick(wet(.7,1.04,.5),geometry(shallow));
+        check(wader.active() && rise.jump() && rise.forward()>0,"wading bank exit holds jump off the bottom without swimming enabled");
+        wader.tick(pose(1.5,2,.5,-90),geometry(shallow));
+        check(wader.status().get("state").equals("done"),"wading bank exit completes");
+        // Wading onto a slab under a low roof: a 0.5 rise needs the planner's target+1.8, not jump headroom.
+        var slabRoof=floor();
+        slabRoof.put(new Key(0,1,0),water("0"));
+        slabRoof.put(new Key(1,1,0),Map.of("block","minecraft:stone_slab","fluid","minecraft:empty",
+                "collision_boxes",List.of(List.of(0,0,0,1,.5,1))));
+        for(int x=-1;x<=2;x++) for(int z=-1;z<=1;z++) slabRoof.put(new Key(x,4,z),stone());
+        var slabRoute=List.of(new RouteMotor.Point(0,1,0),new RouteMotor.Point(1,1.5,0));
+        var footed=motor(slabRoute).tick(new RouteMotor.Pose(.7,1,.5,0,0,-90,true,20,true),geometry(slabRoof));
+        check(footed.forward()>0 && footed.jump(),"grounded wader steps onto a roofed slab");
+        var buoyed=motor(slabRoute);
+        var lifted=buoyed.tick(wet(.7,1.04,.5),geometry(slabRoof));
+        check(buoyed.active() && lifted.forward()>0 && lifted.jump(),"buoyant wader keeps moving onto a roofed slab");
         var g=geometry(pool());
         check(g.swimSurface(new RouteMotor.Point(3,1,0)),"known still water is a surface stance");
         check(!g.swimSurface(new RouteMotor.Point(1,1,0)),"land is not a surface stance");
         check(!g.standable(new RouteMotor.Point(3,1,0)),"water is never land support");
+        for (var plant : List.of("minecraft:seagrass", "minecraft:tall_seagrass")) {
+            var planted = pool();
+            for (int x=2; x<=4; x++) planted.put(new Key(x,0,0),Map.of(
+                    "block",plant,"fluid","minecraft:water","properties",Map.of(),"collision_boxes",List.of()));
+            var pg = geometry(planted);
+            check(pg.swimSurface(new RouteMotor.Point(3,1,0)),"aquatic plants retain source-water surface support");
+            var swimmer = new RouteMotor("plant", List.of(new RouteMotor.Point(2,1,0),new RouteMotor.Point(3,1,0)), SWIM);
+            var input = swimmer.tick(wet(2.5,0,.5),pg);
+            check(swimmer.active() && input.jump(),"submerged body rises through aquatic source plants");
+            var rising = swimmer.tick(wet(3.5,0,.5),pg);
+            check(swimmer.active() && rising.jump(),"last swim waypoint keeps rising instead of stopping submerged");
+            swimmer.tick(wet(3.5,1,.5),pg);
+            check(swimmer.status().get("state").equals("done"),"plant-water route completes");
+        }
         Map<String,Object> bubble=Map.of("block","minecraft:bubble_column","fluid","minecraft:water","properties",Map.of("drag","false"),"collision_boxes",List.of());
         Map<String,Object> lava=Map.of("block","minecraft:lava","fluid","minecraft:lava","properties",Map.of("level","0"),"collision_boxes",List.of());
         for(var bad:List.of(water("1"),water("8"),bubble,lava)) {
@@ -159,6 +210,26 @@ public final class RouteMotorTest {
         check(!descender.tick(new RouteMotor.Pose(3.5,3.0,.5,0,0,0,false,20),g).jump(),"no jump descends");
         var lost=new RouteMotor("c",up,policy); lost.tick(new RouteMotor.Pose(3.5,1.2,.5,0,0,0,false,20),geometry(floor()));
         check(!lost.active(),"ladder removed mid-route refuses");
+        var scaffold=floor();
+        for(int y=1;y<=3;y++) scaffold.put(new Key(3,y,0),Map.of("block","minecraft:scaffolding",
+                "fluid","minecraft:empty","collision_boxes",List.of(List.of(0,.875,0,1,1,1))));
+        var platform=geometry(scaffold);
+        var top=new RouteMotor("platform",List.of(new RouteMotor.Point(3,3,0),new RouteMotor.Point(3,4,0)),policy);
+        var steer=top.tick(new RouteMotor.Pose(3.8,3.1,.5,0,0,90,false,20),platform);
+        check(top.active() && steer.forward()>0 && steer.jump(),"final scaffold climb centres to the land arrival radius");
+        top.tick(new RouteMotor.Pose(3.5,4,.5,0,0,0,true,20),platform);
+        check(top.status().get("state").equals("done"),"scaffold climb ends standing on its top platform");
+        // Real sensor shape (results/scaffolding/20261111T134712226357Z): four posts plus the top rim.
+        var real=floor();
+        for(int y=1;y<=3;y++) real.put(new Key(3,y,0),Map.of("block","minecraft:scaffolding","fluid","minecraft:empty",
+                "collision_boxes",List.of(List.of(0,0,0,.125,1,.125),List.of(0,0,.875,.125,1,1),List.of(.875,0,0,1,1,.125),
+                        List.of(.875,0,.875,1,1,1),List.of(0,.875,.125,1,1,.875),List.of(.125,.875,0,.875,1,.125),
+                        List.of(.125,.875,.875,.875,1,1)),"properties",Map.of("bottom","false","distance","0")));
+        var realTop=new RouteMotor("platform",List.of(new RouteMotor.Point(3,3,0),new RouteMotor.Point(3,4,0)),policy);
+        var realSteer=realTop.tick(new RouteMotor.Pose(3.8,3.1,.5,0,0,90,false,20),geometry(real));
+        check(realTop.active() && realSteer.forward()>0 && realSteer.jump(),"real seven-box scaffold climb centres");
+        realTop.tick(new RouteMotor.Pose(3.5,4,.5,0,0,0,true,20),geometry(real));
+        check(realTop.status().get("state").equals("done"),"real seven-box scaffold top is standable");
     }
     private static final double DIAGONAL_YAW=-45;
     private static void hole(Map<Key,Map<String,Object>> cells,int x,int z) {
@@ -320,8 +391,10 @@ public final class RouteMotorTest {
         up.tick(wet(2.5,.3,.5),g);
         var rise=up.tick(wet(3.5,-.2,.5),g);
         check(up.active() && rise.forward()==0 && rise.yaw()==0 && rise.jump(),"below the stance in the column: hold jump, no steering");
-        up.tick(wet(3.5,.05,.5),g);
-        check(up.status().get("state").equals("done"),"feet within 1.0 below the stance arrive");
+        var stillRising = up.tick(wet(3.5,.05,.5),g);
+        check(up.active() && stillRising.jump(),"final swim point does not stop a block below the requested height");
+        up.tick(wet(3.5,.8,.5),g);
+        check(up.status().get("state").equals("done"),"final swim point arrives within controller height tolerance");
         // On the bed of a 3-deep pool, under a surface-stance start: swim up, not route_start_displaced.
         var deep=pool();
         for(int x=2;x<=4;x++) { deep.put(new Key(x,-1,0),water("0")); deep.put(new Key(x,-2,0),water("0")); deep.put(new Key(x,-3,0),stone()); }
@@ -384,7 +457,11 @@ public final class RouteMotorTest {
         var hazard=floor(); hazard.put(new Key(1,1,0),Map.of("block","minecraft:wither_rose","collision_boxes",List.of()));
         check(!geometry(hazard).standable(route.get(1)),"hazard clearance refuses");
         var wet=floor(); wet.put(new Key(1,1,0),Map.of("block","minecraft:air","fluid","minecraft:water","collision_boxes",List.of()));
-        check(!geometry(wet).standable(route.get(1)),"fluid refuses");
+        check(geometry(wet).standable(route.get(1)),"one-deep water over a floor is waded");
+        wet.put(new Key(1,2,0),Map.of("block","minecraft:air","fluid","minecraft:water","collision_boxes",List.of()));
+        check(!geometry(wet).standable(route.get(1)),"water at head height refuses");
+        var blind=floor(); blind.put(new Key(1,1,0),Map.of("block","minecraft:air","fluid","minecraft:water"));
+        check(!geometry(blind).standable(route.get(1)),"water without collision data is not waded");
         reject(()->motor(List.of(route.get(0),new RouteMotor.Point(2,1,0))),"ordinary route cannot imply gap");
         reject(()->new RouteMotor("x",List.of(route.get(0),new RouteMotor.Point(1,1,1)),new RouteMotor.Policy(false,false,false,1)),"diagonal permission");
         reject(()->new RouteMotor("x",List.of(route.get(0),new RouteMotor.Point(1,0,0)),new RouteMotor.Policy(false,false,false,0)),"drop permission");

@@ -177,7 +177,8 @@ final class RouteMotor {
         // Run 20261029T125842184277Z R4: 12 of 47 step-downs backed up.
         for (int n = Math.min(index + 2, route.size() - 1); n > index; n--) {
             var later = route.get(n);
-            if (pose.grounded && Math.abs(pose.y - later.y) <= .2
+            if ((pose.grounded || (pose.inWater && geometry.standable(later)))
+                    && Math.abs(pose.y - later.y) <= .2
                     && Math.floor(pose.x) == later.x && Math.floor(pose.z) == later.z) {
                 index = n; stepTicks = stalled = 0; break;
             }
@@ -258,14 +259,21 @@ final class RouteMotor {
         // the speed carries onto the step.
         boolean sprintAscent = sprintAscentAt(index);
         double jumpRange = sprintAscent && Math.hypot(pose.vx, pose.vz) > .12 ? 1.7 : 1.2;
-        boolean jumping = target.y > pose.y + .6 && pose.grounded && distance <= jumpRange;
+        // In shallow water jump must stay held after buoyancy lifts the feet off
+        // the bottom. A grounded-only pulse leaves the body bobbing at the bank.
+        boolean jumping = distance <= jumpRange && (pose.inWater
+                ? target.y > pose.y + .2
+                : pose.grounded && target.y > pose.y + .6);
         // Brake only for the route's end or a landing the route turns at; elsewhere arrival
         // (column entry) retargets, as Baritone's PathExecutor does.
         boolean brake = targetIndex == route.size() - 1 || (target.y < source.y && !throughPoint);
         double forward = brake ? Math.min(1, Math.max(.12, target.distance(pose) / .3)) : 1;
         double travel = Math.min(target.distance(pose) + .03,
                 Math.hypot(pose.vx, pose.vz) * 2 + WALK_BLOCKS_PER_TICK * 2 * forward);
-        if (!fits(geometry, cut, pose, target, source.y, travel, jumping)) {
+        // Jump headroom only for a real ascent (RoutePlanner.stepClear: rise > .6). A wading
+        // hop onto a slab holds jump to beat buoyancy but needs only standing room there.
+        boolean headroom = jumping && target.y > pose.y + .6;
+        if (!fits(geometry, cut, pose, target, source.y, travel, headroom)) {
             // Baritone MovementDiagonal "edging": steer round a blocked side column.
             if (cut && !jumping && startBend(pose, geometry, source, target)) return followBend(pose, geometry, source);
             // The planner's step is clear from the cell centre; an off-centre body can
@@ -370,9 +378,13 @@ final class RouteMotor {
     private boolean arrived(Pose pose, Geometry geometry, Point source, Point target) {
         if (Math.floor(pose.x) != target.x || Math.floor(pose.z) != target.z) return false;
         boolean last = index == route.size() - 1;
-        if (pose.grounded && Math.abs(pose.y - target.y) <= .2 && (!last || target.distance(pose) <= arrivalRadius)) return true;
+        // Buoyancy can unset onGround while the feet remain at the supported
+        // bottom. Without this, lookahead walks past wet waypoints forever but
+        // arrival never advances index, sending the body back over the same cells.
+        boolean supported = pose.grounded || (pose.inWater && geometry.standable(target));
+        if (supported && Math.abs(pose.y - target.y) <= .2 && (!last || target.distance(pose) <= arrivalRadius)) return true;
         // Swimming bobs the feet up to a block under the surface stance.
-        if (policy.swim && pose.inWater && pose.y >= target.y - 1.0 && pose.y <= target.y + .2
+        if (policy.swim && pose.inWater && pose.y >= target.y - (last ? .25 : 1.0) && pose.y <= target.y + .2
                 && (!last || target.distance(pose) <= .35) && geometry.swimSurface(target)) return true;
         return policy.climb && pose.y >= target.y - .5 && pose.y <= target.y + (target.y > source.y ? .9 : .3)
                 && (!last || target.distance(pose) <= .45) && geometry.climbable(target);
@@ -430,7 +442,7 @@ final class RouteMotor {
         if (moved < .01) stalled++; else stalled = 0;
         if (stalled > 30) { stop("route_no_progress"); return Input.STOP; }
         if (vertical) {
-            boolean off = target.distance(pose) > .35;
+            boolean off = target.distance(pose) > (index == route.size() - 1 ? arrivalRadius : .35);
             return new Input(off && Math.abs(turn) <= 45 ? .3 : 0, off ? yaw : 0, up, false);
         }
         return new Input(Math.abs(turn) > 45 ? 0 : 1, yaw, up, false);

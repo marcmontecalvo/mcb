@@ -31,10 +31,14 @@ final class RouteGeometry implements RouteMotor.Geometry {
 
     boolean clear(double x, double z, double bottom, double top) {
         double radius = .3 - 1e-6;
+        int feet = (int)Math.floor(bottom + 1e-6);
         for (int cx = (int)Math.floor(x - radius); cx <= Math.floor(x + radius); cx++)
             for (int cz = (int)Math.floor(z - radius); cz <= Math.floor(z + radius); cz++)
-                for (int cy = (int)Math.floor(bottom + 1e-6); cy < Math.ceil(top - 1e-6); cy++) {
+                for (int cy = feet; cy < Math.ceil(top - 1e-6); cy++) {
                     var cell = cell(cx, cy, cz);
+                    // Wading (RoutePlanner.clearColumn): water in the feet cell only; the head stays dry.
+                    if (cy == feet && cell != null && "minecraft:water".equals(cell.get("fluid"))
+                            && List.of().equals(cell.get("collision_boxes")) && !HAZARDS.contains(cell.get("block"))) continue;
                     if (!admitted(cell)) return false;
                     for (var entry : boxes(cell)) {
                         var box = (List<?>) entry;
@@ -64,15 +68,17 @@ final class RouteGeometry implements RouteMotor.Geometry {
         return found;
     }
 
-    // Baritone MovementHelper.isWater/isFlowing: only a KNOWN source block counts. Flowing,
-    // falling, waterlogged and bubble-column water all fail (level != 0, other block id).
-    private static final Set<String> CLIMBABLE = Set.of("minecraft:ladder", "minecraft:vine", "minecraft:twisting_vines",
+    // Match RoutePlanner.water: collision-free source fluid includes seagrass.
+    // Flowing/falling water, solid waterlogged blocks and hazards remain excluded.
+    // Scaffolding too: RoutePlanner plans climbs through it, so the motor must be able to follow them.
+    private static final Set<String> CLIMBABLE = Set.of("minecraft:ladder", "minecraft:vine", "minecraft:scaffolding", "minecraft:twisting_vines",
             "minecraft:twisting_vines_plant", "minecraft:weeping_vines", "minecraft:weeping_vines_plant",
             "minecraft:cave_vines", "minecraft:cave_vines_plant");
     private static boolean stillWater(Map<String, Object> cell) {
-        return cell != null && "minecraft:water".equals(cell.get("block")) && "minecraft:water".equals(cell.get("fluid"))
-                && cell.get("properties") instanceof Map<?, ?> properties && "0".equals(properties.get("level"))
-                && boxes(cell).isEmpty();
+        if (cell == null || !"minecraft:water".equals(cell.get("fluid"))
+                || HAZARDS.contains(cell.get("block")) || !List.of().equals(cell.get("collision_boxes"))) return false;
+        Object level = cell.get("properties") instanceof Map<?, ?> properties ? properties.get("level") : null;
+        return level == null || "0".equals(level);
     }
     private boolean waterAt(int x, int z, double level) {
         return level == Math.rint(level) && stillWater(cell(x, (int) level - 1, z));

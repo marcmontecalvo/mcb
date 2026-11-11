@@ -12,7 +12,11 @@ final class PlacementLogic {
 
     /** Properties the game recomputes or the builder ignores (see docs/BODY_ACTION_OPS.md). */
     static final Set<String> IGNORED = Set.of("shape", "north", "east", "south", "west", "up", "down",
-            "waterlogged", "powered", "power", "distance", "persistent", "open");
+            "waterlogged", "powered", "power", "distance", "persistent", "open",
+            // books in a chiseled bookshelf: a fresh shelf is empty, so a template with books
+            // was refused state_unreachable forever (run 20261110T070938018238Z)
+            "slot_0_occupied", "slot_1_occupied", "slot_2_occupied", "slot_3_occupied",
+            "slot_4_occupied", "slot_5_occupied");
 
     record ParsedState(String block, Map<String, String> properties) {}
 

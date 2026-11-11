@@ -22,6 +22,13 @@ import java.util.Set;
 final class StepMotor {
     // Must match terrain_steps.WIDE_EXCAVATABLE (tests/test_planner_core.py checks).
     // Python decides which blocks a plan may cut; this is the body-side allowlist.
+    /** Non-colliding ground cover the body clears by hand when it blocks the edit ray. */
+    private static final Set<String> PLANTS = Set.of("minecraft:short_grass","minecraft:tall_grass",
+            "minecraft:fern","minecraft:large_fern","minecraft:dead_bush","minecraft:dandelion","minecraft:poppy",
+            "minecraft:blue_orchid","minecraft:allium","minecraft:azure_bluet","minecraft:red_tulip",
+            "minecraft:orange_tulip","minecraft:white_tulip","minecraft:pink_tulip","minecraft:oxeye_daisy",
+            "minecraft:cornflower","minecraft:lily_of_the_valley","minecraft:lilac","minecraft:rose_bush",
+            "minecraft:peony","minecraft:sunflower","minecraft:sweet_berry_bush");
     private static final Map<String,String> TOOLS = Map.ofEntries(
             Map.entry("minecraft:acacia_leaves","minecraft:iron_axe"),
             Map.entry("minecraft:acacia_log","minecraft:iron_axe"),
@@ -389,6 +396,19 @@ final class StepMotor {
                 if(safe) { miningPoint=block.getBlockPos(); selected=slot(p,TOOLS.get(occluder.get("block"))); hit=selected>=0; }
             }
         }
+        // A plant (short grass, a flower) in the stance or target line is hit by the ray before the
+        // cell being cut, and only the edit target counted as a hit: aligned for the whole step, never
+        // mining, then native_step_deadline (natural run 20261109T232225692032Z: 5 steps x 160 ticks).
+        // Such a plant is broken first; it is not part of the plan's edit list.
+        boolean plant=false;
+        if(!op.place && aligned && !hit && ray instanceof BlockHitResult cover && ray.getType()==HitResult.Type.BLOCK) {
+            var plantCell=read(reader,cover.getBlockPos());
+            if(plantCell!=null && PLANTS.contains(plantCell.get("block"))
+                    && "minecraft:empty".equals(plantCell.getOrDefault("fluid","minecraft:empty"))
+                    && !protectedBlocks.contains(plantCell.get("block"))) {
+                miningPoint=cover.getBlockPos(); hit=true; plant=true;
+            }
+        }
         boolean jump=false;
         if(pillar) {
             if(!launched && p.onGround() && aligned && hit && Math.hypot(p.getDeltaMovement().x,p.getDeltaMovement().z)<.03) {
@@ -397,9 +417,9 @@ final class StepMotor {
             if(p.getY()<source.getY()+1 || p.getDeltaMovement().y<.01) hit=false;
         }
         boolean mine=!op.place && aligned && hit;
-        if(mine) issuedBreaks.add(miningPoint);
+        if(mine && !plant) issuedBreaks.add(miningPoint);
         boolean use=op.place && aligned && hit;
-        if(mine || use) { issued=true; issueTick=tick; }
+        if((mine && !plant) || use) { issued=true; issueTick=tick; }
         if(use) placedItem=BuiltInRegistries.ITEM.getKey(p.getInventory().getItem(selected).getItem()).toString();
         return input(tick,0,Math.max(-45,Math.min(45,yaw)),Math.max(-45,Math.min(45,pitch)),jump,sneak,mine,use,selected);
     }

@@ -66,7 +66,7 @@ final class RoutePlanner {
     // planner_swim + allow_swim, and baritone_moves (ladders, water landings; no edits here).
     private boolean swim, plannerSwim = true, extra, climb = true;
 
-    /** Turns on swimming (planner_swim) and Baritone's extra moves (ladders, water landings). */
+    /** Turns on swimming (planner_swim) and Baritone's extra edit/water-landing moves. */
     RoutePlanner withMoves(boolean swim, boolean extra) { this.swim = swim; this.extra = extra; return this; }
     RoutePlanner withPlannerSwim(boolean plannerSwim) { this.plannerSwim = plannerSwim; return this; }
     RoutePlanner withClimb(boolean climb) { this.climb = climb; return this; }
@@ -355,7 +355,7 @@ final class RoutePlanner {
     private List<Move> moves(Node node) {
         var out = new ArrayList<Move>(8);
         int x = node.x, z = node.z; double y = node.y;
-        if (extra && climbOnly(node)) { if (climb) extraMoves(node, out); return out; }
+        if (climb && climbOnly(node)) { ladderMoves(node, out); return out; }
         boolean onWater = swim && (surfaceNode(node) || (plannerSwim && flowingSurface(node)));
         var below = at(x, y - 1, z);
         boolean gapRoom = maxGap > 0 && integral(y) && below != null && dry(below) && fullCube(below);
@@ -403,9 +403,11 @@ final class RoutePlanner {
                 if (wet == null) wet = surfaceWater(node);
                 if (wet != null) { out.add(new Move(target, (ticks ? SWIM : 1.8) * multiplier(wet) * SQRT2)); continue; }
             }
+            if (!swept(node, target)) continue;  // thin panel on a column edge: the motor would refuse the cut
             // Edging past one blocked side: walk pace, no sprint (MovementDiagonal).
             out.add(new Move(target, a == 0 || b == 0 ? WALK * SQRT2 * (SQRT2 - .001) : flat() * SQRT2));
         }
+        if (climb) ladderMoves(node, out);
         if (extra) extraMoves(node, out);
         return out;
     }
@@ -441,10 +443,12 @@ final class RoutePlanner {
     private static boolean integral(double y) { return y == Math.floor(y); }
     private Map<String, Object> at(int x, double y, int z) { return integral(y) ? cell(x, (int) y, z) : null; }
     boolean surfaceNode(Node n) {
-        return integral(n.y) && water(at(n.x, n.y - 1, n.z), true) && clearColumn(n.x, n.z, n.y, n.y + 2.5);
+        return integral(n.y) && water(at(n.x, n.y - 1, n.z), true) && safe(at(n.x, n.y, n.z))
+                && clearColumn(n.x, n.z, n.y, n.y + 2.5);
     }
     private boolean flowingSurface(Node n) {
-        return integral(n.y) && water(at(n.x, n.y - 1, n.z), false) && clearColumn(n.x, n.z, n.y, n.y + 2.5);
+        return integral(n.y) && water(at(n.x, n.y - 1, n.z), false) && safe(at(n.x, n.y, n.z))
+                && clearColumn(n.x, n.z, n.y, n.y + 2.5);
     }
     private Map<String, Object> surfaceWater(Node n) {
         var below = at(n.x, n.y - 1, n.z);
@@ -501,7 +505,6 @@ final class RoutePlanner {
     private boolean openOrClimb(Map<String, Object> c) { return empty(c) || climbable(c); }
 
     private void extraMoves(Node node, List<Move> out) {
-        if (climb) ladderMoves(node, out);
         if (!integral(node.y) || !blockStandable(node)) return;
         if (edits != null) {
             addEdit(downward(node), fallTicks(1), node, out);  // MovementDownward: fall 1, no walk-off
@@ -517,7 +520,8 @@ final class RoutePlanner {
         if (!integral(y)) return;
         if (climbable(at(x, y, z))) {
             var up = new Node(x, y + 1, z); var down = new Node(x, y - 1, z);
-            if (climbable(at(x, y + 1, z)) && openOrClimb(at(x, y + 2, z))) out.add(new Move(up, ticks ? LADDER_UP : 1.4));
+            boolean platform = "minecraft:scaffolding".equals(at(x, y, z).get("block")) && standable(up);
+            if ((climbable(at(x, y + 1, z)) || platform) && openOrClimb(at(x, y + 2, z))) out.add(new Move(up, ticks ? LADDER_UP : 1.4));
             if (climbable(at(x, y - 1, z))) out.add(new Move(down, ticks ? LADDER_DOWN : 1.4));
             for (var d : DIRECTIONS) for (int dy = 0; dy <= 1; dy++) {
                 var target = new Node(x + d[0], y + dy, z + d[1]);
@@ -601,6 +605,10 @@ final class RoutePlanner {
         return cell != null && "minecraft:empty".equals(cell.getOrDefault("fluid", "minecraft:empty"))
                 && !HAZARDS.contains(cell.get("block"));
     }
+    private static boolean wadeable(Map<String, Object> cell) {
+        return cell != null && "minecraft:water".equals(cell.get("fluid")) && List.of().equals(cell.get("collision_boxes"))
+                && !HAZARDS.contains(cell.get("block"));
+    }
     private static List<?> boxes(Map<String, Object> cell) {
         return cell.get("collision_boxes") instanceof List<?> list ? list : List.of();
     }
@@ -609,10 +617,12 @@ final class RoutePlanner {
     boolean clearColumn(int x, int z, double bottom, double top) {
         double cx0 = x + .5, cz0 = z + .5;
         double left = cx0 - RADIUS, right = cx0 + RADIUS, near = cz0 - RADIUS, far = cz0 + RADIUS;
+        int feet = (int) Math.floor(bottom + EPS);
         for (int cx = (int) Math.floor(left + EPS); cx < Math.ceil(right - EPS); cx++)
             for (int cz = (int) Math.floor(near + EPS); cz < Math.ceil(far - EPS); cz++)
-                for (int cy = (int) Math.floor(bottom + EPS); cy < Math.ceil(top - EPS); cy++) {
+                for (int cy = feet; cy < Math.ceil(top - EPS); cy++) {
                     var cell = cell(cx, cy, cz);
+                    if (cy == feet && wadeable(cell)) continue;  // collision_geometry.clear_body: feet may be wet
                     if (!safe(cell) || !cell.containsKey("collision_boxes")) return false;
                     for (var box : boxes(cell))
                         if (cx + at(box, 0) < right - EPS && cx + at(box, 3) > left + EPS
@@ -630,7 +640,7 @@ final class RoutePlanner {
         var found = new ArrayList<Double>();
         if (safe(cell)) {
             String block = String.valueOf(cell.getOrDefault("block", ""));
-            if (fullCube(cell) || block.endsWith("_slab") || block.endsWith("_stairs"))
+            if (fullCube(cell) || block.endsWith("_slab") || block.endsWith("_stairs") || block.equals("minecraft:scaffolding"))
                 for (var box : boxes(cell))
                     if (at(box, 0) < .8 - EPS && at(box, 3) > .2 + EPS && at(box, 2) < .8 - EPS && at(box, 5) > .2 + EPS) {
                         double h = y + at(box, 4);
@@ -661,12 +671,33 @@ final class RoutePlanner {
     }
     private boolean stepClear(Node source, Node target) {
         if (!standable(source) || !standable(target)) return false;
+        boolean clear;
         if (target.y > source.y) {
             double extra = target.y - source.y > .6 ? 1.2 : 0;
-            return clearColumn(source.x, source.z, source.y, Math.max(source.y + 1.8, target.y + 1.8 + extra))
+            clear = clearColumn(source.x, source.z, source.y, Math.max(source.y + 1.8, target.y + 1.8 + extra))
                     && clearColumn(target.x, target.z, target.y, target.y + 1.8 + extra);
-        }
-        return clearColumn(target.x, target.z, target.y, source.y + 1.8);
+        } else clear = clearColumn(target.x, target.z, target.y, source.y + 1.8);
+        if (!clear) return false;
+        // A clear stance centre can hide a thin entry-face obstacle (an open
+        // trapdoor on a house wall). Admit the same swept hitbox as the motor.
+        return swept(source, target);
+    }
+    /** The motor's swept hitbox (RouteMotor.fits) when either column holds partial geometry. */
+    private boolean swept(Node source, Node target) {
+        if (!sideGeometry(source) && !sideGeometry(target)) return true;
+        var geometry = new RouteGeometry(this::cell);
+        double yaw = Math.toDegrees(Math.atan2(-(target.x - source.x), target.z - source.z));
+        var pose = new RouteMotor.Pose(source.x + .5, source.y, source.z + .5, 0, 0, yaw, true, 20);
+        var point = new RouteMotor.Point(target.x, target.y, target.z);
+        double distance = Math.hypot(target.x - source.x, target.z - source.z);
+        if (target.x != source.x && target.z != source.z)
+            return geometry.safeDiagonal(pose, point, source.y, distance, false, maxDrop);
+        return geometry.safe(pose, point, source.y, distance, target.y - source.y > .6, maxDrop);
+    }
+    private boolean sideGeometry(Node node) {
+        for (int y = (int) Math.floor(node.y); y < Math.ceil(node.y + 1.8 - EPS); y++)
+            if (!boxes(cell(node.x, y, node.z)).isEmpty()) return true;
+        return false;
     }
 
     // --- edit edges (stage D): terrain_steps.plan_edit, route_moves, route_search._edit_cost ---

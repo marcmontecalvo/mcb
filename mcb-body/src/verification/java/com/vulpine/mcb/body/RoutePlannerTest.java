@@ -52,6 +52,30 @@ public final class RoutePlannerTest {
         for (int z = -2; z <= 12; z++) if (z != 0) { step.put(new Key(3, 1, z), stone()); step.put(new Key(3, 2, z), stone()); step.put(new Key(3, 3, z), stone()); }
         var up = plan(step, new RoutePlanner.Node(3, 2, 0), 100_000);
         check(up.status().equals("reached"), "climbs a one-block step");
+        // Small-house shutter: the goal centre is clear, but its entry face is not.
+        var shutter = floor(4);
+        shutter.put(new Key(1, 1, 0), stone());
+        shutter.put(new Key(1, 2, 0), Map.of("block", "minecraft:oak_trapdoor", "fluid", "minecraft:empty",
+                "collision_boxes", List.of(List.of(0, 0, 0, .1875, 1, 1))));
+        var shutterGoal = new RoutePlanner.Node(1, 2, 0);
+        var shutterRoute = plan(shutter, shutterGoal, 10_000);
+        check(shutterRoute.status().equals("reached") && shutterRoute.route().size() > 2,
+                "open trapdoor blocks direct ascent, requiring an unobstructed approach");
+        // Wading onto a slab under a roof at y=4: admitted, and RouteMotorTest checks the motor follows it.
+        var roofed = floor(4);
+        roofed.put(new Key(0, 1, 0), water());
+        roofed.put(new Key(1, 1, 0), Map.of("block", "minecraft:stone_slab", "fluid", "minecraft:empty",
+                "collision_boxes", List.of(List.of(0, 0, 0, 1, .5, 1))));
+        for (int x = -1; x <= 2; x++) for (int z = -1; z <= 1; z++) roofed.put(new Key(x, 4, z), stone());
+        var slabWade = plan(roofed, new RoutePlanner.Node(1, 1.5, 0), 10_000);
+        check(slabWade.status().equals("reached") && slabWade.route().size() == 2, "wades straight onto a roofed slab");
+        // Diagonal past an open trapdoor on the target's near face: the swept body hits the panel.
+        var latch = floor(4);
+        latch.put(new Key(1, 1, 1), Map.of("block", "minecraft:oak_trapdoor", "fluid", "minecraft:empty",
+                "collision_boxes", List.of(List.of(0, 0, 0, .1875, 1, 1))));
+        var latchRoute = plan(latch, new RoutePlanner.Node(1, 1, 1), 10_000);
+        check(latchRoute.status().equals("reached") && latchRoute.route().size() > 2,
+                "open trapdoor on a diagonal target face is not cut through");
         var unknown = floor(12); for (int y = -1; y <= 6; y++) unknown.remove(new Key(1, y, 0));
         for (int z = -2; z <= 12; z++) for (int y = -1; y <= 6; y++) unknown.remove(new Key(1, y, z));
         var blocked = plan(unknown, new RoutePlanner.Node(4, 1, 0), 100_000);
@@ -64,12 +88,20 @@ public final class RoutePlannerTest {
         slab.put(new Key(2, 1, 0), Map.of("block", "minecraft:stone_slab", "collision_boxes", List.of(List.of(0, 0, 0, 1, .5, 1)), "fluid", "minecraft:empty"));
         check(new RoutePlanner((x, y, z) -> slab.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(2, 1.5, 0), 0, 3, true)
                 .search(10_000).status().equals("reached"), "stands on a bottom slab");
-        // Swimming: a 3-wide moat of still water over a stone bed, walls beside it.
-        var moat = floor(12);
+        // Wading: a moat one block deep is walked through on its bed (feet wet, head dry).
+        var shallow = floor(12);
         for (int x = 3; x <= 5; x++) for (int z = -2; z <= 12; z++) {
-            moat.put(new Key(x, 0, z), water()); moat.put(new Key(x, -1, z), stone());
+            shallow.put(new Key(x, 0, z), water()); shallow.put(new Key(x, -1, z), stone());
         }
         RoutePlanner.Node far = new RoutePlanner.Node(8, 1, 0);
+        var waded = plan(shallow, far, 100_000);
+        check(waded.status().equals("reached") && waded.route().stream().anyMatch(n -> n.x() == 4 && n.y() == 0),
+                "wades a one-deep moat on its bed");
+        // Swimming: a 3-wide moat of still water two deep over a stone bed, walls beside it.
+        var moat = floor(12);
+        for (int x = 3; x <= 5; x++) for (int z = -2; z <= 12; z++) {
+            moat.put(new Key(x, 0, z), water()); moat.put(new Key(x, -1, z), water()); moat.put(new Key(x, -2, z), stone());
+        }
         check(!plan(moat, far, 100_000).status().equals("reached"), "without swimming the moat blocks the route");
         var swum = new RoutePlanner((x, y, z) -> moat.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0), far, 0, 3, true)
                 .withMoves(true, true).search(100_000);
@@ -86,6 +118,15 @@ public final class RoutePlannerTest {
         var noClimb = new RoutePlanner((x, y, z) -> wall.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
                 new RoutePlanner.Node(3, 4, 4), 0, 3, true).withMoves(true, true).withClimb(false).search(100_000);
         check(!noClimb.status().equals("reached"), "disabled climbing cannot use the ladder");
+        var ordinaryClimb = new RoutePlanner((x, y, z) -> wall.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(3, 4, 4), 0, 3, true).withMoves(false, false).search(100_000);
+        check(ordinaryClimb.status().equals("reached"), "climbing permission is independent of optional extra moves");
+        var scaffold = floor(4);
+        for (int y = 1; y <= 3; y++) scaffold.put(new Key(2, y, 0), Map.of("block", "minecraft:scaffolding",
+                "fluid", "minecraft:empty", "collision_boxes", List.of(List.of(0, .875, 0, 1, 1, 1))));
+        var scaffoldClimb = new RoutePlanner((x, y, z) -> scaffold.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(2, 4, 0), 0, 3, true).withPolicy(true,true,true,true,true,1).withMoves(false, false).search(100_000);
+        check(scaffoldClimb.status().equals("reached"), "normal build policy stands above the top scaffold platform");
         var interaction = floor(12);
         interaction.put(new Key(4, 4, 0), stone());
         var reachedBlock = new RoutePlanner((x, y, z) -> interaction.get(new Key(x, y, z)),

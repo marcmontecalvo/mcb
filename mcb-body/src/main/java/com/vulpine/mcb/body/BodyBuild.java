@@ -212,6 +212,13 @@ final class BodyBuild {
         Unplaceable(Map<String, Object> diagnosis) { super("state_unreachable"); this.diagnosis = diagnosis; }
     }
 
+    /** no_line_of_sight with the block in the way. */
+    static final class Occluded extends BodyActions.Fail {
+        final BlockPos blocker;
+        final String state;
+        Occluded(BlockPos blocker, String state) { super("no_line_of_sight"); this.blocker = blocker; this.state = state; }
+    }
+
     /** placed_wrong carries the state the world ended up with. */
     static final class PlacedWrong extends RuntimeException {
         final String placed;
@@ -248,6 +255,13 @@ final class BodyBuild {
         var all = hits(player, pos, List.of(Direction.values()), false, stats);
         if (all.isEmpty()) {
             if (stats[0] == 0) throw new BodyActions.Fail("out_of_reach");
+            // What the eye-to-centre ray meets first: vines, leaves and grass have an outline and
+            // occlude a trunk (run 20261110T003408754165Z: all 24 refused tree breaks). The caller
+            // may break it and try again instead of guessing.
+            var eye0 = player.getEyePosition();
+            var first = player.level().clip(new ClipContext(eye0, Vec3.atCenterOf(pos), ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
+            if (first.getType() == HitResult.Type.BLOCK && !first.getBlockPos().equals(pos))
+                throw new Occluded(first.getBlockPos(), render(player.level().getBlockState(first.getBlockPos())));
             throw new BodyActions.Fail("no_line_of_sight");
         }
         Vec3 eye = player.getEyePosition();
