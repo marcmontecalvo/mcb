@@ -28,6 +28,7 @@ def main() -> int:
     with exclusive_arena():
         bridge = open_bridge(folder)
         memory = None
+        fixture_chest = None
         try:
             body, memory = start_session(bridge, folder, args.start)
             state = bridge.http("/state")
@@ -86,28 +87,33 @@ def main() -> int:
                 "place_block",
                 "place_block",
                 lambda r: r["type"] == "place_block_done",
-                pos=at(feet, 1, 0, 0),
+                # A completed route may leave feet off-centre. The adjacent
+                # cell can overlap the body's hitbox; two cells stays in reach
+                # while making this an action test rather than a self-collision.
+                pos=at(feet, 2, 0, 0),
                 state="minecraft:stone",
             )
             ops(
                 "use_block",
                 "use_block",
                 lambda r: r.get("reason") in (None, "no_effect"),
-                pos=at(feet, 1, 0, 0),
+                pos=at(feet, 2, 0, 0),
             )
             ops(
                 "break_block",
                 "break_block",
                 lambda r: r["type"] == "break_block_done",
-                pos=at(feet, 1, 0, 0),
+                pos=at(feet, 2, 0, 0),
             )
-            ops(
+            placed_chest = ops(
                 "place chest",
                 "place_block",
                 lambda r: r["type"] == "place_block_done",
                 pos=at(feet, 0, 0, 2),
                 state="minecraft:chest[facing=north]",
             )
+            if placed_chest["type"] == "place_block_done":
+                fixture_chest = at(feet, 0, 0, 2)
             r = ops(
                 "container deposit",
                 "container",
@@ -144,7 +150,23 @@ def main() -> int:
         finally:
             try:
                 if memory is not None:
-                    end_session(bridge, memory)
+                    try:
+                        if fixture_chest is not None:
+                            current = feet_cell(body.observe())
+                            kit(
+                                bridge,
+                                place=[
+                                    {
+                                        "state": "minecraft:air",
+                                        "offset": [
+                                            fixture_chest[i] - current[i]
+                                            for i in range(3)
+                                        ],
+                                    }
+                                ],
+                            )
+                    finally:
+                        end_session(bridge, memory)
             finally:
                 bridge.close()
     return finish(folder, rows, "check-natural-ops")
