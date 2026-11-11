@@ -74,6 +74,15 @@ def attach(client, controller):
         event = _send_and_ack(client, "planner_map", "planner_map_accepted", **frame)
         return event["data"]["generation"]
 
+    def send_maps(frames):
+        # A stale rejection is not retried here: a later frame may already be
+        # applied, so the transfer aborts and resends the generation instead.
+        requests = [client.send("planner_map", **frame) for frame in frames]
+        return [
+            client.acknowledge(request, "planner_map_accepted")["data"]["generation"]
+            for request in requests
+        ]
+
     def cancel_plan(plan_id):
         _send_and_ack(client, "cancel_plan", "plan_cancelled", plan_id=plan_id)
 
@@ -87,7 +96,7 @@ def attach(client, controller):
         old = getattr(client, "planner_map_coordinator", None)
         if old is not None:
             old.close()
-        client.planner_map_coordinator = PlannerMapCoordinator(send_map)
+        client.planner_map_coordinator = PlannerMapCoordinator(send_map, send_maps)
         client.planner_map_identity = identity
     controller.submit_plan = lambda payload: submit_plan(client, payload)
     controller.cancel_plan = cancel_plan

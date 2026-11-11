@@ -98,3 +98,33 @@ def test_send_and_ack_retries_on_stale_queued_request():
     assert res == {"type": "planner_map_accepted", "data": {"generation": 42}}
     assert len(client.calls) == 2
 
+
+def test_planner_map_batches_are_pipelined_before_waiting_for_acks():
+    # One round trip per 14 KB batch made a 300-section upload ~1.7 s of standing.
+    log = []
+
+    class PipeClient(Client):
+        def send(self, operation, **fields):
+            request = super().send(operation, **fields)
+            if operation == "planner_map":
+                log.append(("send", fields["kind"]))
+            return request
+
+        def acknowledge(self, request, kind):
+            if kind == "planner_map_accepted":
+                log.append(("ack", self.calls[request["sequence"] - 1][1]["kind"]))
+                return {"data": {"generation": 0}}
+            return super().acknowledge(request, kind)
+
+    client = PipeClient()
+    attach(client, SimpleNamespace(terrain_policy=None))
+    frames = [{"kind": "begin", "base": 0, "generation": 1}] + [
+        {"kind": "batch", "frames": []}
+    ] * 2
+    assert client.planner_map_coordinator.transfer.send_frames(frames) == [0, 0, 0]
+    assert log == [("send", "begin"), ("send", "batch"), ("send", "batch")] + [
+        ("ack", "begin"),
+        ("ack", "batch"),
+        ("ack", "batch"),
+    ]
+    client.planner_map_coordinator.close()

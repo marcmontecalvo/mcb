@@ -307,3 +307,68 @@ def test_wrong_acknowledgement_generation_fails_closed():
         assert frames[-1] == {"kind": "abort"}
     finally:
         transfer.close()
+
+
+AIR = {"block": "minecraft:air", "fluid": "minecraft:empty", "collision_boxes": []}
+WIDE = {(16 * i, 0, 0): AIR for i in range(300)}  # several batches
+
+
+def test_transfer_pipelines_batches_then_commits_alone():
+    wire = Wire()
+    calls = []
+
+    def send_frames(frames):
+        calls.append([f["kind"] for f in frames])
+        return [wire.send(f) for f in frames]
+
+    transfer = PlannerMapTransfer(wire.send, send_frames)
+    try:
+        transfer.start(WIDE)
+        transfer.future.result(timeout=2)
+        assert transfer.advance() is None
+        assert len(calls) == 1 and calls[0][0] == "begin"
+        assert len(calls[0]) > 2 and set(calls[0][1:]) == {"batch"}
+        assert transfer.advance() == 1
+        assert wire.frames[-1] == {"kind": "commit", "generation": 1}
+    finally:
+        transfer.close()
+
+
+def test_stale_pipelined_frame_restarts_generation_from_its_base():
+    wire = Wire()
+    stale = [True]
+
+    def send_frames(frames):
+        acks = [wire.send(f) for f in frames]
+        if stale.pop() if stale else False:
+            raise RuntimeError("Bridge rejected request 3: stale_queued_request")
+        return acks
+
+    transfer = PlannerMapTransfer(wire.send, send_frames)
+    try:
+        transfer.start(WIDE)
+        transfer.future.result(timeout=2)
+        assert transfer.advance() is None  # aborted, will resend from begin
+        assert wire.frames[-1] == {"kind": "abort"}
+        assert transfer.advance() is None
+        assert transfer.advance() == 1
+    finally:
+        transfer.close()
+
+
+def test_rejected_pipelined_frame_still_fails_closed():
+    wire = Wire()
+
+    def send_frames(frames):
+        [wire.send(f) for f in frames]
+        raise RuntimeError("Bridge rejected request 3: map_palette")
+
+    transfer = PlannerMapTransfer(wire.send, send_frames)
+    try:
+        transfer.start(WIDE)
+        transfer.future.result(timeout=2)
+        with pytest.raises(RuntimeError, match="map_palette"):
+            transfer.advance()
+        assert wire.frames[-1] == {"kind": "abort"} and transfer.future is None
+    finally:
+        transfer.close()

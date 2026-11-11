@@ -18,6 +18,9 @@ from mclab.pathing_grid import GridView, offset_of
 FRAME_BYTES = 14_000  # leaves room for the bridge envelope under its 16 KiB cap
 # The supported 4096 MiB active map budget can contain about 175k sections.
 MAX_SECTIONS = 262144
+# Frames sent before waiting for acknowledgements. The body queues 64 requests
+# (BodyRuntime inbox, 429 when full) and admits 8 per tick, in order.
+PIPELINE_FRAMES = 24
 
 
 def _facts(cell):
@@ -164,7 +167,10 @@ class PlannerMapEncoder:
 
 
 class PlannerMapTransfer:
-    """One cancellable, acknowledged snapshot transfer; one wire frame per advance."""
+    """One cancellable, acknowledged snapshot transfer.
+
+    Each advance sends one frame, or with ``send_frames`` the begin and all
+    batches at once (send all, then acknowledge each in order)."""
 
     def __init__(self, send_frame, send_frames=None):
         self.send_frame = send_frame
@@ -190,6 +196,7 @@ class PlannerMapTransfer:
         self.index = 0
         self.started = False
         self.recovered = False
+        self.stale_restarts = 0
 
     def advance(self):
         if self.future is None:
@@ -199,17 +206,27 @@ class PlannerMapTransfer:
                 return None
             self.frames = self.future.result()  # encoding failure is explicit
         frame = self.frames[self.index]
+        # Begin and batches go out together (the body admits them in order); the
+        # commit waits until every one of them was acknowledged.
+        window = [frame]
+        if frame["kind"] != "commit" and self.send_frames is not None:
+            end = min(len(self.frames) - 1, self.index + PIPELINE_FRAMES)
+            window = self.frames[self.index : end]
         # A timeout can occur after the receiver applied the request, so a
         # subsequent cancellation must attempt to clear any partial generation.
         self.started = True
         try:
-            observed = self.send_frame(frame)
             expected = (
                 frame["generation"]
                 if frame["kind"] == "commit"
                 else self.encoder.generation
             )
-            if type(observed) is not int or observed != expected:
+            if len(window) > 1:
+                observed = self.send_frames(window)
+                expected = [expected] * len(window)
+            else:
+                observed = self.send_frame(frame)
+            if type(observed) not in (int, list) or observed != expected:
                 raise RuntimeError("planner map acknowledgement generation mismatch")
         except Exception as error:
             try:
@@ -229,14 +246,21 @@ class PlannerMapTransfer:
                     error.add_note(f"Planner map abort failed: {recovery_error}")
                     self.uncertain = True
                     raise error from recovery_error
-                self.future = self.staged = self.frames = None
                 self.started = False
+                if len(window) > 1 and "stale_queued_request" in str(error):
+                    # A server pause left later frames applied out of order: the
+                    # generation was aborted, so resend it whole from its base.
+                    self.stale_restarts += 1
+                    if self.stale_restarts < 4:
+                        self.index = 0
+                        return None
+                self.future = self.staged = self.frames = None
                 raise
             else:
                 error.add_note(f"Planner map generation is uncertain: {observed!r}")
                 self.uncertain = True
                 raise
-        self.index += 1
+        self.index += len(window)
         if self.index != len(self.frames):
             return None
         generation = frame["generation"]
