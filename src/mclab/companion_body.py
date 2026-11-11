@@ -57,6 +57,7 @@ from mclab.movement_policy import MovementPolicy
 from mclab.navigation_runner import _new_identity
 from mclab.navigation_segmented import SegmentedController
 from mclab.paths import ROOT, RUNTIME, SERVER, read_json
+from mclab.place_graph import PlaceGraph
 from mclab.schematic import format_state, parse_state
 from mclab.spatial_memory import (
     MapArchive,
@@ -75,6 +76,8 @@ GOTO_WALL_S = 90.0
 # Per-world knowledge that outlives sessions (git-ignored runtime/).
 WORLD_MEMORY = RUNTIME / "world-memory"
 _restored_world = False  # set inside companion_world(seed): a reset snapshot copy
+# Placed blocks worth a waypoint: the crafting table marks the gathering site.
+RECORDED_BLOCKS = ("crafting_table", "furnace", "chest", "barrel")
 OP_TIMEOUT_S = 20.0
 OP_TIMEOUTS = {"break_block": 45.0, "attack_entity": 30.0, "eat": 20.0}
 STAND_SEARCH = 6  # walk_to: vertical search for a standable cell in the column
@@ -513,6 +516,7 @@ class CompanionBody:
         self._inv: dict[str, int] = {}
         self._overlay: dict[Pos, tuple[str, int]] = {}
         self.log: list[dict] = []  # one row per op or goto, for the results folder
+        self.places: PlaceGraph | None = None  # named waypoints (start_session)
         self.policies: list[dict] = []
         self._navigation_idle = {"anchor": None, "since": time.monotonic()}
 
@@ -680,8 +684,21 @@ class CompanionBody:
     def place_block(self, pos: Pos, state: str, item: str) -> Result:
         result = self.op("place_block", pos=list(pos), state=state, item=item)
         if result.ok:
-            self._remember(pos, result.data.get("placed"))
+            placed = result.data.get("placed")
+            self._remember(pos, placed)
+            kind = (placed or "").split("[")[0].removeprefix("minecraft:")
+            if kind in RECORDED_BLOCKS:
+                self._record(kind, pos)
         return result
+
+    def _record(self, kind: str, pos: Pos) -> None:
+        if self.places is not None:
+            self.places.remember(kind, pos)
+
+    def go_to(self, name: str) -> bool:
+        """Walk to a named place of this world; False when the name is unknown."""
+        place = self.places.named(name) if self.places is not None else None
+        return place is not None and self.walk_to(place.position)
 
     def use_block(self, pos: Pos, item: str | None = None) -> Result:
         extra = {"item": item} if item else {}
@@ -702,7 +719,10 @@ class CompanionBody:
         return self.op("craft", recipe=recipe, times=times, **extra)
 
     def furnace(self, pos: Pos, action: str, **fields) -> Result:
-        return self.op("furnace", pos=list(pos), action=action, **fields)
+        result = self.op("furnace", pos=list(pos), action=action, **fields)
+        if result.ok:
+            self._record("furnace", pos)
+        return result
 
     def equip(self, item: str) -> Result:
         return self.op("equip", item=item)
@@ -720,7 +740,10 @@ class CompanionBody:
 
     def container(self, pos: Pos, action: str, items: list[dict] | None = None):
         extra = {"items": items} if items is not None else {}
-        return self.op("container", pos=list(pos), action=action, **extra)
+        result = self.op("container", pos=list(pos), action=action, **extra)
+        if result.ok:
+            self._record("container", pos)
+        return result
 
     # --- navigation --------------------------------------------------------
     def stage_fill(self) -> str | None:
@@ -1240,6 +1263,10 @@ def start_session(
         # search expanded nothing, and the bot cut logs whose drops it never reached
         end_session(bridge, memory)
         raise RuntimeError(f"start {list(start)} is not a standable feet cell")
+    # same db as the archive: per-world when world memory is on, else per-run
+    body.places = PlaceGraph(memory.archive)
+    if body.places.named("home") is None:
+        body.places.add("home", body.position(), kind="home", provenance="spawn")
     return body, memory
 
 
