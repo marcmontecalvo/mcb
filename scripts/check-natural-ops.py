@@ -166,7 +166,11 @@ def main() -> int:
                                 ],
                             )
                     finally:
-                        end_session(bridge, memory)
+                        try:
+                            # a summoned cow left behind fails the next arena reset
+                            kit(bridge, clear=[16, 3, 16])
+                        finally:
+                            end_session(bridge, memory)
             finally:
                 bridge.close()
     return finish(folder, rows, "check-natural-ops")

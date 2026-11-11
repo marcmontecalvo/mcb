@@ -191,9 +191,14 @@ def main() -> int:
             )
         finally:
             try:
-                bridge.send("despawn")
+                # summoned fixtures are persistent: left behind they fail the
+                # next arena reset (unexpected_living_entity_in_arena)
+                kit(bridge, clear=[16, 3, 16])
             finally:
-                bridge.close()
+                try:
+                    bridge.send("despawn")
+                finally:
+                    bridge.close()
     return finish(folder, rows, "check-animals")
 
 
