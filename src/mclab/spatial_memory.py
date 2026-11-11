@@ -81,18 +81,16 @@ def world_archive(level_dir, awareness, folder, dimension="minecraft:overworld")
     try:
         data = nbt.load(level_dir / "level.dat").get("Data", {})
         seed = data.get("WorldGenSettings", {}).get("seed", data.get("RandomSeed"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, KeyError, IndexError, EOFError):
         seed = None
+    if type(seed) is not int:
+        return None  # no identity: unreadable worlds must not share one archive
     name = "".join(c if c.isalnum() or c in "-_" else "_" for c in level_dir.name)
     archive = MapArchive(
         Path(folder) / f"{name}-{seed}.sqlite3",
         MapIdentity(level_dir.name, f"seed:{seed}", dimension, awareness),
     )
-    # ponytail: a gap means an earlier session lost writes, so some remembered
-    # cell may be older than what was seen. Remembered cells are never motor
-    # evidence and are replaced when re-observed, the same as a world edited
-    # while the bot was away; the current session's own gap still fails closed.
-    archive.trust()
+    archive.drop_terrain_after_gap()
     return archive
 
 

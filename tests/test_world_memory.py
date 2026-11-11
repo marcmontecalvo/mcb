@@ -75,3 +75,58 @@ def test_only_sessions_in_a_kept_world_use_world_memory(tmp_path, monkeypatch):
     assert archive(False).path == run / "map.sqlite3"
     monkeypatch.setattr(companion_body, "_restored_world", True)
     assert archive().path == run / "map.sqlite3"  # a restored snapshot is reset
+
+
+def test_an_unreadable_seed_keeps_the_session_on_a_per_run_archive(
+    tmp_path, monkeypatch, caplog
+):
+    broken = tmp_path / "world"
+    broken.mkdir()
+    (broken / "level.dat").write_bytes(b"not nbt")
+    assert world_archive(broken, Awareness(), tmp_path / "memory") is None
+    monkeypatch.setattr(companion_body, "_level_dir", lambda: broken)
+    monkeypatch.setattr(companion_body, "WORLD_MEMORY", tmp_path / "memory")
+    run = tmp_path / "run"
+    with caplog.at_level("WARNING"):
+        archive = companion_body.session_archive(run, Awareness(), "ep")
+    assert archive.path == run / "map.sqlite3"
+    assert "world memory off" in caplog.text
+    assert not (tmp_path / "memory").exists()
+
+
+def test_a_gap_left_by_an_earlier_session_drops_its_terrain_but_keeps_places(
+    tmp_path,
+):
+    from mclab.place_graph import PlaceGraph
+
+    world, store = level(tmp_path, 7), tmp_path / "memory"
+    old = SpatialMemory(world_archive(world, Awareness(), store), "session-1")
+    old.ingest(at(0, 0, 0, tick=5))
+    old.close()
+    archive = world_archive(world, Awareness(), store)
+    PlaceGraph(archive).add("home", (0, 64, 0))
+    PlaceGraph(archive).add("camp", (90, 64, 0))
+    archive.mark_gap()  # writes were lost: what is stored may be stale
+    reopened = world_archive(world, Awareness(), store)
+    assert reopened.recall((0, 0, 0), 4, 4, limit=10) == []  # not stale terrain
+    graph = PlaceGraph(reopened)
+    assert graph.named("home").position == (0, 64, 0)
+    assert graph.route("home", "camp", verified_after_ns=0) == ()  # no raise
+    # without a gap, opening keeps what was stored
+    SpatialMemory(reopened, "session-2").close()
+    kept = SpatialMemory(world_archive(world, Awareness(), store), "session-3")
+    kept.ingest(at(0, 0, 0, tick=1))
+    kept.close()
+    assert world_archive(world, Awareness(), store).recall((0, 0, 0), 4, 4, limit=1)
+
+
+def test_recall_filters_wanted_sections_before_the_section_budget(tmp_path):
+    archive = world_archive(level(tmp_path, 7), Awareness(), tmp_path / "memory")
+    archive.write(
+        observation(*[(x * 16, 0, z * 16) for x in range(-3, 4) for z in range(-3, 4)])[
+            "visible_blocks"
+        ]
+    )
+    far = (3, 0, 3)  # among the farthest of 49 stored sections
+    cells = archive.recall((0, 0, 0), 64, 16, limit=4096, section_limit=32, only={far})
+    assert [c["position"] for c in cells] == [[48, 0, 48]]

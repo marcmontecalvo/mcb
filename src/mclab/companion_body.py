@@ -39,6 +39,7 @@ Assumptions (the coordinator verifies them live)
 from __future__ import annotations
 
 import functools
+import logging
 import math
 import time
 from collections import ChainMap
@@ -1254,7 +1255,13 @@ def session_archive(folder, awareness, episode_id, world_memory=None):
         world_memory = not _restored_world
     level = _level_dir()
     if world_memory:
-        return world_archive(level, awareness, WORLD_MEMORY)
+        archive = world_archive(level, awareness, WORLD_MEMORY)
+        if archive is not None:
+            return archive
+        logging.getLogger(__name__).warning(
+            "world memory off: no seed in %s/level.dat; using a per-run archive",
+            level,
+        )
     return MapArchive(
         folder / "map.sqlite3",
         MapIdentity(str(level.resolve()), episode_id, "minecraft:overworld", awareness),
