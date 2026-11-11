@@ -124,21 +124,62 @@ def test_transfer_exposes_failed_acknowledgement_and_aborts():
         transfer.close()
 
 
-def test_superseded_transfer_aborts_without_publishing_partial_map():
+def test_superseded_unstarted_transfer_sends_nothing_and_restarts():
     wire = Wire()
     frames = wire.frames
     coordinator = PlannerMapCoordinator(wire.send)
     first, second = SimpleNamespace(superseded=False), SimpleNamespace(superseded=False)
     try:
         coordinator.begin(first, {})
-        coordinator.transfer.future.result(timeout=2)
-        assert coordinator.advance(first) is None
         coordinator.begin(second, {})
-        assert first.superseded and frames[-1] == {"kind": "abort"}
+        assert first.superseded and frames == []
         coordinator.transfer.future.result(timeout=2)
         assert coordinator.advance(second) is None
         assert coordinator.advance(second) == 1
         assert coordinator.transfer.encoder.generation == 1
+    finally:
+        coordinator.close()
+
+
+def _drain(coordinator, owner):
+    for _ in range(50):
+        coordinator.transfer.future.result(timeout=2)
+        generation = coordinator.advance(owner)
+        if generation is not None:
+            return generation
+    raise AssertionError("transfer did not commit")
+
+
+def test_new_owner_resumes_acknowledged_transfer_instead_of_resending():
+    # Run 20261111T134723510228Z: each new controller aborted a nearly finished
+    # 12-batch upload and resent it from the old base.
+    wire = Wire()
+    frames = wire.frames
+    coordinator = PlannerMapCoordinator(wire.send)
+    air = {"block": "minecraft:air", "fluid": "minecraft:empty", "collision_boxes": []}
+    first, second = SimpleNamespace(superseded=False), SimpleNamespace(superseded=False)
+    try:
+        coordinator.begin(first, {(0, 0, 0): air})
+        coordinator.transfer.future.result(timeout=2)
+        assert coordinator.advance(first) is None  # begin acknowledged
+        coordinator.cancel_active()  # controller ends: watchdog, deadline, detach
+        coordinator.begin(second, {(0, 0, 0): air, (16, 0, 0): air})
+        assert first.superseded
+        assert _drain(coordinator, second) == 2
+        assert {"kind": "abort"} not in frames
+        begins = [f for f in frames if f["kind"] == "begin"]
+        assert begins == [
+            {"kind": "begin", "base": 0, "generation": 1},
+            {"kind": "begin", "base": 1, "generation": 2},
+        ]
+        sections = [
+            s["section"]
+            for f in frames
+            if f["kind"] == "batch"
+            for s in f["frames"]
+            if s["kind"] == "section"
+        ]
+        assert sections.count([0, 0, 0]) == 1  # never sent twice
     finally:
         coordinator.close()
 

@@ -166,8 +166,9 @@ class PlannerMapEncoder:
 class PlannerMapTransfer:
     """One cancellable, acknowledged snapshot transfer; one wire frame per advance."""
 
-    def __init__(self, send_frame):
+    def __init__(self, send_frame, send_frames=None):
         self.send_frame = send_frame
+        self.send_frames = send_frames
         self.encoder = PlannerMapEncoder()
         self.worker = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="planner-map"
@@ -279,18 +280,32 @@ class PlannerMapTransfer:
 class PlannerMapCoordinator:
     """Serialize searches sharing the body's one staging area.
 
-    A newly requested snapshot supersedes an unfinished transfer, explicitly
-    aborting it on the body. Previously committed readers remain immutable.
+    A newly requested snapshot supersedes an unfinished transfer. A transfer the
+    body already acknowledged part of outlives its owner: the next owner finishes
+    it, then sends only its own delta (``next_cells``) on top. Unstarted or
+    uncertain transfers are discarded as before. Committed readers stay immutable.
     """
 
-    def __init__(self, send_frame):
-        self.transfer = PlannerMapTransfer(send_frame)
+    def __init__(self, send_frame, send_frames=None):
+        self.transfer = PlannerMapTransfer(send_frame, send_frames)
         self.owner = None
+        self.next_cells = None
+
+    def _resumable(self):
+        transfer = self.transfer
+        return (
+            transfer.future is not None and transfer.started and not transfer.uncertain
+        )
 
     def begin(self, owner, cells):
         if self.owner is not None:
             self.owner.superseded = True
-            self.transfer.cancel()
+        self.owner = None
+        if self._resumable():
+            self.owner, self.next_cells = owner, cells
+            return
+        self.next_cells = None
+        self.transfer.cancel()
         if self.transfer.uncertain:
             self.transfer.reset()
         self.owner = owner
@@ -303,27 +318,33 @@ class PlannerMapCoordinator:
             generation = self.transfer.advance()
         except Exception:
             if self.transfer.future is None:
-                self.owner = None
+                self.owner = self.next_cells = None
             raise
+        if generation is not None and self.next_cells is not None:
+            cells, self.next_cells = self.next_cells, None
+            self.transfer.start(cells)
+            return None
         if generation is not None:
             self.owner = None
         return generation
 
+    def _release(self):
+        # A partly acknowledged transfer stays staged for the next owner.
+        try:
+            if not self._resumable():
+                self.transfer.cancel()
+        finally:
+            self.owner = self.next_cells = None
+
     def cancel(self, owner):
         if self.owner is owner:
-            try:
-                self.transfer.cancel()
-            finally:
-                self.owner = None
+            self._release()
 
     def close(self):
         self.transfer.close()
-        self.owner = None
+        self.owner = self.next_cells = None
 
     def cancel_active(self):
         if self.owner is not None:
             self.owner.superseded = True
-            try:
-                self.transfer.cancel()
-            finally:
-                self.owner = None
+            self._release()
