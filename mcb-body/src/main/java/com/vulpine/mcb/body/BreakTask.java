@@ -2,11 +2,15 @@ package com.vulpine.mcb.body;
 
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.function.Predicate;
+import java.util.function.ToDoubleFunction;
 
 /**
  * One block being broken by holding attack across ticks. BodyRuntime ticks it: step() aims at the block
@@ -14,11 +18,15 @@ import java.util.List;
  */
 final class BreakTask {
     static final int TIMEOUT_TICKS = 400;
+    /** Ticks without an entity-free ray before entity_in_way (run 20261111T135214868983Z: a sheep froze a break 15 s). */
+    static final int ENTITY_WAIT_TICKS = 10;
 
     final long requestSequence;
     final BlockPos pos;
     final BlockState original;
     int ticks;
+    /** Consecutive ticks with an entity on every ray; while nonzero BodyRuntime holds the attack so nothing is hit. */
+    int blocked;
 
     private BreakTask(long requestSequence, BlockPos pos, BlockState original) {
         this.requestSequence = requestSequence;
@@ -57,9 +65,28 @@ final class BreakTask {
     private void aim(ServerPlayer player) {
         var hit = BodyBuild.nearestHit(player, pos);
         var eye = player.getEyePosition();
+        if (CarpetBodyAdapter.entityOnRay(player, hit.getLocation())) {
+            // Carpet's attack would strike the mob or player instead of the block: aim past it or hold.
+            hit = clearest(BodyBuild.hits(player, pos, List.of(Direction.values()), false, new int[2]),
+                    h -> h.getLocation().distanceToSqr(eye), h -> CarpetBodyAdapter.entityOnRay(player, h.getLocation()));
+        }
+        blocked = blockedAfter(blocked, hit != null);
+        if (hit == null) return;
         var at = hit.getLocation();
         BodyBuild.aim(player, (float) Math.toDegrees(Math.atan2(-(at.x - eye.x), at.z - eye.z)),
                 PlacementLogic.pitchTo(at.x - eye.x, at.y - eye.y, at.z - eye.z));
+    }
+
+    /** The nearest point whose ray no entity crosses; null when every ray is blocked. */
+    static <T> T clearest(List<T> points, ToDoubleFunction<T> distance, Predicate<T> entityOnRay) {
+        return points.stream().filter(entityOnRay.negate()).min(Comparator.comparingDouble(distance)).orElse(null);
+    }
+
+    /** Blocked-tick count after this tick; entity_in_way once ENTITY_WAIT_TICKS pass without a clear ray. */
+    static int blockedAfter(int blocked, boolean clear) {
+        if (clear) return 0;
+        if (++blocked > ENTITY_WAIT_TICKS) throw new BodyActions.Fail("entity_in_way");
+        return blocked;
     }
 
     /** Best inventory item for the block by destroy speed (correct-for-drops preferred); null means bare hand. */

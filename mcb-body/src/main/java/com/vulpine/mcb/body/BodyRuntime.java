@@ -984,8 +984,9 @@ public final class BodyRuntime implements AutoCloseable {
         String outcome = task.step(player);
         int tick = server.getTickCount();
         if (outcome == null) {
+            // An entity on every ray: hold the attack so the mob or player in the way is never struck.
             body.controls(new Controls("native-break", tick, tick, tick + 2, 2, 0, 0, 0, 0, false, false, false,
-                    true, false, false, false, player.getInventory().getSelectedSlot()));
+                    task.blocked == 0, false, false, false, player.getInventory().getSelectedSlot()));
             expiryTick = tick + 2;
             return;
         }
