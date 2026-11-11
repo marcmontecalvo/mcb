@@ -397,3 +397,16 @@ def test_a_leafless_trunk_is_a_tree_only_when_asked():
     t = type("T", (), {"cells": {}})()  # no template cells
     assert not tr.find_trees(world, [(0, 64, 0)], template=t)
     assert tr.find_trees(world, [(0, 64, 0)], template=t, leafless=True)
+
+
+def test_a_mob_in_the_way_of_a_log_is_retried():
+    body = FakeTreeBody({(0, 70, 0): "minecraft:oak_log"}, {})
+    original, calls = body.break_block, []
+
+    def sheep(pos, tool=None):
+        calls.append(pos)
+        return original(pos, tool) if len(calls) > 1 else Result(False, "entity_in_way")
+
+    body.break_block = sheep
+    assert tr.TreeFeller(body)._break_log((0, 70, 0), None) is True
+    assert len(calls) == 2

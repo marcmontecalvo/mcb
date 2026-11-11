@@ -22,11 +22,12 @@ What the real body adapter must do (ops: docs/BODY_ACTION_OPS.md, wave 2):
 ``walk_to(pos)`` is optional: the footprint survey (``survey=True``) uses it to
 visit points around the footprint, falling back to ``goto_stance``.
 
-The loop treats ``out_of_reach`` and ``state_unreachable`` as "wrong stance": it
-asks for another stance (3 tries per cell, then the cell is skipped). Any other
-failure counts one try and the plan is recomputed. ``on_need_materials`` is where
-the gathering planner plugs in: it receives ``{item: count}`` and returns True
-once the inventory has been refilled, False to stop.
+The loop treats ``out_of_reach``, ``state_unreachable`` and ``entity_in_way`` as
+"wrong stance": it asks for another stance (3 tries per cell, then the cell is
+skipped). Any other failure counts one try and the plan is recomputed.
+``on_need_materials`` is where the gathering planner plugs in: it receives
+``{item: count}`` and returns True once the inventory has been refilled, False to
+stop.
 """
 
 from __future__ import annotations
@@ -57,7 +58,8 @@ BUILD_WALL = 30.0  # seconds a build walk may take before the route is given up
 SETTLE_TICKS = 60  # wait for the sensor before calling a build blocked
 RETRY_ROUNDS = 2  # fresh tries for skipped cells before stopping blocked
 STANCE_BUDGET_S = 5.0  # a pause longer than this reads as a broken bot
-STANCE_REASONS = frozenset({"out_of_reach", "state_unreachable"})
+# entity_in_way: a mob or player on the ray that did not move off within ~1 s
+STANCE_REASONS = frozenset({"out_of_reach", "state_unreachable", "entity_in_way"})
 
 
 class Result(NamedTuple):

@@ -361,10 +361,14 @@ class TreeFeller:
             return True
         if self._protected(pos):
             return False
-        for _ in range(MAX_OCCLUDERS + 1):
+        for attempt in range(MAX_OCCLUDERS + 1):
             result = self.body.break_block(pos, tool)
             if result.ok:
                 return True
+            # a mob or player on the ray (the body gave up within ~1 s): it moves,
+            # so try again, twice at most to keep the body from standing >= 5 s
+            if result.reason == "entity_in_way" and attempt < 2:
+                continue
             if result.reason != "no_line_of_sight" or not self._clear_view(pos, result):
                 return False
         return False

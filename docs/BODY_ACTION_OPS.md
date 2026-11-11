@@ -79,7 +79,8 @@ the watchdog or `despawn`.
 Drops stay where they fall; collecting them is the walker's job.
 `_failed`: `out_of_reach`, `no_line_of_sight`, `timeout`, `wrong_tool` (the block
 needs a tool the inventory lacks, so it would drop nothing), `nothing_to_break` (air),
-`unbreakable`. With no suitable tool the body holds an empty hotbar slot if it has one.
+`unbreakable`, `entity_in_way` (a mob or player stayed on every ray to the block for
+about 1 s; the attack is held so it is never struck: take another stance). With no suitable tool the body holds an empty hotbar slot if it has one.
 
 ## Wave 3 (built and live-checked: `scripts/check-animals.py` 16/16, `scripts/check-containers.py` 18/18, `scripts/check-natural-ops.py` 14/14)
 
