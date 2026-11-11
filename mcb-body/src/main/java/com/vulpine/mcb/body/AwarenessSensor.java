@@ -193,6 +193,9 @@ final class AwarenessSensor {
         var chunk=player.level().getChunkSource().getChunkNow(pos.getX()>>4,pos.getZ()>>4);
         if(chunk==null) return null;
         var state=chunk.getBlockState(pos);
+        // a shape that depends on the position (bamboo, dripstone) or on a block entity
+        // (shulker lid) is not a per-state fact: read it as the motor does
+        if(state.hasOffsetFunction()||state.hasBlockEntity()) return PolicySensor.cell(player,tick,pos,false);
         Integer id=stateIds.get(state);
         return stateFacts.get(id!=null?id:register(player,state,pos,tick));
     }
