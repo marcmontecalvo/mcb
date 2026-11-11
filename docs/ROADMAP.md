@@ -114,6 +114,37 @@ Details: [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md), cohorts 16–20.
 Each item names where its detail or evidence lives. Numbers are priority, not
 dependencies, except where noted.
 
+**Dashboard for house builds (Nov 10):** the dashboard now lists build runs,
+killed ones included, with stats from `build.json` and a streamed, cached pass
+over the event log, compared by default with the previous run of the same
+build; the build form passes `--seed`, `--margin`, `--supply`, `--coal` and
+`--inspect` (it passed none of them before, so a dashboard build ran in the flat
+world with nothing to gather). Detail in [LAB_UI.md](LAB_UI.md), "House builds".
+Still open: (a) `run-build.py` does not record its own arguments or mark where
+gathering, tree clearing, site preparation and building start, so runs started
+from the command line have no build name until their first checkpoint and phase
+times are estimated from the log; (b) inspection has no explicit waiting marker
+or dashboard finish control; (c) when the event log is split, add the actual new
+names to `build_stats.LOG_NAMES`. The dashboard metric audit and remaining
+limitations are in [DASHBOARD_BUILD_REVIEW.md](DASHBOARD_BUILD_REVIEW.md).
+
+**Supplied large house, Nov 10 (three runs, same seed and start):**
+`20261110T170929838024Z` stopped `need_materials` at 317 of 1227 after walking the
+gather explore ring over the swamp: the builder broke a detector rail it had just
+placed, did not collect the drop, and the refill planned an ore hunt for a new one
+ahead of its chest withdrawals. Changed: a build refill withdraws from chests first
+and runs its gather with `explore_cap=0` (no ring, no mine); a refused refill no
+longer stops the build while other cells can be placed; a broken template block's
+drop is collected. `20261110T223248667856Z` with those changes stayed within 7
+blocks of the site and stopped `stalled` at 361 of 1227 (4 wrong): 27 stalls, about
+1,055 s idle, nearly all `no_stance` on y=67–68 cells reached for from y=65–66, then
+trapped at `(-8, 66, 63)`. **Open, next:** upper-floor and roof cells have no
+stance — scaffold towers do not get the bot up there and nothing uses the house's
+own stairs; each failed cell costs a 30–70 s stall before it is skipped; why the
+rail was broken (and what the 4 wrong cells are) is not known. Tried and reverted:
+clearing vines in site prep, which stopped `20261110T221223445635Z` at
+`site_not_ready` (six margin-edge vines, `no_stance`).
+
 **Open after Nov 6 (companion track, M5), in the order to do them:**
 (1) frontier optimism — the stall class left after the plan-only stance probe (now
 in, see closed (e)): the planner answers *routed* for ways through chunks nothing
