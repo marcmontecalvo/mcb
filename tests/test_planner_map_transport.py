@@ -47,10 +47,7 @@ def test_snapshot_deltas_keep_unknown_distinct_and_publish_only_after_ack():
     with pytest.raises(RuntimeError):
         encoder.prepare({})
     encoder.acknowledge(1)
-    assert [f["kind"] for f in encoder.prepare({(-1, 0, 0): air})] == [
-        "begin",
-        "commit",
-    ]
+    assert encoder.prepare({(-1, 0, 0): air}) == []  # no delta, no frames
     encoder.abort()
     removed = encoder.prepare({})
     assert [f["kind"] for f in removed] == ["begin", "batch", "commit"]
@@ -102,6 +99,23 @@ def test_transfer_acknowledges_commit_and_cancel_aborts_partial_generation():
         transfer.close()
 
 
+def test_unchanged_snapshot_commits_locally_without_any_request():
+    wire = Wire()
+    coordinator = PlannerMapCoordinator(wire.send)
+    air = {"block": "minecraft:air", "fluid": "minecraft:empty", "collision_boxes": []}
+    try:
+        for owner in ("walk-1", "walk-2", "walk-3"):
+            coordinator.begin(owner, {} if owner != "walk-2" else {(0, 0, 0): air})
+            _drain(coordinator, owner)
+        sent = len(wire.frames)
+        for owner in ("walk-4", "walk-5"):
+            coordinator.begin(owner, {})
+            assert _drain(coordinator, owner) == 2  # still the committed generation
+        assert len(wire.frames) == sent
+    finally:
+        coordinator.close()
+
+
 def test_transfer_exposes_failed_acknowledgement_and_aborts():
     frames = []
 
@@ -113,7 +127,7 @@ def test_transfer_exposes_failed_acknowledgement_and_aborts():
 
     transfer = PlannerMapTransfer(send)
     try:
-        transfer.start({})
+        transfer.start(ONE)
         transfer.future.result(timeout=2)
         with pytest.raises(TimeoutError, match="acknowledgement lost"):
             transfer.advance()
@@ -130,11 +144,12 @@ def test_superseded_unstarted_transfer_sends_nothing_and_restarts():
     coordinator = PlannerMapCoordinator(wire.send)
     first, second = SimpleNamespace(superseded=False), SimpleNamespace(superseded=False)
     try:
-        coordinator.begin(first, {})
-        coordinator.begin(second, {})
+        coordinator.begin(first, ONE)
+        coordinator.begin(second, ONE)
         assert first.superseded and frames == []
         coordinator.transfer.future.result(timeout=2)
         assert coordinator.advance(second) is None
+        assert coordinator.advance(second) is None  # the one-section batch
         assert coordinator.advance(second) == 1
         assert coordinator.transfer.encoder.generation == 1
     finally:
@@ -202,7 +217,7 @@ def test_encoding_runs_off_thread_but_all_wire_frames_are_sent_by_caller(monkeyp
 
     transfer = PlannerMapTransfer(send)
     try:
-        transfer.start({})
+        transfer.start(ONE)
         transfer.future.result(timeout=2)
         while transfer.advance() is None:
             pass
@@ -226,9 +241,10 @@ def test_lost_commit_ack_is_reconciled_against_body_generation():
 
     transfer = PlannerMapTransfer(send)
     try:
-        transfer.start({})
+        transfer.start(ONE)
         transfer.future.result(timeout=2)
         assert transfer.advance() is None
+        assert transfer.advance() is None  # the one-section batch
         assert transfer.advance() == 1
         assert transfer.recovered and transfer.encoder.generation == 1
         assert frames[-1] == {"kind": "status"}
@@ -272,17 +288,18 @@ def test_unavailable_status_requires_explicit_reset_before_retry():
     first = SimpleNamespace(superseded=False)
     second = SimpleNamespace(superseded=False)
     try:
-        coordinator.begin(first, {})
+        coordinator.begin(first, ONE)
         coordinator.transfer.future.result(timeout=2)
         with pytest.raises(TimeoutError, match="begin"):
             coordinator.advance(first)
         failures.clear()
         coordinator.cancel(first)
         assert coordinator.transfer.uncertain
-        coordinator.begin(second, {})
+        coordinator.begin(second, ONE)
         assert frames[-1] == {"kind": "reset"}
         coordinator.transfer.future.result(timeout=2)
         assert coordinator.advance(second) is None
+        assert coordinator.advance(second) is None  # the one-section batch
         assert coordinator.advance(second) == 1
     finally:
         coordinator.close()
@@ -297,7 +314,7 @@ def test_wrong_acknowledgement_generation_fails_closed():
 
     transfer = PlannerMapTransfer(send)
     try:
-        transfer.start({})
+        transfer.start(ONE)
         transfer.future.result(timeout=2)
         with pytest.raises(RuntimeError, match="generation mismatch"):
             transfer.advance()
@@ -310,6 +327,7 @@ def test_wrong_acknowledgement_generation_fails_closed():
 
 
 AIR = {"block": "minecraft:air", "fluid": "minecraft:empty", "collision_boxes": []}
+ONE = {(0, 0, 0): AIR}  # smallest snapshot with a delta
 WIDE = {(16 * i, 0, 0): AIR for i in range(300)}  # several batches
 
 
