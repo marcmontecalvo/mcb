@@ -114,6 +114,20 @@ Details: [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md), cohorts 16–20.
 Each item names where its detail or evidence lives. Numbers are priority, not
 dependencies, except where noted.
 
+**Terrain upload removed from walking (Nov 11, branch `feat/java-terrain-store`,
+not yet live):** before almost every walk the body stood still while Python
+re-uploaded terrain the mod had itself served: 150-300 new sections, 1-2 s per
+generation, two generations per walk (iron gather `20261111T163639921184Z` median
+1.14 s from first planning tick to `follow_route`, first walk 4.15 s; site fill
+`20261111T164354550398Z` median 1.59 s; wading `20261111T164143495401Z` 4.84 s
+before the first step). Changed: the mod keeps every served batch
+(`ServedTerrain.java`, 128 MiB cap), plans read it as of `terrain_tick` (the last
+batch Python read), and Python uploads only archive-recalled sections; an unchanged
+snapshot commits with no request. See the Known terrain note under §3 of the
+direction document. Live check still owed: `idle_gaps.py`, zero `planner_map`
+requests between walks, and the planning-to-`follow_route` time per walk.
+Later: persisted far-field knowledge and named places (`feat/far-field`).
+
 **Dashboard for house builds (Nov 10):** the dashboard now lists build runs,
 killed ones included, with stats from `build.json` and a streamed, cached pass
 over the event log, compared by default with the previous run of the same

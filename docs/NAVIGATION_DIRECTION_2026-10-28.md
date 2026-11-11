@@ -142,8 +142,18 @@ survivable, cheap to run per bot and able to fight when the situation calls for 
 |---|---|---|---|
 | Strategic planner | larger LLM | seconds, event-driven | task/subgoal, cost profile defaults |
 | Tactical | Jev | ≤1 s, event-driven, never blocking motion | goal choice, cost-profile adjustments, interrupt/resume, route-class choice |
-| Route planner | deterministic Java in `mcb-body`; Python provides admitted snapshots and policies | continuous, bounded slices | best route under current profile; edits and macros included |
+| Route planner | deterministic Java in `mcb-body`; the mod keeps the terrain it served (Nov 11, 2026, Marc); Python provides policies, goals and only the geometry the mod was never served (archive recall) | continuous, bounded slices | best route under current profile; edits and macros included |
 | Executors and motor | existing `StepExecutor`, pillar/bridge/gap/staircase executors, segmented motor | every tick | controls with fresh-geometry checks |
+
+Known terrain (Nov 11, 2026, Marc): `ServedTerrain.java` writes every `/policy`
+terrain batch into the body's planner store when it is served (a served batch counts
+as delivered). A plan request names `terrain_tick`, the last batch Python read, and
+reads the store as of that tick, so the planner never knows more than Python read.
+Python uploads planner_map generations only for archive-recalled sections; the
+"current" memory mode (fresh cells only) keeps the full upload. The store is
+replaced at spawn and capped at 128 MiB, evicting farthest sections first
+(`planner_store_evicted` events). Persisted far-field knowledge and named places
+are Phase 3 of that work (branch `feat/far-field`).
 
 The existing executors, fresh-geometry checks, edit/stock confirmation, failed-edge
 exclusion, protected footholds, disabled-permission refusals and evidence discipline
