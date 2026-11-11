@@ -467,6 +467,12 @@ public final class RouteMotorTest {
         reject(()->new RouteMotor("x",List.of(route.get(0),new RouteMotor.Point(1,0,0)),new RouteMotor.Policy(false,false,false,0)),"drop permission");
         reject(()->motor(List.of(route.get(0),new RouteMotor.Point(Double.NaN,1,0))),"nonfinite route");
         reject(()->motor(List.of(route.get(0),new RouteMotor.Point(.5,1,0))),"nonintegral column");
+        // A drop whose column closed after planning: the body stands on the new block in the
+        // landing column and jitters; jitter is not progress (small-house roof stall).
+        var closed=floor(); closed.put(new Key(0,3,0),stone()); closed.put(new Key(1,3,0),stone());
+        var shut=motor(List.of(new RouteMotor.Point(0,4,0),new RouteMotor.Point(1,1,0)));
+        for(int t=0;t<40 && shut.active();t++) shut.tick(pose(t%2==0?1.4:1.6,4,.5,-90),geometry(closed));
+        check(!shut.active() && shut.status().get("reason").equals("route_no_progress"),"jitter above a closed drop gives up within 2 s");
         var json=JsonParser.parseString("{\"route_id\":\"r\",\"route\":[[0,1,0],[1,1,0]],\"movement_policy\":{\"allow_diagonals\":true,\"allow_sprint\":true,\"allow_shapes\":true,\"max_drop\":3,\"max_gap\":2,\"allow_swim\":false}}").getAsJsonObject();
         check(RouteMotor.parse(json).active(),"wire roundtrip");
         var bad=json.deepCopy(); bad.getAsJsonObject("movement_policy").addProperty("max_drop",true);

@@ -25,6 +25,9 @@ from mclab.terrain_steps import prepare_step
 from mclab.terrain_transport import ExpandedTerrain
 
 NATIVE_EDIT_KINDS = frozenset({"downward", "descend"})
+# A confirmed terrain step that has not moved the body 0.05 in 1.5 s has failed;
+# failure plus replan must stay under the 5 s standstill rule.
+COMMIT_STALL_TICKS = 30
 
 
 class NativeEdit:
@@ -127,6 +130,7 @@ class SegmentedController(NavigationController):
         self.committed_source = None
         self.motion_origin_height = None
         self.commit_started = None
+        self.commit_progress = None  # (tick, position) of the last movement
         self.own_footholds = set()
         self.terrain_search = None
         self.terrain_queue = []
@@ -1019,6 +1023,12 @@ class SegmentedController(NavigationController):
         if self.committed_step is not None:
             target = self.committed_step
             if (
+                self.commit_progress is None
+                or self.commit_progress[0] < self.commit_started
+                or math.dist(p, self.commit_progress[1]) >= 0.05
+            ):
+                self.commit_progress = (observation["tick"], tuple(p))
+            if (
                 body.get("on_ground", True)
                 and node == target
                 and math.hypot(p[0] - target[0] - 0.5, p[2] - target[2] - 0.5) <= 0.35
@@ -1029,7 +1039,11 @@ class SegmentedController(NavigationController):
                 self.motion_origin_height = None
                 if not self.terrain_queue:
                     self._clear_terrain_forecast()
-            elif observation["tick"] - self.commit_started > 80:
+            elif (
+                observation["tick"] - self.commit_started > 80
+                or observation["tick"] - self.commit_progress[0]
+                > COMMIT_STALL_TICKS
+            ):
                 if self.committed_source is not None:
                     self.failed_edges.add((self.committed_source, target))
                 self.reason = "confirmed terrain step movement deadline"
@@ -1043,9 +1057,25 @@ class SegmentedController(NavigationController):
                 return {}
             else:
                 self.mode = "terrain_step_motion"
-                return self._move(
+                command = self._move(
                     observation, [target[0] + 0.5, target[1], target[2] + 0.5]
                 )
+                source = self.committed_source
+                if (
+                    not command.get("forward")
+                    and source is not None
+                    and body.get("on_ground", True)
+                    and abs(p[1] - source[1]) <= 0.2
+                    and math.hypot(p[0] - source[0] - 0.5, p[2] - source[2] - 0.5)
+                    > 0.15
+                ):
+                    # The step is checked from the cell centre; off-centre, the
+                    # swept hitbox can clip the side column and _move refuses
+                    # forever (hills r3). Centre on the source, then retry.
+                    command = self._move(
+                        observation, [source[0] + 0.5, source[1], source[2] + 0.5]
+                    )
+                return command
         if self.terrain_queue:
             self._begin_queued_step(node, observation)
             return {}
@@ -1054,7 +1084,13 @@ class SegmentedController(NavigationController):
             return {}
         floating = (
             self.movement_policy.allow_swim
-            and body.get("survival", {}).get("in_water") is True
+            # ponytail: the crest of a bob lifts the feet just out of the water
+            # (in_water False, airborne); refusing it there let the body sink a
+            # block low and idle on a stationary "reached" plan (wading r3).
+            and (
+                body.get("survival", {}).get("in_water") is True
+                or not body.get("on_ground", True)
+            )
             and body.get("survival", {}).get("eye_in_water") is False
             and water_movement.surface_node(self._known_cells(), node)
         )

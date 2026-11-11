@@ -65,6 +65,8 @@ final class RouteMotor {
     private Point bend;      // edging waypoint (centre = x+.5), null when not bending
     private int bendIndex = -1;
     private double lastX = Double.NaN, lastZ, lastY;
+    /** Closest approach (horizontal + vertical) to the current target; see the walk stall rule. */
+    private double best = Double.POSITIVE_INFINITY;
     private String state = "following", reason = "";
     private final boolean centerOnly;
     private final double arrivalRadius;
@@ -169,7 +171,7 @@ final class RouteMotor {
             // (the body walked or dropped during planning) is not a failure.
             int later = resyncIndex(pose);
             if (later < 0) { stop("route_start_displaced"); return Input.STOP; }
-            index = later; stepTicks = stalled = 0;
+            index = later; stepTicks = stalled = 0; best = Double.POSITIVE_INFINITY;
         }
         // Momentum can carry the body past a drop's landing column onto the next
         // route point. Accept the point it stands on (Baritone PathExecutor
@@ -180,14 +182,14 @@ final class RouteMotor {
             if ((pose.grounded || (pose.inWater && geometry.standable(later)))
                     && Math.abs(pose.y - later.y) <= .2
                     && Math.floor(pose.x) == later.x && Math.floor(pose.z) == later.z) {
-                index = n; stepTicks = stalled = 0; break;
+                index = n; stepTicks = stalled = 0; best = Double.POSITIVE_INFINITY; break;
             }
         }
         var target = route.get(index);
         // Baritone MovementTraverse/Ascend/Descend advance on destination arrival.
         // Independent rule: entered destination column at its expected supported height.
         while (arrived(pose, geometry, route.get(index - 1), target)) {
-            index++; stepTicks = stalled = 0;
+            index++; stepTicks = stalled = 0; best = Double.POSITIVE_INFINITY;
             if (index == route.size()) { state = "done"; return Input.STOP; }
             target = route.get(index);
         }
@@ -299,7 +301,13 @@ final class RouteMotor {
                 && (!cut || geometry.cornerSprintOk(source, route.get(index), policy.maxDrop))
                 && fits(geometry, cut, pose, target, source.y, reach, false)
                 && cornerClear(geometry, pose, target, targetIndex, reach));
-        if (moved < .01 && pose.grounded && !jumping) stalled++; else stalled = 0;
+        // Progress is getting closer to the target, not merely moving: a drop column that
+        // closed after planning (a roof plank placed under the route, small-house run
+        // 20261111T222832963085Z) left the body jittering on top of its landing column
+        // for 6.6 s while every tick "moved".
+        double gap = distance + Math.abs(pose.y - target.y);
+        if (gap < best - .05) { best = gap; stalled = 0; }
+        else if (pose.grounded && !jumping) stalled++;
         if (stalled > 30) { stop("route_no_progress"); return Input.STOP; }
         return new Input(forward, yaw, jumping, sprint);
     }

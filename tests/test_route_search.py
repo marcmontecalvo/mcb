@@ -281,3 +281,47 @@ def test_one_deep_water_over_solid_ground_is_waded_but_two_deep_is_not():
 
     cells[2, 2, 1] = dict(water, position=[2, 2, 1])  # head under water: no stance
     assert not standable(cells, (2, 1, 1))
+
+
+def test_blocked_terrain_step_recentres_then_fails_fast(tmp_path):
+    # Hills r3 cut-0/cut-1: after its breaks, the step's jump was refused from 0.42
+    # off the source centre (hitbox in the side column); forward stayed 0 for the
+    # whole 80-tick deadline, then a replan: a 6.2 s standstill.
+    from reference_segmented import ReferenceSegmentedController as SegmentedController
+
+    from mclab.terrain_steps import TerrainPolicy
+
+    cells = floor_map([(x, z) for x in range(-1, 2) for z in range(-2, 4)])
+    for y in (1, 2):
+        cells[0, y, -1] = {
+            "position": [0, y, -1],
+            "block": "minecraft:bedrock",
+            "collision_boxes": [[0, 0, 0, 1, 1, 1]],
+        }
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    try:
+        controller = SegmentedController(
+            (0, 1, 3), memory, terrain_policy=TerrainPolicy()
+        )
+        controller.committed_source = (0, 1, 0)
+        controller.committed_step = (0, 1, -1)
+        controller.commit_started = 1
+        body = {"position": [0.5, 1, 0.92], "yaw": 180, "pitch": 0}
+        obs = {
+            "sensor_profile": "local-visibility-v1",
+            "tick": 2,
+            "visible_blocks": list(cells.values()),
+            "body": body,
+        }
+        command = controller.decide(obs)
+        assert command.get("forward", 0) > 0, "off-centre body recentres on the source"
+        body["position"] = [0.5, 1, 0.5]
+        for tick in range(3, 60):
+            obs["tick"] = tick
+            controller.decide(obs)
+            if controller.mode == "terrain_motion_failed":
+                break
+        assert controller.mode == "terrain_motion_failed"
+        assert tick <= 3 + 31, tick  # 1.5 s after the last movement
+    finally:
+        memory.close()

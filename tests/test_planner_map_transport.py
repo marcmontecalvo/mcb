@@ -390,3 +390,37 @@ def test_rejected_pipelined_frame_still_fails_closed():
         assert wire.frames[-1] == {"kind": "abort"} and transfer.future is None
     finally:
         transfer.close()
+
+
+def test_close_after_body_despawned_drops_staged_transfer_without_raising():
+    wire = Wire()
+
+    def send(frame):
+        if frame["kind"] == "abort":
+            raise RuntimeError("Bridge rejected request 55: no_body")
+        return wire.send(frame)
+
+    transfer = PlannerMapTransfer(send)
+    air = {"block": "minecraft:air", "fluid": "minecraft:empty", "collision_boxes": []}
+    transfer.start({(0, 0, 0): air})
+    transfer.future.result(timeout=2)
+    assert transfer.advance() is None  # begin acknowledged, transfer staged
+    transfer.close()  # the body is gone, so is its staging area
+    assert transfer.future is None
+
+
+def test_close_still_raises_a_real_abort_failure():
+    wire = Wire()
+
+    def send(frame):
+        if frame["kind"] == "abort":
+            raise RuntimeError("Bridge rejected request 9: bad_frame")
+        return wire.send(frame)
+
+    transfer = PlannerMapTransfer(send)
+    air = {"block": "minecraft:air", "fluid": "minecraft:empty", "collision_boxes": []}
+    transfer.start({(0, 0, 0): air})
+    transfer.future.result(timeout=2)
+    transfer.advance()
+    with pytest.raises(RuntimeError, match="bad_frame"):
+        transfer.close()
