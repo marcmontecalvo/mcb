@@ -1054,7 +1054,13 @@ class SegmentedController(NavigationController):
             return {}
         floating = (
             self.movement_policy.allow_swim
-            and body.get("survival", {}).get("in_water") is True
+            # ponytail: the crest of a bob lifts the feet just out of the water
+            # (in_water False, airborne); refusing it there let the body sink a
+            # block low and idle on a stationary "reached" plan (wading r3).
+            and (
+                body.get("survival", {}).get("in_water") is True
+                or not body.get("on_ground", True)
+            )
             and body.get("survival", {}).get("eye_in_water") is False
             and water_movement.surface_node(self._known_cells(), node)
         )

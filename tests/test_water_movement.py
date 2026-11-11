@@ -417,6 +417,38 @@ def test_surface_goal_can_finish_afloat_without_ground_contact(tmp_path):
         controller.close()
 
 
+def test_surface_goal_arrives_at_the_crest_of_a_bob_just_out_of_the_water(tmp_path):
+    # Run results/wading/20261111T222454872635Z: the swim route finished with the
+    # feet 0.09 above the surface (in_water False, airborne), arrival was refused,
+    # the body sank two blocks and idled 5.5 s on a stationary "reached" plan.
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "water")
+    controller = SegmentedController(
+        (0, 0, 3), memory, movement_policy=MovementPolicy(allow_swim=True)
+    )
+    obs = {
+        "tick": 1,
+        "sensor_profile": "local-visibility-v1",
+        "visible_blocks": list(water_map().values()),
+        "body": {
+            "position": [0.5, 0.09, 3.5],
+            "yaw": 0,
+            "pitch": 0,
+            "on_ground": False,
+            "survival": {
+                "in_water": False,
+                "eye_in_water": False,
+                "air": 300,
+                "max_air": 300,
+            },
+        },
+    }
+    try:
+        controller.decide(obs)
+        assert controller.mode == "arrived"
+    finally:
+        controller.close()
+
+
 def test_previous_route_is_favored_only_with_baritone_search(tmp_path):
     from mclab.terrain_steps import TerrainPolicy
 
