@@ -1,25 +1,5 @@
-"""Tree Removal skill for the companion bot.
-
-Fells trees obstructing building footprints or gathered for wood:
-1. Identifies single-log-wide trees (trunk + branches + canopy) intersecting
-   the footprint or its immediate perimeter.
-2. Selects the best available axe from inventory (stone or better preferred).
-3. Approaches the trunk at ground level (never standing on top of the canopy).
-4. Bottom-up felling algorithm:
-   - Stands on ground adjacent to trunk base.
-   - Skips the very bottom log (Log 1).
-   - If the tree is short (<= 5 logs tall), chops all logs 2..N directly from the ground with the axe.
-   - If any leaf blocks line of sight, clears the leaf and breaks the log.
-   - For taller trees (> 5 logs tall where top logs exceed ground reach):
-     * Breaks logs 2, 3, 4 from ground level.
-     * Steps/jumps onto Log 1 to gain elevation.
-     * Breaks straight up to reach higher logs.
-     * Pillars up as needed for very tall trees and clears branch logs.
-     * Digs back down through pillar blocks to Log 1.
-     * Steps down to ground.
-   - Once all logs in the trunk and canopy above Log 1 are removed, breaks Log 1 last.
-5. With all logs felled, canopy leaves decay on their own naturally.
-"""
+"""Tree removal: find single-log-wide trees on a footprint and fell them (see
+TreeFeller for the method). Canopy leaves decay on their own."""
 
 from __future__ import annotations
 
@@ -29,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Collection, Iterable
 
 from mclab.build_runner import REACH, BuildBody, Result
+from mclab.progress_watch import no_placing
 
 Pos = tuple[int, int, int]
 
@@ -86,7 +67,41 @@ AXE_TIERS = (
     "minecraft:wooden_axe",
 )
 
-TEMP_PILLAR_BLOCKS = ("minecraft:scaffolding", "minecraft:dirt", "minecraft:cobblestone")
+TEMP_PILLAR_BLOCKS = (
+    "minecraft:scaffolding",
+    "minecraft:dirt",
+    "minecraft:cobblestone",
+)
+MAX_OCCLUDERS = 6  # occluders broken for one log before giving up on it
+APPROACH_REACH = 3.0  # close enough that the two bottom logs are in plain view
+COLUMN_RADIUS = 0.3
+LOW = 4  # a log this far above the base is reached from a ground stance
+CLIMB_BELOW = 4  # feet this far under the lowest log left: it is in reach
+MAX_CLIMBS = 4
+LEAF_TRIES = 2  # failed breaks of one leaf from one stance before it is left
+TREE_PASSES = 2  # inside the trunk cell, so the log overhead is straight up
+SOFT_NAMES = frozenset(
+    "minecraft:" + n
+    for n in (
+        "vine",
+        "short_grass",
+        "tall_grass",
+        "fern",
+        "large_fern",
+        "dead_bush",
+        "glow_lichen",
+        "snow",
+        "sugar_cane",
+        "brown_mushroom",
+        "red_mushroom",
+        "blue_orchid",
+        "dandelion",
+        "poppy",
+        "cocoa",
+        "moss_carpet",
+        "lily_pad",
+    )
+)
 FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
 
@@ -95,6 +110,12 @@ def is_log(state: str | None) -> bool:
         return False
     block = state.split("[", 1)[0]
     return block in LOG_NAMES
+
+
+def is_soft(state: str | None) -> bool:
+    """Foliage, vines, small plants and logs: what may be cut to see a log."""
+    block = (state or "").split("[", 1)[0]
+    return block in SOFT_NAMES or block in LEAF_NAMES or block in LOG_NAMES
 
 
 def is_leaf(state: str | None) -> bool:
@@ -129,8 +150,13 @@ def find_trees(
     search_cells: Iterable[Pos],
     margin: int = 3,
     template=None,
+    leafless: bool = False,
 ) -> list[Tree]:
-    """Identify single-log-wide trees whose logs or canopy intersect search_cells or its margin."""
+    """Identify single-log-wide trees whose logs or canopy intersect search_cells or its margin.
+
+    With a template a log stand with no canopy is taken for a build and skipped;
+    ``leafless`` keeps it (site prep clears every non-template log anyway, and the
+    leaves of a half-felled tree are the first thing to go)."""
     cells_list = list(search_cells)
     if not cells_list:
         return []
@@ -185,7 +211,9 @@ def find_trees(
         # Trace down to ground to find the trunk base
         x, y, z = log
         curr_y = y
-        while is_log(world(x, curr_y - 1, z)) and not is_template_block((x, curr_y - 1, z)):
+        while is_log(world(x, curr_y - 1, z)) and not is_template_block(
+            (x, curr_y - 1, z)
+        ):
             curr_y -= 1
         base = (x, curr_y, z)
         if is_template_block(base):
@@ -241,7 +269,7 @@ def find_trees(
                                 if is_leaf(world(*leaf_pos)):
                                     canopy.add(leaf_pos)
 
-            if template is not None and not canopy:
+            if template is not None and not canopy and not leafless:
                 continue
 
             trees.append(Tree(base=base, trunk=trunk, branches=branches, leaves=canopy))
@@ -254,226 +282,227 @@ def _dist2(a: Pos, b: Pos) -> int:
 
 
 class TreeFeller:
-    """Executes tree removal using bottom-up chopping with stepping on Log 1."""
+    """Fells one tree by the column method: from a stance beside the trunk break the
+    logs bottom-up, then stand where the trunk was and break straight up.
+
+    The earlier method (skip the bottom log, climb onto it, pillar) left half-felled
+    trees in live run 20261110T003408754165Z: the climb was a two-block step, the
+    stance chooser accepted unseen underground cells (the body dug down to one), and
+    every refused break was no_line_of_sight behind vines or leaves it never cleared."""
 
     def __init__(self, body: BuildBody, template=None):
         self.body = body
         self.template = template
+        # failed breaks per (leaf, stance). Keyed by stance and counted: a leaf
+        # refused once, or from one spot, is tried again, not given up for the run.
+        self._failed: dict[tuple[Pos, Pos], int] = {}
 
-    def _clear_blocking_leaves(self, eye: tuple[float, float, float], target: tuple[float, float, float]) -> bool:
-        """Trace ray from eye to target center and break any intervening leaves."""
-        dist = math.dist(eye, target)
-        steps = max(1, math.ceil(dist / 0.1))
-        cleared = False
-        target_pos = (math.floor(target[0]), math.floor(target[1]), math.floor(target[2]))
+    def _eye(self) -> tuple[float, float, float]:
+        x, y, z = self.body.position()
+        return (x + 0.5, y + 1.62, z + 0.5)
+
+    def _protected(self, pos: Pos) -> bool:
+        """A cell the template already holds as built."""
+        if self.template is None:
+            return False
+        want, have = self.template.cells.get(pos), self.body.world(*pos)
+        return bool(want and have and want.split("[", 1)[0] == have.split("[", 1)[0])
+
+    def _try_break(self, pos: Pos) -> bool:
+        """One break attempt per cell, and only for a cell within reach of the eye."""
+        key = (pos, self.body.position())
+        centre = (pos[0] + 0.5, pos[1] + 0.5, pos[2] + 0.5)
+        if self._failed.get(key, 0) >= LEAF_TRIES:
+            return False
+        if math.dist(self._eye(), centre) > REACH:
+            return False  # too far from here says nothing about the next stance
+        if not self.body.break_block(pos).ok:
+            self._failed[key] = self._failed.get(key, 0) + 1
+            return False
+        return True
+
+    def _clear_blocking_leaves(self, eye, target) -> bool:
+        """Break the leaves on the ray from eye to target (bodies that do not name
+        the occluder). True if any broke."""
+        steps = max(1, math.ceil(math.dist(eye, target) / 0.1))
+        goal = tuple(math.floor(c) for c in target)
+        cleared, seen = False, set()
         for i in range(steps):
-            p = (
-                math.floor(eye[0] + (target[0] - eye[0]) * i / steps),
-                math.floor(eye[1] + (target[1] - eye[1]) * i / steps),
-                math.floor(eye[2] + (target[2] - eye[2]) * i / steps),
+            p = tuple(
+                math.floor(e + (t - e) * i / steps)
+                for e, t in zip(eye, target, strict=True)
             )
-            if p == target_pos:
+            if p == goal:
                 break
-            if is_leaf(self.body.world(*p)):
-                leaf_center = (p[0] + 0.5, p[1] + 0.5, p[2] + 0.5)
-                if math.dist(eye, leaf_center) <= 4.2:
-                    self.body.break_block(p)
-                    cleared = True
+            if p not in seen and is_leaf(self.body.world(*p)):
+                seen.add(p)
+                cleared = self._try_break(p) or cleared
         return cleared
 
-    def _carve_corridor(self, start: Pos, goal: Pos, trunk_base: Pos) -> None:
-        """Break leaves in a 1-wide, 2-high line from start to goal and around stance."""
-        sx, sy, sz = start
-        gx, gy, gz = goal
-        dist = math.hypot(gx - sx, gz - sz)
-        steps = max(1, math.ceil(dist / 0.5))
-        for i in range(steps + 1):
-            t = i / steps
-            x = math.floor(sx + (gx - sx) * t)
-            z = math.floor(sz + (gz - sz) * t)
-            y_base = math.floor(sy + (gy - sy) * t)
-            for dy in (0, 1, 2):
-                p = (x, y_base + dy, z)
-                if is_leaf(self.body.world(*p)):
-                    self.body.break_block(p)
-
-        # Clear stance volume (feet, torso, head)
-        for dy in (0, 1, 2):
-            sp = (gx, gy + dy, gz)
-            if is_leaf(self.body.world(*sp)):
-                self.body.break_block(sp)
-
-        # Clear leaves between ground_stance and trunk base / logs 2..4
-        bx, by, bz = trunk_base
-        eye = (gx + 0.5, gy + 1.62, gz + 0.5)
-        for dy in range(5):
-            tp = (bx + 0.5, by + dy + 0.5, bz + 0.5)
-            self._clear_blocking_leaves(eye, tp)
+    def _clear_view(self, pos: Pos, refused: Result) -> bool:
+        """Break what hides ``pos``. The body names the occluder; only soft blocks
+        (foliage, vines, plants, logs) that the template does not hold are broken."""
+        data = refused.data or {}
+        blocker = data.get("blocker")
+        if blocker is None:
+            centre = (pos[0] + 0.5, pos[1] + 0.5, pos[2] + 0.5)
+            return self._clear_blocking_leaves(self._eye(), centre)
+        blocker = tuple(blocker)
+        # the server names what it saw; the map may be stale
+        state = data.get("blocker_state") or self.body.world(*blocker)
+        if not is_soft(state) or self._protected(blocker):
+            return False
+        return self.body.break_block(blocker).ok
 
     def _break_log(self, pos: Pos, tool: str | None) -> bool:
-        """Break a log block, clearing any blocking leaves if line of sight is obstructed."""
+        """True once ``pos`` holds no log. Bounded: each retry follows one occluder
+        actually broken."""
         if not is_log(self.body.world(*pos)):
             return True
-
-        if self.template is not None:
-            target = self.template.cells.get(pos)
-            if target is not None:
-                curr = self.body.world(*pos)
-                if curr and (curr == target or curr.split("[", 1)[0] == target.split("[", 1)[0]):
-                    return False
-
-        here = self.body.position()
-        eye = (here[0] + 0.5, here[1] + 1.62, here[2] + 0.5)
-        target = (pos[0] + 0.5, pos[1] + 0.5, pos[2] + 0.5)
-        self._clear_blocking_leaves(eye, target)
-
-        for _ in range(3):
-            res = self.body.break_block(pos, tool=tool)
-            if res.ok:
+        if self._protected(pos):
+            return False
+        for _ in range(MAX_OCCLUDERS + 1):
+            result = self.body.break_block(pos, tool)
+            if result.ok:
                 return True
-            if res.reason == "no_line_of_sight":
-                self._clear_blocking_leaves(eye, target)
-                for dx, dy, dz in FACES:
-                    adj = (pos[0] + dx, pos[1] + dy, pos[2] + dz)
-                    if is_leaf(self.body.world(*adj)):
-                        self.body.break_block(adj)
-            elif res.reason == "out_of_reach":
+            if result.reason != "no_line_of_sight" or not self._clear_view(pos, result):
                 return False
-        return not is_log(self.body.world(*pos))
+        return False
 
-    def _ground_stance(self, tree_base: Pos) -> Pos:
-        """Find an adjacent ground-level stance around tree base (NEVER on top of canopy)."""
-        bx, by, bz = tree_base
-        here = self.body.position()
-        candidates: list[Pos] = []
-        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
-            for gy in (by, by - 1, by + 1):
-                candidates.append((bx + dx, gy, bz + dz))
-        candidates.sort(key=lambda s: _dist2(s, here))
-
-        for cand in candidates:
-            cand_y = cand[1]
-            feet = self.body.world(cand[0], cand_y, cand[2])
-            if feet in (None, "minecraft:air") or is_leaf(feet):
-                return cand
-        return candidates[0] if candidates else (bx + 1, by, bz)
+    def _standing(self, tree: Tree) -> list[Pos]:
+        logs = sorted(tree.all_logs, key=lambda p: p[1])
+        return [p for p in logs if is_log(self.body.world(*p))]
 
     def fell(self, tree: Tree, axe: str | None = None) -> bool:
-        """Fell `tree` using the specified or best available axe."""
-        inv = self.body.inventory()
-        chosen_axe = axe or best_axe(inv)
-        if chosen_axe and hasattr(self.body, "equip"):
-            self.body.equip(chosen_axe)
-
-        bx, by, bz = tree.base
-        trunk = list(tree.trunk)
-        if not trunk:
-            return True
-
-        # Step 1: Approach the trunk - break through leaves in a straight line to stance
-        ground_stance = self._ground_stance(tree.base)
-        here = self.body.position()
-        self._carve_corridor(here, ground_stance, tree.base)
-
-        if hasattr(self.body, "walk_to"):
-            self.body.walk_to(ground_stance, radius=0.8)
-        else:
-            self.body.goto_stance(ground_stance, reach=1.0)
-
-        # Ensure bot is at ground level adjacent to tree base (not on top of canopy)
-        cur = self.body.position()
-        if cur[1] > by + 2:
-            if hasattr(self.body, "walk_to"):
-                self.body.walk_to(ground_stance, radius=0.6)
-            else:
-                self.body.goto_stance(ground_stance, reach=1.0)
-
-        # Step 2: SKIP the very bottom log (trunk[0], Log 1).
-        # Break logs from ground level:
-        here = self.body.position()
-        eye_y = here[1] + 1.62
-        broken_from_ground: list[Pos] = []
-        unreached: list[Pos] = []
-
-        for log_pos in trunk[1:]:
-            dist = math.dist((here[0] + 0.5, eye_y, here[2] + 0.5), (log_pos[0] + 0.5, log_pos[1] + 0.5, log_pos[2] + 0.5))
-            if dist <= 4.2:
-                if self._break_log(log_pos, tool=chosen_axe):
-                    broken_from_ground.append(log_pos)
-                else:
-                    unreached.append(log_pos)
-            else:
-                unreached.append(log_pos)
-
-        # Step 3: If there are unreached higher logs, step/jump onto Log 1
-        pillars_placed: list[Pos] = []
-        if unreached:
-            log1_stance = (bx, by + 1, bz)
-            if hasattr(self.body, "walk_to"):
-                self.body.walk_to(log1_stance, radius=0.6)
-            else:
-                self.body.goto_stance(log1_stance, reach=1.0)
-
-            # From Log 1, break straight up
-            for log_pos in list(unreached):
-                cur_pos = self.body.position()
-                dist = math.dist((cur_pos[0] + 0.5, cur_pos[1] + 1.62, cur_pos[2] + 0.5), (log_pos[0] + 0.5, log_pos[1] + 0.5, log_pos[2] + 0.5))
-                if dist > 4.0:
-                    # Pillar up
-                    pillar_pos = (cur_pos[0], cur_pos[1], cur_pos[2])
-                    pillar_item = next(
-                        (it for it in TEMP_PILLAR_BLOCKS if self.body.inventory().get(it, 0) > 0),
-                        None,
-                    )
-                    if pillar_item:
-                        self.body.place_block(pillar_pos, pillar_item, pillar_item)
-                        pillars_placed.append(pillar_pos)
-                        next_stand = (cur_pos[0], cur_pos[1] + 1, cur_pos[2])
-                        if hasattr(self.body, "walk_to"):
-                            self.body.walk_to(next_stand, radius=0.5)
-                if self._break_log(log_pos, tool=chosen_axe):
-                    unreached.remove(log_pos)
-
-        # Step 4: Chop any branch logs in the canopy
-        for blog in sorted(tree.branches, key=lambda b: (b[1], _dist2(b, tree.base))):
-            if not is_log(self.body.world(*blog)):
+        """Remove every log of ``tree``. True only if none is left."""
+        body = self.body
+        axe = axe or best_axe(body.inventory())
+        if axe:
+            body.equip(axe)
+        # 1. Beside the trunk, on a stance the map knows.
+        with no_placing(body):
+            near = body.goto_stance(tree.base, APPROACH_REACH)
+            walk = getattr(body, "walk_to", None)
+            if not near and walk is not None:
+                # ponytail: a tree leafy down to the ground has no stance with a
+                # view; walk as close as the leaves allow and cut in from there
+                # (the feller sent no break at all for two such trees, run 32)
+                for radius in (2.5, 3.5, 4.5):
+                    if walk(tree.base, radius):
+                        break
+        # No stance found is not a reason to leave: the logs in reach are still
+        # broken (run 20261110T021445878238Z left whole trunks untouched).
+        # 2. Bottom-up from the ground, every log in reach (trunk and branches). A
+        #    log that stays hidden does not stop the ones above it: it was one more
+        #    leaf from opening the whole trunk in the live runs.
+        self._break_up(tree, axe)
+        # 3. Stand where the trunk was and break straight up: each break uncovers
+        #    the next log, and reach covers the trunk to base+6.
+        left = self._standing(tree)
+        if (
+            left
+            and left[0][1] >= tree.base[1] + 2
+            and self._into_column(tree)
+        ):
+            self._break_up(tree, axe)
+            self._climb(tree, axe)
+        # 4. Low leftovers (a branch, a base log the first stance hid): one stance
+        #    and one try each. Higher ones are never chased with goto_stance: its
+        #    planner pillars cost four attempts and 620 s for one log and were left
+        #    standing (run 20261110T011637401098Z).
+        for log in self._standing(tree):
+            if log[1] > tree.base[1] + LOW:
                 continue
-            if self.body.goto_stance(blog, reach=REACH):
-                self._break_log(blog, tool=chosen_axe)
+            # ponytail: break whatever is in reach whether or not a stance was
+            # found, and plan no route when the log already is: the body stood 3 m
+            # from four logs after 16 failed plans and broke none
+            # (run 20261110T164401279123Z)
+            if not self._in_reach(log):
+                with no_placing(body):
+                    body.goto_stance(log, REACH)
+            if self._in_reach(log):
+                self._break_log(log, axe)
+        if hasattr(body, "collect_drops"):
+            body.collect_drops(tree.all_logs)
+        return not self._standing(tree)
 
-        # Step 5: Dig back down through any temporary pillar blocks
-        for ppos in reversed(pillars_placed):
-            if self.body.world(*ppos) not in (None, "minecraft:air"):
-                self.body.break_block(ppos)
+    def _into_column(self, tree: Tree) -> bool:
+        walk = getattr(self.body, "walk_to", None)
+        if walk is None:
+            return False
+        with no_placing(self.body):
+            return walk(tree.base, COLUMN_RADIUS)
 
-        # Step 6: Step down from Log 1 to ground
-        if hasattr(self.body, "walk_to"):
-            self.body.walk_to(ground_stance, radius=1.0)
-        else:
-            self.body.goto_stance(ground_stance, reach=1.0)
+    def _break_up(self, tree: Tree, axe: str | None) -> None:
+        """Every standing log within reach of the eye, lowest first."""
+        for log in self._standing(tree):
+            if self._in_reach(log):
+                self._break_log(log, axe)
 
-        # Step 7: Remove the bottom log block (Log 1) LAST with the axe ONLY IF all upper logs are felled!
-        remaining_upper = [p for p in trunk[1:] + tree.branches if is_log(self.body.world(*p))]
-        if not remaining_upper and is_log(self.body.world(*tree.base)):
-            self._break_log(tree.base, tool=chosen_axe)
+    def _in_reach(self, log: Pos) -> bool:
+        eye = self._eye()  # reach is to the nearest point of the block
+        near = [min(max(e, c), c + 1) for e, c in zip(eye, log, strict=True)]
+        return math.dist(eye, near) <= REACH
 
-        # Collect drops if supported
-        if hasattr(self.body, "collect_drops"):
-            self.body.collect_drops([tree.base])
+    def _climb(self, tree: Tree, axe: str | None) -> None:
+        """Logs higher than reach (trunk or branch): pillar straight up the emptied
+        trunk column, just under the lowest one left, break what is in reach, then
+        take the pillar down again by breaking the block under the feet. Bounded by
+        MAX_CLIMBS."""
+        body, (bx, by, bz) = self.body, tree.base
+        climb = getattr(body, "dig_to", None)
+        for _ in range(MAX_CLIMBS):
+            left = self._standing(tree)
+            if not left or climb is None:
+                break
+            feet = (bx, left[0][1] - CLIMB_BELOW, bz)
+            if feet[1] <= body.position()[1] or not climb(feet):
+                break
+            self._break_up(tree, axe)
+        # Down again: each break drops the body one block.
+        for _ in range(MAX_CLIMBS * 8):
+            x, y, z = body.position()
+            under = (x, y - 1, z)
+            if y <= by or (x, z) != (bx, bz) or is_log(body.world(*under)):
+                break
+            if not body.break_block(under).ok:
+                break
 
-        return True
+
+def trees_in_the_way(
+    world, footprint: Collection[Pos], template=None, leafless: bool = False
+) -> dict[Pos, Tree]:
+    """Trees with any log or leaf in ``footprint`` or rooted in its columns, by base."""
+    columns = {(p[0], p[2]) for p in footprint}
+    cells = set(footprint)
+
+    def in_the_way(t: Tree) -> bool:
+        if (t.base[0], t.base[2]) in columns:
+            return True
+        return any(p in cells for p in t.all_logs | t.leaves)
+
+    found = find_trees(world, footprint, template=template, leafless=leafless)
+    return {t.base: t for t in found if in_the_way(t)}
 
 
 def clear_trees_in_footprint(
     body: BuildBody,
     footprint: Collection[Pos],
     template=None,
+    leafless: bool = False,
 ) -> int:
-    """Find and fell all trees intersecting footprint. Leaves decay automatically."""
-    trees = find_trees(body.world, footprint, template=template)
+    """Whole tree or nothing: a tree with any log or leaf in ``footprint`` (or
+    rooted in its columns) loses every log, wherever it is rooted; any other tree
+    is not touched. Nearest first; a tree left with logs gets one more attempt on
+    a second pass. Leaves decay on their own. Returns the number felled completely."""
     feller = TreeFeller(body, template=template)
     cleared = 0
-    for tree in trees:
-        if feller.fell(tree):
-            cleared += 1
+    for _ in range(TREE_PASSES):
+        trees = trees_in_the_way(body.world, footprint, template, leafless)
+        if not trees:
+            break
+        while trees:
+            base = min(trees, key=lambda b: (_dist2(b, body.position()), b))
+            if feller.fell(trees.pop(base)):
+                cleared += 1
     return cleared

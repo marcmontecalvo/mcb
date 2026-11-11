@@ -164,6 +164,13 @@ def main() -> int:
     parser.add_argument("--dz", type=int, default=2)
     parser.add_argument("--rotation", type=int, default=0)
     parser.add_argument(
+        "--margin",
+        type=int,
+        default=1,
+        help="blocks of levelled, cleared ground prepared around the footprint "
+        "before building (>= 0; default 1)",
+    )
+    parser.add_argument(
         "--inspect",
         action="store_true",
         help="keep the completed attempt and preview in-game until a STOP file is created",
@@ -211,6 +218,9 @@ def main() -> int:
         "--seed", type=int, help="run in a fresh copy of this natural seed's world"
     )
     args = parser.parse_args()
+    if args.margin < 0:
+        parser.error("--margin must be >= 0")
+
     if args.stage and not args.resume:
         parser.error("--stage requires --resume")
     if args.supply and (args.empty or args.resume):
@@ -316,7 +326,11 @@ def main() -> int:
                     bridge,
                     inventory=[
                         {"item": f"minecraft:iron_{t}", "count": 1}
-                        for t in ("pickaxe", "axe", "shovel", "hoe")
+                        # ponytail: two spare shovels. One iron shovel (250 uses)
+                        # wore out in site prep and the rest was dug by hand at
+                        # 2.3x the time (run 20261110T171038); the body picks the
+                        # best tool held, so a spare takes over with no new code.
+                        for t in ("pickaxe", "axe", "shovel", "shovel", "shovel", "hoe")
                     ],
                     place=place,
                 )
@@ -360,6 +374,20 @@ def main() -> int:
                 },
                 every=5,
             )
+            checkpoint = recorder
+
+            def recorder(report, final):  # noqa: F811
+                checkpoint(report, final)
+                site = report.site or {}
+                write_progress(
+                    folder,
+                    job="build",
+                    stage="done" if final else "building",
+                    done=len(report.placed),
+                    detail=f"site={site.get('stop') or 'preparing'} "
+                    f"cleared={site.get('cleared', 0)} filled={site.get('filled', 0)} "
+                    f"steps={report.steps} stalls={len(report.stalls)} stop={report.stop}",
+                )
             job = build_job(
                 args.build,
                 origin,
@@ -370,6 +398,7 @@ def main() -> int:
                 chests=chests,
                 build_only=bool(resume),
                 on_progress=recorder,
+                site_margin=args.margin,
             )
             report = job.build
             phases = {
@@ -404,6 +433,9 @@ def main() -> int:
                 d = bp.diff(template, body.world)
                 out |= {
                     "stop": report.stop,
+                    "site": report.site,
+                    "stalls": report.stalls,
+                    "stall_reason": report.stall_reason,
                     "steps": report.steps,
                     "counts": report.counts,
                     "surveyed": report.surveyed,

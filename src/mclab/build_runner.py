@@ -31,19 +31,32 @@ once the inventory has been refilled, False to stop.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Collection
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import NamedTuple, Protocol
 
 from mclab import build_plan as bp
+from mclab import scaffolding as sc
 from mclab.build_plan import Pos
+from mclab.progress_watch import (
+    STALL_SECONDS,
+    ProgressWatch,
+    StallError,
+    WatchedBody,
+    no_placing,
+)
 
 REACH = 4.5
 MAX_TRIES = 3
+LEAD = 3  # a sweep walks to a stance for the act this far ahead of the nearest one
 CLEANUP_ROUNDS = 3
 MAX_RECOVERIES = 3
+BUILD_WALL = 30.0  # seconds a build walk may take before the route is given up
 SETTLE_TICKS = 60  # wait for the sensor before calling a build blocked
 RETRY_ROUNDS = 2  # fresh tries for skipped cells before stopping blocked
+STANCE_BUDGET_S = 5.0  # a pause longer than this reads as a broken bot
 STANCE_REASONS = frozenset({"out_of_reach", "state_unreachable"})
 
 
@@ -86,6 +99,9 @@ class BuildReport:
     unknown: list[Pos] = field(default_factory=list)  # template cells never delivered
     surveyed: int = 0  # perimeter points visited (B4)
     trees_cleared: int = 0  # trees felled by Tree Removal skill
+    site: dict = field(default_factory=dict)  # site_prep.SiteReport.summary()
+    stalls: list[dict] = field(default_factory=list)  # progress_watch events
+    stall_reason: str = ""  # why a "stalled" or "site_not_ready" stop happened
     # (cell, reason, stance, body diagnosis) of every failed attempt, to diagnose from
     failures: list[tuple[Pos, str, Pos, dict]] = field(default_factory=list)
 
@@ -156,6 +172,20 @@ def _record(report: BuildReport, act) -> None:
         report.placed.append(act.pos)
 
 
+def _take_back(runner: _Runner, act) -> None:
+    """Pick up a wrong block broken out of the template, to place it again. Run
+    20261110T170929838024Z broke a detector rail it had just placed, left the drop,
+    and its refill went hunting ore for a new one."""
+    collect = getattr(runner.body, "collect_drops", None)  # optional, like walk_to
+    if (
+        collect
+        and isinstance(act, bp.Break)
+        and act.pos in runner.reserved  # a cell the house wants a block in
+        and act.pos not in (runner.scaffolds or ())
+    ):
+        collect([act.pos])
+
+
 def _support(act, blocks: dict) -> Pos | set[Pos] | None:
     if not isinstance(act, bp.Place):
         return None
@@ -165,11 +195,20 @@ def _support(act, blocks: dict) -> Pos | set[Pos] | None:
         return bp._support_cell(kind, props, act.pos)
     axis = props.get("axis")
     if axis == "z":
-        return {(act.pos[0], act.pos[1], act.pos[2] - 1), (act.pos[0], act.pos[1], act.pos[2] + 1)}
+        return {
+            (act.pos[0], act.pos[1], act.pos[2] - 1),
+            (act.pos[0], act.pos[1], act.pos[2] + 1),
+        }
     if axis == "x":
-        return {(act.pos[0] - 1, act.pos[1], act.pos[2]), (act.pos[0] + 1, act.pos[1], act.pos[2])}
+        return {
+            (act.pos[0] - 1, act.pos[1], act.pos[2]),
+            (act.pos[0] + 1, act.pos[1], act.pos[2]),
+        }
     if axis == "y":
-        return {(act.pos[0], act.pos[1] - 1, act.pos[2]), (act.pos[0], act.pos[1] + 1, act.pos[2])}
+        return {
+            (act.pos[0], act.pos[1] - 1, act.pos[2]),
+            (act.pos[0], act.pos[1] + 1, act.pos[2]),
+        }
     return None
 
 
@@ -181,6 +220,12 @@ class _Runner:
         self.blocks = blocks
         self.fails: dict[Pos, int] = {}
         self.avoid: dict[Pos, set[Pos]] = {}
+        # set by _run to let a target with no stance get a scaffolding tower to stand on
+        self.scaffolds: set | None = None
+        self.reserved: frozenset[Pos] = frozenset()
+        self.template: bp.Template | None = None
+        self.towered: set[Pos] = set()  # targets that already got their one tower
+        self._towering = False
 
     def attempt(self, act) -> None:
         """Stance, act, record. Retries other stances while the failure says so."""
@@ -192,6 +237,7 @@ class _Runner:
             result = _do(self.body, act)
             if result.ok:
                 self.report.steps += 1
+                _take_back(self, act)
                 return _record(self.report, act)
 
         while self.fails.get(pos, 0) < MAX_TRIES and self.report.steps < self.max_steps:
@@ -205,10 +251,17 @@ class _Runner:
                 self.report.failures.append(
                     (pos, "no_stance", self.body.position(), {})
                 )
+                # no stance is not cured by asking again: skip now, the retry
+                # round comes back once the build around the cell has changed
+                # (site prep keeps its three tries: its corner fills get a stance
+                # only on a later one, run 20261111T014649585692Z stopped blocked)
+                if self.template is not None:
+                    self.fails[pos] = MAX_TRIES
                 return self._fail(pos, "no_stance")
             stance = self.body.position()
             result = _do(self.body, act)
             if result.ok:
+                _take_back(self, act)
                 return _record(self.report, act)
             detail = (result.data or {}).get("diagnosis") or {}
             self.report.failures.append(
@@ -222,18 +275,155 @@ class _Runner:
     def _stance(self, pos: Pos, avoid) -> bool:
         """A stance for pos; if none is reachable, climb or dig out of a hole the body
         is in (an optional body method, like walk_to) and try once more."""
+        start = time.monotonic()
         if self.body.goto_stance(pos, REACH, avoid):
             return True
+        if self._tower(pos, avoid):
+            return True
+        if self._unwedge() and self.body.goto_stance(pos, REACH, avoid):
+            return True
+        # Each further try is seconds of standing still; four in a row were the
+        # 30-70 s pauses of run 20261110T223248667856Z. Past the budget the cell is
+        # skipped and the build moves on.
+        if time.monotonic() - start > STANCE_BUDGET_S:
+            return False
         escape = getattr(self.body, "escape_hole", None)  # optional
         if escape is None or not escape(pos):
             return False
         self.report.escapes += 1
         return self.body.goto_stance(pos, REACH, avoid)
 
+    def _unwedge(self) -> bool:
+        """Break our own scaffolding touching the body. A column placed against the
+        body's side overlapped its hitbox by 0.017 and the motor refused every step
+        for minutes (run 20261110T115340557226Z); scaffolding breaks instantly and
+        the column above the broken cell drops with it."""
+        if not self.scaffolds:
+            return False
+        x, y, z = self.body.position()
+        near = sorted(
+            c
+            for c in self.scaffolds
+            if abs(c[0] - x) <= 1 and abs(c[2] - z) <= 1 and abs(c[1] - y) <= 2
+        )
+        freed = False
+        for cell in near:  # lowest first: the rest of the column falls
+            if self.body.break_block(cell).ok or not _is_scaffold(self.body, cell):
+                freed = True
+        for cell in [c for c in self.scaffolds if not _is_scaffold(self.body, c)]:
+            self.scaffolds.discard(cell)
+        return freed
+
+    def _tower(self, pos: Pos, avoid) -> bool:
+        """No stance for pos: raise a scaffolding column beside it and stand on its top
+        (the body climbs it; mclab.scaffolding). Every block goes into ``scaffolds``, so
+        the planner leaves it alone and cleanup takes it down. Once per target; the
+        body then stays up for the rest of the cells in reach of the tower."""
+        if self.scaffolds is None or self._towering or pos in self.towered:
+            return False
+        self.towered.add(pos)
+        cells = bp.tower_cells(pos, self.body.world, self.blocks, self.reserved)
+        if not cells:
+            return False
+        if self.body.inventory().get(sc.BLOCK, 0) < len(cells):
+            # standing towers are taken back first; the whole stack is only 64
+            _clean_up(self, self.template, self.scaffolds)
+            if self.body.inventory().get(sc.BLOCK, 0) < len(cells):
+                return False
+        # Place from two cells away: beside the column the body's box overlaps it.
+        cx, _, cz = cells[0]
+        _, by, _ = self.body.position()
+        beside = {
+            (cx + dx, h, cz + dz)
+            for dx in (-1, 0, 1)
+            for dz in (-1, 0, 1)
+            for h in range(by - 3, by + 4)
+        }
+        self.body.goto_stance(cells[0], REACH, set(avoid) | beside)
+        self._towering = True
+        try:
+            for cell in cells:
+                n = len(self.report.scaffolded)
+                self.attempt(bp.Scaffold(cell, sc.BLOCK))
+                if len(self.report.scaffolded) == n:
+                    return False  # what stands is cleaned up with the rest
+                self.scaffolds.add(cell)
+        finally:
+            self._towering = False
+        if self.body.goto_stance(pos, REACH, avoid):
+            return True
+        # Not climbed: a tower nobody stands on is only in the way.
+        self.body.break_block(cells[0])
+        for cell in cells:
+            if not _is_scaffold(self.body, cell):
+                self.scaffolds.discard(cell)
+        return False
+
     def _fail(self, pos: Pos, reason: str) -> None:
         self.fails[pos] = self.fails.get(pos, 0) + 1
         if self.fails[pos] >= MAX_TRIES:
             self.report.skipped[pos] = reason
+
+
+def _is_scaffold(body, cell: Pos) -> bool:
+    return (body.world(*cell) or "").startswith(sc.BLOCK)
+
+
+def _sweep(runner: _Runner, template: bp.Template, acts: list) -> None:
+    """Work one batch in walking order: lowest layer first, then everything within
+    reach of where the body stands (same item as the last one first), only then the
+    nearest act outside reach. The body position is re-read after every act, so the
+    bot sweeps along a wall instead of crossing the house. A wall cell waits for an
+    inside corner of the batch beside it (the corner must not be placed last: a
+    pocket nothing sees into), which replaces the old corners-of-the-whole-layer-first.
+    ponytail: the batch is not re-planned mid-sweep; a placement unlocks its
+    neighbours only in the next batch."""
+    pool = list(acts)
+    corners = {a.pos for a in pool if bp.inside_corner(template, a.pos)}
+    last, tried = None, False
+    while pool and runner.report.steps < runner.max_steps:
+        here = runner.body.position()
+
+        def key(a, here=here, last=last):
+            d2 = _dist2(a.pos, here)
+            near = d2 <= (REACH - 0.5) ** 2
+            same = getattr(a, "item", None) != last
+            return (a.pos[1], not near, 0 if near else d2, same, d2)
+
+        ready = [
+            a
+            for a in pool
+            if a.pos in corners
+            or not any(
+                (a.pos[0] + dx, a.pos[1], a.pos[2] + dz) in corners
+                for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))
+            )
+        ]
+        act = min(ready, key=key)
+        if tried and _dist2(act.pos, here) > (REACH + LEAD) ** 2:
+            return  # stale: only far leftovers (the batch was cut round the old spot)
+        if _dist2(act.pos, here) > (REACH - 0.5) ** 2:
+            # The body walks to the nearest stance that reaches its target, i.e. to the
+            # edge of reach, so the next cell along the wall is out of reach again: one
+            # walk per block. Stand for the act LEAD cells ahead instead; the nearest
+            # one is then in reach too. ponytail: best effort, a failed walk is ignored
+            # (attempt walks for the act itself); no lookahead beyond LEAD.
+            lead = max(
+                (
+                    b
+                    for b in pool
+                    if b.pos[1] == act.pos[1] and _dist2(b.pos, act.pos) <= LEAD**2
+                ),
+                key=lambda b: _dist2(b.pos, here),
+            )
+            if lead is not act and hasattr(runner.body, "required_support"):
+                runner.body.required_support = _support(lead, runner.blocks)
+            if lead is not act:
+                runner.body.goto_stance(lead.pos, REACH)
+        pool.remove(act)
+        corners.discard(act.pos)
+        runner.attempt(act)
+        last, tried = getattr(act, "item", None), True
 
 
 def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
@@ -268,17 +458,135 @@ def run_build(
     scaffolds: set | None = None,
     survey: bool = False,
     on_progress: Callable[[BuildReport, bool], None] | None = None,
+    site_margin: int | None = 1,
+    protected: Collection[Pos] = (),
+    stall_seconds: float | None = STALL_SECONDS,
+    clock: Callable[[], float] | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> BuildReport:
-    """Build ``template`` through ``body``; see the module docstring."""
+    """Build ``template`` through ``body``; see the module docstring.
+
+    ``site_margin``: prepare the footprint plus this many cells on every side first
+    (site_prep; ``None`` skips it, negative raises ValueError). ``stall_seconds``: a
+    stationary retry loop longer than this is recovered, then stopped as ``stalled``
+    (progress_watch; ``None`` disables). Stops: ``site_not_ready``, ``stalled``.
+    """
     report = BuildReport()
+    watch = None
+    if stall_seconds is not None:
+        watch = ProgressWatch(limit=stall_seconds, events=report.stalls)
+        if clock:
+            watch.clock = clock
+        if log:
+            watch.log = log
+        body = WatchedBody(body, watch)
+        if on_need_materials:
+            refill = on_need_materials
+
+            def on_need_materials(items, _refill=refill):
+                ok = _refill(items)  # gathering is bounded work of its own
+                watch.progress(body.position())
+                return ok
+
+    try:
+        _run(
+            template,
+            body,
+            blocks,
+            report,
+            max_steps,
+            on_need_materials,
+            scaffolds,
+            survey,
+            on_progress,
+            site_margin,
+            protected,
+            log or (lambda m: None),
+        )
+    except StallError as exc:
+        report.stop, report.stall_reason = "stalled", str(exc)
+        if log:
+            log(f"STOP stalled: {exc}")
+    if not report.counts:  # stopped early (stalled, site not ready)
+        report.counts = bp.progress(template, body.world)
+        report.unknown = bp.diff(template, body.world).unknown
+    if on_progress:
+        on_progress(report, True)
+    return report
+
+
+def _run(
+    template,
+    body,
+    blocks,
+    report,
+    max_steps,
+    on_need_materials,
+    scaffolds,
+    survey,
+    on_progress,
+    site_margin,
+    protected,
+    log,
+) -> None:
     if survey:
         report.surveyed = survey_footprint(template, body)
     from mclab.tree_removal import clear_trees_in_footprint
 
-    report.trees_cleared = clear_trees_in_footprint(body, template.cells, template=template)
     scaffolds = set() if scaffolds is None else scaffolds
     runner = _Runner(body, report, max_steps, blocks)
+    if site_margin is not None:
+        from mclab import site_prep
+
+        site = site_prep.site_area(template, site_margin)
+        area = {
+            (x, y, z)
+            for x, z in site.columns()
+            for y in range(site.ground_y + 1, site.top_y + 1)
+        }
+        report.trees_cleared = clear_trees_in_footprint(body, area, template=template)
+
+        def site_log(message: str) -> None:
+            log(message)
+            if on_progress:  # each round refreshes the run's progress/status
+                on_progress(report, False)
+
+        sr = site_prep.prepare_site(
+            template,
+            body,
+            runner,
+            site,
+            protected=protected,
+            on_need_materials=on_need_materials,
+            log=site_log,
+        )
+        sr.trees = report.trees_cleared
+        report.site = sr.summary()
+        log(f"site prepared: {report.site}")
+        if on_progress:
+            on_progress(report, False)
+        if sr.stop != "ready":
+            report.stop = "site_not_ready"
+            why = dict(list(sr.blocked.items())[:5]) or sr.unknown[:5] or sr.needed
+            report.stall_reason = f"site {sr.stop}: {why}"
+            return
+    else:
+        report.trees_cleared = clear_trees_in_footprint(
+            body, template.cells, template=template
+        )
+    runner.scaffolds, runner.template = scaffolds, template
+    runner.reserved = frozenset(
+        p for p, s in template.cells.items() if bp.parse_state(s)[0] not in bp.AIR
+    )
+
+    def calm():
+        # The route planner places no dirt while building: the body stands on
+        # scaffolding towers (climbing on) instead of dirt stairs it never takes down.
+        return no_placing(body, wall=BUILD_WALL, climb=True)
+
     recoveries = retries = 0
+    fetched: set[frozenset[str]] = set()
+    refused: set[frozenset] = set()
     settled = False
     while True:
         if report.steps >= max_steps:
@@ -293,14 +601,46 @@ def run_build(
             limit=32 + len(skipped),
             scaffolds=scaffolds,
             skipped=skipped,
+            near=body.position(),
+            fetch_first=True,
         )
+        fetching = False
+        if acts and isinstance(acts[0], bp.NeedMaterials) and not acts[0].scaffold:
+            # Fetch a lower layer's missing item once per shortage; when the chests
+            # did not have it, build on with what is held rather than stop.
+            held = body.inventory()
+            short = frozenset(i for i in acts[0].items if held.get(i, 0) < 1)
+            if short in fetched:
+                acts = bp.next_actions(
+                    template,
+                    body.world,
+                    blocks,
+                    held,
+                    limit=32 + len(skipped),
+                    scaffolds=scaffolds,
+                    skipped=skipped,
+                    near=body.position(),
+                )
+            else:
+                fetching = True
+            fetched.add(short)
         if acts and isinstance(acts[0], bp.NeedMaterials):
             if acts[0].scaffold and recoveries < MAX_RECOVERIES:
                 recoveries += 1  # out of scaffolds: take the standing ones back first
-                if _clean_up(runner, template, scaffolds):
+                with calm():
+                    cleaned = _clean_up(runner, template, scaffolds)
+                if cleaned:
                     continue
             report.needed = dict(acts[0].items)
-            if on_need_materials is None or not on_need_materials(report.needed):
+            ask = frozenset(report.needed.items())
+            if (
+                on_need_materials is None
+                or ask in refused  # the same request was already turned down
+                or not on_need_materials(report.needed)
+            ):
+                refused.add(ask)
+                if fetching:  # a lower layer's item cannot be had: build on without
+                    continue
                 report.stop = "need_materials"
                 break
             continue
@@ -326,19 +666,76 @@ def run_build(
                 continue
             report.stop = "done" if clean else "blocked"
             break
-        here = body.position()
-        # nearest first, but inside corners before the walls that would close them in
-        acts.sort(
-            key=lambda a: (not bp.inside_corner(template, a.pos), _dist2(a.pos, here))
-        )
-        for act in acts:
-            runner.attempt(act)
+        with calm():
+            _sweep(runner, template, acts)
         if on_progress:
             on_progress(report, False)
     if report.stop != "need_materials":
-        _clean_up(runner, template, scaffolds)
+        with calm():
+            _clean_up(runner, template, scaffolds)
+    if report.stop == "done":
+        # Cleanup walks can reopen doors after the main loop's clean audit.
+        # Repair only state toggles, with automatic door opening disabled;
+        # audit again after all movement, rather than reporting stale success.
+        with calm(), getattr(body, "no_opening_doors", nullcontext)():
+            for _ in range(CLEANUP_ROUNDS):
+                uses = bp.diff(template, body.world).uses
+                if not uses:
+                    break
+                # Scaffolds are already swept: a door without a stance must fail,
+                # not raise a new column that nothing would take down.
+                runner.towered.update(pos for pos, _ in uses)
+                for pos, item in uses:
+                    runner.attempt(bp.Use(pos, item))
+                settle = getattr(body, "wait_ticks", None)
+                if settle:
+                    settle(5)
+        final = bp.diff(template, body.world)
+        if final.breaks or final.places or final.unknown or final.uses:
+            report.stop = "blocked"
     report.counts = bp.progress(template, body.world)
     report.unknown = bp.diff(template, body.world).unknown
-    if on_progress:
-        on_progress(report, True)
-    return report
+
+
+class SiteCutter:
+    """Cut and clear the site in short slices while the caller would otherwise wait
+    (a furnace smelting). The dirt comes up into the inventory for the later fill.
+    ``slice()`` is True while cells remain to cut, False once the site is cut."""
+
+    def __init__(self, template, body, blocks, margin, protected=(), log=None):
+        from mclab import site_prep
+
+        self.template, self.body, self.protected = template, body, tuple(protected)
+        self.site = site_prep.site_area(template, margin)
+        self.runner = _Runner(body, BuildReport(), 5000, blocks)
+        self.log = log or (lambda m: None)
+        self.trees_done = self.done = False
+
+    def slice(self, rounds: int = 3) -> bool:
+        if self.done:
+            return False
+        from mclab import site_prep
+        from mclab.tree_removal import clear_trees_in_footprint
+
+        site = self.site
+        if not self.trees_done:
+            self.trees_done = True
+            area = {
+                (x, y, z)
+                for x, z in site.columns()
+                for y in range(site.ground_y + 1, site.top_y + 1)
+            }
+            clear_trees_in_footprint(self.body, area, template=self.template)
+            return True
+        rep = site_prep.prepare_site(
+            self.template,
+            self.body,
+            self.runner,
+            site,
+            protected=self.protected,
+            max_rounds=rounds,
+            cut_only=True,
+            log=self.log,
+        )
+        self.done = rep.stop == "cut_done"
+        return not self.done and rep.stop == "max_rounds"

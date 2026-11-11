@@ -173,6 +173,26 @@ def test_small_house_reaches_empty_diff_with_the_expected_materials():
     assert {k: 100 - v for k, v in body.inv.items() if v != 100} == HOUSE_MATERIALS
 
 
+@pytest.mark.parametrize("refuse", [False, True])
+def test_cleanup_opened_door_is_restored_before_final_success(monkeypatch, refuse):
+    body, template = small_house_body()
+
+    def cleanup(runner, template, scaffolds):
+        for pos, state in body.w.items():
+            if "_door[" in state and "half=lower" in state:
+                assert body.use_block(pos).ok
+                if refuse:
+                    body.use_block = lambda *a, **k: br.Result(False, "refused")
+                return True
+        raise AssertionError("Fixture has no built door")
+
+    monkeypatch.setattr(br, "_clean_up", cleanup)
+    report = br.run_build(template, body, BLOCKS)
+    assert report.stop == ("blocked" if refuse else "done")
+    assert bool(bp.diff(template, body.world).uses) is refuse
+    assert (report.progress() == 1) is not refuse
+
+
 def test_terrain_in_the_footprint_is_broken_first():
     body, t = small_house_body()
     body.w[(2, 1, 2)] = "minecraft:dirt"
@@ -234,7 +254,9 @@ def test_real_house_reaches_empty_diff(origin):
     w = flat_world(-2, 30, -1)
     inv = {**materials, "minecraft:dirt": materials.get("minecraft:dirt", 0) + 300}
     body = FakeBody(w, inv, blocks)
-    report = br.run_build(t, body, blocks)
+    report = br.run_build(
+        t, body, blocks, site_margin=None
+    )  # floating origin: scaffolds
     assert report.skipped == {} and report.stop == "done", report
     d = bp.diff(t, body.world)
     assert (d.breaks, d.places, d.unknown, d.uses) == ([], [], [], [])
@@ -332,14 +354,21 @@ def test_small_house_fixture_builds_with_the_kit_of_its_material_list():
 
 
 def test_support_axis_blocks():
-    act_z = bp.Place((0, 1, 1), "minecraft:stripped_birch_log[axis=z]", "minecraft:stripped_birch_log")
+    act_z = bp.Place(
+        (0, 1, 1),
+        "minecraft:stripped_birch_log[axis=z]",
+        "minecraft:stripped_birch_log",
+    )
     sup_z = br._support(act_z, BLOCKS)
     assert sup_z == {(0, 1, 0), (0, 1, 2)}
 
-    act_x = bp.Place((1, 1, 0), "minecraft:stripped_birch_log[axis=x]", "minecraft:stripped_birch_log")
+    act_x = bp.Place(
+        (1, 1, 0),
+        "minecraft:stripped_birch_log[axis=x]",
+        "minecraft:stripped_birch_log",
+    )
     sup_x = br._support(act_x, BLOCKS)
     assert sup_x == {(0, 1, 0), (2, 1, 0)}
-
 
 
 class _Pit:
@@ -372,3 +401,190 @@ def test_runner_reports_no_stance_when_the_pit_cannot_be_left():
     runner = br._Runner(body, report, 100, BLOCKS)
     assert not runner._stance((1, 1, 1), set())
     assert report.escapes == 0
+
+
+# --- scaffolding towers to stand on -------------------------------------------
+SCAFF = "minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]"
+
+
+class TowerBody(FakeBody):
+    """FakeBody that can also stand inside a scaffolding column (the motor climbs
+    it) and whose column drops with its root, as in the game."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.placed_from: dict[bp.Pos, bp.Pos] = {}
+        self.planner_placing = True
+
+    def no_placing(self, wall=10.0, climb=False):
+        import contextlib
+
+        @contextlib.contextmanager
+        def ctx():
+            self.planner_placing = False
+            try:
+                yield
+            finally:
+                self.planner_placing = True
+
+        return ctx()
+
+    def _stance_ok(self, s, target, reach):
+        if str(self.w.get(s)).startswith("minecraft:scaffolding"):
+            head = self.w.get((s[0], s[1] + 1, s[2]))
+            # only the top of a column is a stance
+            return head == AIR and target != s and self._in_reach(target, s)
+        return super()._stance_ok(s, target, reach)
+
+    def place_block(self, pos, state, item):
+        res = super().place_block(pos, state, item)
+        if res.ok:
+            self.placed_from[pos] = self.pos
+        return res
+
+    def break_block(self, pos, tool=None):
+        res = super().break_block(pos, tool)
+        above = (pos[0], pos[1] + 1, pos[2])
+        while res.ok and str(self.w.get(above)).startswith("minecraft:scaffolding"):
+            self.w[above] = AIR
+            above = (above[0], above[1] + 1, above[2])
+        return res
+
+
+def tall_column_body(top=6):
+    """A column of planks 0..top: the cell at y=6 has no stance on the ground."""
+    w = flat_world(hi=14)
+    cells = {(0, y, 0): "minecraft:oak_planks" for y in range(top + 1)}
+    t = bp.Template.from_build(make_build(cells, (1, top + 1, 1)), (3, 0, 3))
+    inv = {item: 100 for item in {i["item"] for i in BLOCKS.values()}}
+    inv["minecraft:scaffolding"] = 64
+    return TowerBody(w, inv, BLOCKS), t
+
+
+def test_a_cell_with_no_stance_gets_a_scaffolding_tower_and_it_comes_down():
+    body, t = tall_column_body()
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done" and (3, 6, 3) in report.placed
+    assert report.scaffolded  # the tower was built...
+    top = max(report.scaffolded, key=lambda p: p[1])
+    assert body.placed_from[(3, 6, 3)][1] >= 4  # ...and the act done from up on it
+    assert top[1] == 5
+    d = bp.diff(t, body.world)
+    assert (d.breaks, d.places, d.unknown, d.uses) == ([], [], [], [])
+    assert not [p for p, s in body.w.items() if s.startswith("minecraft:scaffolding")]
+
+
+def test_the_planner_places_no_dirt_while_the_build_runs():
+    body, t = tall_column_body(top=2)
+    seen = []
+    orig = body.place_block
+
+    def spy(pos, state, item):
+        seen.append(body.planner_placing)
+        return orig(pos, state, item)
+
+    body.place_block = spy
+    br.run_build(t, body, BLOCKS)
+    assert seen and not any(seen)
+
+
+def test_tower_cells_use_the_margin_but_never_template_cells():
+    w = flat_world(hi=14)
+    at = lambda x, y, z: w.get((x, y, z))  # noqa: E731
+    pos = (3, 6, 3)
+    around = {(4, 6, 3), (2, 6, 3), (3, 6, 4)}  # three neighbours are house
+    cells = bp.tower_cells(pos, at, BLOCKS, around)
+    assert cells == [(3, y, 2) for y in range(0, 6)]  # the free one: margin side
+    assert bp.tower_cells(pos, at, BLOCKS, around | {(3, 6, 2)}) == []
+    assert bp.tower_cells((3, 20, 3), at, BLOCKS) == []  # beyond MAX_TOWER / the map
+
+
+def _ring_run(size=14, height=2):
+    """A hollow cobblestone ring ``size`` wide and ``height`` high on flat ground."""
+    cells = {
+        (x, y, z): bp_cobble
+        for y in range(height)
+        for x in range(size)
+        for z in range(size)
+        if x in (0, size - 1) or z in (0, size - 1)
+    }
+    t = bp.Template.from_build(make_build(cells, (size, height, size)), (1, 0, 1))
+    body = FakeBody(flat_world(-2, size + 6), {bp_cobble: 999}, BLOCKS)
+    order, body.walks = [], 0
+    place, goto = body.place_block, body.goto_stance
+
+    def counted(*a, **kw):
+        before = body.pos
+        ok = goto(*a, **kw)
+        body.walks += body.pos != before
+        return ok
+
+    body.goto_stance = counted
+
+    def logged(pos, state, item):
+        result = place(pos, state, item)
+        if result.ok:
+            order.append(pos)
+        return result
+
+    body.place_block = logged
+    return t, body, order, br.run_build(t, body, BLOCKS, site_margin=None)
+
+
+bp_cobble = "minecraft:cobblestone"
+
+
+def test_ring_is_swept_along_the_wall_not_zigzagged():
+    t, body, order, report = _ring_run()
+    assert report.stop == "done" and report.skipped == {}
+    d = bp.diff(t, body.world)
+    assert (d.breaks, d.places, d.unknown, d.uses) == ([], [], [], [])
+    assert len(order) == len(report.placed) == 2 * 4 * 13
+    # far fewer walks than blocks (it was about one stance per block or two)
+    assert body.walks <= 0.4 * len(order), body.walks  # 35; the old order: 54
+    # consecutive placements are neighbours or within reach; only a layer's last
+    # straggler may be across the ring (not a cross-house hop every few blocks)
+    jumps = [_d2(a, b) ** 0.5 for a, b in zip(order, order[1:], strict=False)]
+    assert sum(j > br.REACH * 2 for j in jumps) <= 3, sorted(jumps)[-5:]
+    assert sum(jumps) <= 2 * len(order), sum(jumps)  # 163; the old order: 475
+
+
+def test_scaffolding_touching_the_body_is_broken_to_free_it():
+    body, _t = tall_column_body()
+    x, y, z = body.position()
+    wedge, far = (x + 1, y, z), (x + 6, y, z)
+    body.w[wedge] = body.w[far] = "minecraft:scaffolding"
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.scaffolds = {wedge, far}
+    assert runner._unwedge()
+    assert not body.w[wedge].startswith("minecraft:scaffolding")
+    assert runner.scaffolds == {far}  # a tower away from the body is left alone
+
+
+def test_fetch_first_asks_for_a_lower_layers_item_before_building_above():
+    # floor cell (y 1) wants planks that are not held; the wall cell above a placed
+    # neighbour is affordable. Without fetch_first the wall goes up over the gap.
+    cells = {
+        (0, 1, 0): "minecraft:birch_planks",
+        (1, 1, 0): "minecraft:stone",
+        (1, 2, 0): "minecraft:stone",
+    }
+    template = bp.Template(cells, (2, 3, 1), (0, 0, 0))
+    placed = {(1, 1, 0): "minecraft:stone"}
+
+    def world(x, y, z):
+        if y <= 0:
+            return "minecraft:stone"
+        return placed.get((x, y, z), "minecraft:air")
+
+    blocks = {
+        "minecraft:stone": {"solid": True, "item": "minecraft:stone"},
+        "minecraft:birch_planks": {"solid": True, "item": "minecraft:birch_planks"},
+        "minecraft:air": {"solid": False},
+    }
+    held = {"minecraft:stone": 4}
+    above = bp.next_actions(template, world, blocks, held)
+    assert [a.pos for a in above] == [(1, 2, 0)]
+    asked = bp.next_actions(template, world, blocks, held, fetch_first=True)
+    assert isinstance(asked[0], bp.NeedMaterials)
+    assert asked[0].items["minecraft:birch_planks"] == 1

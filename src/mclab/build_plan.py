@@ -67,6 +67,8 @@ DEFAULT_IGNORE = (
                 "powered",
                 "waterlogged",
                 "snowy",
+                # books in a chiseled bookshelf (PlacementLogic.IGNORED has the same)
+                *(f"slot_{i}_occupied" for i in range(6)),
             }
         ),
     ),
@@ -466,6 +468,33 @@ def _scaffold_pos(
     return None
 
 
+# ponytail: built from the ground within reach; taller needs placing from inside
+MAX_TOWER = 8
+
+
+def tower_cells(pos: Pos, world, blocks: dict, reserved=frozenset()) -> list[Pos]:
+    """Scaffolding column, bottom up, to stand on beside ``pos``: in a horizontal
+    neighbour's column, from the ground to one below pos's height (the eye is then
+    level with pos), headroom above it free. Template cells (``reserved``) are never
+    used; the margin and still-empty cells of the house are fine. [] if none fits."""
+    x, y, z = pos
+    for dx, _, dz in (_VEC[d] for d in _CW):
+        low = _column_scaffold(x + dx, z + dz, y - 1, world, blocks, reserved)
+        head = (x + dx, y, z + dz)
+        if low is None or head in reserved or y - low[1] > MAX_TOWER:
+            continue
+        cells = [(x + dx, h, z + dz) for h in range(low[1], y)]
+        states = [world(*c) for c in (*cells, head)]
+        if any(s is None or parse_state(s)[0] in FLUIDS for s in states):
+            continue
+        if not _is_solid(world(x + dx, low[1] - 1, z + dz), blocks) or _is_solid(
+            states[-1], blocks
+        ):
+            continue
+        return cells
+    return []
+
+
 def _held_tool(inventory: dict[str, int], kind: str) -> str | None:
     return next(
         (i for i, n in sorted(inventory.items()) if n > 0 and i.endswith("_" + kind)),
@@ -527,14 +556,27 @@ def next_actions(
     scaffolds: set | None = None,
     ignore_props=DEFAULT_IGNORE,
     skipped: set | None = None,
+    near: Pos | None = None,
+    fetch_first: bool = False,
 ):
     """Next legal actions, or [] when nothing can be done now.
 
+    ``fetch_first``: ask for materials (NeedMaterials) while a placeable cell below
+    the working layer is only short of its item, instead of building on above it.
+
     Pass the same ``scaffolds`` set on every call: proposed scaffold cells are added
     to it so cleanup_actions can remove them, and they are never broken before then.
+    ``near``: where the body stands. Within a layer the ``limit`` acts offered are then
+    the ones closest to it (not the first in template order, which is scattered over
+    the house), and the global inside-corner-first rule gives way to the runner's
+    local one (a wall waits for the corner it would close in).
     """
     scaffolds = set() if scaffolds is None else scaffolds
     d = diff(template, world, ignore_props)
+    def far(p):  # squared distance to the body; 0 (template order) without ``near``
+        if near is None:
+            return 0
+        return sum((a - b) ** 2 for a, b in zip(p, near, strict=False))
     is_canopy_leaf = lambda p: (
         (s := world(*p))
         and "_leaves" in s
@@ -546,12 +588,12 @@ def next_actions(
             for p in d.breaks
             if p not in scaffolds and (skipped is None or p not in skipped)
         ),
-        key=lambda p: (is_canopy_leaf(p), p[1], p[0], p[2]),
+        key=lambda p: (is_canopy_leaf(p), p[1], far(p), p[0], p[2]),
     )
     if breaks:
         return [Break(p) for p in breaks[:limit]]
     if d.uses:
-        uses = sorted(d.uses, key=lambda u: (u[0][1], u[0][0], u[0][2]))
+        uses = sorted(d.uses, key=lambda u: (u[0][1], far(u[0]), u[0][0], u[0][2]))
         acts: list = []
         missing: dict[str, int] = {}
         for p, item in uses[:limit]:
@@ -583,7 +625,7 @@ def next_actions(
             parse_state(t[1])[0] in FLUIDS,
             t[0][1],
             not _ground_supported(t[0]),
-            not inside_corner(template, t[0]),
+            not inside_corner(template, t[0]) if near is None else far(t[0]),
             t[0][0],
             t[0][2],
         )
@@ -604,13 +646,24 @@ def next_actions(
         and not _is_door(t[1])
         and (skipped is None or t[0] not in skipped)
         and _gate(t[0], t[1], world, blocks)
-        not in ("support", "floating", "unknown", "unfilled")
+        not in ("support", "below", "floating", "unknown", "unfilled")
     ]
     lowest = min(waiting, default=None)
     others_left = any(not _is_door(t[1]) for t in todo)
     left = dict(inventory)
     out: list = []
-    for pos, state, cost, (item, n) in todo:
+    # ponytail: run 20261110T150634125260Z built walls to y 69 with the staircase and
+    # upper floor (birch, still in the chests) unplaced, then found no way up.
+    starved = fetch_first and any(
+        (lowest is None or t[0][1] < lowest)
+        and parse_state(t[1])[0] not in FLUIDS
+        and not _is_door(t[1])
+        and (skipped is None or t[0] not in skipped)
+        and not all(inventory.get(i, 0) >= c for i, c in t[2].items())
+        and _gate(t[0], t[1], world, blocks) is None
+        for t in todo
+    )
+    for pos, state, cost, (item, n) in () if starved else todo:
         if len(out) >= limit:
             break
         if lowest is not None and pos[1] > lowest:
