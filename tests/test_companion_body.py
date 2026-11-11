@@ -203,6 +203,64 @@ def test_navigation_alerts_at_five_wall_seconds_even_when_ticks_are_slow(
     assert ctl.stop_reason(obs) == "stuck"
 
 
+def _idle_ctl(monkeypatch, now):
+    monkeypatch.setattr(cb.time, "monotonic", lambda: now[0])
+    ctl = cb._GotoController.__new__(cb._GotoController)
+    ctl.deadline, ctl.mode, ctl.last_result = 100, "planning", None
+    ctl.unreachable_since = ctl.searching_since = None
+    ctl.guard = cb.StuckGuard()
+    return ctl
+
+
+def test_a_route_just_issued_after_a_long_wait_gets_a_grace_but_is_reported(
+    monkeypatch, capsys
+):
+    # Run results/wading/20261111T164143495401Z: 4.85 s of planning, then the
+    # watchdog cancelled the route 0.25 s after the motor started moving.
+    now = [0.0]
+    ctl = _idle_ctl(monkeypatch, now)
+    obs = {"tick": 1, "body": {"position": [0.5, 62, 0.5]}}
+    assert ctl.stop_reason(obs) is None
+    now[0] = 4.9
+    assert ctl.stop_reason(obs) is None
+    now[0], ctl.mode = 6.0, "following"
+    obs["route_follower"] = {"route_id": "native-1", "state": "following"}
+    assert ctl.stop_reason(obs) is None  # just issued: let it cover 0.5 block
+    assert "STALL 6.0s navigation idle" in capsys.readouterr().out  # still shown
+    for t, x in ((6.5, 0.7), (7.5, 1.3), (9.0, 2.0)):
+        now[0], obs["body"]["position"] = t, [x, 62, 0.5]
+        assert ctl.stop_reason(obs) is None
+
+
+def test_no_route_after_five_seconds_is_still_stuck(monkeypatch):
+    now = [0.0]
+    ctl = _idle_ctl(monkeypatch, now)
+    obs = {"tick": 1, "body": {"position": [0.5, 62, 0.5]}}
+    assert ctl.stop_reason(obs) is None
+    now[0] = 6.0
+    assert ctl.stop_reason(obs) == "stuck"
+
+
+def test_a_followed_route_that_never_moves_is_still_stuck(monkeypatch):
+    now = [0.0]
+    ctl = _idle_ctl(monkeypatch, now)
+    ctl.mode = "following"
+    obs = {
+        "tick": 1,
+        "body": {"position": [0.5, 62, 0.5]},
+        "route_follower": {"route_id": "native-1", "state": "following"},
+    }
+    assert ctl.stop_reason(obs) is None
+    now[0] = 4.99
+    assert ctl.stop_reason(obs) is None
+    now[0] = 5.0
+    assert ctl.stop_reason(obs) == "stuck"
+    # a replacement route at the same spot does not buy a second grace
+    obs["route_follower"] = {"route_id": "native-2", "state": "following"}
+    now[0] = 10.0
+    assert ctl.stop_reason(obs) == "stuck"
+
+
 def test_probes_cannot_restart_the_five_second_idle_clock(monkeypatch, capsys):
     now = [0.0]
     monkeypatch.setattr(cb.time, "monotonic", lambda: now[0])

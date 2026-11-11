@@ -295,6 +295,8 @@ class _GotoController(SegmentedController):
     probe = False  # plan-only drive: end on the first verdict, never move the motor
     no_drive = False  # drive_native keeps every motor submission off
     walk_wall = 0.0  # wall of the walk a successful probe turns into
+    route_seen = None  # last native route id seen following (idle grace)
+    graced_at = None  # where the last idle grace was granted
 
     @property
     def planner_radius(self):
@@ -347,6 +349,25 @@ class _GotoController(SegmentedController):
             if editing:
                 self.guard.anchor = None
             anchor = getattr(self, "idle_anchor", None)
+            route = observation.get("route_follower") or {}
+            if (
+                route.get("state") == "following"
+                and route.get("route_id") != self.route_seen
+            ):
+                self.route_seen = route.get("route_id")
+                # A route just issued needs ticks to cover STUCK_MOVE: cancelling
+                # it 0.25 s in failed run results/wading/20261111T164143495401Z.
+                # Once per spot, so a stationary replan loop still ends at 5 s.
+                graced = self.graced_at
+                if graced is None or math.dist(position, graced) >= STUCK_MOVE:
+                    self.graced_at = tuple(position)
+                    if anchor is not None and now - self.idle_since >= 5.0:
+                        print(  # report-only: the wait still shows in the log
+                            f"STALL {now - self.idle_since:.1f}s navigation idle "
+                            f"at {position}; mode={self.mode}, route={route}",
+                            flush=True,
+                        )
+                    anchor = None  # restart the clock at the first issued tick
             if anchor is None or math.dist(position, anchor) >= STUCK_MOVE or editing:
                 self.idle_anchor, self.idle_since = tuple(position), now
                 if shared is not None:
