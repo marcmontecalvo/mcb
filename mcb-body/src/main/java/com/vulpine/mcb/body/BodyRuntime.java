@@ -219,19 +219,17 @@ public final class BodyRuntime implements AutoCloseable {
 
     static boolean staleQueued(int receivedTick, int tick) { return tick - receivedTick > STALE_QUEUED_TICKS; }
 
+    /** Two seconds of real silence from the client. */
+    static boolean watchdogDue(long lastContactNanos, long nowNanos) {
+        return nowNanos - lastContactNanos > TimeUnit.SECONDS.toNanos(2);
+    }
+
     public void preTick() {
         if (body != null && traceEnabled) emit("phase", "fabric_start", Map.of());
         for (var previous : retired) previous.pollReady();
         if (body != null && readyState.equals("spawn_timeout")) body.pollReady();
         int tick = server.getTickCount();
         if (traceEnabled && tick >= traceEnd) traceEnabled = false;
-        if (body != null && System.nanoTime() - lastContactNanos > TimeUnit.SECONDS.toNanos(2)) {
-            cancelRoute("watchdog");
-            legacyMoving = false;
-            body.release();
-            if (expiryTick >= 0) emit("released", "fabric_start", Map.of("reason", "watchdog"));
-            expiryTick = -1;
-        }
         for (int budget = 0; budget < 8; budget++) {
             var request = inbox.poll();
             if (request == null) break;
@@ -247,6 +245,14 @@ public final class BodyRuntime implements AutoCloseable {
                         request.json().has("sequence") ? request.json().get("sequence").toString() : "missing",
                         "reason", error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage()));
             }
+        }
+        // After the drain, so a request queued during a long tick counts as contact.
+        if (body != null && watchdogDue(lastContactNanos, System.nanoTime())) {
+            cancelRoute("watchdog");
+            legacyMoving = false;
+            body.release();
+            if (expiryTick >= 0) emit("released", "fabric_start", Map.of("reason", "watchdog"));
+            expiryTick = -1;
         }
         while (!scheduled.isEmpty() && scheduled.peek().tick() <= tick) {
             var action = scheduled.remove();

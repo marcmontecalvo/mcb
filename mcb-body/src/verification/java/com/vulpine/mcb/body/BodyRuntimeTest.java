@@ -10,6 +10,10 @@ public final class BodyRuntimeTest {
         check(!BodyRuntime.staleQueued(5999, 5999 + BodyRuntime.STALE_QUEUED_TICKS), "fresh up to the limit");
         check(BodyRuntime.staleQueued(5999, 6000 + BodyRuntime.STALE_QUEUED_TICKS), "older than the limit is stale");
         check(BodyRuntime.STALE_QUEUED_TICKS == 40, "two seconds of game time at 20 TPS");
+        // The watchdog judges after the inbox drain: a heartbeat queued during the long tick is contact.
+        long ms = 1_000_000L;
+        check(!BodyRuntime.watchdogDue(2_100 * ms, 2_250 * ms), "a heartbeat queued in a long tick keeps the route");
+        check(BodyRuntime.watchdogDue(0, 2_250 * ms), "real silence over two seconds still cuts the client off");
         System.out.println("BodyRuntimeTest ok");
     }
 }
