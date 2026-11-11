@@ -111,6 +111,13 @@ class PlannerMapEncoder:
                         "states": base64.b64encode(zlib.compress(data)).decode("ascii"),
                     }
                 )
+        if len(frames) == 1:
+            # Nothing changed: the committed generation already is this snapshot,
+            # so the transfer completes locally with no request at all.
+            self.pending = (
+                self.generation, palette, ids, packed, source_grid, source_sections
+            )
+            return []
         # Batch small deltas to reduce tick and request overhead, without crossing
         # begin/commit boundaries or exceeding the bridge's request limit.
         deltas = frames[1:]
@@ -205,6 +212,12 @@ class PlannerMapTransfer:
             if not self.future.done():
                 return None
             self.frames = self.future.result()  # encoding failure is explicit
+        if not self.frames:
+            generation = self.encoder.generation
+            self.staged.acknowledge(generation)
+            self.encoder = self.staged
+            self.future = self.staged = self.frames = None
+            return generation
         frame = self.frames[self.index]
         # Begin and batches go out together (the body admits them in order); the
         # commit waits until every one of them was acknowledged.

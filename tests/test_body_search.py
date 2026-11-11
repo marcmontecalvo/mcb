@@ -196,3 +196,68 @@ def test_interaction_and_survival_policy_are_transmitted():
     assert sent[0]["hazard_penalty"] == 40.0
     assert sent[0]["mob_coefficient"] == 3.0
     assert sent[0]["threats"] == [[5, 1, 3]]
+
+
+def live_memory(preset="sections", mode="persistent", historical=True):
+    from mclab.awareness import Awareness
+    from mclab.memory_policy import MemoryPolicy
+
+    return SimpleNamespace(
+        policy=MemoryPolicy(memory_mode=mode, use_historical_geometry=historical),
+        archive=SimpleNamespace(
+            identity=SimpleNamespace(awareness=Awareness.resolve(preset))
+        ),
+    )
+
+
+class CountingTransfer:
+    def __init__(self):
+        self.frames = []
+
+    def begin(self, owner, cells):
+        self.frames.append(("begin", owner))
+
+    def advance(self, owner):
+        self.frames.append(("advance", owner))
+        return 1
+
+    def cancel(self, owner):
+        self.frames.append(("cancel", owner))
+
+
+def test_sections_walks_plan_on_live_terrain_with_no_map_frames():
+    c, sent = controller()
+    c.memory = live_memory()
+    c.planner_map = transfer = CountingTransfer()
+    for start in ((0, 1, 0), (5, 1, 0)):
+        search = body_search.BodySearch(c, start, 3, {(0, 0, 0): {"block": "x"}})
+        assert search.advance().reason == "body plan pending"
+        search.cancel()
+    assert transfer.frames == []
+    assert [p["terrain"] for p in sent] == ["live", "live"]
+    assert sent[0]["terrain_radius"] == [64, 48]
+    assert "map_generation" not in sent[0]
+
+
+def test_live_radius_is_a_plain_setting(monkeypatch):
+    c, sent = controller()
+    c.memory = live_memory()
+    c.planner_map = CountingTransfer()
+    monkeypatch.setattr(body_search, "LIVE_TERRAIN_RADIUS", (80, 32))
+    body_search.BodySearch(c, (0, 1, 0), 3, {})
+    assert sent[0]["terrain_radius"] == [80, 32]
+
+
+def test_occluded_current_and_historyless_sessions_keep_the_upload():
+    for memory in (
+        live_memory(preset="visible"),
+        live_memory(mode="current"),
+        live_memory(historical=False),
+    ):
+        c, sent = controller()
+        c.memory = memory
+        c.planner_map = transfer = CountingTransfer()
+        search = body_search.BodySearch(c, (0, 1, 0), 3, {})
+        search.advance()
+        assert transfer.frames[0] == ("begin", search)
+        assert "terrain" not in sent[0] and sent[0]["map_generation"] == 1

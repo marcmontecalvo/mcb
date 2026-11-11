@@ -28,6 +28,34 @@ from mclab.terrain_steps import (
 )
 
 BODY_NODE_LIMIT = 4000  # past the 3,000-node commit floor; ~10 ms of body time per tick
+# Live-terrain plans read the world within this (horizontal, vertical) radius of the
+# body (LiveTerrain.java); None means the session's awareness radius.
+LIVE_TERRAIN_RADIUS = None
+
+
+def live_radius(controller):
+    """(horizontal, vertical) for a live-terrain plan, or None to upload the map.
+
+    Live only for unoccluded whole-section awareness ("chunk"/"sections": the body
+    already sees every block in range) with remembered geometry; "current" memory
+    keeps only fresh cells, so it keeps uploading that filtered snapshot.
+    """
+    memory = getattr(controller, "memory", None)
+    if memory is None:
+        return None
+    awareness = memory.archive.identity.awareness
+    if (
+        awareness.preset not in {"chunk", "sections"}
+        or memory.policy.memory_mode == "current"
+        or not memory.policy.use_historical_geometry
+    ):
+        return None
+    return LIVE_TERRAIN_RADIUS or (
+        awareness.horizontal_radius_blocks,
+        awareness.vertical_radius_blocks,
+    )
+
+
 SEGMENT = 16  # same segment as BackgroundSearch
 _ids = itertools.count(1)
 
@@ -172,13 +200,18 @@ class BodySearch:
         self.plan_id = f"plan-{next(_ids)}"
         self.superseded = False
         self.submitted = False
-        self.map_transfer = getattr(controller, "planner_map", None)
+        live = live_radius(controller)
+        # A live plan reads the world in the body; nothing is uploaded for it.
+        self.map_transfer = None if live else getattr(controller, "planner_map", None)
         if self.map_transfer is not None:
             if cells is None:
                 raise ValueError("body search requires a planning snapshot")
             self.map_transfer.begin(self, cells)
         else:
-            controller.submit_plan(self.payload())
+            payload = self.payload()
+            if live:
+                payload.update(terrain="live", terrain_radius=list(live))
+            controller.submit_plan(payload)
             self.submitted = True
 
     def payload(self):
