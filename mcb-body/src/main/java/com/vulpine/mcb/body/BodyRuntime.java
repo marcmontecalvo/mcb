@@ -132,8 +132,6 @@ public final class BodyRuntime implements AutoCloseable {
             if (exchange.getRequestMethod().equals("GET")) {
                 if (path.equals("/policy")) {
                     var served=policySnapshot;
-                    // Known before Python can name its tick in a plan request.
-                    servedStore.serve(served.get("terrain_sections"));
                     respond(exchange,200,served);
                     servedTerrain=served.get("terrain_sections"); // delivered: see requeue()
                     return;
@@ -302,8 +300,6 @@ public final class BodyRuntime implements AutoCloseable {
     private final Map<String,RoutePlanner> plans = new LinkedHashMap<>();
     private final Map<String,TerrainPlanner> terrainPlans = new LinkedHashMap<>();
     private PlannerMap plannerMap = new PlannerMap();
-    // Terrain served on /policy; plans that name terrain_tick read it under the uploaded overlay.
-    private volatile ServedTerrain servedStore = new ServedTerrain();
     private PlanData planData = new PlanData();
     private final Map<String,Integer> planLimits = new HashMap<>();
     private final Map<String,Map<String,Object>> planResults = new LinkedHashMap<>();
@@ -326,7 +322,8 @@ public final class BodyRuntime implements AutoCloseable {
             throw new IllegalArgumentException("plan_bounds");
         var requestedEdits = request.has("edits") ? request.getAsJsonObject("edits") : null;
         var planPermissions = RoutePermissions.edits(requestedEdits);
-        var selected = mapReader(request);
+        if (!request.has("map_generation")) throw new IllegalArgumentException("map_generation");
+        var selected = plannerMap.reader(exactLong(request.get("map_generation"), "map_generation"));
         RouteGeometry.Reader reader = planPermissions.reader(selected);
         var planner = new RoutePlanner(reader, start, goal, radius, maxDrop,
                 strictBoolean(request, "sprint"), penalty)
@@ -383,16 +380,9 @@ public final class BodyRuntime implements AutoCloseable {
         while (planResults.size() > MAX_PLANS) planResults.remove(planResults.keySet().iterator().next());
     }
 
-    /** The uploaded generation alone, or (terrain_tick) the served terrain as of that tick over it. */
-    private RouteGeometry.Reader mapReader(JsonObject request) {
-        if (!request.has("map_generation")) throw new IllegalArgumentException("map_generation");
-        var uploaded = plannerMap.reader(exactLong(request.get("map_generation"), "map_generation"));
-        if (!request.has("terrain_tick")) return uploaded;
-        return servedStore.reader(exactInt(request.get("terrain_tick"), "terrain_tick"), uploaded);
-    }
-
     private void startTerrainPlan(String id, JsonObject request) {
-        var selected = mapReader(request);
+        if (!request.has("map_generation")) throw new IllegalArgumentException("map_generation");
+        var selected = plannerMap.reader(exactLong(request.get("map_generation"), "map_generation"));
         var start = node(request.get("start")); var goal = node(request.get("goal"));
         double radius = request.get("radius").getAsDouble();
         int maxDrop = exactInt(request.get("max_drop"), "max_drop"), horizon = exactInt(request.get("horizon"), "horizon");
@@ -1161,7 +1151,6 @@ public final class BodyRuntime implements AutoCloseable {
     private void resetAwareness(AwarenessConfig next) {
         awareness=next; awarenessSensor=new AwarenessSensor(next);
         compactTerrain=false; terrainBatch=new TerrainBatch(List.of(),-100);
-        servedStore=new ServedTerrain(); // a respawn or course reset may have rewritten the world
         visibleBlocks=List.of(); sensorTick=-100; policySnapshot=Map.of();
     }
 
@@ -1197,8 +1186,6 @@ public final class BodyRuntime implements AutoCloseable {
                 sensorTick=server.getTickCount();
                 if(compactTerrain) {
                     terrainBatch=new TerrainBatch(visibleBlocks,sensorTick,awarenessSensor.sections());
-                    var at=body.player().blockPosition();
-                    servedStore.stage(terrainBatch,sensorTick,visibleBlocks,awarenessSensor.sections(),at.getX(),at.getY(),at.getZ());
                     // The event log records each section once, when scanned; carried ones are
                     // already logged (repeating them made 3 MB events and stalled /events).
                     loggedBatch=new TerrainBatch(visibleBlocks,sensorTick,awarenessSensor.scanned());
@@ -1232,7 +1219,6 @@ public final class BodyRuntime implements AutoCloseable {
             observation=Map.copyOf(routed);
         }
         policySnapshot=observation;
-        for(var dropped:servedStore.drainEvicted()) emit("planner_store_evicted","fabric_end_observation",dropped);
         if(streaming) {
             var sample=new LinkedHashMap<String,Object>(observation);
             // Every simulation tick records body state; terrain follows the declared cadence.

@@ -295,14 +295,6 @@ def policy_state(client: Bridge, *, record=True) -> dict:
     decode_started = time.perf_counter_ns()
     observation = expand_terrain(observation)
     client.terrain_decode_ms = (time.perf_counter_ns() - decode_started) / 1_000_000
-    if "terrain_sections" in client.pending_policy_wire:
-        from mclab.body_search import note_served
-
-        note_served(
-            client,
-            client.pending_policy_wire["terrain_sections"]["sample_tick"],
-            observation.bulk,
-        )
     client.pending_policy = (observation, latency_ms, time.monotonic_ns())
     if record:
         record_pending_policy(client)

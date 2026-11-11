@@ -8,12 +8,10 @@ edge's plan, which the controller executes like a Python-planned one.
 """
 
 import itertools
-from collections import namedtuple
 from dataclasses import asdict
 from functools import cache
 
 from mclab.grid_cache import FALLING
-from mclab.pathing_grid import GridView
 from mclab.planner_values import FALL_SETTLE_TICKS
 from mclab.route_types import RouteResult, segment
 from mclab.terrain_steps import (
@@ -30,51 +28,6 @@ from mclab.terrain_steps import (
 )
 
 BODY_NODE_LIMIT = 4000  # past the 3,000-node commit floor; ~10 ms of body time per tick
-
-# What the mod's served-terrain store (ServedTerrain.java) holds for this body:
-# every batch this client read since the spawn numbered `epoch`, up to `tick`;
-# `whole` are the sections that arrived as complete 16x16x16 sections.
-TerrainServed = namedtuple("TerrainServed", "epoch tick whole")
-
-
-def note_served(client, tick, bulk):
-    """Record a /policy terrain batch this client read (bulk: (key, state, tick))."""
-    epoch = getattr(client, "planner_map_epoch", 0)
-    served = getattr(client, "terrain_served", None)
-    whole = served.whole if served is not None and served.epoch == epoch else set()
-    whole.update(key for key, _, _ in bulk)
-    client.terrain_served = TerrainServed(epoch, tick, whole)
-
-
-def _map_cells(controller, cells):
-    """(snapshot to upload, terrain_tick or None).
-
-    The mod already holds every batch it served, so with compact terrain only what
-    it was never served goes up: sections this memory recalled from its archive
-    (history) that did not arrive whole this spawn. The plan then reads served
-    terrain as of the last batch Python had read, never a newer one. Dict
-    snapshots ("current" memory mode keeps only fresh cells) and a body whose
-    terrain was not read since it spawned keep the full upload.
-    """
-    client = getattr(controller, "planner_policy_client", None)
-    served = getattr(client, "terrain_served", None)
-    memory = getattr(controller, "memory", None)
-    if (
-        served is None
-        or memory is None
-        or served.epoch != getattr(client, "planner_map_epoch", 0)
-        or not isinstance(cells, GridView)
-        or not cells.frozen
-    ):
-        return cells, None
-    history, whole = memory.history_sections, served.whole
-    # Membership only: the admission lane may add to history_sections meanwhile.
-    overlay = {
-        key: section
-        for key, section in cells.sections.items()
-        if key in history and key not in whole
-    }
-    return GridView(cells.grid, overlay, frozen=True), served.tick
 SEGMENT = 16  # same segment as BackgroundSearch
 _ids = itertools.count(1)
 
@@ -219,12 +172,10 @@ class BodySearch:
         self.plan_id = f"plan-{next(_ids)}"
         self.superseded = False
         self.submitted = False
-        self.terrain_tick = None
         self.map_transfer = getattr(controller, "planner_map", None)
         if self.map_transfer is not None:
             if cells is None:
                 raise ValueError("body search requires a planning snapshot")
-            cells, self.terrain_tick = _map_cells(controller, cells)
             self.map_transfer.begin(self, cells)
         else:
             controller.submit_plan(self.payload())
@@ -263,8 +214,6 @@ class BodySearch:
                 )
             payload = self.payload()
             payload["map_generation"] = generation
-            if self.terrain_tick is not None:
-                payload["terrain_tick"] = self.terrain_tick
             self.controller.submit_plan(payload)
             self.submitted = True
         report = self.controller.plan_reports.get(self.plan_id)

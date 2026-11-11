@@ -83,19 +83,8 @@ def delivered_map(path, upto):
             d = json.loads(line)["payload"]["data"]
             if "terrain_sections" in d and d["tick"] <= upto:
                 samples.append(d)
-        elif '"planner_store_evicted"' in head:
-            d = json.loads(line)["payload"]["data"]
-            samples.append({"evicted": d["sections"], "tick": d["tick"]})
-    # Same rule as replay_delivered.py: batches up to the last read (or the plan's
-    # TERRAIN_TICK), minus sections the mod's served-terrain store evicted.
-    last = int(os.environ.get("TERRAIN_TICK", max(got, default=-1)))
-    mem = None
+    last, mem = max(got, default=-1), None
     for d in samples:
-        if "evicted" in d:
-            if mem is not None and d["tick"] <= last:
-                for key in d["evicted"]:
-                    mem.grid.sections.pop(tuple(key), None)
-            continue
         if d["terrain_sections"]["sample_tick"] > last:
             continue
         if mem is None:
