@@ -138,6 +138,9 @@ def test_driver_records_compact_wire_and_supplies_expanded_facts_to_controller()
     assert "terrain_sections" in recorded[0][1]
     assert "visible_blocks" not in recorded[0][1]
     assert client.pending_policy_wire is None
+    # The mod's served store holds this batch; plans may read it as of its tick.
+    assert client.terrain_served.tick == source["terrain_sections"]["sample_tick"]
+    assert client.terrain_served.epoch == 0
 
 
 def test_transport_latency_uses_high_resolution_clock_not_coarse_windows_uptime(
