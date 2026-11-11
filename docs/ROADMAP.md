@@ -120,11 +120,12 @@ re-uploaded terrain the mod had itself served: 150-300 new sections, 1-2 s per
 generation, two generations per walk (iron gather `20261111T163639921184Z` median
 1.14 s from first planning tick to `follow_route`, first walk 4.15 s; site fill
 `20261111T164354550398Z` median 1.59 s; wading `20261111T164143495401Z` 4.84 s
-before the first step). Changed: the mod keeps every served batch
-(`ServedTerrain.java`, 128 MiB cap), plans read it as of `terrain_tick` (the last
-batch Python read), and Python uploads only archive-recalled sections; an unchanged
-snapshot commits with no request. See the Known terrain note under §3 of the
-direction document. Live check still owed: `idle_gaps.py`, zero `planner_map`
+before the first step). Changed: companion (sections) plans read the live world
+within the awareness radius in the mod (`LiveTerrain.java`, `"terrain":"live"`) and
+Python uploads no planner map for them; an unchanged snapshot commits with no
+request on the remaining upload path. See the Known terrain note under §3 of the
+direction document; replay/parity tools are exact only for `uploaded` plans.
+Live check still owed: `idle_gaps.py`, zero `planner_map`
 requests between walks, and the planning-to-`follow_route` time per walk.
 Later: persisted far-field knowledge and named places (`feat/far-field`).
 

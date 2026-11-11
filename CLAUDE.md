@@ -46,3 +46,5 @@
   delivered and is not resent. Use `/state` to wait for a run state.
 - To judge what the planner knew, replay only the terrain batches Python read
   (`scripts/analysis/replay_delivered.py`), not the body's `policy_sample` log.
+  Exact only for plans whose `plan_accepted` says `terrain: uploaded`; `live` plans read
+  the world within their `terrain_radius`, so delivered batches are a lower bound.
