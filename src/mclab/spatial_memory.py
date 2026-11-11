@@ -65,6 +65,35 @@ class MapIdentity:
         return json.dumps(asdict(self), sort_keys=True, separators=(",", ":"))
 
 
+def world_archive(level_dir, awareness, folder, dimension="minecraft:overworld"):
+    """The archive that outlives sessions in one saved world (opt-in, see
+    companion_body.session_archive). Identity: the level folder's name and the
+    world seed from its level.dat, so another world saved under the same name
+    gets its own namespace; a restored copy of the same world does not, which is
+    why restored snapshots must not use it. Remembered cells keep their original
+    session and wall-clock time: they fill unknown cells only, never fresh ones.
+    """
+    from pathlib import Path
+
+    from mclab import nbt
+
+    level_dir = Path(level_dir)
+    try:
+        data = nbt.load(level_dir / "level.dat").get("Data", {})
+        seed = data.get("WorldGenSettings", {}).get("seed", data.get("RandomSeed"))
+    except (OSError, ValueError, KeyError, IndexError, EOFError):
+        seed = None
+    if type(seed) is not int:
+        return None  # no identity: unreadable worlds must not share one archive
+    name = "".join(c if c.isalnum() or c in "-_" else "_" for c in level_dir.name)
+    archive = MapArchive(
+        Path(folder) / f"{name}-{seed}.sqlite3",
+        MapIdentity(level_dir.name, f"seed:{seed}", dimension, awareness),
+    )
+    archive.drop_terrain_after_gap()
+    return archive
+
+
 class SpatialMemory:
     """Compact hot grid and asynchronous durable section deltas; gaps fail closed.
 
@@ -105,20 +134,28 @@ class SpatialMemory:
         self.recall_ms = 0.0
         self.evicted_sections = 0
         # Sections whose archive may hold cells the grid lacks: history from
-        # earlier processes, and sections this memory evicted. Our own other
-        # writes are always still held, so recalling them is wasted work.
-        self.history_sections = (
-            archive.section_keys()
+        # earlier processes (stored at or below the watermark), and sections this
+        # memory evicted. Our own other writes are always still held, so
+        # recalling them is wasted work. No key set is loaded: a world archive
+        # can hold millions of sections.
+        self.history_watermark = (
+            archive.watermark()
             if self.policy.memory_mode == "persistent"
             and self.policy.use_historical_geometry
-            else set()
+            else 0
         )
+        self.history_sections = set()  # evicted by this memory
         self.worker = threading.Thread(target=self._write, daemon=True)
         self.worker.start()
 
     @property
     def cells(self):
-        """Live known-cell mapping (current mode: only current cells)."""
+        """Live known-cell mapping (current mode: only current cells).
+
+        Includes cells recalled from earlier sessions: stance choice and planning
+        only. Python motor commands read fresh() (this session, <=5 ticks) and the
+        mod's RouteMotor checks its own live sensor, so history never acts as
+        support or air for the motor."""
         if self.policy.memory_mode == "current":
             return self._current_cells()
         return self.grid.view()
@@ -458,10 +495,13 @@ class SpatialMemory:
         high = tuple(
             (v + r) >> 4 for v, r in zip(self.latest_center, reach, strict=True)
         )
+        # One indexed lookup of at most 5x3x5 keys; sections our own writes
+        # created after the watermark and still held are skipped.
+        held = self.grid.sections
         wanted = {
             key
-            for key in self.history_sections
-            if all(a <= k <= b for k, a, b in zip(key, low, high, strict=True))
+            for key, old in self.archive.keys_near(low, high, self.history_watermark)
+            if old or key in self.history_sections or key not in held
         }
         if wanted:
             rows = self.archive.recall(

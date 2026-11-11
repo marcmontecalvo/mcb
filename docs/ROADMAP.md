@@ -127,7 +127,43 @@ request on the remaining upload path. See the Known terrain note under §3 of th
 direction document; replay/parity tools are exact only for `uploaded` plans.
 Live check still owed: `idle_gaps.py`, zero `planner_map`
 requests between walks, and the planning-to-`follow_route` time per walk.
-Later: persisted far-field knowledge and named places (`feat/far-field`).
+Terrain beyond the radius is unknown to the planner; far knowledge is the next entry.
+
+**Far-field knowledge (Nov 11, branch feat/far-field; not yet run live):**
+- Per-world archive: `companion_body.session_archive` gives companion sessions
+  in a kept world `runtime/world-memory/<level>-<seed>.sqlite3` (git-ignored,
+  never pruned), keyed by level folder name, level.dat seed and dimension.
+  Sessions inside `companion_world(seed)` (a restored snapshot) and all
+  arena/course/qualification runs keep per-run archives; `start_session(...,
+  world_memory=True/False)` overrides. Old sections are recalled on demand by
+  an indexed box seek (the existing ≤32-section, ≤4096-cell recall per
+  admission), only into unknown cells, and keep their `observation_session` and
+  `observed_at_ns`. A world changed between sessions needs nothing more: the
+  changed section is re-observed when the bot comes near, and the new
+  observation replaces it in RAM and on eviction. The motor never trusts either.
+- Waypoints: `PlaceGraph` (same db) has `add/rename/remove/named/nearest/
+  listed/remember` and a `kind`; sessions record home (first spawn), the build
+  site, and placed or used crafting tables, furnaces and containers.
+  `CompanionBody.go_to(name)` walks there.
+- Long trips: one `walk_to` ends at its 90 s wall. `walk_far` walks 48-block
+  legs along the straight line and stops after two legs without 4 blocks of
+  progress; `go_to` follows walked place connections and records each walked
+  leg. Live check: name a place 2,000 blocks away in a kept world and run
+  `go_to`; the log should show one goto row per ~48 blocks, all moving.
+- Deferred: chunk-level reachability (an ocean or wall on the straight line is
+  found leg by leg); seeding from the world's region files. The latter is not a
+  ~150-line toggle: planner states need collision boxes, fluid and properties
+  that only the mod computes, so it needs a mod-dumped state→shape table, a
+  packed `block_states` decoder (~60 lines on `mclab.nbt`), a distinct
+  provenance session (e.g. `world-file:<mtime>`) and an env toggle (default off)
+  that fills only absent sections.
+- Known limits, left as is: a copied world with the same level name and seed
+  shares a namespace; places are kept per awareness mode (part of the
+  identity); recall relies on rowid order (never VACUUM the world db);
+  `PlaceGraph.add` on an existing name drops that place's connections. An
+  observation gap found at open drops that world's stored terrain (places
+  stay) before recall resumes; an unreadable level.dat seed turns world memory
+  off for the session.
 
 **Dashboard for house builds (Nov 10):** the dashboard now lists build runs,
 killed ones included, with stats from `build.json` and a streamed, cached pass

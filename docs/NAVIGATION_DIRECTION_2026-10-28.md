@@ -298,6 +298,13 @@ are now planned and partly built in
 [BUILD_AND_GATHER_PLAN_2026-11-01.md](BUILD_AND_GATHER_PLAN_2026-11-01.md)
 (companion track). Its rules follow D6: no model in the loop.
 
+Update Nov 11, 2026 (branch feat/far-field): companion sessions in a kept world
+now keep a per-world section archive across sessions, named waypoints
+(`PlaceGraph`) and leg-by-leg far walks over walked place connections; detail
+in ROADMAP "Far-field knowledge". Still later: a chunk-level reachability
+layer, teleport edges, and seeding knowledge from the saved world's region
+files (needs a mod-dumped state→shape table; ROADMAP lists the cost).
+
 ## 5. Swimming work in progress — review notes
 
 Swimming is being built in parallel. Notes from the review of

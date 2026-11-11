@@ -39,6 +39,7 @@ Assumptions (the coordinator verifies them live)
 from __future__ import annotations
 
 import functools
+import logging
 import math
 import time
 from collections import ChainMap
@@ -56,9 +57,15 @@ from mclab.interaction_goal import interacts
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation_runner import _new_identity
 from mclab.navigation_segmented import SegmentedController
-from mclab.paths import ROOT, SERVER, read_json
+from mclab.paths import ROOT, RUNTIME, SERVER, read_json
+from mclab.place_graph import Connection, PlaceGraph
 from mclab.schematic import format_state, parse_state
-from mclab.spatial_memory import MapArchive, MapIdentity, SpatialMemory
+from mclab.spatial_memory import (
+    MapArchive,
+    MapIdentity,
+    SpatialMemory,
+    world_archive,
+)
 from mclab.terrain_steps import TerrainPolicy
 
 Pos = tuple[int, int, int]
@@ -67,6 +74,16 @@ AIR_BLOCKS = {"minecraft:air", "minecraft:cave_air", "minecraft:void_air"}
 OVERLAY_TICKS = 200  # until the sensor has re-delivered the cell; 40 was too short (run 20261102T222239739886Z: "occupied")
 UNREACHABLE_TICKS = 60
 GOTO_WALL_S = 90.0
+# Per-world knowledge that outlives sessions (git-ignored runtime/).
+WORLD_MEMORY = RUNTIME / "world-memory"
+_restored_world = False  # set inside companion_world(seed): a reset snapshot copy
+# Placed blocks worth a waypoint: the crafting table marks the gathering site.
+RECORDED_BLOCKS = ("crafting_table", "furnace", "chest", "barrel")
+# walk_far: legs well inside the 64-block sensed radius, so the leg's end is
+# usually observed terrain; a trip ends after MAX_STALLS legs that gained less
+# than MIN_PROGRESS blocks toward the goal.
+LEG, LEG_RADIUS, MIN_PROGRESS, MAX_STALLS = 48.0, 4.0, 4.0, 2
+START_NEAR = 16.0  # go_to starts from a place only when standing this close
 OP_TIMEOUT_S = 20.0
 OP_TIMEOUTS = {"break_block": 45.0, "attack_entity": 30.0, "eat": 20.0}
 STAND_SEARCH = 6  # walk_to: vertical search for a standable cell in the column
@@ -505,6 +522,7 @@ class CompanionBody:
         self._inv: dict[str, int] = {}
         self._overlay: dict[Pos, tuple[str, int]] = {}
         self.log: list[dict] = []  # one row per op or goto, for the results folder
+        self.places: PlaceGraph | None = None  # named waypoints (start_session)
         self.policies: list[dict] = []
         self._navigation_idle = {"anchor": None, "since": time.monotonic()}
 
@@ -672,8 +690,93 @@ class CompanionBody:
     def place_block(self, pos: Pos, state: str, item: str) -> Result:
         result = self.op("place_block", pos=list(pos), state=state, item=item)
         if result.ok:
-            self._remember(pos, result.data.get("placed"))
+            placed = result.data.get("placed")
+            self._remember(pos, placed)
+            kind = (placed or "").split("[")[0].removeprefix("minecraft:")
+            if kind in RECORDED_BLOCKS:
+                self._record(kind, pos)
         return result
+
+    def _record(self, kind: str, pos: Pos) -> None:
+        if self.places is not None:
+            self.places.remember(kind, pos)
+
+    def go_to(self, name: str) -> bool:
+        """Walk to a named place of this world; False when the name is unknown.
+
+        From the place the bot stands at (within START_NEAR), follow the place
+        graph's walked connections when they reach the target, else go straight.
+        Every stop actually reached records the connection it walked."""
+        if self.places is None or (target := self.places.named(name)) is None:
+            return False
+        here = self.position()
+        start = self.places.nearest(here)
+        if start is not None and math.dist(start.position, here) > START_NEAR:
+            start = None
+        stops = [target]
+        if start is not None and start.id != target.id:
+            by_id = {p.id: p for p in self.places.listed()}
+            path = self.places.route(start.id, target.id, verified_after_ns=0)
+            stops = [by_id[i] for i in path[1:]] or stops
+        for stop in stops:
+            if not self.walk_far(stop.position):
+                return False
+            if start is not None and start.id != stop.id:
+                self.places.put_connection(
+                    Connection(
+                        start.id,
+                        stop.id,
+                        "walk",
+                        max(1.0, math.dist(start.position, stop.position)),
+                        (),
+                        "walked",
+                        time.time_ns(),
+                    )
+                )
+            start = stop
+        return True
+
+    def walk_far(self, goal: Pos, radius: float = 1.5) -> bool:
+        """Walk to a goal of any distance in legs of at most LEG blocks.
+
+        One walk_to ends at its 90 s wall long before 2,000 blocks; a leg ends
+        inside the sensed horizon, so each plan is short and fresh. Legs follow
+        the straight line at the current height (walk_to snaps it to a stance).
+        ponytail: no chunk-level reachability; an ocean or a wall on the line is
+        found leg by leg, and MAX_STALLS legs without progress end the trip."""
+        here, stalls = self.position(), 0
+        while (gap := math.dist(here[::2], goal[::2])) > radius:
+            t = min(1.0, LEG / gap)
+            x, z = (
+                round(a + (b - a) * t)
+                for a, b in zip(here[::2], goal[::2], strict=True)
+            )
+            last = t == 1.0
+            ok = self.walk_to(
+                (x, goal[1] if last else self._leg_y(x, here[1], z), z),
+                radius if last else LEG_RADIUS,
+            )
+            now = self.position()
+            if ok and last:
+                return True
+            closer = math.dist(here[::2], goal[::2]) - math.dist(now[::2], goal[::2])
+            stalls = 0 if closer >= MIN_PROGRESS else stalls + 1
+            if stalls >= MAX_STALLS:
+                return False
+            here = now
+        # horizontally there, but a failed last leg may have stopped at another
+        # height (below a ledge): only the 3D position counts as arrival
+        return math.dist(here, goal) <= radius + 0.25
+
+    def _leg_y(self, x: int, y: int, z: int) -> int:
+        """The known stance in column x,z nearest height y, searched a leg's
+        height either way: walk_to only looks STAND_SEARCH blocks, so a leg over
+        a hill aimed inside it and was unreachable. Unknown column: y."""
+        cells, reach = self._cells_now(), int(LEG)
+        found = [
+            h for h in range(y - reach, y + reach + 1) if standable(cells, (x, h, z))
+        ]
+        return min(found, key=lambda h: abs(h - y), default=y)
 
     def use_block(self, pos: Pos, item: str | None = None) -> Result:
         extra = {"item": item} if item else {}
@@ -694,7 +797,10 @@ class CompanionBody:
         return self.op("craft", recipe=recipe, times=times, **extra)
 
     def furnace(self, pos: Pos, action: str, **fields) -> Result:
-        return self.op("furnace", pos=list(pos), action=action, **fields)
+        result = self.op("furnace", pos=list(pos), action=action, **fields)
+        if result.ok:
+            self._record("furnace", pos)
+        return result
 
     def equip(self, item: str) -> Result:
         return self.op("equip", item=item)
@@ -712,7 +818,10 @@ class CompanionBody:
 
     def container(self, pos: Pos, action: str, items: list[dict] | None = None):
         extra = {"items": items} if items is not None else {}
-        return self.op("container", pos=list(pos), action=action, **extra)
+        result = self.op("container", pos=list(pos), action=action, **extra)
+        if result.ok:
+            self._record("container", pos)
+        return result
 
     # --- navigation --------------------------------------------------------
     def stage_fill(self) -> str | None:
@@ -1126,11 +1235,14 @@ def companion_world(seed: int | None):
         for name in ("SIGTERM", "SIGBREAK"):
             if (number := getattr(signal, name, None)) is not None:
                 saved[number] = signal.signal(number, _raise_interrupt)
+    global _restored_world
     try:
         with natural.natural_world(seed):
             natural._restore(seed)  # fresh snapshot copy, server started
+            _restored_world = True
             yield
     finally:
+        _restored_world = False
         try:
             natural._start()
         finally:
@@ -1145,6 +1257,30 @@ def _level_dir():
     return SERVER / "world"
 
 
+def session_archive(folder, awareness, episode_id, world_memory=None):
+    """Per-world archive that outlives the session, or a per-run one.
+
+    None: world memory only in a kept world. A companion_world(seed) copy is
+    restored fresh every run, so remembering it would make a run depend on the
+    runs before it. Arena/course runs (natural.py) never come here.
+    """
+    if world_memory is None:
+        world_memory = not _restored_world
+    level = _level_dir()
+    if world_memory:
+        archive = world_archive(level, awareness, WORLD_MEMORY)
+        if archive is not None:
+            return archive
+        logging.getLogger(__name__).warning(
+            "world memory off: no seed in %s/level.dat; using a per-run archive",
+            level,
+        )
+    return MapArchive(
+        folder / "map.sqlite3",
+        MapIdentity(str(level.resolve()), episode_id, "minecraft:overworld", awareness),
+    )
+
+
 def start_session(
     bridge,
     folder,
@@ -1154,11 +1290,13 @@ def start_session(
     dig: bool = False,
     movement_policy: MovementPolicy | None = None,
     terrain_policy: TerrainPolicy | None = None,
+    world_memory: bool | None = None,
 ):
     """Begin the long ``natural_start`` episode that keeps /policy and the follower
     open, and return ``(CompanionBody, SpatialMemory)``. Needs an idle lab.
     ``dig`` selects edit permissions; explicit movement/terrain policies override
-    the defaults, without changing the available action methods."""
+    the defaults, without changing the available action methods.
+    ``world_memory``: see session_archive (default: on in a kept world)."""
     # sections-v1 terrain needs the "sections" preset; same profile as natural runs.
     awareness = awareness or Awareness.from_payload(
         read_json(ROOT / "config/stepc/awareness-sections-64.json")
@@ -1191,14 +1329,9 @@ def start_session(
         if time.monotonic() > deadline:
             raise RuntimeError("Policy stream did not reach a sampled running state")
         time.sleep(0.05)
-    identity = MapIdentity(
-        str(_level_dir().resolve()),
-        bridge.episode_id,
-        "minecraft:overworld",
-        awareness,
-    )
     memory = SpatialMemory(
-        MapArchive(folder / "map.sqlite3", identity), bridge.episode_id
+        session_archive(folder, awareness, bridge.episode_id, world_memory),
+        bridge.episode_id,
     )
     body = CompanionBody(
         bridge,
@@ -1214,6 +1347,10 @@ def start_session(
         # search expanded nothing, and the bot cut logs whose drops it never reached
         end_session(bridge, memory)
         raise RuntimeError(f"start {list(start)} is not a standable feet cell")
+    # same db as the archive: per-world when world memory is on, else per-run
+    body.places = PlaceGraph(memory.archive)
+    if body.places.named("home") is None:
+        body.places.add("home", body.position(), kind="home", provenance="spawn")
     return body, memory
 
 

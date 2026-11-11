@@ -7,7 +7,10 @@ for future integration and excluded from routing unless explicitly permitted.
 import heapq
 import json
 import math
-from dataclasses import asdict, dataclass
+import time
+from dataclasses import asdict, dataclass, replace
+
+PLACE_LIMIT = 4096
 
 
 def _text(value):
@@ -21,10 +24,11 @@ class Place:
     position: tuple
     provenance: str
     verified_at_ns: int
+    kind: str = "place"  # e.g. home, build_site, furnace; payloads before it: place
 
     def __post_init__(self):
         if (
-            not all(_text(v) for v in (self.id, self.name, self.provenance))
+            not all(_text(v) for v in (self.id, self.name, self.provenance, self.kind))
             or not isinstance(self.position, (tuple, list))
             or len(self.position) != 3
             or any(type(v) is not int or abs(v) > 30_000_000 for v in self.position)
@@ -96,6 +100,75 @@ class PlaceGraph:
             db.execute(
                 "DELETE FROM connections WHERE namespace=? AND (source=? OR target=?)",
                 (self.archive.identity.key, place.id, place.id),
+            )
+
+    # --- named waypoints ---------------------------------------------------
+    # ponytail: lookups read the namespace's places (capped at PLACE_LIMIT) and
+    # filter in Python; they run when a job picks a goal, never in the motor loop.
+    # A name/kind index is the upgrade if a world collects thousands of places.
+    @property
+    def dimension(self):
+        return self.archive.identity.dimension
+
+    def listed(self, kind=None):
+        with self.archive.connect() as db:
+            rows = db.execute(
+                "SELECT payload FROM places WHERE namespace=? ORDER BY rowid LIMIT ?",
+                (self.archive.identity.key, PLACE_LIMIT),
+            ).fetchall()
+        places = [Place(**json.loads(row[0])) for row in rows]
+        return [p for p in places if kind is None or p.kind == kind]
+
+    def named(self, name):
+        return next((p for p in self.listed() if p.name == name), None)
+
+    def nearest(self, position, kind=None):
+        return min(
+            self.listed(kind),
+            key=lambda p: math.dist(p.position, position),
+            default=None,
+        )
+
+    def add(self, name, position, *, kind="place", provenance="named"):
+        """Name -> position in this world and dimension; the id is the first name."""
+        place = Place(
+            name, name, tuple(position), provenance, time.time_ns(), kind=kind
+        )
+        self.put_place(place)
+        return place
+
+    def remember(self, kind, position):
+        """Record a useful spot once; seeing it again is not a move."""
+        position = tuple(position)
+        same = next((p for p in self.listed(kind) if p.position == position), None)
+        if same is not None:
+            return same
+        x, y, z = position
+        return self.add(f"{kind}@{x},{y},{z}", position, kind=kind, provenance="seen")
+
+    def rename(self, name, new_name):
+        place = self.named(name)
+        if place is None:
+            raise KeyError(name)
+        renamed = replace(place, name=new_name)
+        # payload only: put_place would drop the walked connections
+        with self.archive.connect() as db:
+            db.execute(
+                "UPDATE places SET payload=? WHERE namespace=? AND id=?",
+                (json.dumps(asdict(renamed)), self.archive.identity.key, place.id),
+            )
+        return renamed
+
+    def remove(self, name):
+        place = self.named(name)
+        if place is None:
+            return
+        key = self.archive.identity.key
+        with self.archive.connect() as db:
+            db.execute("DELETE FROM places WHERE namespace=? AND id=?", (key, place.id))
+            db.execute(
+                "DELETE FROM connections WHERE namespace=? AND (source=? OR target=?)",
+                (key, place.id, place.id),
             )
 
     def put_connection(self, connection):

@@ -269,6 +269,7 @@ def main() -> int:
         memory = None
         try:
             body, memory = start_session(bridge, folder, args.start, dig=True)
+            body.places.remember("build_site", args.start)
             chests = []
             if resume:
                 body.observe()

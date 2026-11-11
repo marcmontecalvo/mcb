@@ -10,6 +10,16 @@ from pathlib import Path
 from mclab.section_codec import decode_section, merge_rows, merge_section, section_key
 
 
+def _box(lo, hi):
+    """Section-box filter; x as an IN list so the (namespace,x,z,y) key seeks z.
+
+    `x BETWEEN` turned every lookup into a scan of whole x columns, which grows
+    with the world. Ints are formatted by int(), so inlining them is safe.
+    """
+    xs = ",".join(str(int(v)) for v in range(lo[0], hi[0] + 1))
+    return f"namespace=? AND x IN ({xs}) AND z BETWEEN ? AND ? AND y BETWEEN ? AND ?"
+
+
 class MapArchive:
     """Sparse 16-cube sections; explicit air replaces solids, absent cells stay unknown.
 
@@ -102,6 +112,48 @@ class MapArchive:
                 )
             }
 
+    def watermark(self):
+        """Highest row id now stored: rows at or below it predate this moment.
+
+        An upsert keeps its row id, so a section first stored earlier stays old.
+        Never VACUUM these files: it may renumber row ids.
+        """
+        with self.connect() as db:
+            return db.execute("SELECT coalesce(max(rowid),0) FROM sections").fetchone()[
+                0
+            ]
+
+    def keys_near(self, lo, hi, watermark):
+        """`(key, stored_before_watermark)` for section keys in an inclusive box.
+
+        Bounded by the box: one primary-key seek per x section (no table scan).
+        """
+        with self.connect() as db:
+            return [
+                ((x, y, z), bool(old))
+                for x, y, z, old in db.execute(
+                    "SELECT x,y,z,rowid<=? FROM sections WHERE " + _box(lo, hi),
+                    (watermark, self.identity.key, lo[2], hi[2], lo[1], hi[1]),
+                )
+            ]
+
+    def drop_terrain_after_gap(self):
+        """An earlier session lost writes, so what it stored may be stale: forget
+        that terrain (places stay) and clear the gap. Never clear a gap without
+        it. A live session keeps failing closed on its own `SpatialMemory.gap`.
+        Returns True when terrain was dropped."""
+        key = self.identity.key
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            gap = db.execute(
+                "SELECT 1 FROM coverage WHERE namespace=? AND NOT trusted", (key,)
+            ).fetchone()
+            if gap is None:
+                return False
+            db.execute("DELETE FROM sections WHERE namespace=?", (key,))
+            db.execute("DELETE FROM coverage WHERE namespace=?", (key,))
+            return True
+
     def mark_gap(self):
         with self.connect() as db:
             db.execute(
@@ -131,11 +183,15 @@ class MapArchive:
             if gap is not None and not gap[0]:
                 raise RuntimeError("Archive has an observation gap; rescan required")
             lo, hi = section_key(lower), section_key(upper)
-            query = (
-                "SELECT x,y,z,payload FROM sections WHERE namespace=? "
-                "AND x BETWEEN ? AND ? AND y BETWEEN ? AND ? AND z BETWEEN ? AND ?"
-            )
-            parameters = [self.identity.key, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]]
+            query = "SELECT x,y,z,payload FROM sections WHERE " + _box(lo, hi)
+            parameters = [self.identity.key, lo[2], hi[2], lo[1], hi[1]]
+            if only is not None:
+                # before the LIMIT: wanted sections past the nearest N still count
+                if not only:
+                    return []
+                query += " AND (x,y,z) IN (VALUES " + ",".join(["(?,?,?)"] * len(only))
+                query += ")"
+                parameters.extend(v for key in only for v in key)
             if section_limit is not None:
                 sx, sy, sz = section_key(center)
                 query += " ORDER BY (x-?)*(x-?)+(y-?)*(y-?)+(z-?)*(z-?),x,y,z LIMIT ?"

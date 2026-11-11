@@ -30,7 +30,7 @@ def main() -> int:
         memory = None
         fixture_chest = None
         try:
-            body, memory = start_session(bridge, folder, args.start)
+            body, memory = start_session(bridge, folder, args.start, world_memory=False)
             state = bridge.http("/state")
             record(
                 "natural session running", state["state"] == "running", state["state"]
