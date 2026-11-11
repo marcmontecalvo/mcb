@@ -101,6 +101,7 @@ def walker(tmp_path, *, step=48.0, stuck_after=None):
         return t == 1.0
 
     body.walk_to = walk_to
+    body._cells_now = lambda: {}
     return body, legs
 
 
@@ -136,3 +137,34 @@ def test_going_to_a_named_place_follows_and_records_walked_connections(tmp_path)
     g.add("tower", (0, 64, -500))
     assert body.go_to("tower") is True
     assert g.route("home", "tower", verified_after_ns=2) == ("home", "tower")
+
+
+def test_a_far_walk_that_ends_at_another_height_is_not_an_arrival(tmp_path):
+    body, legs = walker(tmp_path)
+    g = body.places
+    g.add("home", (0, 64, 0))
+    g.add("ledge", (100, 64, 0))
+    real = body.walk_to
+
+    def short(pos, radius=1.5):
+        ok = real(pos, radius)
+        if pos[0] == 100:  # the last leg stops below the ledge and fails
+            body._obs["body"]["position"] = [100, 59, 0]
+            return False
+        return ok
+
+    body.walk_to = short
+    assert body.walk_far((100, 64, 0)) is False
+    body._obs["body"]["position"] = [0, 64, 0]
+    assert body.go_to("ledge") is False
+    assert g.route("home", "ledge", verified_after_ns=0) == ()  # nothing recorded
+
+
+def test_a_leg_over_a_hill_aims_at_the_known_ground_not_the_start_height(tmp_path):
+    body, legs = walker(tmp_path)
+    stone = {"block": "minecraft:stone", "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
+    air = {"block": "minecraft:air", "collision_boxes": []}
+    hill = {(48, 73, 0): stone, (48, 74, 0): air, (48, 75, 0): air}
+    body._cells_now = lambda: hill
+    body.walk_far((200, 64, 0))
+    assert legs[0][1] == (48, 74, 0)  # 10 above the start: past walk_to's search

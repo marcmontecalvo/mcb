@@ -753,7 +753,8 @@ class CompanionBody:
             )
             last = t == 1.0
             ok = self.walk_to(
-                (x, goal[1] if last else here[1], z), radius if last else LEG_RADIUS
+                (x, goal[1] if last else self._leg_y(x, here[1], z), z),
+                radius if last else LEG_RADIUS,
             )
             now = self.position()
             if ok and last:
@@ -763,7 +764,19 @@ class CompanionBody:
             if stalls >= MAX_STALLS:
                 return False
             here = now
-        return True
+        # horizontally there, but a failed last leg may have stopped at another
+        # height (below a ledge): only the 3D position counts as arrival
+        return math.dist(here, goal) <= radius + 0.25
+
+    def _leg_y(self, x: int, y: int, z: int) -> int:
+        """The known stance in column x,z nearest height y, searched a leg's
+        height either way: walk_to only looks STAND_SEARCH blocks, so a leg over
+        a hill aimed inside it and was unreachable. Unknown column: y."""
+        cells, reach = self._cells_now(), int(LEG)
+        found = [
+            h for h in range(y - reach, y + reach + 1) if standable(cells, (x, h, z))
+        ]
+        return min(found, key=lambda h: abs(h - y), default=y)
 
     def use_block(self, pos: Pos, item: str | None = None) -> Result:
         extra = {"item": item} if item else {}
