@@ -254,6 +254,14 @@ public final class CarpetBodyAdapter {
         return false;
     }
 
+    /** Whether the eye ray to a point meets an entity Carpet's attack would hit (a mob, a player) before it. */
+    static boolean entityOnRay(ServerPlayer player, Vec3 point) {
+        Vec3 eye = player.getEyePosition();
+        var box = player.getBoundingBox().expandTowards(point.subtract(eye)).inflate(1);
+        return Tracer.rayTraceEntities(player, eye, point, box, e -> !e.isSpectator() && e.isPickable(),
+                eye.distanceToSqr(point)) != null;
+    }
+
     public void release() {
         if (player() != null) pack().stopAll();
         mining = false;

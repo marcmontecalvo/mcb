@@ -72,7 +72,7 @@ public final class LabRuntime implements AutoCloseable {
     private boolean watchdog;
     private long lastContactNanos = System.nanoTime();
 
-    public record Inbound(JsonObject json, long receivedNanos) {}
+    public record Inbound(JsonObject json, long receivedNanos, int receivedTick) {}
     public record Event(int schema_version, String launch_id, String run_id, String episode_id,
                         String body_id, long sequence, int tick, String phase, String type,
                         Map<String, Object> data) {}
@@ -130,7 +130,7 @@ public final class LabRuntime implements AutoCloseable {
                     return;
                 }
                 var request = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
-                if (!inbox.offer(new Inbound(request, System.nanoTime()))) {
+                if (!inbox.offer(new Inbound(request, System.nanoTime(), server.getTickCount()))) {
                     respond(exchange, 429, Map.of("error", "queue_full"));
                     return;
                 }
@@ -174,15 +174,12 @@ public final class LabRuntime implements AutoCloseable {
     }
 
     public void preTick() {
-        if (watchdog && episode != null && episode.running()
-                && System.nanoTime() - lastContactNanos > TimeUnit.SECONDS.toNanos(2)) {
-            episode.finish("failed", "controller_watchdog");
-        }
+        int tick = server.getTickCount();
         for (int budget = 0; budget < 8; budget++) {
             var request = inbox.poll();
             if (request == null) break;
             try {
-                if (System.nanoTime() - request.receivedNanos() > TimeUnit.SECONDS.toNanos(2)) {
+                if (staleQueued(request.receivedTick(), tick)) {
                     throw new IllegalArgumentException("stale_queued_request");
                 }
                 admit(request);
@@ -192,6 +189,20 @@ public final class LabRuntime implements AutoCloseable {
                         "reason", error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage()));
             }
         }
+        // After the drain, so a request queued during a long tick counts as contact.
+        if (watchdog && episode != null && episode.running() && watchdogDue(lastContactNanos, System.nanoTime())) {
+            episode.finish("failed", "controller_watchdog");
+        }
+    }
+
+    /** Queued requests age in server ticks, as in BodyRuntime: a long tick (autosave) cannot age them. */
+    static final int STALE_QUEUED_TICKS = 40;
+
+    static boolean staleQueued(int receivedTick, int tick) { return tick - receivedTick > STALE_QUEUED_TICKS; }
+
+    /** Two seconds of real silence from the controller. */
+    static boolean watchdogDue(long lastContactNanos, long nowNanos) {
+        return nowNanos - lastContactNanos > TimeUnit.SECONDS.toNanos(2);
     }
 
     private boolean busy() {

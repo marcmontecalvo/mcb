@@ -323,3 +323,19 @@ def test_collect_gives_up_on_an_item_that_never_lands():
     body = DropBody(fall=10**6)  # stuck on a leaf block
     _collect(body)
     assert body.picked == ["stick"] and 1 <= body.waits <= 3
+
+
+def test_a_mob_in_the_way_retries_the_same_block_from_another_stance():
+    body = FakeGatherBody(K, trees_and_stone())
+    original = body.break_block
+    calls = []
+
+    def sheep(pos, tool=None):
+        calls.append(pos)
+        return original(pos, tool) if len(calls) > 1 else Result(False, "entity_in_way")
+
+    body.break_block = sheep
+    report = run({M + "oak_planks": 4}, body)
+
+    assert report.stop == "done"
+    assert calls[1] == calls[0]  # not skipped for another log

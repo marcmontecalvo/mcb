@@ -588,3 +588,13 @@ def test_fetch_first_asks_for_a_lower_layers_item_before_building_above():
     asked = bp.next_actions(template, world, blocks, held, fetch_first=True)
     assert isinstance(asked[0], bp.NeedMaterials)
     assert asked[0].items["minecraft:birch_planks"] == 1
+
+
+def test_entity_in_way_asks_for_another_stance():
+    # a sheep between eye and block: step aside, do not wait for the next round
+    pane = (1, 2, 3)
+    body, t = small_house_body(fail={pane: ("entity_in_way", 2)})
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done" and report.skipped == {}
+    calls = [avoid for target, avoid in body.stance_calls if target == pane]
+    assert any(calls[1:])  # a later stance avoids the one the mob blocked
