@@ -27,6 +27,7 @@ def main():
                     folder,
                     (990, 80, 988),
                     terrain_policy=replace(WALK_TERRAIN, baritone_moves=False),
+                    world_memory=False,
                 )
                 column = [(993, y, 988) for y in range(80, 86)]
                 original = {p: body.world(*p) for p in column}

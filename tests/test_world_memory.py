@@ -130,3 +130,16 @@ def test_recall_filters_wanted_sections_before_the_section_budget(tmp_path):
     far = (3, 0, 3)  # among the farthest of 49 stored sections
     cells = archive.recall((0, 0, 0), 64, 16, limit=4096, section_limit=32, only={far})
     assert [c["position"] for c in cells] == [[48, 0, 48]]
+
+
+def test_check_scripts_never_use_world_memory():
+    """Checks run in the arena or a restored copy; their results must not depend
+    on earlier runs, so outside companion_world they turn world memory off."""
+    from mclab.paths import ROOT
+
+    for script in sorted((ROOT / "scripts").glob("check-*.py")):
+        text = script.read_text(encoding="utf-8")
+        if "start_session(" in text:
+            assert "companion_world(" in text or "world_memory=False" in text, (
+                script.name
+            )
