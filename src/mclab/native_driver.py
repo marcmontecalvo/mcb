@@ -591,7 +591,9 @@ def drive_native(client, controller, wall_timeout):
                                 note["killed"] = mob["type"]
                                 note["ok"] = bool(getattr(result, "ok", result))
                                 mob_retries.pop(edge, None)
-                            elif decision == "ban":
+                                if not note["ok"]:  # no endless retry-kill cycle
+                                    decision = "ban"
+                            if decision == "ban":
                                 note["ban_until"] = tick + NO_PROGRESS_BAN_TICKS
                                 bans[edge] = note["ban_until"]
                             client.record("native_route_no_progress", note)

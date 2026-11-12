@@ -834,6 +834,15 @@ def test_companion_retries_through_sheep_then_kills_it(monkeypatch):
     assert not controller.failed_edges
 
 
+def test_failed_kill_bans_the_edge(monkeypatch):
+    rows = _no_progress_rows([SHEEP], [5, 10, 15])
+    controller, notes, _ = _drive_no_progress(
+        monkeypatch, rows, clear_mob=lambda uuid: False
+    )
+    assert notes[-1]["ok"] is False and "ban_until" in notes[-1]
+    assert ((0, 1, 0), (1, 1, 0)) in controller.failed_edges
+
+
 @pytest.mark.parametrize(
     "entity,companion",
     [
