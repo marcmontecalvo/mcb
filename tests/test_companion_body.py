@@ -26,6 +26,7 @@ class FakeMemory:
             "collision_boxes": [FULL],
         }
         self.ingested = []
+        self.recent_ticks = {}
 
     def ingest(self, obs):
         self.ingested.append(obs)
@@ -120,6 +121,19 @@ def test_world_is_delivered_cells_only_with_a_short_overlay():
     assert b.world(2, 0, 0) == "minecraft:air"
     b._obs["tick"] += cb.OVERLAY_TICKS + 1
     assert b.world(2, 0, 0).startswith("minecraft:oak_stairs")  # the map wins later
+
+
+def test_a_newer_sensor_sample_replaces_the_overlay(monkeypatch):
+    # run 20261112T032720895516Z: a door placed closed, opened by the motor,
+    # still read closed from the overlay, so the door repair did nothing
+    b, bridge, memory = body()
+    bridge.reply["break_block"] = ("done", {})
+    assert b.break_block((2, 0, 0)).ok
+    assert b.world(2, 0, 0) == "minecraft:air"
+    memory.recent_ticks[(2, 0, 0)] = 105  # sampled after the edit at tick 100
+    monkeypatch.setattr(cb, "policy_state", lambda _: {"tick": 105, "body": {}})
+    b.observe()
+    assert b.world(2, 0, 0).startswith("minecraft:oak_stairs")
 
 
 def test_stances_exclude_avoided_cells_and_are_reached_by_interacts():

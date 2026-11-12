@@ -545,6 +545,14 @@ class CompanionBody:
         """Fetch one policy observation and ingest it into the map."""
         obs = policy_state(self.bridge)
         self.memory.ingest(obs)
+        # A cell the sensor sampled after our own edit is the truth: a door we
+        # placed closed and the motor then walked through stayed "closed" in the
+        # overlay for 200 ticks, so the final door repair saw nothing to fix (run
+        # 20261112T032720895516Z, door [-19, 65, 58] opened at tick 3402).
+        sensed = self.memory.recent_ticks
+        for pos, (_, at) in list(self._overlay.items()):
+            if sensed.get(pos, -1) > at:
+                del self._overlay[pos]
         self._obs = obs
         self._set_inventory(obs.get("body", {}).get("inventory"))
         return obs
