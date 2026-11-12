@@ -149,6 +149,16 @@ final class RouteMotor {
     String id() { return id; }
     boolean active() { return state.equals("following"); }
     void stop(String why) { state = "needs_replan"; reason = why; }
+    // A route that ends on a water surface used to drop all input, so the body sank to
+    // the bed under its goal before Python read the arrival and then idled there (wading
+    // r6 20261112T042556175575Z). The runtime holds jump while this is true.
+    private boolean released;
+    void release() { released = true; }
+    boolean treading(Pose pose, Geometry geometry) {
+        var end = route.get(route.size() - 1);
+        return state.equals("done") && !released && policy.swim && (pose.inWater || !pose.grounded)
+                && Math.floor(pose.x) == end.x && Math.floor(pose.z) == end.z && geometry.swimSurface(end);
+    }
     Map<String, Object> status() {
         return Map.of("route_id", id, "state", state, "reason", reason, "next_index", index,
                 "length", route.size(), "motor_ticks", ticks);

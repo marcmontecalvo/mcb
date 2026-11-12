@@ -395,6 +395,14 @@ public final class RouteMotorTest {
         check(up.active() && stillRising.jump(),"final swim point does not stop a block below the requested height");
         up.tick(wet(3.5,.8,.5),g);
         check(up.status().get("state").equals("done"),"final swim point arrives within controller height tolerance");
+        // Wading r6 20261112T042556175575Z: the route ended on the surface, all input
+        // stopped and the body sank to the bed under its goal before the arrival was read.
+        check(up.treading(wet(3.5,.4,.5),g),"a route that ended on a water surface holds the body afloat");
+        check(!up.treading(wet(2.5,.4,.5),g),"only in the end column");
+        check(!up.treading(new RouteMotor.Pose(3.5,1,.5,0,0,-90,true,20,false),g),"not standing dry");
+        check(!new RouteMotor("f",route.subList(0,3),SWIM).treading(wet(3.5,.4,.5),g),"not while still following");
+        up.release();
+        check(!up.treading(wet(3.5,.4,.5),g),"a cancel ends it");
         // On the bed of a 3-deep pool, under a surface-stance start: swim up, not route_start_displaced.
         var deep=pool();
         for(int x=2;x<=4;x++) { deep.put(new Key(x,-1,0),water("0")); deep.put(new Key(x,-2,0),water("0")); deep.put(new Key(x,-3,0),stone()); }

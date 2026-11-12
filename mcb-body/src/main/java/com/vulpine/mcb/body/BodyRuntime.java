@@ -573,6 +573,7 @@ public final class BodyRuntime implements AutoCloseable {
 
     private void cancelRoute(String reason) {
         legacyMoving = false;
+        if (routeMotor != null) routeMotor.release();
         if (actionTask != null) {
             var task = actionTask;
             actionTask = null;
@@ -680,8 +681,30 @@ public final class BodyRuntime implements AutoCloseable {
         }
     }
 
+    private int treadExpiry = -1;
+    /** Holds jump after a route ended on a water surface, until it is cancelled or replaced. */
+    private void treadWater() {
+        boolean ours = expiryTick >= 0 && expiryTick == treadExpiry;
+        boolean hold = false;
+        if (body != null && readyState.equals("ready") && body.player() != null && body.player().isAlive()
+                && scheduled.isEmpty() && (ours || expiryTick < 0)
+                && (stepMotor == null || !stepMotor.active()) && (gapMotor == null || !gapMotor.active())) {
+            var p = body.player();
+            hold = routeMotor.treading(new RouteMotor.Pose(p.getX(),p.getY(),p.getZ(),0,0,p.getYRot(),p.onGround(),
+                    p.getFoodData().getFoodLevel(),p.isInWater()), new RouteGeometry(localReader(p)));
+            if (hold) {
+                int tick = server.getTickCount();
+                body.controls(new Controls("native-route",tick,tick,tick+2,2,0,0,0,
+                        RouteMotor.levelPitch(p.getXRot()),true,false,false,false,false,false,false,0));
+                expiryTick = treadExpiry = tick + 2;
+            }
+        }
+        if (!hold && ours) { body.release(); expiryTick = -1; }
+    }
+
     private void tickRoute() {
-        if (routeMotor == null || !routeMotor.active()) return;
+        if (routeMotor == null) return;
+        if (!routeMotor.active()) { treadWater(); return; }
         if (body == null || !readyState.equals("ready") || body.player() == null || !body.player().isAlive()) {
             cancelRoute("body_not_ready");
             if (body != null) body.release();
