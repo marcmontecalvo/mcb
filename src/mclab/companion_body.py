@@ -928,6 +928,10 @@ class CompanionBody:
         }
         if controller.probe:
             row["probe"] = True  # ops: ended parked on a verdict, never walked
+            last = getattr(controller, "last_result", None)
+            # the search ran out of nodes but found moves toward the goal
+            if last is not None and last.status == "incomplete" and len(last.route) > 1:
+                row["partial"] = True
         self.log.append(row)
         return ok
 
@@ -1186,6 +1190,7 @@ class CompanionBody:
             stances = stances[:WALK_ONLY_CANDIDATES]
         stances = stances[:MAX_CANDIDATES]
         radius = PRECISE_RADIUS if self.precise_stance else 0.6
+        partial = None
         for node in stances:
             # Ask the planner before walking (roadmap item 1): a candidate across
             # known water is unroutable, and testing that by walking it costs the
@@ -1200,8 +1205,16 @@ class CompanionBody:
                 continue
             if self._navigate(node, reach=None, radius=radius, probe=True):
                 return True
-            if getattr(self, "walk_only", False) and self.position() == here:
-                self._failed_stance_probes[key] = time.monotonic() + 10.0
+            if getattr(self, "walk_only", False):
+                if self.position() == here:
+                    self._failed_stance_probes[key] = time.monotonic() + 10.0
+            elif partial is None and self.log and self.log[-1].get("partial"):
+                partial = node
+        # A far stance out of a pit exhausts the search with a usable partial, and a
+        # probe never moves: six stances were probed in rotation for 32 s at the
+        # bottom of a shaft (iron run 20261112T180613337809Z). Walk the partial.
+        if partial is not None and self._navigate(partial, reach=None, radius=radius):
+            return True
         if not stances and not avoid and self._worth_searching(target):
             if self._navigate(target, reach=reach, radius=2):
                 if self.position() not in avoid:

@@ -1010,3 +1010,45 @@ def test_jumping_in_shallow_water_does_not_enable_swimming(y, deep, swim):
     }
     ctl.stop_reason(obs)
     assert ctl.movement_policy.allow_swim is swim
+
+
+def test_goto_stance_walks_a_partial_route_when_every_probe_ran_out_of_search(
+    monkeypatch,
+):
+    # Iron run 20261112T180613337809Z: at the bottom of its own 11-deep shaft every
+    # probe to the crafting table 20 blocks away ended "incomplete, 4000 expanded"
+    # with a 6-node partial. A probe never moves, so the body stood 32 s while six
+    # stances were probed in rotation. A partial is progress: walk it.
+    b, _, _ = body()
+    b._obs["body"]["position"] = [20.5, 0.0, 20.5]
+    seen = []
+
+    def navigate(goal, *, reach, radius, probe=False):
+        seen.append((goal, probe))
+        b.log.append({"goto": list(goal), "ok": not probe, "partial": probe})
+        return not probe
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    monkeypatch.setattr(b, "stances", lambda *a, **k: [(2, 0, 0), (3, 0, 1)])
+    assert b.goto_stance((2, 0, 2), 4.5) is True
+    assert seen == [((2, 0, 0), True), ((3, 0, 1), True), ((2, 0, 0), False)]
+
+
+def test_goto_stance_does_not_walk_partials_with_placing_off(monkeypatch):
+    # walk_only (building): an incomplete probe is an unreachable stance
+    b, _, _ = body()
+    b.walk_only = True
+    b._obs["body"]["position"] = [20.5, 0.0, 20.5]
+    goals = [(2, 0, 0), (3, 0, 1)]
+    seen = []
+
+    def navigate(goal, *, reach, radius, probe=False):
+        seen.append((goal, probe))
+        b.log.append({"goto": list(goal), "ok": False, "partial": True})
+        return False
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    monkeypatch.setattr(b, "stances", lambda *a, **k: goals)
+    monkeypatch.setattr(b, "_walkable", lambda *a: set(goals))
+    assert b.goto_stance((2, 0, 2), 4.5) is False
+    assert all(probe for _, probe in seen)
