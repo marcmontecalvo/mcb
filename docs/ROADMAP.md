@@ -114,8 +114,55 @@ Details: [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md), cohorts 16–20.
 Each item names where its detail or evidence lives. Numbers are priority, not
 dependencies, except where noted.
 
-**Terrain upload removed from walking (Nov 11, branch `feat/java-terrain-store`,
-not yet live):** before almost every walk the body stood still while Python
+**Five-second standstill rule, Nov 11–12 regression (everything except the large
+house; evidence `results/regression-20261111/`, rounds `r3`–`r8`):** the bot may
+stand still only while breaking, placing or crafting; `scripts/analysis/idle_gaps.py`
+exits 1 on any other gap of 5 s or more. State after round r8 (mod
+`90dcaec3…`, main `5417c57`): small house 4/4 with no gap
+(`companion/20261112T044650454483Z`), trapped wading
+(`wading/20261112T044550692650Z`) and natural ops 14/14
+(`companion/20261112T044637055968Z`) with no gap; iron gather passes with only
+the furnace wait (`companion/20261112T045003403293Z`). Last run on the older mod
+`78bce312…` (r4/r5) and not repeated since: site fill, plain wading, scaffold,
+hill default 6/6, hill water, hill ladder, animals 16/16,
+`course reset-check --count 20` and `body qualify`, all passing with no gap.
+Course start to first movement in r8: natural ops 0.8 s, iron 1.5 s, wading
+1.75 s, small house 2.95 s (was 3.7–6.1 s; the map database cost 150–600 ms per
+open on the results drive until `5417c57`). Open:
+1. **Furnace wait in a pure gather run** (~10 s per smelt loop,
+   `gather_runner.smelt` with `idle_work=None`; iron `20261112T045003403293Z`).
+   Needs Marc's decision; recommendation is to keep gathering nearby while it smelts.
+2. **Python goes silent for 1.5–2.4 s** 13 times in the r8 iron run (heartbeat →
+   heartbeat, `equip` → heartbeat, `route_policy` → heartbeat) and ~1.4 s once
+   after spawn in every run. Not the map database (unchanged by `5417c57`). Cause
+   not traced.
+3. **Repeated full searches for a buried target** (iron `20261112T033141102600Z`:
+   (60,64,-87) searched to the 4,000-node limit 9 times, (53,67,-80) 7 times).
+   ~0.4 s each and the partial is followed, so waste, not a standstill.
+4. **A `route_no_progress` end bans that edge for the session**
+   (`native_driver.py`); a mob in the way would ban a good edge. None occurred in
+   r4–r8.
+5. **Python's swim and air-recovery commands are discarded under the native
+   driver** (`native_driver.py` calls `controller.decide(..., native=True)` and
+   drops the command). The mod now treads water after a route ends on a surface
+   (`RouteMotor.treading`, `803d589`), but a body under water with no route has
+   nothing surfacing it. Not seen live.
+6. **Planner accepting a route through a cell Python has just placed a block
+   in** (small-house roof, `companion/20261111T222832963085Z`): did not recur in
+   r4, r5 or r8 with live terrain; the motor ends such a route in ~1.5 s if it does.
+7. **Process exit takes 12–19 s after `stop`** on the longer runs (file times,
+   may include the scripts' own output). The body is already stopped, so this is
+   not a standstill.
+8. Scored course runs and `course execution-check` are refused until G2 is
+   requalified for the new mod hash (`docs/gates.json`); unscored C2–C5 ran 79/80
+   with no gap on the first battery.
+
+**Terrain upload removed from walking (Nov 11, merged `775f6a4`; live Nov 12):**
+r4/r5 on mod `78bce312…`: zero `planner_map` requests, every companion plan
+`terrain: live`, no rejections; first plan to `follow_route` median 0.17 s small
+house, 0.39–0.48 s iron (was 1.14 s; first walk 0.20–0.30 s, was 4.15 s), 0.20 s
+site fill (was 1.59 s), 0.33 s plain wading (was 4.84 s). Per-tick cost of
+`tickPlans` on live reads is still unmeasured. Original entry: before almost every walk the body stood still while Python
 re-uploaded terrain the mod had itself served: 150-300 new sections, 1-2 s per
 generation, two generations per walk (iron gather `20261111T163639921184Z` median
 1.14 s from first planning tick to `follow_route`, first walk 4.15 s; site fill
@@ -129,7 +176,8 @@ Live check still owed: `idle_gaps.py`, zero `planner_map`
 requests between walks, and the planning-to-`follow_route` time per walk.
 Terrain beyond the radius is unknown to the planner; far knowledge is the next entry.
 
-**Far-field knowledge (Nov 11, branch feat/far-field; not yet run live):**
+**Far-field knowledge (Nov 11, merged `05a0f67`; `go_to`, `walk_far` and the
+per-world file not yet run live — every lab check uses a restored world):**
 - Per-world archive: `companion_body.session_archive` gives companion sessions
   in a kept world `runtime/world-memory/<level>-<seed>.sqlite3` (git-ignored,
   never pruned), keyed by level folder name, level.dat seed and dimension.
