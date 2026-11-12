@@ -50,6 +50,7 @@ EXPLORE_STEP = 16
 SURFACE_SCAN = 24  # how far up/down an explore ring column is read for its surface
 EXPLORE_CAP = 64
 MAX_IDLE_SLICES = 60  # bound on idle work done per smelt task
+IDLE_RADIUS = 24  # smelt idle work: only blocks this close to the furnace
 SMELT_TICKS_PER_ITEM = 200
 MAX_TRIES = 3
 SCAN_BATCH = 8  # candidates tried per map scan in gather
@@ -707,6 +708,33 @@ def run_gather(
     ex = _Exec(body, knowledge, state, explore_cap, stall, clock, idle_work=idle_work)
     targets = dict(targets) if targets is not None else None
     tasks = list(plan_result.tasks)
+
+    def _gather_ahead() -> bool:
+        """Smelt idle work for a pure gather run: the plan's next Gather task, if
+        it heads the queue (so it cannot need the smelt output) and its block is
+        near the furnace; else pick up drops round the furnace. False: nothing."""
+        furnace = state.stations.get("furnace")
+        if furnace is None:
+            return False
+        if tasks and type(tasks[0]).__name__ == "Gather":
+            near = [
+                p
+                for p in body.find_blocks(tasks[0].block)
+                if _dist(p, furnace) <= IDLE_RADIUS
+            ]
+            if near:
+                cap, ex.cap = ex.cap, 0  # ponytail: no ring walk or dig while waiting
+                try:
+                    ex.gather(tasks.pop(0))  # the re-plan after the smelt counts it
+                finally:
+                    ex.cap = cap
+                return True
+        before = dict(body.inventory())
+        ex.collect(None, furnace)
+        return body.inventory() != before
+
+    if idle_work is None:
+        ex.idle_work = _gather_ahead
     failures = executed = 0
     while tasks and executed < max_tasks:
         task = tasks.pop(0)
