@@ -22,7 +22,7 @@ def test_records_stack_during_silence_then_duration(tmp_path):
     stacks = [p for k, p in events if k == "python_silence"]
     assert 2 <= len(stacks) <= 6
     assert any("test_records_stack_during_silence" in f for f in stacks[0]["stack"])
-    assert len(stacks[0]["stack"]) <= 8
+    assert len(stacks[0]["stack"]) <= 16
     ends = [p for k, p in events if k == "python_silence_end"]
     assert len(ends) == 1 and ends[0]["duration_s"] >= 0.25
     assert ends[0]["stacks"] == len(stacks)

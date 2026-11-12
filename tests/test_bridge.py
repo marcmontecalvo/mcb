@@ -415,7 +415,7 @@ def test_close_releases_connections_even_if_map_coordinator_close_fails():
     bridge = Bridge.__new__(Bridge)
     bridge.planner_map_coordinator = SimpleNamespace(close=boom)
     bridge._connection, bridge._lab_connection = part("body"), part("lab")
-    bridge.stream = part("stream")
+    bridge.stream, bridge.silence = part("stream"), part("silence")
     with pytest.raises(RuntimeError, match="abort failed"):
         bridge.close()
-    assert closed == ["body", "lab", "stream"]
+    assert closed == ["silence", "body", "lab", "stream"]
