@@ -3,6 +3,7 @@
 import heapq
 import json
 import sqlite3
+import threading
 import time
 from collections import defaultdict
 from contextlib import contextmanager
@@ -36,6 +37,7 @@ class MapArchive:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.identity = identity
         self._others = 0  # open connect()s the terrain flush yields to
+        self._counting = threading.Lock()
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             version = db.execute("PRAGMA user_version").fetchone()[0]
@@ -65,12 +67,14 @@ class MapArchive:
 
     @contextmanager
     def connect(self):
-        self._others += 1  # ponytail: GIL-atomic enough for a yield hint
+        with self._counting:
+            self._others += 1
         try:
             with self._connect() as db:
                 yield db
         finally:
-            self._others -= 1
+            with self._counting:
+                self._others -= 1
 
     @contextmanager
     def _connect(self):
@@ -128,7 +132,10 @@ class MapArchive:
                     began = None
                     # sqlite's busy handler polls up to 100 ms apart and would miss
                     # this gap: hold off while another caller has a connection.
-                    while self._others:
+                    # Bounded, so a caller that keeps a connection open cannot
+                    # stop terrain being saved.
+                    wait_until = time.monotonic() + 0.2
+                    while self._others and time.monotonic() < wait_until:
                         time.sleep(0.001)
 
     def section_keys(self):
