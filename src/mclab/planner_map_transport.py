@@ -360,7 +360,13 @@ class PlannerMapCoordinator:
             generation = self.transfer.advance()
         except Exception:
             if self.transfer.future is None:
-                self.owner = self.next_cells = None
+                cells, self.next_cells = self.next_cells, None
+                if cells is not None and not self.transfer.uncertain:
+                    # The dropped generation was the previous owner's: restart
+                    # with this owner's snapshot instead of failing it once.
+                    self.transfer.start(cells)
+                    return None
+                self.owner = None
             raise
         if generation is not None and self.next_cells is not None:
             cells, self.next_cells = self.next_cells, None

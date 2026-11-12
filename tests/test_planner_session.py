@@ -128,3 +128,28 @@ def test_planner_map_batches_are_pipelined_before_waiting_for_acks():
         ("ack", "batch"),
     ]
     client.planner_map_coordinator.close()
+
+
+def test_queue_full_429_is_retried_because_the_request_was_not_admitted(monkeypatch):
+    import urllib.error
+
+    from mclab.planner_session import _send_and_ack
+
+    monkeypatch.setattr("mclab.planner_session.time.sleep", lambda _s: None)
+
+    class FullOnceClient:
+        def __init__(self):
+            self.attempts = 0
+
+        def send(self, operation, **fields):
+            self.attempts += 1
+            if self.attempts == 1:
+                raise urllib.error.HTTPError("u", 429, "queue_full", {}, None)
+            return {"sequence": self.attempts}
+
+        def acknowledge(self, request, kind):
+            return {"type": kind}
+
+    client = FullOnceClient()
+    assert _send_and_ack(client, "planner_map", "x") == {"type": "x"}
+    assert client.attempts == 2

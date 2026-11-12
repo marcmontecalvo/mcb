@@ -513,7 +513,8 @@ def test_breaks_are_sorted_bottom_up_and_filter_skipped():
     assert [a.pos for a in acts] == [(0, 1, 0), (0, 2, 0)]
 
     # If all breaks are skipped, next_actions proceeds to places
-    acts = bp.next_actions(t, at(w), BLOCKS, inv, skipped={(0, 0, 0), (0, 1, 0), (0, 2, 0)})
+    skipped = {(0, 0, 0), (0, 1, 0), (0, 2, 0)}
+    acts = bp.next_actions(t, at(w), BLOCKS, inv, skipped=skipped)
     assert len(acts) == 1 and acts[0].pos == (1, 0, 0)
 
 

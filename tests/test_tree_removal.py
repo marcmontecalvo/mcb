@@ -3,7 +3,7 @@ from mclab.build_runner import Result
 
 
 class FakeTreeBody:
-    """Mock companion body tracking operations, positions, and inventory for tree removal."""
+    """Mock companion body tracking operations, positions and inventory."""
 
     def __init__(
         self,

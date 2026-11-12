@@ -397,3 +397,25 @@ def test_begin_verification_failure_does_not_wait_for_start_timeout(
     monkeypatch.setattr(client, "wait", lambda predicate, timeout: predicate({}))
     with pytest.raises(RuntimeError, match="geometry_mismatch"):
         client.acknowledge({"sequence": 9}, "course_started")
+
+
+def test_close_releases_connections_even_if_map_coordinator_close_fails():
+    from types import SimpleNamespace
+
+    from mclab.bridge import Bridge
+
+    closed = []
+
+    def part(name):
+        return SimpleNamespace(close=lambda: closed.append(name))
+
+    def boom():
+        raise RuntimeError("abort failed")
+
+    bridge = Bridge.__new__(Bridge)
+    bridge.planner_map_coordinator = SimpleNamespace(close=boom)
+    bridge._connection, bridge._lab_connection = part("body"), part("lab")
+    bridge.stream = part("stream")
+    with pytest.raises(RuntimeError, match="abort failed"):
+        bridge.close()
+    assert closed == ["body", "lab", "stream"]

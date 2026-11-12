@@ -412,12 +412,14 @@ class Bridge:
 
     def close(self):
         coordinator = getattr(self, "planner_map_coordinator", None)
-        if coordinator is not None:
-            coordinator.close()
-            self.planner_map_coordinator = None
-        self._connection.close()
-        self._lab_connection.close()
-        self.stream.close()
+        self.planner_map_coordinator = None
+        try:
+            if coordinator is not None:
+                coordinator.close()
+        finally:
+            self._connection.close()
+            self._lab_connection.close()
+            self.stream.close()
 
 
 def _legacy_awareness() -> dict:

@@ -577,11 +577,14 @@ def next_actions(
         if near is None:
             return 0
         return sum((a - b) ** 2 for a, b in zip(p, near, strict=False))
-    is_canopy_leaf = lambda p: (
-        (s := world(*p))
-        and "_leaves" in s
-        and template.cells.get(p, "minecraft:air") in AIR
-    )
+
+    def is_canopy_leaf(p):
+        return (
+            (s := world(*p))
+            and "_leaves" in s
+            and template.cells.get(p, "minecraft:air") in AIR
+        )
+
     breaks = sorted(
         (
             p
