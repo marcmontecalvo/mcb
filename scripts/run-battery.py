@@ -152,7 +152,11 @@ def restart_server() -> bool:
             break
         time.sleep(2)
     server("start")
-    return '"state": "running"' in server("status")
+    for _ in range(60):  # the status says "running" some seconds after the start
+        if '"state": "running"' in server("status"):
+            return True
+        time.sleep(2)
+    return False
 
 
 def check_verdict(code: int | None, log: Path, timeout: int) -> tuple[str, list[str]]:
