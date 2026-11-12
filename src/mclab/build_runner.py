@@ -235,7 +235,11 @@ class _Runner:
             return
         pos = act.pos
         here = self.body.position()
-        if _dist2(here, pos) <= (REACH - 0.5) ** 2:
+        can_place = getattr(self.body, "can_place_here", None)
+        direct = not isinstance(act, bp.Place) or can_place is None or can_place(
+            pos, REACH, _support(act, self.blocks)
+        )
+        if direct and _dist2(here, pos) <= (REACH - 0.5) ** 2:
             result = _do(self.body, act)
             if result.ok:
                 self.report.steps += 1

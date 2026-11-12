@@ -525,6 +525,7 @@ class CompanionBody:
         self.places: PlaceGraph | None = None  # named waypoints (start_session)
         self.policies: list[dict] = []
         self._navigation_idle = {"anchor": None, "since": time.monotonic()}
+        self._failed_stance_probes = {}
 
     def policy_id(self) -> int:
         """Deduplicate large protected footprints across navigation records."""
@@ -689,6 +690,7 @@ class CompanionBody:
 
     def _remember(self, pos: Pos, state: str | None, tick: int | None = None) -> None:
         if state:
+            self._failed_stance_probes.clear()
             self._navigation_idle.update(
                 anchor=tuple(
                     self._obs.get("body", {}).get("position", self.position())
@@ -1133,6 +1135,15 @@ class CompanionBody:
             and ty - BODY_HEIGHT < y < ty + 1
         )
 
+    def can_place_here(self, target: Pos, reach: float, required=None) -> bool:
+        """Check the current placement stance before an optimistic direct action."""
+        cells, here = self._cells_now(), self.position()
+        return (
+            interacts(cells, here, target, reach)
+            and not self._overlaps(target)
+            and sees_support(cells, here, target, required)
+        )
+
     @_fresh_idle
     def goto_stance(
         self, target_pos: Pos, reach: float, avoid: Collection[Pos] = ()
@@ -1182,8 +1193,15 @@ class CompanionBody:
             # (20261106T170919632775Z; the sand stall of 20261106T185239143471Z).
             # A found route is walked by the same controller, not planned twice
             # (two plans per stance in run 20261111T135214868983Z).
+            # Reusing a failed probe for the same source and stance avoids asking
+            # the planner for identical inaccessible roof stances for every block.
+            key = (here, node)
+            if getattr(self, "walk_only", False) and self._failed_stance_probes.get(key, 0) > time.monotonic():
+                continue
             if self._navigate(node, reach=None, radius=radius, probe=True):
                 return True
+            if getattr(self, "walk_only", False) and self.position() == here:
+                self._failed_stance_probes[key] = time.monotonic() + 10.0
         if not stances and not avoid and self._worth_searching(target):
             if self._navigate(target, reach=reach, radius=2):
                 if self.position() not in avoid:

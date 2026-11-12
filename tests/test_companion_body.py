@@ -537,6 +537,57 @@ def test_goto_stance_skips_candidates_the_planner_cannot_route(monkeypatch):
     assert seen == [((2, 0, 0), True), ((3, 0, 1), True)]
 
 
+def test_roof_support_top_is_not_visible_from_recorded_floor_height():
+    b, _, memory = body()
+    b._obs["body"]["position"] = [-19.5, 65.0, 59.31]
+    target, support = (-18, 67, 58), (-18, 66, 58)
+    memory.cells[support] = {"block": "minecraft:oak_planks", "collision_boxes": [FULL]}
+    assert not b.can_place_here(target, 4.5)
+
+
+def test_walk_only_reuses_failed_stance_probe_until_geometry_changes(monkeypatch):
+    b, _, _ = body()
+    b.walk_only = True
+    b._obs["body"]["position"] = [20.5, 0, 20.5]
+    goals = [(2, 0, 0), (3, 0, 1)]
+    monkeypatch.setattr(b, "stances", lambda *a, **k: goals)
+    monkeypatch.setattr(b, "_walkable", lambda *a: set(goals))
+    seen = []
+    monkeypatch.setattr(b, "_navigate", lambda goal, **kw: seen.append(goal) or False)
+    assert not b.goto_stance((2, 0, 2), 4.5)
+    assert not b.goto_stance((3, 0, 2), 4.5)
+    assert seen == goals
+    assert not b.goto_stance((3, 0, 2), 4.5)
+    assert seen == goals
+    b._remember((0, 0, 0), "minecraft:stone", 100)
+    assert not b.goto_stance((3, 0, 2), 4.5)
+    assert seen == [*goals, *goals]
+
+
+def test_build_runner_tries_second_walk_only_stance_when_first_fails(monkeypatch):
+    from test_build_plan import BLOCKS
+
+    from mclab import build_plan as bp
+    from mclab import build_runner as br
+
+    b, _, _ = body()
+    b.walk_only = True
+    b._obs["body"]["position"] = [20.5, 0, 20.5]
+    goals = [(2, 0, 0), (3, 0, 1)]
+    monkeypatch.setattr(b, "stances", lambda *a, **k: goals)
+    monkeypatch.setattr(b, "_walkable", lambda *a: set(goals))
+    seen = []
+    monkeypatch.setattr(
+        b, "_navigate", lambda goal, **kw: seen.append(goal) or goal == goals[1]
+    )
+    report = br.BuildReport()
+    runner = br._Runner(b, report, 100, BLOCKS)
+    monkeypatch.setattr(br, "_do", lambda body, act: br.Result(True))
+    runner.attempt(bp.Place((2, 0, 2), "minecraft:oak_planks", "minecraft:oak_planks"))
+    assert seen == goals
+    assert not report.failures
+
+
 @pytest.mark.parametrize("walk_only", [False, True])
 def test_walk_to_plans_once_and_probes_only_when_walk_only(monkeypatch, walk_only):
     b, _, _ = body()

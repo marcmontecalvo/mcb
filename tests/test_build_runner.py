@@ -403,6 +403,27 @@ def test_runner_reports_no_stance_when_the_pit_cannot_be_left():
     assert report.escapes == 0
 
 
+def test_runner_does_not_direct_place_from_an_invisible_roof_stance():
+    class RoofBody(_Pit):
+        def __init__(self):
+            super().__init__(can_escape=False)
+            self.placements = []
+
+        def can_place_here(self, pos, reach, required):
+            return False
+
+        def place_block(self, pos, state, item):
+            self.placements.append(pos)
+            return br.Result(True)
+
+    body = RoofBody()
+    report = br.BuildReport()
+    runner = br._Runner(body, report, 100, BLOCKS)
+    runner.attempt(bp.Place((1, 2, 0), "minecraft:oak_stairs", "minecraft:oak_stairs"))
+    assert not body.placements
+    assert report.failures[0][1] == "no_stance"
+
+
 # --- scaffolding towers to stand on -------------------------------------------
 SCAFF = "minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]"
 

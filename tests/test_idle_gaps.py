@@ -27,6 +27,15 @@ def sample(tick, x):
     return ev("policy_sample", tick, {"body": {"position": [x, 64.0, 0.0]}})
 
 
+def observation(tick, x):
+    return {
+        "body_id": "b",
+        "monotonic_ns": int((T0 + tick / 20) * 1e9),
+        "type": "observation",
+        "payload": {"tick": tick, "body": {"position": [x, 64.0, 0.0]}},
+    }
+
+
 def run(tmp_path, events, min_s=5.0):
     f = tmp_path / "events.jsonl"
     f.write_text("\n".join(json.dumps(e) for e in events), encoding="utf8")
@@ -40,6 +49,195 @@ def still(a, b, x=0.0):
 def test_violation_detected(tmp_path):
     r = run(tmp_path, [ev("course_started", 0)] + still(0, 200))
     assert [w["kind"] for w in r] == ["VIOLATION"] and r[0]["unjustified_s"] > 9
+
+
+def test_observations_alone_show_idle(tmp_path):
+    r = run(tmp_path, [observation(t, 0) for t in range(110)])
+    assert [w["kind"] for w in r] == ["VIOLATION"]
+    assert r[0]["wall_s"] > 5
+
+
+def test_mixed_samples_deduplicate_and_keep_sparse_gaps(tmp_path):
+    f = tmp_path / "events.jsonl"
+    events = [observation(0, 2), sample(0, 0), observation(1, 0),
+              observation(50, 0), sample(50, 1)]
+    f.write_text("\n".join(json.dumps(e) for e in events), encoding="utf8")
+    body = ig.load(f)[(None, None, "b", 0)]
+    assert [s[0] for s in body["samples"]] == [0, 0, 1, 50, 50]
+    meta = next(r for r in ig.analyse(f, 5, 0.5) if r["kind"] == "META")
+    assert len(meta["unknown"]) == 1
+
+
+def test_overlapping_anchor_finds_idle_after_subthreshold_drift(tmp_path):
+    events = [ev("course_started", 0)]
+    for tick in range(181):
+        x = 0 if tick < 80 else 0.49 if tick == 80 else 0.51
+        events.append(observation(tick, x))
+    result = run(tmp_path, events)
+    assert any(r["kind"] == "VIOLATION" and r["start"] >= 4 for r in result)
+
+
+def test_policy_and_observation_delivery_order_do_not_mingle(tmp_path):
+    events = [ev("course_started", 0)]
+    for tick in range(120):
+        events.append(observation(tick, tick))
+        policy = sample(tick, tick)
+        policy["monotonic_ns"] += 25_000_000
+        events.append(policy)
+    events.append(ev("stopped", 119))
+    f = tmp_path / "events.jsonl"
+    f.write_text("\n".join(map(json.dumps, events)), encoding="utf8")
+    meta = next(r for r in ig.analyse(f, 5, 0.5) if r["kind"] == "META")
+    assert meta["stream"] == "policy"
+    assert not meta["incomplete"]
+
+
+def test_same_timestamp_different_stream_follower_states_sort(tmp_path):
+    a = observation(0, 0)
+    b = sample(0, 0)
+    b["payload"]["data"]["route_follower"] = {"state": "idle"}
+    f = tmp_path / "events.jsonl"
+    f.write_text("\n".join(map(json.dumps, [a, b])), encoding="utf8")
+    assert len(next(iter(ig.load(f).values()))["samples"]) == 2
+
+
+def test_no_samples_cli_is_inconclusive(tmp_path, monkeypatch, capsys):
+    import sys
+
+    import pytest
+
+    (tmp_path / "events.jsonl").write_text(json.dumps(ev("course_started", 0)))
+    monkeypatch.setattr(sys, "argv", ["idle_gaps.py", str(tmp_path)])
+    with pytest.raises(SystemExit) as result:
+        ig.main()
+    assert result.value.code == 2
+    assert "INCONCLUSIVE" in capsys.readouterr().err
+
+
+def test_reused_ticks_are_separate_per_episode_and_run(tmp_path):
+    events = []
+    for run_id, episode_id in (("r1", "e1"), ("r1", "e2"), ("r2", "e1")):
+        for tick in (0, 1):
+            e = observation(tick, len(events))
+            e.update(run_id=run_id, episode_id=episode_id)
+            events.append(e)
+    f = tmp_path / "events.jsonl"
+    f.write_text("\n".join(map(json.dumps, events)), encoding="utf8")
+    assert sorted(len(b["samples"]) for b in ig.load(f).values()) == [2, 2, 2]
+
+
+def test_server_launch_change_separates_reused_ticks(tmp_path):
+    events = []
+    for launch in ("one", "two"):
+        e = ev("body_state", 0, {"state": "ready"})
+        e["payload"]["launch_id"] = launch
+        events.extend([e, observation(0, 0), observation(1, 0)])
+    f = tmp_path / "events.jsonl"
+    f.write_text("\n".join(map(json.dumps, events)), encoding="utf8")
+    assert [len(b["samples"]) for b in ig.load(f).values()] == [2, 2]
+
+
+def test_complete_ready_and_stop_cli_passes(tmp_path, monkeypatch):
+    import sys
+
+    import pytest
+
+    events = [ev("body_state", 0, {"state": "ready"})]
+    events += [{"body_id": "b", "monotonic_ns": int(T0 * 1e9),
+                "type": "request", "payload": {"op": "follow_route"}}]
+    events += [observation(t, t) for t in range(3)]
+    events += [ev("stopped", 2)]
+    (tmp_path / "events.jsonl").write_text("\n".join(map(json.dumps, events)))
+    monkeypatch.setattr(sys, "argv", ["idle_gaps.py", str(tmp_path)])
+    with pytest.raises(SystemExit) as result:
+        ig.main()
+    assert result.value.code == 0
+
+
+def test_frozen_tick_with_sparse_wall_gap_is_inconclusive(
+    tmp_path, monkeypatch, capsys
+):
+    import sys
+
+    import pytest
+
+    a, b, c = observation(0, 0), observation(0, 0), observation(1, 1)
+    b["monotonic_ns"] = int((T0 + 9) * 1e9)
+    c["monotonic_ns"] = int((T0 + 10) * 1e9)
+    end = ev("stopped", 1)
+    end["monotonic_ns"] = c["monotonic_ns"]
+    events = [ev("course_started", 0), a, b, c, end]
+    f = tmp_path / "events.jsonl"
+    f.write_text("\n".join(map(json.dumps, events)), encoding="utf8")
+    body = ig.load(f)[(None, None, "b", 0)]
+    assert [s[0] for s in body["samples"]] == [0, 0, 1]
+    monkeypatch.setattr(sys, "argv", ["idle_gaps.py", str(tmp_path)])
+    with pytest.raises(SystemExit) as result:
+        ig.main()
+    assert result.value.code == 2
+    assert "sparse sample gaps" in capsys.readouterr().err
+
+
+def test_unconfirmed_stop_request_is_inconclusive(tmp_path, monkeypatch, capsys):
+    import sys
+
+    import pytest
+
+    events = [ev("course_started", 0)] + [observation(t, t) for t in range(3)]
+    events += [{"body_id": "b", "monotonic_ns": int((T0 + 0.1) * 1e9),
+                "type": "request", "payload": {"op": "stop"}}]
+    (tmp_path / "events.jsonl").write_text("\n".join(map(json.dumps, events)))
+    monkeypatch.setattr(sys, "argv", ["idle_gaps.py", str(tmp_path)])
+    with pytest.raises(SystemExit) as result:
+        ig.main()
+    assert result.value.code == 2
+    assert "active interval boundaries unavailable" in capsys.readouterr().err
+
+
+def test_incomplete_coverage_cli(tmp_path, monkeypatch, capsys):
+    import sys
+
+    import pytest
+
+    for events in (
+        [observation(0, 0), observation(1, 0)],
+        [ev("body_state", 0, {"state": "ready"}), observation(0, 0),
+         observation(1, 0), ev("stopped", 1)],
+        [ev("course_started", 0), observation(0, 0), observation(100, 0),
+         ev("stopped", 100)],
+        [ev("course_started", 0), observation(20, 0), observation(21, 0),
+         ev("stopped", 21)],
+    ):
+        (tmp_path / "events.jsonl").write_text("\n".join(map(json.dumps, events)))
+        monkeypatch.setattr(sys, "argv", ["idle_gaps.py", str(tmp_path)])
+        with pytest.raises(SystemExit) as result:
+            ig.main()
+        assert result.value.code == 2
+        assert "INCONCLUSIVE" in capsys.readouterr().err
+
+
+def test_completed_interactions_exempt_bounded_time(tmp_path):
+    evs = [ev("course_started", 0)] + still(0, 200) + [
+        ev("received", 10, {"op": "attack_entity", "request_sequence": 1}),
+        ev("attack_entity_done", 110, {"request_sequence": 1}),
+        ev("received", 110, {"op": "eat", "request_sequence": 2}),
+        ev("eat_done", 150, {"request_sequence": 2}),
+    ]
+    result = run(tmp_path, evs)[0]
+    assert result["kind"] == "EXEMPT"
+    assert result["wall_s"] > 9
+    assert result["evidence"] == {"attack_entity": 1, "eat": 1}
+
+
+def test_incomplete_or_slow_interactions_do_not_hide_idle(tmp_path):
+    evs = [ev("course_started", 0)] + still(0, 300) + [
+        ev("received", 0, {"op": "attack_entity", "request_sequence": 1}),
+        ev("attack_entity_done", 290, {"request_sequence": 1}),
+        ev("received", 290, {"op": "eat", "request_sequence": 2}),
+    ]
+    result = run(tmp_path, evs)[0]
+    assert result["kind"] == "VIOLATION"
+    assert result["unjustified_s"] > 9
 
 
 def test_break_in_progress_exempt(tmp_path):
