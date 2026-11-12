@@ -521,3 +521,23 @@ def test_smelt_partial_ahead_gather_keeps_remaining_task():
     assert report.stop == "done"
     assert body.inventory()[M + "oak_log"] == 2
 
+
+
+def test_ore_found_while_exploring_is_mined_though_far_from_the_table():
+    # Live run 20261112T181731902927Z: two ore blocks near the table, then seven
+    # minutes of ring walking past ore that was "not near home".
+    from mclab.gather_runner import GatherState, _Exec
+    from mclab.gather_tasks import Gather
+
+    world = floor() | {(38, 0, 0): M + "iron_ore", (38, 0, 2): M + "iron_ore"}
+    body = FakeGatherBody(K, world, {M + "stone_pickaxe": 1}, sight=10)
+    state = GatherState()
+    state.stations["crafting_table"] = (0, 0, 0)
+    ex = _Exec(body, K, state, 48)
+
+    result = ex.gather(
+        Gather(M + "iron_ore", 2, "pickaxe", "stone", M + "raw_iron", 2)
+    )
+
+    assert result.ok, result
+    assert body.inventory()[M + "raw_iron"] == 2
