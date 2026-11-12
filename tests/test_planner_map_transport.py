@@ -424,3 +424,30 @@ def test_close_still_raises_a_real_abort_failure():
     transfer.advance()
     with pytest.raises(RuntimeError, match="bad_frame"):
         transfer.close()
+
+
+def test_new_owner_restarts_when_resumed_generation_is_rejected():
+    wire = Wire()
+    reject = []
+
+    def send(frame):
+        if frame["kind"] == "batch" and reject:
+            reject.pop()
+            raise RuntimeError("Bridge rejected request 3: map_palette")
+        return wire.send(frame)
+
+    coordinator = PlannerMapCoordinator(send)
+    first, second = SimpleNamespace(superseded=False), SimpleNamespace(superseded=False)
+    try:
+        coordinator.begin(first, ONE)
+        coordinator.transfer.future.result(timeout=2)
+        assert coordinator.advance(first) is None  # begin acknowledged
+        coordinator.cancel_active()  # staged for the next owner
+        reject.append(True)
+        coordinator.begin(second, ONE)
+        # The dropped generation was not the new owner's; it restarts, not raises.
+        assert coordinator.advance(second) is None
+        assert coordinator.owner is second
+        assert _drain(coordinator, second) == 1
+    finally:
+        coordinator.close()
