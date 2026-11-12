@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import math
 from collections import deque
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
-from typing import Collection, Iterable
 
 from mclab.build_runner import REACH, BuildBody, Result
 from mclab.progress_watch import no_placing
@@ -152,7 +152,7 @@ def find_trees(
     template=None,
     leafless: bool = False,
 ) -> list[Tree]:
-    """Identify single-log-wide trees whose logs or canopy intersect search_cells or its margin.
+    """Identify single-log-wide trees whose logs or canopy meet search_cells (+margin).
 
     With a template a log stand with no canopy is taken for a build and skipped;
     ``leafless`` keeps it (site prep clears every non-template log anyway, and the

@@ -267,7 +267,7 @@ def analyse(path: Path, min_s, move):
             continue
         t0, ws, unknown = s[0][1], *find_windows(s, min_s, move)
         wall = sorted(x[1] for x in s)
-        steps = sorted(y - x for x, y in zip(wall, wall[1:]))
+        steps = sorted(y - x for x, y in zip(wall, wall[1:], strict=False))
         ev_w = [e[0] for e in b["events"]]
         for i, j in ws:
             a, z = s[i], s[j]
@@ -336,7 +336,9 @@ def analyse(path: Path, min_s, move):
 
 
 def show(r):
-    fmt = lambda e: f"      {e[0]:8.2f}s t{e[1]:<6} {e[2]} {e[3]}"
+    def fmt(e):
+        return f"      {e[0]:8.2f}s t{e[1]:<6} {e[2]} {e[3]}"
+
     print(
         f"  {r['kind']:9} {r['start']:8.2f}s..{r['end']:8.2f}s  wall={r['wall_s']:.1f}s unjustified={r['unjustified_s']:.1f}s "
         f"ticks={r['ticks'][0]}..{r['ticks'][1]} ({r['ticks'][1] - r['ticks'][0]}t) pos={r['pos']}"
