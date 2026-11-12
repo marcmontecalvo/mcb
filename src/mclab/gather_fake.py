@@ -71,11 +71,11 @@ class FakeGatherBody:
     def entities(self):
         return [dict(e) for e in self.ents if self._seen(e["position"])]
 
-    def find_blocks(self, block, where=None):
+    def find_blocks(self, block, where=None, within=None):
         """Like CompanionBody.find_blocks: only blocks with an open (air) face."""
         return [
             p
-            for p in self.find_all(block)
+            for p in self.find_all(block, within)
             if (where is None or where(p)) and self._open_face(p)
         ]
 
@@ -94,11 +94,21 @@ class FakeGatherBody:
                 return True
         return False
 
-    def find_all(self, block):
+    def find_all(self, block, within=None):
+        """``within`` is exact here (the body returns whole sections): a bound that
+        cuts off a cell its caller wanted fails that caller's test."""
         return [
             p
             for p, s in self.w.items()
-            if bp.parse_state(s)[0] == block and self._seen(p)
+            if bp.parse_state(s)[0] == block
+            and self._seen(p)
+            and (
+                within is None
+                or any(
+                    max(abs(a - b) for a, b in zip(p, c, strict=True)) <= r
+                    for c, r in within
+                )
+            )
         ]
 
     def wait_ticks(self, ticks):

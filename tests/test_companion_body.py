@@ -744,6 +744,32 @@ def test_find_blocks_reads_a_pathing_grid_view_by_palette(tmp_path):
     assert {(-20, 64, 5), (1, 2, 3)} <= set(found) < buried | {(-20, 64, 5), (1, 2, 3)}
 
 
+def test_a_bounded_scan_reads_only_the_sections_near_its_centres():
+    # Iron run 20261112T184523101728Z: late in the run a stone scan listed every
+    # stone cell of 2,040 sections (0.6-1.1 s of silence a call, part of all three
+    # standstills) before the gather kept the few within 24 blocks of home.
+    from mclab.pathing_grid import PathingGrid
+
+    grid = PathingGrid()
+    stone = {"block": "minecraft:stone", "collision_boxes": [FULL]}
+    cells = [(0, 0, 0), (20, 5, -20), (40, 0, 0), (0, 40, 0), (-200, 0, 300)]
+    for pos in cells:
+        grid.put(pos, grid.state_id(stone), grid.provenance_id(1, "s", 0))
+    b, _, memory = body()
+    memory.cells = grid.view()
+    assert set(b.find_all("minecraft:stone")) == set(cells)
+    near = b.find_all("minecraft:stone", [((0, 0, 0), 24.0)])
+    # whole sections: a cell just past the radius may come back, a far one never
+    assert {(0, 0, 0), (20, 5, -20)} <= set(near) <= set(cells[:3])
+    two = b.find_all("minecraft:stone", [((0, 0, 0), 24.0), ((-200, 0, 300), 2.0)])
+    assert (-200, 0, 300) in two and (0, 40, 0) not in two
+    read = []
+    scan = b._scan
+    b._scan = lambda block, within=None: read.append(within) or scan(block, within)
+    b.find_blocks("minecraft:stone", within=[((0, 0, 0), 24.0)])
+    assert read == [[((0, 0, 0), 24.0)]]
+
+
 def test_a_stance_must_see_a_face_of_a_solid_neighbour():
     from mclab.companion_body import sees_support
 
@@ -819,7 +845,7 @@ def test_find_blocks_skips_protected_ground():
     dirt = {"block": "minecraft:dirt", "collision_boxes": [FULL]}
     air = {"block": "minecraft:air", "collision_boxes": []}
     memory.cells = {(0, 0, 0): dirt, (0, 1, 0): air, (9, 0, 0): dirt, (9, 1, 0): air}
-    b._scan = lambda block: [(0, 0, 0), (9, 0, 0)]
+    b._scan = lambda block, within=None: [(0, 0, 0), (9, 0, 0)]
     b.terrain_policy = replace(cb.DIG_TERRAIN, protected_positions=((0, 0, 0),))
     assert b.find_blocks("minecraft:dirt") == [(9, 0, 0)]
 
@@ -1012,46 +1038,53 @@ def test_jumping_in_shallow_water_does_not_enable_swimming(y, deep, swim):
     assert ctl.movement_policy.allow_swim is swim
 
 
-def test_goto_stance_walks_a_partial_route_when_every_probe_ran_out_of_search(
-    monkeypatch,
-):
-    # Iron run 20261112T180613337809Z: at the bottom of its own 11-deep shaft every
-    # probe to the crafting table 20 blocks away ended "incomplete, 4000 expanded"
-    # with a 6-node partial. A probe never moves, so the body stood 32 s while six
-    # stances were probed in rotation. A partial is progress: walk it.
-    b, _, _ = body()
-    b._obs["body"]["position"] = [20.5, 0.0, 20.5]
-    seen = []
+def test_probe_with_a_partial_route_becomes_the_walk_unless_placing_is_off():
+    # Iron runs 20261112T180613337809Z and 20261112T184523101728Z: every probe to a
+    # far stance ended "incomplete, 4000 expanded" with a usable partial. A probe
+    # never moves, so the body stood 32 s (then 7.4 s) while six stances were probed
+    # in rotation, and the walk that followed was cut as "stuck" by the idle clock
+    # the probes had used up. A partial is progress: the first one is walked.
+    from mclab.route_types import RouteResult
 
-    def navigate(goal, *, reach, radius, probe=False):
-        seen.append((goal, probe))
-        b.log.append({"goto": list(goal), "ok": not probe, "partial": probe})
-        return not probe
+    partial = RouteResult("incomplete", ((0, 0, 0), (1, 0, 0)), 4000, 0, "limit")
 
-    monkeypatch.setattr(b, "_navigate", navigate)
-    monkeypatch.setattr(b, "stances", lambda *a, **k: [(2, 0, 0), (3, 0, 1)])
-    assert b.goto_stance((2, 0, 2), 4.5) is True
-    assert seen == [((2, 0, 0), True), ((3, 0, 1), True), ((2, 0, 0), False)]
+    def probe(walk_partial):
+        ctl = cb._GotoController.__new__(cb._GotoController)
+        ctl.probe, ctl.no_drive, ctl.deadline = True, True, 10**18
+        ctl.mode, ctl.walk_wall, ctl.walk_partial = "following", 90.0, walk_partial
+        ctl.last_result = partial
+        return ctl
 
-
-def test_goto_stance_does_not_walk_partials_with_placing_off(monkeypatch):
+    walking = probe(True)
+    assert walking.stop_reason({"tick": 1}) is None
+    assert (walking.probe, walking.no_drive) == (False, False)
     # walk_only (building): an incomplete probe is an unreachable stance
-    b, _, _ = body()
-    b.walk_only = True
-    b._obs["body"]["position"] = [20.5, 0.0, 20.5]
-    goals = [(2, 0, 0), (3, 0, 1)]
+    assert probe(False).stop_reason({"tick": 1}) == "unreachable"
+
+
+@pytest.mark.parametrize("walk_only", [False, True])
+def test_navigate_lets_a_probe_walk_a_partial_only_when_placing_is_on(
+    monkeypatch, walk_only
+):
+    b, bridge, _ = body()
+    b.walk_only = walk_only
+    bridge.state = lambda: {}
+    monkeypatch.setattr(b, "observe", lambda: {})
     seen = []
 
-    def navigate(goal, *, reach, radius, probe=False):
-        seen.append((goal, probe))
-        b.log.append({"goto": list(goal), "ok": False, "partial": True})
-        return False
+    class Controller:
+        probe = False
 
-    monkeypatch.setattr(b, "_navigate", navigate)
-    monkeypatch.setattr(b, "stances", lambda *a, **k: goals)
-    monkeypatch.setattr(b, "_walkable", lambda *a: set(goals))
-    assert b.goto_stance((2, 0, 2), 4.5) is False
-    assert all(probe for _, probe in seen)
+        def __init__(self, *args, **kwargs):
+            seen.append(kwargs["walk_partial"])
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cb, "_GotoController", Controller)
+    monkeypatch.setattr(cb, "drive", lambda *a, **k: {})
+    b._navigate((3, 0, 3), reach=None, radius=0.6, probe=True)
+    assert seen == [not walk_only]
 
 
 def test_find_blocks_tests_open_faces_only_where_asked():
@@ -1061,7 +1094,7 @@ def test_find_blocks_tests_open_faces_only_where_asked():
     stone = {"block": "minecraft:stone", "collision_boxes": [FULL]}
     air = {"block": "minecraft:air", "collision_boxes": []}
     memory.cells = {(0, 0, 0): stone, (0, 1, 0): air, (9, 0, 0): stone, (9, 1, 0): air}
-    b._scan = lambda block: [(0, 0, 0), (9, 0, 0)]
+    b._scan = lambda block, within=None: [(0, 0, 0), (9, 0, 0)]
     tested = []
     face = b._open_face
     b._open_face = lambda p: tested.append(p) or face(p)

@@ -312,6 +312,7 @@ class _GotoController(SegmentedController):
     probe = False  # plan-only drive: end on the first verdict, never move the motor
     no_drive = False  # drive_native keeps every motor submission off
     walk_wall = 0.0  # wall of the walk a successful probe turns into
+    walk_partial = False  # a probe that ran out of search walks the moves it found
     route_seen = None  # last native route id seen following (idle grace)
     graced_at = None  # where the last idle grace was granted
 
@@ -333,11 +334,13 @@ class _GotoController(SegmentedController):
         probe: bool = False,
         idle_state=None,
         walk_wall: float = 0.0,
+        walk_partial: bool = False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.deadline = deadline
         self.walk_wall = walk_wall
+        self.walk_partial = walk_partial
         if probe:
             self.probe = True
             self.no_drive = True
@@ -461,8 +464,14 @@ class _GotoController(SegmentedController):
             self.last_result is not None
             and self.last_result.status in {"reached", "segment"}
         ):
-            if self.last_result is not None and self.last_result.status == "incomplete":
-                return "unreachable"
+            last = self.last_result
+            if last is not None and last.status == "incomplete":
+                # The search ran out of nodes. Its moves toward the goal are walked
+                # at once: probing the other stances first stood the body still for
+                # 7.4 s (iron run 20261112T184523101728Z). With placing off an
+                # incomplete search is an unreachable stance.
+                if not (self.walk_partial and len(last.route) > 1):
+                    return "unreachable"
             return self._walk_on()  # route adopted: drive it, do not plan it again
         if self.mode in {"unreachable", "incomplete"} or (
             self.last_result is not None
@@ -596,16 +605,20 @@ class CompanionBody:
         return format_state(cell["block"], dict(cell.get("properties") or {}))
 
     def find_blocks(
-        self, block: str, where: Callable[[Pos], bool] | None = None
+        self,
+        block: str,
+        where: Callable[[Pos], bool] | None = None,
+        within: list[tuple[Pos, float]] | None = None,
     ) -> list[Pos]:
         """Delivered cells holding ``block`` (no properties compared) that have a
         known open face: a block buried in stone cannot be reached without digging,
         and a gather loop that tried each one cost minutes. ``where`` narrows the
-        cells before the face test, which is the slow part for a common block."""
+        cells before the face test, which is the slow part for a common block.
+        ``within`` (centre, radius pairs) bounds the scan itself: see ``_scan``."""
         keep = set(self.terrain_policy.protected_positions)
         return [
             p
-            for p in self._scan(block)
+            for p in self._scan(block, within)
             if p not in keep and (where is None or where(p)) and self._open_face(p)
         ]
 
@@ -624,7 +637,13 @@ class CompanionBody:
                 return True
         return False
 
-    def _scan(self, block: str) -> list[Pos]:
+    def _scan(
+        self, block: str, within: list[tuple[Pos, float]] | None = None
+    ) -> list[Pos]:
+        """Cells holding ``block``. ``within`` keeps the scan to the 16-block sections
+        touching a cube of that radius round one of the centres; cells of those
+        sections just outside the cube still come back (the caller tests exactly).
+        Listing every stone cell of a 2,040-section map took 0.6-1.1 s a call."""
         cells = self.memory.cells
         sections = getattr(cells, "sections", None)
         if sections is None:  # plain dict map
@@ -632,8 +651,17 @@ class CompanionBody:
         # Pathing-grid view: match palette ids, and scan only sections that hold one
         # (a per-cell walk of the whole map took minutes per call).
         ids = {i for i, s in enumerate(cells.states) if s and s.get("block") == block}
+        boxes = [
+            [(math.floor(c - r) >> 4, math.floor(c + r) >> 4) for c in centre]
+            for centre, r in within or ()
+        ]
         found: list[Pos] = []
-        for (sx, sy, sz), section in list(sections.items()):
+        for key, section in list(sections.items()):
+            sx, sy, sz = key
+            if within is not None and not any(
+                all(lo <= s <= hi for s, (lo, hi) in zip(key, box, strict=True)) for box in boxes
+            ):
+                continue
             if ids.isdisjoint(set(section.states)):
                 continue
             found.extend(
@@ -909,6 +937,7 @@ class CompanionBody:
             probe=probe,
             idle_state=self._navigation_idle,
             walk_wall=self.goto_wall_s,
+            walk_partial=not getattr(self, "walk_only", False),
         )
         # A passive mob that still blocks a step after the pushes is killed
         # (native_driver.no_progress_decision); an axe first, else the mod's pick.
@@ -935,10 +964,6 @@ class CompanionBody:
         }
         if controller.probe:
             row["probe"] = True  # ops: ended parked on a verdict, never walked
-            last = getattr(controller, "last_result", None)
-            # the search ran out of nodes but found moves toward the goal
-            if last is not None and last.status == "incomplete" and len(last.route) > 1:
-                row["partial"] = True
         self.log.append(row)
         return ok
 
@@ -995,9 +1020,11 @@ class CompanionBody:
             if not self.walk_to_drop((x, y, z), 0.8):
                 skipped.add(e.get("uuid"))
 
-    def find_all(self, block: str) -> list[Pos]:
+    def find_all(
+        self, block: str, within: list[tuple[Pos, float]] | None = None
+    ) -> list[Pos]:
         """Delivered cells holding ``block``, buried ones included."""
-        return self._scan(block)
+        return self._scan(block, within)
 
     @contextmanager
     def no_opening_doors(self):
@@ -1197,14 +1224,14 @@ class CompanionBody:
             stances = stances[:WALK_ONLY_CANDIDATES]
         stances = stances[:MAX_CANDIDATES]
         radius = PRECISE_RADIUS if self.precise_stance else 0.6
-        partial = None
         for node in stances:
             # Ask the planner before walking (roadmap item 1): a candidate across
             # known water is unroutable, and testing that by walking it costs the
             # 200-tick StuckGuard timer - 12 of those ended a job at 0 tasks
             # (20261106T170919632775Z; the sand stall of 20261106T185239143471Z).
             # A found route is walked by the same controller, not planned twice
-            # (two plans per stance in run 20261111T135214868983Z).
+            # (two plans per stance in run 20261111T135214868983Z), and so is the
+            # partial route of a search that ran out of nodes (_probe_verdict).
             # Reusing a failed probe for the same source and stance avoids asking
             # the planner for identical inaccessible roof stances for every block.
             key = (here, node)
@@ -1212,16 +1239,8 @@ class CompanionBody:
                 continue
             if self._navigate(node, reach=None, radius=radius, probe=True):
                 return True
-            if getattr(self, "walk_only", False):
-                if self.position() == here:
-                    self._failed_stance_probes[key] = time.monotonic() + 10.0
-            elif partial is None and self.log and self.log[-1].get("partial"):
-                partial = node
-        # A far stance out of a pit exhausts the search with a usable partial, and a
-        # probe never moves: six stances were probed in rotation for 32 s at the
-        # bottom of a shaft (iron run 20261112T180613337809Z). Walk the partial.
-        if partial is not None and self._navigate(partial, reach=None, radius=radius):
-            return True
+            if getattr(self, "walk_only", False) and self.position() == here:
+                self._failed_stance_probes[key] = time.monotonic() + 10.0
         if not stances and not avoid and self._worth_searching(target):
             if self._navigate(target, reach=reach, radius=2):
                 if self.position() not in avoid:

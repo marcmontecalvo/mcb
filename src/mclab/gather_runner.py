@@ -79,7 +79,10 @@ STALL_S = 120.0  # no inventory change for this long ends the run ("stalled")
 
 class GatherBody(BuildBody, Protocol):
     def find_blocks(
-        self, block: str, where: Callable[[Pos], bool] | None = None
+        self,
+        block: str,
+        where: Callable[[Pos], bool] | None = None,
+        within: list[tuple[Pos, float]] | None = None,
     ) -> list[Pos]: ...
 
     def walk_to(self, pos: Pos, radius: float = 1.5) -> bool: ...
@@ -160,6 +163,12 @@ def _near(pos, home) -> bool:
     )
 
 
+def _reach(*centres) -> list[tuple[Pos, float]]:
+    """Scan bound covering ``_near`` of every centre (find_blocks ``within``): the
+    body lists only the map sections there, not every stone cell it has seen."""
+    return [(c, NEAR_STONE) for c in centres if c is not None]
+
+
 FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
 
@@ -184,7 +193,7 @@ def buried_tops(body, block: str, here: Pos) -> list[Pos]:
     horizontally, NEAR_DY above to BURIED_DEPTH below, with a known dry cell above;
     shallow and near first."""
     found = []
-    for x, y, z in body.find_all(block):
+    for x, y, z in body.find_all(block, _reach(here)):
         depth = here[1] - y
         if not -NEAR_DY <= depth <= BURIED_DEPTH:
             continue
@@ -459,6 +468,11 @@ class _Exec:
                         or _near(p, home)
                         or (seen is not None and _near(p, seen))
                     ),
+                    [(near, radius)]
+                    if near is not None
+                    else _reach(home, found_at)
+                    if underground
+                    else None,
                 )
                 if _sealed(body, p) and (not underground or _floored(body, p, here))
             ]
@@ -486,6 +500,9 @@ class _Exec:
                                 or _near(q, self.home())
                                 or (ore and _near(q, _cell(body.position())))
                             ),
+                            _reach(self.home(), _cell(body.position()))
+                            if underground
+                            else None,
                         )
                     )
                 ):
@@ -765,7 +782,9 @@ def run_gather(
         ahead = tasks[:1] if tasks and type(tasks[0]).__name__ == "Gather" else []
         for task in ahead + spares:
             if not body.find_blocks(
-                task.block, lambda p: _dist(p, furnace) <= IDLE_RADIUS
+                task.block,
+                lambda p: _dist(p, furnace) <= IDLE_RADIUS,
+                [(furnace, IDLE_RADIUS)],
             ):
                 continue
             cap, ex.cap = ex.cap, 0  # ponytail: no ring walk or dig while waiting
