@@ -1041,8 +1041,7 @@ class SegmentedController(NavigationController):
                     self._clear_terrain_forecast()
             elif (
                 observation["tick"] - self.commit_started > 80
-                or observation["tick"] - self.commit_progress[0]
-                > COMMIT_STALL_TICKS
+                or observation["tick"] - self.commit_progress[0] > COMMIT_STALL_TICKS
             ):
                 if self.committed_source is not None:
                     self.failed_edges.add((self.committed_source, target))
@@ -1063,6 +1062,7 @@ class SegmentedController(NavigationController):
                 source = self.committed_source
                 if (
                     not command.get("forward")
+                    and abs(command.get("yaw_delta", 0)) <= 8  # refused, not turning
                     and source is not None
                     and body.get("on_ground", True)
                     and abs(p[1] - source[1]) <= 0.2
@@ -1089,7 +1089,9 @@ class SegmentedController(NavigationController):
             # block low and idle on a stationary "reached" plan (wading r3).
             and (
                 body.get("survival", {}).get("in_water") is True
+                # at the surface, not falling or jumping over it
                 or not body.get("on_ground", True)
+                and abs(p[1] - node[1]) <= 0.25
             )
             and body.get("survival", {}).get("eye_in_water") is False
             and water_movement.surface_node(self._known_cells(), node)
