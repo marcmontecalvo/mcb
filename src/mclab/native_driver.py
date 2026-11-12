@@ -44,21 +44,49 @@ CLEARABLE_MOBS = frozenset(
     for name in ("sheep", "cow", "pig", "chicken", "rabbit", "mooshroom", "goat")
 )
 NOT_MOBS = frozenset({"minecraft:item", "minecraft:experience_orb", "minecraft:arrow"})
+MOB_WIDTHS = {
+    f"minecraft:{name}": 0.9 for name in ("sheep", "cow", "pig", "goat", "mooshroom")
+} | {"minecraft:chicken": 0.4, "minecraft:rabbit": 0.4}
 
 
 def blocking_entities(observation, source, target):
-    """Living entities in or beside the cells of the step source -> target."""
+    """Entities intersecting the player's swept box along the step.
+
+    The current sensor sends positions, not bounding boxes. The fallback uses a
+    known animal widths or a 0.6-block fallback, with a 1-block height. The
+    player is 0.6 blocks wide. Unknown or named nearby entities guard attacks.
+    """
     found = []
     for entity in observation.get("visible_entities") or ():
         if entity.get("item") or entity.get("type") in NOT_MOBS:
             continue
         x, y, z = entity["position"]
-        if any(
-            abs(x - c[0] - 0.5) <= 1.3
-            and abs(z - c[2] - 0.5) <= 1.3
-            and c[1] - 1 <= y <= c[1] + 1.5
-            for c in (source, target)
+        half_width = MOB_WIDTHS.get(entity.get("type"), 0.6) / 2
+        box = entity.get("bounding_box") or (
+            x - half_width, y, z - half_width, x + half_width, y + 1, z + half_width
+        )
+        min_x, min_y, min_z, max_x, max_y, max_z = box
+        if (
+            max_y <= min(source[1], target[1])
+            or min_y >= max(source[1], target[1]) + 1.8
         ):
+            continue
+        # Segment against the entity box expanded by the player's half-width.
+        lo, hi = 0.0, 1.0
+        for start, end, lower, upper in (
+            (source[0] + 0.5, target[0] + 0.5, min_x - 0.3, max_x + 0.3),
+            (source[2] + 0.5, target[2] + 0.5, min_z - 0.3, max_z + 0.3),
+        ):
+            delta = end - start
+            if not delta:
+                if not lower < start < upper:
+                    break
+            else:
+                a, b = sorted(((lower - start) / delta, (upper - start) / delta))
+                lo, hi = max(lo, a), min(hi, b)
+                if lo >= hi:
+                    break
+        else:
             found.append(entity)
     return found
 
@@ -72,7 +100,19 @@ def no_progress_decision(controller, observation, edge, retries):
     if retries[edge] <= MOB_RETRIES:
         return "retry", mobs
     # ponytail: only companion controllers carry clear_mob; scored runs never kill.
-    if getattr(controller, "clear_mob", None) is not None and any(
+    # Without bounds, a protected entity's feet do not reveal its height. Keep
+    # the attack guard conservative vertically rather than miss a tall blocker.
+    guarded = any(
+        (e.get("named") or e.get("type") not in MOB_WIDTHS)
+        and not e.get("item") and e.get("type") not in NOT_MOBS
+        and any(
+            abs(e["position"][0] - c[0] - 0.5) <= 1.3
+            and abs(e["position"][2] - c[2] - 0.5) <= 1.3
+            for c in edge
+        )
+        for e in observation.get("visible_entities") or ()
+    )
+    if not guarded and getattr(controller, "clear_mob", None) is not None and all(
         e.get("type") in CLEARABLE_MOBS and not e.get("named") for e in mobs
     ):
         return "kill", mobs

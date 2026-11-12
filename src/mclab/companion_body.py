@@ -549,9 +549,9 @@ class CompanionBody:
         # placed closed and the motor then walked through stayed "closed" in the
         # overlay for 200 ticks, so the final door repair saw nothing to fix (run
         # 20261112T032720895516Z, door [-19, 65, 58] opened at tick 3402).
-        sensed = self.memory.recent_ticks
         for pos, (_, at) in list(self._overlay.items()):
-            if sensed.get(pos, -1) > at:
+            sensed_at = self.memory.live_observed_tick(pos)
+            if sensed_at is not None and sensed_at > at:
                 del self._overlay[pos]
         self._obs = obs
         self._set_inventory(obs.get("body", {}).get("inventory"))
@@ -677,6 +677,8 @@ class CompanionBody:
             data = dict(event["data"])
             self._set_inventory(data.get("inventory"))
             if event["type"] == f"{name}_done":
+                if name in {"place_block", "break_block", "use_block"}:
+                    data["_event_tick"] = event.get("tick")
                 result = Result(True, None, data)
             elif event["type"] == f"{name}_failed":
                 result = Result(False, str(data.get("reason", "failed")), data)
@@ -685,7 +687,7 @@ class CompanionBody:
         self.log.append({"op": name, "ok": result.ok, "reason": result.reason})
         return result
 
-    def _remember(self, pos: Pos, state: str | None) -> None:
+    def _remember(self, pos: Pos, state: str | None, tick: int | None = None) -> None:
         if state:
             self._navigation_idle.update(
                 anchor=tuple(
@@ -693,13 +695,13 @@ class CompanionBody:
                 ),
                 since=time.monotonic(),
             )
-            self._overlay[tuple(pos)] = (state, self._tick())
+            self._overlay[tuple(pos)] = (state, self._tick() if tick is None else int(tick))
 
     def place_block(self, pos: Pos, state: str, item: str) -> Result:
         result = self.op("place_block", pos=list(pos), state=state, item=item)
         if result.ok:
             placed = result.data.get("placed")
-            self._remember(pos, placed)
+            self._remember(pos, placed, result.data.get("_event_tick"))
             kind = (placed or "").split("[")[0].removeprefix("minecraft:")
             if kind in RECORDED_BLOCKS:
                 self._record(kind, pos)
@@ -790,14 +792,14 @@ class CompanionBody:
         extra = {"item": item} if item else {}
         result = self.op("use_block", pos=list(pos), **extra)
         if result.ok:
-            self._remember(pos, result.data.get("after"))
+            self._remember(pos, result.data.get("after"), result.data.get("_event_tick"))
         return result
 
     def break_block(self, pos: Pos, tool: str | None = None) -> Result:
         extra = {"tool": tool} if tool else {}
         result = self.op("break_block", pos=list(pos), **extra)
         if result.ok:
-            self._remember(pos, "minecraft:air")
+            self._remember(pos, "minecraft:air", result.data.get("_event_tick"))
         return result
 
     def craft(self, recipe: str, times: int, table: Pos | None = None) -> Result:

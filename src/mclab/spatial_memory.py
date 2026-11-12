@@ -286,6 +286,14 @@ class SpatialMemory:
         self.last_sample = sample
         self.revision += 1
 
+    def live_observed_tick(self, position):
+        """Return the capture tick for a cell admitted in this session, if known."""
+        self._check()
+        cell = self.grid.view().record(position)
+        if cell is None or cell.get("observation_session") != self.session:
+            return None
+        return cell.get("observed_tick")
+
     def _build_bulk(self, bulk, sids, observed_at):
         """Whole-section slice assignments (no per-cell Python work).
 

@@ -23,6 +23,23 @@ def observation(*positions, tick=20, block="minecraft:stone"):
     }
 
 
+def test_live_observed_tick_uses_capture_and_falls_back_to_observation(tmp_path):
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    try:
+        obs = observation((0, 0, 0), (1, 0, 0), tick=110)
+        obs["visible_blocks"][0]["observed_tick"] = 102
+        memory.ingest(obs)
+        assert memory.live_observed_tick((0, 0, 0)) == 102
+        assert memory.live_observed_tick((1, 0, 0)) == 110
+        assert memory.live_observed_tick((2, 0, 0)) is None
+        pid = memory.grid.provenance_id(120, "previous-session", 0)
+        air = memory.grid.state_id({"block": "minecraft:air"})
+        memory.grid.put((2, 0, 0), air, pid)
+        assert memory.live_observed_tick((2, 0, 0)) is None
+    finally:
+        memory.close()
+
+
 def test_evicted_cells_survive_restart_and_air_replaces_solid(tmp_path):
     archive = MapArchive(tmp_path / "map.db", identity())
     first = SpatialMemory(

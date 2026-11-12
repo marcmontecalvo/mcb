@@ -383,3 +383,71 @@ def test_pure_gather_smelt_mines_spares_when_no_plan_item_is_left():
     assert body.inventory()[M + "iron_ingot"] == 1
     assert body.inventory().get(M + "cobblestone", 0) >= 2
 
+
+def test_smelt_gather_does_not_try_distant_known_blocks():
+    from mclab.gather_runner import GatherState, _Exec
+    from mclab.gather_tasks import Gather
+
+    near, far = (5, 0, 0), (30, 0, 0)
+    body = FakeGatherBody(
+        K, floor() | {near: M + "oak_log", far: M + "oak_log"}, sight=100
+    )
+    attempted = []
+    body.goto_stance = lambda pos, *args: attempted.append(pos) and False
+    executor = _Exec(body, K, GatherState(), 0)
+    task = Gather(M + "oak_log", 1, None, "hand", M + "oak_log", 1)
+
+    result = executor.gather(task, near=(0, 0, 0), radius=24)
+
+    assert not result.ok
+    assert near in attempted
+    assert far not in attempted
+
+
+def test_empty_smelt_work_is_retried_for_a_later_batch():
+    from mclab.gather_runner import GatherState
+    from mclab.gather_tasks import Smelt
+
+    furnace = (0, 0, -3)
+    body = FakeGatherBody(
+        K, floor() | {furnace: M + "furnace"},
+        {M + "raw_iron": 2, M + "coal": 2},
+    )
+    smelt = Smelt("x", 1, M + "coal", 1, "furnace", M + "iron_ingot", M + "raw_iron")
+    calls = []
+
+    def work():
+        calls.append(1)
+        return len(calls) == 2
+
+    report = run_gather(
+        PlanResult((smelt, smelt), (), 0.0), body, K,
+        state=GatherState(stations={"furnace": furnace}), idle_work=work,
+    )
+
+    assert report.stop == "done"
+    assert len(calls) >= 2
+    assert body.inventory()[M + "iron_ingot"] == 2
+
+
+def test_smelt_partial_ahead_gather_keeps_remaining_task():
+    from mclab.gather_runner import GatherState
+    from mclab.gather_tasks import Gather, Smelt
+
+    furnace = (0, 0, -3)
+    near, far = (5, 0, 0), (30, 0, 0)
+    body = FakeGatherBody(
+        K, floor() | {furnace: M + "furnace", near: M + "oak_log", far: M + "oak_log"},
+        {M + "raw_iron": 1, M + "coal": 1}, sight=100,
+    )
+    smelt = Smelt("x", 1, M + "coal", 1, "furnace", M + "iron_ingot", M + "raw_iron")
+    gather = Gather(M + "oak_log", 2, None, "hand", M + "oak_log", 2)
+
+    report = run_gather(
+        PlanResult((smelt, gather), (), 0.0), body, K,
+        state=GatherState(stations={"furnace": furnace}),
+    )
+
+    assert report.stop == "done"
+    assert body.inventory()[M + "oak_log"] == 2
+

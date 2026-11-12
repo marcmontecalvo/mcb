@@ -31,6 +31,9 @@ class FakeMemory:
     def ingest(self, obs):
         self.ingested.append(obs)
 
+    def live_observed_tick(self, pos):
+        return self.recent_ticks.get(pos)
+
 
 class FakeBridge:
     """Answers every op with the event kind set in ``reply`` (default: done)."""
@@ -38,6 +41,7 @@ class FakeBridge:
     def __init__(self):
         self.events, self.sent, self.reply = [], [], {}
         self.sequence = 0
+        self.tick = None  # server tick stamped on the reply event
 
     def send(self, op, **fields):
         self.sequence += 1
@@ -47,6 +51,7 @@ class FakeBridge:
             suffix = {"done": f"{op}_done", "failed": f"{op}_failed"}.get(kind, kind)
             self.events.append(
                 {"type": suffix, "data": {"request_sequence": self.sequence, **data}}
+                | ({} if self.tick is None else {"tick": self.tick})
             )
         return {"sequence": self.sequence}
 
@@ -134,6 +139,115 @@ def test_a_newer_sensor_sample_replaces_the_overlay(monkeypatch):
     monkeypatch.setattr(cb, "policy_state", lambda _: {"tick": 105, "body": {}})
     b.observe()
     assert b.world(2, 0, 0).startswith("minecraft:oak_stairs")
+
+
+def test_a_sample_from_before_the_edit_keeps_the_overlay(monkeypatch):
+    # run 20261112T134722151875Z: a tulip broken and dirt placed 2 ticks later, both
+    # after the last observation (tick 100). The sensor's sample of the break (air)
+    # was newer than that observation, dropped the dirt overlay, and site prep
+    # ended "unfinished site edit" on a filled cell.
+    b, bridge, memory = body()
+    bridge.tick = 104  # the server applied the edit at tick 104
+    bridge.reply["place_block"] = ("done", {"placed": "minecraft:dirt"})
+    assert b.place_block((2, 0, 0), "minecraft:dirt", "minecraft:dirt").ok
+    memory.recent_ticks[(2, 0, 0)] = 102  # sampled before the edit
+    monkeypatch.setattr(cb, "policy_state", lambda _: {"tick": 103, "body": {}})
+    b.observe()
+    assert b.world(2, 0, 0) == "minecraft:dirt"
+
+
+@pytest.mark.parametrize("operation", ["place_block", "break_block", "use_block"])
+def test_edit_event_tick_controls_overlay_and_expiry(monkeypatch, operation):
+    b, bridge, memory = body()
+    bridge.tick = 104
+    bridge.reply[operation] = (
+        "done", {"placed": "minecraft:dirt", "after": "minecraft:dirt"}
+    )
+    if operation == "place_block":
+        b.place_block((2, 0, 0), "minecraft:dirt", "minecraft:dirt")
+    elif operation == "break_block":
+        b.break_block((2, 0, 0))
+    else:
+        b.use_block((2, 0, 0))
+    expected = "minecraft:air" if operation == "break_block" else "minecraft:dirt"
+    memory.recent_ticks[(2, 0, 0)] = 104
+    monkeypatch.setattr(cb, "policy_state", lambda _: {"tick": 104, "body": {}})
+    b.observe()
+    assert b.world(2, 0, 0) == expected  # same tick is not known to be later
+    b._obs["tick"] = 104 + cb.OVERLAY_TICKS
+    assert b.world(2, 0, 0) == expected
+    b._obs["tick"] += 1
+    assert b.world(2, 0, 0).startswith("minecraft:oak_stairs")
+
+
+def test_successive_edits_keep_latest_until_newer_sample(monkeypatch):
+    b, bridge, memory = body()
+    bridge.tick = 102
+    assert b.break_block((2, 0, 0)).ok
+    bridge.tick = 104
+    bridge.reply["place_block"] = ("done", {"placed": "minecraft:dirt"})
+    assert b.place_block((2, 0, 0), "minecraft:dirt", "minecraft:dirt").ok
+    memory.recent_ticks[(2, 0, 0)] = 103
+    monkeypatch.setattr(cb, "policy_state", lambda _: {"tick": 105, "body": {}})
+    b.observe()
+    assert b.world(2, 0, 0) == "minecraft:dirt"
+    memory.recent_ticks[(2, 0, 0)] = 105
+    b.observe()
+    assert b.world(2, 0, 0).startswith("minecraft:oak_stairs")
+
+
+@pytest.mark.parametrize("encoding", ["sparse", "uniform", "dense"])
+def test_overlay_uses_actual_compact_sample_tick(tmp_path, monkeypatch, encoding):
+    from mclab.awareness import Awareness
+    from mclab.spatial_memory import MapArchive, MapIdentity, SpatialMemory
+    from mclab.terrain_transport import expand_terrain
+
+    awareness = Awareness.resolve("sections")
+    identity = MapIdentity("w", "g", "minecraft:overworld", awareness)
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity), "session")
+    b, bridge, _ = body()
+    b.memory = memory
+    bridge.tick = 104
+    bridge.reply["place_block"] = ("done", {"placed": "minecraft:dirt"})
+    assert b.place_block((2, 0, 0), "minecraft:dirt", "minecraft:dirt").ok
+    state = {"block": "minecraft:air", "fluid": "minecraft:empty",
+             "replaceable": True, "properties": {}, "collision_boxes": []}
+
+    def observation(captured, sample):
+        terrain = {
+            "schema_version": 1, "encoding": "sparse_section_palette",
+            "unknown_is_air": False, "sample_tick": sample, "palette": [state],
+            "sections": [], "known_cells": 0, "bulk_cells": 0,
+            "dense_sections": [], "uniform_sections": [], "encoding_ms": 0.1,
+        }
+        if encoding == "sparse":
+            terrain["sections"] = [
+                {"section": [0, 0, 0], "cells": [[512, 0, captured]]}
+            ]
+            terrain["known_cells"] = 1
+        else:
+            entry = {"section": [0, 0, 0], "tick": captured}
+            entry.update(
+                {"state": 0} if encoding == "uniform" else {"states": [0] * 4096}
+            )
+            terrain[f"{encoding}_sections"] = [entry]
+            terrain["bulk_cells"] = 4096
+        return expand_terrain({
+            "tick": sample + 3, "sensor_profile": "awareness-v1", "body": {},
+            "awareness": {"config": awareness.payload(), "revision": "r",
+                          "coverage": {"sample_tick": sample}},
+            "terrain_sections": terrain,
+        })
+
+    try:
+        monkeypatch.setattr(cb, "policy_state", lambda _: observation(102, 105))
+        b.observe()
+        assert b.world(2, 0, 0) == "minecraft:dirt"
+        monkeypatch.setattr(cb, "policy_state", lambda _: observation(106, 106))
+        b.observe()
+        assert b.world(2, 0, 0) == "minecraft:air"
+    finally:
+        memory.close()
 
 
 def test_stances_exclude_avoided_cells_and_are_reached_by_interacts():

@@ -413,7 +413,7 @@ class _Exec:
         return Result(False, "no_free_spot"), None
 
     # --- tasks ----------------------------------------------------------
-    def gather(self, t) -> Result:
+    def gather(self, t, *, near: Pos | None = None, radius: float = IDLE_RADIUS) -> Result:
         body = self.body
         target = body.inventory().get(t.item, 0) + max(1, t.item_count)
         broken, skip, digs = 0, set(), 0
@@ -429,7 +429,9 @@ class _Exec:
             known = [
                 p
                 for p in body.find_blocks(t.block)
-                if p not in skip and _sealed(body, p)
+                if p not in skip
+                and (near is None or _dist(p, near) <= radius)
+                and _sealed(body, p)
             ]
             if (
                 underground
@@ -452,7 +454,9 @@ class _Exec:
                 if not self.explore(
                     lambda: bool(set(body.find_blocks(t.block)) - skip)
                 ):
-                    return Result(broken > 0, None if broken else "not_found")
+                    return Result(
+                        broken > 0, None if broken else "not_found", {"broken": broken}
+                    )
                 continue
             # Several nearest per scan: a scan of a big map costs seconds, and most
             # near candidates (cliff faces, ravine walls) have no stance.
@@ -473,7 +477,7 @@ class _Exec:
                     skip.update(p for p in known if _dist(p, pos) <= PATCH)
                 if result.reason in ("wrong_tool", "missing_tool"):
                     return result
-        return Result(broken > 0, None if broken else "nothing_mined")
+        return Result(broken > 0, None if broken else "nothing_mined", {"broken": broken})
 
     def craft(self, t) -> Result:
         table = None
@@ -511,7 +515,6 @@ class _Exec:
         while self.idle_work and slices < MAX_IDLE_SLICES:
             slices += 1
             if not self.idle_work():
-                self.idle_work = None
                 break
             # back to the furnace only when the batch can be done, not every few
             # slices: that walk was the bot leaving a half-cleared tree
@@ -730,16 +733,26 @@ def run_gather(
             ):
                 continue
             cap, ex.cap = ex.cap, 0  # ponytail: no ring walk or dig while waiting
+            before_count = body.inventory().get(task.item, 0)
             try:
-                result = ex.gather(task)
+                result = ex.gather(task, near=furnace, radius=IDLE_RADIUS)
             finally:
                 ex.cap = cap
-            if ahead and task is ahead[0]:
-                tasks.pop(0)  # the re-plan after the smelt counts it
+            if result.ok and ahead and task is ahead[0]:
+                broken = result.data["broken"]
+                gained = max(0, body.inventory().get(task.item, 0) - before_count)
+                if broken >= task.count or gained >= max(1, task.item_count):
+                    tasks.pop(0)
+                else:
+                    tasks[0] = replace(
+                        task,
+                        count=task.count - broken,
+                        item_count=max(1, task.item_count - gained),
+                        margin=min(task.margin, task.count - broken),
+                    )
                 return True
             if result.ok:
                 return True
-            spares.remove(task)  # no stance or tool here: do not retry it
         before = dict(body.inventory())
         ex.collect(None, furnace)
         return body.inventory() != before

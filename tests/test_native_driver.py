@@ -874,3 +874,40 @@ def test_blocking_entities_ignores_items_and_far_mobs():
     }
     found = native_driver.blocking_entities(obs, (0, 1, 0), (1, 1, 0))
     assert found == [SHEEP]
+
+
+def test_bystander_beside_step_is_not_cleared(monkeypatch):
+    bystander = {**SHEEP, "position": [1.5, 1, 1.4]}
+    killed = []
+    rows = _no_progress_rows([bystander], [5])
+    _, notes, _ = _drive_no_progress(monkeypatch, rows, clear_mob=killed.append)
+    assert notes[0]["decision"] == "ban"
+    assert not killed
+
+
+def test_mixed_blockers_do_not_clear_animal(monkeypatch):
+    villager = {**SHEEP, "uuid": "v1", "type": "minecraft:villager"}
+    killed = []
+    rows = _no_progress_rows([SHEEP, villager], [5, 10, 15])
+    _, notes, _ = _drive_no_progress(monkeypatch, rows, clear_mob=killed.append)
+    assert [n["decision"] for n in notes] == ["retry", "retry", "ban"]
+    assert not killed
+
+
+@pytest.mark.parametrize("feet_y", [1, -0.2])
+def test_named_cow_near_path_guards_against_killing_sheep(monkeypatch, feet_y):
+    cow = {"uuid": "c1", "type": "minecraft:cow", "named": True,
+           "position": [1.5, feet_y, 1.2]}
+    killed = []
+    rows = _no_progress_rows([SHEEP, cow], [5, 10, 15])
+    _, notes, _ = _drive_no_progress(monkeypatch, rows, clear_mob=killed.append)
+    assert [n["decision"] for n in notes] == ["retry", "retry", "ban"]
+    assert not killed
+
+
+def test_blocker_uses_reported_bounding_box():
+    entity = {**SHEEP, "position": [1.5, 1, 1.4],
+              "bounding_box": [1.1, 1, 0.7, 1.9, 2, 2.1]}
+    assert native_driver.blocking_entities(
+        {"visible_entities": [entity]}, (0, 1, 0), (1, 1, 0)
+    ) == [entity]
