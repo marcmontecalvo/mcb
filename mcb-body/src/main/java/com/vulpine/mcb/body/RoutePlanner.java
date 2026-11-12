@@ -373,7 +373,7 @@ final class RoutePlanner {
         boolean onWater = swim && (surfaceNode(node) || (plannerSwim && flowingSurface(node)));
         var below = at(x, y - 1, z);
         boolean gapRoom = maxGap > 0 && integral(y) && below != null && dry(below) && fullCube(below);
-        boolean editReady = edits != null && edits.stepEdits && integral(y) && blockStandable(node);
+        boolean editReady = edits != null && edits.stepEdits && integral(y) && editStance(node);
         for (var d : DIRECTIONS) {
             if (swim) {
                 var target = new Node(x + d[0], y, z + d[1]);
@@ -514,6 +514,15 @@ final class RoutePlanner {
         if (!integral(n.y)) return false;
         var floor = at(n.x, n.y - 1, n.z);
         return floor != null && dry(floor) && fullCube(floor) && empty(at(n.x, n.y, n.z)) && empty(at(n.x, n.y + 1, n.z));
+    }
+    /** collision_geometry.edit_stance: a dry block stance, or one wading in one-deep
+     * water on a full block with the head in air. From wet feet the native planner
+     * offered no edit edge and the body stood in a dug pocket (iron run
+     * 20261112T205117541135Z). */
+    private boolean editStance(Node n) {
+        if (blockStandable(n)) return true;
+        var floor = at(n.x, n.y - 1, n.z);
+        return floor != null && fullCube(floor) && wadeable(at(n.x, n.y, n.z)) && empty(at(n.x, n.y + 1, n.z));
     }
     private boolean climbOnly(Node n) { return climbable(at(n.x, n.y, n.z)) && !blockStandable(n); }
     private boolean openOrClimb(Map<String, Object> c) { return empty(c) || climbable(c); }

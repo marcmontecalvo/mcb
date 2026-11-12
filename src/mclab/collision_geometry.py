@@ -8,7 +8,8 @@ Legacy full-cube predicates and qualification controllers remain unchanged.
 import math
 
 from mclab.grid_cache import HAZARDS
-from mclab.navigation import full_cube
+from mclab.navigation import empty, full_cube
+from mclab.navigation import standable as block_standable
 
 EPS = 1e-7
 BODY_RADIUS = 0.3
@@ -29,6 +30,21 @@ def wadeable(cell):
         and cell.get("fluid") == "minecraft:water"
         and cell.get("collision_boxes") == []
         and cell.get("block") not in HAZARDS
+    )
+
+
+def edit_stance(cells, node):
+    """A stance a terrain edit may start from: a dry block stance, or one wading in
+    one-deep water on a full block with the head in air. The body dug itself into a
+    wet pocket and, with no edit allowed from wet feet, had no move out of it for
+    130 s (iron run 20261112T205117541135Z)."""
+    if block_standable(cells, node):
+        return True
+    x, y, z = node
+    return (
+        full_cube(cells.get((x, y - 1, z)))
+        and wadeable(cells.get(node))
+        and empty(cells.get((x, y + 1, z)))
     )
 
 

@@ -3,6 +3,7 @@
 import math
 from dataclasses import dataclass
 
+from mclab.collision_geometry import edit_stance
 from mclab.grid_cache import EMPTY, FALLING, FALLS, FULL, KNOWN, WET, classify
 from mclab.navigation import empty, full_cube, rotation, standable
 from mclab.terrain_placement import placement_target
@@ -440,7 +441,7 @@ def prepare_step(
     tx, ty, tz = target
     if abs(tx - x) + abs(tz - z) != 1 or ty - y not in (0, 1):
         return None
-    if not standable(cells, source):
+    if not edit_stance(cells, source):
         return None
     support = (tx, ty - 1, tz)
     protected = set(protected) | set(policy.protected_positions)
@@ -692,7 +693,7 @@ class StepExecutor:
             self.placement_item = self.initial_item_total = self.initial_pickups = None
             self.inventory_debit_seen = False
             return {}
-        if not standable(fresh, self.plan.source):
+        if not edit_stance(fresh, self.plan.source):
             return self.fail("terrain stance is no longer safe")
         if kind == "place" and self.issued and self.inventory_debit_seen:
             # The paid-for block can precede its next terrain delta. Replanning

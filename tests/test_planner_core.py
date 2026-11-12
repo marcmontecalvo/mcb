@@ -556,3 +556,58 @@ def test_interaction_goal_is_not_reached_through_a_wall_or_unknown_space():
     assert interacts(open_cells, (4, 1, 0), (6, 1, 0), 4.5)
     del open_cells[(5, 2, 0)]  # an unknown cell on the line of sight blocks it
     assert not interacts(open_cells, (4, 1, 0), (6, 1, 0), 4.5)
+
+
+def _wading_pocket():
+    # Stone to y=1 with one water cell let into it at (0, 2, 0); a gallery of air at
+    # y=3..4 and a dirt roof at y=5. A step up out of the water needs four clear
+    # cells over the feet, and the roof is the fourth.
+    def solid(x, y, z):
+        if y <= 2:
+            return "minecraft:stone"
+        return "minecraft:dirt" if y == 5 else None
+
+    cells = world(range(-2, 5), range(-2, 3), solid, 8)
+    cells[0, 2, 0] = {
+        "position": [0, 2, 0],
+        "block": "minecraft:water",
+        "fluid": "minecraft:water",
+        "properties": {"level": "0"},
+        "collision_boxes": [],
+    }
+    return cells
+
+
+def test_a_body_wading_under_a_low_roof_cuts_its_way_out():
+    # Iron run 20261112T205117541135Z: the body stepped down into one-deep water in
+    # a pocket it had dug. Wet feet had no edit edges, so every plan from there was
+    # unreachable after two nodes and it stood still for 130 s.
+    from mclab.companion_body import NATURAL_MOVEMENT
+
+    cells = _wading_pocket()
+    # Premise only: with planner_edits off (the default) no stance offers an edit
+    # edge, so this search is unreachable before and after the fix alike. The
+    # stance gating itself is pinned by the second test's wet-head refusal.
+    blocked = search(
+        cells, (0, 2, 0), (3, 3, 0), TerrainPolicy(), movement_policy=NATURAL_MOVEMENT
+    )
+    assert blocked.status == "unreachable"
+    policy = TerrainPolicy(planner_tick_costs=True, planner_edits=True)
+    result = search(
+        cells, (0, 2, 0), (3, 3, 0), policy, movement_policy=NATURAL_MOVEMENT
+    )
+    assert result.status == "reached"
+    first = result.steps[0]
+    assert first.source == (0, 2, 0) and first.breaks and not first.places
+    assert all(cells[p]["block"] == "minecraft:dirt" for p in first.breaks)
+
+
+def test_a_step_is_prepared_from_a_wading_stance_but_not_a_swimming_one():
+    from mclab.terrain_steps import prepare_step
+
+    cells = _wading_pocket()
+    policy = TerrainPolicy(planner_tick_costs=True, planner_edits=True)
+    step = prepare_step(cells, (0, 2, 0), (1, 3, 0), policy, list(KIT))
+    assert step is not None and set(step.breaks) == {(0, 5, 0), (1, 5, 0)}
+    cells[0, 3, 0] = dict(cells[0, 2, 0], position=[0, 3, 0])  # head under water
+    assert prepare_step(cells, (0, 2, 0), (1, 3, 0), policy, list(KIT)) is None

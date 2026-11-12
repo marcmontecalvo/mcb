@@ -466,8 +466,12 @@ class RouteSearch:
         gap_room = bool(
             self._gap_xz and y == math.floor(y) and flags((x, y - 1, z)) & FULL
         )
-        # prepare_step needs a full-block stance on a standable source.
-        edit_ready = self.edits and y == math.floor(y) and standable(cells, node)
+        # prepare_step needs a full-block stance on a dry or wading source.
+        edit_ready = (
+            self.edits
+            and y == math.floor(y)
+            and collision_geometry.edit_stance(cells, node)
+        )
         for dx, dz in DIRECTIONS:
             reached = set()
             if self.movement_policy.allow_swim:
