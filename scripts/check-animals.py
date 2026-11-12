@@ -196,7 +196,11 @@ def main() -> int:
                 kit(bridge, clear=[16, 3, 16])
             finally:
                 try:
-                    bridge.send("despawn")
+                    request = bridge.send("despawn")
+                    bridge.acknowledge(request, "received", timeout=5)
+                    # Keep the confirmed end and final observations in the recording.
+                    bridge.wait(lambda state: state["state"] == "idle", timeout=5)
+                    bridge.drain()
                 finally:
                     bridge.close()
     return finish(folder, rows, "check-animals")
