@@ -511,6 +511,28 @@ cases).
     `results/hills/20261101T014706699506Z`, 10/10 each with every proof (mod `a94dcdef`). New
     ladder fixture in `DevelopmentHill`. The low-air proof also accepts a native
     surface swim (air never below the injected 90, refilled to at least 200).
+17. **Bubble columns (asked Nov 12, not started).** Soul sand under a column of
+    water sources pushes a body up; a magma block pulls it down, drags a body at
+    the surface under, and burns a body standing on it. A body inside either
+    column regains air. Today the planner prices flowing water but models no push
+    (`COMPANION_ABILITIES.md` FLD-04) and nothing reads `minecraft:bubble_column`
+    or its `drag` state. Needed: the sensor reports the column and its direction;
+    the planner refuses or heavily prices a downward column and its surface cell,
+    may use an upward column as a lift, and counts no air loss inside one; the
+    mod's surfacing reflex leaves a downward column sideways, since holding jump
+    inside one does not surface the body. Fixture: one of each column in the
+    wading check.
+18. **Chatting with the bot (asked Nov 12, not started).** Talk to the companion
+    in game with `/tell` or `/w` and get an answer back the same way. The case to
+    build first: "you appear to be stalled, what is going on?" The model is given
+    the body's current state (goal, navigator mode, last route end reason, the
+    idle detector's reading, the last stall or error events, position, inventory)
+    and answers in a sentence or two. Needed: the mod forwards whispers addressed
+    to the body and sends replies as the body; a Python handler that builds the
+    state summary and calls the configured model backend (`backends.py`); chat
+    must not block the control loop. Later: instructions by chat (the build plan's
+    B6 "build X here"), then voice. No in-game chat exists on `main` or on
+    `companion-follow` yet.
 
 Housekeeping (Nov 1): `main` is committed and pushed after each item. The `-fast`
 awareness profiles stay: cohorts 15d–15f name them, and the ledger keeps every
