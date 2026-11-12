@@ -6,6 +6,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.item.FallingBlockEntity;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -104,6 +105,7 @@ final class StepMotor {
     private int settleUntil = -1;
     private int index, started = -1, issueTick = -1, finishedTick = -1;
     private boolean issued, launched;
+    private int blind;
     private String state = "following", reason = "", placedItem = "";
     private final Set<BlockPos> broken = new HashSet<>();
     private final Set<BlockPos> issuedBreaks = new HashSet<>();
@@ -247,6 +249,18 @@ final class StepMotor {
     private static boolean fallingNear(ServerPlayer p,BlockPos pos) {
         return !p.level().getEntitiesOfClass(FallingBlockEntity.class,new AABB(pos).inflate(.5,0,.5).expandTowards(0,16,0)).isEmpty();
     }
+    /** Where to look to cut a cell: its centre if in view, else the first face in view (Baritone
+     *  RotationUtils.reachable). Live run 20261112T181731902927Z: a tunnel ceiling hid the centre of
+     *  the top descend cut and the step stood aligned for 116 ticks without mining. */
+    static Vec3 aim(BlockPos cell,java.util.function.Predicate<Vec3> seen) {
+        Vec3 centre=Vec3.atCenterOf(cell);
+        if(seen.test(centre)) return centre;
+        for(var d:net.minecraft.core.Direction.values()) {
+            Vec3 face=centre.add(d.getStepX()*.45,d.getStepY()*.45,d.getStepZ()*.45);
+            if(seen.test(face)) return face;
+        }
+        return centre;
+    }
     private static double wrap(double x) { return ((x+180)%360+360)%360-180; }
 
     BodyRuntime.Controls tick(ServerPlayer p,int tick,RouteGeometry.Reader reader) {
@@ -324,7 +338,16 @@ final class StepMotor {
                     } else settleWatch.add(op.point);
                 }
             }
-            selected=slot(p,TOOLS.get(cell.get("block"))); aim=Vec3.atCenterOf(op.point);
+            selected=slot(p,TOOLS.get(cell.get("block")));
+            // Rays end inside the cut cell, so they cross only the columns between eye and cell.
+            Vec3 from=p.getEyePosition(); BlockPos cut=op.point;
+            for(int cx=Math.min((int)Math.floor(from.x),cut.getX())>>4;cx<=Math.max((int)Math.floor(from.x),cut.getX())>>4;cx++)
+                for(int cz=Math.min((int)Math.floor(from.z),cut.getZ())>>4;cz<=Math.max((int)Math.floor(from.z),cut.getZ())>>4;cz++)
+                    if(p.level().getChunkSource().getChunkNow(cx,cz)==null) return stopInput(tick,"native_ray_chunk_unavailable");
+            aim=aim(cut,v->{
+                var seen=p.level().clip(new ClipContext(from,v,ClipContext.Block.OUTLINE,ClipContext.Fluid.NONE,p));
+                return seen.getType()==HitResult.Type.BLOCK && seen.getBlockPos().equals(cut);
+            });
         } else {
             if(!empty(cell)) return stopInput(tick,"native_placement_not_empty");
             selected=-1; int stock=0;
@@ -417,6 +440,9 @@ final class StepMotor {
             if(p.getY()<source.getY()+1 || p.getDeltaMovement().y<.01) hit=false;
         }
         boolean mine=!op.place && aligned && hit;
+        // Looking straight at the cut and something else is in the way: fail the edge now, not at
+        // the 160-tick deadline (the five-second standstill rule).
+        if(!op.place && aligned && !mine) { if(++blind>30) return stopInput(tick,"native_edit_occluded"); } else blind=0;
         if(mine && !plant) issuedBreaks.add(miningPoint);
         boolean use=op.place && aligned && hit;
         if((mine && !plant) || use) { issued=true; issueTick=tick; }

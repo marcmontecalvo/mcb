@@ -59,6 +59,18 @@ public final class StepMotorTest {
         bad=descend.deepCopy(); bad.getAsJsonObject("plan").add("target",JsonParser.parseString("[1,2,0]")); reject(bad);
         bad=descend.deepCopy(); bad.getAsJsonObject("plan").add("target",JsonParser.parseString("[1,0,0]")); reject(bad);
         bad=descend.deepCopy(); bad.getAsJsonObject("plan").add("places",JsonParser.parseString("[[1,0,0]]")); reject(bad);
+        // Live run 20261112T181731902927Z: a descend cut from a two-high tunnel. Aimed at its centre the
+        // top cut (137,66,-45) is hidden behind the tunnel ceiling (137,66,-46); its underside is in view.
+        var eye=new net.minecraft.world.phys.Vec3(137.5,65.62,-45.85);
+        var top=new net.minecraft.core.BlockPos(137,66,-45);
+        var centre=net.minecraft.world.phys.Vec3.atCenterOf(top);
+        java.util.function.Predicate<net.minecraft.world.phys.Vec3> underCeiling=
+            v->eye.z+(v.z-eye.z)*(66-eye.y)/(v.y-eye.y)>=-45;
+        if(underCeiling.test(centre)) throw new AssertionError("fixture: the centre is hidden"); checks++;
+        var aim=StepMotor.aim(top,underCeiling);
+        if(!underCeiling.test(aim) || aim.y>66.1) throw new AssertionError("a cut hidden at its centre is aimed at a face in view"); checks++;
+        if(!StepMotor.aim(top,v->true).equals(centre)) throw new AssertionError("a centre in view stays the aim"); checks++;
+        if(!StepMotor.aim(top,v->false).equals(centre)) throw new AssertionError("with nothing in view the centre stays the aim"); checks++;
         System.out.println("StepMotor: "+checks+" admission checks passed");
     }
 }
