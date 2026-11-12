@@ -13,7 +13,8 @@ shorter than --min-seconds. Evidence (wall time):
   place  : place_block_done, or growth of step_progress.placed_positions; +-0.5 s each (chained if < 1 s apart)
   craft  : craft/furnace request received until its *_done / *_failed (same request_sequence)
 Thinking, planning, map uploads, rejected routes, retries are never evidence.
-Samples with a tick gap > 5 and wall gap > 1 s are "unknown" and cut windows.
+A hole between samples shorter than --min-seconds is bridged (the body counts as
+standing still across it); a hole that long or longer is "unknown" and cuts windows.
 Exit code 1 if any VIOLATION.
 """
 
@@ -269,14 +270,18 @@ def load(path: Path) -> dict:
 def find_windows(samples, min_s, move):
     """Find non-contained anchored windows, flagging gaps and bounded work."""
     out, n = [], len(samples)
+    # A hole shorter than the limit is bridged: the body is taken as standing still
+    # across it, so it can lengthen a standstill but not hide one. Only a hole as
+    # long as the limit itself cannot be judged.
+    hole = max(min_s, SPARSE_WALL)
     unknown = [(a[1], b[1], a[0], b[0]) for a, b in zip(samples, samples[1:], strict=False)
-               if b[1] - a[1] > SPARSE_WALL]
+               if b[1] - a[1] >= hole]
     checks = 0
     for i in range(n):
         j, p0 = i, samples[i][2]
         while j + 1 < n:
             a, b = samples[j], samples[j + 1]
-            if b[1] - a[1] > SPARSE_WALL:
+            if b[1] - a[1] >= hole:
                 break
             checks += 1
             if checks > 2_000_000:

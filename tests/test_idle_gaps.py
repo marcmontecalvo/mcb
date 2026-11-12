@@ -60,10 +60,10 @@ def test_observations_alone_show_idle(tmp_path):
 def test_mixed_samples_deduplicate_and_keep_sparse_gaps(tmp_path):
     f = tmp_path / "events.jsonl"
     events = [observation(0, 2), sample(0, 0), observation(1, 0),
-              observation(50, 0), sample(50, 1)]
+              observation(200, 0), sample(200, 1)]  # a 10 s hole: cannot be judged
     f.write_text("\n".join(json.dumps(e) for e in events), encoding="utf8")
     body = ig.load(f)[(None, None, "b", 0)]
-    assert [s[0] for s in body["samples"]] == [0, 0, 1, 50, 50]
+    assert [s[0] for s in body["samples"]] == [0, 0, 1, 200, 200]
     meta = next(r for r in ig.analyse(f, 5, 0.5) if r["kind"] == "META")
     assert len(meta["unknown"]) == 1
 
@@ -270,3 +270,24 @@ def test_prespawn_and_after_stop_ignored(tmp_path):
         + still(300, 600, 50.0)
     )
     assert run(tmp_path, evs) == []
+
+
+def test_a_short_sample_gap_does_not_make_the_run_inconclusive(tmp_path):
+    # wading r10 (20261112T180101456799Z): one 1.2 s hole between two samples made
+    # a 5 s run UNSURE. A hole shorter than the limit cannot hide a standstill of
+    # the limit on its own: the body is taken as standing still across it.
+    moving = [sample(t, t * 0.2) for t in range(0, 40)]
+    after = [sample(t, t * 0.2) for t in range(70, 110)]  # 1.5 s hole, body moved
+    f = tmp_path / "events.jsonl"
+    events = [ev("course_started", 0)] + moving + after
+    f.write_text("\n".join(json.dumps(e) for e in events), encoding="utf8")
+    rows = ig.analyse(f, 5.0, 0.5)
+    meta = next(r for r in rows if r["kind"] == "META")
+    assert meta["unknown"] == [] and "sparse sample gaps" not in meta["incomplete"]
+    assert [r for r in rows if r["kind"] == "VIOLATION"] == []
+
+
+def test_a_standstill_across_a_short_sample_gap_is_still_a_violation(tmp_path):
+    events = [ev("course_started", 0)] + still(0, 60) + still(90, 150)  # 7.5 s
+    r = run(tmp_path, events)
+    assert [w["kind"] for w in r] == ["VIOLATION"] and r[0]["unjustified_s"] > 7
