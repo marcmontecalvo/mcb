@@ -217,3 +217,36 @@ def test_planning_view_keeps_its_revision_when_live_cells_change(tmp_path):
         assert memory.revision > revision
     finally:
         memory.close()
+
+
+def test_place_writes_and_reads_do_not_wait_on_a_long_terrain_flush(tmp_path):
+    # Run 20261112T033833606944Z: one terrain flush held the write lock ~4 s and
+    # the place graph waited on it at spawn; mid-run that is a standstill.
+    import time
+
+    from mclab import spatial_archive
+    from mclab.place_graph import Place, PlaceGraph
+
+    archive = MapArchive(tmp_path / "map.db", identity())
+    graph = PlaceGraph(archive)
+    started = threading.Event()
+
+    def slow_merge(old, rows):
+        started.set()
+        time.sleep(0.01)
+        return merge(old, rows)
+
+    merge = spatial_archive.merge_rows
+    deltas = [((x, 0, 0), [(0, {"block": "minecraft:stone"}, {})]) for x in range(150)]
+    spatial_archive.merge_rows = slow_merge
+    try:
+        flush = threading.Thread(target=archive.write_deltas, args=(deltas,))
+        flush.start()
+        assert started.wait(5)
+        t0 = time.monotonic()
+        graph.put_place(Place("p", "chest", (1, 2, 3), "test", 1, kind="chest"))
+        assert graph.named("chest")
+        assert time.monotonic() - t0 < 0.3  # the flush alone is >= 1.5 s
+        flush.join()
+    finally:
+        spatial_archive.merge_rows = merge
