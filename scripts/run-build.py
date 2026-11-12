@@ -362,7 +362,7 @@ def main() -> int:
                     {"case": "staged", "pass": True, "detail": args.resume.name}
                 )
                 return finish(folder, rows, "run-build")
-            recorder = ck.Recorder(
+            checkpoint = ck.Recorder(
                 folder,
                 template,
                 body,
@@ -375,9 +375,8 @@ def main() -> int:
                 },
                 every=5,
             )
-            checkpoint = recorder
 
-            def recorder(report, final):  # noqa: F811
+            def recorder(report, final):
                 checkpoint(report, final)
                 site = report.site or {}
                 write_progress(
