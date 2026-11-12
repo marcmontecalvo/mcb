@@ -10,6 +10,7 @@ fixture) onto body state.
 import http.client
 import io
 import json
+import threading
 import time
 import urllib.error
 from pathlib import Path
@@ -17,6 +18,7 @@ from uuid import uuid4
 
 from mclab.paths import ROOT, config, read_json
 from mclab.server import STATE
+from mclab.silence_watch import SilenceWatchdog
 
 # Ops served by mcb-body. Everything else goes to mcb-lab.
 BODY_OPS = frozenset(
@@ -98,8 +100,14 @@ class Bridge:
         self.budget = read_json(ROOT / "config/qualification.json")["request_budget"]
         output.parent.mkdir(parents=True, exist_ok=True)
         self.stream = output.open("x", encoding="utf-8")
+        self._record_lock = threading.Lock()  # the silence watchdog writes too
+        self.silence = SilenceWatchdog(self.record)
 
     def record(self, kind: str, payload: dict):
+        with self._record_lock:
+            self._write_record(kind, payload)
+
+    def _write_record(self, kind: str, payload: dict):
         self.record_sequence += 1
         value = {
             "schema_version": 1,
@@ -326,6 +334,7 @@ class Bridge:
         if self.submitted >= self.budget:
             raise RuntimeError("Qualification request budget exhausted")
         self.submitted += 1
+        self.silence.touch()
         self.record("request", payload)
         if lab is None:
             lab = not motor and payload["op"] not in BODY_OPS
@@ -417,6 +426,7 @@ class Bridge:
             if coordinator is not None:
                 coordinator.close()
         finally:
+            self.silence.close()
             self._connection.close()
             self._lab_connection.close()
             self.stream.close()

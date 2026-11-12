@@ -1384,6 +1384,12 @@ def start_session(
 def end_session(bridge, memory) -> None:
     # Stop the body first: the archive flush can take seconds and the bot must not
     # stand in the world waiting for it (r5 run 20261112T041306068037Z, 16.5 s).
+    started = time.perf_counter()
     request = bridge.send("natural_stop")
     bridge.acknowledge(request, "received")
+    stopped = time.perf_counter()
     memory.close()
+    print(
+        f"end_session: stop acknowledged {stopped - started:.2f}s, "
+        f"memory.close {time.perf_counter() - stopped:.2f}s"
+    )
