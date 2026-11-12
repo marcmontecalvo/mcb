@@ -218,6 +218,8 @@ def main() -> int:
         "--seed", type=int, help="run in a fresh copy of this natural seed's world"
     )
     args = parser.parse_args()
+    # the mode decides the job: a run without --supply has no scaffolding
+    print(f"run-build: arguments {' '.join(sys.argv[1:])}", flush=True)
     if args.margin < 0:
         parser.error("--margin must be >= 0")
 
@@ -410,6 +412,7 @@ def main() -> int:
             out = {
                 "policy": body.policy_snapshot(),
                 "diagnostic_preview": bool(args.preview),
+                "argv": sys.argv[1:],
                 "supplied": bool(args.supply),
                 "coal_form": args.coal if args.supply else None,
                 "job_stop": job.stop,
