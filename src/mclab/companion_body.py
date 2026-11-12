@@ -1333,6 +1333,14 @@ def start_session(
         session_archive(folder, awareness, bridge.episode_id, world_memory),
         bridge.episode_id,
     )
+    # same db as the archive: per-world when world memory is on, else per-run.
+    # Written before the first observe: that queues the first terrain sweep, whose
+    # write transaction held the db lock 4.5 s while the bot stood at spawn
+    # (run 20261112T033833606944Z). Home is the requested feet cell (the mod spawns
+    # the body there; the standable check below verifies the observed one).
+    places = PlaceGraph(memory.archive)
+    if places.named("home") is None:
+        places.add("home", tuple(start), kind="home", provenance="spawn")
     body = CompanionBody(
         bridge,
         memory,
@@ -1347,10 +1355,7 @@ def start_session(
         # search expanded nothing, and the bot cut logs whose drops it never reached
         end_session(bridge, memory)
         raise RuntimeError(f"start {list(start)} is not a standable feet cell")
-    # same db as the archive: per-world when world memory is on, else per-run
-    body.places = PlaceGraph(memory.archive)
-    if body.places.named("home") is None:
-        body.places.add("home", body.position(), kind="home", provenance="spawn")
+    body.places = places
     return body, memory
 
 
