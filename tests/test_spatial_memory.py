@@ -250,3 +250,28 @@ def test_place_writes_and_reads_do_not_wait_on_a_long_terrain_flush(tmp_path):
         flush.join()
     finally:
         spatial_archive.merge_rows = merge
+
+
+def test_a_terrain_flush_does_not_give_way_to_readers(tmp_path):
+    # r5 run 20261112T041306068037Z: the writer paused 0.2 s per slice whenever a
+    # recall had a connection open, and end_session waited 16.5 s for the drain.
+    import time
+
+    from mclab import spatial_archive
+
+    archive = MapArchive(tmp_path / "map.db", identity())
+
+    def slow_merge(old, rows):
+        time.sleep(0.03)  # past one write slice: every section commits
+        return merge(old, rows)
+
+    merge = spatial_archive.merge_rows
+    deltas = [((x, 0, 0), [(0, {"block": "minecraft:stone"}, {})]) for x in range(20)]
+    spatial_archive.merge_rows = slow_merge
+    try:
+        with archive.connect():  # a reader, open for the whole flush
+            t0 = time.monotonic()
+            archive.write_deltas(deltas)
+            assert time.monotonic() - t0 < 2  # 20 yields of 0.2 s would add 4 s
+    finally:
+        spatial_archive.merge_rows = merge

@@ -36,7 +36,7 @@ class MapArchive:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.identity = identity
-        self._others = 0  # open connect()s the terrain flush yields to
+        self._others = 0  # waiting writers the terrain flush yields to
         self._counting = threading.Lock()
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -66,7 +66,12 @@ class MapArchive:
             db.execute("PRAGMA user_version=2")
 
     @contextmanager
-    def connect(self):
+    def connect(self, writing=False):
+        """`writing=True` makes a terrain flush give way; WAL readers never wait."""
+        if not writing:
+            with self._connect() as db:
+                yield db
+            return
         with self._counting:
             self._others += 1
         try:
@@ -131,7 +136,7 @@ class MapArchive:
                     db.commit()
                     began = None
                     # sqlite's busy handler polls up to 100 ms apart and would miss
-                    # this gap: hold off while another caller has a connection.
+                    # this gap: hold off while another writer has a connection.
                     # Bounded, so a caller that keeps a connection open cannot
                     # stop terrain being saved.
                     wait_until = time.monotonic() + 0.2

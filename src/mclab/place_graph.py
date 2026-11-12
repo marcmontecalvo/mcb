@@ -74,7 +74,7 @@ class Connection:
 class PlaceGraph:
     def __init__(self, archive):
         self.archive = archive
-        with archive.connect() as db:
+        with archive.connect(writing=True) as db:
             db.execute("""
                 CREATE TABLE IF NOT EXISTS places (
                     namespace TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL,
@@ -90,7 +90,7 @@ class PlaceGraph:
     def put_place(self, place):
         if not isinstance(place, Place):
             raise ValueError("Expected Place")
-        with self.archive.connect() as db:
+        with self.archive.connect(writing=True) as db:
             db.execute(
                 "INSERT INTO places VALUES(?,?,?) ON CONFLICT(namespace,id) "
                 "DO UPDATE SET payload=excluded.payload",
@@ -152,7 +152,7 @@ class PlaceGraph:
             raise KeyError(name)
         renamed = replace(place, name=new_name)
         # payload only: put_place would drop the walked connections
-        with self.archive.connect() as db:
+        with self.archive.connect(writing=True) as db:
             db.execute(
                 "UPDATE places SET payload=? WHERE namespace=? AND id=?",
                 (json.dumps(asdict(renamed)), self.archive.identity.key, place.id),
@@ -164,7 +164,7 @@ class PlaceGraph:
         if place is None:
             return
         key = self.archive.identity.key
-        with self.archive.connect() as db:
+        with self.archive.connect(writing=True) as db:
             db.execute("DELETE FROM places WHERE namespace=? AND id=?", (key, place.id))
             db.execute(
                 "DELETE FROM connections WHERE namespace=? AND (source=? OR target=?)",
@@ -174,7 +174,7 @@ class PlaceGraph:
     def put_connection(self, connection):
         if not isinstance(connection, Connection):
             raise ValueError("Expected Connection")
-        with self.archive.connect() as db:
+        with self.archive.connect(writing=True) as db:
             db.execute("BEGIN IMMEDIATE")
             endpoints = db.execute(
                 "SELECT id FROM places WHERE namespace=? AND id IN (?,?)",
