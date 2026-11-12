@@ -38,6 +38,8 @@ PARSE = {
     "native_step_confirmed",
     "route_prefetch_started",
     "route_prefetch_adopted",
+    "python_silence",
+    "python_silence_end",
 }
 NOISE = {
     "route_progress",
@@ -101,6 +103,8 @@ def short(d: dict) -> str:
         "target",
         "source",
         "error",
+        "duration_s",
+        "stack",
     )
     return " ".join(f"{k}={json.dumps(d[k])[:60]}" for k in keys if k in d)[:150]
 

@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from functools import wraps
@@ -64,7 +65,8 @@ def _prune() -> None:
     try:
         from mclab import prune
 
-        print("prune:", prune.sweep())
+        started = time.perf_counter()
+        print("prune:", prune.sweep(), f"({time.perf_counter() - started:.2f}s)")
     except Exception as error:  # noqa: BLE001 - housekeeping only
         print("prune skipped:", error)
 

@@ -108,7 +108,9 @@ class RecordedBridge(Bridge):
     def record(self, kind, payload):
         if self.writer_error is not None:
             raise RuntimeError("Episode recording failed") from self.writer_error
-        self.record_sequence += 1
+        with self._record_lock:  # the silence watchdog records too
+            self.record_sequence += 1
+            sequence = self.record_sequence
         # Transport payloads are immutable after enqueue. Assign identities and
         # capture time here; the writer owns its own SQLite connection.
         value = {
@@ -116,7 +118,7 @@ class RecordedBridge(Bridge):
             "run_id": self.run_id,
             "episode_id": self.episode_id,
             "body_id": self.body_id,
-            "sequence": self.record_sequence,
+            "sequence": sequence,
             "monotonic_ns": time.monotonic_ns(),
             "type": kind,
             "payload": payload,
@@ -144,6 +146,7 @@ class RecordedBridge(Bridge):
 
     def close(self):
         failure = None
+        started = time.perf_counter()
         try:
             self.flush_recording()
         except Exception as error:
@@ -156,6 +159,9 @@ class RecordedBridge(Bridge):
             self.writer.join(timeout=10)
         if self.writer.is_alive():
             raise RuntimeError("Recorder writer did not stop; recording invalid")
+        print(
+            f"bridge.close: recorder stopped {time.perf_counter() - started:.2f}s"
+        )
         super().close()
         if failure or self.writer_error:
             raise RuntimeError("Episode recording failed during shutdown") from (
