@@ -30,7 +30,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable, Collection
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import product
 from typing import Protocol
 
@@ -709,26 +709,37 @@ def run_gather(
     targets = dict(targets) if targets is not None else None
     tasks = list(plan_result.tasks)
 
+    spares = [
+        replace(t, count=1, item_count=1, margin=0)
+        for t in plan_result.tasks
+        if type(t).__name__ == "Gather"
+    ]
+
     def _gather_ahead() -> bool:
         """Smelt idle work for a pure gather run: the plan's next Gather task, if
-        it heads the queue (so it cannot need the smelt output) and its block is
-        near the furnace; else pick up drops round the furnace. False: nothing."""
+        it heads the queue (so it cannot need the smelt output), else one spare
+        block of something the plan gathered; only blocks near the furnace. Else
+        pick up drops round the furnace. False: nothing."""
         furnace = state.stations.get("furnace")
         if furnace is None:
             return False
-        if tasks and type(tasks[0]).__name__ == "Gather":
-            near = [
-                p
-                for p in body.find_blocks(tasks[0].block)
-                if _dist(p, furnace) <= IDLE_RADIUS
-            ]
-            if near:
-                cap, ex.cap = ex.cap, 0  # ponytail: no ring walk or dig while waiting
-                try:
-                    ex.gather(tasks.pop(0))  # the re-plan after the smelt counts it
-                finally:
-                    ex.cap = cap
+        ahead = tasks[:1] if tasks and type(tasks[0]).__name__ == "Gather" else []
+        for task in ahead + spares:
+            if not any(
+                _dist(p, furnace) <= IDLE_RADIUS for p in body.find_blocks(task.block)
+            ):
+                continue
+            cap, ex.cap = ex.cap, 0  # ponytail: no ring walk or dig while waiting
+            try:
+                result = ex.gather(task)
+            finally:
+                ex.cap = cap
+            if ahead and task is ahead[0]:
+                tasks.pop(0)  # the re-plan after the smelt counts it
                 return True
+            if result.ok:
+                return True
+            spares.remove(task)  # no stance or tool here: do not retry it
         before = dict(body.inventory())
         ex.collect(None, furnace)
         return body.inventory() != before

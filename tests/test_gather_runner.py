@@ -361,3 +361,25 @@ def test_pure_gather_smelt_mines_the_next_plan_item_while_waiting():
     assert body.inventory()[M + "iron_ingot"] == 1
     assert body.inventory().get(M + "cobblestone", 0) >= 2
     assert report.done == ["Smelt:x"]  # the gather ran inside the smelt's wait
+
+def test_pure_gather_smelt_mines_spares_when_no_plan_item_is_left():
+    # iron run 20261112T045003403293Z: only the pickaxe followed the smelt, so the
+    # bot stood 10 s; it now mines spares of what the plan already gathered
+    from mclab.gather_runner import GatherState
+    from mclab.gather_tasks import Gather, Smelt
+
+    world = trees_and_stone(n_stone=6)
+    world[(0, 0, -3)] = M + "furnace"
+    body = FakeGatherBody(
+        K, world, {M + "raw_iron": 1, M + "coal": 1, M + "wooden_pickaxe": 1}
+    )
+    stone = Gather(M + "stone", 1, "pickaxe", "wood", M + "cobblestone", 1)
+    smelt = Smelt("x", 1, M + "coal", 1, "furnace", M + "iron_ingot", M + "raw_iron")
+    state = GatherState(stations={"furnace": (0, 0, -3)})
+
+    report = run_gather(PlanResult((stone, smelt), (), 0.0), body, K, state=state)
+
+    assert report.stop == "done", report
+    assert body.inventory()[M + "iron_ingot"] == 1
+    assert body.inventory().get(M + "cobblestone", 0) >= 2
+
