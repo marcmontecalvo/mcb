@@ -5,7 +5,7 @@ p = sorted(pathlib.Path("results/companion").glob("*Z"))[-1]
 events_file = p / "events.jsonl"
 places = []
 breaks = []
-with open(events_file, "r", encoding="utf-8", errors="replace") as f:
+with open(events_file, encoding="utf-8", errors="replace") as f:
     for line in f:
         if '"op":"place_block"' in line or '"op": "place_block"' in line:
             try:
@@ -27,4 +27,3 @@ for b in breaks[-10:]:
 for pl_req in places[-15:]:
     pl = pl_req.get("payload", {})
     print(f"  place {pl.get('pos')} item={pl.get('item')} state={pl.get('state')}")
-

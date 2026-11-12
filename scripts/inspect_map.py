@@ -1,5 +1,5 @@
-import sqlite3
 import pathlib
+import sqlite3
 
 p = sorted(pathlib.Path("results/companion").glob("*Z"))[-1]
 conn = sqlite3.connect(p / "map.sqlite3")

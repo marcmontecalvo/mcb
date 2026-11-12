@@ -1,12 +1,11 @@
 import json
 import pathlib
-from mclab.tree_removal import is_log, is_leaf, GROUND_BLOCKS
 
 p = sorted(pathlib.Path("results/companion").glob("*Z"))[-1]
 events_file = p / "events.jsonl"
 
 last_obs = None
-with open(events_file, "r", encoding="utf-8", errors="replace") as f:
+with open(events_file, encoding="utf-8", errors="replace") as f:
     for line in f:
         if '"type":"observation"' in line or '"type": "observation"' in line:
             last_obs = line
@@ -17,6 +16,7 @@ if last_obs:
     # Check what awareness sections or memory has
     # Let's inspect map.sqlite3
     import sqlite3
+
     conn = sqlite3.connect(p / "map.sqlite3")
     cur = conn.cursor()
     # Let's check sections

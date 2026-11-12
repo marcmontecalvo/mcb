@@ -1,6 +1,7 @@
 import json
 import pathlib
 import sqlite3
+
 from mclab import build_plan as bp
 
 p = sorted(pathlib.Path("results/companion").glob("*Z"))[-1]
@@ -13,10 +14,14 @@ db_file = p / "map.sqlite3"
 conn = sqlite3.connect(str(db_file))
 cursor = conn.cursor()
 
+
 def world_lookup(x, y, z):
-    cursor.execute("SELECT state FROM blocks WHERE x = ? AND y = ? AND z = ?", (x, y, z))
+    cursor.execute(
+        "SELECT state FROM blocks WHERE x = ? AND y = ? AND z = ?", (x, y, z)
+    )
     row = cursor.fetchone()
     return row[0] if row else None
+
 
 diff = bp.diff(template, world_lookup)
 prog = bp.progress(template, world_lookup)

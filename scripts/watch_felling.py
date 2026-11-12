@@ -1,12 +1,11 @@
 import json
 import pathlib
-import sys
 
 p = sorted(pathlib.Path("results/companion").glob("*Z"))[-1]
 events_file = p / "events.jsonl"
 
 breaks = []
-with open(events_file, "r", encoding="utf-8", errors="replace") as f:
+with open(events_file, encoding="utf-8", errors="replace") as f:
     for line in f:
         if '"op":"break_block"' in line or '"op": "break_block"' in line:
             obj = json.loads(line)

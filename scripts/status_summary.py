@@ -1,7 +1,8 @@
 """Quick status inspection script for running build."""
+
 import json
 import pathlib
-import sys
+
 
 def main():
     companion_dirs = sorted(pathlib.Path("results/companion").glob("*Z"))
@@ -25,7 +26,11 @@ def main():
         except Exception as e:
             print("build_report err:", e)
 
-    checkpoints = sorted((latest / "checkpoints").glob("*.json")) if (latest / "checkpoints").exists() else []
+    checkpoints = (
+        sorted((latest / "checkpoints").glob("*.json"))
+        if (latest / "checkpoints").exists()
+        else []
+    )
     print(f"Checkpoints: {len(checkpoints)}")
     if checkpoints:
         print(f"Latest checkpoint: {checkpoints[-1].name}")
@@ -35,37 +40,51 @@ def main():
         try:
             reqs = []
             last_obs = None
-            with open(events_file, "r", encoding="utf-8", errors="replace") as f:
+            with open(events_file, encoding="utf-8", errors="replace") as f:
                 for line in f:
                     if '"type":"request"' in line or '"type": "request"' in line:
                         try:
                             reqs.append(json.loads(line))
                         except Exception:
                             pass
-                    elif '"type":"observation"' in line or '"type": "observation"' in line:
+                    elif (
+                        '"type":"observation"' in line
+                        or '"type": "observation"' in line
+                    ):
                         last_obs = line
             if last_obs:
                 obs = json.loads(last_obs)
                 body = obs.get("payload", {}).get("body", {})
                 tick = obs.get("payload", {}).get("tick")
                 pos = body.get("position")
-                inv = [(i["item"].replace("minecraft:", ""), i["count"]) for i in body.get("inventory", [])]
+                inv = [
+                    (i["item"].replace("minecraft:", ""), i["count"])
+                    for i in body.get("inventory", [])
+                ]
                 print(f"Tick: {tick}, Pos: {pos}")
                 print(f"Held: {inv[:8]} ... ({len(inv)} items)")
 
             from collections import Counter
+
             print(f"Total requests: {len(reqs)}")
             counts = Counter(r.get("payload", {}).get("op") for r in reqs)
             print("Op counts:", dict(counts))
-            block_ops = [r for r in reqs if r.get("payload", {}).get("op") in ("place_block", "break_block")]
+            block_ops = [
+                r
+                for r in reqs
+                if r.get("payload", {}).get("op") in ("place_block", "break_block")
+            ]
             print(f"Block ops count: {len(block_ops)}")
             if block_ops:
                 print("Latest 5 block ops:")
                 for b in block_ops[-5:]:
                     p = b.get("payload", {})
-                    print(" ", p.get("op"), p.get("pos"), p.get("item") or p.get("tool"))
+                    print(
+                        " ", p.get("op"), p.get("pos"), p.get("item") or p.get("tool")
+                    )
         except Exception as e:
             print("events err:", e)
+
 
 if __name__ == "__main__":
     main()
