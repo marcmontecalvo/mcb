@@ -174,7 +174,7 @@ final class NaturalRun {
         var p = subject();
         if (status.equals("preparing")) {
             if (p == null) return;
-            if (server.getTickCount() < readyTick || !p.onGround()) return;
+            if (server.getTickCount() < readyTick || !(p.onGround() || p.isInWater())) return;  // afloat counts: the body floats in deep water
             giveKit(p);
             status = "running"; startTick = server.getTickCount(); deadlineTick = startTick + tickLimit;
             lastHealth = p.getHealth();

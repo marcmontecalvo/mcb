@@ -42,6 +42,7 @@ final class RouteMotor {
         /** Both side columns of a diagonal have known support within maxDrop. */
         default boolean cornerSprintOk(Point source, Point target, int maxDrop) { return false; }
         default boolean swimSurface(Point point) { return false; }
+        default boolean deepWater(Pose pose) { return false; }
         default boolean waterLanding(Point point) { return false; }
         default boolean climbable(Point point) { return false; }
         default boolean swimSafe(Pose pose, Point target, double originY, double distance, boolean jumping) { return false; }
@@ -160,9 +161,11 @@ final class RouteMotor {
                 && Math.floor(pose.x) == end.x && Math.floor(pose.z) == end.z && geometry.swimSurface(end);
     }
     /** Hold jump with no motor running: always while the head is under water (no route,
-     *  cancelled, knocked or fell in), else only where a finished route left it afloat. */
+     *  cancelled, knocked or fell in), while afloat in water too deep to stand in, or where
+     *  a finished route left it afloat. In shallower water the body settles on the bed. */
     static boolean afloat(RouteMotor last, Pose pose, boolean headUnder, Geometry geometry) {
-        return (pose.inWater && (headUnder || !pose.grounded)) || (last != null && last.treading(pose, geometry));
+        return (pose.inWater && (headUnder || (!pose.grounded && geometry.deepWater(pose))))
+                || (last != null && last.treading(pose, geometry));
     }
     record Surface(double forward, double yaw, boolean jump, boolean sneak) {
         static final Surface UP = new Surface(0, 0, true, false);

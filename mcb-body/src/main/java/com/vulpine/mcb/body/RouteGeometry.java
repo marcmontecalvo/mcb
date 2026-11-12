@@ -127,6 +127,16 @@ final class RouteGeometry implements RouteMotor.Geometry {
         return null;
     }
 
+    private boolean wet(int x, int y, int z) {
+        var cell = cell(x, y, z);
+        return cell != null && "minecraft:water".equals(cell.get("fluid"));
+    }
+    /** Too deep to stand in with the head out: known water in the feet cell and in the cell above or below it. */
+    @Override public boolean deepWater(RouteMotor.Pose p) {
+        int x = (int) Math.floor(p.x()), y = (int) Math.floor(p.y()), z = (int) Math.floor(p.z());
+        return wet(x, y, z) && (wet(x, y - 1, z) || wet(x, y + 1, z));
+    }
+
     /** Surface stance: known still water below, clear body cell and headroom above it. */
     @Override public boolean swimSurface(RouteMotor.Point p) {
         return p.y() == Math.rint(p.y()) && waterAt((int) p.x(), (int) p.z(), p.y())

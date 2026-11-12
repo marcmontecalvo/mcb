@@ -443,7 +443,12 @@ public final class RouteMotorTest {
         check(!up.treading(wet(3.5,.4,.5),g),"a cancel ends it");
         check(RouteMotor.afloat(up,wet(2.5,-.5,.5),true,g),"head under water after a cancel: swim up");
         check(RouteMotor.afloat(null,wet(2.5,-.5,.5),true,g),"head under water with no route ever: swim up");
-        check(RouteMotor.afloat(null,wet(2.5,.4,.5),false,g),"afloat in deep water, head out: hold (float, don't bob)");
+        var two=pool();
+        for(int x=2;x<=4;x++) { two.put(new Key(x,-1,0),water("0")); two.put(new Key(x,-2,0),stone()); }
+        check(RouteMotor.afloat(null,wet(2.5,.4,.5),false,geometry(two)),"afloat in water too deep to stand in, head out: hold (float, don't bob)");
+        check(RouteMotor.afloat(null,wet(2.5,-.6,.5),false,geometry(two)),"same, feet in the lower cell: hold");
+        // wading/20261112T132321148739Z: spawned in one-deep water the body bobbed and the natural run never saw it grounded.
+        check(!RouteMotor.afloat(null,wet(2.5,.4,.5),false,g),"one-deep water, head out, not yet grounded: settle on the bed");
         check(!RouteMotor.afloat(null,new RouteMotor.Pose(2.5,0,.5,0,0,-90,true,20,true),false,g),"standing on a shallow bed, head out: no input");
         check(!RouteMotor.afloat(null,new RouteMotor.Pose(3.5,1,.5,0,0,-90,true,20,false),true,g),"not in water: no input");
         // On the bed of a 3-deep pool, under a surface-stance start: swim up, not route_start_displaced.
