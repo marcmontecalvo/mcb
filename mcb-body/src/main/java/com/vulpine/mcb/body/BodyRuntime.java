@@ -682,7 +682,8 @@ public final class BodyRuntime implements AutoCloseable {
     }
 
     private int treadExpiry = -1;
-    /** Holds jump after a route ended on a water surface, until it is cancelled or replaced. */
+    /** With no motor or scheduled control: holds jump while the head is under water, or
+     *  after a route ended on a water surface until it is cancelled or replaced. */
     private void treadWater() {
         boolean ours = expiryTick >= 0 && expiryTick == treadExpiry;
         boolean hold = false;
@@ -690,8 +691,8 @@ public final class BodyRuntime implements AutoCloseable {
                 && scheduled.isEmpty() && (ours || expiryTick < 0)
                 && (stepMotor == null || !stepMotor.active()) && (gapMotor == null || !gapMotor.active())) {
             var p = body.player();
-            hold = routeMotor.treading(new RouteMotor.Pose(p.getX(),p.getY(),p.getZ(),0,0,p.getYRot(),p.onGround(),
-                    p.getFoodData().getFoodLevel(),p.isInWater()), new RouteGeometry(localReader(p)));
+            hold = RouteMotor.afloat(routeMotor, new RouteMotor.Pose(p.getX(),p.getY(),p.getZ(),0,0,p.getYRot(),p.onGround(),
+                    p.getFoodData().getFoodLevel(),p.isInWater()), p.isUnderWater(), new RouteGeometry(localReader(p)));
             if (hold) {
                 int tick = server.getTickCount();
                 body.controls(new Controls("native-route",tick,tick,tick+2,2,0,0,0,
@@ -703,8 +704,7 @@ public final class BodyRuntime implements AutoCloseable {
     }
 
     private void tickRoute() {
-        if (routeMotor == null) return;
-        if (!routeMotor.active()) { treadWater(); return; }
+        if (routeMotor == null || !routeMotor.active()) { treadWater(); return; }
         if (body == null || !readyState.equals("ready") || body.player() == null || !body.player().isAlive()) {
             cancelRoute("body_not_ready");
             if (body != null) body.release();

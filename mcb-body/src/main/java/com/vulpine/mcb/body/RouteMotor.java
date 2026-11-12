@@ -159,6 +159,11 @@ final class RouteMotor {
         return state.equals("done") && !released && policy.swim && (pose.inWater || !pose.grounded)
                 && Math.floor(pose.x) == end.x && Math.floor(pose.z) == end.z && geometry.swimSurface(end);
     }
+    /** Hold jump with no motor running: always while the head is under water (no route,
+     *  cancelled, knocked or fell in), else only where a finished route left it afloat. */
+    static boolean afloat(RouteMotor last, Pose pose, boolean headUnder, Geometry geometry) {
+        return (pose.inWater && headUnder) || (last != null && last.treading(pose, geometry));
+    }
     Map<String, Object> status() {
         return Map.of("route_id", id, "state", state, "reason", reason, "next_index", index,
                 "length", route.size(), "motor_ticks", ticks);

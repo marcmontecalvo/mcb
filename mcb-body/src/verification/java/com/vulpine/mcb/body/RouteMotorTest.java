@@ -403,6 +403,10 @@ public final class RouteMotorTest {
         check(!new RouteMotor("f",route.subList(0,3),SWIM).treading(wet(3.5,.4,.5),g),"not while still following");
         up.release();
         check(!up.treading(wet(3.5,.4,.5),g),"a cancel ends it");
+        check(RouteMotor.afloat(up,wet(2.5,-.5,.5),true,g),"head under water after a cancel: swim up");
+        check(RouteMotor.afloat(null,wet(2.5,-.5,.5),true,g),"head under water with no route ever: swim up");
+        check(!RouteMotor.afloat(null,wet(2.5,.4,.5),false,g),"head above water with no route: no input");
+        check(!RouteMotor.afloat(null,new RouteMotor.Pose(3.5,1,.5,0,0,-90,true,20,false),true,g),"not in water: no input");
         // On the bed of a 3-deep pool, under a surface-stance start: swim up, not route_start_displaced.
         var deep=pool();
         for(int x=2;x<=4;x++) { deep.put(new Key(x,-1,0),water("0")); deep.put(new Key(x,-2,0),water("0")); deep.put(new Key(x,-3,0),stone()); }
