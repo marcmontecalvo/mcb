@@ -71,9 +71,13 @@ class FakeGatherBody:
     def entities(self):
         return [dict(e) for e in self.ents if self._seen(e["position"])]
 
-    def find_blocks(self, block):
+    def find_blocks(self, block, where=None):
         """Like CompanionBody.find_blocks: only blocks with an open (air) face."""
-        return [p for p in self.find_all(block) if self._open_face(p)]
+        return [
+            p
+            for p in self.find_all(block)
+            if (where is None or where(p)) and self._open_face(p)
+        ]
 
     def _open_face(self, p) -> bool:
         x, y, z = p

@@ -78,7 +78,9 @@ STALL_S = 120.0  # no inventory change for this long ends the run ("stalled")
 
 
 class GatherBody(BuildBody, Protocol):
-    def find_blocks(self, block: str) -> list[Pos]: ...
+    def find_blocks(
+        self, block: str, where: Callable[[Pos], bool] | None = None
+    ) -> list[Pos]: ...
 
     def walk_to(self, pos: Pos, radius: float = 1.5) -> bool: ...
 
@@ -437,17 +439,20 @@ class _Exec:
             here, home = body.position(), self.home()
             # Never a block touching water or lava, surface ones included: sand dug out
             # of a shore let water into the pit (run 20261103T003648615312Z drowned).
+            # The cheap position tests go first: the open-face test on every stone
+            # cell of the map was 2.5-2.9 s of silence per call (run
+            # 20261112T180613337809Z). Underground: only stone the bot can
+            # plausibly walk to; never a ravine floor.
             known = [
                 p
-                for p in body.find_blocks(t.block)
-                if p not in skip
-                and (near is None or _dist(p, near) <= radius)
-                and _sealed(body, p)
+                for p in body.find_blocks(
+                    t.block,
+                    lambda p, home=home: p not in skip
+                    and (near is None or _dist(p, near) <= radius)
+                    and (not underground or _near(p, home)),
+                )
+                if _sealed(body, p) and (not underground or _floored(body, p, here))
             ]
-            if (
-                underground
-            ):  # only stone the bot can plausibly walk to; never a ravine floor
-                known = [p for p in known if _near(p, home) and _floored(body, p, here)]
             # cap 0 (a build's refill) stays home: no mine under the site, no ring walk
             if not known and underground and digs < MAX_DIGS and self.cap:
                 digs += 1
@@ -739,8 +744,8 @@ def run_gather(
             return False
         ahead = tasks[:1] if tasks and type(tasks[0]).__name__ == "Gather" else []
         for task in ahead + spares:
-            if not any(
-                _dist(p, furnace) <= IDLE_RADIUS for p in body.find_blocks(task.block)
+            if not body.find_blocks(
+                task.block, lambda p: _dist(p, furnace) <= IDLE_RADIUS
             ):
                 continue
             cap, ex.cap = ex.cap, 0  # ponytail: no ring walk or dig while waiting

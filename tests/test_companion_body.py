@@ -1052,3 +1052,18 @@ def test_goto_stance_does_not_walk_partials_with_placing_off(monkeypatch):
     monkeypatch.setattr(b, "_walkable", lambda *a: set(goals))
     assert b.goto_stance((2, 0, 2), 4.5) is False
     assert all(probe for _, probe in seen)
+
+
+def test_find_blocks_tests_open_faces_only_where_asked():
+    # Iron run 20261112T180613337809Z: every stone cell on the map got six face
+    # lookups before the gather kept the few near home; 2.5-2.9 s of silence a call.
+    b, _, memory = body()
+    stone = {"block": "minecraft:stone", "collision_boxes": [FULL]}
+    air = {"block": "minecraft:air", "collision_boxes": []}
+    memory.cells = {(0, 0, 0): stone, (0, 1, 0): air, (9, 0, 0): stone, (9, 1, 0): air}
+    b._scan = lambda block: [(0, 0, 0), (9, 0, 0)]
+    tested = []
+    face = b._open_face
+    b._open_face = lambda p: tested.append(p) or face(p)
+    assert b.find_blocks("minecraft:stone", lambda p: p[0] > 5) == [(9, 0, 0)]
+    assert tested == [(9, 0, 0)]

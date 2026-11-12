@@ -43,7 +43,7 @@ import logging
 import math
 import time
 from collections import ChainMap
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from contextlib import contextmanager
 from dataclasses import asdict, replace
 
@@ -595,12 +595,19 @@ class CompanionBody:
             return None
         return format_state(cell["block"], dict(cell.get("properties") or {}))
 
-    def find_blocks(self, block: str) -> list[Pos]:
+    def find_blocks(
+        self, block: str, where: Callable[[Pos], bool] | None = None
+    ) -> list[Pos]:
         """Delivered cells holding ``block`` (no properties compared) that have a
         known open face: a block buried in stone cannot be reached without digging,
-        and a gather loop that tried each one cost minutes."""
+        and a gather loop that tried each one cost minutes. ``where`` narrows the
+        cells before the face test, which is the slow part for a common block."""
         keep = set(self.terrain_policy.protected_positions)
-        return [p for p in self._scan(block) if p not in keep and self._open_face(p)]
+        return [
+            p
+            for p in self._scan(block)
+            if p not in keep and (where is None or where(p)) and self._open_face(p)
+        ]
 
     def _open_face(self, pos: Pos) -> bool:
         cells = self.memory.cells
