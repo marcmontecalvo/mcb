@@ -451,6 +451,15 @@ public final class RouteMotorTest {
         check(!RouteMotor.afloat(null,wet(2.5,.4,.5),false,g),"one-deep water, head out, not yet grounded: settle on the bed");
         check(!RouteMotor.afloat(null,new RouteMotor.Pose(2.5,0,.5,0,0,-90,true,20,true),false,g),"standing on a shallow bed, head out: no input");
         check(!RouteMotor.afloat(null,new RouteMotor.Pose(3.5,1,.5,0,0,-90,true,20,false),true,g),"not in water: no input");
+        // companion/20261112T132940952617Z: leaves one block over the water beside a diagonal pinned the
+        // floating body's head; every first edge was then refused and it stood 92 s.
+        var low=floor();
+        for(int x=2;x<=4;x++) for(int z=0;z<=1;z++) { low.put(new Key(x,0,z),water("0")); low.put(new Key(x,-1,z),stone()); }
+        low.put(new Key(3,2,0),stone());
+        var under=new RouteMotor.Pose(2.75,.2,.77,0,0,-45,false,20,true);
+        check(geometry(low).swimSafe(under,new RouteMotor.Point(3,1,1),1,.3,true),"a level swim passes under a one-block gap over the water");
+        low.put(new Key(3,1,0),stone());
+        check(!geometry(low).swimSafe(under,new RouteMotor.Point(3,1,1),1,.3,true),"not through a block in the stance cell");
         // On the bed of a 3-deep pool, under a surface-stance start: swim up, not route_start_displaced.
         var deep=pool();
         for(int x=2;x<=4;x++) { deep.put(new Key(x,-1,0),water("0")); deep.put(new Key(x,-2,0),water("0")); deep.put(new Key(x,-3,0),stone()); }

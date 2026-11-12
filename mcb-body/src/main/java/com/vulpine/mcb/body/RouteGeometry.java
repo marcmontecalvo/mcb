@@ -172,13 +172,14 @@ final class RouteGeometry implements RouteMotor.Geometry {
             double x = pose.x() - Math.sin(yaw) * distance * sample / 4;
             double z = pose.z() + Math.cos(yaw) * distance * sample / 4;
             double bottom = Double.NEGATIVE_INFINITY;
+            boolean floating = low == high;  // every corner over water at the stance level
             for (double ox : new double[]{-.299999, .299999}) for (double oz : new double[]{-.299999, .299999}) {
                 int cx = (int) Math.floor(x + ox), cz = (int) Math.floor(z + oz);
                 // Support first: a ledge overhanging the landing lake (water under it at the
                 // landing height) carries the corner at the ledge, not at the water. Cohort 16
                 // R5: every 19-block lake drop off a 2-block ledge was refused here.
                 double level = support(x + ox, z + oz, low, high);
-                if (Double.isFinite(level)) { /* stands on it */ }
+                if (Double.isFinite(level)) floating = false;  // stands on it
                 else if (waterAt(cx, cz, low)) level = low;
                 else if (waterAt(cx, cz, high)) level = high;
                 else {
@@ -186,12 +187,15 @@ final class RouteGeometry implements RouteMotor.Geometry {
                     // overhang a neighbouring column that is known open air down to a safe floor.
                     if (!Double.isFinite(level)) {
                         if (high - low < 2 || !openFall(cx, cz, low, high)) return false;
+                        floating = false;
                         level = low;
                     }
                 }
                 bottom = Math.max(bottom, level);
             }
-            if (!clear(x, z, bottom, Math.max(bottom + 1.8 + (jumping ? 1.2 : 0), high + 1.8))) return false;
+            // A floating body rides lower under a ceiling and still breathes: a level swim needs
+            // only the stance cell (companion/20261112T132940952617Z stood 92 s under leaves).
+            if (!clear(x, z, bottom, floating ? bottom + 1 : Math.max(bottom + 1.8 + (jumping ? 1.2 : 0), high + 1.8))) return false;
         }
         return true;
     }
