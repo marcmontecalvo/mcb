@@ -285,7 +285,6 @@ def test_station_returns_to_worksite_from_one_wide_mine_staircase():
     )
 
     assert report.stop == "done"
-    assert ("walk", table) in body.log
     assert state.stations["furnace"][1] == 71
     assert body.w[(58, 67, -74)] == M + "air"  # do not block the mine exit
 
@@ -296,14 +295,41 @@ def test_station_fails_closed_if_worksite_is_unreachable():
     table = (59, 71, -74)
     body = FakeGatherBody(K, {}, {M + "furnace": 1}, default=None)
     body.pos = (59, 67, -74)
-    walks = []
-    body.walk_to = lambda pos, radius: walks.append(pos) and False
     ex = _Exec(body, K, GatherState(stations={"crafting_table": table}), 0)
 
     result = ex.place_station(PlaceStation("furnace"))
 
     assert not result.ok and result.reason == "no_free_spot"
-    assert walks == [table]
+    assert body.inventory()[M + "furnace"] == 1
+
+
+def test_station_scans_table_base_when_body_is_on_top_of_worksite():
+    # Retry 20261112T141516131352Z arrived atop the table at y=72.
+    from mclab.gather_runner import GatherState, _Exec
+
+    table = (59, 71, -74)
+    world = {(x, 70, z): M + "stone" for x in range(57, 62) for z in range(-76, -71)}
+    world[table] = M + "crafting_table"
+    body = FakeGatherBody(K, world, {M + "furnace": 1})
+    body.pos = (59, 72, -74)
+    state = GatherState(stations={"crafting_table": table})
+    result = _Exec(body, K, state, 0).place_station(PlaceStation("furnace"))
+    assert result.ok
+    assert state.stations["furnace"][1] == 71
+
+
+def test_station_retains_item_if_known_worksite_has_no_reachable_stance():
+    from mclab.gather_runner import GatherState, _Exec
+
+    table = (59, 71, -74)
+    world = {(x, 70, z): M + "stone" for x in range(57, 62) for z in range(-76, -71)}
+    world[table] = M + "crafting_table"
+    body = FakeGatherBody(K, world, {M + "furnace": 1})
+    body.pos = (59, 67, -74)
+    body.goto_stance = lambda *args, **kwargs: False
+    ex = _Exec(body, K, GatherState(stations={"crafting_table": table}), 0)
+    result = ex.place_station(PlaceStation("furnace"))
+    assert not result.ok and result.reason == "no_stance"
     assert body.inventory()[M + "furnace"] == 1
 
 

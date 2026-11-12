@@ -369,8 +369,9 @@ class _Exec:
             elif not got:
                 skipped.add(uuid)
 
-    def free_spot(self, skip: Collection[Pos] = ()) -> Pos | None:
-        x, y, z = self.body.position()
+    def free_spot(self, skip: Collection[Pos] = (), *, center: Pos | None = None) -> Pos | None:
+        here = self.body.position()
+        x, y, z = center if center is not None else here
         offsets = sorted(
             product(range(-2, 3), repeat=2), key=lambda d: abs(d[0]) + abs(d[1])
         )
@@ -378,7 +379,7 @@ class _Exec:
             c = (x + dx, y, z + dz)
             if c in skip:
                 continue
-            if (dx, dz) == (0, 0) or self.body.world(*c) not in bp.AIR:
+            if c == here or self.body.world(*c) not in bp.AIR:
                 continue
             below = self.body.world(c[0], c[1] - 1, c[2])
             above = self.body.world(c[0], c[1] + 1, c[2])
@@ -400,18 +401,16 @@ class _Exec:
 
     def place_free(self, state: str, item: str) -> tuple[Result, Pos | None]:
         tried: set[Pos] = set()
-        returned_to_worksite = False
+        worksite = None
         while True:
-            spot = self.free_spot(tried)
+            spot = self.free_spot(tried, center=worksite)
             if spot is None:
-                # A one-wide mine staircase can have no supported empty cell on
-                # the current level. Return to the established worksite instead of
-                # placing a station in the staircase and blocking the way out.
-                table = self.state.stations.get("crafting_table")
-                if returned_to_worksite or table is None:
+                # Search at the table's base level, not the top of the table:
+                # walking to the table itself can arrive standing on top of it.
+                if worksite is not None:
                     return Result(False, "no_free_spot"), None
-                returned_to_worksite = True
-                if not self.body.walk_to(table, 1.5):
+                worksite = self.state.stations.get("crafting_table")
+                if worksite is None:
                     return Result(False, "no_free_spot"), None
                 continue
             tried.add(spot)
