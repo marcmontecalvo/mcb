@@ -50,3 +50,33 @@ def test_close_stops_thread_even_mid_silence():
     assert time.monotonic() - started < 1
     assert threading.active_count() == before
     dog.close()  # idempotent
+
+
+def test_a_full_collection_is_paid_once_and_a_long_pause_is_recorded():
+    import gc
+
+    from mclab import silence_watch
+
+    events = []
+    dog = make(events, threshold=30)
+    heap = [{"position": [i, i, i]} for i in range(300_000)]  # a small map
+    silence_watch.GC_PAUSE_S, kept = 0.0, silence_watch.GC_PAUSE_S
+    try:
+        dog.touch()  # the first request installs the collector hook
+        gc.collect()
+        frozen = gc.get_freeze_count()
+        assert frozen >= 600_000  # what survived is never walked again
+        started = time.perf_counter()
+        gc.collect()
+        second = time.perf_counter() - started
+        dog.touch()  # the next request writes the pauses out
+    finally:
+        silence_watch.GC_PAUSE_S = kept
+        dog.close()
+    pauses = [p["pause_s"] for k, p in events if k == "python_gc"]
+    assert len(pauses) >= 2 and second < max(pauses[0], 0.005)
+    assert gc.get_freeze_count() == 0  # close hands everything back
+    gc.collect()
+    assert len(heap) == 300_000 and len(pauses) == len(
+        [k for k, _ in events if k == "python_gc"]
+    )  # no hook left behind

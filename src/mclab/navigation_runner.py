@@ -79,6 +79,7 @@ def _new_identity(client, prefix="navigation"):
     client.events.clear()
     client.samples.clear()
     started = time.monotonic_ns()
+    gc.unfreeze()  # the silence watchdog freezes survivors; this one walks all
     collected = gc.collect()
     client.record(
         "between_episode_gc",

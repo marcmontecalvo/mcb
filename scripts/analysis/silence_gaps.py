@@ -11,6 +11,8 @@ HOW TO READ THE OUTPUT
   drives. Use idle_gaps.py for standstills; use this to see why Python was quiet.
   Runs recorded before the watchdog existed print `GAP` lines instead (request to
   request, no stack).
+  `GC PAUSES: n of 0.1 s or more` counts the times Python's garbage collector stopped
+  the whole process. 0 is good. Any pause of 1 s or more is bad: nothing moves in it.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ def events(run: Path):
                 f, "rt", encoding="utf8"
             ) as h:
                 for line in h:
-                    if '"request"' in line[:400] or '"python_silence' in line[:400]:
+                    if '"request"' in line[:400] or '"python_' in line[:400]:
                         yield json.loads(line)
             return
 
@@ -42,7 +44,7 @@ def main():
     for run in a.runs:
         t0 = prev = None
         looks: list[tuple[float, list[str]]] = []
-        watched, found = False, []
+        watched, found, pauses = False, [], []
         print(f"RUN {run.name}")
         for e in events(run):
             w, t, p = e["monotonic_ns"] / 1e9, e["type"], e["payload"]
@@ -57,6 +59,8 @@ def main():
                     for idle, stack in looks:
                         print(f"      after {idle:.1f} s: " + " <- ".join(stack[:8]))
                 looks = []
+            elif t == "python_gc":
+                pauses.append(p["pause_s"])
             elif t == "request":
                 t0 = t0 or w
                 if prev and not watched and w - prev[0] >= a.min_seconds:
@@ -69,6 +73,10 @@ def main():
         print(
             f"SILENCES: {len(found)} of {a.min_seconds:g} s or more"
             + (f", longest {max(found):.1f} s" if found else "")
+        )
+        print(
+            f"GC PAUSES: {len(pauses)} of 0.1 s or more"
+            + (f", longest {max(pauses):.1f} s" if pauses else "")
         )
 
 
