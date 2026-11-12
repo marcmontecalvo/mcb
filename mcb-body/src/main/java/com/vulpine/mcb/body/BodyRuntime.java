@@ -689,14 +689,21 @@ public final class BodyRuntime implements AutoCloseable {
         boolean hold = false;
         if (body != null && readyState.equals("ready") && body.player() != null && body.player().isAlive()
                 && scheduled.isEmpty() && (ours || expiryTick < 0)
-                && (stepMotor == null || !stepMotor.active()) && (gapMotor == null || !gapMotor.active())) {
+                && (stepMotor == null || !stepMotor.active()) && (gapMotor == null || !gapMotor.active())
+                // Do not pull the body off a block it is mining or using unless air runs low.
+                && ((breakTask == null && actionTask == null)
+                    || body.player().getAirSupply() * 3 < body.player().getMaxAirSupply())) {
             var p = body.player();
-            hold = RouteMotor.afloat(routeMotor, new RouteMotor.Pose(p.getX(),p.getY(),p.getZ(),0,0,p.getYRot(),p.onGround(),
-                    p.getFoodData().getFoodLevel(),p.isInWater()), p.isUnderWater(), new RouteGeometry(localReader(p)));
+            var pose = new RouteMotor.Pose(p.getX(),p.getY(),p.getZ(),0,0,p.getYRot(),p.onGround(),
+                    p.getFoodData().getFoodLevel(),p.isInWater());
+            var geometry = new RouteGeometry(localReader(p));
+            hold = RouteMotor.afloat(routeMotor, pose, p.isUnderWater(), geometry);
             if (hold) {
+                // ponytail: BFS of <=400 cells each tick, no cache; cache per head cell if it shows in profiles.
+                var way = p.isUnderWater() ? RouteMotor.surface(pose, p.getEyeY(), geometry) : RouteMotor.Surface.UP;
                 int tick = server.getTickCount();
-                body.controls(new Controls("native-route",tick,tick,tick+2,2,0,0,0,
-                        RouteMotor.levelPitch(p.getXRot()),true,false,false,false,false,false,false,0));
+                body.controls(new Controls("native-route",tick,tick,tick+2,2,way.forward(),0,way.yaw(),
+                        RouteMotor.levelPitch(p.getXRot()),way.jump(),way.sneak(),false,false,false,false,false,0));
                 expiryTick = treadExpiry = tick + 2;
             }
         }
