@@ -581,5 +581,6 @@ class SpatialMemory:
                 self.queue_lock.notify_all()
             self.worker.join(timeout=10)
             self.closed = True
+            self.archive.close()
             if self.worker.is_alive():
                 raise RuntimeError("Spatial writer did not stop; archive unverified")

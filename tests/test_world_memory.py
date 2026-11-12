@@ -178,6 +178,9 @@ def test_start_session_writes_home_before_the_first_terrain_write(
         episode_id = "ep"
 
         def send(self, *args, **kwargs):
+            # Creating the db costs about a second of disk syncs; done after the
+            # spawn the bot stood through it (run 20261112T043759535110Z, 1.75 s).
+            spawned.append((tmp_path / "map.sqlite3").exists())
             return "req"
 
         def acknowledge(self, *args, **kwargs):
@@ -186,7 +189,7 @@ def test_start_session_writes_home_before_the_first_terrain_write(
         def http(self, path):
             return {"state": "running", "awareness": {"coverage": {"sample_tick": 0}}}
 
-    seen = []
+    seen, spawned = [], []
 
     class Body:
         def __init__(self, bridge, memory, **kwargs):
@@ -206,5 +209,6 @@ def test_start_session_writes_home_before_the_first_terrain_write(
         Bridge(), tmp_path, (1, 64, 2), world_memory=False
     )
     memory.close()
+    assert spawned == [True]
     assert seen[0].position == (1, 64, 2)
     assert body.places.named("home").position == (1, 64, 2)

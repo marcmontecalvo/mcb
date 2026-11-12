@@ -219,6 +219,22 @@ def test_planning_view_keeps_its_revision_when_live_cells_change(tmp_path):
         memory.close()
 
 
+def test_opening_the_archive_again_does_not_rebuild_or_sync_the_log(tmp_path):
+    # Run 20261112T043759535110Z stood 1.75 s at spawn in ten archive opens: with no
+    # connection left open each close checkpointed and deleted the write-ahead log,
+    # and every commit synced the disk (610 ms per write on the results drive, 6 ms
+    # with the log kept and synchronous=NORMAL).
+    archive = MapArchive(tmp_path / "map.db", identity())
+    log = tmp_path / "map.db-wal"
+    with archive.connect(writing=True) as db:
+        assert db.execute("PRAGMA synchronous").fetchone()[0] == 1
+    assert log.exists()
+    archive.close()
+    assert not log.exists()
+    with archive.connect() as db:  # still usable, only slower
+        assert db.execute("SELECT count(*) FROM sections").fetchone()[0] == 0
+
+
 def test_place_writes_and_reads_do_not_wait_on_a_long_terrain_flush(tmp_path):
     # Run 20261112T033833606944Z: one terrain flush held the write lock ~4 s and
     # the place graph waited on it at spawn; mid-run that is a standstill.

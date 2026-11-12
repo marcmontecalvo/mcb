@@ -38,6 +38,13 @@ class MapArchive:
         self.identity = identity
         self._others = 0  # waiting writers the terrain flush yields to
         self._counting = threading.Lock()
+        # One connection stays open so the write-ahead log survives between the
+        # short-lived ones below: otherwise each close checkpoints and deletes it
+        # (run 20261112T043759535110Z: ten opens, 1.75 s standing at spawn).
+        self._keep = sqlite3.connect(self.path, check_same_thread=False)
+        self._keep.execute("PRAGMA journal_mode=WAL")
+        # a read is what opens the log
+        self._keep.execute("SELECT count(*) FROM sqlite_master").fetchall()
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             version = db.execute("PRAGMA user_version").fetchone()[0]
@@ -65,6 +72,10 @@ class MapArchive:
                 db.execute("DROP TABLE cells")
             db.execute("PRAGMA user_version=2")
 
+    def close(self):
+        """Fold the log into the file. The archive stays usable, only slower."""
+        self._keep.close()
+
     @contextmanager
     def connect(self, writing=False):
         """`writing=True` makes a terrain flush give way; WAL readers never wait."""
@@ -86,6 +97,10 @@ class MapArchive:
         db = sqlite3.connect(self.path, timeout=5)
         try:
             db.execute("PRAGMA journal_mode=WAL")
+            # NORMAL: no disk sync per commit (190 ms each on the results drive).
+            # The file cannot corrupt; a power cut can lose the last commits, which
+            # leaves older terrain hints that the next sighting replaces.
+            db.execute("PRAGMA synchronous=NORMAL")
             with db:
                 yield db
         finally:

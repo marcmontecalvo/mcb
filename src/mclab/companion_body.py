@@ -1311,44 +1311,48 @@ def start_session(
     )
     _new_identity(bridge, "companion")
     bridge.policy_memory = None
-    request = bridge.send(
-        "natural_start",
-        subject="carpet_body",
-        player="",
-        start=list(start),
-        goal=[start[0] + 4000, start[1], start[2]],
-        yaw=0,
-        goal_radius=3,
-        tick_limit=100_000,
-        mobs=False,
-        stall_ticks=0,
-        awareness=awareness.payload(),
-        terrain_encoding="sections-v1",
-    )
-    bridge.acknowledge(request, "natural_accepted", timeout=10)
-    deadline = time.monotonic() + 60
-    # Wait on /state (never /policy) until the stream runs and the sensor has
-    # sampled: before that the terrain batch is an empty placeholder (tick -100).
-    while True:
-        state = bridge.http("/state")
-        sampled = state.get("awareness", {}).get("coverage", {}).get("sample_tick")
-        if state["state"] == "running" and isinstance(sampled, int) and sampled >= 0:
-            break
-        if time.monotonic() > deadline:
-            raise RuntimeError("Policy stream did not reach a sampled running state")
-        time.sleep(0.05)
+    # Opened before the body exists: creating the file costs about a second of disk
+    # syncs, which the bot used to spend standing at spawn (1.75 s in run
+    # 20261112T043759535110Z). Same db for places: per-world when world memory is
+    # on, else per-run. Home is the requested feet cell (the mod spawns the body
+    # there; the standable check below verifies the observed one).
     memory = SpatialMemory(
         session_archive(folder, awareness, bridge.episode_id, world_memory),
         bridge.episode_id,
     )
-    # same db as the archive: per-world when world memory is on, else per-run.
-    # Written before the first observe: that queues the first terrain sweep, whose
-    # write transaction held the db lock 4.5 s while the bot stood at spawn
-    # (run 20261112T033833606944Z). Home is the requested feet cell (the mod spawns
-    # the body there; the standable check below verifies the observed one).
     places = PlaceGraph(memory.archive)
     if places.named("home") is None:
         places.add("home", tuple(start), kind="home", provenance="spawn")
+    try:
+        request = bridge.send(
+            "natural_start",
+            subject="carpet_body",
+            player="",
+            start=list(start),
+            goal=[start[0] + 4000, start[1], start[2]],
+            yaw=0,
+            goal_radius=3,
+            tick_limit=100_000,
+            mobs=False,
+            stall_ticks=0,
+            awareness=awareness.payload(),
+            terrain_encoding="sections-v1",
+        )
+        bridge.acknowledge(request, "natural_accepted", timeout=10)
+        deadline = time.monotonic() + 60
+        # Wait on /state (never /policy) until the stream runs and the sensor has
+        # sampled: before that the terrain batch is an empty placeholder (tick -100).
+        while True:
+            state = bridge.http("/state")
+            sampled = state.get("awareness", {}).get("coverage", {}).get("sample_tick")
+            if state["state"] == "running" and isinstance(sampled, int) and sampled >= 0:
+                break
+            if time.monotonic() > deadline:
+                raise RuntimeError("Policy stream did not reach a sampled running state")
+            time.sleep(0.05)
+    except BaseException:
+        memory.close()
+        raise
     body = CompanionBody(
         bridge,
         memory,
