@@ -114,7 +114,18 @@ Details: [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md), cohorts 16–20.
 Each item names where its detail or evidence lives. Numbers are priority, not
 dependencies, except where noted.
 
-**Five-second standstill rule, Nov 11–12 regression (everything except the large
+**Nov 12 continuation:** the reviewed Python corrections now use action-completion
+and terrain-capture ticks for block-edit overlays, including compact terrain;
+furnace-side work is radius-limited and preserves unfinished gather tasks;
+animal clearing checks the swept path and conservatively protects named and
+unknown-size nearby entities. The fresh live battery is recorded separately in
+`results/regression-20261112-terra/`. Do not combine its source configuration or
+denominators with the historical rounds below. The supplied r9 small house
+`companion/20261112T134722151875Z` **failed before construction** from stale
+site-fill observations; it is not a house pass. Findings, validation and
+remaining limits are tracked in [the continuation report](STALL_REGRESSION_2026-11-12.md).
+
+**Five-second standstill rule, Nov 11–12 historical regression (everything except the large
 house; evidence `results/regression-20261111/`, rounds `r3`–`r8`):** the bot may
 stand still only while breaking, placing or crafting; `scripts/analysis/idle_gaps.py`
 exits 1 on any other gap of 5 s or more. State after round r8 (mod
@@ -131,22 +142,29 @@ Course start to first movement in r8: natural ops 0.8 s, iron 1.5 s, wading
 open on the results drive until `5417c57`). Open:
 1. **Furnace wait in a pure gather run** (~10 s per smelt loop,
    `gather_runner.smelt` with `idle_work=None`; iron `20261112T045003403293Z`).
-   Needs Marc's decision; recommendation is to keep gathering nearby while it smelts.
+   Marc authorized useful nearby work; implemented in `f4725ce` and hardened in
+   the Nov 12 continuation. A new live iron run must verify the wait is gone.
 2. **Python goes silent for 1.5–2.4 s** 13 times in the r8 iron run (heartbeat →
    heartbeat, `equip` → heartbeat, `route_policy` → heartbeat) and ~1.4 s once
    after spawn in every run. Not the map database (unchanged by `5417c57`). Cause
-   not traced.
+   instrumented in `797e4ae` and `44cfcbc` with stack diagnostics. A logged
+   Python silence during native motor progress is not itself a stationary gap.
 3. **Repeated full searches for a buried target** (iron `20261112T033141102600Z`:
    (60,64,-87) searched to the 4,000-node limit 9 times, (53,67,-80) 7 times).
-   ~0.4 s each and the partial is followed, so waste, not a standstill.
+   ~0.4 s each and the partial is followed, so waste, not a standstill. Persisted
+   shaft progress implemented in `3ca1df5`; retain fresh live evidence separately.
 4. **A `route_no_progress` end bans that edge for the session**
    (`native_driver.py`); a mob in the way would ban a good edge. None occurred in
-   r4–r8.
+   r4–r8. Replaced by expiring bans and passive-mob retries in `6d98f71` and
+   `a5f6972`; the continuation narrows attack selection to path blockers.
 5. **Python's swim and air-recovery commands are discarded under the native
    driver** (`native_driver.py` calls `controller.decide(..., native=True)` and
    drops the command). The mod now treads water after a route ends on a surface
    (`RouteMotor.treading`, `803d589`), but a body under water with no route has
-   nothing surfacing it. Not seen live.
+   nothing surfacing it. Native idle-water/air recovery added in `75b6629` and
+   deep-water startup fixed in `77aec90`. The r9 swim-under-leaves rejection was
+   separately corrected in `50a8acf`; the accidental empty-house run that found
+   it remains failed evidence, not a supplied-house baseline.
 6. **Planner accepting a route through a cell Python has just placed a block
    in** (small-house roof, `companion/20261111T222832963085Z`): did not recur in
    r4, r5 or r8 with live terrain; the motor ends such a route in ~1.5 s if it does.

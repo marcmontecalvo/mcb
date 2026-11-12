@@ -134,6 +134,7 @@ def load(path: Path) -> dict:
                 samples=[],
                 events=[],
                 ready=None,
+                course_started=False,
                 end=None,
                 ready_wall=None,
                 end_wall=None,
@@ -195,9 +196,10 @@ def load(path: Path) -> dict:
             if op in ("attack_entity", "eat"):
                 b["open_actions"][rs] = (w, tick, op)
             continue
-        if k == "course_started" and b["ready"] is None:
+        if k == "course_started" and not b["course_started"]:
             b["ready"] = tick
             b["ready_wall"] = w
+            b["course_started"] = True
         if k == "course_started":
             b["active_request"] = True
         if k == "body_state" and d.get("state") == "ready" and b["ready"] is None:
