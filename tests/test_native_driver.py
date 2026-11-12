@@ -733,3 +733,135 @@ def test_probe_that_turns_into_the_walk_drives_its_adopted_route(monkeypatch):
     monkeypatch.setattr(control_loop, "_running", lambda _c, row: row.get("terminal"))
     assert native_driver.drive_native(client, controller, 10) == {"status": "success"}
     assert sent == ["follow_route", "cancel_route"]
+
+
+def _no_progress_rows(entities, ticks):
+    rows = [{"tick": 1, "route_follower": {"state": "idle"}}]
+    for n, tick in enumerate(ticks, 1):
+        rows += [
+            {
+                "tick": tick,
+                "route_follower": {"route_id": f"native-{n}", "state": "following"},
+            },
+            {
+                "tick": tick + 1,
+                "visible_entities": entities,
+                "route_follower": {
+                    "route_id": f"native-{n}",
+                    "state": "needs_replan",
+                    "reason": "route_no_progress",
+                    "next_index": 1,
+                },
+            },
+        ]
+    return rows
+
+
+def _drive_no_progress(monkeypatch, rows, clear_mob=None):
+    rows = iter([*rows, {"terminal": {"status": "success"}}])
+    records, routes = [], iter(range(1, 100))
+    current = {}
+
+    def send(op, **kw):
+        if op == "follow_route":
+            current["id"] = f"native-{next(routes)}"
+        return {"sequence": 1}
+
+    client = SimpleNamespace(
+        send=send,
+        acknowledge=lambda *_: None,
+        wait=lambda predicate, **kw: predicate(
+            {"route_follower": {"route_id": current.get("id")}}
+        ),
+        record=lambda *args: records.append(args),
+    )
+    controller = SimpleNamespace(
+        route=[],
+        mode="following",
+        terrain=None,
+        gap_jump=None,
+        failed_edges=set(),
+        movement_policy=MovementPolicy(),
+        committed_step=None,
+        _admit=lambda _: None,
+        _discard_prefetch=lambda: None,
+        drain_events=lambda: [],
+    )
+    if clear_mob is not None:
+        controller.clear_mob = clear_mob
+    seen = []
+
+    def decide(observation, *, native=False):
+        seen.append(set(controller.failed_edges))
+        controller.route = [] if controller.failed_edges else [(0, 1, 0), (1, 1, 0)]
+
+    controller.decide = decide
+    monkeypatch.setattr(
+        native_driver,
+        "policy_state",
+        lambda _c: {"body": {"position": [0.5, 1, 0.5]}, **next(rows)},
+    )
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda _c, row: row.get("terminal"))
+    native_driver.drive_native(client, controller, 10)
+    notes = [d for kind, d in records if kind == "native_route_no_progress"]
+    return controller, notes, seen
+
+
+SHEEP = {"uuid": "s1", "type": "minecraft:sheep", "position": [1.5, 1.0, 0.5]}
+
+
+def test_no_progress_without_mob_bans_edge_only_until_expiry(monkeypatch):
+    edge = ((0, 1, 0), (1, 1, 0))
+    rows = _no_progress_rows([], [5])
+    rows.append({"tick": 6 + native_driver.NO_PROGRESS_BAN_TICKS})
+    controller, notes, seen = _drive_no_progress(monkeypatch, rows)
+    assert notes[0]["decision"] == "ban"
+    assert notes[0]["ban_until"] == 6 + native_driver.NO_PROGRESS_BAN_TICKS
+    assert edge in seen[1]  # banned right after
+    assert edge not in controller.failed_edges  # expired
+
+
+def test_companion_retries_through_sheep_then_kills_it(monkeypatch):
+    killed = []
+    rows = _no_progress_rows([SHEEP], [5, 10, 15])
+    controller, notes, _ = _drive_no_progress(
+        monkeypatch, rows, clear_mob=lambda uuid: killed.append(uuid) or True
+    )
+    assert [n["decision"] for n in notes] == ["retry", "retry", "kill"]
+    assert notes[0]["entities"] == ["minecraft:sheep"]
+    assert killed == ["s1"]
+    assert not controller.failed_edges
+
+
+@pytest.mark.parametrize(
+    "entity,companion",
+    [
+        (SHEEP, False),  # scored run: no clear_mob, never kills
+        ({**SHEEP, "named": True}, True),
+        ({**SHEEP, "type": "minecraft:zombie"}, True),
+        ({**SHEEP, "type": "minecraft:villager"}, True),
+    ],
+)
+def test_no_progress_mob_is_banned_after_retries_when_not_killable(
+    monkeypatch, entity, companion
+):
+    killed = []
+    rows = _no_progress_rows([entity], [5, 10, 15])
+    _, notes, _ = _drive_no_progress(
+        monkeypatch, rows, clear_mob=killed.append if companion else None
+    )
+    assert [n["decision"] for n in notes] == ["retry", "retry", "ban"]
+    assert not killed
+
+
+def test_blocking_entities_ignores_items_and_far_mobs():
+    obs = {
+        "visible_entities": [
+            {"type": "minecraft:item", "item": "x", "position": [1.5, 1, 0.5]},
+            {"type": "minecraft:cow", "position": [5.5, 1, 0.5]},
+            SHEEP,
+        ]
+    }
+    found = native_driver.blocking_entities(obs, (0, 1, 0), (1, 1, 0))
+    assert found == [SHEEP]
