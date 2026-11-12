@@ -239,9 +239,23 @@ final class RoutePlanner {
         }
         if (buried && rise > 0) return rise * DIG_RISE;
         double v = rise > 0 ? rise * JUMP : -rise * fallTicks(2) / 2;
+        if (rise < 0 && edits != null && edits.stepEdits) v += solidBelow(node, (int) Math.ceil(-rise));
         double h = horizontal(node);
         if (exitEstimate && rise > h) v += (rise - h) * WALK;
         return v;
+    }
+    /** Dig price (edit, break, chain) of n known breakable blocks straight below the node, else 0. Without it a buried
+     *  goal is priced at the fall rate and the search floods the surface (run 20261112T033141102600Z).
+     *  ponytail: column only; a cave beside it is reachable more cheaply, so the estimate may overshoot. */
+    private double solidBelow(Node node, int n) {
+        double cheapest = edits.breakCosts.values().stream().mapToDouble(Double::doubleValue).min().orElse(0);
+        int top = (int) Math.floor(node.y) - 1;
+        for (int y = top; y > top - n; y--) {
+            var c = cell(node.x, y, node.z);
+            if (!fullDry(c) || !edits.breakCosts.containsKey(c.get("block"))) return 0;
+        }
+        int d = depth.getOrDefault(node, 0);  // editCost adds EDIT_CHAIN per edit already on the route
+        return n * (EDIT_STEP + cheapest) + EDIT_CHAIN * (n * d + n * (n - 1) / 2.0);
     }
     /** The unknown remainder from a frontier node, at the unknown penalty (D3). */
     private double exitRemainder(Node node) {
@@ -795,6 +809,11 @@ final class RoutePlanner {
             if (extra) for (var q : fallingStack(p)) out.put(key(q), AIR);
         }
         for (var p : edit.places) out.put(key(p), placed);
+        // A shaft dug by consecutive downward edits stays open: with only the last edit seen, the
+        // cell above the head reverted to stone and no plan dug deeper than 2 (run 20261112T033141102600Z).
+        // ponytail: plans keep one edit per node, so a later cheaper arrival at a source can rewrite the chain.
+        for (var e = edit; e.kind.equals("downward") && (e = plans.get(e.source)) != null && e.kind.equals("downward"); )
+            for (var p : e.breaks) out.putIfAbsent(key(p), AIR);
         return out;
     }
 

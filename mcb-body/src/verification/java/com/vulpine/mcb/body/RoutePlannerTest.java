@@ -199,6 +199,15 @@ public final class RoutePlannerTest {
         var down = new RoutePlanner((x, y, z) -> ground.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
                 new RoutePlanner.Node(0, 0, 0), 0, 3, true).withMoves(false, true).withEdits(policy(false)).search(100_000);
         check(down.status().equals("reached") && down.steps().get(0).kind().equals("downward"), "digs down onto known stone");
+        // Buried goal (run 20261112T033141102600Z): 4,000-node partials 2 blocks at a time
+        // for an ore 4-6 below: a node saw only its last edit, so a shaft never got deeper than 2.
+        var plain = new HashMap<Key, Map<String, Object>>();
+        for (int x = -30; x <= 30; x++) for (int z = -30; z <= 30; z++) for (int y = -10; y <= 6; y++)
+            plain.put(new Key(x, y, z), y <= 0 ? stone() : air());
+        var deep = new RoutePlanner((x, y, z) -> plain.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(0, -5, 0), 0, 3, true).withPolicy(true, true, true, true, true, 1)
+                .withMoves(false, true).withEdits(policy(false)).search(4000);
+        check(deep.status().equals("reached"), "digs 6 down to a buried goal within 4,000 nodes: " + deep.status() + " " + deep.expanded());
         // Protected cells are never broken.
         var guarded = new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), false, false, false,
                 1, 64, 64, 3, java.util.Set.of(RoutePlanner.key(5, 1, 0), RoutePlanner.key(5, 2, 0)), java.util.Set.of(),
