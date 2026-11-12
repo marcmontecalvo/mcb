@@ -228,6 +228,8 @@ class _Runner:
         self.template: bp.Template | None = None
         self.towered: set[Pos] = set()  # targets that already got their one tower
         self._towering = False
+        # scaffolding a tower lacked: _run asks for it once, or stops the build
+        self.short: dict[str, int] = {}
 
     def attempt(self, act) -> None:
         """Stance, act, record. Retries other stances while the failure says so."""
@@ -286,6 +288,8 @@ class _Runner:
             return True
         if self._tower(pos, avoid):
             return True
+        if self.short:
+            return False
         if self._unwedge() and self.body.goto_stance(pos, REACH, avoid):
             return True
         # Each further try is seconds of standing still; four in a row were the
@@ -335,6 +339,11 @@ class _Runner:
             # standing towers are taken back first; the whole stack is only 64
             _clean_up(self, self.template, self.scaffolds)
             if self.body.inventory().get(sc.BLOCK, 0) < len(cells):
+                # Without a tower every cell up there is one more round of failed
+                # stance probes: 27 roof cells, 5-12 s of standing still each (run
+                # 20261112T143613464413Z). Ask for the scaffolding instead.
+                self.short = {sc.BLOCK: len(cells)}
+                self.towered.discard(pos)
                 return False
         # Place from two cells away: beside the column the body's box overlaps it.
         cx, _, cz = cells[0]
@@ -387,7 +396,7 @@ def _sweep(runner: _Runner, template: bp.Template, acts: list) -> None:
     pool = list(acts)
     corners = {a.pos for a in pool if bp.inside_corner(template, a.pos)}
     last, tried = None, False
-    while pool and runner.report.steps < runner.max_steps:
+    while pool and runner.report.steps < runner.max_steps and not runner.short:
         here = runner.body.position()
 
         def key(a, here=here, last=last):
@@ -674,6 +683,20 @@ def _run(
             break
         with calm():
             _sweep(runner, template, acts)
+        if runner.short:
+            need, runner.short = runner.short, {}
+            ask = frozenset(need.items())
+            if (
+                on_need_materials is None
+                or ask in refused  # asked before and the tower is still short
+                or not on_need_materials(need)
+            ):
+                report.needed, report.stop = need, "need_materials"
+                break
+            refused.add(ask)
+            skipped.clear()  # the cells that waited for the tower are tried again
+            runner.fails.clear()
+            runner.avoid.clear()
         if on_progress:
             on_progress(report, False)
     if report.stop != "need_materials":

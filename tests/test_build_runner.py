@@ -495,6 +495,33 @@ def test_a_cell_with_no_stance_gets_a_scaffolding_tower_and_it_comes_down():
     assert not [p for p, s in body.w.items() if s.startswith("minecraft:scaffolding")]
 
 
+def test_a_tower_without_scaffolding_stops_the_build_asking_for_it():
+    # Run 20261112T143613464413Z: no scaffolding held, every roof cell was probed
+    # for a stance again and again (27 cells, 5-12 s of standing still each).
+    body, t = tall_column_body()
+    body.inv["minecraft:scaffolding"] = 0
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "need_materials"
+    assert report.needed == {"minecraft:scaffolding": 6}
+    unreachable = [target for target, _ in body.stance_calls if target[1] >= 5]
+    assert len(unreachable) <= 2, unreachable  # asked once, not once per cell
+
+
+def test_a_tower_short_of_scaffolding_is_built_after_the_refill():
+    body, t = tall_column_body()
+    body.inv["minecraft:scaffolding"] = 0
+    asked = []
+
+    def refill(items):
+        asked.append(dict(items))
+        body.inv["minecraft:scaffolding"] = 64
+        return True
+
+    report = br.run_build(t, body, BLOCKS, on_need_materials=refill)
+    assert asked == [{"minecraft:scaffolding": 6}]
+    assert report.stop == "done" and (3, 6, 3) in report.placed
+
+
 def test_the_planner_places_no_dirt_while_the_build_runs():
     body, t = tall_column_body(top=2)
     seen = []
