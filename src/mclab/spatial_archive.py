@@ -3,11 +3,15 @@
 import heapq
 import json
 import sqlite3
+import time
 from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
 
 from mclab.section_codec import decode_section, merge_rows, merge_section, section_key
+
+# Longest a terrain flush holds the write lock before committing.
+WRITE_SLICE_S = 0.02
 
 
 def _box(lo, hi):
@@ -31,6 +35,7 @@ class MapArchive:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.identity = identity
+        self._others = 0  # open connect()s the terrain flush yields to
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             version = db.execute("PRAGMA user_version").fetchone()[0]
@@ -60,6 +65,15 @@ class MapArchive:
 
     @contextmanager
     def connect(self):
+        self._others += 1  # ponytail: GIL-atomic enough for a yield hint
+        try:
+            with self._connect() as db:
+                yield db
+        finally:
+            self._others -= 1
+
+    @contextmanager
+    def _connect(self):
         db = sqlite3.connect(self.path, timeout=5)
         try:
             db.execute("PRAGMA journal_mode=WAL")
@@ -96,11 +110,26 @@ class MapArchive:
             self._write_cells(db, self.identity.key, cells)
 
     def write_deltas(self, deltas):
-        """Merge `(key, [(offset, facts, provenance), ...])` in one transaction."""
-        with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+        """Merge `(key, [(offset, facts, provenance), ...])` in short transactions.
+
+        One transaction for a whole flush held the write lock ~4 s and every place
+        graph write waited on it (run 20261112T033833606944Z). Each section is still
+        merged atomically; a failure raises and the caller records a gap.
+        """
+        with self._connect() as db:
+            began = None
             for key, rows in deltas:
+                if began is None:
+                    db.execute("BEGIN IMMEDIATE")
+                    began = time.monotonic()
                 self._merge(db, self.identity.key, key, merge_rows, rows)
+                if time.monotonic() - began > WRITE_SLICE_S:
+                    db.commit()
+                    began = None
+                    # sqlite's busy handler polls up to 100 ms apart and would miss
+                    # this gap: hold off while another caller has a connection.
+                    while self._others:
+                        time.sleep(0.001)
 
     def section_keys(self):
         """Keys of every stored section in this namespace (no payload decode)."""
