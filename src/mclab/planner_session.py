@@ -3,14 +3,27 @@
 import base64
 import hashlib
 import json
+import time
+import urllib.error
 import zlib
 
 from mclab.planner_map_transport import PlannerMapCoordinator
 
 
+def _send(client, op, **fields):
+    """Send; a 429 (body inbox full) means not admitted, so retry after a tick."""
+    for attempt in range(40):
+        try:
+            return client.send(op, **fields)
+        except urllib.error.HTTPError as error:
+            if error.code != 429 or attempt == 39:
+                raise
+            time.sleep(0.05)
+
+
 def _send_and_ack(client, op, expected_kind, max_attempts=4, **fields):
     for attempt in range(max_attempts):
-        request = client.send(op, **fields)
+        request = _send(client, op, **fields)
         try:
             return client.acknowledge(request, expected_kind)
         except RuntimeError as err:
@@ -77,7 +90,7 @@ def attach(client, controller):
     def send_maps(frames):
         # A stale rejection is not retried here: a later frame may already be
         # applied, so the transfer aborts and resends the generation instead.
-        requests = [client.send("planner_map", **frame) for frame in frames]
+        requests = [_send(client, "planner_map", **frame) for frame in frames]
         return [
             client.acknowledge(request, "planner_map_accepted")["data"]["generation"]
             for request in requests
