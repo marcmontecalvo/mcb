@@ -430,10 +430,10 @@ class _Exec:
         body = self.body
         target = body.inventory().get(t.item, 0) + max(1, t.item_count)
         broken, skip, digs = 0, set(), 0
-        # Where exploring last saw the block: near is judged from there too, or ore
-        # past the table's reach is walked by and never mined (run
-        # 20261112T181731902927Z explored for seven minutes). Only a ring walk moves
-        # it, so a gather still cannot ratchet itself down a cave.
+        # Where exploring last saw ore: near is judged from there too, or ore past
+        # the table's reach is walked by and never mined (run 20261112T181731902927Z
+        # explored for seven minutes). Ore only: stone is everywhere, and judging it
+        # from the bot ratchets a gather down a cave.
         found_at: Pos | None = None
         name = t.block.removeprefix("minecraft:")
         ore = name.endswith("_ore")
@@ -452,12 +452,12 @@ class _Exec:
                 p
                 for p in body.find_blocks(
                     t.block,
-                    lambda p, home=home: p not in skip
+                    lambda p, home=home, seen=found_at: p not in skip
                     and (near is None or _dist(p, near) <= radius)
                     and (
                         not underground
                         or _near(p, home)
-                        or (found_at is not None and _near(p, found_at))
+                        or (seen is not None and _near(p, seen))
                     ),
                 )
                 if _sealed(body, p) and (not underground or _floored(body, p, here))
@@ -480,15 +480,19 @@ class _Exec:
                     lambda: bool(
                         body.find_blocks(
                             t.block,
-                            lambda p: p not in skip
-                            and (not underground or _near(p, _cell(body.position()))),
+                            lambda q: q not in skip
+                            and (
+                                not underground
+                                or _near(q, self.home())
+                                or (ore and _near(q, _cell(body.position())))
+                            ),
                         )
                     )
                 ):
                     return Result(
                         broken > 0, None if broken else "not_found", {"broken": broken}
                     )
-                found_at = _cell(body.position())
+                found_at = _cell(body.position()) if ore else None
                 continue
             # Several nearest per scan: a scan of a big map costs seconds, and most
             # near candidates (cliff faces, ravine walls) have no stance.
