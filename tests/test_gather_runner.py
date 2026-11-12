@@ -263,6 +263,50 @@ def test_a_station_cell_without_support_rotates_to_the_next_free_cell():
     assert first  # the refused cell was actually tried
 
 
+def test_station_returns_to_worksite_from_one_wide_mine_staircase():
+    # Iron run 20261112T140455643180Z ended in a narrow, unsupported shaft;
+    # the crafting table was on the surface above the entrance.
+    from mclab.gather_runner import GatherState
+
+    table = (59, 71, -74)
+    world = {(x, 67, z): M + "stone" for x in range(57, 62) for z in range(-76, -71)}
+    world.update({(58, 67, -74): M + "air", (59, 67, -74): M + "air"})
+    world[(58, 66, -74)] = M + "air"  # open stair beneath the adjacent cell
+    world.update(
+        {(x, 70, z): M + "stone" for x in range(57, 62) for z in range(-76, -71)}
+    )
+    world[table] = M + "crafting_table"
+    body = FakeGatherBody(K, world, {M + "furnace": 1})
+    body.pos = (59, 67, -74)
+    state = GatherState(stations={"crafting_table": table})
+
+    report = run_gather(
+        PlanResult((PlaceStation("furnace"),), (), 0.0), body, K, state=state
+    )
+
+    assert report.stop == "done"
+    assert ("walk", table) in body.log
+    assert state.stations["furnace"][1] == 71
+    assert body.w[(58, 67, -74)] == M + "air"  # do not block the mine exit
+
+
+def test_station_fails_closed_if_worksite_is_unreachable():
+    from mclab.gather_runner import GatherState, _Exec
+
+    table = (59, 71, -74)
+    body = FakeGatherBody(K, {}, {M + "furnace": 1}, default=None)
+    body.pos = (59, 67, -74)
+    walks = []
+    body.walk_to = lambda pos, radius: walks.append(pos) and False
+    ex = _Exec(body, K, GatherState(stations={"crafting_table": table}), 0)
+
+    result = ex.place_station(PlaceStation("furnace"))
+
+    assert not result.ok and result.reason == "no_free_spot"
+    assert walks == [table]
+    assert body.inventory()[M + "furnace"] == 1
+
+
 def test_smelt_works_instead_of_waiting_for_the_furnace():
     world = trees_and_stone(n_logs=14, n_stone=12)
     world.update({(i, 0, -10): M + "iron_ore" for i in range(4)})

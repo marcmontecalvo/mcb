@@ -400,17 +400,29 @@ class _Exec:
 
     def place_free(self, state: str, item: str) -> tuple[Result, Pos | None]:
         tried: set[Pos] = set()
-        while (spot := self.free_spot(tried)) is not None:
+        returned_to_worksite = False
+        while True:
+            spot = self.free_spot(tried)
+            if spot is None:
+                # A one-wide mine staircase can have no supported empty cell on
+                # the current level. Return to the established worksite instead of
+                # placing a station in the staircase and blocking the way out.
+                table = self.state.stations.get("crafting_table")
+                if returned_to_worksite or table is None:
+                    return Result(False, "no_free_spot"), None
+                returned_to_worksite = True
+                if not self.body.walk_to(table, 1.5):
+                    return Result(False, "no_free_spot"), None
+                continue
             tried.add(spot)
             result = self.reach_and_do(
-                spot, lambda: self.body.place_block(spot, state, item)
+                spot, lambda p=spot: self.body.place_block(p, state, item)
             )
             # the body refuses a cell whose six neighbours are all non-solid: a
             # different stance cannot place into it (run 20261106T182245230212Z
             # ended the task retrying the same cell 3x)
             if result.ok or result.reason not in PLACE_ROTATE_REASONS:
                 return result, spot
-        return Result(False, "no_free_spot"), None
 
     # --- tasks ----------------------------------------------------------
     def gather(self, t, *, near: Pos | None = None, radius: float = IDLE_RADIUS) -> Result:
