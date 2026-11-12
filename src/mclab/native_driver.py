@@ -31,6 +31,52 @@ EXTEND_TICKS = 60
 # whole house-large list did not fit the body's 16 KB POST limit, and even a
 # 16-cell window inside the template footprint still sent 28 KB.
 STEP_PROTECT_RADIUS = 2
+# route_no_progress with a mob in the step's cells: the body keeps walking into it
+# (vanilla entity pushing moves it aside) this many times before clearing it.
+MOB_RETRIES = 2
+# A no-progress edge with no mob in it is banned this long, not for the session:
+# the cause may have been a door mid-swing or a mob that has since left.
+NO_PROGRESS_BAN_TICKS = 200
+# Mobs a companion may kill when one still blocks a step after MOB_RETRIES.
+# The mod refuses players, villagers, tamed and non-animal targets on its own.
+CLEARABLE_MOBS = frozenset(
+    f"minecraft:{name}"
+    for name in ("sheep", "cow", "pig", "chicken", "rabbit", "mooshroom", "goat")
+)
+NOT_MOBS = frozenset({"minecraft:item", "minecraft:experience_orb", "minecraft:arrow"})
+
+
+def blocking_entities(observation, source, target):
+    """Living entities in or beside the cells of the step source -> target."""
+    found = []
+    for entity in observation.get("visible_entities") or ():
+        if entity.get("item") or entity.get("type") in NOT_MOBS:
+            continue
+        x, y, z = entity["position"]
+        if any(
+            abs(x - c[0] - 0.5) <= 1.3
+            and abs(z - c[2] - 0.5) <= 1.3
+            and c[1] - 1 <= y <= c[1] + 1.5
+            for c in (source, target)
+        ):
+            found.append(entity)
+    return found
+
+
+def no_progress_decision(controller, observation, edge, retries):
+    """retry / kill / ban for an edge that ended route_no_progress (see constants)."""
+    mobs = blocking_entities(observation, *edge)
+    if not mobs:
+        return "ban", mobs
+    retries[edge] += 1
+    if retries[edge] <= MOB_RETRIES:
+        return "retry", mobs
+    # ponytail: only companion controllers carry clear_mob; scored runs never kill.
+    if getattr(controller, "clear_mob", None) is not None and any(
+        e.get("type") in CLEARABLE_MOBS and not e.get("named") for e in mobs
+    ):
+        return "kill", mobs
+    return "ban", mobs
 
 
 def remaining_ticks(route):
@@ -346,6 +392,7 @@ def drive_native(client, controller, wall_timeout):
     }
     client.last_controller_error = None
     best_distance, best_tick = math.inf, None
+    bans, mob_retries = {}, Counter()  # no-progress edges: expiry tick, mob retries
     try:
         while time.monotonic() < deadline:
             if getattr(controller, "cancelled", False):
@@ -363,6 +410,11 @@ def drive_native(client, controller, wall_timeout):
                 confirmation_deadline = None
                 goal_revision = revision
             observation = policy_state(client)
+            now = observation.get("tick")
+            for edge, until in list(bans.items()):
+                if now is not None and now >= until:
+                    del bans[edge]
+                    controller.failed_edges.discard(edge)
             terminal = _running(client, observation)
             if terminal is not None:
                 return terminal
@@ -511,7 +563,39 @@ def drive_native(client, controller, wall_timeout):
                     }:
                         index = native.get("next_index", 1)
                         route = active_route
-                        if 0 < index < len(route):
+                        decision = None
+                        if (
+                            0 < index < len(route)
+                            and native.get("reason") == "route_no_progress"
+                        ):
+                            edge = (route[index - 1], route[index])
+                            decision, mobs = no_progress_decision(
+                                controller, observation, edge, mob_retries
+                            )
+                            tick = observation.get("tick") or 0
+                            note = {
+                                "source": edge[0],
+                                "target": edge[1],
+                                "decision": decision,
+                                "entities": [e.get("type") for e in mobs],
+                                "tick": tick,
+                            }
+                            if decision == "kill":
+                                mob = next(
+                                    e
+                                    for e in mobs
+                                    if e.get("type") in CLEARABLE_MOBS
+                                    and not e.get("named")
+                                )
+                                result = controller.clear_mob(mob["uuid"])
+                                note["killed"] = mob["type"]
+                                note["ok"] = bool(getattr(result, "ok", result))
+                                mob_retries.pop(edge, None)
+                            elif decision == "ban":
+                                note["ban_until"] = tick + NO_PROGRESS_BAN_TICKS
+                                bans[edge] = note["ban_until"]
+                            client.record("native_route_no_progress", note)
+                        if 0 < index < len(route) and decision in {None, "ban"}:
                             controller.failed_edges.add(
                                 (route[index - 1], route[index])
                             )

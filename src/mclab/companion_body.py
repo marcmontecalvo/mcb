@@ -813,6 +813,13 @@ class CompanionBody:
     def equip(self, item: str) -> Result:
         return self.op("equip", item=item)
 
+    def _axe(self) -> str | None:
+        tiers = ("wooden", "golden", "stone", "copper", "iron", "diamond", "netherite")
+        axes = [
+            f"minecraft:{t}_axe" for t in tiers if self._inv.get(f"minecraft:{t}_axe")
+        ]
+        return axes[-1] if axes else None
+
     def attack_entity(self, entity: str, weapon: str | None = None) -> Result:
         extra = {"weapon": weapon} if weapon else {}
         return self.op("attack_entity", entity=entity, **extra)
@@ -892,6 +899,9 @@ class CompanionBody:
             idle_state=self._navigation_idle,
             walk_wall=self.goto_wall_s,
         )
+        # A passive mob that still blocks a step after the pushes is killed
+        # (native_driver.no_progress_decision); an axe first, else the mod's pick.
+        controller.clear_mob = lambda uuid: self.attack_entity(uuid, self._axe())
         try:
             end = drive(
                 self.bridge,
