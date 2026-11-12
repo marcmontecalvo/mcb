@@ -84,6 +84,49 @@ final class RouteGeometry implements RouteMotor.Geometry {
         return level == Math.rint(level) && stillWater(cell(x, (int) level - 1, z));
     }
 
+    private static boolean collisionFree(Map<String, Object> cell) {
+        return cell != null && !HAZARDS.contains(cell.get("block")) && List.of().equals(cell.get("collision_boxes"));
+    }
+    /** Known, collision-free, non-hazard air: the head can breathe here. */
+    private boolean breathable(int x, int y, int z) {
+        var cell = cell(x, y, z);
+        return collisionFree(cell) && Set.of("minecraft:empty", "empty", "").contains(cell.getOrDefault("fluid", "minecraft:empty"));
+    }
+    /** Known, collision-free, non-hazard water or air. Unknown cells are never passable. */
+    private boolean swimmable(int x, int y, int z) {
+        var cell = cell(x, y, z);
+        return breathable(x, y, z) || (collisionFree(cell) && "minecraft:water".equals(cell.get("fluid")));
+    }
+    static final int SURFACE_RADIUS = 8, SURFACE_NODES = 400;
+    private static final int[][] SIX = {{0,1,0},{-1,0,0},{1,0,0},{0,0,-1},{0,0,1},{0,-1,0}};
+    /** First cell on the shortest swimmable path from the head cell to a breathable cell,
+     *  or null when none lies within SURFACE_RADIUS (Manhattan) and SURFACE_NODES.
+     *  Horizontal steps also need the cell below free, so the body fits. */
+    int[] surfaceStep(int hx, int hy, int hz) {
+        for (int y = hy + 1; y <= hy + SURFACE_RADIUS && swimmable(hx, y, hz); y++)
+            if (breathable(hx, y, hz)) return new int[]{hx, hy + 1, hz};  // open column: straight up
+        var parent = new HashMap<Key, Key>();
+        var start = new Key(hx, hy, hz);
+        var queue = new java.util.ArrayDeque<Key>();
+        parent.put(start, start); queue.add(start);
+        while (!queue.isEmpty() && parent.size() <= SURFACE_NODES) {
+            var at = queue.poll();
+            for (var d : SIX) {
+                var next = new Key(at.x() + d[0], at.y() + d[1], at.z() + d[2]);
+                if (parent.containsKey(next) || Math.abs(next.x() - hx) + Math.abs(next.y() - hy) + Math.abs(next.z() - hz) > SURFACE_RADIUS
+                        || !swimmable(next.x(), next.y(), next.z())
+                        || (d[1] == 0 && !swimmable(next.x(), next.y() - 1, next.z()))) continue;
+                parent.put(next, at);
+                if (breathable(next.x(), next.y(), next.z())) {
+                    while (!parent.get(next).equals(start)) next = parent.get(next);
+                    return new int[]{next.x(), next.y(), next.z()};
+                }
+                queue.add(next);
+            }
+        }
+        return null;
+    }
+
     /** Surface stance: known still water below, clear body cell and headroom above it. */
     @Override public boolean swimSurface(RouteMotor.Point p) {
         return p.y() == Math.rint(p.y()) && waterAt((int) p.x(), (int) p.z(), p.y())

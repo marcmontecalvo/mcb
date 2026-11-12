@@ -49,6 +49,44 @@ public final class RouteMotorTest {
         cells.put(new Key(5,1,0),stone());
         return cells;
     }
+    /** Stone box x,z in -3..3, y 0..6; water at the listed cells, air at the others listed. */
+    private static Map<Key,Map<String,Object>> box() {
+        var cells=new HashMap<Key,Map<String,Object>>();
+        for (int x=-3;x<=3;x++) for(int z=-3;z<=3;z++) for(int y=0;y<=6;y++) cells.put(new Key(x,y,z),stone());
+        return cells;
+    }
+    private static final Map<String,Object> AIR=Map.of("block","minecraft:air","collision_boxes",List.of(),"fluid","minecraft:empty");
+    private static void surfaceChecks() {
+        var diver=new RouteMotor.Pose(.5,1,.5,0,0,0,false,20,true);
+        // Open column: water at (0,1..3,0), air at (0,4,0).
+        var open=box();
+        for(int y=1;y<=3;y++) open.put(new Key(0,y,0),water("0"));
+        open.put(new Key(0,4,0),AIR);
+        var up=RouteMotor.surface(diver,2.5,geometry(open));
+        check(up.jump() && up.forward()==0 && !up.sneak(),"head under an open column: jump only");
+        // Solid ceiling over (0,3,0); water at (1,1..2,0), air at (1,3,0). (-1,1..2,0) unknown, air above it.
+        var ceiling=box();
+        for(int y=1;y<=2;y++) { ceiling.put(new Key(0,y,0),water("0")); ceiling.put(new Key(1,y,0),water("0")); ceiling.remove(new Key(-1,y,0)); }
+        ceiling.put(new Key(1,3,0),AIR); ceiling.put(new Key(-1,3,0),AIR);
+        var side=RouteMotor.surface(diver,2.5,geometry(ceiling));
+        check(side.forward()>0 && Math.abs(side.yaw()+90)<1e-6 && side.jump(),"under a ceiling: steer toward the open water beside it (+x), never into unknown cells");
+        // Without the known side, only the unknown remains: no path, fall back to jump.
+        ceiling.put(new Key(1,1,0),stone()); ceiling.put(new Key(1,2,0),stone());
+        var unknownOnly=RouteMotor.surface(diver,2.5,geometry(ceiling));
+        check(unknownOnly.jump() && unknownOnly.forward()==0,"an unknown cell is never a path cell");
+        // Sealed pocket.
+        var sealed=box();
+        for(int y=1;y<=2;y++) sealed.put(new Key(0,y,0),water("0"));
+        var stuck=RouteMotor.surface(diver,2.5,geometry(sealed));
+        check(stuck.jump() && stuck.forward()==0,"sealed pocket with no air: fall back to jump");
+        // The way out lies below a lip: down, across, up.
+        var lip=box();
+        lip.put(new Key(0,2,0),water("0")); lip.put(new Key(0,1,0),water("0"));
+        lip.put(new Key(1,1,0),water("0")); lip.put(new Key(1,0,0),water("0")); lip.put(new Key(0,0,0),water("0"));
+        lip.put(new Key(2,1,0),water("0")); lip.put(new Key(2,0,0),water("0")); lip.put(new Key(2,2,0),AIR);
+        var dive=RouteMotor.surface(new RouteMotor.Pose(.5,2,.5,0,0,0,false,20,true),2.5,geometry(lip));
+        check(dive.sneak() && !dive.jump(),"a way out below: swim down");
+    }
     private static void swimAndLandingChecks() {
         var channel=floor();
         for (int x=0;x<=2;x++) channel.put(new Key(x,1,0),water("0"));
@@ -403,6 +441,11 @@ public final class RouteMotorTest {
         check(!new RouteMotor("f",route.subList(0,3),SWIM).treading(wet(3.5,.4,.5),g),"not while still following");
         up.release();
         check(!up.treading(wet(3.5,.4,.5),g),"a cancel ends it");
+        check(RouteMotor.afloat(up,wet(2.5,-.5,.5),true,g),"head under water after a cancel: swim up");
+        check(RouteMotor.afloat(null,wet(2.5,-.5,.5),true,g),"head under water with no route ever: swim up");
+        check(RouteMotor.afloat(null,wet(2.5,.4,.5),false,g),"afloat in deep water, head out: hold (float, don't bob)");
+        check(!RouteMotor.afloat(null,new RouteMotor.Pose(2.5,0,.5,0,0,-90,true,20,true),false,g),"standing on a shallow bed, head out: no input");
+        check(!RouteMotor.afloat(null,new RouteMotor.Pose(3.5,1,.5,0,0,-90,true,20,false),true,g),"not in water: no input");
         // On the bed of a 3-deep pool, under a surface-stance start: swim up, not route_start_displaced.
         var deep=pool();
         for(int x=2;x<=4;x++) { deep.put(new Key(x,-1,0),water("0")); deep.put(new Key(x,-2,0),water("0")); deep.put(new Key(x,-3,0),stone()); }
@@ -570,7 +613,7 @@ public final class RouteMotorTest {
         var walledCorner=floor(); wall(walledCorner,1,1);
         check(!motor(List.of(new RouteMotor.Point(0,1,0),new RouteMotor.Point(1,1,0),new RouteMotor.Point(2,1,1)))
                 .tick(new RouteMotor.Pose(.9,1,.5,.2,0,-90,true,20),geometry(walledCorner)).sprint(),"no sprint when the post-corner sweep clips");
-        swimAndLandingChecks(); nativeSpeedChecks(); sprintAscentChecks(); climbChecks(); diagonalChecks(); resyncAndSwimChecks();
+        surfaceChecks(); swimAndLandingChecks(); nativeSpeedChecks(); sprintAscentChecks(); climbChecks(); diagonalChecks(); resyncAndSwimChecks();
         System.out.println("RouteMotor: "+checks+" safety/state checks passed");
     }
 }

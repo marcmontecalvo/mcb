@@ -159,6 +159,24 @@ final class RouteMotor {
         return state.equals("done") && !released && policy.swim && (pose.inWater || !pose.grounded)
                 && Math.floor(pose.x) == end.x && Math.floor(pose.z) == end.z && geometry.swimSurface(end);
     }
+    /** Hold jump with no motor running: always while the head is under water (no route,
+     *  cancelled, knocked or fell in), else only where a finished route left it afloat. */
+    static boolean afloat(RouteMotor last, Pose pose, boolean headUnder, Geometry geometry) {
+        return (pose.inWater && (headUnder || !pose.grounded)) || (last != null && last.treading(pose, geometry));
+    }
+    record Surface(double forward, double yaw, boolean jump, boolean sneak) {
+        static final Surface UP = new Surface(0, 0, true, false);
+    }
+    /** Head under water: jump when the column above is open to air; else face the first
+     *  cell of the nearest known way to air and swim to it (jump if level/up, sneak if down).
+     *  No known way: jump anyway. */
+    static Surface surface(Pose pose, double eyeY, RouteGeometry geometry) {
+        int x = (int) Math.floor(pose.x), y = (int) Math.floor(eyeY), z = (int) Math.floor(pose.z);
+        var step = geometry.surfaceStep(x, y, z);
+        if (step == null || (step[0] == x && step[2] == z && step[1] > y)) return Surface.UP;
+        double yaw = wrap(yawTo(pose, new Point(step[0], step[1], step[2])) - pose.yaw);
+        return step[1] < y ? new Surface(step[0] == x && step[2] == z ? 0 : 1, yaw, false, true) : new Surface(1, yaw, true, false);
+    }
     Map<String, Object> status() {
         return Map.of("route_id", id, "state", state, "reason", reason, "next_index", index,
                 "length", route.size(), "motor_ticks", ticks);
