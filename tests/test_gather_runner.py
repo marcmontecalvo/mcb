@@ -339,3 +339,25 @@ def test_a_mob_in_the_way_retries_the_same_block_from_another_stance():
 
     assert report.stop == "done"
     assert calls[1] == calls[0]  # not skipped for another log
+
+
+def test_pure_gather_smelt_mines_the_next_plan_item_while_waiting():
+    # run 20261112T045003403293Z stood ~10 s per smelt: smelt had no idle work
+    from mclab.gather_runner import GatherState
+    from mclab.gather_tasks import Gather, Smelt
+
+    world = trees_and_stone(n_stone=4)
+    world[(0, 0, -3)] = M + "furnace"
+    body = FakeGatherBody(
+        K, world, {M + "raw_iron": 1, M + "coal": 1, M + "wooden_pickaxe": 1}
+    )
+    smelt = Smelt("x", 1, M + "coal", 1, "furnace", M + "iron_ingot", M + "raw_iron")
+    stone = Gather(M + "stone", 2, "pickaxe", "wood", M + "cobblestone", 2)
+    state = GatherState(stations={"furnace": (0, 0, -3)})
+
+    report = run_gather(PlanResult((smelt, stone), (), 0.0), body, K, state=state)
+
+    assert report.stop == "done", report
+    assert body.inventory()[M + "iron_ingot"] == 1
+    assert body.inventory().get(M + "cobblestone", 0) >= 2
+    assert report.done == ["Smelt:x"]  # the gather ran inside the smelt's wait
