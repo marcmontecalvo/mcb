@@ -99,6 +99,14 @@ def break_ticks(block):
     return 1 if damage >= 1 else math.ceil(1 / damage)
 
 
+def hand_ticks(block):
+    """Bare-hand breaking time: vanilla damage per tick is 1 / hardness / 100 when
+    the block needs a tool for drops (the pickaxe blocks here), else / 30. Matches
+    StepMotor.breakSlot, which digs with an empty hand when the tool is gone."""
+    hardness, tool, _ = WIDE_EXCAVATABLE[block]
+    return max(1, math.ceil(hardness * (100 if tool == _PICK else 30)))
+
+
 @dataclass(frozen=True)
 class TerrainPolicy:
     allow_break: bool = True

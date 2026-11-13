@@ -168,7 +168,7 @@ class FakeGatherBody:
             }
         )
 
-    def break_block(self, pos, tool=None):
+    def break_block(self, pos, tool=None, drops_optional=False):
         state = self.w.get(pos)
         ident = bp.parse_state(state)[0] if state else None
         if ident is None or ident in bp.AIR:
@@ -181,7 +181,10 @@ class FakeGatherBody:
             else ()
         )
         if info.get("needs_correct_tool") and not drops:
-            return Result(False, "wrong_tool")
+            if not drops_optional:
+                return Result(False, "wrong_tool")
+            self.w[pos] = "minecraft:air"
+            return Result(True, data={"broken": state})
         self.w[pos] = "minecraft:air"
         for d in drops or (
             (self.k.drops_for(ident, "hand")) if ident in self.k.drops else ()

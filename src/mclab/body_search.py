@@ -23,6 +23,7 @@ from mclab.terrain_steps import (
     TerrainPolicy,
     break_ticks,
     excavatable,
+    hand_ticks,
     hotbar,
     stack_supply,
 )
@@ -61,26 +62,26 @@ _ids = itertools.count(1)
 
 
 @cache
-def _break_cost(block):
-    return break_ticks(block) + BREAK_EXTRA_TICKS + BREAK_AIM_TICKS
+def _break_cost(block, tool=True):
+    ticks = break_ticks(block) if tool else hand_ticks(block)
+    return ticks + BREAK_EXTRA_TICKS + BREAK_AIM_TICKS
 
 
 def edit_payload(policy, inventory, protected):
     """Edit permissions and prices for RoutePlanner.EditPolicy (rules of plan_edit).
 
-    break_costs lists only blocks whose tool is on the hotbar and that are not
-    protected (terrain_steps.cut_allowed); place_supply is how many blocks can be
+    break_costs lists every excavatable block that is not protected, priced with
+    its tool when one is on the hotbar, else at bare-hand speed: dirt over stone
+    with no shovel walled the bot in (run 20261113T024449677184Z), and a bot whose
+    tools all broke must still dig out to make more. place_supply is how many blocks can be
     placed in a row (stack_supply), at most the support stack height.
     """
     inventory = Inventory(dict(r) for r in inventory)
     breaks = {}
     if policy.allow_break:
         for block, tool in excavatable(policy).items():
-            if (
-                block not in policy.protected_blocks
-                and hotbar(inventory, tool) is not None
-            ):
-                breaks[block] = _break_cost(block)
+            if block not in policy.protected_blocks:
+                breaks[block] = _break_cost(block, hotbar(inventory, tool) is not None)
     supply = 0
     while supply < policy.max_support_stack and stack_supply(
         inventory, supply + 1, policy.reserve_blocks, policy.material_allowlist

@@ -38,6 +38,7 @@ from mclab import build_plan as bp
 from mclab import gather_plan as gp
 from mclab.build_runner import REACH, STANCE_REASONS, BuildBody, Result
 from mclab.gather_dig import Digger
+from mclab.gather_tasks import TIER_RANK, UNKNOWN_TIER_RANK
 from mclab.knowledge import Knowledge
 
 Pos = tuple[int, int, int]
@@ -441,6 +442,19 @@ class _Exec:
                 return result, spot
 
     # --- tasks ----------------------------------------------------------
+    def harvests(self, t) -> bool:
+        """A held tool of the task's kind and drop tier ("hand" tiers need none)."""
+        if not t.tool_kind or t.min_tier == "hand":
+            return True
+        need = TIER_RANK.get(t.min_tier, UNKNOWN_TIER_RANK)
+        return any(
+            n > 0
+            and (tool := self.k.items.get(item, {}).get("tool"))
+            and tool["kind"] == t.tool_kind
+            and TIER_RANK.get(tool.get("tier", ""), UNKNOWN_TIER_RANK) >= need
+            for item, n in self.body.inventory().items()
+        )
+
     def gather(self, t, *, near: Pos | None = None, radius: float = IDLE_RADIUS) -> Result:
         body = self.body
         target = body.inventory().get(t.item, 0) + max(1, t.item_count)
@@ -456,6 +470,11 @@ class _Exec:
         while broken < t.count and body.inventory().get(t.item, 0) < target:
             if self.stalled():
                 return Result(False, "stalled")
+            if not self.harvests(t):
+                # The tool broke mid-task: never hand-tunnel toward ore the hand
+                # cannot mine. The replan crafts new tools; the way up to wood is a
+                # planned route, dug by hand if it must be (body_search.edit_payload).
+                return Result(False, "missing_tool", {"broken": broken})
             here, home = body.position(), self.home()
             # Never a block touching water or lava, surface ones included: sand dug out
             # of a shore let water into the pit (run 20261103T003648615312Z drowned).
@@ -747,6 +766,22 @@ def _hunger(ex: _Exec, report: GatherReport, targets: dict | None) -> None:
             targets.update(wanted)
 
 
+# Failures that, underground, mean the body cannot get on with its plan where it is:
+# its tools broke (new ones are made from surface wood) or it cannot reach a stance.
+ESCAPE_REASONS = frozenset({"missing_tool", "wrong_tool", "no_stance"})
+
+
+def _escape(ex: _Exec, report: GatherReport) -> bool:
+    """Buried after a failure: staircase up to open sky, by hand if need be."""
+    digger = Digger(ex)
+    if digger.open_sky():
+        return False
+    ok = digger.climb()
+    report.failures.append(("escape", digger.reason))
+    ex._seen, ex._since = dict(ex.body.inventory()), ex.clock()  # climbing is progress
+    return ok
+
+
 def run_gather(
     plan_result,
     body: GatherBody,
@@ -836,6 +871,8 @@ def run_gather(
         else:
             failures += 1
             report.failures.append((_label(task), result.reason or "failed"))
+            if result.reason in ESCAPE_REASONS and _escape(ex, report):
+                failures = 0  # out under the sky: the re-plan below starts afresh
             if ex.stalled():
                 report.stop = "stalled"
                 return report

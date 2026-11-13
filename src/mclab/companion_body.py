@@ -832,8 +832,12 @@ class CompanionBody:
             self._remember(pos, result.data.get("after"), result.data.get("_event_tick"))
         return result
 
-    def break_block(self, pos: Pos, tool: str | None = None) -> Result:
-        extra = {"tool": tool} if tool else {}
+    def break_block(
+        self, pos: Pos, tool: str | None = None, drops_optional: bool = False
+    ) -> Result:
+        extra: dict = {"tool": tool} if tool else {}
+        if drops_optional:
+            extra["drops_optional"] = True
         result = self.op("break_block", pos=list(pos), **extra)
         if result.ok:
             self._remember(pos, "minecraft:air", result.data.get("_event_tick"))

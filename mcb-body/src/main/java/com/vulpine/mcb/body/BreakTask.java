@@ -52,7 +52,10 @@ final class BreakTask {
         if (tool != null) BodyBuild.selectItem(player, tool);
         else player.getInventory().setSelectedSlot(emptyHotbarSlot(player));
         var held = player.getItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND);
-        if (state.requiresCorrectToolForDrops() && !held.isCorrectToolForDrops(state)) throw new BodyActions.Fail("wrong_tool");
+        // drops_optional: an escape dig by hand (all tools broken) breaks stone for the way out, not the drop.
+        boolean dropsOptional = request.has("drops_optional") && request.get("drops_optional").getAsBoolean();
+        if (!dropsOptional && state.requiresCorrectToolForDrops() && !held.isCorrectToolForDrops(state))
+            throw new BodyActions.Fail("wrong_tool");
         var task = new BreakTask(sequence, pos, state);
         task.aim(player);
         return task;
@@ -116,7 +119,7 @@ final class BreakTask {
     }
 
     /** With no tool, attack with an empty hotbar slot so a block is never struck with an unrelated item. */
-    private static int emptyHotbarSlot(ServerPlayer player) {
+    static int emptyHotbarSlot(ServerPlayer player) {
         var inventory = player.getInventory();
         for (int i = 0; i < 9; i++) if (inventory.getItem(i).isEmpty()) return i;
         return inventory.getSelectedSlot();

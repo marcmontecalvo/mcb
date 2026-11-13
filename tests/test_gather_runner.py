@@ -564,3 +564,43 @@ def test_ore_found_while_exploring_is_mined_though_far_from_the_table():
 
     assert result.ok, result
     assert body.inventory()[M + "raw_iron"] == 2
+
+
+def test_ore_gather_without_a_harvesting_tool_stops_instead_of_digging():
+    # Tools all broken: never tunnel toward ore the hand cannot mine. The task ends
+    # with missing_tool, and run_gather's replan crafts new tools first.
+    from mclab.gather_runner import GatherState, _Exec
+    from mclab.gather_tasks import Gather
+
+    world = floor() | {(3, 0, 0): M + "iron_ore"}
+    iron = Gather(M + "iron_ore", 1, "pickaxe", "stone", M + "raw_iron", 1)
+    for held in ({}, {M + "wooden_pickaxe": 1}):  # bare hand, and a tier too low
+        body = FakeGatherBody(K, world, held)
+        result = _Exec(body, K, GatherState(), 48).gather(iron)
+        assert result.reason == "missing_tool", (held, result)
+        assert body.world(3, 0, 0) == M + "iron_ore"
+    body = FakeGatherBody(K, world, {M + "stone_pickaxe": 1})
+    assert _Exec(body, K, GatherState(), 48).gather(iron).ok
+
+
+def test_buried_without_tools_climbs_a_staircase_to_open_sky():
+    # All tools broke underground: dig a staircase up by hand (stone drops nothing
+    # by hand, so drops are optional) until open sky, then the re-plan makes tools.
+    from mclab.gather_dig import Digger
+    from mclab.gather_runner import GatherReport, GatherState, _escape, _Exec
+
+    world = {
+        (x, y, z): M + ("dirt" if y >= 7 else "stone")
+        for x in range(-12, 13)
+        for y in range(-1, 10)
+        for z in range(-12, 13)
+    }
+    world[(0, 0, 0)] = world[(0, 1, 0)] = M + "air"  # the pocket the body stands in
+    body = FakeGatherBody(K, world, {}, pos=(0, 0, 0), default=M + "air")
+    ex = _Exec(body, K, GatherState(), 48)
+    report = GatherReport()
+    assert _escape(ex, report), report.failures
+    assert body.position()[1] >= 8 and Digger(ex).open_sky()  # head at the top layer
+    assert report.failures[-1] == ("escape", "open_sky")
+    assert M + "cobblestone" not in body.inventory()  # stone by hand gives nothing
+    assert not _escape(ex, report)  # already under the sky: nothing to do

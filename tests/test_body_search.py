@@ -116,13 +116,17 @@ def test_edit_payload_follows_tools_supply_and_protection():
     body_search.BodySearch(c, (0, 1, 0), 3)
     edits = sent[0]["edits"]
     assert edits["step"] and edits["break_costs"]["minecraft:stone"] == 16
-    assert "minecraft:oak_log" not in edits["break_costs"]  # no axe on the hotbar
+    # no axe on the hotbar: the log is still dug, at bare-hand speed (2 x 30 ticks)
+    assert edits["break_costs"]["minecraft:oak_log"] == 60 + 2 + 6
     assert (
         edits["fall_costs"]["minecraft:sand"] == 3 + 2 + 17
     )  # 3 ticks with an iron shovel
     assert edits["place_supply"] == 2  # two cobblestone in the hotbar
     assert edits["protected"] == [[3, 1, 0]]
     no_break = body_search.edit_payload(replace(PROD, allow_break=False), KIT, ())
+    # every tool broken: still a way out, by hand (stone x 100: no drop without a pick)
+    bare = body_search.edit_payload(PROD, [], ())["break_costs"]
+    assert bare["minecraft:dirt"] == 15 + 8 and bare["minecraft:stone"] == 150 + 8
     assert no_break["break_costs"] == {}
 
 

@@ -18,6 +18,8 @@ Pos = tuple[int, int, int]
 DIRS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 MAX_DESCENT = 16
+MAX_CLIMB = 128  # escape staircase: deep caves sit ~120 blocks under the surface
+SKY_CHECK = 8  # the escape ends once this many cells over the head are known air
 MAX_TUNNEL = 24
 DROP_WAIT_TICKS = 20
 CAVE_DEPTH = 4  # sides are only checked for air this far below the start
@@ -100,12 +102,16 @@ class Digger:
             (nx, y - 1, nz),
         ]
 
-    def _dig_cells(self, dig: list[Pos]) -> bool:
+    def _dig_cells(self, dig: list[Pos], drops_optional: bool = False) -> bool:
         for cell in dig:
             ident = _ident(self.body.world(*cell))
             if ident in bp.AIR or ident in bp.REPLACEABLE:
                 continue
-            result = self.body.break_block(cell)
+            result = (
+                self.body.break_block(cell, drops_optional=True)
+                if drops_optional
+                else self.body.break_block(cell)
+            )
             if not result.ok:
                 self.reason = f"break_failed:{result.reason}"
                 return False
@@ -183,3 +189,61 @@ class Digger:
                 break
             self._collect(item, new, target)
         return self.broken > 0
+
+    def open_sky(self) -> bool:
+        x, y, z = self.body.position()
+        return all(
+            _ident(self.body.world(x, y + dy, z)) in bp.AIR
+            for dy in range(2, 2 + SKY_CHECK)
+        )
+
+    def _climb_check(self, feet: Pos, d) -> tuple[list[Pos], str | None]:
+        x, y, z = feet
+        nx, nz = x + d[0], z + d[1]
+        # headroom for the jump, then the two cells the body steps up into
+        dig = [(x, y + 2, z), (nx, y + 2, nz), (nx, y + 1, nz)]
+        if why := self._blocked([*dig, (nx, y, nz)]):
+            return dig, why
+        if _ident(self.body.world(nx, y, nz)) in bp.AIR:
+            return dig, "no_floor"
+        if any(
+            _ident(s) in FALLING for s in self._states([(x, y + 3, z), (nx, y + 3, nz)])
+        ):
+            return dig, "gravel_above"
+        faces = {
+            (cx + fx, cy + fy, cz + fz) for cx, cy, cz in dig for fx, fy, fz in FACES
+        } - set(dig)
+        return dig, self._blocked(sorted(faces))
+
+    def climb(self) -> bool:
+        """Escape: a staircase up, by hand if need be (drops are not needed), until
+        open sky is over the head. For a body that is buried and cannot reach its
+        target, e.g. all tools broke underground and new ones are made on the
+        surface. True once under open sky."""
+        body, direction = self.body, None
+        for _ in range(MAX_CLIMB):
+            if self.open_sky():
+                self.reason = "open_sky"
+                return True
+            feet = body.position()
+            order = ([direction] if direction else []) + [
+                d for d in DIRS if d != direction
+            ]
+            for d in order:
+                dig, why = self._climb_check(feet, d)
+                if why is None:
+                    direction = d
+                    break
+            else:
+                self.reason = why or "no_direction"
+                return False
+            if not self._dig_cells(dig, drops_optional=True):
+                return False
+            if settle := getattr(body, "settle", None):
+                settle(dig)
+            new = (feet[0] + direction[0], feet[1] + 1, feet[2] + direction[1])
+            if not body.walk_to(new, 0.8):
+                self.reason = "walk_failed"
+                return False
+        self.reason = "climb_cap"
+        return False

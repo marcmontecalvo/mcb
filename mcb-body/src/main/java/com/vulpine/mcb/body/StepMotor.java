@@ -105,7 +105,8 @@ final class StepMotor {
     private int settleUntil = -1;
     private int index, started = -1, issueTick = -1, finishedTick = -1;
     private boolean issued, launched;
-    private int blind, approachTick = -1, deadTicks;
+    private int blind, approachTick = -1, deadTicks, handTicks;
+    private final Set<BlockPos> handCells = new HashSet<>();
     private double approachProgress;
     private Vec3 actAnchor;
     private String state = "following", reason = "", placedItem = "";
@@ -237,6 +238,21 @@ final class StepMotor {
         }
         return -1;
     }
+    /**
+     * The tool's slot, else an empty hand: with every tool broken the body still digs
+     * (dirt, leaves, and stone too, slowly and without drops) rather than freezing.
+     * The step deadline grows once per hand-dug cell by its vanilla bare-hand time:
+     * hardness x 100 ticks when the block needs a tool for drops, else x 30.
+     */
+    private int breakSlot(ServerPlayer p,BlockPos pos,String tool) {
+        int n=slot(p,tool);
+        if(n>=0) return n;
+        if(handCells.add(pos)) {
+            var s=p.level().getBlockState(pos);
+            handTicks+=(int)Math.ceil(Math.max(0,s.getDestroySpeed(p.level(),pos))*(s.requiresCorrectToolForDrops()?100:30));
+        }
+        return BreakTask.emptyHotbarSlot(p);
+    }
     private static int exactSlot(ServerPlayer p,String item) {
         for(int n=0;n<9;n++) {
             var stack=p.getInventory().getItem(n);
@@ -267,7 +283,7 @@ final class StepMotor {
 
     BodyRuntime.Controls tick(ServerPlayer p,int tick,RouteGeometry.Reader reader) {
         if(started<0) started=tick;
-        if(tick-started>tickLimit) return stopInput(tick,"native_step_deadline");
+        if(tick-started>tickLimit+handTicks) return stopInput(tick,"native_step_deadline");
         double distance=Math.hypot(p.getX()-source.getX()-.5,p.getZ()-source.getZ()-.5);
         boolean pillar=kind.equals("pillar");
         if(distance>(pillar?.45:.85) || p.getY()<(downward?target.getY():source.getY())-.2 || p.getY()>source.getY()+(pillar?1.4:.2))
@@ -354,7 +370,7 @@ final class StepMotor {
                     } else settleWatch.add(op.point);
                 }
             }
-            selected=slot(p,TOOLS.get(cell.get("block")));
+            selected=breakSlot(p,op.point,TOOLS.get(cell.get("block")));
             // Rays end inside the cut cell, so they cross only the columns between eye and cell.
             Vec3 from=p.getEyePosition(); BlockPos cut=op.point;
             for(int cx=Math.min((int)Math.floor(from.x),cut.getX())>>4;cx<=Math.max((int)Math.floor(from.x),cut.getX())>>4;cx++)
@@ -441,7 +457,7 @@ final class StepMotor {
                     if(neighbor==null || !"minecraft:empty".equals(neighbor.getOrDefault("fluid","minecraft:empty"))
                             || FALLING.contains(neighbor.get("block"))) safe=false;
                 }
-                if(safe) { miningPoint=block.getBlockPos(); selected=slot(p,TOOLS.get(occluder.get("block"))); hit=selected>=0; }
+                if(safe) { miningPoint=block.getBlockPos(); selected=breakSlot(p,miningPoint,TOOLS.get(occluder.get("block"))); hit=true; }
             }
         }
         // A plant (short grass, a flower) in the stance or target line is hit by the ray before the
