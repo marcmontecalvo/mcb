@@ -255,6 +255,32 @@ def test_buried_iron_is_reached_by_a_planned_dig_not_a_staircase():
     assert ("dig_to", (3, -8, 0)) in body.log
 
 
+def test_a_failed_ore_dig_is_retried_until_the_dig_budget_runs_out():
+    # Iron run 20261113T014723010253Z: one incomplete partial walk retired all
+    # digging for the task, the rings found nothing of an underground vein, and
+    # not_found ×3 ended the job. The MAX_DIGS budget bounds retries; a single
+    # failure must not.
+    world = layered(-30, stone_from=-4) | {(3, -9, 0): M + "iron_ore"}
+    body = FakeGatherBody(
+        K, world, {M + "stone_pickaxe": 1}, pos=(0, 0, 0), can_dig=True
+    )
+    real = body.dig_to
+    calls = []
+
+    def dig_to(feet):
+        calls.append(tuple(feet))
+        if len(calls) == 1:
+            return False  # the leg ends incomplete: walked, map grew, no verdict
+        return real(feet)
+
+    body.dig_to = dig_to
+
+    result = _Exec(body, K, GatherState(), 64).gather(_iron_task())
+
+    assert result.ok and body.inventory().get(M + "raw_iron") == 1
+    assert len(calls) == 2  # the failure did not retire digging
+
+
 def test_ore_under_the_feet_is_not_mined_over_a_cave():
     from mclab.gather_runner import _floored
 

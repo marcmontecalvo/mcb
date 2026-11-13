@@ -487,8 +487,12 @@ class _Exec:
                 digs += 1
                 before = body.inventory().get(t.item, 0)
                 if ore:  # a blind tunnel rarely meets ore: only a planned dig to it
-                    if not self.dig_to_stone(t.block, ignore_stair=True):
-                        digs = MAX_DIGS
+                    # A failed candidate still walked a partial route and
+                    # delivered its sections, so the next attempt sees more map:
+                    # the MAX_DIGS budget retires digging, not one bad verdict
+                    # (iron run 20261113T014723010253Z: one incomplete leg
+                    # retired all digging and the sweep ended not_found).
+                    self.dig_to_stone(t.block, ignore_stair=True)
                 else:  # else the staircase starts at the surface
                     self.dig_to_stone(t.block)
                     self.dig_for(t.item, target)
