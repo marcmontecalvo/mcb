@@ -68,13 +68,13 @@ def _break_cost(block, tool=True):
 
 
 def edit_payload(policy, inventory, protected):
-    """Edit permissions and prices for RoutePlanner.EditPolicy (rules of plan_edit).
+    """Edit permissions and prices for RoutePlanner.EditPolicy.
 
     break_costs lists every excavatable block that is not protected, priced with
     its tool when one is on the hotbar, else at bare-hand speed: dirt over stone
     with no shovel walled the bot in (run 20261113T024449677184Z), and a bot whose
-    tools all broke must still dig out to make more. place_supply is how many blocks can be
-    placed in a row (stack_supply), at most the support stack height.
+    tools all broke must still dig out to make more. place_supply is how many
+    blocks can be placed in a row (stack_supply), at most the support stack height.
     """
     inventory = Inventory(dict(r) for r in inventory)
     breaks = {}

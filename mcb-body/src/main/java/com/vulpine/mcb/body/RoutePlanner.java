@@ -894,7 +894,7 @@ final class RoutePlanner {
         return out;
     }
 
-    /** terrain_steps.plan_edit: support stack under the target, then headroom cuts. */
+    /** An edit step: support stack under the target, then headroom cuts. */
     private Edit planEdit(Node source, Node target) {
         int x = source.x, y = (int) source.y, z = source.z, tx = target.x, ty = (int) target.y, tz = target.z;
         List<int[]> places = List.of();
@@ -925,7 +925,7 @@ final class RoutePlanner {
         return new Edit(source, target, cuts, places, "step");
     }
 
-    /** terrain_steps._anchored: support below, or a permitted side anchor one below the source. */
+    /** Support below, or a permitted side anchor one below the source. */
     private boolean anchored(int x, int y, int z, int[] p) {
         if (fullDry(cell(p[0], p[1] - 1, p[2]))) return true;
         return edits.allowBridge && p[1] == y - 1 && Math.abs(p[0] - x) + Math.abs(p[2] - z) == 1

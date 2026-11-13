@@ -14,6 +14,18 @@ with their tests and the Python/Java parity tools (`route_differential.py`,
 now only exports a delivered map and replays it through Java (`routePlannerParity`);
 it replaces `replay_delivered.py`. Mentions of the Python modules below are history.
 
+**Hand breaking and buried escape (2026-11-13):** the iron livelock in
+`companion/20261113T024449677184Z` (147 plans to the dig goal, each hitting the
+4000-node cap) was dirt priced unbreakable with no shovel, not the heuristic: the
+replayed request reaches at 2,892 nodes once dirt is breakable. `edit_payload` now
+prices every breakable block at bare-hand speed when its tool is missing, and
+`StepMotor` breaks with an empty hand (step deadline extended by the hand time).
+Ore gathering without a tool that harvests it stops with `missing_tool` instead of
+tunnelling; underground tool or stance failures run `Digger.climb`, a hand-dug
+staircase up to open sky (`drops_optional` breaks), before the re-plan crafts
+tools. A planner-driven escape was tried and dropped: at hand prices A* floods past
+the node cap. Not yet live-qualified.
+
 **Start here.** This file is the single list of what is done, what is next, and
 where each plan or ledger lives. It holds no decisions of its own: decisions and
 the phase plan are in [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md)
