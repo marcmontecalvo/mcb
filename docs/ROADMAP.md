@@ -114,6 +114,21 @@ Details: [STEP_C_PROGRESS](STEP_C_PROGRESS_2026-10-29.md), cohorts 16–20.
 Each item names where its detail or evidence lives. Numbers are priority, not
 dependencies, except where noted.
 
+**Nov 12–13 standstill pass (battery `results/regression-20261112-wading/`,
+requalify `results/regression-20261112-stall/` and `results/regression-20261113-iron/`;
+runs `companion/20261112T233253015689Z`, `companion/20261112T234500320722Z`,
+`companion/20261113T012352828934Z`, `companion/20261113T014723010253Z`):**
+all eleven battery features now hold the five-second rule — no standstill
+violations anywhere after `06be705` (wading-stance edits in both planners),
+`e7128d1` (geometry-storm cap, stuck-step edge ban, cave-exit stance fallback,
+Java approach no-progress guard) and `461c384` (an arrived explore ring leg
+counts as gather progress). The iron check still FAILs functionally: the
+gather's ore-dig gives up permanently at the first `incomplete` stair leg
+(`digs = MAX_DIGS` in `gather_runner.gather`) and exposed-ore sight alone does
+not find the seed's veins; the 23:32 "pass" reached the ravine only through the
+81 s foothold livelock this pass removed. Fixing iron strategy is next; it is
+not a standstill item.
+
 **Nov 12 continuation:** the reviewed Python corrections now use action-completion
 and terrain-capture ticks for block-edit overlays, including compact terrain;
 furnace-side work is radius-limited and preserves unfinished gather tasks;
