@@ -105,8 +105,9 @@ final class StepMotor {
     private int settleUntil = -1;
     private int index, started = -1, issueTick = -1, finishedTick = -1;
     private boolean issued, launched;
-    private int blind, approachTick = -1;
+    private int blind, approachTick = -1, deadTicks;
     private double approachProgress;
+    private Vec3 actAnchor;
     private String state = "following", reason = "", placedItem = "";
     private final Set<BlockPos> broken = new HashSet<>();
     private final Set<BlockPos> issuedBreaks = new HashSet<>();
@@ -272,6 +273,20 @@ final class StepMotor {
         if(distance>(pillar?.45:.85) || p.getY()<(downward?target.getY():source.getY())-.2 || p.getY()>source.getY()+(pillar?1.4:.2))
             return stopInput(tick,"native_step_displaced");
         var geometry=new RouteGeometry(reader);
+        // A step that neither moves the body nor works toward an edit is dead water:
+        // the placement-aim branch can spin on a non-converging rotation with
+        // issued=false forever (iron run 20261113T022026552455Z: a same-level
+        // foothold held the drive 5 s to Python's idle cutoff; the vertical variant
+        // held one 81.2 s, 20261112T233253015689Z). Movement or an issued edit
+        // zeroes the timer; 60 accumulated dead ticks (3 s, with slack over any
+        // 6-tick settle wait) fail the edge so the replanner bans it - below the
+        // five-second rule without ever touching a step that is doing something.
+        if(issued){ deadTicks=0; actAnchor=null; }
+        else if(index<operations.size()){
+            Vec3 nowPos=p.position();
+            if(actAnchor==null || nowPos.distanceToSqr(actAnchor)>=0.05*0.05) { actAnchor=nowPos; deadTicks=0; }
+            else if(++deadTicks>60) return stopInput(tick,"native_step_no_progress");
+        } else { deadTicks=0; actAnchor=null; }
         for(var cut:issuedBreaks) if(empty(read(reader,cut))) broken.add(cut);
         if(pillar && !geometry.clear(p.getX(),p.getZ(),p.getY(),p.getY()+1.8+(launched?0:1.3)))
             return stopInput(tick,"native_pillar_headroom_changed");
