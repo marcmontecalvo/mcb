@@ -911,3 +911,117 @@ def test_blocker_uses_reported_bounding_box():
     assert native_driver.blocking_entities(
         {"visible_entities": [entity]}, (0, 1, 0), (1, 1, 0)
     ) == [entity]
+
+
+def _storm_rows(count):
+    rows = [{"tick": 1, "route_follower": {"state": "idle"}}]
+    for n in range(1, count + 1):
+        rows += [
+            {
+                "tick": 2 * n,
+                "route_follower": {"route_id": f"native-{n}", "state": "following"},
+            },
+            {
+                "tick": 2 * n + 1,
+                "route_follower": {
+                    "route_id": f"native-{n}",
+                    "state": "needs_replan",
+                    "reason": "route_swept_geometry_unknown_or_unsafe",
+                    "next_index": 1,
+                },
+            },
+        ]
+    return rows
+
+
+def _drive_storm(monkeypatch, rows, plan=None, stuck_at=None):
+    rows = iter([*rows, {"terminal": {"status": "success"}}])
+    records, routes = [], iter(range(1, 100))
+    current = {}
+
+    def send(op, **kw):
+        if op == "follow_route":
+            current["id"] = f"native-{next(routes)}"
+        return {"sequence": 1}
+
+    client = SimpleNamespace(
+        send=send,
+        acknowledge=lambda *_: None,
+        wait=lambda predicate, **kw: predicate(
+            {"route_follower": {"route_id": current.get("id")}}
+        ),
+        record=lambda *args: records.append(args),
+    )
+    controller = SimpleNamespace(
+        route=[],
+        mode="following",
+        terrain=None,
+        gap_jump=None,
+        failed_edges=set(),
+        movement_policy=MovementPolicy(),
+        committed_step=None,
+        own_footholds=set(),
+        edits_broken=0,
+        edits_placed=0,
+        search=None,
+        _admit=lambda _: None,
+        _discard_prefetch=lambda: None,
+        _clear_terrain_forecast=lambda: None,
+        drain_events=lambda: [],
+    )
+    if plan is not None:
+        controller.terrain = SimpleNamespace(plan=plan, policy=TerrainPolicy())
+    if stuck_at is not None:
+        controller.stop_reason = lambda o: (
+            "stuck" if (o.get("tick") or 0) >= stuck_at else None
+        )
+
+    def decide(observation, *, native=False):
+        if plan is None:
+            controller.route = [(0, 1, 0), (1, 1, 0)]
+
+    controller.decide = decide
+    monkeypatch.setattr(
+        native_driver,
+        "policy_state",
+        lambda _c: {"body": {"position": [0.5, 1, 0.5]}, **next(rows)},
+    )
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda _c, row: row.get("terminal"))
+    return native_driver.drive_native(client, controller, 10), controller, records
+
+
+def test_unknown_geometry_storm_ends_the_goto_as_stuck(monkeypatch):
+    # Small house run 20261112T234500320722Z: 29 replans hugged one unverifiable
+    # wall and stood still twice for 5.5 s. Six fast kills now escalate like the
+    # idle cutoff, so the caller changes stance under the 5 s rule.
+    rows = _storm_rows(native_driver.GEOMETRY_STORM_REPLANS)
+    end, controller, records = _drive_storm(monkeypatch, rows)
+    assert end == {"type": "navigation_stopped", "data": {"reason": "stuck"}}
+    assert ((0, 1, 0), (1, 1, 0)) in controller.failed_edges
+    storm = [d for kind, d in records if kind == "native_route_storm_stuck"]
+    assert storm and storm[0]["replans"] == native_driver.GEOMETRY_STORM_REPLANS
+
+
+def test_fewer_geometry_kills_replan_on_without_escalating(monkeypatch):
+    rows = _storm_rows(native_driver.GEOMETRY_STORM_REPLANS - 1)
+    end, _, records = _drive_storm(monkeypatch, rows)
+    assert end == {"status": "success"}
+    assert not [d for kind, d in records if kind == "native_route_storm_stuck"]
+
+
+def test_a_stuck_step_edge_is_banned_for_the_next_plan(monkeypatch):
+    # Iron run 20261112T233253015689Z: a placement step that neither confirmed nor
+    # failed was ended by the 5 s idle cutoff; its edge was banned nowhere, so the
+    # replan reproduced the identical plan 14 times over 81.2 s.
+    plan = StepPlan((0, 5, 0), (1, 5, 0), (), ((1, 4, 0),), "step")
+    rows = [
+        {"tick": 1, "route_follower": {"state": "idle"}},
+        {"tick": 2, "step_follower": {"step_id": "step-1", "state": "following"}},
+        {"tick": 3, "step_follower": {"step_id": "step-1", "state": "following"}},
+    ]
+    end, controller, records = _drive_storm(monkeypatch, rows, plan=plan, stuck_at=3)
+    assert end == {"type": "navigation_stopped", "data": {"reason": "stuck"}}
+    assert ((0, 5, 0), (1, 5, 0)) in controller.failed_edges
+    notes = [d for kind, d in records if kind == "native_step_stuck_banned"]
+    assert notes and notes[0]["ban_until"] == 3 + native_driver.NO_PROGRESS_BAN_TICKS

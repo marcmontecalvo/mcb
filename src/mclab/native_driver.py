@@ -37,6 +37,7 @@ MOB_RETRIES = 2
 # A no-progress edge with no mob in it is banned this long, not for the session:
 # the cause may have been a door mid-swing or a mob that has since left.
 NO_PROGRESS_BAN_TICKS = 200
+GEOMETRY_STORM_REPLANS = 6  # consecutive unknown-geometry route kills before "stuck"
 # Mobs a companion may kill when one still blocks a step after MOB_RETRIES.
 # The mod refuses players, villagers, tamed and non-animal targets on its own.
 CLEARABLE_MOBS = frozenset(
@@ -433,6 +434,7 @@ def drive_native(client, controller, wall_timeout):
     client.last_controller_error = None
     best_distance, best_tick = math.inf, None
     bans, mob_retries = {}, Counter()  # no-progress edges: expiry tick, mob retries
+    geometry_storm = 0  # consecutive route_swept_geometry kills of this drive
     try:
         while time.monotonic() < deadline:
             if getattr(controller, "cancelled", False):
@@ -461,6 +463,24 @@ def drive_native(client, controller, wall_timeout):
             # Companion goto: a controller may end the drive without ending the episode.
             stop_reason = getattr(controller, "stop_reason", None)
             if stop_reason is not None and (why := stop_reason(observation)):
+                if why == "stuck" and active_step is not None:
+                    # The idle cutoff ended a step that neither confirmed nor failed.
+                    # Without a ban here, the replan reproduces the identical plan:
+                    # iron run 20261112T233253015689Z re-issued one placement step
+                    # 13 times over 81.2 s. The step-edge ban of the failed path
+                    # (below) is unreachable while Java still reports "following".
+                    edge = (active_step[1].source, active_step[1].target)
+                    controller.failed_edges.add(edge)
+                    bans[edge] = (observation.get("tick") or 0) + NO_PROGRESS_BAN_TICKS
+                    client.record(
+                        "native_step_stuck_banned",
+                        {
+                            "step_id": active_step[0],
+                            "source": edge[0],
+                            "target": edge[1],
+                            "ban_until": bans[edge],
+                        },
+                    )
                 return {"type": "navigation_stopped", "data": {"reason": why}}
             # A plan-only probe parks the motor until its verdict turns it into
             # the walk (companion_body._GotoController._walk_on).
@@ -601,6 +621,12 @@ def drive_native(client, controller, wall_timeout):
                         "route_drop_requires_water",
                         "route_target_unknown_or_changed",
                     }:
+                        geometry_storm = (
+                            geometry_storm + 1
+                            if native.get("reason")
+                            == "route_swept_geometry_unknown_or_unsafe"
+                            else 0
+                        )
                         index = native.get("next_index", 1)
                         route = active_route
                         decision = None
@@ -655,6 +681,26 @@ def drive_native(client, controller, wall_timeout):
                     controller.route.clear()
                     controller.search = None
                     controller._discard_prefetch()
+                    if geometry_storm >= GEOMETRY_STORM_REPLANS:
+                        # Six kills within ~1.2 s of each other: the wall the motor
+                        # cannot verify is still there and the next plan will hug it
+                        # again (small house run 20261112T234500320722Z: 29 replans
+                        # to one stance, two 5.5 s stands past the analyzer floor).
+                        # End the goto now; the caller picks a different stance.
+                        client.record(
+                            "native_route_storm_stuck",
+                            {
+                                "replans": geometry_storm,
+                                "position": observation["body"]["position"],
+                                "tick": observation.get("tick"),
+                            },
+                        )
+                        return {
+                            "type": "navigation_stopped",
+                            "data": {"reason": "stuck"},
+                        }
+                else:
+                    geometry_storm = 0
                 controller.air_waypoint = None
                 controller.motion_origin_height = None
                 if controller.committed_step is not None:

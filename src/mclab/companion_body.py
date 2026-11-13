@@ -1241,7 +1241,16 @@ class CompanionBody:
                 return True
             if getattr(self, "walk_only", False) and self.position() == here:
                 self._failed_stance_probes[key] = time.monotonic() + 10.0
-        if not stances and not avoid and self._worth_searching(target):
+        if (
+            not avoid
+            and (not stances or self.position() == here)
+            and self._worth_searching(target)
+        ):
+            # All known stances probed without moving the body: from a dug cave the
+            # way back needs terrain edits, which a walk-only probe can never plan
+            # (iron run 20261112T233253015689Z: 15 unreachable probes, then three
+            # furnace crafts died on no_stance and the job with them). The
+            # interaction search may edit, so it can dig its own way out.
             if self._navigate(target, reach=reach, radius=2):
                 if self.position() not in avoid:
                     return True

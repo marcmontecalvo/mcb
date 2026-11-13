@@ -564,6 +564,44 @@ def test_walk_only_reuses_failed_stance_probe_until_geometry_changes(monkeypatch
     assert seen == [*goals, *goals]
 
 
+def test_goto_stance_far_target_uses_the_edit_search_after_probes_park(monkeypatch):
+    # Iron run 20261112T233253015689Z: deep in its own dug cave, every known stance
+    # for the crafting table probed "unreachable" (walk-only partial routes); the
+    # edit-allowing interaction search was gated on an empty stance list, never ran,
+    # and three furnace crafts died on no_stance. One parked probe set now falls
+    # through to a real (editing) route to the interaction goal.
+    b, _, _ = body()
+    b._obs["body"]["position"] = [20.5, 0.0, 20.5]
+    calls = []
+
+    def navigate(goal, *, reach, radius, probe=False):
+        calls.append((goal, probe))
+        return False
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    monkeypatch.setattr(b, "stances", lambda *a, **k: [(200, 0, 196), (201, 0, 196)])
+    assert b.goto_stance((200, 0, 200), 4.5) is False
+    assert calls[-1] == ((200, 0, 200), False)  # the fallback walk, edits allowed
+
+
+def test_goto_stance_keeps_probing_near_targets_without_the_edit_search(monkeypatch):
+    # _worth_searching: inside the sensed map the interaction search only floods
+    # the known graph (ravine run 20261101T203526520132Z) - a failed probe set near
+    # home must NOT trigger it.
+    b, _, _ = body()
+    b._obs["body"]["position"] = [20.5, 0.0, 20.5]
+    calls = []
+
+    def navigate(goal, *, reach, radius, probe=False):
+        calls.append((goal, probe))
+        return False
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    monkeypatch.setattr(b, "stances", lambda *a, **k: [(22, 0, 22)])
+    assert b.goto_stance((23, 0, 23), 4.5) is False
+    assert all(goal != (23, 0, 23) for goal, _ in calls)  # no fallback walk
+
+
 def test_build_runner_tries_second_walk_only_stance_when_first_fails(monkeypatch):
     from test_build_plan import BLOCKS
 

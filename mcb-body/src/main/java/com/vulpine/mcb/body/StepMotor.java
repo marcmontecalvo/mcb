@@ -105,7 +105,8 @@ final class StepMotor {
     private int settleUntil = -1;
     private int index, started = -1, issueTick = -1, finishedTick = -1;
     private boolean issued, launched;
-    private int blind;
+    private int blind, approachTick = -1;
+    private double approachProgress;
     private String state = "following", reason = "", placedItem = "";
     private final Set<BlockPos> broken = new HashSet<>();
     private final Set<BlockPos> issuedBreaks = new HashSet<>();
@@ -308,7 +309,7 @@ final class StepMotor {
                 if(!issued || !placedItem.equals(cell.get("block"))) return stopInput(tick,"native_placement_changed");
                 placed.put(op.point,placedItem);
             } else if(issuedBreaks.contains(op.point)) broken.add(op.point);
-            index++; issued=false; placedItem=""; issueTick=-1;
+            index++; issued=false; placedItem=""; issueTick=-1; approachTick=-1;
             return input(tick,0,0,0,false,false,false,false,0);
         }
         if(issued && op.place) {
@@ -378,6 +379,15 @@ final class StepMotor {
             // ~30 ticks per placement (Step C run 20261030T023556227338Z: median 39).
             boolean approach=!pillar && op.point.getY()<source.getY() && Math.abs(dx)+Math.abs(dz)==1;
             if(approach && progress<.6) {
+                // The sneak edge clamp pins the centre at the support's rim, so a
+                // stance whose neighbour is empty below can never cross progress .6:
+                // the approach looped forever, issued=false, reason="" (iron run
+                // 20261112T233253015689Z: one step re-issued 13 times over 81.2 s).
+                // A stalling approach is a failed edge: report it, let the replanner
+                // ban it and route around.
+                if(progress>approachProgress+.02) { approachProgress=progress; approachTick=tick; }
+                else if(approachTick<0) approachTick=tick;
+                if(!issued && tick-approachTick>60) return stopInput(tick,"native_placement_no_progress");
                 double turn=wrap(Math.toDegrees(Math.atan2(-dx,dz))-p.getYRot());
                 return input(tick,Math.abs(turn)<8?1:0,Math.max(-45,Math.min(45,turn)),0,false,true,false,false,Math.max(0,selected));
             }
