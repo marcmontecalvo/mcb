@@ -178,9 +178,12 @@ def test_containers_record_position_and_contents():
     assert body.inventory()[M + "oak_log"] == 3
 
 
-def test_a_run_that_collects_nothing_stops_stalled():
-    # no trees anywhere: exploring finds nothing, and the watchdog ends the run
+def test_a_run_whose_walks_never_arrive_stops_stalled():
+    # The treeless-shore guard (run 20261102T120137588638Z: 100,000 ticks): the
+    # watchdog counts an arrived ring leg as progress, so the guard for a body
+    # that walks nowhere is still the inventory clock.
     body = FakeGatherBody(K, floor())
+    body.walk_to = lambda pos, radius=1.5: False
     now = [0.0]
 
     def clock():
@@ -191,6 +194,26 @@ def test_a_run_that_collects_nothing_stops_stalled():
 
     assert report.stop == "stalled", report
     assert now[0] < 400  # ended within a few checks of the limit, not after the rings
+
+
+def test_arrived_but_fruitless_rings_end_the_task_not_the_watchdog():
+    # Iron run 20261113T012352828934Z: healthy long walks between quiet rings
+    # crossed the 120 s inventory watchdog and stopped the sweep before its last
+    # two rings. Arrivals now keep the clock quiet; the ring spiral itself bounds
+    # the search, so the task fails honestly with not_found.
+    body = FakeGatherBody(K, floor())
+    now = [0.0]
+
+    def clock():
+        now[0] += 10.0
+        return now[0]
+
+    report = run({M + "oak_planks": 4}, body, stall_s=120, clock=clock)
+
+    assert report.stop == "failed", report
+    assert all(reason == "not_found" for _, reason in report.failures)
+    radii = {radius for radius, _ in report.state.explored}
+    assert radii == {16, 32, 48, 64}  # every ring was swept
 
 
 def test_an_unreachable_patch_is_skipped_as_a_whole():

@@ -289,7 +289,13 @@ class _Exec:
                 rad = math.radians(angle)
                 x = ox + round(radius * math.cos(rad))
                 z = oz + round(radius * math.sin(rad))
-                self.body.walk_to((x, self._surface_y(x, z, oy), z), 2.0)
+                if self.body.walk_to((x, self._surface_y(x, z, oy), z), 2.0):
+                    # An arrived ring leg is progress even when the inventory is
+                    # quiet: two long surface walks between veins crossed the 120 s
+                    # watchdog and ended a healthy sweep at its last legs (iron run
+                    # 20261113T012352828934Z, stop=stalled at radius 64). A stuck
+                    # walk never arrives, so the treeless-shore guard stands.
+                    self._seen, self._since = dict(self.body.inventory()), self.clock()
                 if found():
                     return True
         return False
