@@ -1,8 +1,7 @@
 """Bench: admit a 64-radius full-height chunk view through SpatialMemory.
 
 Synthetic rolling terrain, sent as native-sized samples (8192 cells). Reports
-admission ms per sample, retained cells, section memory, persistence backlog and
-A* expansions/s on the grid snapshot vs a plain dict of the same surface band.
+admission ms per sample, retained cells, section memory and persistence backlog.
 
     rtk proxy uv run --locked python scripts/bench-pathing-grid.py [--memory-module P]
 
@@ -22,7 +21,6 @@ import tracemalloc
 from pathlib import Path
 
 from mclab.awareness import Awareness
-from mclab.route_search import RouteSearch
 from mclab.spatial_archive import MapArchive
 
 RADIUS, BOTTOM, TOP, SAMPLE = 64, -64, 320, 8192
@@ -102,21 +100,6 @@ def load_memory(path):
     return module
 
 
-def astar(cells, label):
-    start = (-40, surface(-40, -40) + 1, -40)
-    goal = (40, surface(40, 40) + 1, 40)
-    search = RouteSearch(cells, start, goal, map_revision=1, owned_snapshot=True)
-    began = time.perf_counter()
-    result = search.advance(node_limit=200000, budget_ms=60000, segment_length=1000)
-    elapsed = time.perf_counter() - began
-    return {
-        "map": label,
-        "status": result.status,
-        "expanded": result.expanded,
-        "nodes_per_s": round(result.expanded / elapsed),
-    }
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--memory-module")
@@ -149,7 +132,7 @@ def main():
             traced_mb = round(tracemalloc.get_traced_memory()[0] / 2**20, 1)
         drain_s = None
         if failure is None:
-            _, view = memory.planning_snapshot()
+            memory.planning_snapshot()
             # No deadline here: measure how long the writer needs to catch up.
             drain_began = time.perf_counter()
             while memory.status()["persistence_queue"] or getattr(
@@ -163,12 +146,6 @@ def main():
                     tracemalloc.get_traced_memory()[0] / 2**20, 1
                 )
                 tracemalloc.stop()
-        band = {
-            (x, y, z): state(x, y, z) | {"position": [x, y, z]}
-            for x in range(-RADIUS, RADIUS + 1)
-            for z in range(-RADIUS, RADIUS + 1)
-            for y in range(surface(x, z) - 2, surface(x, z) + 5)
-        }
         report = {
             "module": args.memory_module or "mclab.spatial_memory",
             "samples": len(durations),
@@ -188,8 +165,6 @@ def main():
             "writer_cells_per_s": drain_s
             and round(status["active_cells"] / (sum(durations) / 1000 + drain_s)),
             "live_inflow_cells_per_s": SAMPLE * 4,
-            "astar": [astar(band, "dict surface band")]
-            + ([astar(view, "grid snapshot")] if failure is None else []),
         }
         try:
             memory.close()

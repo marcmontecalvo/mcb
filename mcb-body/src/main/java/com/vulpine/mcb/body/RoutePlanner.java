@@ -11,11 +11,10 @@ import java.util.PriorityQueue;
 import java.util.Set;
 
 /**
- * Compiled planner core (ROADMAP item 8): mclab.route_search under the production flags
- * (tick costs, Baritone search and diagonals, shapes, swimming, gaps, ladders, water
- * landings, unknown-space exits and, with withEdits, the edit edges). Same costs,
- * heuristic, partial-path rule and tail cutoff, so routes match the Python planner on the
- * same cells. Unknown cells are never air or support. Not thread-safe: one search per instance.
+ * The route planner (ROADMAP item 8): tick costs, Baritone search and diagonals, shapes,
+ * swimming, gaps, ladders, water landings, unknown-space exits and, with withEdits, the
+ * edit edges. Baritone's costs, heuristic, partial-path rule and tail cutoff. Unknown cells
+ * are never air or support. Not thread-safe: one search per instance.
  */
 final class RoutePlanner {
     record Node(int x, double y, int z) {
@@ -25,13 +24,13 @@ final class RoutePlanner {
     /** One planned edit edge (terrain_steps.StepPlan): blocks to break and to place, in order. */
     record Edit(Node source, Node target, List<int[]> breaks, List<int[]> places, String kind) { }
 
-    // Baritone ActionCosts and Settings, reimplemented (same values as route_search.py).
+    // Baritone ActionCosts and Settings, reimplemented (Baritone v1.20.0 values).
     static final double WALK = 20 / 4.317, SPRINT = 20 / 5.612, WALK_OFF = WALK * .8,
             CENTER_AFTER_FALL = WALK - WALK_OFF, JUMP = fallTicks(1.25) - fallTicks(.25),
             COST_HEURISTIC = 3.563, JUMP_PENALTY = 2.0, SQRT2 = Math.sqrt(2);
     static final double[] COEFFICIENTS = {1.5, 2, 2.5, 3, 4, 5, 10};
     static final int MIN_DIST_PATH = 5, CUTOFF_MIN = 30, NEAR_H = 8, NEAR_V = 4;
-    // route_search.DIG_RISE: an edit step breaking two stone blocks, then the ascend.
+    // DIG_RISE: an edit step breaking two stone blocks, then the ascend.
     static final double DIG_RISE = 51.63284688441047;
     static final double SWIM = 20 / 2.2, FLOWING = 1.5, LADDER_UP = 20 / 2.35, LADDER_DOWN = 20 / 3.0;
     static final int LANDING_MAX = 20, SURFACE_SCAN = 40;
@@ -98,7 +97,7 @@ final class RoutePlanner {
     RoutePlanner(RouteGeometry.Reader reader, Node start, Node goal, double radius, int maxDrop, boolean sprint) {
         this(reader, start, goal, radius, maxDrop, sprint, 0);
     }
-    /** unknownPenalty 0: known-only planning; else route_search planner_unknown with that penalty. */
+    /** unknownPenalty 0: known-only planning; else planner_unknown: unknown cells cost that penalty. */
     RoutePlanner(RouteGeometry.Reader reader, Node start, Node goal, double radius, int maxDrop, boolean sprint,
                  double unknownPenalty) {
         this.reader = reader; this.start = start; this.goal = goal;
@@ -171,7 +170,7 @@ final class RoutePlanner {
             if (entry[3] == 1)  // the cheapest way on runs through unknown space
                 return terminal = trim(result("segment", node, cost));
             expanded++;
-            // Later edges from a node see the edits of the edge that reached it (route_search._view).
+            // Later edges from a node see the edits of the edge that reached it.
             overlay = null;
             if (edits != null) overlay = overlayOf(plans.get(node));
             double estimate = closeness(node);
@@ -221,7 +220,7 @@ final class RoutePlanner {
         return new Result(r.status, route, r.expanded, costs.get(route.get(route.size() - 1)), steps);
     }
 
-    // Partial-route estimate (route_search._remaining(node, 1)): walk rate when planning
+    // Partial-route estimate (remaining(node, 1)): walk rate when planning
     // through unknown space, else the Baritone heuristic.
     private double closeness(Node node) {
         return ticks ? (unknownPenalty > 0 ? horizontal(node) * WALK + vertical(node, false, false) : remaining(node)) : distance(node);
@@ -307,7 +306,7 @@ final class RoutePlanner {
         return new Result(status, route, expanded, cost, steps);
     }
 
-    // Goal: horizontal disk of the radius at exact standing height (route_search._distance).
+    // Goal: horizontal disk of the radius at exact standing height.
     double distance(Node node) {
         if (reach != null) {
             if (!avoidStances.contains(node) && interacts(node)) return 0;
@@ -350,7 +349,7 @@ final class RoutePlanner {
         return edge;
     }
 
-    // Baritone GoalXZ octile heuristic x COST_HEURISTIC plus GoalYLevel (route_search._remaining).
+    // Baritone GoalXZ octile heuristic x COST_HEURISTIC plus GoalYLevel.
     double remaining(Node node) {
         if (!ticks) return distance(node);
         return (baritoneSearch ? COST_HEURISTIC : SPRINT) * horizontal(node) + vertical(node, false, false);
@@ -365,7 +364,7 @@ final class RoutePlanner {
         Move(Node target, double cost) { this(target, cost, null); }
     }
 
-    // Same order as route_search._moves: equal-cost ties keep the first move found.
+    // Fixed move order: equal-cost ties keep the first move found.
     private List<Move> moves(Node node) {
         var out = new ArrayList<Move>(8);
         int x = node.x, z = node.z; double y = node.y;
@@ -397,7 +396,7 @@ final class RoutePlanner {
                     if (reached != null) reached.add(target);
                 }
             }
-            if (editReady) for (int dy = 0; dy <= 1; dy++) {  // route_search._edit_edges
+            if (editReady) for (int dy = 0; dy <= 1; dy++) {
                 var target = new Node(x + d[0], y + dy, z + d[1]);
                 if (!reached.contains(target)) addEdit(planEdit(node, target), heightCost(dy), node, out);
             }
@@ -441,7 +440,7 @@ final class RoutePlanner {
         return true;
     }
 
-    // --- swimming (water_movement, route_moves) ---
+    // --- swimming ---
 
     private static boolean dry(Map<String, Object> c) { return "minecraft:empty".equals(c.getOrDefault("fluid", "minecraft:empty")); }
     private static boolean empty(Map<String, Object> c) {
@@ -474,7 +473,7 @@ final class RoutePlanner {
     boolean supported(Node n) {
         return surfaceNode(n) || ((shapes ? standable(n) : blockStandable(n)) && safe(cell(n.x, (int) Math.ceil(n.y) - 1, n.z)));
     }
-    /** route_moves.swim_cost under planner_swim; 0 when there is no swim edge. */
+    /** Swim cost under planner_swim; 0 when there is no swim edge. */
     private double swimCost(Node source, Node target) {
         if (!plannerSwim) {
             return (surfaceNode(source) || surfaceNode(target)) && supported(source) && supported(target)
@@ -507,7 +506,7 @@ final class RoutePlanner {
     }
     private static boolean fullDry(Map<String, Object> c) { return c != null && dry(c) && fullCube(c); }
 
-    // --- Baritone extra moves without edits: ladders, water landings (route_moves.extra_moves) ---
+    // --- Baritone extra moves without edits: ladders, water landings ---
 
     /** navigation.standable: full-cube floor, empty feet and head (integral heights only). */
     private boolean blockStandable(Node n) {
@@ -591,7 +590,7 @@ final class RoutePlanner {
         return flat();
     }
 
-    /** -1 unknown or hazard below, 0 blocked, 1 passable (route_search._side). */
+    /** -1 unknown or hazard below, 0 blocked, 1 passable. */
     private int side(int x, double y, int z) {
         int fy = (int) Math.floor(y);
         if (cell(x, fy, z) == null || cell(x, fy + 1, z) == null) return -1;
@@ -723,7 +722,7 @@ final class RoutePlanner {
         return false;
     }
 
-    // --- edit edges (stage D): terrain_steps.plan_edit, route_moves, route_search._edit_cost ---
+    // --- edit edges (stage D) ---
 
     /**
      * Edit permissions and prices from the Python side (body_search.edit_payload). breakCosts
@@ -782,7 +781,7 @@ final class RoutePlanner {
         }
     }
 
-    // MCB-measured edit overheads (route_search and terrain_steps constants of the same names).
+    // MCB-measured edit overheads (terrain_steps constants of the same names).
     static final double EDIT_STEP = 15, PLACE = 20, STACK_PLACE = 20, BRIDGE_PLACE = 15, EDIT_CHAIN = 10;
     private static final int[][] CUT_SIDES = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, -1}};
     private static final Set<String> FALLING = Set.of("minecraft:sand", "minecraft:red_sand", "minecraft:gravel",
@@ -809,7 +808,7 @@ final class RoutePlanner {
         return this;
     }
 
-    /** route_search._changes: broken cells (and the falling stack over them) become air, placed ones cubes. */
+    /** Planned changes: broken cells (and the falling stack over them) become air, placed ones cubes. */
     private Map<Long, Map<String, Object>> overlayOf(Edit edit) {
         if (edit == null) return null;
         var out = new HashMap<Long, Map<String, Object>>();
@@ -832,7 +831,7 @@ final class RoutePlanner {
         if (cost < Double.POSITIVE_INFINITY) out.add(new Move(edit.target, cost, edit));
     }
 
-    /** route_search._priced, summed in the same order so equal-cost ties match. */
+    /** Edit cost, summed in a fixed order so equal-cost ties are deterministic. */
     private double editCost(Edit edit, double base, Node from) {
         if (!ticks) return (edit.target.y > edit.source.y ? 1.4 : 1)
                 + (breakPenalty + toolWearPenalty) * edit.breaks.size() + placePenalty * edit.places.size();
@@ -933,12 +932,12 @@ final class RoutePlanner {
                 && empty(cell(p[0], p[1] - 1, p[2])) && fullDry(cell(x, y - 1, z));
     }
 
-    /** route_moves._cuts plus the callers' "nothing to break" rule. */
+    /** Cells to cut, plus the callers' "nothing to break" rule. */
     private List<int[]> budgeted(List<int[]> cuts) {
         return cuts == null || cuts.isEmpty() || cuts.size() > edits.breakBudget ? null : cuts;
     }
 
-    /** route_moves.prepare_downward: break the floor, drop 1 onto a known safe cube. */
+    /** Downward: break the floor, drop 1 onto a known safe cube. */
     private Edit downward(Node node) {
         int x = node.x, y = (int) node.y, z = node.z;
         var support = cell(x, y - 2, z);
@@ -947,7 +946,7 @@ final class RoutePlanner {
         return cuts == null ? null : new Edit(node, new Node(x, node.y - 1, z), cuts, List.of(), "downward");
     }
 
-    /** route_moves.prepare_descend: clear the target's feet, head and the cell above, onto a safe cube. */
+    /** Descend: clear the target's feet, head and the cell above, onto a safe cube. */
     private Edit descend(Node node, int[] d) {
         int y = (int) node.y, tx = node.x + d[0], tz = node.z + d[1];
         var floor = cell(tx, y - 2, tz);
@@ -960,7 +959,7 @@ final class RoutePlanner {
         return cuts == null ? null : new Edit(node, new Node(tx, node.y - 1, tz), cuts, List.of(), "descend");
     }
 
-    /** route_moves.prepare_pillar_edge: place under the feet while jumping (no head cut). */
+    /** Pillar edge: place under the feet while jumping (no head cut). */
     private Edit pillar(Node node) {
         int x = node.x, y = (int) node.y, z = node.z;
         if (!edits.allowPillar || !edits.allowPlace || edits.placeBudget < 1 || edits.placeSupply < 1

@@ -131,7 +131,7 @@ must be exact:
   Carried sections are not repeated there (repeating them made 3 MB events and
   timed out `/events`). Consequence: the event log is *what the body scanned*, not
   *what the controller received*; for the latter use the `policy_observation`
-  sample ticks (`scripts/analysis/replay_delivered.py`).
+  sample ticks (`scripts/analysis/planner_parity.py`).
 - Do not read `/policy` just to poll for a state; that consumes a batch. Use `/state`.
 
 Before this, batches produced before the controller's first read (40–70 ticks

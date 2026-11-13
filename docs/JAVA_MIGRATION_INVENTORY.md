@@ -1,8 +1,9 @@
 # Java planner migration inventory
 
 This is a development implementation ledger, not live qualification. Segmented
-production callers use the body planner; the Python search and terrain-beam
-implementations are explicit offline reference oracles. The original installed
+production callers use the body planner. The Python search and terrain-beam
+reference oracles were deleted on 2026-11-13; the Python/Java differential evidence
+below is history. The original installed
 mod and pre-migration baseline remain separate from this candidate.
 
 | Production path or invariant | Migration state | Evidence or work remaining |
@@ -16,7 +17,7 @@ mod and pre-migration baseline remain separate from this candidate.
 | Memory current/session/persistent and historical geometry | Snapshot selected by controller, sent as versioned bounded section deltas | Encoder, immutable-reader, unknown, eviction and acknowledgement tests; live mode coverage and performance remain |
 | Resource limits and policies for edits | Java planner and terrain beam with full protected footprints and ordered large-request framing | Protected/budget/stock fixtures and large-payload checks; end-to-end large schematic remains |
 | Replanning, cancellation, stale revisions and backpressure | Serialized per-bridge snapshot transfer and explicit plan cancellation | Supersession, frame/ack failures and immutable-generation tests; long-running live stress remains |
-| Production Python search removal | No production route/terrain search imports or selection flag | Isolated subprocess import/CLI boundary test; reference controllers live under tests |
+| Python search removal | Python route and terrain-beam search deleted (2026-11-13) | Java is the only planner; `planner_parity.py` replays a delivered map through `routePlannerParity` |
 | Precise stance arrival and near-goal replanning | Checked same-cell centering and actual interaction eye position | Controller and Java motor fixtures; reproduce the baseline house case live |
 | Qualification, matched calm and survival checks | Not run on migrated build | Independent review first; source-bound development regression and paired baselines before any scored admission |
 

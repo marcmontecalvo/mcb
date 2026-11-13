@@ -1,19 +1,12 @@
 """Phase 6: D7 survival terms, named cost profiles, the Jev contract."""
 
-from dataclasses import replace
-
 import pytest
-from test_planner_core import search, world
 
 from mclab import jev_contract as jev
 from mclab.profiles import PROFILES, apply_profile, load_profile, threats
 from mclab.terrain_steps import TerrainPolicy
 
 TICKS = TerrainPolicy(planner_tick_costs=True)
-
-
-def flat(x, y, z):
-    return "minecraft:stone" if y == 0 else None
 
 
 def test_every_named_profile_loads_and_race_changes_nothing():
@@ -23,41 +16,6 @@ def test_every_named_profile_loads_and_race_changes_nothing():
     assert load_profile("escort")["goal"] == {"kind": "follow", "radius": 3}
     with pytest.raises(ValueError):
         load_profile("reckless")
-
-
-def test_safe_profile_detours_around_a_hostile_and_hunt_walks_through():
-    # 9 wide corridor; the zombie stands on the straight line to the goal.
-    cells = world(range(-1, 21), range(-5, 6), flat, 4)
-    zombie = ((10, 1, 0),)
-
-    def max_offset(name, **overrides):
-        policy = replace(apply_profile(name, TICKS), **overrides)
-        r = search(cells, (0, 1, 0), (20, 1, 0), policy, threats=zombie)
-        assert r.status == "reached"
-        return max(abs(n[2]) for n in r.route)
-
-    assert max_offset("race") == 0
-    # The profile's 12-block radius spans this corridor; a 3-block one leaves room.
-    assert max_offset("safe", mob_radius=3) >= 3
-    assert max_offset("hunt", mob_radius=3) == 0
-
-
-def test_hazard_penalty_steers_away_from_lava_beside_the_line():
-    def solid(x, y, z):
-        if (x, z) == (5, 1) and y == 0:
-            return None
-        return "minecraft:stone" if y == 0 else None
-
-    cells = world(range(-1, 11), range(-3, 4), solid, 4)
-    cells[(5, 0, 1)] = {
-        "position": [5, 0, 1],
-        "block": "minecraft:lava",
-        "fluid": "minecraft:lava",
-        "collision_boxes": [],
-    }
-    safe = search(cells, (0, 1, 0), (10, 1, 0), apply_profile("safe", TICKS))
-    assert safe.status == "reached"
-    assert (5, 1, 0) not in [tuple(n) for n in safe.route]
 
 
 def test_threats_are_visible_hostiles_only():

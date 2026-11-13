@@ -10,7 +10,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Runs RoutePlanner on a map exported by scripts/analysis/planner_parity.py and prints
+ * Replays one planning request: runs RoutePlanner on a map exported by
+ * scripts/analysis/planner_parity.py and prints
  * {status, route, expanded, cost, ms} as JSON. Args: export.json nodeLimit [repeats].
  */
 public final class RoutePlannerParity {

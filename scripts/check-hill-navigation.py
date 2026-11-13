@@ -147,7 +147,6 @@ def main():
             name: sha256(ROOT / "src/mclab" / name)
             for name in (
                 "navigation_segmented.py",
-                "route_search.py",
                 "spatial_memory.py",
                 "pathing_grid.py",
                 "spatial_archive.py",
@@ -164,8 +163,6 @@ def main():
                 "pillar_steps.py",
                 "gap_jump.py",
                 "water_movement.py",
-                "terrain_route.py",
-                "planning_worker.py",
                 "navigation.py",
                 "awareness.py",
                 "model_execution.py",

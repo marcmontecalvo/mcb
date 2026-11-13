@@ -31,7 +31,7 @@ public final class TerrainPlannerTest {
             if(++calls>10000) throw new AssertionError("search did not terminate"); } while(r.status().equals("searching"));
         return r;
     }
-    private static void pythonFixtures() {
+    private static void fixtures() {
         var cells=new HashMap<Key,Map<String,Object>>();
         for(int x=-2;x<3;x++) for(int y=0;y<8;y++) for(int z=-2;z<7;z++) {
             boolean solid=y==0 || (Math.abs(x)==1 && y<7);
@@ -75,24 +75,8 @@ public final class TerrainPlannerTest {
         TerrainPlanner.Result result; do { result=planner.advance(1000,Long.MAX_VALUE); } while(result.status().equals("searching")); return result;
     }
     private static String point(RoutePlanner.Node p) { return p.x()+","+(int)p.y()+","+p.z(); }
-    private static void parity() {
-        for(int count=0;count<=4;count++) for(int reserve=0;reserve<=1;reserve++) for(int mode=0;mode<3;mode++) {
-            var map=new HashMap<Key,Map<String,Object>>();
-            for(int x=-2;x<3;x++) for(int y=-3;y<6;y++) for(int z=-1;z<7;z++) {
-                boolean solid=(y<0 && !(z>=1 && z<=3 && y>=-2)) || (Math.abs(x)==1 && y>=0);
-                map.put(new Key(x,y,z),cell(solid?(y>=0?"bedrock":"stone"):"air",solid));
-            }
-            if(mode==1) map.remove(new Key(0,-2,2));
-            var p=new TerrainPlanner.Policy(false,true,8,8,reserve,List.of("minecraft:cobblestone","minecraft:dirt"),Set.of(),mode==2?Set.of(n(0,-1,2)):Set.of(),3,4,0,true,1,false,3,false,false,true);
-            var planner=new TerrainPlanner((x,y,z)->map.get(new Key(x,y,z)),n(0,0,0),n(0,0,4),0,p,List.of(new TerrainPlanner.Stock(3,"minecraft:cobblestone",count)),Set.of(),Set.of(),1,4,24);
-            var r=finish(planner); var route=String.join(";",r.route().stream().map(TerrainPlannerTest::point).toList());
-            var steps=new ArrayList<String>(); for(var s:r.steps()) steps.add(point(s.target())+":"+String.join("/",s.places().stream().map(TerrainPlannerTest::point).toList()));
-            System.out.println(count+"|"+reserve+"|"+mode+"|"+r.status()+"|"+r.expanded()+"|"+route+"|"+String.join(";",steps));
-        }
-    }
     public static void main(String[] args) {
-        if(args.length>0 && args[0].equals("parity")) { parity(); return; }
-        pythonFixtures();
+        fixtures();
         var cells=cliff(4); var result=run(cells,n(0,4,4),policy(3,false,0,8,Set.of()),6,2);
         check(result.status().equals("reached") && result.steps().size()==4,"staircase reaches the observed exit");
         check(result.steps().stream().map(TerrainPlanner.Step::places).toList().equals(List.of(

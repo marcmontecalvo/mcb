@@ -278,7 +278,7 @@ def test_splice_joins_prefetch_onto_unfinished_route_only_when_safe_to_hand_over
     from types import SimpleNamespace
 
     from mclab.native_driver import splice_route
-    from mclab.route_search import RouteResult
+    from mclab.route_types import RouteResult
 
     route = [(0, 1, 0), (1, 1, 0), (2, 1, 0), (3, 1, 0)]
 
@@ -332,7 +332,7 @@ def test_splice_truncates_to_motor_cap_once_under_planning_lookahead():
         remaining_ticks,
         splice_route,
     )
-    from mclab.route_search import RouteResult
+    from mclab.route_types import RouteResult
 
     def run(active_len):
         route = [(x, 1 + x, 0) for x in range(active_len)]
@@ -376,7 +376,7 @@ def test_splice_that_changes_nothing_is_not_resubmitted():
     from types import SimpleNamespace
 
     from mclab.native_driver import MOTOR_ROUTE_POINTS, splice_route
-    from mclab.route_search import RouteResult
+    from mclab.route_types import RouteResult
 
     route = [(x, 1, 0) for x in range(MOTOR_ROUTE_POINTS)]
     tail = tuple((x, 1, 0) for x in range(MOTOR_ROUTE_POINTS - 1, 40))
@@ -404,7 +404,7 @@ def test_splice_that_changes_nothing_is_not_resubmitted():
 def _refresh_controller(start, tail):
     from types import SimpleNamespace
 
-    from mclab.route_search import RouteResult
+    from mclab.route_types import RouteResult
 
     c = SimpleNamespace(
         prefetch=SimpleNamespace(
@@ -896,8 +896,12 @@ def test_mixed_blockers_do_not_clear_animal(monkeypatch):
 
 @pytest.mark.parametrize("feet_y", [1, -0.2])
 def test_named_cow_near_path_guards_against_killing_sheep(monkeypatch, feet_y):
-    cow = {"uuid": "c1", "type": "minecraft:cow", "named": True,
-           "position": [1.5, feet_y, 1.2]}
+    cow = {
+        "uuid": "c1",
+        "type": "minecraft:cow",
+        "named": True,
+        "position": [1.5, feet_y, 1.2],
+    }
     killed = []
     rows = _no_progress_rows([SHEEP, cow], [5, 10, 15])
     _, notes, _ = _drive_no_progress(monkeypatch, rows, clear_mob=killed.append)
@@ -906,8 +910,11 @@ def test_named_cow_near_path_guards_against_killing_sheep(monkeypatch, feet_y):
 
 
 def test_blocker_uses_reported_bounding_box():
-    entity = {**SHEEP, "position": [1.5, 1, 1.4],
-              "bounding_box": [1.1, 1, 0.7, 1.9, 2, 2.1]}
+    entity = {
+        **SHEEP,
+        "position": [1.5, 1, 1.4],
+        "bounding_box": [1.1, 1, 0.7, 1.9, 2, 2.1],
+    }
     assert native_driver.blocking_entities(
         {"visible_entities": [entity]}, (0, 1, 0), (1, 1, 0)
     ) == [entity]

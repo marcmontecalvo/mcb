@@ -2,7 +2,7 @@
 
 The body plans walking, swimming, gaps, ladders, water landings, unknown-space exits
 and the edit edges (dig/place steps, dig down, descend with breaks, pillar) in
-RoutePlanner.java, parity-checked against route_search.py. Python sends the facts
+RoutePlanner.java. Python sends the facts
 that depend on the inventory and policy (edit_payload); the body returns each edit
 edge's plan, which the controller executes like a Python-planned one.
 """

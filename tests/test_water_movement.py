@@ -1,12 +1,8 @@
 from dataclasses import replace
 
 import pytest
-from reference_segmented import ReferenceSegmentedController as SegmentedController
-from test_spatial_memory import identity
 
 from mclab.movement_policy import MovementPolicy
-from mclab.route_search import RouteSearch
-from mclab.spatial_memory import MapArchive, SpatialMemory
 from mclab.water_movement import surface_height, surface_node, swim_command
 
 
@@ -60,25 +56,6 @@ def test_surface_nodes_keep_water_level_separate_from_actual_body_depth():
     assert not surface_node(cells, (0, 0, 3))
 
 
-@pytest.mark.parametrize("enabled", [False, True])
-def test_water_route_requires_explicit_permission_and_known_air_above_pool(enabled):
-    cells = water_map()
-    search = RouteSearch(
-        cells,
-        (0, 0, 0),
-        (0, 0, 9),
-        map_revision=1,
-        movement_policy=MovementPolicy(allow_swim=enabled),
-    )
-    for _ in range(100):
-        result = search.advance(node_limit=100, budget_ms=100)
-        if result.status != "searching":
-            break
-    assert result.status == ("reached" if enabled else "unreachable")
-    if enabled:
-        assert (0, 0, 3) in result.route
-
-
 def test_swim_motor_checks_water_and_land_then_holds_jump_to_surface():
     cells = water_map()
     body = {
@@ -94,50 +71,6 @@ def test_swim_motor_checks_water_and_land_then_holds_jump_to_surface():
     assert not swim_command(
         cells, body, [0.5, 0, 4.5], MovementPolicy(allow_swim=True)
     ).get("forward")
-
-
-def test_controller_air_recovery_waits_for_breath_before_route_progress(tmp_path):
-    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "water")
-    controller = SegmentedController(
-        (0, 0, 9),
-        memory,
-        search_nodes=1000,
-        search_ms=20,
-        movement_policy=MovementPolicy(allow_swim=True),
-    )
-    body = {
-        "position": [0.5, -1.5, 3.5],
-        "yaw": 0,
-        "pitch": 0,
-        "on_ground": False,
-        "survival": {"in_water": True, "air": 90, "max_air": 300},
-    }
-    obs = {
-        "tick": 1,
-        "sensor_profile": "local-visibility-v1",
-        "visible_blocks": list(water_map().values()),
-        "body": body,
-    }
-    try:
-        command = controller.decide(obs)
-        assert command["jump"] and not command.get("forward")
-        assert controller.air_recovering
-        body["position"][1] = -0.4
-        body["survival"]["air"] = 200
-        obs["tick"] = 2
-        assert not controller.decide(obs).get("forward")
-        body["survival"].update(air=300, in_water=False, eye_in_water=False)
-        obs["tick"] = 3
-        controller.decide(obs)
-        assert (
-            not controller.air_recovering and controller.air_recoveries_completed == 1
-        )
-        assert controller.route[0] == (0, 0, 3)
-        controller.cancel()
-        assert not controller.air_recovering
-    finally:
-        controller.close()
-        memory.close()
 
 
 def test_water_profile_roundtrip_and_strict_permission():
@@ -161,25 +94,6 @@ def test_missing_survival_telemetry_cannot_move_through_water(field):
         swim_command(water_map(), body, [0.5, 0, 4.5], MovementPolicy(allow_swim=True))
         == {}
     )
-
-
-@pytest.mark.parametrize("variant", range(10))
-def test_water_fixture_distance_and_width_are_connected(variant):
-    start, width = 2 + variant // 2, 3 + variant % 2
-    cells = water_map(width, start)
-    search = RouteSearch(
-        cells,
-        (0, 0, 0),
-        (0, 0, start + width + 3),
-        map_revision=1,
-        movement_policy=MovementPolicy(allow_swim=True, allow_shapes=True),
-    )
-    for _ in range(100):
-        result = search.advance(node_limit=100, budget_ms=100)
-        if result.status != "searching":
-            break
-    assert result.status == "reached"
-    assert all((0, 0, z) in result.route for z in range(start, start + width))
 
 
 # --- review-note fixtures (open-world builder, not the 1-wide channel) -------
@@ -352,168 +266,3 @@ def test_land_to_water_drop_needs_known_floor_and_still_water():
     cells = bank(5)
     cells[6, -2, 3] = water("1")
     assert not wm.water_landing(cells, (7, 5, 3), (6, 0, 3), 10)
-
-
-def test_air_recovery_surfaces_without_allow_swim_and_ends_with_head_out(tmp_path):
-    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "water")
-    controller = SegmentedController(
-        (0, 0, 9),
-        memory,
-        search_nodes=1000,
-        search_ms=20,
-        movement_policy=MovementPolicy(),
-    )
-    body = {
-        "position": [0.5, -1.5, 3.5],
-        "yaw": 0,
-        "pitch": 0,
-        "on_ground": False,
-        "survival": {"in_water": True, "eye_in_water": True, "air": 90, "max_air": 300},
-    }
-    obs = {
-        "tick": 1,
-        "sensor_profile": "local-visibility-v1",
-        "visible_blocks": list(water_map().values()),
-        "body": body,
-    }
-    try:
-        assert controller.decide(obs)["jump"]
-        assert controller.air_recovering and controller.mode == "air_recovery"
-        body["survival"].update(eye_in_water=False, air=120)  # not yet 90% air
-        obs["tick"] = 2
-        controller.decide(obs)
-        assert not controller.air_recovering
-        assert controller.air_recoveries_completed == 1
-    finally:
-        controller.close()
-
-
-def test_surface_goal_can_finish_afloat_without_ground_contact(tmp_path):
-    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "water")
-    controller = SegmentedController(
-        (0, 0, 3), memory, movement_policy=MovementPolicy(allow_swim=True)
-    )
-    obs = {
-        "tick": 1,
-        "sensor_profile": "local-visibility-v1",
-        "visible_blocks": list(water_map().values()),
-        "body": {
-            "position": [0.5, -0.1, 3.5],
-            "yaw": 0,
-            "pitch": 0,
-            "on_ground": False,
-            "survival": {
-                "in_water": True,
-                "eye_in_water": False,
-                "air": 300,
-                "max_air": 300,
-            },
-        },
-    }
-    try:
-        controller.decide(obs)
-        assert controller.mode == "arrived"
-    finally:
-        controller.close()
-
-
-def test_surface_goal_arrives_at_the_crest_of_a_bob_just_out_of_the_water(tmp_path):
-    # Run results/wading/20261111T222454872635Z: the swim route finished with the
-    # feet 0.09 above the surface (in_water False, airborne), arrival was refused,
-    # the body sank two blocks and idled 5.5 s on a stationary "reached" plan.
-    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "water")
-    controller = SegmentedController(
-        (0, 0, 3), memory, movement_policy=MovementPolicy(allow_swim=True)
-    )
-    obs = {
-        "tick": 1,
-        "sensor_profile": "local-visibility-v1",
-        "visible_blocks": list(water_map().values()),
-        "body": {
-            "position": [0.5, 0.09, 3.5],
-            "yaw": 0,
-            "pitch": 0,
-            "on_ground": False,
-            "survival": {
-                "in_water": False,
-                "eye_in_water": False,
-                "air": 300,
-                "max_air": 300,
-            },
-        },
-    }
-    try:
-        controller.decide(obs)
-        assert controller.mode == "arrived"
-    finally:
-        controller.close()
-
-
-def test_previous_route_is_favored_only_with_baritone_search(tmp_path):
-    from mclab.terrain_steps import TerrainPolicy
-
-    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "water")
-    for flag in (False, True):
-        controller = SegmentedController(
-            (0, 0, 9),
-            memory,
-            terrain_policy=TerrainPolicy(baritone_search=flag),
-        )
-        controller.previous_route = ((0, 0, 1), (0, 0, 2))
-        try:
-            search = controller._new_search(water_map(), (0, 0, 0), 1)
-            assert search.favored == (
-                frozenset({(0, 0, 1), (0, 0, 2)}) if flag else frozenset()
-            )
-        finally:
-            controller.close()
-
-
-def test_previous_route_favours_the_whole_plan_not_the_segment(tmp_path):
-    # Cohort 17 R5: favouring only the 16-move segment let the next partial
-    # search forget the plan's tail and swim back and forth for 5,000 ticks.
-    from mclab.route_search import RouteResult
-
-    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "water")
-    controller = SegmentedController((0, 0, 9), memory)
-    try:
-        plan = tuple((0, 0, z) for z in range(10))
-        trimmed = RouteSearch._segment(RouteResult("segment", plan, 1, 50, "x"), 3)
-        assert trimmed.route == plan[:3] and trimmed.full_route == plan
-        controller.take_result(trimmed)
-        assert controller.route == list(plan[:3])
-        assert controller.previous_route == plan
-    finally:
-        controller.close()
-
-
-def test_partial_plan_tail_is_kept_unless_a_new_partial_is_closer(tmp_path):
-    from mclab.route_search import RouteResult
-
-    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "water")
-    controller = SegmentedController((0, 0, 40), memory)
-    try:
-        plan = tuple((0, 0, z) for z in range(30))  # partial toward the goal
-        controller.take_result(
-            RouteSearch._segment(RouteResult("incomplete", plan, 1, 9, "budget"), 16)
-        )
-        assert controller.plan_tail == plan[15:]
-        back = tuple((0, 0, z) for z in range(15, 5, -1))  # ends farther away
-        controller.take_result(RouteResult("incomplete", back, 2, 9, "budget"))
-        assert controller.route == list(plan[15:30])
-        assert controller.last_result.reason == "kept previous partial plan"
-        # A new partial that ends clearly closer wins.
-        controller.plan_tail = plan[15:]
-        ahead = tuple((0, 0, z) for z in range(15, 36))
-        controller.take_result(
-            RouteSearch._segment(RouteResult("incomplete", ahead, 3, 9, "b"), 16)
-        )
-        assert controller.route[-1] == (0, 0, 30)  # segment of the new plan
-        assert controller.plan_tail[-1] == (0, 0, 35)
-        # A tail edge the body rejected is never reused.
-        controller.plan_tail = plan[15:]
-        controller.failed_edges.add((plan[20], plan[21]))
-        controller.take_result(RouteResult("incomplete", back, 4, 9, "budget"))
-        assert controller.route == list(back)
-    finally:
-        controller.close()

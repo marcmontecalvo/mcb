@@ -1,56 +1,10 @@
-from dataclasses import replace
-
 import pytest
-from test_route_search import floor_map
+from maps import floor_map
 from test_spatial_memory import identity
 
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation_segmented import SegmentedController
-from mclab.route_search import RouteSearch
 from mclab.spatial_memory import MapArchive, SpatialMemory
-
-
-def test_diagonals_require_both_swept_side_columns_and_permission():
-    cells = floor_map([(0, 0), (1, 0), (0, 1), (1, 1)])
-
-    def result(policy, excluded=()):
-        return RouteSearch(
-            cells,
-            (0, 1, 0),
-            (1, 1, 1),
-            map_revision=1,
-            movement_policy=policy,
-            excluded=excluded,
-        ).advance(budget_ms=100)
-
-    enabled = MovementPolicy(allow_diagonals=True)
-    assert len(result(MovementPolicy()).route) == 3
-    assert len(result(enabled).route) == 2
-    assert len(result(enabled, (((0, 1, 0), (1, 1, 1)),)).route) == 3
-    del cells[1, 0, 0]
-    assert len(result(enabled).route) == 3
-    del cells[0, 1, 1]
-    assert result(enabled).status == "unreachable"
-
-
-def test_drops_require_known_clear_shaft_solid_landing_and_permission():
-    cells = floor_map([(0, 0), (1, 0)])
-    cells[0, 2, 0] = dict(cells[0, 0, 0], position=[0, 2, 0])
-    policy = MovementPolicy(max_drop=3)
-
-    def edges():
-        return dict(
-            RouteSearch(
-                cells, (0, 3, 0), (1, 1, 0), map_revision=1, movement_policy=policy
-            )._edges((0, 3, 0))
-        )
-
-    assert (1, 1, 0) in edges()
-    policy = replace(policy, max_drop=1)
-    assert (1, 1, 0) not in edges()
-    policy = replace(policy, max_drop=3)
-    del cells[1, 2, 0]
-    assert (1, 1, 0) not in edges()
 
 
 def test_sprint_requires_permission_food_and_fresh_swept_geometry(tmp_path):
@@ -154,43 +108,6 @@ def test_zero_drop_policy_preserves_the_support_of_an_admitted_ascent(tmp_path, 
         assert controller._move(obs, [0.5, 2, 1.5]).get("forward", 0) > 0
         controller.cancel()
         assert controller.motion_origin_height is None
-    finally:
-        controller.close()
-        memory.close()
-
-
-def test_disabled_drops_cannot_reappear_in_terrain_search_or_queued_walk(tmp_path):
-    from mclab.terrain_route import TerrainRouteSearch
-    from mclab.terrain_steps import StepPlan, TerrainPolicy
-
-    cells = floor_map([(0, 0), (1, 0), (2, 0)])
-    cells[0, 1, 0] = dict(cells[0, 0, 0], position=[0, 1, 0])
-    policy = MovementPolicy(max_drop=0)
-    search = TerrainRouteSearch(
-        cells,
-        (0, 2, 0),
-        (2, 1, 0),
-        map_revision=1,
-        policy=TerrainPolicy(allow_break=False, allow_place=False),
-        inventory=(),
-        movement_policy=policy,
-    )
-    assert not list(search._children(search.layer[0]))
-    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
-    controller = SegmentedController((2, 1, 0), memory, movement_policy=policy)
-    obs = {
-        "sensor_profile": "local-visibility-v1",
-        "tick": 1,
-        "visible_blocks": list(cells.values()),
-        "body": {"position": [0.5, 2, 0.5], "yaw": -90, "pitch": 0},
-    }
-    try:
-        memory.ingest(obs)
-        controller.terrain_queue = [StepPlan((0, 2, 0), (1, 1, 0))]
-        controller.terrain_queue_policy = TerrainPolicy()
-        controller._begin_queued_step((0, 2, 0), obs)
-        assert controller.terrain is None
-        assert not controller.terrain_queue
     finally:
         controller.close()
         memory.close()

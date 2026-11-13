@@ -31,7 +31,6 @@ def main():
         name: sha256(ROOT / "src/mclab" / name)
         for name in (
             "navigation_segmented.py",
-            "route_search.py",
             "spatial_memory.py",
             "pathing_grid.py",
         )

@@ -219,7 +219,7 @@ public final class RoutePlannerTest {
         System.out.println("RoutePlanner: " + checks + " planner checks passed");
     }
 
-    // route_search._break_cost("minecraft:stone"): 8 ticks with an iron pickaxe + 2 extra + 6 aim.
+    // Break cost of stone: 8 ticks with an iron pickaxe + 2 extra + 6 aim.
     private static final double STONE_BREAK = 16;
     private static RoutePlanner.EditPolicy policy(boolean bridge) {
         return new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), true, bridge, true,
