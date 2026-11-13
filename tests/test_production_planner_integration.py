@@ -1,8 +1,7 @@
 import time
 
 import pytest
-from test_background_navigation import observation
-from test_route_search import floor_map
+from maps import floor_map, observation
 from test_spatial_memory import identity
 
 from mclab import control_loop, planner_session

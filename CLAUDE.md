@@ -45,6 +45,8 @@
 - Never poll `/policy` and discard the result: a served terrain batch counts as
   delivered and is not resent. Use `/state` to wait for a run state.
 - To judge what the planner knew, replay only the terrain batches Python read
-  (`scripts/analysis/replay_delivered.py`), not the body's `policy_sample` log.
+  through the Java planner (`GOAL="[x,y,z]" ... scripts/analysis/planner_parity.py <events.jsonl> <tick> <start>`,
+  which exports the delivered map and runs the `routePlannerParity` gradle task), not
+  the body's `policy_sample` log.
   Exact only for plans whose `plan_accepted` says `terrain: uploaded`; `live` plans read
   the world within their `terrain_radius`, so delivered batches are a lower bound.

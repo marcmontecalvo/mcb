@@ -413,7 +413,7 @@ def cut_ok(cells, point, policy, inventory, protected, tools, memo):
     point, else per overlay (``cells.o_cut``).
 
     The memo is only valid for one (policy, inventory, protected) triple, which
-    is the caller's responsibility (a RouteSearch owns exactly one).
+    is the caller's responsibility.
     """
     near = getattr(cells, "near", None)
     if near is None or memo is None:
@@ -524,7 +524,7 @@ def _anchored(flags, source, point, allow_bridge):
 def plan_edit(cells, source, target, policy, inventory, protected, tools, cut_memo):
     """prepare_step for a standable full-block source and adjacent target.
 
-    RouteSearch hot path: ``protected`` is already merged with the policy's
+    Hot path: ``protected`` is already merged with the policy's
     protected positions and ``tools`` is ``excavatable(policy)``.
     """
     x, y, z = source

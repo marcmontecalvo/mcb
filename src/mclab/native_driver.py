@@ -121,7 +121,7 @@ def no_progress_decision(controller, observation, edge, retries):
 
 
 def remaining_ticks(route):
-    """Estimated ticks to drive `route` at sprint pace (route_search cost constants)."""
+    """Estimated ticks to drive `route` at sprint pace (planner_values costs)."""
     from mclab.planner_values import JUMP_PENALTY, SPRINT
 
     total = 0.0

@@ -93,7 +93,7 @@ class Digger:
         if tunnel:
             return (nx, y, nz), [(nx, y + 1, nz), (nx, y, nz)]
         # 4 high: the route planner climbs a step only with y+3 clear over the lower
-        # one (route_search dy == 1). Live run 20261102T020413428498Z: 3-high stairs
+        # one (RoutePlanner ascend). Live run 20261102T020413428498Z: 3-high stairs
         # were walked down but never back up.
         return (nx, y - 1, nz), [
             (nx, y + 2, nz),

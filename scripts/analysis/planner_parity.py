@@ -1,13 +1,22 @@
-"""Java RoutePlanner vs Python RouteSearch on one delivered map (ROADMAP item 8).
+"""Replay one planning decision through the Java RoutePlanner on the delivered map.
 
-Rebuilds the map the controller had at <tick> (as replay_delivered.py does), exports
-a box around start and goal, runs the Python planner with the land-only policy the
-Java core implements, then the Java core on the export, and compares them.
+Rebuilds the map the controller actually had at <tick>, exports a box around start
+and goal, and runs RoutePlanner on the export (gradle task routePlannerParity).
+
+Only terrain batches Python read (policy_observation sample_tick) are ingested: the
+body's policy_sample log also holds batches the controller never received, and
+replaying those gives a map the live planner never saw (Oct 31 R1 analysis). Since
+mod fdc9e533 unread sections are carried into the next read, so every batch up to
+the latest read one counts as delivered. OLD_MOD=1 restores the read-batches-only
+rule for attempts before fdc9e533. Exact only for plans whose plan_accepted says
+terrain: uploaded; live plans read the world within their terrain_radius.
 
 Usage: GOAL="[x,y,z]" CAP=8000 uv run --locked python scripts/analysis/planner_parity.py
        <attempt>/events.jsonl <tick> "[x,y,z]"
 Flags: UNKNOWN=1 (plan through unknown space), SWIM=1 (swimming and Baritone moves),
 EDITS=1 (the production terrain profile with the natural kit: everything, edits included).
+The export is kept (path printed) for reruns: gradlew -q -p mcb-body routePlannerParity
+"-Pargs=<export.json> <nodeLimit> 1".
 """
 
 import json
@@ -16,14 +25,12 @@ import pathlib
 import subprocess
 import sys
 import tempfile
-import time
 from dataclasses import replace
 
 from mclab.awareness import Awareness
 from mclab.body_search import edit_payload
 from mclab.memory_policy import MemoryPolicy
 from mclab.movement_policy import MovementPolicy
-from mclab.route_search import RouteSearch
 from mclab.spatial_memory import MapArchive, MapIdentity, SpatialMemory
 from mclab.terrain_steps import TerrainPolicy
 from mclab.terrain_transport import expand_terrain
@@ -84,8 +91,10 @@ def delivered_map(path, upto):
             if "terrain_sections" in d and d["tick"] <= upto:
                 samples.append(d)
     last, mem = max(got, default=-1), None
+    old_mod = bool(os.environ.get("OLD_MOD"))
     for d in samples:
-        if d["terrain_sections"]["sample_tick"] > last:
+        tick = d["terrain_sections"]["sample_tick"]
+        if (tick not in got) if old_mod else tick > last:
             continue
         if mem is None:
             config = Awareness.from_payload(d["awareness"]["config"])
@@ -146,30 +155,6 @@ def main():
     view = delivered_map(path, tick)
     out = pathlib.Path(tempfile.mkdtemp()) / "export.json"
     count = export(view, start, goal, out)
-    # The Python run uses the export too, so both see exactly the same cells.
-    data = json.loads(out.read_text(encoding="utf-8"))
-    cells = {
-        (x, y, z): {**data["palette"][i], "position": [x, y, z]}
-        for x, y, z, i in data["cells"]
-    }
-    s = RouteSearch(
-        cells,
-        start,
-        goal,
-        map_revision=0,
-        goal_radius=2.5,
-        owned_snapshot=True,
-        movement_policy=MOVES,
-        terrain_policy=LAND,
-        inventory=KIT if EDITS else (),
-    )
-    began = time.perf_counter()
-    while (
-        r := s.advance(node_limit=512, budget_ms=60000, segment_length=9999)
-    ).status == "searching" and s.expanded < cap:
-        pass
-    py_ms = (time.perf_counter() - began) * 1000
-    end = tuple(r.route[-1])
     gradle = ROOT / "mcb-body" / ("gradlew.bat" if os.name == "nt" else "gradlew")
     java = subprocess.run(
         [
@@ -178,48 +163,21 @@ def main():
             "-p",
             str(ROOT / "mcb-body"),
             "routePlannerParity",
-            f"-Pargs={out} {cap} 5",
+            f"-Pargs={out} {cap} 1",
         ],
         capture_output=True,
         text=True,
         check=True,
     )
     j = json.loads(java.stdout.strip().splitlines()[-1])
-    same = [tuple(p) for p in j["route"]] == [
-        tuple(map(float, p)) for p in r.route
-    ] or [tuple(p) for p in j["route"]] == [tuple(p) for p in r.route]
-    print(f"cells {count}; cap {cap}")
+    print(f"export {out}: cells {count}; cap {cap}")
     print(
-        f"python {r.status:10} expanded {s.expanded:6} cost {s.costs.get(end, 0):9.2f} "
-        f"{py_ms:8.1f} ms {s.expanded / py_ms * 1000:9.0f} nodes/s"
+        f"java {j['status']:10} expanded {j['expanded']:6} cost {j['cost']:9.2f} "
+        f"{j['ms']:8.1f} ms; ends {j['route'][-1] if j['route'] else None}"
     )
-    print(
-        f"java   {j['status']:10} expanded {j['expanded']:6} cost {j['cost']:9.2f} "
-        f"{j['ms']:8.1f} ms {j['expanded'] / max(j['ms'], 1e-6) * 1000:9.0f} nodes/s"
-    )
-    print(
-        f"same route, ends {r.route[-1]}"
-        if same
-        else f"routes differ: py {r.route[-1]} java {j['route'][-1]}"
-    )
-    if EDITS:
-        py = [edit_key(e.source, e.target, e.breaks, e.places, e.kind) for e in r.steps]
-        jv = [edit_key(**e) for e in j["steps"]]
-        verdict = "same" if py == jv else f"differ\n py {py}\n jv {jv}"
-        print(f"edits: python {len(py)}, java {len(jv)}: {verdict}")
-
-
-def edit_key(source, target, breaks, places, kind):
-    def point(p):
-        return tuple(map(float, p))
-
-    return (
-        point(source),
-        point(target),
-        tuple(map(point, breaks)),
-        tuple(map(point, places)),
-        kind,
-    )
+    print("route", [tuple(map(round, p)) for p in j["route"][::3]])
+    for step in j.get("steps", ()):
+        print("edit", step)
 
 
 if __name__ == "__main__":

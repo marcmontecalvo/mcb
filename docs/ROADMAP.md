@@ -6,6 +6,14 @@ baselines are running in the background. See
 [current migration status](JAVA_MIGRATION_STATUS_2026-11-03.md) for evidence,
 limitations, and resume paths. No final live qualification is claimed yet.
 
+**Python planner removed (2026-11-13):** `route_search.py`, `route_moves.py`,
+`planning_worker.py` and `terrain_route.py` (the offline reference oracles) are deleted,
+with their tests and the Python/Java parity tools (`route_differential.py`,
+`terrain_java_parity.py`, gradle `routeDifferential` / `terrainPlannerParity`). Java
+`RoutePlanner` / `TerrainPlanner` is the only planner. `scripts/analysis/planner_parity.py`
+now only exports a delivered map and replays it through Java (`routePlannerParity`);
+it replaces `replay_delivered.py`. Mentions of the Python modules below are history.
+
 **Start here.** This file is the single list of what is done, what is next, and
 where each plan or ledger lives. It holds no decisions of its own: decisions and
 the phase plan are in [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md)
@@ -854,7 +862,7 @@ imports allowed there).
 | [LAB_UI.md](LAB_UI.md) | Dashboard and how to run the lab |
 | [SETUP_STATUS.md](SETUP_STATUS.md) | Runtime setup and G0–G3 history |
 | [CONTROL_LATENCY_FOLLOWUP_2026-10-27.md](CONTROL_LATENCY_FOLLOWUP_2026-10-27.md), [CONTROL_PROFILE_R2_2026-10-28.md](CONTROL_PROFILE_R2_2026-10-28.md) | Control-loop latency findings |
-| `scripts/analysis/` | Attempt analysis: planner trace, time budget, timeline, delivered-map replay |
+| `scripts/analysis/` | Attempt analysis: planner trace, time budget, timeline, delivered-map replay through the Java planner (`planner_parity.py`) |
 
 **Model work (separate track, paused behind navigation)**
 

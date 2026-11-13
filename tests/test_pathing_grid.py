@@ -1,15 +1,14 @@
 import copy
 import itertools
 
+from maps import floor_map
 from test_collision_geometry import slab_map
 from test_gap_jump import gap_map
-from test_route_search import floor_map
 from test_staircase_steps import staircase_map
 from test_water_movement import water_map
 
 from mclab import collision_geometry, navigation, pathing_grid, water_movement
 from mclab.pathing_grid import PathingGrid
-from mclab.route_search import RouteSearch
 
 
 def grid_of(cells, tick=1, session="s"):
@@ -96,20 +95,6 @@ def test_snapshots_are_copy_on_write_and_deepcopy_free():
     assert grid.view()[(0, 0, 0)]["block"] == "minecraft:air"
     assert copy.deepcopy(frozen) is frozen
     assert len(frozen) == 5 and len(grid.view()) == 6
-
-
-def test_route_search_on_grid_matches_dict():
-    positions = [(0, z) for z in range(9)] + [(x, 8) for x in range(1, 9)]
-    cells = floor_map(positions)
-    view = grid_of(cells).snapshot()
-    expected = RouteSearch(cells, (0, 1, 0), (8, 1, 8), map_revision=1).advance(
-        node_limit=1000, budget_ms=1000, segment_length=100
-    )
-    actual = RouteSearch(view, (0, 1, 0), (8, 1, 8), map_revision=1).advance(
-        node_limit=1000, budget_ms=1000, segment_length=100
-    )
-    assert actual.status == expected.status == "reached"
-    assert actual.route == expected.route
 
 
 def test_records_keep_provenance_and_position():

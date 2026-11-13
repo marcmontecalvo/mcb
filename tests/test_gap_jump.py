@@ -4,7 +4,6 @@ import pytest
 
 from mclab.gap_jump import GapJumpExecutor, prepare_gap
 from mclab.movement_policy import MovementPolicy
-from mclab.route_search import RouteSearch
 
 
 def gap_map(width=1, start=2):
@@ -40,26 +39,6 @@ def test_known_gap_edge_requires_permission_runway_clearance_and_landing(width):
         altered = dict(cells)
         del altered[point]
         assert prepare_gap(altered, source, target, policy) is None
-
-
-@pytest.mark.parametrize("width", [1, 2])
-def test_astar_routes_across_only_checked_gap_edges(width):
-    cells = gap_map(width)
-    search = RouteSearch(
-        cells,
-        (0, 0, 0),
-        (0, 0, 8),
-        map_revision=1,
-        movement_policy=MovementPolicy(max_gap=width, allow_sprint=True),
-    )
-    for _ in range(100):
-        result = search.advance(node_limit=10, budget_ms=100)
-        if result.status != "searching":
-            break
-    assert result.status == "reached"
-    assert ((0, 0, 1), (0, 0, width + 2)) in tuple(
-        zip(result.route, result.route[1:], strict=False)
-    )
 
 
 def test_executor_revalidates_before_takeoff_and_never_places_blocks():
@@ -115,48 +94,6 @@ def test_missing_landing_or_low_food_never_launches():
 def test_invalid_gap_permissions_rejected(value):
     with pytest.raises(ValueError):
         MovementPolicy(max_gap=value)
-
-
-@pytest.mark.parametrize("native", [False, True])
-def test_controller_owns_gap_flight_and_cancel_clears_commitment(tmp_path, native):
-    from reference_segmented import ReferenceSegmentedController as SegmentedController
-    from test_spatial_memory import identity
-
-    from mclab.spatial_memory import MapArchive, SpatialMemory
-
-    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "gap")
-    controller = SegmentedController(
-        (0, 0, 8),
-        memory,
-        search_nodes=1000,
-        search_ms=20,
-        movement_policy=MovementPolicy(max_gap=2, allow_sprint=True),
-    )
-    obs = {
-        "tick": 1,
-        "sensor_profile": "local-visibility-v1",
-        "visible_blocks": list(gap_map(2).values()),
-        "body": {
-            "position": [0.5, 0, 1.2],
-            "yaw": 0,
-            "pitch": 0,
-            "on_ground": True,
-            "velocity": [0, 0, 0],
-            "food": 20,
-        },
-    }
-    try:
-        for _ in range(20):
-            controller.decide(obs, native=native)
-            if controller.gap_jump:
-                break
-        assert controller.gap_jump is not None
-        assert controller.gap_jump.plan.target == (0, 0, 4)
-        controller.cancel()
-        assert controller.gap_jump is None and controller.decide(obs) == {}
-    finally:
-        controller.close()
-        memory.close()
 
 
 def test_fall_or_changed_landing_finishes_as_failure():
