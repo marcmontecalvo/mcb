@@ -399,3 +399,16 @@ def test_a_map_upload_in_progress_is_not_a_search_stall():
     c.last_result = SimpleNamespace(reason="searching")
     assert c.stop_reason({"tick": 1000}) is None
     assert c.stop_reason({"tick": 1000 + SEARCH_STALL_TICKS}) == "stalled"
+
+
+def test_stair_stops_at_seagrass_and_ceiling_water():
+    world = layered(-30) | {(2, -1, 0): M + "seagrass", (2, 1, 0): M + "water"}
+    body = FakeGatherBody(K, world, {M + "wooden_pickaxe": 1}, pos=(0, 0, 0))
+    digger = Digger(_Exec(body, K, GatherState(), 64))
+    new, dig = digger._step_cells((1, -1, 0), (1, 0), False)
+    assert digger._check(new, dig) == "water"
+    world2 = layered(-30) | {(2, 2, 0): M + "water"}
+    body2 = FakeGatherBody(K, world2, {M + "wooden_pickaxe": 1}, pos=(0, 0, 0))
+    digger2 = Digger(_Exec(body2, K, GatherState(), 64))
+    assert digger2._check(new, dig) == "water"
+

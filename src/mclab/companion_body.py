@@ -1045,7 +1045,9 @@ class CompanionBody:
             # A goal past the sensed terrain is an unreachable search (a plan 101
             # blocks out never completed): walk to the sensed edge, then go on.
             before = self.position()
-            if not self._navigate(mid, reach=None, radius=2.0):
+            if math.hypot(mid[0] - before[0], mid[2] - before[2]) > SENSED_RADIUS:
+                return False
+            if not self._navigate(mid, reach=None, radius=2.0, probe=probe):
                 return False
             if math.dist(self.position(), before) < 2.0:
                 return False  # the hop did not move us: do not loop
@@ -1110,9 +1112,14 @@ class CompanionBody:
             return None
         cells = self._cells_now()
         for share in (1.0, 0.75, 0.5):
-            k = SENSED_RADIUS * share / dist
+            k = (SENSED_RADIUS - 1.0) * share / dist
             x = here[0] + round((goal[0] - here[0]) * k)
             z = here[2] + round((goal[2] - here[2]) * k)
+            hop = math.hypot(x - here[0], z - here[2])
+            if not (1.0 <= hop <= SENSED_RADIUS):
+                continue
+            if math.hypot(goal[0] - x, goal[2] - z) >= dist:
+                continue
             y = self._stand_y(x, here[1], z)
             if standable(cells, (x, y, z)):
                 return (x, y, z)
@@ -1129,10 +1136,18 @@ class CompanionBody:
     def walk_to(self, pos: Pos, radius: float = 1.5) -> bool:
         x, y, z = pos
         goal = (x, self._stand_y(x, y, z), z)
+        cells = self._cells_now()
         if (
             not self._move_policy().allow_swim
-            and self._in_water(goal)
-            and not standable(self._cells_now(), goal)
+            and not standable(cells, goal)
+            and (
+                self._in_water(goal)
+                or (
+                    cells.get(goal) is not None
+                    and cells[goal].get("block") in AIR_BLOCKS
+                    and self._in_water((goal[0], goal[1] - 1, goal[2]))
+                )
+            )
         ):
             return False  # no stand within reach and the cell is water: not a stance
         # With placing off, ask the planner first (as goto_stance does): an
@@ -1229,12 +1244,29 @@ class CompanionBody:
             self.terrain_policy, self.goto_wall_s = saved, saved_wall
             self.movement_policy = saved_move
 
+    def _place_supply(self) -> int:
+        policy = self.terrain_policy
+        if not (policy.allow_pillar or policy.allow_bridge or policy.allow_place):
+            return 0
+        held = sum(self._inv.get(item, 0) for item in policy.material_allowlist)
+        return max(0, held - policy.reserve_blocks)
+
     @_fresh_idle
     def dig_to(self, feet: Pos) -> bool:
         """Stand at ``feet``, letting the planner dig there. False when digging is off."""
         if not self.terrain_policy.allow_break:
             return False
-        return self._navigate(tuple(feet), reach=None, radius=0.6)
+        here = self.position()
+        target = tuple(feet)
+        if (
+            target[0] == here[0]
+            and target[2] == here[2]
+            and target[1] > here[1]
+            and not standable(self._cells_now(), target)
+            and self._place_supply() < target[1] - here[1]
+        ):
+            return False  # pillaring straight up without enough blocks cannot succeed
+        return self._navigate(target, reach=None, radius=0.6)
 
     def stances(self, target: Pos, reach: float, avoid: Collection[Pos] = ()):
         """Known standable cells from which ``target`` is reached, nearest first."""
@@ -1381,6 +1413,7 @@ class CompanionBody:
             stances = stances[:WALK_ONLY_CANDIDATES]
         stances = stances[:MAX_CANDIDATES]
         radius = PRECISE_RADIUS if self.precise_stance else 0.6
+        hopped = False
         for node in stances:
             # Ask the planner before walking (roadmap item 1): a candidate across
             # known water is unroutable, and testing that by walking it costs the
@@ -1391,9 +1424,14 @@ class CompanionBody:
             # partial route of a search that ran out of nodes (_probe_verdict).
             # Reusing a failed probe for the same source and stance avoids asking
             # the planner for identical inaccessible roof stances for every block.
+            distant = math.hypot(node[0] - here[0], node[2] - here[2]) > SENSED_RADIUS
+            if hopped and distant and self.position() == here:
+                continue
             key = (here, node)
             if getattr(self, "walk_only", False) and self._failed_stance_probes.get(key, 0) > time.monotonic():
                 continue
+            if distant and self._hop_toward(node) is not None:
+                hopped = True
             if self._navigate(node, reach=None, radius=radius, probe=True):
                 return True
             if getattr(self, "walk_only", False) and self.position() == here:
@@ -1401,6 +1439,7 @@ class CompanionBody:
         if (
             not avoid
             and (not stances or self.position() == here)
+            and not (hopped and not getattr(self, "walk_only", False))
             and self._worth_searching(target)
         ):
             # All known stances probed without moving the body: from a dug cave the

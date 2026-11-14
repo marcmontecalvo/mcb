@@ -204,7 +204,7 @@ def find_trees(
     seen_logs: set[Pos] = set()
     trees: list[Tree] = []
 
-    for log in sorted(candidate_logs, key=lambda p: (p[0], p[2], p[1])):
+    for log in sorted(candidate_logs, key=lambda p: (p[1], p[0], p[2])):
         if log in seen_logs:
             continue
 
@@ -257,6 +257,20 @@ def find_trees(
                                     seen_logs.add(npos)
                                     branches.append(npos)
                                     queue.append(npos)
+
+            # Diagonal trunks (e.g. acacia) searched from an upper branch have a
+            # lower connected log on the ground: re-anchor on the lowest log.
+            lowest = min(tree_logs, key=lambda p: (p[1], p[0], p[2]))
+            if lowest[1] < base[1]:
+                base = lowest
+                bx, by, bz = base
+                trunk = []
+                ty = by
+                while (bx, ty, bz) in tree_logs:
+                    trunk.append((bx, ty, bz))
+                    ty += 1
+                trunk_set = set(trunk)
+                branches = [p for p in tree_logs if p not in trunk_set]
 
             # Discover associated canopy leaves (within 4 blocks of any log)
             canopy: set[Pos] = set()
@@ -418,9 +432,7 @@ class TreeFeller:
                 # ponytail: a tree leafy down to the ground has no stance with a
                 # view; walk as close as the leaves allow and cut in from there
                 # (the feller sent no break at all for two such trees, run 32)
-                for radius in (2.5, 3.5, 4.5):
-                    if walk(tree.base, radius):
-                        break
+                walk(tree.base, 3.5)
         # No stance found is not a reason to leave: the logs in reach are still
         # broken (run 20261110T021445878238Z left whole trunks untouched).
         # 2. Bottom-up from the ground, every log in reach (trunk and branches). A

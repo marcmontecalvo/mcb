@@ -26,6 +26,10 @@ DROP_WAIT_TICKS = 20
 GRAVEL_CAP = 8  # re-breaks of a dug cell that gravel or sand keeps falling into
 FALL_WAIT_TICKS = 10  # for what is above a broken cell to land in it
 LAVA = "minecraft:lava"
+WATER = "minecraft:water"
+WATERLOGGED = frozenset(
+    "minecraft:" + n for n in ("seagrass", "tall_seagrass", "kelp", "kelp_plant")
+)
 FALLING = frozenset("minecraft:" + n for n in ("gravel", "sand", "red_sand"))
 STONE_LIKE = ("stone", "cobblestone", "deepslate", "andesite", "diorite", "granite")
 
@@ -66,6 +70,10 @@ class Digger:
         above = (x, y + len(dig), z)  # the cell over the top dug cell
         if why := self._blocked([*dig, floor, above]):
             return why
+        if _ident(self.body.world(*above)) in bp.FLUIDS:
+            return "water"
+        if any(_ident(s) in WATERLOGGED for s in self._states(dig)):
+            return "water"
         if _ident(self.body.world(*floor)) in bp.AIR:
             return "no_floor"
         # Every face of every dug cell: a dug block next to liquid lets it flow in

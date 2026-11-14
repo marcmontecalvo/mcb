@@ -410,3 +410,41 @@ def test_a_mob_in_the_way_of_a_log_is_retried():
     body.break_block = sheep
     assert tr.TreeFeller(body)._break_log((0, 70, 0), None) is True
     assert len(calls) == 2
+
+
+def test_diagonal_trunk_found_from_upper_branch_anchors_on_ground_base():
+    world = {
+        (46, 72, -29): "minecraft:acacia_log",
+        (46, 73, -29): "minecraft:acacia_log",
+        (45, 74, -29): "minecraft:acacia_log",
+        (45, 75, -29): "minecraft:acacia_log",
+        (46, 76, -29): "minecraft:acacia_log",
+        (46, 77, -29): "minecraft:acacia_log",
+    }
+
+    def lookup(x, y, z):
+        return world.get((x, y, z), "minecraft:air")
+
+    t_upper = tr.tree_at(lookup, (46, 77, -29))
+    assert t_upper is not None and t_upper.base == (46, 72, -29)
+    trees = tr.find_trees(lookup, list(world), leafless=True)
+    assert len(trees) == 1 and trees[0].base == (46, 72, -29)
+
+
+def test_fell_tries_at_most_one_walk_when_no_stance_succeeds():
+    world = {(0, y, 0): "minecraft:oak_log" for y in range(64, 68)}
+    walks = []
+
+    class NoStance(FakeTreeBody):
+        def goto_stance(self, target, reach, avoid=()):
+            return False
+
+        def walk_to(self, pos, radius=1.0):
+            walks.append((pos, radius))
+            return False
+
+    body = NoStance(world, {"minecraft:iron_axe": 1}, pos=(10, 64, 0))
+    tree = tr.find_trees(body.world, [(0, 64, 0)])[0]
+    assert not tr.TreeFeller(body).fell(tree)
+    assert walks == [((0, 64, 0), 3.5)]
+

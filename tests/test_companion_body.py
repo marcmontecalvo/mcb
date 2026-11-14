@@ -1173,3 +1173,66 @@ def test_planning_terrain_incomplete_cycle_stops_as_stalled():
         assert ctl.stop_reason({"tick": tick}) is None
     ctl.mode = "terrain_incomplete"
     assert ctl.stop_reason({"tick": 100 + cb.SEARCH_STALL_TICKS}) == "stalled"
+
+
+def test_diagonal_hop_stays_within_sensed_radius_and_avoids_recursion(monkeypatch):
+    b, _, _ = body()
+    b._obs["body"]["position"] = [0.5, 1.0, 0.5]
+    monkeypatch.setattr(b, "_cells_now", lambda: {})
+    monkeypatch.setattr(cb, "standable", lambda cells, node: True)
+    mid = b._hop_toward((35, 1, 35))
+    assert mid is not None
+    assert math.hypot(mid[0], mid[2]) <= cb.SENSED_RADIUS
+    # Even if _hop_toward returned an over-radius point, _navigate refuses cleanly
+    monkeypatch.setattr(b, "_hop_toward", lambda goal: (29, 1, 29))
+    assert b._navigate((40, 1, 40), reach=None, radius=1.0) is False
+
+
+def test_walk_to_refuses_air_over_deep_water_when_swimming_is_off(monkeypatch):
+    b, _, _ = body()
+    b.movement_policy = replace(b.movement_policy, allow_swim=False)
+    water = {
+        "block": "minecraft:water",
+        "collision_boxes": [],
+        "fluid": "minecraft:water",
+    }
+    air = {"block": "minecraft:air", "collision_boxes": [], "fluid": "minecraft:empty"}
+    lake = {(5, 61, 5): water, (5, 62, 5): water, (5, 63, 5): air}
+    monkeypatch.setattr(b, "_cells_now", lambda: lake)
+    monkeypatch.setattr(
+        b, "_navigate", lambda *a, **k: (_ for _ in ()).throw(AssertionError)
+    )
+    assert b.walk_to((5, 63, 5)) is False
+
+
+def test_dig_to_straight_up_fails_fast_without_place_supply(monkeypatch):
+    b, _, _ = body()
+    b._obs["body"]["position"] = [69.5, 67.0, -52.5]
+    b._set_inventory([{"slot": 0, "item": "minecraft:wooden_axe", "count": 1}])
+    monkeypatch.setattr(b, "_cells_now", lambda: {})
+    monkeypatch.setattr(
+        b, "_navigate", lambda *a, **k: (_ for _ in ()).throw(AssertionError)
+    )
+    assert b.dig_to((69, 69, -52)) is False
+
+
+def test_goto_stance_skips_duplicate_distant_hops_and_fallback_when_hop_fails(
+    monkeypatch,
+):
+    b, _, _ = body()
+    b._obs["body"]["position"] = [47.5, 65.0, -28.5]
+    monkeypatch.setattr(b, "_cells_now", lambda: {})
+    monkeypatch.setattr(cb, "standable", lambda cells, node: True)
+    monkeypatch.setattr(
+        b, "stances", lambda *a, **k: [(90, 62, -59), (90, 62, -58), (89, 62, -59)]
+    )
+    calls = []
+
+    def navigate(goal, *, reach, radius, probe=False):
+        calls.append((goal, reach, probe))
+        return False
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    assert b.goto_stance((90, 63, -59), 4.5) is False
+    assert calls == [((90, 62, -59), None, True)]
+
