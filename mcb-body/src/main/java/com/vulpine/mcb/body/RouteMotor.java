@@ -257,9 +257,10 @@ final class RouteMotor {
             var facing = new Pose(pose.x, pose.y, pose.z, pose.vx, pose.vz, yawTo(pose, target), pose.grounded, pose.food, pose.inWater);
             if (!fits(geometry, true, facing, target, source.y, reachNow, false)) {
                 if (bend.distance(pose) < .02) { bend = null; stop("route_swept_geometry_unknown_or_unsafe"); return Input.STOP; }
-                return followBend(pose, geometry, source);
+                return followBend(pose, geometry, source, target);
             }
             bend = null;
+            best = Double.POSITIVE_INFINITY; stalled = 0;
         }
         // Preserve momentum on a straight, level segment, but never cut a corner.
         int targetIndex = index;
@@ -308,13 +309,14 @@ final class RouteMotor {
         boolean headroom = jumping && target.y > pose.y + .6;
         if (!fits(geometry, cut, pose, target, source.y, travel, headroom)) {
             // Baritone MovementDiagonal "edging": steer round a blocked side column.
-            if (cut && !jumping && startBend(pose, geometry, source, target)) return followBend(pose, geometry, source);
+            if (cut && !jumping && startBend(pose, geometry, source, target)) return followBend(pose, geometry, source, target);
             // The planner's step is clear from the cell centre; an off-centre body can
             // clip a wall or overhang an edge on the direct line (run
             // 20261029T134955375284Z R4/R5 froze this way). Centre once, then retry.
             if (recentredAt != index && pose.grounded && Math.abs(pose.y - source.y) <= .2
                     && source.distance(pose) > .2) {
                 recentredAt = index; recentring = true;
+                best = Double.POSITIVE_INFINITY; stalled = 0;
                 return recentre(pose, geometry, source);
             }
             // Airborne (a hop overshot its landing, cohort 21 R4): input barely steers in
@@ -336,10 +338,7 @@ final class RouteMotor {
         // closed after planning (a roof plank placed under the route, small-house run
         // 20261111T222832963085Z) left the body jittering on top of its landing column
         // for 6.6 s while every tick "moved".
-        double gap = distance + Math.abs(pose.y - target.y);
-        if (gap < best - .05) { best = gap; stalled = 0; }
-        else if (pose.grounded && !jumping) stalled++;
-        if (stalled > 30) { stop("route_no_progress"); return Input.STOP; }
+        if (progressStalled(pose, distance, target.y, jumping, geometry.standable(target))) return Input.STOP;
         return new Input(forward, yaw, jumping, sprint);
     }
 
@@ -382,13 +381,13 @@ final class RouteMotor {
                     true, pose.food, false);
             if (geometry.safeDiagonal(toWaypoint, waypoint, source.y, first, false, policy.maxDrop)
                     && geometry.safeDiagonal(atWaypoint, target, source.y, target.distance(atWaypoint), false, policy.maxDrop)) {
-                bend = waypoint; bendIndex = index; return true;
+                bend = waypoint; bendIndex = index; best = Double.POSITIVE_INFINITY; stalled = 0; return true;
             }
         }
         return false;
     }
 
-    private Input followBend(Pose pose, Geometry geometry, Point source) {
+    private Input followBend(Pose pose, Geometry geometry, Point source, Point target) {
         double distance = bend.distance(pose);
         // Instant heading, swept on the exact bearing: the bend clears the blocked column by
         // only .01, so a few degrees of leftover turn clipped it (cohort 25 R3 rep 2, tick 461).
@@ -397,6 +396,7 @@ final class RouteMotor {
         if (!geometry.safeDiagonal(pose, bend, source.y, distance + .03, false, policy.maxDrop)) {
             bend = null; stop("route_swept_geometry_unknown_or_unsafe"); return Input.STOP;
         }
+        if (progressStalled(pose, distance, bend.y, false, geometry.standable(target))) return Input.STOP;
         // Walk pace only: no sprint round a bend.
         return new Input(Math.min(1, Math.max(.12, distance / .3)), yaw, false, false);
     }
@@ -489,13 +489,24 @@ final class RouteMotor {
 
     private Input recentre(Pose pose, Geometry geometry, Point source) {
         double distance = source.distance(pose);
-        if (distance <= .2) { recentring = false; return Input.STOP; }
+        if (distance <= .2) { recentring = false; best = Double.POSITIVE_INFINITY; stalled = 0; return Input.STOP; }
         double yaw = wrap(yawTo(pose, source) - pose.yaw);
         pose = new Pose(pose.x, pose.y, pose.z, pose.vx, pose.vz, pose.yaw + yaw, pose.grounded, pose.food, pose.inWater);
         if (!geometry.safe(pose, source, source.y, distance + .03, false, policy.maxDrop)) {
             recentring = false; stop("route_swept_geometry_unknown_or_unsafe"); return Input.STOP;
         }
+        if (progressStalled(pose, distance, source.y, false, geometry.standable(source))) {
+            recentring = false; return Input.STOP;
+        }
         return new Input(Math.min(1, Math.max(.12, distance / .3)), yaw, false, false);
+    }
+
+    private boolean progressStalled(Pose pose, double distance, double targetY, boolean jumping, boolean wetStandable) {
+        double gap = distance + Math.abs(pose.y - targetY);
+        if (gap < best - .05) { best = gap; stalled = 0; }
+        else if ((pose.grounded || (pose.inWater && wetStandable)) && !jumping) stalled++;
+        if (stalled > 30) { stop("route_no_progress"); return true; }
+        return false;
     }
 
     private static double yawTo(Pose pose, Point target) {

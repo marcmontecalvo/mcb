@@ -330,6 +330,17 @@ public final class RouteMotorTest {
         var both=floor(); wall(both,1,0); wall(both,0,1);
         var shut=motor(diagonal); shut.tick(start,geometry(both));
         check(!shut.active() && shut.status().get("reason").equals("route_swept_geometry_unknown_or_unsafe"),"both sides blocked is rejected");
+        // Bend pinned against flowing water/obstacle must give up with route_no_progress instead of 200-tick step deadline.
+        var pinnedEdge=floor(); wall(pinnedEdge,1,0);
+        var pinnedBend=motor(diagonal);
+        for(int t=0;t<40 && pinnedBend.active();t++) pinnedBend.tick(new RouteMotor.Pose(.5,1,.5,0,0,DIAGONAL_YAW,true,20,true),geometry(pinnedEdge));
+        check(!pinnedBend.active() && pinnedBend.status().get("reason").equals("route_no_progress"),"stalled bend stops with route_no_progress");
+        // Recentre pinned off-centre must also give up with route_no_progress instead of 200-tick step deadline.
+        var pinnedSide=floor(); pinnedSide.put(new Key(1,1,-1),stone());
+        var pinnedCentring=motor(List.of(new RouteMotor.Point(0,1,0),new RouteMotor.Point(1,1,0)));
+        double clipYaw=Math.toDegrees(Math.atan2(-(1.5-.6),.5-.05));
+        for(int t=0;t<40 && pinnedCentring.active();t++) pinnedCentring.tick(pose(.6,1,.05,clipYaw),geometry(pinnedSide));
+        check(!pinnedCentring.active() && pinnedCentring.status().get("reason").equals("route_no_progress"),"stalled recentre stops with route_no_progress");
         // Cohort 21 R4: a hop overshot its landing and the next sweep clipped a wall while
         // airborne. In the air, coast; once landed the recentre-and-retry takes over.
         var clipped=floor(); wall(clipped,2,1);

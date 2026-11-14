@@ -291,3 +291,50 @@ def test_a_standstill_across_a_short_sample_gap_is_still_a_violation(tmp_path):
     events = [ev("course_started", 0)] + still(0, 60) + still(90, 150)  # 7.5 s
     r = run(tmp_path, events)
     assert [w["kind"] for w in r] == ["VIOLATION"] and r[0]["unjustified_s"] > 7
+
+
+def _smelt_note(tick, ticks=200, why="no_open_face_blocks_within_24_or_drops"):
+    return {
+        "body_id": "b",
+        "monotonic_ns": int((T0 + tick / 20) * 1e9),
+        "type": "gather_note",
+        "payload": {
+            "gather": "smelt_wait",
+            "item": "minecraft:iron_ingot",
+            "ticks": ticks,
+            "why": why,
+        },
+    }
+
+
+def test_corroborated_smelt_wait_is_exempt(tmp_path):
+    evs = sorted(
+        [ev("course_started", 0)]
+        + still(0, 220)
+        + [
+            _smelt_note(5),
+            ev("received", 205, {"op": "furnace", "request_sequence": 1}),
+            ev("furnace_done", 206, {"request_sequence": 1}),
+        ],
+        key=lambda e: e["monotonic_ns"],
+    )
+    result = run(tmp_path, evs)[0]
+    assert result["kind"] == "EXEMPT"
+    assert result["evidence"].get("smelt_wait") == 1
+
+
+def test_uncorroborated_or_missing_reason_smelt_wait_is_violation(tmp_path):
+    # No furnace_done after smelt_wait: still a violation.
+    evs = sorted(
+        [ev("course_started", 0)] + still(0, 220) + [_smelt_note(5)],
+        key=lambda e: e["monotonic_ns"],
+    )
+    assert [w["kind"] for w in run(tmp_path, evs)] == ["VIOLATION"]
+    # Missing why reason: not exempt.
+    evs2 = sorted(
+        [ev("course_started", 0)]
+        + still(0, 220)
+        + [_smelt_note(5, why=""), ev("furnace_done", 206, {"request_sequence": 1})],
+        key=lambda e: e["monotonic_ns"],
+    )
+    assert [w["kind"] for w in run(tmp_path, evs2)] == ["VIOLATION"]

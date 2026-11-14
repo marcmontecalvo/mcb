@@ -42,6 +42,7 @@ PARSE = {
     "route_prefetch_adopted",
     "python_silence",
     "python_silence_end",
+    "gather_note",
 }
 NOISE = {
     "route_progress",
@@ -93,6 +94,9 @@ def lines(path: Path):
 def short(d: dict) -> str:
     keys = (
         "op",
+        "gather",
+        "item",
+        "why",
         "pos",
         "position",
         "blocker",
@@ -144,6 +148,7 @@ def load(path: Path) -> dict:
                 craft=[],
                 open_actions={},
                 actions=[],
+                open_smelt=None,
                 breaks=[],
                 places=[],
                 seq_op={},
@@ -172,6 +177,14 @@ def load(path: Path) -> dict:
                 b["events"].append((w, b["last_tick"], "req:" + op, short(p)))
             continue
         if t != "server_event":
+            if (
+                t == "gather_note"
+                and p.get("gather") == "smelt_wait"
+                and isinstance(p.get("ticks"), (int, float))
+                and 0 < p["ticks"] <= 200
+                and p.get("why")
+            ):
+                b["open_smelt"] = (w, b["last_tick"], int(p["ticks"]))
             b["events"].append((w, b["last_tick"], t, short(p)))
             continue
         k, d, tick = p["type"], p.get("data", {}), p.get("tick", b["last_tick"])
@@ -218,6 +231,18 @@ def load(path: Path) -> dict:
                 b["actions"].append((w0, w0 + duration, op))
         elif rs in b["open_actions"] and k in ("attack_entity_failed", "eat_failed"):
             b["open_actions"].pop(rs)
+        if k == "furnace_done" and b["open_smelt"] is not None:
+            w0, tick0, wait_ticks = b["open_smelt"]
+            b["open_smelt"] = None
+            if (
+                isinstance(tick, (int, float))
+                and 0 <= tick - tick0 <= wait_ticks + 40
+                and w - w0 <= wait_ticks / 20 + 2.5
+            ):
+                duration = max(0, min(w - w0, (tick - tick0) / 20, wait_ticks / 20 + 0.5, 10.5))
+                b["actions"].append((w0, w0 + duration, "smelt_wait"))
+        elif k == "furnace_failed":
+            b["open_smelt"] = None
         if rs in b["open_craft"] and k.split("_")[-1] in ("done", "failed"):
             w0, op = b["open_craft"].pop(rs)
             b["craft"].append((w0, w, op))
