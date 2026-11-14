@@ -29,6 +29,10 @@ final class RouteGeometry implements RouteMotor.Geometry {
     }
     private static double coordinate(List<?> box, int index) { return ((Number) box.get(index)).doubleValue(); }
 
+    private static boolean waterFluid(Object fluid) {
+        return "minecraft:water".equals(fluid) || "minecraft:flowing_water".equals(fluid);
+    }
+
     boolean clear(double x, double z, double bottom, double top) {
         double radius = .3 - 1e-6;
         int feet = (int)Math.floor(bottom + 1e-6);
@@ -37,7 +41,7 @@ final class RouteGeometry implements RouteMotor.Geometry {
                 for (int cy = feet; cy < Math.ceil(top - 1e-6); cy++) {
                     var cell = cell(cx, cy, cz);
                     // Wading (RoutePlanner.clearColumn): water in the feet cell only; the head stays dry.
-                    if (cy == feet && cell != null && "minecraft:water".equals(cell.get("fluid"))
+                    if (cy == feet && cell != null && waterFluid(cell.get("fluid"))
                             && List.of().equals(cell.get("collision_boxes")) && !HAZARDS.contains(cell.get("block"))) continue;
                     if (!admitted(cell)) return false;
                     for (var entry : boxes(cell)) {
@@ -95,7 +99,7 @@ final class RouteGeometry implements RouteMotor.Geometry {
     /** Known, collision-free, non-hazard water or air. Unknown cells are never passable. */
     private boolean swimmable(int x, int y, int z) {
         var cell = cell(x, y, z);
-        return breathable(x, y, z) || (collisionFree(cell) && "minecraft:water".equals(cell.get("fluid")));
+        return breathable(x, y, z) || (collisionFree(cell) && waterFluid(cell.get("fluid")));
     }
     static final int SURFACE_RADIUS = 8, SURFACE_NODES = 400;
     private static final int[][] SIX = {{0,1,0},{-1,0,0},{1,0,0},{0,0,-1},{0,0,1},{0,-1,0}};
@@ -129,7 +133,7 @@ final class RouteGeometry implements RouteMotor.Geometry {
 
     private boolean wet(int x, int y, int z) {
         var cell = cell(x, y, z);
-        return cell != null && "minecraft:water".equals(cell.get("fluid"));
+        return cell != null && waterFluid(cell.get("fluid"));
     }
     /** Too deep to stand in with the head out: known water in the feet cell and in the cell above or below it. */
     @Override public boolean deepWater(RouteMotor.Pose p) {

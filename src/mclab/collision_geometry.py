@@ -23,11 +23,14 @@ def safe_cell(cell):
     )
 
 
+WATER_FLUIDS = ("minecraft:water", "minecraft:flowing_water")
+
+
 def wadeable(cell):
     """Water with nothing solid in it: the body's feet may stand in this cell."""
     return (
         cell is not None
-        and cell.get("fluid") == "minecraft:water"
+        and cell.get("fluid") in WATER_FLUIDS
         and cell.get("collision_boxes") == []
         and cell.get("block") not in HAZARDS
     )

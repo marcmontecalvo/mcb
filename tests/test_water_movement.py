@@ -266,3 +266,20 @@ def test_land_to_water_drop_needs_known_floor_and_still_water():
     cells = bank(5)
     cells[6, -2, 3] = water("1")
     assert not wm.water_landing(cells, (7, 5, 3), (6, 0, 3), 10)
+
+
+def test_minecraft_flowing_water_fluid_is_wadeable_and_passable():
+    flowing = {
+        "block": "minecraft:water",
+        "fluid": "minecraft:flowing_water",
+        "collision_boxes": [],
+        "properties": {"level": "1"},
+    }
+    assert collision_geometry.wadeable(flowing)
+    assert wm.flowing_water(flowing)
+    assert not wm.still_water(flowing)
+    assert wm._passable(flowing)
+    assert wm.water_cost_multiplier(flowing) == wm.FLOWING_WATER_MULTIPLIER
+    shallow = {(0, 61, 0): STONE, (0, 62, 0): flowing, (0, 63, 0): AIR}
+    assert collision_geometry.standable(shallow, (0, 62, 0))
+    assert collision_geometry.edit_stance(shallow, (0, 62, 0))

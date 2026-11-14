@@ -441,14 +441,15 @@ class _GotoController(SegmentedController):
         # cut it off at 60 ticks, 55 times in a row, so no route was ever planned.
         last = getattr(self, "last_result", None)
         uploading = last is not None and last.reason == "planner map transfer"
-        if self.mode in {"searching", "incomplete", "planning"} and not uploading:
+        if uploading or self.mode in ({"arrived", "following", "centering"} | EDIT_MODES):
+            self.searching_since = None
+        elif self.mode in {"searching", "incomplete", "planning", "terrain_incomplete"}:
             # An interaction goal whose stance the known map cannot reach floods the
-            # known graph for ever (live run 20261101T190355487393Z: 25 minutes).
+            # known graph for ever (live run 20261101T190355487393Z: 25 minutes),
+            # and a planning <-> terrain_incomplete loop must not reset this clock.
             self.searching_since = self.searching_since or observation["tick"]
             if observation["tick"] - self.searching_since >= SEARCH_STALL_TICKS:
                 return "stalled"
-        else:
-            self.searching_since = None
         return None
 
     def _probe_verdict(self) -> str | None:
@@ -1128,7 +1129,11 @@ class CompanionBody:
     def walk_to(self, pos: Pos, radius: float = 1.5) -> bool:
         x, y, z = pos
         goal = (x, self._stand_y(x, y, z), z)
-        if not self._move_policy().allow_swim and self._in_water(goal):
+        if (
+            not self._move_policy().allow_swim
+            and self._in_water(goal)
+            and not standable(self._cells_now(), goal)
+        ):
             return False  # no stand within reach and the cell is water: not a stance
         # With placing off, ask the planner first (as goto_stance does): an
         # unroutable walk stood still for the whole 10 s wall, 11 times in the

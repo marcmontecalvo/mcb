@@ -523,6 +523,8 @@ public final class RouteMotorTest {
         check(!geometry(hazard).standable(route.get(1)),"hazard clearance refuses");
         var wet=floor(); wet.put(new Key(1,1,0),Map.of("block","minecraft:air","fluid","minecraft:water","collision_boxes",List.of()));
         check(geometry(wet).standable(route.get(1)),"one-deep water over a floor is waded");
+        var flowingWet=floor(); flowingWet.put(new Key(1,1,0),Map.of("block","minecraft:water","fluid","minecraft:flowing_water","properties",Map.of("level","1"),"collision_boxes",List.of()));
+        check(geometry(flowingWet).standable(route.get(1)),"one-deep flowing water over a floor is waded");
         wet.put(new Key(1,2,0),Map.of("block","minecraft:air","fluid","minecraft:water","collision_boxes",List.of()));
         check(!geometry(wet).standable(route.get(1)),"water at head height refuses");
         var blind=floor(); blind.put(new Key(1,1,0),Map.of("block","minecraft:air","fluid","minecraft:water"));

@@ -1130,3 +1130,46 @@ def test_free_slots_and_can_hold_come_from_the_per_slot_rows():
     helmet = {"slot": 36, "item": "minecraft:iron_helmet", "count": 1}
     b._set_inventory(full[:30] + [helmet])
     assert b.free_slots() == 6 and b.can_hold("minecraft:stone")  # armour is no slot
+
+
+def test_walk_to_allows_wadeable_shallow_water_when_swimming_is_off(monkeypatch):
+    b, _, _ = body()
+    b.movement_policy = replace(b.movement_policy, allow_swim=False)
+    shallow = {
+        (5, 61, 5): {
+            "block": "minecraft:stone",
+            "collision_boxes": [FULL],
+            "fluid": "minecraft:empty",
+        },
+        (5, 62, 5): {
+            "block": "minecraft:water",
+            "collision_boxes": [],
+            "fluid": "minecraft:flowing_water",
+        },
+        (5, 63, 5): {
+            "block": "minecraft:air",
+            "collision_boxes": [],
+            "fluid": "minecraft:empty",
+        },
+    }
+    monkeypatch.setattr(b, "_cells_now", lambda: shallow)
+    goals = []
+    monkeypatch.setattr(b, "_navigate", lambda goal, **k: goals.append(goal) or True)
+    assert b.walk_to((5, 62, 5)) is True
+    assert goals == [(5, 62, 5)]
+
+
+def test_planning_terrain_incomplete_cycle_stops_as_stalled():
+    ctl = cb._GotoController.__new__(cb._GotoController)
+    ctl.deadline, ctl.unreachable_since, ctl.searching_since = 10**12, None, None
+    for tick, mode in (
+        (100, "planning"),
+        (102, "unreachable"),
+        (103, "terrain_planning"),
+        (105, "terrain_incomplete"),
+        (106, "planning"),
+    ):
+        ctl.mode = mode
+        assert ctl.stop_reason({"tick": tick}) is None
+    ctl.mode = "terrain_incomplete"
+    assert ctl.stop_reason({"tick": 100 + cb.SEARCH_STALL_TICKS}) == "stalled"

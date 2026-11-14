@@ -49,7 +49,9 @@ def surface_height(cells, position):
         if surface_node(cells, (x, h, z)):
             return h
         cell = cells.get((x, h, z))
-        if h >= y and (cell is None or cell.get("fluid") != "minecraft:water"):
+        if h >= y and (
+            cell is None or cell.get("fluid") not in collision_geometry.WATER_FLUIDS
+        ):
             return None
     return None
 
@@ -80,7 +82,7 @@ def _passable(cell):
         and cell.get("collision_boxes") == []
         and cell.get("block") not in collision_geometry.HAZARDS
         and cell.get("fluid", "minecraft:empty")
-        in ("minecraft:empty", "minecraft:water")
+        in ("minecraft:empty", *collision_geometry.WATER_FLUIDS)
     )
 
 
@@ -91,10 +93,15 @@ def _breathable(cell):
 def flowing_water(cell):
     return (
         cell is not None
-        and cell.get("fluid") == "minecraft:water"
         and cell.get("collision_boxes") == []
-        and cell.get("properties", {}).get("level", "0") != "0"
         and cell.get("block") not in collision_geometry.HAZARDS
+        and (
+            cell.get("fluid") == "minecraft:flowing_water"
+            or (
+                cell.get("fluid") == "minecraft:water"
+                and cell.get("properties", {}).get("level", "0") != "0"
+            )
+        )
     )
 
 

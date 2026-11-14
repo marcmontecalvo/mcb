@@ -675,9 +675,14 @@ final class RoutePlanner {
         return c != null && dry(c) && ("minecraft:air".equals(c.get("block")) || List.of().equals(c.get("collision_boxes")));
     }
     private static boolean climbable(Map<String, Object> c) { return c != null && dry(c) && CLIMBABLE.contains(c.get("block")); }
+    private static boolean waterFluid(Object fluid) {
+        return "minecraft:water".equals(fluid) || "minecraft:flowing_water".equals(fluid);
+    }
     private static boolean water(Map<String, Object> c, boolean still) {
-        if (c == null || !"minecraft:water".equals(c.get("fluid")) || !List.of().equals(c.get("collision_boxes"))
-                || HAZARDS.contains(c.get("block"))) return false;
+        if (c == null || !List.of().equals(c.get("collision_boxes")) || HAZARDS.contains(c.get("block"))) return false;
+        Object fluid = c.get("fluid");
+        if ("minecraft:flowing_water".equals(fluid)) return !still;
+        if (!"minecraft:water".equals(fluid)) return false;
         Object level = c.get("properties") instanceof Map<?, ?> m ? m.get("level") : null;
         return still == "0".equals(level == null ? "0" : level);
     }
@@ -693,7 +698,7 @@ final class RoutePlanner {
     }
     private Map<String, Object> surfaceWater(Node n) {
         var below = at(n.x, n.y - 1, n.z);
-        if (below == null || !"minecraft:water".equals(below.get("fluid"))) return null;
+        if (below == null || !waterFluid(below.get("fluid"))) return null;
         return surfaceNode(n) || flowingSurface(n) ? below : null;
     }
     private static double multiplier(Map<String, Object> wet) { return water(wet, true) ? 1 : FLOWING; }
@@ -857,7 +862,7 @@ final class RoutePlanner {
                 && !HAZARDS.contains(cell.get("block"));
     }
     private static boolean wadeable(Map<String, Object> cell) {
-        return cell != null && "minecraft:water".equals(cell.get("fluid")) && List.of().equals(cell.get("collision_boxes"))
+        return cell != null && waterFluid(cell.get("fluid")) && List.of().equals(cell.get("collision_boxes"))
                 && !HAZARDS.contains(cell.get("block"));
     }
     private static List<?> boxes(Map<String, Object> cell) {

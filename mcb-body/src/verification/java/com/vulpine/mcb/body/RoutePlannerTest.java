@@ -335,6 +335,16 @@ public final class RoutePlannerTest {
                 new RoutePlanner.Node(0, 1, 0), gravelGoal, 0, 3, true).withEdits(gravelPolicy).search(10_000).status().equals("unreachable"),
                 "non-standable start without dry floor below remains unreachable");
 
+        // Flowing water (minecraft:flowing_water) one block deep over stone is wadeable with edits and walking.
+        var flowWade = floor(6);
+        flowWade.put(new Key(0, 1, 0), Map.of("block", "minecraft:water", "collision_boxes", List.of(),
+                "fluid", "minecraft:flowing_water", "properties", Map.of("level", "2")));
+        var flowRes = new RoutePlanner((x, y, z) -> flowWade.get(new Key(x, y, z)),
+                new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(4, 1, 0), 0, 3, true)
+                .withEdits(policy(true)).search(10_000);
+        check(flowRes.status().equals("reached") && flowRes.route().size() == 5,
+                "wades out of one-deep flowing water onto dry floor: " + flowRes.status());
+
         System.out.println("RoutePlanner: " + checks + " planner checks passed");
     }
 
