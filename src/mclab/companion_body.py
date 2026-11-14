@@ -53,6 +53,7 @@ from mclab.build_runner import Result
 from mclab.collision_geometry import standable
 from mclab.control_loop import NATIVE, drive
 from mclab.execution import RecordedBridge, policy_state
+from mclab.gather_tasks import item_stack
 from mclab.interaction_goal import interacts
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation_runner import _new_identity
@@ -74,6 +75,8 @@ AIR_BLOCKS = {"minecraft:air", "minecraft:cave_air", "minecraft:void_air"}
 OVERLAY_TICKS = 200  # until the sensor has re-delivered the cell; 40 was too short (run 20261102T222239739886Z: "occupied")
 UNREACHABLE_TICKS = 60
 GOTO_WALL_S = 90.0
+MAIN_SLOTS = 36  # inventory indices 0..35: hotbar and main
+
 # Per-world knowledge that outlives sessions (git-ignored runtime/).
 WORLD_MEMORY = RUNTIME / "world-memory"
 _restored_world = False  # set inside companion_world(seed): a reset snapshot copy
@@ -99,6 +102,9 @@ SETTLE_TICKS = 40  # settle(): longest wait for the map to show broken blocks
 SETTLE_STEP = 5
 STUCK_TICKS = 200  # a goto or walk whose position does not change for this long fails
 STUCK_MOVE = 0.5  # blocks that count as progress
+IDLE_REPORT_S = 5.0  # a still body this long prints a STALL line (report only)
+EDIT_MODES = {"terrain_editing", "terrain_step_motion", "terrain_planned_walk"}
+PLANNING_MODES = {"planning", "searching", "terrain_planning", "awaiting_map"}
 PROBE_WALL_S = (
     2.5  # plan-only stance probe: budget for the body planner's first verdict
 )
@@ -133,8 +139,9 @@ NATURAL_MOVEMENT = MovementPolicy(
 DIG_TERRAIN = TerrainPolicy(
     break_budget=64,
     place_budget=64,
-    # dirt only: cobblestone is what the gather is for (the planner pillars with the
-    material_allowlist=("minecraft:dirt",),
+    # every allowed building block (dirt first): a bot holding only cobblestone was sent
+    # place_supply 0 and could not pillar out of a hole (runs of 20261113)
+    material_allowlist=("minecraft:dirt", "minecraft:cobblestone"),
     allow_bridge=True,
     max_support_stack=3,
     allow_pillar=True,
@@ -145,7 +152,7 @@ DIG_TERRAIN = TerrainPolicy(
     baritone_diagonals=True,
     baritone_moves=True,
     planner_swim=False,
-    heuristic_weight=1,
+    heuristic_weight=4,  # see body_search.EDIT_NODE_LIMIT
     allow_falling_neighbours=False,
     use_doors=True,
     climb_vines=False,
@@ -160,6 +167,7 @@ WALK_TERRAIN = replace(
     place_budget=0,
     allow_bridge=False,
     allow_pillar=False,
+    heuristic_weight=1,  # no digs: keep walking routes optimal
 )
 
 
@@ -313,8 +321,7 @@ class _GotoController(SegmentedController):
     no_drive = False  # drive_native keeps every motor submission off
     walk_wall = 0.0  # wall of the walk a successful probe turns into
     walk_partial = False  # a probe that ran out of search walks the moves it found
-    route_seen = None  # last native route id seen following (idle grace)
-    graced_at = None  # where the last idle grace was granted
+    on_pass = None  # called with the body position while a route is followed
 
     @property
     def planner_radius(self):
@@ -365,42 +372,33 @@ class _GotoController(SegmentedController):
             if shared is not None:
                 self.idle_anchor, self.idle_since = shared["anchor"], shared["since"]
             step = observation.get("step_follower", {})
-            editing = step.get("state") == "following" and step.get("issued") is True
-            if editing:
-                self.guard.anchor = None
-            anchor = getattr(self, "idle_anchor", None)
-            route = observation.get("route_follower") or {}
+            editing = (
+                step.get("state") == "following" and step.get("issued") is True
+            ) or self.mode in EDIT_MODES
+            # Report-only: the wall-clock idle clock never ends a goto (it fired while
+            # plan requests were in flight and during multi-block edits). The one
+            # watchdog is the tick-based StuckGuard below.
             if (
-                route.get("state") == "following"
-                and route.get("route_id") != self.route_seen
+                shared is not None
+                and shared["anchor"] is not None
+                and math.dist(position, shared["anchor"]) < STUCK_MOVE
+                and not editing
+                and now - shared["since"] >= IDLE_REPORT_S
             ):
-                self.route_seen = route.get("route_id")
-                # A route just issued needs ticks to cover STUCK_MOVE: cancelling
-                # it 0.25 s in failed run results/wading/20261111T164143495401Z.
-                # Once per spot, so a stationary replan loop still ends at 5 s.
-                graced = self.graced_at
-                if graced is None or math.dist(position, graced) >= STUCK_MOVE:
-                    self.graced_at = tuple(position)
-                    if anchor is not None and now - self.idle_since >= 5.0:
-                        print(  # report-only: the wait still shows in the log
-                            f"STALL {now - self.idle_since:.1f}s navigation idle "
-                            f"at {position}; mode={self.mode}, route={route}",
-                            flush=True,
-                        )
-                    anchor = None  # restart the clock at the first issued tick
-            if anchor is None or math.dist(position, anchor) >= STUCK_MOVE or editing:
-                self.idle_anchor, self.idle_since = tuple(position), now
-                if shared is not None:
-                    shared.update(anchor=self.idle_anchor, since=now)
-            elif now - self.idle_since >= 5.0:
                 print(
-                    f"STALL {now - self.idle_since:.1f}s navigation idle at {position}; "
+                    f"STALL {now - shared['since']:.1f}s navigation idle at {position}; "
                     f"mode={self.mode}, route={observation.get('route_follower', {})}",
                     flush=True,
                 )
-                if shared is not None:
-                    shared["since"] = now
-                return "stuck"
+                shared["since"] = now
+            if shared is not None and (
+                shared["anchor"] is None
+                or editing
+                or math.dist(position, shared["anchor"]) >= STUCK_MOVE
+            ):
+                shared.update(anchor=tuple(position), since=now)
+            if editing or self.mode in PLANNING_MODES:
+                self.guard.anchor = None  # ticks spent planning or editing are not idle
             # A walk can begin on land and slip into a deeper pond mid-route.
             # Enable recovery from the delivered water column on the next replan.
             if (
@@ -460,20 +458,28 @@ class _GotoController(SegmentedController):
         done verdict is final: the oscillation of searching/unreachable modes kept
         only the 200-tick StuckGuard alive, and 12 of those 10 s walks ended a
         gather at 0 tasks (run 20261106T170919632775Z)."""
-        if self.mode in {"following", "terrain_step_motion", "centering"} or (
-            self.last_result is not None
-            and self.last_result.status in {"reached", "segment"}
+        last = self.last_result
+        if (
+            last is not None
+            and last.status == "incomplete"
+            and len(last.route) > 1
+            and (self.walk_partial or getattr(self, "route_steps", None) or self.mode in EDIT_MODES)
         ):
-            last = self.last_result
+            # The search ran out of nodes. Its moves toward the goal are walked at
+            # once, edits included: probing the other stances first stood the body
+            # still for 7.4 s (iron run 20261112T184523101728Z) and ruled a plan that
+            # starts with a dig "unreachable" (iron run 20261113T211211538468Z, 8 in
+            # a row). Only a placing-off walk with no edits treats it as unreachable.
+            return self._walk_on()
+        if self.mode in {"following", "centering"} | EDIT_MODES or (
+            last is not None and last.status in {"reached", "segment"}
+        ):
             if last is not None and last.status == "incomplete":
-                # The search ran out of nodes. Its moves toward the goal are walked
-                # at once: probing the other stances first stood the body still for
-                # 7.4 s (iron run 20261112T184523101728Z). With placing off an
-                # incomplete search is an unreachable stance.
-                if not (self.walk_partial and len(last.route) > 1):
-                    return "unreachable"
+                return "unreachable"
             return self._walk_on()  # route adopted: drive it, do not plan it again
-        if self.mode in {"unreachable", "incomplete"} or (
+        if self.mode == "terrain_planning":
+            return None  # an edit search is in flight: wait for its verdict
+        if self.mode in {"unreachable", "incomplete", "terrain_incomplete"} or (
             self.last_result is not None
             and self.last_result.status in {"unreachable", "incomplete"}
         ):
@@ -529,12 +535,17 @@ class CompanionBody:
         self.required_support: Pos | None = None
         self._obs: dict = {}
         self._inv: dict[str, int] = {}
+        self._rows: list[dict] = []  # the per-slot rows behind _inv
         self._overlay: dict[Pos, tuple[str, int]] = {}
         self.log: list[dict] = []  # one row per op or goto, for the results folder
         self.places: PlaceGraph | None = None  # named waypoints (start_session)
         self.policies: list[dict] = []
         self._navigation_idle = {"anchor": None, "since": time.monotonic()}
         self._failed_stance_probes = {}
+        # building: called with the body position while a walk is under way, to
+        # place what comes within reach (set by build_runner._sweep)
+        self.on_pass: Callable[[Pos], None] | None = None
+        self._ahead = None  # plan_ahead: (controller, goal, radius, position)
 
     def policy_id(self) -> int:
         """Deduplicate large protected footprints across navigation records."""
@@ -573,7 +584,23 @@ class CompanionBody:
         inv: dict[str, int] = {}
         for stack in stacks:
             inv[stack["item"]] = inv.get(stack["item"], 0) + stack["count"]
-        self._inv = inv
+        self._inv, self._rows = inv, list(stacks)
+
+    def free_slots(self) -> int:
+        """Empty main-inventory slots (0..35; armour and offhand excluded). The mod
+        sends only the non-empty slots."""
+        return MAIN_SLOTS - len({r["slot"] for r in self._rows if 0 <= r["slot"] < MAIN_SLOTS})
+
+    def can_hold(self, item: str, items: dict | None = None) -> bool:
+        """A free slot, or a held stack of ``item`` below its max size (``items``:
+        the knowledge pack's item table, 64 where unknown)."""
+        if self.free_slots():
+            return True
+        top = item_stack(items or {}, item)
+        return any(
+            r["item"] == item and r["count"] < top and 0 <= r["slot"] < MAIN_SLOTS
+            for r in self._rows
+        )
 
     def _tick(self) -> int:
         return int(self._obs.get("tick", 0))
@@ -700,7 +727,11 @@ class CompanionBody:
                     return event
             return None
 
-        self.bridge.wait(lambda _state: find() is not None, timeout=timeout)
+        def done(_state):
+            self._advance_ahead()  # the next walk is planned while this op runs
+            return find() is not None
+
+        self.bridge.wait(done, timeout=timeout)
         return find()
 
     def op(self, name: str, **fields) -> Result:
@@ -913,23 +944,8 @@ class CompanionBody:
             return policy
         return replace(policy, allow_swim=True)
 
-    def _navigate(
-        self, goal: Pos, *, reach: float | None, radius: float, probe: bool = False
-    ) -> bool:
-        self.stage_fill()
-        # ponytail: the bridge keeps every event and observation and its ack waits
-        # rescan all of them; after 835 blocks (run 20261110T075452397123Z, 18.6 GB)
-        # the scans ate the whole 2.5 s probe and no route was ever planned again.
-        # events.jsonl has the full record; nothing here reads further back.
-        for kept in (
-            getattr(self.bridge, "events", None),
-            getattr(self.bridge, "samples", None),
-        ):
-            if isinstance(kept, list) and len(kept) > 20_000:
-                del kept[:-2_000]
-        # A probe whose route is found becomes the walk (_walk_on): one plan.
-        wall = PROBE_WALL_S if probe else self.goto_wall_s
-        controller = _GotoController(
+    def _goto_controller(self, goal, reach, radius, probe, wall):
+        return _GotoController(
             goal,
             self.memory,
             radius=radius,
@@ -943,6 +959,113 @@ class CompanionBody:
             walk_wall=self.goto_wall_s,
             walk_partial=not getattr(self, "walk_only", False),
         )
+
+    def plan_ahead(self, target: Pos, reach: float) -> None:
+        """Start planning the walk to the stance of ``target`` from where the body
+        stands, while it places the current block (optional BuildBody method).
+
+        The first stance goto_stance would probe gets a controller whose prefetch
+        is the plan from here; the next probe of that stance adopts it (decide()
+        takes a prefetch that starts at the body's node) instead of uploading the
+        map and searching after the placement. Any other navigation, or a body
+        that moved, drops it. ponytail: one stance ahead; the block being placed
+        is not in the plan's map (a route through it fails its sweep and replans)."""
+        from mclab.planner_session import attach
+
+        self._drop_ahead()
+        stances = self.stances(target, reach)
+        if not stances:
+            return
+        here = tuple(self.position())
+        radius = PRECISE_RADIUS if self.precise_stance else 0.6
+        controller = self._goto_controller(stances[0], None, radius, True, PROBE_WALL_S)
+        try:
+            attach(self.bridge, controller)
+            node = controller._stance_node(here, round(here[1]))
+            revision, cells = controller._planning_snapshot()
+            controller.prefetch = controller._new_search(cells, node, revision)
+        except Exception as error:  # a missed head start, never a failed build
+            self.log.append({"op": "plan_ahead", "ok": False, "reason": repr(error)})
+            self._close_controller(controller)
+            return
+        self._ahead = (controller, tuple(stances[0]), radius, here)
+
+    def _advance_ahead(self) -> None:
+        if self._ahead is None:
+            return
+        controller = self._ahead[0]
+        try:
+            controller.prefetch.advance(
+                node_limit=controller.search_nodes,
+                budget_ms=controller.search_ms,
+                moving=True,
+            )
+        except Exception as error:
+            self.log.append({"op": "plan_ahead", "ok": False, "reason": repr(error)})
+            self._drop_ahead()
+
+    def _take_ahead(self, goal, reach, radius, probe, wall):
+        """The look-ahead controller if this navigation is the one it planned."""
+        if self._ahead is None:
+            return None
+        controller, ahead_goal, ahead_radius, here = self._ahead
+        if (
+            reach is None
+            and probe
+            and tuple(goal) == ahead_goal
+            and radius == ahead_radius
+            and tuple(self.position()) == here
+        ):
+            self._ahead = None
+            controller.deadline = time.monotonic() + wall
+            return controller
+        self._drop_ahead()
+        return None
+
+    def _drop_ahead(self) -> None:
+        if self._ahead is not None:
+            controller, self._ahead = self._ahead[0], None
+            self._close_controller(controller)
+
+    def _close_controller(self, controller) -> None:
+        from mclab.planner_session import detach
+
+        try:
+            detach(controller)
+        except Exception as error:
+            self.log.append({"op": "plan_ahead", "ok": False, "reason": repr(error)})
+        controller.close()
+
+    def _navigate(
+        self, goal: Pos, *, reach: float | None, radius: float, probe: bool = False
+    ) -> bool:
+        mid = self._hop_toward(goal) if reach is None else None
+        if mid is not None:
+            # A goal past the sensed terrain is an unreachable search (a plan 101
+            # blocks out never completed): walk to the sensed edge, then go on.
+            before = self.position()
+            if not self._navigate(mid, reach=None, radius=2.0):
+                return False
+            if math.dist(self.position(), before) < 2.0:
+                return False  # the hop did not move us: do not loop
+            return self._navigate(goal, reach=reach, radius=radius, probe=probe)
+        self.stage_fill()
+        # ponytail: the bridge keeps every event and observation and its ack waits
+        # rescan all of them; after 835 blocks (run 20261110T075452397123Z, 18.6 GB)
+        # the scans ate the whole 2.5 s probe and no route was ever planned again.
+        # events.jsonl has the full record; nothing here reads further back.
+        for kept in (
+            getattr(self.bridge, "events", None),
+            getattr(self.bridge, "samples", None),
+        ):
+            if isinstance(kept, list) and len(kept) > 20_000:
+                del kept[:-2_000]
+        # A probe whose route is found becomes the walk (_walk_on): one plan.
+        wall = PROBE_WALL_S if probe else self.goto_wall_s
+        controller = self._take_ahead(goal, reach, radius, probe, wall)
+        if controller is None:
+            controller = self._goto_controller(goal, reach, radius, probe, wall)
+        controller.on_pass = self.on_pass
         # A passive mob that still blocks a step after the pushes is killed
         # (native_driver.no_progress_decision); an axe first, else the mod's pick.
         controller.clear_mob = lambda uuid: self.attack_entity(uuid, self._axe())
@@ -971,6 +1094,29 @@ class CompanionBody:
         self.log.append(row)
         return ok
 
+    def _in_water(self, node: Pos) -> bool:
+        cell = self._cells_now().get(node)
+        return bool(cell) and cell.get("fluid", "minecraft:empty") not in (
+            "minecraft:empty",
+            "minecraft:lava",
+        )
+
+    def _hop_toward(self, goal: Pos) -> Pos | None:
+        """A known standable cell on the line to a goal beyond SENSED_RADIUS, else None."""
+        here = self.position()
+        dist = math.hypot(goal[0] - here[0], goal[2] - here[2])
+        if dist <= SENSED_RADIUS:
+            return None
+        cells = self._cells_now()
+        for share in (1.0, 0.75, 0.5):
+            k = SENSED_RADIUS * share / dist
+            x = here[0] + round((goal[0] - here[0]) * k)
+            z = here[2] + round((goal[2] - here[2]) * k)
+            y = self._stand_y(x, here[1], z)
+            if standable(cells, (x, y, z)):
+                return (x, y, z)
+        return None
+
     def _stand_y(self, x: int, y: int, z: int) -> int:
         cells = self._cells_now()
         for dy in sorted(range(-STAND_SEARCH, STAND_SEARCH + 1), key=abs):
@@ -982,6 +1128,8 @@ class CompanionBody:
     def walk_to(self, pos: Pos, radius: float = 1.5) -> bool:
         x, y, z = pos
         goal = (x, self._stand_y(x, y, z), z)
+        if not self._move_policy().allow_swim and self._in_water(goal):
+            return False  # no stand within reach and the cell is water: not a stance
         # With placing off, ask the planner first (as goto_stance does): an
         # unroutable walk stood still for the whole 10 s wall, 11 times in the
         # site prep of run 20261111T021416142202Z.

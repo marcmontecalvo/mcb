@@ -5,8 +5,9 @@ feet (4 high, so the planner can climb back), then walks
 onto the new step with the body planner (the cells were just cleared and observed, so
 they are known). Once the cell ahead at feet height is stone (or another pickaxe
 block) it tunnels level and keeps mining until enough of ``item`` is held. The way
-back is the staircase itself. Never digs straight down, into unknown cells, or past
-water, lava, gravel above the head, a missing floor or (underground) a cave opening.
+back is the staircase itself. Never digs straight down, into unknown cells, a missing
+floor, or a cell with lava on any face. Gravel and sand are dug like stone: what falls
+into a dug cell is broken again until the cell stays empty.
 """
 
 from __future__ import annotations
@@ -22,8 +23,9 @@ MAX_CLIMB = 128  # escape staircase: deep caves sit ~120 blocks under the surfac
 SKY_CHECK = 8  # the escape ends once this many cells over the head are known air
 MAX_TUNNEL = 24
 DROP_WAIT_TICKS = 20
-CAVE_DEPTH = 4  # sides are only checked for air this far below the start
-# (a neighbouring column one or two blocks lower is not a cave)
+GRAVEL_CAP = 8  # re-breaks of a dug cell that gravel or sand keeps falling into
+FALL_WAIT_TICKS = 10  # for what is above a broken cell to land in it
+LAVA = "minecraft:lava"
 FALLING = frozenset("minecraft:" + n for n in ("gravel", "sand", "red_sand"))
 STONE_LIKE = ("stone", "cobblestone", "deepslate", "andesite", "diorite", "granite")
 
@@ -50,15 +52,15 @@ class Digger:
         return [self.body.world(*c) for c in cells]
 
     def _blocked(self, cells: list[Pos]) -> str | None:
-        """Unknown or liquid among ``cells`` (the cells to dig, floor and ceiling)."""
+        """Unknown or lava among ``cells`` (the cells to dig, floor and ceiling)."""
         for state in self._states(cells):
             if state is None:
                 return "unknown"
-            if _ident(state) in bp.FLUIDS:
-                return "liquid"
+            if _ident(state) == LAVA:
+                return "lava"
         return None
 
-    def _check(self, new: Pos, dig: list[Pos], d, depth: int) -> str | None:
+    def _check(self, new: Pos, dig: list[Pos]) -> str | None:
         x, y, z = new
         floor = (x, y - 1, z)
         above = (x, y + len(dig), z)  # the cell over the top dug cell
@@ -66,26 +68,12 @@ class Digger:
             return why
         if _ident(self.body.world(*floor)) in bp.AIR:
             return "no_floor"
-        if _ident(self.body.world(*above)) in FALLING:
-            return "gravel_above"
         # Every face of every dug cell: a dug block next to liquid lets it flow in
         # (the surface-mining rule, gather_runner._sealed). Unknown faces stop too.
         faces = {
             (cx + fx, cy + fy, cz + fz) for cx, cy, cz in dig for fx, fy, fz in FACES
         } - set(dig)
-        if why := self._blocked(sorted(faces)):
-            return why
-        sides = [
-            (x + dx, y + dy, z + dz)
-            for dx, dz in DIRS
-            if (dx, dz) != (-d[0], -d[1])  # the way back is open by design
-            for dy in (0, 1)
-        ]
-        if depth >= CAVE_DEPTH and any(
-            _ident(s) in bp.AIR for s in self._states(sides)
-        ):
-            return "cave_opening"
-        return None
+        return self._blocked(sorted(faces))
 
     def _step_cells(self, feet: Pos, d, tunnel: bool):
         x, y, z = feet
@@ -103,26 +91,45 @@ class Digger:
         ]
 
     def _dig_cells(self, dig: list[Pos], drops_optional: bool = False) -> bool:
+        body = self.body
         for cell in dig:
-            ident = _ident(self.body.world(*cell))
-            if ident in bp.AIR or ident in bp.REPLACEABLE:
-                continue
-            result = (
-                self.body.break_block(cell, drops_optional=True)
-                if drops_optional
-                else self.body.break_block(cell)
-            )
-            if not result.ok:
-                self.reason = f"break_failed:{result.reason}"
+            for _ in range(GRAVEL_CAP):
+                ident = _ident(body.world(*cell))
+                if ident in bp.AIR or ident in bp.REPLACEABLE:
+                    break
+                result = (
+                    body.break_block(cell, drops_optional=True)
+                    if drops_optional
+                    else body.break_block(cell)
+                )
+                if not result.ok:
+                    self.reason = f"break_failed:{result.reason}"
+                    return False
+                self.broken += 1
+                # gravel or sand over the cell falls into it: wait, look again
+                if _ident(body.world(cell[0], cell[1] + 1, cell[2])) in FALLING:
+                    if settle := getattr(body, "settle", None):
+                        settle([cell])
+                    body.wait_ticks(FALL_WAIT_TICKS)
+            else:
+                self.reason = "gravel_cap"
                 return False
-            self.broken += 1
         return True
 
-    def _pick_dir(self, feet: Pos, start_y: int):
+    def _toward(self, target: tuple[int, int] | None) -> list[tuple[int, int]]:
+        """DIRS, those pointing at the horizontal ``target`` (x, z) first; ties keep
+        the fixed order."""
+        if target is None:
+            return list(DIRS)
+        x, _, z = self.body.position()
+        dx, dz = target[0] - x, target[1] - z
+        return sorted(DIRS, key=lambda c: -(c[0] * dx + c[1] * dz))
+
+    def _pick_dir(self, feet: Pos):
         why = "no_direction"
         for d in DIRS:
             new, dig = self._step_cells(feet, d, False)
-            problem = self._check(new, dig, d, start_y - new[1])
+            problem = self._check(new, dig)
             if problem is None:
                 return d
             why = problem
@@ -153,14 +160,13 @@ class Digger:
                 state.dig_tail = state.dig_dir = state.dig_start_y = None
         if state.dig_start_y is None:
             state.dig_start_y = body.position()[1]
-        start_y = state.dig_start_y
         while True:
             if body.inventory().get(item, 0) >= target:
                 self.reason = "done"
                 break
             feet = body.position()
             if direction is None:
-                direction = self._pick_dir(feet, start_y)
+                direction = self._pick_dir(feet)
                 if direction is None:
                     break
             tunnel = tunnel or stone_like(
@@ -173,7 +179,7 @@ class Digger:
                 self.reason = "depth_cap"
                 break
             new, dig = self._step_cells(feet, direction, tunnel)
-            problem = self._check(new, dig, direction, start_y - new[1])
+            problem = self._check(new, dig)
             if problem:
                 self.reason = problem
                 break
@@ -189,6 +195,45 @@ class Digger:
                 break
             self._collect(item, new, target)
         return self.broken > 0
+
+    def step(self, d, tunnel: bool) -> str | None:
+        """One staircase (or, ``tunnel``, level) step toward ``d``: check, dig,
+        walk onto it. None on success, else why not."""
+        new, dig = self._step_cells(self.body.position(), d, tunnel)
+        if why := self._check(new, dig):
+            return why
+        if not self._dig_cells(dig):
+            return self.reason
+        if settle := getattr(self.body, "settle", None):
+            settle(dig)
+        self.tunnelled += tunnel
+        self.descended += not tunnel
+        return None if self.body.walk_to(new, 0.8) else "walk_failed"
+
+    def hard(self, why: str) -> bool:
+        return why == "walk_failed" or why.startswith("break_failed")
+
+    def descend(self, y: int, toward: tuple[int, int] | None = None) -> str | None:
+        """Staircase down until the feet are at ``y`` or lower, heading for the
+        horizontal ``toward`` (x, z) when given; None, else why not."""
+        body = self.body
+        d, why = None, "no_direction"
+        while body.position()[1] > y:
+            # re-aimed every step: a deep target close by is reached by a switchback,
+            # not overshot by one long straight stair
+            order = self._toward(toward)
+            if toward is None and d:
+                order = [d] + [c for c in order if c != d]
+            for cand in order:
+                why = self.step(cand, False)
+                if why is None:
+                    d = cand
+                    break
+                if self.hard(why):
+                    return why
+            else:
+                return why
+        return None
 
     def open_sky(self) -> bool:
         x, y, z = self.body.position()
@@ -206,10 +251,6 @@ class Digger:
             return dig, why
         if _ident(self.body.world(nx, y, nz)) in bp.AIR:
             return dig, "no_floor"
-        if any(
-            _ident(s) in FALLING for s in self._states([(x, y + 3, z), (nx, y + 3, nz)])
-        ):
-            return dig, "gravel_above"
         faces = {
             (cx + fx, cy + fy, cz + fz) for cx, cy, cz in dig for fx, fy, fz in FACES
         } - set(dig)
@@ -226,6 +267,14 @@ class Digger:
                 self.reason = "open_sky"
                 return True
             feet = body.position()
+            if _ident(body.world(feet[0], feet[1] + 3, feet[2])) in FALLING:
+                # the one gravel rule: never open the cell under gravel that sits over
+                # the body's own head. Tunnel one step aside instead: what falls
+                # there lands in front of the body and is dug like any other cell.
+                if any(self.step(d, True) is None for d in DIRS):
+                    continue
+                self.reason = "gravel_overhead"
+                return False
             order = ([direction] if direction else []) + [
                 d for d in DIRS if d != direction
             ]

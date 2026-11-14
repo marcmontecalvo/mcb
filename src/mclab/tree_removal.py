@@ -277,6 +277,33 @@ def find_trees(
     return trees
 
 
+# Vanilla single-trunk trees: a fancy oak is about 20-30 logs with branches, birch,
+# spruce and jungle trees fewer. More than this is a giant (mega spruce/jungle, dark
+# oak, tall mangrove), left standing once the need is met.
+HUGE_LOGS = 40
+
+
+def tree_at(world, log: Pos) -> Tree | None:
+    """The tree ``log`` belongs to (logs and branches; canopy is not needed)."""
+    return next(
+        (
+            t
+            for t in find_trees(world, [log], margin=0, leafless=True)
+            if log in t.all_logs
+        ),
+        None,
+    )
+
+
+def is_huge(tree: Tree) -> bool:
+    """A 2x2 (or wider) trunk, which find_trees sees as a trunk plus 'branches', or
+    more than HUGE_LOGS logs."""
+    logs = tree.all_logs
+    return len(logs) > HUGE_LOGS or any(
+        {(x + 1, y, z), (x, y, z + 1), (x + 1, y, z + 1)} <= logs for x, y, z in logs
+    )
+
+
 def _dist2(a: Pos, b: Pos) -> int:
     return sum((p - q) ** 2 for p, q in zip(a, b, strict=True))
 

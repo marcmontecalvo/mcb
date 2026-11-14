@@ -130,6 +130,38 @@ def test_edit_payload_follows_tools_supply_and_protection():
     assert no_break["break_costs"] == {}
 
 
+def test_iron_ore_with_only_a_wooden_pickaxe_is_priced_at_what_the_motor_swings():
+    # The motor swings the wooden pickaxe (it cannot harvest iron ore): 3.0 x 100 / 2
+    # = 150 ticks, not the 23 ticks of the iron-speed table price.
+    held = (
+        {"slot": 0, "item": "minecraft:wooden_pickaxe", "count": 1},
+        {"slot": 1, "item": "minecraft:wooden_shovel", "count": 1},
+    )
+    edits = body_search.edit_payload(PROD, held, ())
+    costs = edits["break_costs"]
+    assert costs["minecraft:iron_ore"] == 150 + 8
+    assert costs["minecraft:stone"] == 23 + 8  # the wooden pickaxe harvests stone
+    assert costs["minecraft:dirt"] < 23 and edits["tools"]["minecraft:dirt"].endswith(
+        "wooden_shovel"
+    )
+
+
+def test_place_supply_is_the_true_stock_of_every_allowed_material():
+    held = (
+        {"slot": 0, "item": "minecraft:wooden_pickaxe", "count": 1},
+        {"slot": 12, "item": "minecraft:cobblestone", "count": 40},  # main inventory
+        {"slot": 13, "item": "minecraft:cobblestone", "count": 20},
+        {"slot": 4, "item": "minecraft:dirt", "count": 5},
+        {"slot": 5, "item": "minecraft:andesite", "count": 99},  # motor refuses it
+    )
+    allowed = ("minecraft:dirt", "minecraft:cobblestone")
+    policy = replace(PROD, material_allowlist=allowed)
+    edits = body_search.edit_payload(policy, held, ())
+    assert edits["place_supply"] == 65 - policy.reserve_blocks
+    assert edits["materials"] == ["minecraft:cobblestone", "minecraft:dirt"]
+    assert edits["material"] == "minecraft:cobblestone"
+
+
 def test_body_edit_steps_become_step_plans():
     c, _ = controller()
     search = body_search.BodySearch(c, (0, 1, 0), 3)
@@ -265,3 +297,46 @@ def test_occluded_current_and_historyless_sessions_keep_the_upload():
         search.advance()
         assert transfer.frames[0] == ("begin", search)
         assert "terrain" not in sent[0] and sent[0]["map_generation"] == 1
+
+
+def test_edit_payload_picks_tool_by_tool_choice():
+    held = [
+        {"slot": i, "item": f"minecraft:{t}_pickaxe", "count": 1}
+        for i, t in enumerate(("wooden", "stone", "iron"))
+    ]
+    low = body_search.edit_payload(PROD, held, ())
+    best = body_search.edit_payload(PROD, held, (), "best")
+    assert low["tools"]["minecraft:stone"] == "minecraft:wooden_pickaxe"
+    assert low["tools"]["minecraft:iron_ore"] == "minecraft:stone_pickaxe"
+    assert best["tools"]["minecraft:stone"] == "minecraft:iron_pickaxe"
+    # priced at the chosen tier: wood is slower than iron
+    assert (
+        low["break_costs"]["minecraft:stone"] > best["break_costs"]["minecraft:stone"]
+    )
+    assert "tools" not in body_search.edit_payload(PROD, [], ())
+
+
+def test_boxed_in_dead_plan_lifts_the_bans_from_its_start_cell():
+    # run 20261113T172130173999Z: a pit whose every exit was banned, expanded=2
+    c, _ = controller()
+    c.events = []
+    c.failed_edges.add(((9, 1, 0), (10, 1, 0)))
+    search = body_search.BodySearch(c, (5, 1, 0), 3)
+    c.plan_reports[search.plan_id] = {
+        "state": "done", "status": "unreachable", "route": [[5, 1, 0]], "expanded": 2,
+    }
+    search.advance()
+    assert c.failed_edges == {((9, 1, 0), (10, 1, 0))}  # only the start cell's exits
+    assert c.events[0][0] == "failed_edges_cleared"
+
+
+def test_predicted_cells_apply_planned_breaks_and_places():
+    from mclab.body_search import predicted_cells
+    from mclab.terrain_steps import StepPlan
+
+    base = {(1, 1, 0): {"block": "minecraft:stone"}}
+    step = StepPlan((0, 1, 0), (1, 1, 0), breaks=((1, 1, 0),), places=((1, 0, 0),))
+    cells = predicted_cells(base, [step])
+    assert cells[(1, 1, 0)]["collision_boxes"] == []
+    assert cells[(1, 0, 0)]["collision_boxes"] == [[0, 0, 0, 1, 1, 1]]
+    assert base[(1, 1, 0)]["block"] == "minecraft:stone"  # the original is untouched

@@ -26,8 +26,8 @@ def tracked(body):
     broken = []
     original = body.break_block
 
-    def wrapper(pos, tool=None):
-        result = original(pos, tool)
+    def wrapper(pos, tool=None, **kw):
+        result = original(pos, tool, **kw)
         if result.ok:
             broken.append(pos)
         return result
@@ -56,8 +56,8 @@ def test_empty_inventory_to_stone_pickaxe_digs_down_for_cobblestone():
     assert sum(1 for p in broken if body.w[p] == M + "air" and p[1] <= -10) >= 7
 
 
-def test_stair_stops_at_liquid_without_breaking_it():
-    for liquid in ("water", "lava"):
+def test_stair_stops_at_lava_without_breaking_it_but_digs_past_water():
+    for liquid, reason in (("lava", "lava"), ("water", None)):
         world = layered(-30) | {(3, -3, 0): M + liquid}
         body = FakeGatherBody(K, world, {M + "wooden_pickaxe": 1}, pos=(0, 0, 0))
         broken = tracked(body)
@@ -65,9 +65,10 @@ def test_stair_stops_at_liquid_without_breaking_it():
 
         digger.run(M + "cobblestone", 7)
 
-        assert digger.reason == "liquid"
-        assert (3, -3, 0) not in broken and body.w[(3, -3, 0)] == M + liquid
-        assert body.pos[1] > -3
+        assert (digger.reason == "lava") == (reason == "lava")
+        if reason:
+            assert (3, -3, 0) not in broken and body.w[(3, -3, 0)] == M + liquid
+            assert body.pos[1] > -3
 
 
 def test_stair_never_digs_unknown_cells_or_straight_down():
@@ -130,15 +131,52 @@ def test_starter_tools_plan(has_pickaxe):
     assert M + "stone_axe" in made and M + "stone_shovel" in made
 
 
-def test_stair_does_not_step_under_gravel_over_the_dug_column():
-    # first +x step digs (1, 2..-1, 0); gravel at (1, 3, 0) would fall into it
-    world = layered(-30) | {(1, 3, 0): M + "gravel"}
-    body = FakeGatherBody(K, world, pos=(0, 0, 0))
+class Falling(FakeGatherBody):
+    def break_block(self, pos, tool=None, drops_optional=False):
+        res = super().break_block(pos, tool, drops_optional)
+        up = (pos[0], pos[1] + 1, pos[2])
+        if res.ok and self.w.get(up, "").endswith("gravel"):
+            self.w[pos], self.w[up] = self.w[up], M + "air"  # the column drops one
+        return res
+
+
+def test_stair_digs_through_gravel_until_the_dug_cells_stay_empty():
+    # the first +x step digs (1, 2..-1, 0); two gravel blocks over it fall in
+    world = layered(-30) | {(1, 3, 0): M + "gravel", (1, 4, 0): M + "gravel"}
+    world |= {(1, 1, 0): M + "gravel"}  # and gravel in a dug cell itself
+    body = Falling(K, world, pos=(0, 0, 0))
+
+    assert Digger(_Exec(body, K, GatherState(), 64)).step((1, 0), False) is None
+
+    assert all(body.world(1, y, 0) == M + "air" for y in (2, 1, 0, -1))
+    assert body.pos == (1, -1, 0)
+
+
+def test_climb_never_breaks_a_block_under_gravel_over_its_own_head():
+    # buried at y=-10 with sand three above the feet: it would land on the body once
+    # (0, -8, 0) opens. The climb must still get out, by tunnelling aside first.
+    world = layered(-30) | {(0, -7, 0): M + "sand"}
+    body = FakeGatherBody(K, world, pos=(0, -10, 0))
     broken = tracked(body)
 
-    Digger(_Exec(body, K, GatherState(), 64)).run(M + "cobblestone", 7)
+    assert Digger(_Exec(body, K, GatherState(), 64)).climb()
 
-    assert (1, -1, 0) not in broken
+    assert (0, -8, 0) not in broken
+    assert body.position()[1] >= -2
+
+
+def test_descend_heads_for_the_target_side():
+    for target, sign in (((-30, 0), -1), ((40, 0), 1), ((0, 30), 0)):
+        body = FakeGatherBody(K, layered(-30), pos=(0, 0, 0))
+        broken = tracked(body)
+
+        assert Digger(_Exec(body, K, GatherState(), 64)).descend(-4, target) is None
+
+        xs = [p[0] for p in broken]
+        assert (min(xs) < 0) if sign < 0 else (max(xs) > 0) if sign > 0 else (
+            max(p[2] for p in broken) > 0
+        )
+        assert sign >= 0 or max(xs) <= 0
 
 
 def test_dirt_broken_by_the_stair_is_not_counted_as_mined_stone():

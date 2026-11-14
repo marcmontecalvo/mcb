@@ -1,3 +1,6 @@
+import math
+from dataclasses import replace
+
 import pytest
 
 from mclab import companion_body as cb
@@ -304,121 +307,65 @@ def test_goto_controller_stops_on_arrival_deadline_and_unreachable():
     assert ctl.stop_reason({"tick": 5}) == "deadline"
 
 
-def test_navigation_alerts_at_five_wall_seconds_even_when_ticks_are_slow(
-    monkeypatch, capsys
-):
-    from types import SimpleNamespace
-
-    now = [0.0]
+def _idle_ctl(monkeypatch, now, mode="following"):
     monkeypatch.setattr(cb.time, "monotonic", lambda: now[0])
     ctl = cb._GotoController.__new__(cb._GotoController)
-    ctl.deadline, ctl.mode = 100, "following"
-    ctl.guard = cb.StuckGuard()
-    obs = {"tick": 1, "body": {"position": [0.5, 62, 0.5]}}
-    assert ctl.stop_reason(obs) is None
-    now[0] = 4.99
-    assert ctl.stop_reason(obs) is None
-    now[0] = 5.0
-    assert ctl.stop_reason(obs) == "stuck"
-    assert "STALL 5.0s navigation idle" in capsys.readouterr().out
-    # A live native edit can legitimately keep the feet stationary.
-    obs["step_follower"] = {"state": "following", "issued": True}
-    ctl.guard = SimpleNamespace(stuck=lambda *a: False)
-    now[0] = 6
-    assert ctl.stop_reason(obs) is None
-    obs["step_follower"]["state"] = "edits_ready"
-    now[0] = 11
-    assert ctl.stop_reason(obs) == "stuck"
-
-
-def _idle_ctl(monkeypatch, now):
-    monkeypatch.setattr(cb.time, "monotonic", lambda: now[0])
-    ctl = cb._GotoController.__new__(cb._GotoController)
-    ctl.deadline, ctl.mode, ctl.last_result = 100, "planning", None
+    ctl.deadline, ctl.mode, ctl.last_result = 10**9, mode, None
     ctl.unreachable_since = ctl.searching_since = None
     ctl.guard = cb.StuckGuard()
+    ctl.idle_state = {"anchor": None, "since": 0.0}
     return ctl
 
 
-def test_a_route_just_issued_after_a_long_wait_gets_a_grace_but_is_reported(
-    monkeypatch, capsys
-):
-    # Run results/wading/20261111T164143495401Z: 4.85 s of planning, then the
-    # watchdog cancelled the route 0.25 s after the motor started moving.
+def test_wall_clock_idle_only_reports_and_never_ends_the_goto(monkeypatch, capsys):
     now = [0.0]
     ctl = _idle_ctl(monkeypatch, now)
     obs = {"tick": 1, "body": {"position": [0.5, 62, 0.5]}}
     assert ctl.stop_reason(obs) is None
-    now[0] = 4.9
+    now[0] = 6.0
+    assert ctl.stop_reason(obs) is None  # was "stuck" at 5 s of wall time
+    assert "STALL 6.0s navigation idle" in capsys.readouterr().out
+
+
+def test_tick_guard_still_ends_a_followed_route_that_never_moves(monkeypatch):
+    ctl = _idle_ctl(monkeypatch, [0.0])
+    obs = {"tick": 1, "body": {"position": [0.5, 62, 0.5]}}
     assert ctl.stop_reason(obs) is None
-    now[0], ctl.mode = 6.0, "following"
-    obs["route_follower"] = {"route_id": "native-1", "state": "following"}
-    assert ctl.stop_reason(obs) is None  # just issued: let it cover 0.5 block
-    assert "STALL 6.0s navigation idle" in capsys.readouterr().out  # still shown
-    for t, x in ((6.5, 0.7), (7.5, 1.3), (9.0, 2.0)):
-        now[0], obs["body"]["position"] = t, [x, 62, 0.5]
+    obs["tick"] = 1 + cb.STUCK_TICKS
+    assert ctl.stop_reason(obs) == "stuck"
+
+
+def test_ticks_during_a_plan_request_or_an_edit_step_are_not_idle(monkeypatch):
+    ctl = _idle_ctl(monkeypatch, [0.0], mode="terrain_planning")
+    obs = {"tick": 1, "body": {"position": [0.5, 62, 0.5]}}
+    for tick in (1, 1 + cb.STUCK_TICKS, 1 + 3 * cb.STUCK_TICKS):
+        obs["tick"] = tick
+        assert ctl.stop_reason(obs) is None
+    ctl.mode = "following"
+    obs["step_follower"] = {"state": "following", "issued": True}
+    for tick in (1000, 1000 + 3 * cb.STUCK_TICKS):
+        obs["tick"] = tick
         assert ctl.stop_reason(obs) is None
 
 
-def test_no_route_after_five_seconds_is_still_stuck(monkeypatch):
-    now = [0.0]
-    ctl = _idle_ctl(monkeypatch, now)
-    obs = {"tick": 1, "body": {"position": [0.5, 62, 0.5]}}
-    assert ctl.stop_reason(obs) is None
-    now[0] = 6.0
-    assert ctl.stop_reason(obs) == "stuck"
+def test_flip_flop_guard_is_gone():
+    assert not hasattr(cb, "FLIP_S") and not hasattr(cb, "FLIP_GAIN")
 
 
-def test_a_followed_route_that_never_moves_is_still_stuck(monkeypatch):
-    now = [0.0]
-    ctl = _idle_ctl(monkeypatch, now)
-    ctl.mode = "following"
-    obs = {
-        "tick": 1,
-        "body": {"position": [0.5, 62, 0.5]},
-        "route_follower": {"route_id": "native-1", "state": "following"},
-    }
-    assert ctl.stop_reason(obs) is None
-    now[0] = 4.99
-    assert ctl.stop_reason(obs) is None
-    now[0] = 5.0
-    assert ctl.stop_reason(obs) == "stuck"
-    # a replacement route at the same spot does not buy a second grace
-    obs["route_follower"] = {"route_id": "native-2", "state": "following"}
-    now[0] = 10.0
-    assert ctl.stop_reason(obs) == "stuck"
+def test_probe_follows_an_incomplete_plan_whose_first_step_is_a_dig():
+    from mclab.route_types import RouteResult
 
-
-def test_probes_cannot_restart_the_five_second_idle_clock(monkeypatch, capsys):
-    now = [0.0]
-    monkeypatch.setattr(cb.time, "monotonic", lambda: now[0])
-    shared = {"anchor": None, "since": 0.0}
-
-    def probe(deadline):
-        ctl = cb._GotoController.__new__(cb._GotoController)
-        ctl.probe, ctl.deadline, ctl.mode, ctl.last_result = (
-            True,
-            deadline,
-            "planning",
-            None,
-        )
-        ctl.idle_state = shared
-        return ctl
-
-    obs = {"tick": 1, "body": {"position": [0.5, 62, 0.5]}}
-    first = probe(2.5)
-    assert first.stop_reason(obs) is None
-    now[0] = 2.51
-    assert first.stop_reason(obs) is None and first.probe is False  # walks on
-    second = probe(10)
-    now[0] = 4.99
-    assert second.stop_reason(obs) is None
-    now[0] = 5.0
-    assert second.stop_reason(obs) == "stuck"
-    assert "STALL 5.0s navigation idle" in capsys.readouterr().out
-    # Give the recovery action a new bounded opportunity to make progress.
-    now[0] = 6.0
-    assert probe(10).stop_reason(obs) is None
+    ctl = cb._GotoController.__new__(cb._GotoController)
+    ctl.probe, ctl.no_drive, ctl.walk_partial = True, True, True
+    ctl.deadline, ctl.walk_wall = 10**12, 0.0
+    ctl.mode = "terrain_editing"
+    ctl.last_result = RouteResult(
+        "incomplete", ((0, 0, 0), (1, 0, 0), (2, 0, 0)), 1, 4000, "budget"
+    )
+    assert ctl._probe_verdict() is None and ctl.probe is False  # walked on
+    ctl.probe, ctl.mode = True, "terrain_incomplete"
+    ctl.last_result = RouteResult("unreachable", (), 1, 4000, "done")
+    assert ctl._probe_verdict() == "unreachable"
 
 
 def test_successful_block_edit_resets_shared_navigation_idle_clock(monkeypatch):
@@ -481,25 +428,38 @@ def test_navigation_enables_water_recovery_when_a_dry_walk_enters_deep_water(
     assert ctl.movement_policy.allow_swim
 
 
-def test_navigation_idle_timer_resets_on_motion_but_not_a_waiting_step(monkeypatch):
-    now = [0.0]
-    monkeypatch.setattr(cb.time, "monotonic", lambda: now[0])
-    ctl = cb._GotoController.__new__(cb._GotoController)
-    ctl.deadline, ctl.mode = 100, "following"
-    ctl.guard = cb.StuckGuard()
-    obs = {
-        "tick": 1,
-        "body": {"position": [0.5, 62, 0.5]},
-        "step_follower": {"state": "following", "issued": False},
-    }
-    assert ctl.stop_reason(obs) is None
-    now[0] = 4
-    obs["body"]["position"][0] += 0.6
-    assert ctl.stop_reason(obs) is None
-    now[0] = 8.99
-    assert ctl.stop_reason(obs) is None
-    now[0] = 9
-    assert ctl.stop_reason(obs) == "stuck"
+def test_a_goal_beyond_the_sensed_terrain_is_reached_through_hops(monkeypatch):
+    b, _, _ = body()
+    b._obs["body"]["position"] = [0.5, 1.0, 0.5]
+    far = (101, 1, 0)
+    monkeypatch.setattr(b, "_cells_now", lambda: {})
+    monkeypatch.setattr(cb, "standable", lambda cells, node: True)
+    original, goals = cb.CompanionBody._navigate, []
+
+    def navigate(goal, **kw):
+        goals.append(goal)
+        here = b.position()
+        if math.hypot(goal[0] - here[0], goal[2] - here[2]) > cb.SENSED_RADIUS:
+            return original(b, goal, **kw)
+        b._obs["body"]["position"] = [goal[0] + 0.5, 1.0, goal[2] + 0.5]
+        return True
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    assert navigate(far, reach=None, radius=1.0)
+    assert goals[-1] == far and len(goals) >= 4  # far, hop, far, hop, ..., far
+    assert all(0 < g[0] <= cb.SENSED_RADIUS * 3 for g in goals[1:-1])
+    assert b._hop_toward((120, 1, 0)) is None  # inside the sensed radius
+
+
+def test_walk_to_refuses_a_water_goal_when_swimming_is_off(monkeypatch):
+    b, _, _ = body()
+    b.movement_policy = replace(b.movement_policy, allow_swim=False)
+    water = {(5, 62, 5): {"block": "minecraft:water", "fluid": "minecraft:water"}}
+    monkeypatch.setattr(b, "_cells_now", lambda: water)
+    monkeypatch.setattr(
+        b, "_navigate", lambda *a, **k: (_ for _ in ()).throw(AssertionError)
+    )
+    assert b.walk_to((5, 62, 5)) is False
 
 
 def test_goto_stance_walks_known_stances_before_any_interaction_search(monkeypatch):
@@ -691,7 +651,7 @@ def test_probe_finishes_map_transfer_without_resetting_five_second_watch(monkeyp
     assert ctl.stop_reason(observation) is None and ctl.no_drive is False
     assert ctl.deadline == 93.0
     now[0] = 5.0
-    assert ctl.stop_reason(observation) == "stuck"  # still bounded by wall time
+    assert ctl.stop_reason(observation) is None  # wall time no longer ends it
 
 
 def test_goto_controller_gives_up_on_a_search_that_never_yields_a_move():
@@ -1138,3 +1098,35 @@ def test_find_blocks_tests_open_faces_only_where_asked():
     b._open_face = lambda p: tested.append(p) or face(p)
     assert b.find_blocks("minecraft:stone", lambda p: p[0] > 5) == [(9, 0, 0)]
     assert tested == [(9, 0, 0)]
+
+
+def test_look_ahead_controller_is_taken_only_by_the_navigation_it_planned():
+    from types import SimpleNamespace
+
+    from mclab.companion_body import CompanionBody
+
+    body = object.__new__(CompanionBody)
+    body.log = []
+    body.position = lambda: (0.5, 1, 0.5)
+    closed = []
+    body._close_controller = closed.append
+    ahead = SimpleNamespace(deadline=0)
+    body._ahead = (ahead, (3, 1, 0), 0.6, (0.5, 1, 0.5))
+    assert body._take_ahead((4, 1, 0), None, 0.6, True, 5) is None  # other stance
+    assert closed == [ahead] and body._ahead is None
+    body._ahead = (ahead, (3, 1, 0), 0.6, (0.5, 1, 0.5))
+    assert body._take_ahead((3, 1, 0), None, 0.6, True, 5) is ahead
+    assert ahead.deadline > 0 and body._ahead is None
+
+
+def test_free_slots_and_can_hold_come_from_the_per_slot_rows():
+    b, _, _ = body()
+    full = [{"slot": i, "item": "minecraft:dirt", "count": 64} for i in range(36)]
+    b._set_inventory(full)
+    assert b.free_slots() == 0 and not b.can_hold("minecraft:cobblestone")
+    assert not b.can_hold("minecraft:dirt")  # every dirt stack is full
+    b._set_inventory(full[:35] + [{"slot": 35, "item": "minecraft:dirt", "count": 10}])
+    assert b.can_hold("minecraft:dirt") and not b.can_hold("minecraft:stone")
+    helmet = {"slot": 36, "item": "minecraft:iron_helmet", "count": 1}
+    b._set_inventory(full[:30] + [helmet])
+    assert b.free_slots() == 6 and b.can_hold("minecraft:stone")  # armour is no slot

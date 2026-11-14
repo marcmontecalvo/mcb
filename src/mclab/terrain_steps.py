@@ -88,14 +88,14 @@ def excavatable(policy):
     return EXCAVATABLE
 
 
-def break_ticks(block):
-    """Vanilla breaking time with the block's iron tool, in game ticks.
+def break_ticks(block, speed=None):
+    """Vanilla breaking time with the block's iron tool (or ``speed``), in game ticks.
 
     Per tick damage is speed / hardness / 30 when the tool can harvest the
     block; a block breaks when damage reaches 1 (instant if one tick suffices).
     """
     hardness, _, effective = WIDE_EXCAVATABLE[block]
-    damage = (IRON_SPEED if effective else 1.0) / hardness / 30
+    damage = ((speed or IRON_SPEED) if effective else 1.0) / hardness / 30
     return 1 if damage >= 1 else math.ceil(1 / damage)
 
 
@@ -311,6 +311,64 @@ def hotbar(inventory, item):
         if slot is not None:
             return slot
     return None
+
+
+# Harvest level and mining speed per tier (ItemTier), weakest first.
+TIER_LEVEL = {
+    "wooden": 1,
+    "golden": 1,
+    "stone": 2,
+    "iron": 3,
+    "diamond": 4,
+    "netherite": 5,
+}
+TIER_SPEED = {
+    "wooden": 2,
+    "stone": 4,
+    "iron": 6,
+    "diamond": 8,
+    "netherite": 9,
+    "golden": 12,
+}
+# Pickaxe level an ore needs; any other pickaxe block needs wood (level 1).
+_ORE_LEVEL = {
+    "coal": 2,
+    "copper": 2,
+    "iron": 2,
+    "lapis": 2,
+    "gold": 3,
+    "redstone": 3,
+    "diamond": 3,
+    "emerald": 3,
+}
+
+
+def pick_tool(inventory, block, mode="lowest_sufficient"):
+    """Hotbar tool item to break ``block``: the lowest tier that harvests it (saves the
+    iron tool's durability) or, in mode "best", the strongest. None: none held able,
+    so the motor falls back to its best-first search / bare hand.
+    Mirrors gather_options.pick_tool, which needs a Knowledge this layer lacks."""
+    spec = WIDE_EXCAVATABLE.get(block)
+    if spec is None:
+        return None
+    kind = spec[1].removeprefix("minecraft:iron_")
+    ore = (
+        block.removeprefix("minecraft:").removeprefix("deepslate_").removesuffix("_ore")
+    )
+    need = _ORE_LEVEL.get(ore, 1) if kind == "pickaxe" and block.endswith("_ore") else 1
+    held = [
+        item
+        for tier in TIER_LEVEL  # weakest first
+        if TIER_LEVEL[tier] >= need
+        and _hotbar(inventory, item := f"minecraft:{tier}_{kind}") is not None
+    ]
+    if not held:
+        return None
+    return held[-1] if mode == "best" else held[0]
+
+
+def tool_speed(item):
+    return TIER_SPEED[item.removeprefix("minecraft:").split("_")[0]]
 
 
 def _hotbar(inventory, item):

@@ -118,10 +118,11 @@ final class RoutePlanner {
     private final Map<Node, Double> costs = new HashMap<>();
     private final Map<Node, Node> previous = new HashMap<>();
     private final List<Node> nodes = new ArrayList<>();
-    // Same order as Python's heap of (f, g, exit flag, node) tuples, so ties expand alike.
+    // (f, then deeper g first, exit flag, node). Deeper-first ties: with a near-exact dig field every parallel
+    // shaft has equal f, and shallow-first expanded them all (Python planner, whose order this copied, is gone).
     private final PriorityQueue<double[]> frontier = new PriorityQueue<>((a, b) -> {
         int c = Double.compare(a[0], b[0]);
-        if (c == 0) c = Double.compare(a[1], b[1]);
+        if (c == 0) c = Double.compare(b[1], a[1]);
         if (c == 0) c = Double.compare(a[3], b[3]);
         if (c != 0) return c;
         Node p = nodes.get((int) a[2]), q = nodes.get((int) b[2]);
@@ -145,6 +146,13 @@ final class RoutePlanner {
     }
 
     int expanded() { return expanded; }
+    /** The unweighted search estimate from node (parity tool and tests). */
+    double estimate(Node node) { return Math.max(remaining(node), digAware() ? field(node) : 0); }
+
+    private boolean canRecoverStart() {
+        return edits != null && edits.stepEdits && !edits.breakCosts.isEmpty()
+                && integral(start.y) && fullDry(at(start.x, start.y - 1, start.z));
+    }
 
     /**
      * Expands until the goal, an unknown-space exit, nodeLimit total expansions or the
@@ -153,7 +161,7 @@ final class RoutePlanner {
     Result advance(int nodeLimit, long deadlineNanos) {
         if (terminal != null) return terminal;
         if (best == null) {
-            if (!stance(start))
+            if (!stance(start) && !canRecoverStart())
                 return terminal = new Result("unreachable", List.of(), 0, 0, List.of());
             best = start;
             costs.put(start, 0.0); nodes.add(start);
@@ -238,7 +246,8 @@ final class RoutePlanner {
         }
         if (buried && rise > 0) return rise * DIG_RISE;
         double v = rise > 0 ? rise * JUMP : -rise * fallTicks(2) / 2;
-        if (rise < 0 && edits != null && edits.stepEdits) v += solidBelow(node, (int) Math.ceil(-rise));
+        // The terrain field (digAware) prices digging down without solidBelow's column overshoot.
+        if (rise < 0 && edits != null && edits.stepEdits && !digAware()) v += solidBelow(node, (int) Math.ceil(-rise));
         double h = horizontal(node);
         if (exitEstimate && rise > h) v += (rise - h) * WALK;
         return v;
@@ -258,15 +267,19 @@ final class RoutePlanner {
     }
     /** The unknown remainder from a frontier node, at the unknown penalty (D3). */
     private double exitRemainder(Node node) {
-        return ticks ? unknownPenalty * (WALK * horizontal(node) + vertical(node, true, buried(node))) : unknownPenalty * distance(node);
+        double walk = ticks ? unknownPenalty * (WALK * horizontal(node) + vertical(node, true, buried(node))) : unknownPenalty * distance(node);
+        // Under rock the unknown is dug, not walked: never cheaper than the relaxed dig estimate (run 20261113T174328610209Z).
+        if (digAware() && coveredAbove(node.x, (int) Math.floor(node.y) + 1, node.z))
+            return Math.max(walk, field(node) + EDIT_STEP);
+        return walk;
     }
-    /** Known solid cover over the node with no known air above it, below goal height. */
+    /** Known solid non-foliage cover over the node with no known air above it, below goal height. */
     private boolean buried(Node node) {
         boolean covered = false;
         for (int y = (int) Math.floor(node.y) + 2; y < Math.floor(goal.y); y++) {
             var cell = cell(node.x, y, node.z);
             if (cell == null) continue;
-            if (!boxes(cell).isEmpty()) covered = true;
+            if (!boxes(cell).isEmpty() && !foliage(cell)) covered = true;
             else if (covered) return false;
         }
         return covered;
@@ -326,7 +339,7 @@ final class RoutePlanner {
             int x = (int)Math.floor(ex + dx * i / steps), y = (int)Math.floor(ey + dy * i / steps);
             int z = (int)Math.floor(ez + dz * i / steps);
             if (x == goal.x && y == goal.y && z == goal.z) return true;
-            var c = baseCell(x, y, z);
+            var c = cell(x, y, z);
             if (c == null || !boxes(c).isEmpty()) return false;
         }
         return true;
@@ -357,7 +370,217 @@ final class RoutePlanner {
     private double heuristic(Node node) {
         if (unknownPenalty > 0 && heuristicWeight == 0)
             return ticks ? unknownPenalty * (WALK * horizontal(node) + vertical(node, false, false)) : unknownPenalty * distance(node);
-        return (heuristicWeight == 0 ? 1 : heuristicWeight) * remaining(node);
+        double h = remaining(node);
+        if (digAware()) h = Math.max(h, field(node));
+        return (heuristicWeight == 0 ? 1 : heuristicWeight) * h;
+    }
+
+    // --- dig-aware heuristic: a relaxed cell graph searched backward from the goal ---
+    // Without it a buried goal is priced at the walk rate (~4 ticks a block) while breaking stone costs ~150
+    // (runs 20261113T174328610209Z, 20261113T171138236559Z: floods of 10000 nodes). The relaxed graph has one
+    // node per cell (10 neighbours: 8 horizontal, up, down), no geometry, and each cell costs what entering it
+    // would at least cost: walk rate if passable, EDIT_STEP + break cost if breakable, unknown space at the unknown
+    // penalty (or at stone price when known solid lies above it); unbreakable solid and lava are walls.
+    // Cheaper than any real route, so h stays a lower bound up to the vertical/diagonal simplifications.
+    static final int FIELD_BUDGET = 150_000, FIELD_MARGIN_H = 16, FIELD_MARGIN_V = 8, COVER_SCAN = 64;
+    private final Map<Long, Integer> fieldEditCount = new HashMap<>();  // dig moves on each stance's field path
+    static final double INF = Double.POSITIVE_INFINITY;
+    private PriorityQueue<double[]> fieldQueue;  // {distance, x, y, z}
+    private final Map<Long, Double> fieldDistance = new HashMap<>();  // settled cells
+    private final Map<Long, Double> fieldTentative = new HashMap<>();
+    private final Map<Long, Double> enterCosts = new HashMap<>();
+    private int fieldX0, fieldX1, fieldY0, fieldY1, fieldZ0, fieldZ1;
+    private double stoneStep = -1, goalBreak = -1;
+    private static final int[][] FIELD_STEPS = {{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}, {1, 0, 1}, {1, 0, -1},
+            {-1, 0, 1}, {-1, 0, -1}, {0, 1, 0}, {0, -1, 0}};
+
+    private boolean digAware() {
+        return edits != null && ticks && !edits.breakCosts.isEmpty();
+    }
+    /** Lower bound on the cost from the node to the goal through the relaxed graph (0 outside it). */
+    private double field(Node node) {
+        if (fieldQueue == null) fieldInit();
+        int ny = (int) Math.floor(node.y);
+        long k = key(node.x, ny, node.z);
+        Double d = fieldDistance.get(k);
+        while (d == null && !fieldQueue.isEmpty() && fieldDistance.size() < FIELD_BUDGET) {
+            fieldSettle();
+            d = fieldDistance.get(k);
+        }
+        if (d != null) {
+            // editCost adds EDIT_CHAIN per edit already on the route: k more edits from depth dn add k*dn more.
+            return d + EDIT_CHAIN * fieldEditCount.getOrDefault(k, 0) * (double) depth.getOrDefault(node, 0);
+        }
+        boolean inside = node.x >= fieldX0 && node.x <= fieldX1 && node.z >= fieldZ0 && node.z <= fieldZ1
+                && ny >= fieldY0 && ny <= fieldY1;
+        // Unsettled inside the box (budget spent): at least the queue minimum. Outside it: the straight line.
+        // ponytail: a cell the relaxed box cannot reach also gets the line (its way may leave the box).
+        if (inside && !fieldQueue.isEmpty()) return fieldQueue.peek()[0];
+        if (inside) return lineEstimate(node);
+        // Outside: no cheaper than the nearest box cell's value less a walk to it (triangle inequality), else
+        // exits beyond the box looked free and segments ran away from the goal (plan-330: ended 40 blocks off).
+        var clamp = new Node(Math.max(fieldX0, Math.min(fieldX1, node.x)),
+                Math.max(fieldY0, Math.min(fieldY1, ny)), Math.max(fieldZ0, Math.min(fieldZ1, node.z)));
+        int dx = Math.abs(clamp.x - node.x), dz = Math.abs(clamp.z - node.z);
+        double walk = COST_HEURISTIC * (Math.max(dx, dz) + (SQRT2 - 1) * Math.min(dx, dz));
+        return Math.max(lineEstimate(node), field(clamp) - walk);
+    }
+    private double goalBreakCost() {
+        if (goalBreak < 0) {
+            goalBreak = 0;
+            for (int dy = 0; dy <= 1; dy++) {
+                var c = baseCell(goal.x, (int) goal.y + dy, goal.z);
+                if (fullDry(c) && edits.breakCosts.containsKey(c.get("block"))) goalBreak += edits.breakCosts.get(c.get("block"));
+            }
+        }
+        return goalBreak;
+    }
+    private void fieldInit() {
+        fieldQueue = new PriorityQueue<>((a, b) -> Double.compare(a[0], b[0]));
+        int mh = FIELD_MARGIN_H, mv = FIELD_MARGIN_V;
+        fieldX0 = Math.min(start.x, goal.x) - mh; fieldX1 = Math.max(start.x, goal.x) + mh;
+        fieldZ0 = Math.min(start.z, goal.z) - mh; fieldZ1 = Math.max(start.z, goal.z) + mh;
+        int sy = (int) Math.floor(start.y), gy = (int) Math.floor(goal.y);
+        fieldY0 = Math.min(sy, gy) - mv; fieldY1 = Math.max(sy, gy) + mv;
+        // Goal stances: the radius disk at goal height, or (interaction goals) stances with unobstructed sight in reach.
+        int r = (int) Math.ceil(reach != null ? reach + 1 : radius), ry = reach != null ? r + 2 : 0;
+        for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) for (int dy = -ry; dy <= ry; dy++) {
+            if (reach != null ? Math.sqrt(dx * dx + sq(dy + 1.62 - .5) + dz * dz) > reach + 1 : Math.hypot(dx, dz) > radius) continue;
+            int x = goal.x + dx, y = gy + dy, z = goal.z + dz;
+            if (x < fieldX0 || x > fieldX1 || z < fieldZ0 || z > fieldZ1 || y < fieldY0 || y > fieldY1) continue;
+            if (reach != null && !losClearForField(x, y, z)) continue;
+            fieldTentative.put(key(x, y, z), 0.0);
+            fieldQueue.add(new double[]{0, x, y, z});
+        }
+    }
+    private boolean losClearForField(int sx, int sy, int sz) {
+        double ex = sx + .5, ey = sy + 1.62, ez = sz + .5;
+        double dx = goal.x + .5 - ex, dy = goal.y + .5 - ey, dz = goal.z + .5 - ez;
+        double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        int steps = Math.max(1, (int) Math.ceil(dist / .1));
+        for (int i = 0; i < steps; i++) {
+            int x = (int) Math.floor(ex + dx * i / steps), y = (int) Math.floor(ey + dy * i / steps);
+            int z = (int) Math.floor(ez + dz * i / steps);
+            if (x == goal.x && y == goal.y && z == goal.z) return true;
+            if (x == sx && z == sz && (y == sy || y == sy + 1)) continue;
+            var c = baseCell(x, y, z);
+            if (c != null) {
+                if (!boxes(c).isEmpty()) return false;
+            } else if (unknownPenalty <= 0 || coveredAboveEnter(x, y, z)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    /**
+     * Settles stance s (feet cell) and relaxes every stance c with a move c -> s. The move pays the walk or
+     * vertical rate plus, for the cells of s's body (feet, head) that c's body does not already occupy, their
+     * break costs and one EDIT_STEP. Digging is cardinal or vertical only, as in planEdit/downward; diagonals
+     * walk. Support is ignored (relaxed), so the field stays below the real price.
+     */
+    private void fieldSettle() {
+        var e = fieldQueue.poll();
+        int x = (int) e[1], y = (int) e[2], z = (int) e[3];
+        long k = key(x, y, z);
+        if (fieldDistance.putIfAbsent(k, e[0]) != null) return;
+        int edits = fieldEditCount.getOrDefault(k, 0);
+        for (var d : FIELD_STEPS) {
+            int cx = x + d[0], cy = y + d[1], cz = z + d[2];
+            if (cx < fieldX0 || cx > fieldX1 || cz < fieldZ0 || cz > fieldZ1 || cy < fieldY0 || cy > fieldY1) continue;
+            long ck = key(cx, cy, cz);
+            if (fieldDistance.containsKey(ck)) continue;
+            // Body cells of s that c's body does not cover: rising one, only s's head is new; dropping one, only s's feet.
+            // c = s + d: d[1] == 1 means c is above s (the move drops), so c's feet already open s's head.
+            double feet = d[1] == -1 ? 0 : enterCost(x, y, z), head = d[1] == 1 ? 0 : enterCost(x, y + 1, z);
+            if (feet == INF || head == INF) continue;
+            boolean dig = feet > 0 || head > 0;
+            boolean diagonal = d[0] != 0 && d[2] != 0;
+            if (dig && diagonal) continue;
+            // EDIT_CHAIN: the j-th edit counted back from the goal pays j chains (k edits sum to k(k-1)/2 either way),
+            // so the field prefers few edits as editCost does.
+            double step = dig ? EDIT_STEP + feet + head + EDIT_CHAIN * edits : 0;
+            step += d[1] == -1 ? JUMP : d[1] == 1 ? (dig ? fallTicks(1) : fallTicks(2) / 2) : COST_HEURISTIC * (diagonal ? SQRT2 : 1);
+            boolean enteredUnknown = (d[1] != -1 && baseCell(x, y, z) == null) || (d[1] != 1 && baseCell(x, y + 1, z) == null);
+            if (!dig && unknownPenalty > 1 && enteredUnknown) step += (unknownPenalty - 1) * COST_HEURISTIC;
+            double total = e[0] + step;
+            if (total < fieldTentative.getOrDefault(ck, INF)) {
+                fieldTentative.put(ck, total);
+                fieldEditCount.put(ck, edits + (dig ? 1 : 0));
+                fieldQueue.add(new double[]{total, cx, cy, cz});
+            }
+        }
+    }
+    /** Price of opening one body cell: 0 passable, its break cost if breakable, INF for walls and lava. */
+    private double enterCost(int x, int y, int z) {
+        long k = key(x, y, z);
+        Double known = enterCosts.get(k);
+        if (known == null) { known = computeEnter(x, y, z); enterCosts.put(k, known); }
+        return known;
+    }
+    private double computeEnter(int x, int y, int z) {
+        var c = baseCell(x, y, z);
+        if (c == null) {
+            if (unknownPenalty <= 0) return INF;
+            return coveredAboveEnter(x, y, z) ? stoneStep() - EDIT_STEP : 0;
+        }
+        if (!dry(c)) return String.valueOf(c.get("fluid")).contains("lava") ? INF : 0;
+        if (boxes(c).isEmpty() || !fullCube(c)) return 0;
+        if (edits.protectedCells.contains(key(x, y, z))) return INF;
+        Double b = edits.breakCosts.get(c.get("block"));
+        return b == null ? INF : b;
+    }
+    /** Outside the field: straight-line walk plus the cheapest break for each known breakable solid on the line. */
+    private double lineEstimate(Node node) {
+        double cheapest = edits.breakCosts.values().stream().mapToDouble(Double::doubleValue).min().orElse(0);
+        double dx = goal.x - node.x, dy = goal.y - node.y, dz = goal.z - node.z;
+        int n = (int) Math.ceil(Math.max(Math.abs(dx), Math.max(Math.abs(dy), Math.abs(dz))));
+        int solid = 0;
+        for (int i = 1; i <= n; i++) {
+            var c = baseCell((int) Math.floor(node.x + .5 + dx * i / n), (int) Math.floor(node.y + dy * i / n),
+                    (int) Math.floor(node.z + .5 + dz * i / n));
+            if (fullDry(c) && edits.breakCosts.containsKey(c.get("block"))) solid++;
+        }
+        return WALK * horizontal(node) + solid * cheapest;
+    }
+    private static boolean foliage(Map<String, Object> c) {
+        String b = String.valueOf(c.getOrDefault("block", ""));
+        return b.endsWith("_leaves") || b.endsWith("_log") || b.endsWith("_wood")
+                || b.endsWith("_stem") || b.endsWith("_hyphae");
+    }
+    private int coverTop(int x, int z) {
+        return coverTops.computeIfAbsent(((long) x << 32) ^ (z & 0xFFFFFFFFL), k -> {
+            int top = Math.max(fieldY1, (int) Math.floor(Math.max(start.y, goal.y))) + COVER_SCAN;
+            int bottom = Math.min(fieldY0, (int) Math.floor(Math.min(start.y, goal.y))) - COVER_SCAN;
+            for (int cy = top; cy >= bottom; cy--) {
+                var c = baseCell(x, cy, z);
+                if (c != null && !boxes(c).isEmpty() && !foliage(c)) return cy;
+            }
+            return Integer.MIN_VALUE;
+        });
+    }
+    /** Known non-foliage terrain higher up the column: unknown space or underground frontiers there are under ground/rock. */
+    private boolean coveredAbove(int x, int y, int z) {
+        return y < coverTop(x, z);
+    }
+    /** Unknown cell (x, y, z) sits directly below a solid non-foliage ceiling with no known open air between them. */
+    private boolean coveredAboveEnter(int x, int y, int z) {
+        int top = coverTop(x, z);
+        if (y >= top) return false;
+        for (int cy = y + 1; cy <= top; cy++) {
+            var c = baseCell(x, cy, z);
+            if (c != null && !foliage(c)) return !boxes(c).isEmpty();
+        }
+        return false;
+    }
+    private final Map<Long, Integer> coverTops = new HashMap<>();  // highest known non-foliage solid per column
+    /** What digging through plain stone costs per block (mean break cost when the profile has no stone). */
+    private double stoneStep() {
+        if (stoneStep < 0) {
+            Double stone = edits.breakCosts.get("minecraft:stone");
+            stoneStep = EDIT_STEP + (stone != null ? stone
+                    : edits.breakCosts.values().stream().mapToDouble(Double::doubleValue).average().orElse(0));
+        }
+        return stoneStep;
     }
 
     private record Move(Node target, double cost, Edit edit) {
@@ -368,6 +591,11 @@ final class RoutePlanner {
     private List<Move> moves(Node node) {
         var out = new ArrayList<Move>(8);
         int x = node.x, z = node.z; double y = node.y;
+        if (node.equals(start) && !stance(start)) {
+            if (canRecoverStart()) for (var d : DIRECTIONS) for (int dy = 0; dy <= 1; dy++)
+                addEdit(planEdit(node, new Node(x + d[0], y + dy, z + d[1])), heightCost(dy), node, out);
+            return out;
+        }
         if (climb && climbOnly(node)) { ladderMoves(node, out); return out; }
         boolean onWater = swim && (surfaceNode(node) || (plannerSwim && flowingSurface(node)));
         var below = at(x, y - 1, z);
@@ -529,7 +757,8 @@ final class RoutePlanner {
     private void extraMoves(Node node, List<Move> out) {
         if (!integral(node.y) || !blockStandable(node)) return;
         if (edits != null) {
-            addEdit(downward(node), fallTicks(1), node, out);  // MovementDownward: fall 1, no walk-off
+            var down = downward(node);  // MovementDownward: fall straight down, no walk-off
+            addEdit(down, down == null ? 0 : fallTicks(node.y - down.target.y), node, out);
             addEdit(pillar(node), JUMP + JUMP_PENALTY, node, out);
         }
         for (var d : DIRECTIONS) {
@@ -732,7 +961,14 @@ final class RoutePlanner {
     record EditPolicy(boolean stepEdits, Map<String, Double> breakCosts, Map<String, Double> fallCosts,
                       boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxStack, int breakBudget,
                       int placeBudget, int placeSupply, Set<Long> protectedCells, Set<String> protectedBlocks,
-                      String material) {
+                      String material, List<String> materials) {
+        EditPolicy(boolean stepEdits, Map<String, Double> breakCosts, Map<String, Double> fallCosts,
+                   boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxStack, int breakBudget,
+                   int placeBudget, int placeSupply, Set<Long> protectedCells, Set<String> protectedBlocks,
+                   String material) {
+            this(stepEdits, breakCosts, fallCosts, allowPlace, allowBridge, allowPillar, maxStack, breakBudget,
+                    placeBudget, placeSupply, protectedCells, protectedBlocks, material, List.of(material));
+        }
         static EditPolicy fromJson(JsonObject o) {
             var breakCosts = costs(o.getAsJsonObject("break_costs"));
             var fallCosts = costs(o.getAsJsonObject("fall_costs"));
@@ -749,14 +985,25 @@ final class RoutePlanner {
             }
             var blocks = new HashSet<String>();
             for (var e : o.getAsJsonArray("protected_blocks")) blocks.add(e.getAsString());
-            String material = o.get("material").getAsString();
+            var materials = new ArrayList<String>();
+            if (o.has("materials")) {
+                for (var e : o.getAsJsonArray("materials")) {
+                    String m = e.getAsString();
+                    if (!m.startsWith("minecraft:") || materials.size() >= 64)
+                        throw new IllegalArgumentException("edit_bounds");
+                    materials.add(m);
+                }
+            }
+            String material = o.has("material") ? o.get("material").getAsString()
+                    : (materials.isEmpty() ? "minecraft:cobblestone" : materials.get(0));
+            if (!o.has("materials")) materials.add(material);
             if (maxStack < 1 || maxStack > 3 || breakBudget < 0 || breakBudget > 64 || placeBudget < 0 || placeBudget > 64
-                    || placeSupply < 0 || placeSupply > 3 || cells.size() > 4_000_000 || blocks.size() > 4_000_000
+                    || placeSupply < 0 || placeSupply > 4096 || cells.size() > 4_000_000 || blocks.size() > 4_000_000
                     || !material.startsWith("minecraft:"))
                 throw new IllegalArgumentException("edit_bounds");
             return new EditPolicy(bool(o, "step"), breakCosts, fallCosts, bool(o, "allow_place"),
                     bool(o, "allow_bridge"), bool(o, "allow_pillar"), maxStack, breakBudget,
-                    placeBudget, placeSupply, cells, blocks, material);
+                    placeBudget, placeSupply, cells, blocks, material, List.copyOf(materials));
         }
         private static int integer(com.google.gson.JsonElement e) {
             if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) throw new IllegalArgumentException("edit_integer");
@@ -796,14 +1043,13 @@ final class RoutePlanner {
     private Map<Long, Map<String, Object>> overlay;  // the expanding node's planned edits, or null
 
     /** Turns on edit edges: dig/place steps (planner_edits) and, with extra moves, dig down, descend, pillar. */
-    /** terrain_steps allow_falling_neighbours: false refuses any cut beside sand or gravel. */
-    private boolean fallingNeighbours = true;
-
-    RoutePlanner withFallingNeighbours(boolean allowed) { this.fallingNeighbours = allowed; return this; }
+    /** Accepted for old requests and ignored: sand or gravel beside a cut is no longer a refusal (owner ruling). */
+    RoutePlanner withFallingNeighbours(boolean ignored) { return this; }
 
     RoutePlanner withEdits(EditPolicy edits) {
         this.edits = edits;
-        this.placed = Map.of("block", edits.material, "fluid", "minecraft:empty",
+        String block = !edits.materials.isEmpty() ? edits.materials.get(0) : edits.material;
+        this.placed = Map.of("block", block, "fluid", "minecraft:empty",
                 "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1)));
         return this;
     }
@@ -875,12 +1121,17 @@ final class RoutePlanner {
         for (var d : CUT_SIDES) {
             var n = cell(p[0] + d[0], p[1] + d[1], p[2] + d[2]);
             if (n == null || !dry(n)) return false;
-            // A falling block above is priced by its stack; one beside needs known support.
-            if (FALLING.contains(n.get("block"))
-                    && (!extra || !fallingNeighbours
-                        || (d[1] == 0 && !fullDry(cell(p[0] + d[0], p[1] - 1, p[2] + d[2]))))) return false;
+            // Sand and gravel beside or above are no hazard (owner ruling): the stack above is priced and dug
+            // (fallingStack); one beside stays put. Only a stack over the bot's own head is refused (overHead).
         }
         return true;
+    }
+
+    /** Owner rule: never cut a cell in the source column above the head with sand/gravel resting on it. */
+    private boolean overHead(Node source, List<int[]> cuts) {
+        for (var p : cuts)
+            if (p[0] == source.x && p[2] == source.z && p[1] >= (int) source.y + 2 && !fallingStack(p).isEmpty()) return true;
+        return false;
     }
 
     /** Blocks to break among points (empty ones skipped); null when one of them may not be broken. */
@@ -916,11 +1167,18 @@ final class RoutePlanner {
             }
             places = stack;
         }
-        var cuts = ty == y
-                ? cuts(new int[]{tx, ty, tz}, new int[]{tx, ty + 1, tz})
-                : cuts(new int[]{tx, ty, tz}, new int[]{tx, ty + 1, tz}, new int[]{x, y + 2, z}, new int[]{x, y + 3, z},
-                        new int[]{tx, ty + 2, tz});
-        if (cuts == null || cuts.size() > Math.min(4, edits.breakBudget) || (cuts.isEmpty() && places.isEmpty()))
+        boolean recover = source.equals(start) && !stance(source);
+        var cuts = recover
+                ? (ty == y
+                        ? cuts(new int[]{x, y + 1, z}, new int[]{x, y, z}, new int[]{tx, ty, tz}, new int[]{tx, ty + 1, tz})
+                        : cuts(new int[]{x, y + 1, z}, new int[]{x, y, z}, new int[]{tx, ty, tz}, new int[]{tx, ty + 1, tz},
+                                new int[]{x, y + 2, z}, new int[]{x, y + 3, z}, new int[]{tx, ty + 2, tz}))
+                : (ty == y
+                        ? cuts(new int[]{tx, ty, tz}, new int[]{tx, ty + 1, tz})
+                        : cuts(new int[]{tx, ty, tz}, new int[]{tx, ty + 1, tz}, new int[]{x, y + 2, z}, new int[]{x, y + 3, z},
+                                new int[]{tx, ty + 2, tz}));
+        if (cuts == null || cuts.size() > Math.min(recover ? 7 : 4, edits.breakBudget) || (cuts.isEmpty() && places.isEmpty())
+                || overHead(source, cuts))
             return null;
         return new Edit(source, target, cuts, places, "step");
     }
@@ -939,11 +1197,13 @@ final class RoutePlanner {
 
     /** Downward: break the floor, drop 1 onto a known safe cube. */
     private Edit downward(Node node) {
-        int x = node.x, y = (int) node.y, z = node.z;
-        var support = cell(x, y - 2, z);
+        int x = node.x, y = (int) node.y, z = node.z, land = y - 1;
+        // Open dry cells under the floor are fallen through (a cave below, owner: a short fall is fine), to max_drop.
+        while (land - 1 >= y - 1 - maxDrop && empty(cell(x, land - 1, z))) land--;
+        var support = cell(x, land - 1, z);
         if (!fullDry(support) || HAZARDS.contains(support.get("block"))) return null;
         var cuts = budgeted(cuts(new int[]{x, y - 1, z}));
-        return cuts == null ? null : new Edit(node, new Node(x, node.y - 1, z), cuts, List.of(), "downward");
+        return cuts == null ? null : new Edit(node, new Node(x, land, z), cuts, List.of(), "downward");
     }
 
     /** Descend: clear the target's feet, head and the cell above, onto a safe cube. */

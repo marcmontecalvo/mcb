@@ -17,6 +17,8 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.levelgen.feature.Feature;
+import net.minecraft.world.level.levelgen.placement.PlacementModifier;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -38,6 +40,8 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.TreeSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -109,6 +113,7 @@ final class KnowledgeDump {
         write(dir, "tags.json", tags(counts));
         write(dir, "recipes.json", wrap("recipes", recipes(counts)));
         write(dir, "drops.json", drops(blockKinds, counts));
+        write(dir, "ores.json", ores(counts));
         if (killer != null) write(dir, "mobs.json", mobs(counts));
         else counts.put("mobs", "skipped_no_body");
         write(dir, "pack.json", pack);
@@ -329,6 +334,45 @@ final class KnowledgeDump {
         for (var drop : Block.getDrops(state, level, BlockPos.ZERO, null, null, tool))
             if (!drop.isEmpty()) perRoll.merge(id(drop.getItem()), drop.getCount(), Integer::sum);
         return perRoll;
+    }
+
+    // ---- ores
+    /**
+     * Ore placed features straight from the registries, encoded with the game's own codecs so unknown
+     * or modded types still serialize. Anchors stay raw (VerticalAnchor JSON); the reader resolves them
+     * against the world bounds given here.
+     */
+    private JsonObject ores(Map<String, Object> counts) {
+        var ops = server.registryAccess().createSerializationContext(JsonOps.INSTANCE);
+        var placed = server.registryAccess().lookupOrThrow(Registries.PLACED_FEATURE);
+        var biomesByFeature = new HashMap<net.minecraft.world.level.levelgen.placement.PlacedFeature, TreeSet<String>>();
+        var biomes = server.registryAccess().lookupOrThrow(Registries.BIOME);
+        biomes.listElements().forEach(biome -> {
+            for (var set : biome.value().getGenerationSettings().features())
+                for (var holder : set) biomesByFeature.computeIfAbsent(holder.value(), k -> new TreeSet<>()).add(biome.key().identifier().toString());
+        });
+        var table = new JsonObject();
+        for (var holder : sorted(placed.listElements().toList(), h -> h.key().identifier().toString())) {
+            var feature = holder.value().feature().value();
+            if (!(feature instanceof net.minecraft.world.level.levelgen.feature.AbstractOreFeature)) continue;
+            var entry = new JsonObject();
+            try {
+                entry.add("feature", Feature.DIRECT_CODEC.encodeStart(ops, feature).getOrThrow());
+                var placement = new JsonArray();
+                for (var modifier : holder.value().placement())
+                    placement.add(PlacementModifier.CODEC.encodeStart(ops, modifier).getOrThrow());
+                entry.add("placement", placement);
+            } catch (RuntimeException error) {
+                entry.addProperty("encode_error", String.valueOf(error.getMessage()));
+            }
+            entry.add("biomes", GSON.toJsonTree(biomesByFeature.getOrDefault(holder.value(), new TreeSet<>())));
+            table.add(holder.key().identifier().toString(), entry);
+        }
+        counts.put("ores", table.size());
+        var out = wrap("ores", table);
+        out.addProperty("min_y", level.getMinY());
+        out.addProperty("max_y", level.getMaxY());
+        return out;
     }
 
     // ---- mobs (K7)

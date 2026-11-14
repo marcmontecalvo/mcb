@@ -37,6 +37,8 @@ class Gather:
     margin: int = 0  # spare blocks planned for chance/range drops (G4)
     expected: float = 1.0  # expected items per block; check_order credits
     # (count - margin) * expected, i.e. the plan with the spare blocks lost
+    alternatives: tuple[tuple[str, str], ...] = ()  # (item, block) pairs that serve
+    # the same recipe slot as `item`; the executor mines whichever is nearest
 
 
 @dataclass(frozen=True)

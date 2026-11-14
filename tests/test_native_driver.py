@@ -1017,10 +1017,9 @@ def test_fewer_geometry_kills_replan_on_without_escalating(monkeypatch):
     assert not [d for kind, d in records if kind == "native_route_storm_stuck"]
 
 
-def test_a_stuck_step_edge_is_banned_for_the_next_plan(monkeypatch):
-    # Iron run 20261112T233253015689Z: a placement step that neither confirmed nor
-    # failed was ended by the 5 s idle cutoff; its edge was banned nowhere, so the
-    # replan reproduced the identical plan 14 times over 81.2 s.
+def test_a_stuck_stop_does_not_ban_the_active_step_edge(monkeypatch):
+    # The stuck-ban banned a step one tick before it confirmed (iron run
+    # 20261113T211211538468Z); a stop now only ends the goto.
     plan = StepPlan((0, 5, 0), (1, 5, 0), (), ((1, 4, 0),), "step")
     rows = [
         {"tick": 1, "route_follower": {"state": "idle"}},
@@ -1029,6 +1028,189 @@ def test_a_stuck_step_edge_is_banned_for_the_next_plan(monkeypatch):
     ]
     end, controller, records = _drive_storm(monkeypatch, rows, plan=plan, stuck_at=3)
     assert end == {"type": "navigation_stopped", "data": {"reason": "stuck"}}
-    assert ((0, 5, 0), (1, 5, 0)) in controller.failed_edges
-    notes = [d for kind, d in records if kind == "native_step_stuck_banned"]
-    assert notes and notes[0]["ban_until"] == 3 + native_driver.NO_PROGRESS_BAN_TICKS
+    assert ((0, 5, 0), (1, 5, 0)) not in controller.failed_edges
+    assert "native_step_stuck_banned" not in [k for k, _ in records]
+
+
+def _edit_controller(**extra):
+    steps = (
+        StepPlan((0, 1, 0), (1, 1, 0), breaks=((1, 1, 0),), kind="dig"),
+        StepPlan((1, 1, 0), (2, 1, 0), places=((2, 0, 0),), kind="bridge"),
+    )
+    started = []
+    controller = SimpleNamespace(
+        requires_body_planner=True,
+        submit_plan=object(),
+        background_planning=True,
+        committed_step=None,
+        terrain_forecast=steps,
+        prefetch=None,
+        prefetch_started=0,
+        goal=(9, 1, 0),
+        goal_revision=0,
+        events=[],
+        search_nodes=10,
+        search_ms=5,
+        _planning_snapshot=lambda: (7, {(1, 1, 0): {"block": "minecraft:stone"}}),
+        _new_search=lambda cells, node, revision, edits=(): started.append(
+            (cells, node, revision, edits)
+        )
+        or SimpleNamespace(start=node, advance=lambda **kw: started.append(kw)),
+        **extra,
+    )
+    return controller, steps, started
+
+
+def test_prefetch_plans_past_the_forecast_edits_on_the_predicted_map():
+    controller, steps, started = _edit_controller()
+    native_driver.prefetch_past_edits(controller)
+    cells, node, revision, edits = started[0]
+    assert (node, revision, edits) == ((2, 1, 0), 7, steps)
+    assert cells[(1, 1, 0)]["block"] == "minecraft:air"  # planned break
+    assert cells[(2, 0, 0)]["collision_boxes"] == [[0, 0, 0, 1, 1, 1]]  # planned place
+    assert controller.prefetch_started == 1
+    native_driver.prefetch_past_edits(controller)  # next poll: the search advances
+    assert started[1]["moving"] and controller.prefetch_started == 1
+
+
+def test_prefetch_past_edits_waits_for_a_forecast():
+    controller, _, started = _edit_controller()
+    controller.terrain_forecast = ()
+    native_driver.prefetch_past_edits(controller)
+    assert started == [] and controller.prefetch is None
+
+
+def test_failed_edit_discards_the_prefetch_planned_past_it(monkeypatch):
+    plan = StepPlan((0, 5, 0), (0, 5, 1), ((0, 5, 1),), (), "dig")
+    rows = iter(
+        [
+            {"tick": 1, "route_follower": {"state": "idle"}},
+            {"tick": 2, "step_follower": {"step_id": "step-1", "state": "failed"}},
+            {"terminal": {"status": "success"}},
+        ]
+    )
+    discarded = []
+    client = SimpleNamespace(
+        send=lambda op, **kw: {"sequence": 1},
+        acknowledge=lambda *_: None,
+        wait=lambda predicate, **kw: True,
+        record=lambda *a: None,
+    )
+    controller = SimpleNamespace(
+        route=[],
+        mode="terrain_editing",
+        terrain=SimpleNamespace(plan=plan, policy=TerrainPolicy()),
+        gap_jump=None,
+        failed_edges=set(),
+        movement_policy=MovementPolicy(),
+        committed_step=None,
+        own_footholds=set(),
+        edits_broken=0,
+        edits_placed=0,
+        search=None,
+        _admit=lambda _o: None,
+        _clear_terrain_forecast=lambda: None,
+        drain_events=lambda: [],
+        _discard_prefetch=lambda: discarded.append(1),
+        decide=lambda o, *, native=False: None,
+    )
+    monkeypatch.setattr(
+        native_driver,
+        "policy_state",
+        lambda _c: {"body": {"position": [0.5, 5, 0.5]}, **next(rows)},
+    )
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda _c, row: row.get("terminal"))
+    native_driver.drive_native(client, controller, 10)
+    assert discarded == [1]
+
+
+def test_a_motor_failed_step_edge_is_banned_only_briefly(monkeypatch):
+    plan = StepPlan((0, 5, 0), (0, 5, 1), ((0, 5, 1),), (), "dig")
+    rows = iter(
+        [
+            {"tick": 1, "route_follower": {"state": "idle"}},
+            {"tick": 2, "step_follower": {"step_id": "step-1", "state": "failed"}},
+            {"tick": 2 + native_driver.STEP_FAIL_BAN_TICKS, "route_follower": {}},
+            {"terminal": {"status": "success"}},
+        ]
+    )
+    discarded = []
+    client = SimpleNamespace(
+        send=lambda op, **kw: {"sequence": 1},
+        acknowledge=lambda *_: None,
+        wait=lambda predicate, **kw: True,
+        record=lambda *a: None,
+    )
+    controller = SimpleNamespace(
+        route=[],
+        mode="terrain_editing",
+        terrain=SimpleNamespace(plan=plan, policy=TerrainPolicy()),
+        gap_jump=None,
+        failed_edges=set(),
+        movement_policy=MovementPolicy(),
+        committed_step=None,
+        own_footholds=set(),
+        edits_broken=0,
+        edits_placed=0,
+        search=None,
+        _admit=lambda _o: None,
+        _clear_terrain_forecast=lambda: None,
+        drain_events=lambda: [],
+        _discard_prefetch=lambda: discarded.append(set(controller.failed_edges)),
+        decide=lambda o, *, native=False: None,
+    )
+    monkeypatch.setattr(
+        native_driver,
+        "policy_state",
+        lambda _c: {"body": {"position": [0.5, 5, 0.5]}, **next(rows)},
+    )
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda _c, row: row.get("terminal"))
+    native_driver.drive_native(client, controller, 10)
+    # banned while the replan reads fresh cells, free again after 2 s
+    assert discarded == [{((0, 5, 0), (0, 5, 1))}]
+    assert controller.failed_edges == set()
+
+
+def test_drive_calls_on_pass_only_while_a_route_is_followed(monkeypatch):
+    seen = []
+    rows = iter(
+        [
+            {"tick": 1, "route_follower": {"state": "idle"}},
+            {"tick": 2, "route_follower": {"state": "following"}},
+            {"terminal": {"status": "success"}},
+        ]
+    )
+    client = SimpleNamespace(
+        send=lambda *a, **k: {"sequence": 1},
+        acknowledge=lambda *_: None,
+        wait=lambda *a, **k: True,
+        record=lambda *a: None,
+    )
+    controller = SimpleNamespace(
+        route=[],
+        on_pass=seen.append,
+        gap_jump=None,
+        failed_edges=set(),
+        movement_policy=MovementPolicy(),
+        committed_step=None,
+        search=None,
+        terrain=None,
+        _admit=lambda _o: None,
+        _discard_prefetch=lambda: None,
+        drain_events=lambda: [],
+        decide=lambda o, *, native=False: None,
+    )
+    monkeypatch.setattr(
+        native_driver,
+        "policy_state",
+        lambda _c: {"body": {"position": [1.5, 5, 0.5]}, **next(rows)},
+    )
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda _c, row: row.get("terminal"))
+    try:
+        native_driver.drive_native(client, controller, 10)
+    except Exception:  # the fake route state is not driven further than the hook
+        pass
+    assert seen == [[1.5, 5, 0.5]]

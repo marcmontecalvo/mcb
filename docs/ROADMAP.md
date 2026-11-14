@@ -587,6 +587,21 @@ cases).
     B6 "build X here"), then voice. No in-game chat exists on `main` or on
     `companion-follow` yet.
 
+**Spike: bot profiles and a settings UI (added 2026-11-13, not started).** Settings
+are scattered today: `config/lab.json` (server), `config/backends.json` (models),
+awareness profiles in `config/stepc/`, and per-script command-line flags; the
+dashboard deliberately has no settings, and chat orders do not exist yet. The model
+Marc wants: **profiles per bot, not per server** (several bots on one server with
+different profiles; one profile reused across servers), later carrying personality
+files for chat. The spike inventories every setting and where it lives now, decides
+what moves into a profile (tool choice `lowest_sufficient|best`, ore collection
+`greedy|specific`, ore vision on/off and range, search anchor and radius, strip-mine
+leg/turn/limit, awareness, motor permissions, ...), what stays server or lab config,
+how a single order overrides a profile ("iron close by" = small radius; "all the
+diamonds you can" = no leg limit), and the user surface: a web portal page and/or an
+in-game menu to change settings on the fly. Until then the gather options below are
+`GatherOptions` fields set by `run-gather.py` flags.
+
 Housekeeping (Nov 1): `main` is committed and pushed after each item. The `-fast`
 awareness profiles stay: cohorts 15d–15f name them, and the ledger keeps every
 cohort reproducible. `scripts/analysis/` now passes ruff (long lines and late

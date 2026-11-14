@@ -339,10 +339,10 @@ class SegmentedController(NavigationController):
             ),
         )
 
-    def _new_search(self, cells, node, revision):
+    def _new_search(self, cells, node, revision, edits=()):
         if self.submit_plan is None or getattr(self, "planner_map", None) is None:
             raise RuntimeError("body planner is not attached")
-        return body_search.BodySearch(self, node, revision, cells)
+        return body_search.BodySearch(self, node, revision, cells, edits)
 
     def _at_goal(self, node, cells):
         """Interaction goal: the eye at this stance reaches the target block."""
@@ -848,6 +848,7 @@ class SegmentedController(NavigationController):
             )
         if not valid:
             self._clear_terrain_forecast()
+            self._discard_prefetch()  # planned on the forecast that no longer holds
             self.reason = "forecast preconditions changed; replanning"
             self.mode = "terrain_replanning"
             return
@@ -1051,6 +1052,7 @@ class SegmentedController(NavigationController):
                 self.air_waypoint = None
                 self.motion_origin_height = None
                 self._clear_terrain_forecast()
+                self._discard_prefetch()
                 self.route.clear()
                 self.search = None
                 return {}

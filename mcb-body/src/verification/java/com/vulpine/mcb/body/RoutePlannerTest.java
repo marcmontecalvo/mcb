@@ -216,6 +216,125 @@ public final class RoutePlannerTest {
                 .withEdits(guarded).search(100_000);
         check(around.status().equals("reached") && around.steps().stream().noneMatch(e -> e.breaks().stream()
                 .anyMatch(p -> p[0] == 5 && p[2] == 0)), "protected cells are left alone");
+        // Enclosed in stone: a goal 25 blocks down is dug to within the node cap (dig-aware heuristic).
+        var rock = new HashMap<Key, Map<String, Object>>();
+        for (int x = -12; x <= 12; x++) for (int z = -12; z <= 12; z++) for (int y = 10; y <= 44; y++)
+            rock.put(new Key(x, y, z), y <= 40 || y == 44 ? stone() : air());
+        rock.put(new Key(0, 16, 0), air()); rock.put(new Key(0, 17, 0), air());
+        var shaft = new RoutePlanner((x, y, z) -> rock.get(new Key(x, y, z)), new RoutePlanner.Node(0, 41, 0),
+                new RoutePlanner.Node(0, 16, 0), 0, 3, true).withMoves(false, true).withEdits(policy(false)).search(10_000);
+        check(shaft.status().equals("reached") && shaft.expanded() < 10_000, "digs 25 blocks down under the node cap");
+        check(shaft.expanded() < 200 && shaft.steps().get(shaft.steps().size() - 1).target().y() == 16,
+                "the stance field guides the shaft straight down and the last cut drops into the pocket: " + shaft.expanded());
+
+        // Grass-slope descent with oak/acacia leaf canopy and full placement permissions: zero placements!
+        var slope = new HashMap<Key, Map<String, Object>>();
+        var grassBlock = Map.<String, Object>of("block", "minecraft:grass_block", "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1)), "fluid", "minecraft:empty");
+        var shortGrass = Map.<String, Object>of("block", "minecraft:short_grass", "collision_boxes", List.of(), "fluid", "minecraft:empty");
+        var oakLeaves = Map.<String, Object>of("block", "minecraft:oak_leaves", "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1)), "fluid", "minecraft:empty");
+        for (int x = -2; x <= 12; x++) {
+            int surf = Math.max(1, 10 - Math.max(0, x));
+            for (int z = -3; z <= 3; z++) {
+                for (int y = 0; y <= 18; y++) {
+                    if (y <= surf) slope.put(new Key(x, y, z), y == surf ? grassBlock : stone());
+                    else if (y == surf + 1 && x % 2 == 0) slope.put(new Key(x, y, z), shortGrass);
+                    else if (y == 16 && x >= 1 && x <= 9) slope.put(new Key(x, y, z), oakLeaves);
+                    else slope.put(new Key(x, y, z), air());
+                }
+            }
+        }
+        var slopePolicy = new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK, "minecraft:grass_block", 8.0),
+                Map.of(), true, true, true, 3, 64, 64, 64, Set.of(), Set.of(), "minecraft:cobblestone", List.of("minecraft:cobblestone"));
+        var slopeRes = new RoutePlanner((x, y, z) -> slope.get(new Key(x, y, z)), new RoutePlanner.Node(0, 11, 0),
+                new RoutePlanner.Node(9, 2, 0), 0.4, 3, true, 2.0)
+                .withPolicy(true, true, true, true, true, 4.0)
+                .withMoves(false, true).withEdits(slopePolicy).search(10_000);
+        check(slopeRes.status().equals("reached") && slopeRes.steps().isEmpty(),
+                "grass slope under leaf canopy descends with zero placements or breaks: steps=" + slopeRes.steps().size());
+
+        // Air vs rock: deep unknown cells (>16 below stone ceiling) price as rock; under leaf canopy or open cave air price as air.
+        var ceilingRock = new HashMap<Key, Map<String, Object>>();
+        for (int x = -4; x <= 4; x++) for (int z = -4; z <= 4; z++) ceilingRock.put(new Key(x, 40, z), stone());
+        var underRock = new RoutePlanner((x, y, z) -> ceilingRock.get(new Key(x, y, z)),
+                new RoutePlanner.Node(0, 15, 0), new RoutePlanner.Node(0, 11, 0), 0, 3, true, 2.0)
+                .withMoves(false, true).withEdits(policy(true));
+        check(underRock.estimate(new RoutePlanner.Node(0, 15, 0)) > 100,
+                "unknown cells 25 below a stone ceiling are priced as rock, not air");
+
+        var canopyOnly = new HashMap<Key, Map<String, Object>>();
+        for (int x = -4; x <= 4; x++) for (int z = -4; z <= 4; z++) canopyOnly.put(new Key(x, 40, z), oakLeaves);
+        var underLeaves = new RoutePlanner((x, y, z) -> canopyOnly.get(new Key(x, y, z)),
+                new RoutePlanner.Node(0, 15, 0), new RoutePlanner.Node(0, 11, 0), 0, 3, true, 2.0)
+                .withMoves(false, true).withEdits(policy(true));
+        check(underLeaves.estimate(new RoutePlanner.Node(0, 15, 0)) < 50,
+                "unknown cells under a leaf canopy only are not priced as rock");
+
+        var caveRoof = new HashMap<Key, Map<String, Object>>();
+        for (int x = -4; x <= 4; x++) for (int z = -4; z <= 4; z++) {
+            caveRoof.put(new Key(x, 40, z), stone());
+            caveRoof.put(new Key(x, 20, z), air());
+        }
+        var underCaveAir = new RoutePlanner((x, y, z) -> caveRoof.get(new Key(x, y, z)),
+                new RoutePlanner.Node(0, 15, 0), new RoutePlanner.Node(0, 11, 0), 0, 3, true, 2.0)
+                .withMoves(false, true).withEdits(policy(true));
+        check(underCaveAir.estimate(new RoutePlanner.Node(0, 15, 0)) < 50,
+                "unknown cells below known open cave air are not priced as rock");
+
+        // Buried interact_reach target: field does not seed unreachable surface cells with 0; digs straight down and sees via overlay.
+        var buriedTarget = new HashMap<Key, Map<String, Object>>();
+        for (int x = -12; x <= 12; x++) for (int z = -12; z <= 12; z++) for (int y = -6; y <= 10; y++)
+            buriedTarget.put(new Key(x, y, z), y <= 4 ? stone() : air());
+        var buriedRes = new RoutePlanner((x, y, z) -> buriedTarget.get(new Key(x, y, z)),
+                new RoutePlanner.Node(4, 5, 0), new RoutePlanner.Node(0, 1, 0), 2.0, 3, true, 2.0)
+                .withPolicy(true, true, true, true, true, 4.0)
+                .withInteraction(4.5).withMoves(false, true).withEdits(policy(true)).search(10_000);
+        check(buriedRes.status().equals("reached") && !buriedRes.steps().isEmpty() && buriedRes.expanded() < 200,
+                "buried interact_reach target digs down and terminates cleanly: " + buriedRes.status() + " " + buriedRes.expanded());
+
+        // EditPolicy.fromJson: parses materials list (including empty) and place_supply > 3 up to 4096.
+        var jsonMulti = com.google.gson.JsonParser.parseString("""
+                {"step":true,"break_costs":{"minecraft:stone":16},"fall_costs":{},
+                "allow_place":true,"allow_bridge":true,"allow_pillar":true,
+                "max_stack":3,"break_budget":64,"place_budget":64,"place_supply":256,
+                "protected":[],"protected_blocks":[],
+                "materials":["minecraft:cobblestone","minecraft:dirt"],"material":"minecraft:cobblestone"}
+                """).getAsJsonObject();
+        var parsedMulti = RoutePlanner.EditPolicy.fromJson(jsonMulti);
+        check(parsedMulti.placeSupply() == 256 && parsedMulti.materials().equals(List.of("minecraft:cobblestone", "minecraft:dirt")),
+                "EditPolicy parses place_supply > 3 and materials list");
+        var jsonEmpty = com.google.gson.JsonParser.parseString("""
+                {"step":true,"break_costs":{"minecraft:stone":16},"fall_costs":{},
+                "allow_place":true,"allow_bridge":true,"allow_pillar":true,
+                "max_stack":3,"break_budget":64,"place_budget":64,"place_supply":0,
+                "protected":[],"protected_blocks":[],
+                "materials":[],"material":"minecraft:cobblestone"}
+                """).getAsJsonObject();
+        var parsedEmpty = RoutePlanner.EditPolicy.fromJson(jsonEmpty);
+        check(parsedEmpty.placeSupply() == 0 && parsedEmpty.materials().isEmpty(),
+                "EditPolicy accepts empty materials list");
+
+        // !stance(start) recovery: gravel at feet and head over dry stone breaks out; without edits or on air stays unreachable.
+        var gravelTrap = floor(6);
+        var gravel = Map.<String, Object>of("block", "minecraft:gravel", "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1)), "fluid", "minecraft:empty");
+        gravelTrap.put(new Key(0, 1, 0), gravel);
+        gravelTrap.put(new Key(0, 2, 0), gravel);
+        var gravelGoal = new RoutePlanner.Node(4, 1, 0);
+        check(plan(gravelTrap, gravelGoal, 1_000).status().equals("unreachable"),
+                "buried start without edits is unreachable");
+        var gravelPolicy = new RoutePlanner.EditPolicy(true, Map.of("minecraft:gravel", 10.0, "minecraft:stone", STONE_BREAK),
+                Map.of("minecraft:gravel", 10.0), true, true, true, 3, 64, 64, 3, Set.of(), Set.of(), "minecraft:cobblestone");
+        var recovered = new RoutePlanner((x, y, z) -> gravelTrap.get(new Key(x, y, z)),
+                new RoutePlanner.Node(0, 1, 0), gravelGoal, 0, 3, true).withEdits(gravelPolicy).search(10_000);
+        check(recovered.status().equals("reached") && !recovered.steps().isEmpty()
+                && recovered.steps().get(0).breaks().size() == 2,
+                "start buried in gravel recovers by breaking head and feet");
+        var airBelow = floor(6);
+        airBelow.put(new Key(0, 0, 0), air());
+        airBelow.put(new Key(0, 1, 0), gravel);
+        check(new RoutePlanner((x, y, z) -> airBelow.get(new Key(x, y, z)),
+                new RoutePlanner.Node(0, 1, 0), gravelGoal, 0, 3, true).withEdits(gravelPolicy).search(10_000).status().equals("unreachable"),
+                "non-standable start without dry floor below remains unreachable");
+
         System.out.println("RoutePlanner: " + checks + " planner checks passed");
     }
 

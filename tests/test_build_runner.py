@@ -646,3 +646,84 @@ def test_entity_in_way_asks_for_another_stance():
     assert report.stop == "done" and report.skipped == {}
     calls = [avoid for target, avoid in body.stance_calls if target == pane]
     assert any(calls[1:])  # a later stance avoids the one the mob blocked
+
+
+def test_the_next_stance_is_planned_before_the_current_block_is_placed():
+    events = []
+
+    class Ahead(FakeBody):
+        def plan_ahead(self, pos, reach):
+            events.append(("ahead", pos))
+
+        def place_block(self, pos, state, item):
+            events.append(("place", pos))
+            return super().place_block(pos, state, item)
+
+    inv = {item: 100 for item in {i["item"] for i in BLOCKS.values()}}
+    body = Ahead(flat_world(), inv, BLOCKS)
+    t = bp.Template.from_build(HOUSE, (1, 0, 1))
+    assert br.run_build(t, body, BLOCKS).stop == "done"
+    ahead = [i for i, e in enumerate(events) if e[0] == "ahead"]
+    assert ahead
+    i = ahead[0]
+    # the walk to the next target is planned while the current block is still unplaced
+    nxt = events[i][1]
+    assert not any(e == ("place", nxt) for e in events[:i])
+    assert events[i + 1][0] == "place" and events[i + 1][1] != nxt
+
+
+def test_blocks_that_come_within_reach_are_placed_while_the_body_walks_past():
+    class Walker(FakeBody):
+        """goto_stance walks in unit steps, calling on_pass at each (the drive)."""
+
+        on_pass = None
+
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.passed = 0
+            self.start = self.pos
+            self.placed_log = []
+
+        def goto_stance(self, target_pos, reach, avoid=()):
+            before = len(self.stance_calls)
+            ok = super().goto_stance(target_pos, reach, avoid)
+            if len(self.stance_calls) > before and self.on_pass is not None:
+                end = self.pos
+                x0, y0, z0 = self.start
+                steps = max(abs(end[0] - x0), abs(end[2] - z0), 1)
+                for i in range(1, steps + 1):
+                    t = i / steps
+                    self.pos = (
+                        round(x0 + (end[0] - x0) * t),
+                        end[1],
+                        round(z0 + (end[2] - z0) * t),
+                    )
+                    n = len(self.placed_log)
+                    self.on_pass(self.pos)
+                    self.passed += len(self.placed_log) - n
+                self.pos = end
+            self.start = self.pos
+            return ok
+
+        def place_block(self, pos, state, item):
+            result = super().place_block(pos, state, item)
+            if result.ok:
+                self.placed_log.append(pos)
+            return result
+
+    size = 14
+    cells = {
+        (x, y, z): bp_cobble
+        for y in range(2)
+        for x in range(size)
+        for z in range(size)
+        if x in (0, size - 1) or z in (0, size - 1)
+    }
+    t = bp.Template.from_build(make_build(cells, (size, 2, size)), (1, 0, 1))
+    body = Walker(flat_world(-2, size + 6), {bp_cobble: 999}, BLOCKS)
+    report = br.run_build(t, body, BLOCKS, site_margin=None)
+    assert report.stop == "done" and report.skipped == {}
+    d = bp.diff(t, body.world)
+    assert (d.breaks, d.places, d.unknown, d.uses) == ([], [], [], [])
+    assert body.passed > 0, "nothing was placed while passing"
+    assert body.on_pass is None  # the hook is removed when the sweep ends

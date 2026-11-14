@@ -6,6 +6,7 @@ from collections import Counter
 from dataclasses import asdict
 
 from mclab import water_movement
+from mclab.body_search import predicted_cells, tool_map
 from mclab.execution import ControllerFailure, policy_state
 from mclab.navigation import empty, full_cube
 
@@ -34,6 +35,7 @@ STEP_PROTECT_RADIUS = 2
 # route_no_progress with a mob in the step's cells: the body keeps walking into it
 # (vanilla entity pushing moves it aside) this many times before clearing it.
 MOB_RETRIES = 2
+STEP_FAIL_BAN_TICKS = 40  # a motor-failed step edge is avoided for 2 s, then retried
 # A no-progress edge with no mob in it is banned this long, not for the session:
 # the cause may have been a door mid-swing or a mob that has since left.
 NO_PROGRESS_BAN_TICKS = 200
@@ -232,6 +234,50 @@ def prefetch_while_following(controller, route, native=None):
             },
         )
     )
+
+
+def prefetch_past_edits(controller):
+    """Plan the route after the queued edit steps while the body executes them.
+
+    The plan starts at the last step's target on a map where every forecast step
+    is done (predicted_cells), so decide() adopts it on arrival instead of
+    stopping to search. A failed or refused step discards it (drive_native); a
+    plan that no longer fits the real map fails its own first edge and replans."""
+    forecast = tuple(getattr(controller, "terrain_forecast", None) or ())
+    if (
+        not forecast
+        or not refreshing(controller)
+        or not getattr(controller, "background_planning", False)
+        or controller.committed_step is not None
+    ):
+        return
+    end = tuple(forecast[-1].target)
+    if controller.prefetch is None:
+        if end == controller.goal:
+            return
+        revision, cells = controller._planning_snapshot()
+        controller.prefetch = controller._new_search(
+            predicted_cells(cells, forecast), end, revision, forecast
+        )
+        controller.prefetch_started += 1
+        controller.events.append(
+            (
+                "route_prefetch_started",
+                {
+                    "start": end,
+                    "map_revision": revision,
+                    "goal_revision": controller.goal_revision,
+                    "after_edits": len(forecast),
+                },
+            )
+        )
+    elif tuple(controller.prefetch.start) == end:
+        # Upload and search finish while the body works; decide() takes the result.
+        controller.prefetch.advance(
+            node_limit=controller.search_nodes,
+            budget_ms=controller.search_ms,
+            moving=True,
+        )
 
 
 def splice_route(controller, route, native, body):
@@ -460,27 +506,14 @@ def drive_native(client, controller, wall_timeout):
             terminal = _running(client, observation)
             if terminal is not None:
                 return terminal
+            on_pass = getattr(controller, "on_pass", None)
+            position = observation.get("body", {}).get("position")
+            if on_pass is not None and position:
+                if observation.get("route_follower", {}).get("state") == "following":
+                    on_pass(position)  # e.g. a build places what comes within reach
             # Companion goto: a controller may end the drive without ending the episode.
             stop_reason = getattr(controller, "stop_reason", None)
             if stop_reason is not None and (why := stop_reason(observation)):
-                if why == "stuck" and active_step is not None:
-                    # The idle cutoff ended a step that neither confirmed nor failed.
-                    # Without a ban here, the replan reproduces the identical plan:
-                    # iron run 20261112T233253015689Z re-issued one placement step
-                    # 13 times over 81.2 s. The step-edge ban of the failed path
-                    # (below) is unreachable while Java still reports "following".
-                    edge = (active_step[1].source, active_step[1].target)
-                    controller.failed_edges.add(edge)
-                    bans[edge] = (observation.get("tick") or 0) + NO_PROGRESS_BAN_TICKS
-                    client.record(
-                        "native_step_stuck_banned",
-                        {
-                            "step_id": active_step[0],
-                            "source": edge[0],
-                            "target": edge[1],
-                            "ban_until": bans[edge],
-                        },
-                    )
                 return {"type": "navigation_stopped", "data": {"reason": why}}
             # A plan-only probe parks the motor until its verdict turns it into
             # the walk (companion_body._GotoController._walk_on).
@@ -534,6 +567,7 @@ def drive_native(client, controller, wall_timeout):
                         "Native step status lost its accepted identity"
                     )
                 if report.get("state") == "following":
+                    prefetch_past_edits(controller)
                     time.sleep(0.05)
                     continue
                 if report.get("state") != "edits_ready":
@@ -545,11 +579,18 @@ def drive_native(client, controller, wall_timeout):
                     plan = active_step[1]
                     controller.edits_broken += len(report.get("broken_positions", []))
                     controller.edits_placed += len(report.get("placed_positions", []))
-                    controller.failed_edges.add((plan.source, plan.target))
+                    # The world differed from the map (e.g. native_placement_not_empty):
+                    # the terrain is dropped below, so the next plan reads fresh cells.
+                    # The edge is only avoided for a moment, so the replan cannot
+                    # repeat it at once; a still-wrong edge fails and bans again.
+                    edge = (plan.source, plan.target)
+                    controller.failed_edges.add(edge)
+                    bans[edge] = (observation.get("tick") or 0) + STEP_FAIL_BAN_TICKS
                     controller.terrain = None
                     controller._clear_terrain_forecast()
                     controller.route.clear()
                     controller.search = None
+                    controller._discard_prefetch()  # planned past the failed edit
                     client.record("native_step_failed", report)
                     active_step = None
                     confirmation_deadline = None
@@ -776,6 +817,11 @@ def drive_native(client, controller, wall_timeout):
                     step_id=step_id,
                     plan=asdict(plan),
                     terrain_policy=terrain_policy,
+                    tools=tool_map(
+                        policy,
+                        getattr(controller, "inventory", ()),
+                        getattr(controller, "tool_choice", "lowest_sufficient"),
+                    ),
                 )
                 client.acknowledge(request, "step_accepted")
                 client.wait(

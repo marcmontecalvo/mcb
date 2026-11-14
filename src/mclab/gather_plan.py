@@ -15,6 +15,8 @@ from collections.abc import Collection, Iterable, Mapping
 from typing import Any, NamedTuple
 
 from mclab.gather_check import Replay, check_order, summarize
+from mclab.gather_kit import kit_targets
+from mclab.gather_options import GatherOptions
 from mclab.gather_storage import add_storage
 from mclab.gather_tasks import (
     DEFAULT_DURABILITY,
@@ -194,6 +196,7 @@ class _Model:
         self.executable = frozenset(executable)
         self.prefer = prefer
         self.known_blocks = frozenset(known_blocks)
+        self.flex: frozenset[str] = frozenset()  # kit items: any stand-in will do
         self.rank_of = {
             n: i for i, n in enumerate(t for t in k.drop_tiers if t != "silk_touch")
         }
@@ -737,6 +740,7 @@ class _Expander:
                 else self.need.get(tool, 0) + n
             )
         self.have = dict(m.inv)
+        self.alts: dict[str, set[str]] = {}  # ingredient -> stand-ins
         self.best = dict(m.best)
         self.uses: Counter[str] = Counter()
         self.tasks: dict[str, list[Task]] = {}
@@ -813,14 +817,49 @@ class _Expander:
         self, rec: _Rec, times: int, d: set[str], skip: str | None = None
     ) -> dict[str, int]:
         used: dict[str, int] = {}
-        for opts, count in rec.ing:
+        for slot, (opts, count) in enumerate(rec.ing):
             if skip is not None and skip in opts:
                 continue
             chosen = self.m.pick(opts, self.m.cost)
+            self.alts[chosen] = self._stand_ins(rec, slot, opts, chosen)
             used[chosen] = used.get(chosen, 0) + count * times
             self.need[chosen] = self.need.get(chosen, 0) + count * times
             d.add(chosen)
         return used
+
+    def _stand_ins(
+        self, rec: _Rec, slot: int, opts: tuple[str, ...], chosen: str
+    ) -> set[str]:
+        """Items that serve this recipe slot as well as `chosen`: the slot's options,
+        plus the same slot of the same-shaped recipes of any stand-in for the result
+        (acacia planks for oak planks, so acacia logs for oak logs)."""
+        group = set(opts)
+        shape = [c for _, c in rec.ing]
+        for alt in self.alts.get(rec.result, ()):
+            for r in self.m.recs.get(alt, ()):
+                if (r.out, r.station) == (rec.out, rec.station) and (
+                    [c for _, c in r.ing] == shape
+                ):
+                    group.update(r.ing[slot][0])
+        prev = self.alts.get(chosen)
+        return group & prev if prev else group
+
+    def _alternatives(self, g: _Gat, item: str) -> tuple[tuple[str, str], ...]:
+        if item in self.targets and item not in self.m.flex:
+            return ()  # asked for by name
+        out = []
+        for alt in sorted(self.alts.get(item, ())):
+            h = next(
+                (
+                    h
+                    for h in self.m.gathers.get(alt, ())
+                    if h.kind == g.kind and h.rank <= g.rank and not h.need_tool
+                ),
+                None,
+            )
+            if alt != item and h is not None:
+                out.append((alt, h.block))
+        return tuple(out)
 
     # gathering
     def _gather_cost(self, g: _Gat, tool: _Tool | None, blocks: int) -> float:
@@ -887,6 +926,7 @@ class _Expander:
             n,
             g.margin,
             g.yield_,
+            self._alternatives(g, item),
         )
 
     def _mine(self, item: str, n: int, g: _Gat, d: set[str], key: str) -> None:
@@ -1103,6 +1143,7 @@ def plan(
     with_chest: bool = True,
     spare_chest: bool = False,
     starter_tools: bool = False,
+    kit: GatherOptions | None = None,
 ) -> PlanResult:
     """Ordered tasks that turn `inventory` into `targets`; unreachable parts are
     reported in `missing` instead of raising.
@@ -1145,11 +1186,16 @@ def plan(
         else None
     )
     ex, ordered = _best_expansion(m, goal)
+    if kit is not None and (extra := kit_targets(ordered, counts, knowledge, kit)):
+        # ore ahead: carry a table, spare pickaxes and logs down (gather_kit)
+        m.flex = frozenset(extra) - goal.keys()
+        goal = {**goal, **{i: max(n, goal.get(i, 0)) for i, n in extra.items()}}
+        ex, ordered = _best_expansion(m, goal)
     done = add_storage(ordered, counts, boxes, knowledge, goal)
     if done.needs_chest and with_chest:
         return _chest_first(
             targets, inventory, knowledge, stations, boxes, food_target,
-            executable_stations, known_blocks, prefer, starter_tools,
+            executable_stations, known_blocks, prefer, starter_tools, kit,
         )  # fmt: skip
     missing = (*ex.missing, *([food_gap] if food_gap else ()))
     tasks = _starter_first(done.tasks) if starter_tools else done.tasks
@@ -1209,6 +1255,7 @@ def _chest_first(
     known,
     prefer,
     starter_tools=False,
+    kit=None,
 ) -> PlanResult:
     """No container to deposit into: plan a chest on its own first, replay it to get
     the inventory and stations it leaves behind, and plan the job from there with
@@ -1221,8 +1268,9 @@ def _chest_first(
         "storage": boxes,
         "with_chest": False,
         "starter_tools": starter_tools,
+        "kit": kit,
     }
-    pre = plan({CHEST: 1}, inventory, knowledge, stations, **kw)
+    pre = plan({CHEST: 1}, inventory, knowledge, stations, **{**kw, "kit": None})
     replay = Replay(knowledge, inventory, stations, boxes)
     for i, t in enumerate(pre.tasks):
         replay.step(i, t)

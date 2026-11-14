@@ -604,3 +604,55 @@ def test_buried_without_tools_climbs_a_staircase_to_open_sky():
     assert report.failures[-1] == ("escape", "open_sky")
     assert M + "cobblestone" not in body.inventory()  # stone by hand gives nothing
     assert not _escape(ex, report)  # already under the sky: nothing to do
+
+
+def test_smelt_wait_logs_item_and_reason():
+    from mclab.gather_runner import GatherState
+    from mclab.gather_tasks import Craft, Smelt
+
+    furnace = (0, 0, -3)
+    recorded = []
+    body = FakeGatherBody(
+        K,
+        floor() | {furnace: M + "furnace"},
+        {M + "raw_iron": 1, M + "coal": 1},
+    )
+    body.bridge = type(
+        "B", (), {"record": lambda _s, kind, row: recorded.append((kind, row))}
+    )()
+    original_furnace = body.furnace
+    collects = 0
+
+    def delayed_furnace(pos, action, **fields):
+        nonlocal collects
+        if action == "collect":
+            collects += 1
+            if collects == 1:
+                return Result(True)  # still smelting on first collect
+        return original_furnace(pos, action, **fields)
+
+    body.furnace = delayed_furnace
+    smelt = Smelt("x", 1, M + "coal", 1, "furnace", M + "iron_ingot", M + "raw_iron")
+    next_craft = Craft(M + "iron_pickaxe", 1, "crafting_table", M + "iron_pickaxe", 1)
+
+    report = run_gather(
+        PlanResult((smelt, next_craft), (), 0.0),
+        body,
+        K,
+        state=GatherState(stations={"furnace": furnace}),
+    )
+
+    assert report.stop == "done"
+    notes = [
+        r for r in body.log if isinstance(r, dict) and r.get("gather") == "smelt_wait"
+    ]
+    assert len(notes) == 1
+    note = notes[0]
+    assert note["item"] == M + "iron_ingot"
+    assert note["ingredient"] == M + "raw_iron"
+    assert note["remaining"] == 1
+    assert note["ticks"] == 200
+    assert "no_open_face_blocks_within_24_or_drops" in note["why"]
+    assert "Craft:" in note["why"]
+    assert recorded == [("gather_note", note)]
+

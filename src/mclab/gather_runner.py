@@ -37,9 +37,12 @@ from typing import Protocol
 from mclab import build_plan as bp
 from mclab import gather_plan as gp
 from mclab.build_runner import REACH, STANCE_REASONS, BuildBody, Result
-from mclab.gather_dig import Digger
+from mclab.gather_dig import LAVA, Digger
+from mclab.gather_kit import craft_underground
+from mclab.gather_options import SENSE_DY, GatherOptions, pick_tool
 from mclab.gather_tasks import TIER_RANK, UNKNOWN_TIER_RANK
 from mclab.knowledge import Knowledge
+from mclab.tree_removal import TreeFeller, is_huge, is_log, tree_at
 
 Pos = tuple[int, int, int]
 
@@ -54,7 +57,8 @@ MAX_IDLE_SLICES = 60  # bound on idle work done per smelt task
 IDLE_RADIUS = 24  # smelt idle work: only blocks this close to the furnace
 SMELT_TICKS_PER_ITEM = 200
 MAX_TRIES = 3
-SCAN_BATCH = 8  # candidates tried per map scan in gather
+CLIMB_MIN = 4  # explore climbs to the surface when the goal is this far above the body
+SCAN_BATCH = 8 # candidates tried per map scan in gather
 # A candidate with no reachable stance skips its whole patch (live run
 # 20261102T140212509088Z: 12 stuck gotos at one lake-shore sand patch while dry sand
 # lay 20 blocks away).
@@ -67,6 +71,8 @@ DROP_WAIT_TICKS = 40  # one wait for a falling drop to land (2 s)
 DROP_ABOVE = 2  # collect: drops higher above the feet than this are not walked to
 BURIED_DEPTH = 12  # dig_to_stone: buried stone down to this many blocks below the feet
 DIG_CANDIDATES = 3  # buried stone tops offered to the planner, nearest first
+DEEP_BELOW = 8  # ore further under the feet than this: staircase down first, no plan
+DESCEND_ABOVE = 3  # the staircase stops this far over the ore's top
 UNDERGROUND = ("stone", "cobblestone", "deepslate", "andesite", "diorite", "granite")
 FOOD_CANDIDATES = 6
 FOOD_COUNT = 4
@@ -164,17 +170,50 @@ def _near(pos, home) -> bool:
     )
 
 
-def _reach(*centres) -> list[tuple[Pos, float]]:
+def _reach(*centres, radius: float = NEAR_STONE) -> list[tuple[Pos, float]]:
     """Scan bound covering ``_near`` of every centre (find_blocks ``within``): the
     body lists only the map sections there, not every stone cell it has seen."""
-    return [(c, NEAR_STONE) for c in centres if c is not None]
+    return [(c, radius) for c in centres if c is not None]
+
+
+def _seen_near(pos, body_pos, start_y: int, radius: float) -> bool:
+    """Ore vision: horizontally within ``radius`` of the BODY, vertically within the
+    sensed band round where the task started (not the current y: no cave ratchet)."""
+    return (
+        math.hypot(pos[0] - body_pos[0], pos[2] - body_pos[2]) <= radius
+        and abs(pos[1] - start_y) <= SENSE_DY
+    )
+
+
+def _by_yield(known: list[Pos], here, need: int) -> list[Pos]:
+    """Candidates best first: blocks walked per item gathered, the yield counted in
+    the PATCH round the candidate and capped at `need` (a 22-log cluster beats a
+    lone tree nearer by). ponytail: straight-line distance, not route cost; a route
+    per candidate is too slow. Upgrade: rank the nearest few by planned route."""
+    if need <= 1:
+        return sorted(known, key=lambda p: _dist(p, here))
+    grid: dict[tuple[int, ...], list[Pos]] = {}
+    for p in known:
+        grid.setdefault(tuple(int(c // PATCH) for c in p), []).append(p)
+
+    def patch(p: Pos) -> int:
+        n, cell = 0, [int(c // PATCH) for c in p]
+        for d in product((-1, 0, 1), repeat=3):
+            for q in grid.get((cell[0] + d[0], cell[1] + d[1], cell[2] + d[2]), ()):
+                if _dist(p, q) <= PATCH:
+                    n += 1
+                    if n >= need:
+                        return n
+        return n
+
+    return sorted(known, key=lambda p: _dist(p, here) / max(1, patch(p)))
 
 
 FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
 
 def _sealed(body, pos: Pos, unknown_ok: bool = False) -> bool:
-    """No liquid (nor, unless ``unknown_ok``, unknown) cell touches ``pos``: breaking it
+    """No lava (nor, unless ``unknown_ok``, unknown) cell touches ``pos``: breaking it
     opens no flow. Live run 20261102T005434368454Z: mining surface stone beside a lava
     pool killed the bot. Surface blocks allow unknown neighbours: sand's underside is
     rarely sensed (run 20261103T005102941195Z stalled with every candidate refused)."""
@@ -184,21 +223,28 @@ def _sealed(body, pos: Pos, unknown_ok: bool = False) -> bool:
             if unknown_ok:
                 continue
             return False
-        if bp.parse_state(state)[0] in bp.FLUIDS:
+        if bp.parse_state(state)[0] == LAVA:
             return False
     return True
 
 
-def buried_tops(body, block: str, here: Pos) -> list[Pos]:
-    """Top cells of ``block`` columns around ``here`` (the work site) within NEAR_STONE
-    horizontally, NEAR_DY above to BURIED_DEPTH below, with a known dry cell above;
+def buried_tops(
+    body,
+    block: str,
+    here: Pos,
+    radius: float = NEAR_STONE,
+    up: int = NEAR_DY,
+    down: int = BURIED_DEPTH,
+) -> list[Pos]:
+    """Top cells of ``block`` columns around ``here`` (the work site) within ``radius``
+    horizontally, ``up`` above to ``down`` below, with a known dry cell above;
     shallow and near first."""
     found = []
-    for x, y, z in body.find_all(block, _reach(here)):
+    for x, y, z in body.find_all(block, _reach(here, radius=radius)):
         depth = here[1] - y
-        if not -NEAR_DY <= depth <= BURIED_DEPTH:
+        if not -up <= depth <= down:
             continue
-        if math.hypot(x - here[0], z - here[2]) > NEAR_STONE:
+        if math.hypot(x - here[0], z - here[2]) > radius:
             continue
         above = body.world(x, y + 1, z)
         if above is None or bp.parse_state(above)[0] in (block, *bp.FLUIDS):
@@ -242,11 +288,17 @@ class _Exec:
         stall_s: float = STALL_S,
         clock: Callable[[], float] = time.monotonic,
         idle_work: Callable[[], None] | None = None,
+        opts: GatherOptions | None = None,
     ):
         self.body, self.k, self.state, self.cap = body, k, state, cap
+        self.opts = opts or GatherOptions()
+        self.start_y = int(body.position()[1])  # reset at each gather task's start
         self.last_dig = ""
+        self.dig_skip: set[Pos] = set()  # ore tops whose one plan attempt failed
+        self.plan_ores: set[str] = set()  # ores the current plan still gathers
         self.stall_s, self.clock = stall_s, clock
         self.idle_work = idle_work
+        self.idle_reason = ""
         self._seen, self._since = dict(body.inventory()), clock()
 
     def stalled(self) -> bool:
@@ -279,6 +331,7 @@ class _Exec:
         st = self.state
         st.origin = st.origin or self.body.position()
         ox, oy, oz = st.origin
+        climbed = False
         for radius in range(EXPLORE_STEP, self.cap + 1, EXPLORE_STEP):
             for angle in range(0, 360, 45):
                 key = (radius, angle)
@@ -290,14 +343,25 @@ class _Exec:
                 rad = math.radians(angle)
                 x = ox + round(radius * math.cos(rad))
                 z = oz + round(radius * math.sin(rad))
-                if self.body.walk_to((x, self._surface_y(x, z, oy), z), 2.0):
+                goal = (x, self._surface_y(x, z, oy), z)
+                if not climbed and goal[1] - self.body.position()[1] > CLIMB_MIN:
+                    # a surface goal from inside a pit costs hundreds of plans
+                    # (run 20261113T202531741432Z): climb out first
+                    climbed = True
+                    digger = Digger(self)
+                    if not digger.open_sky():
+                        digger.climb()  # failed: the walk below reports it
+                arrived = self.body.walk_to(goal, 2.0)
+                if arrived:
                     # An arrived ring leg is progress even when the inventory is
                     # quiet: two long surface walks between veins crossed the 120 s
                     # watchdog and ended a healthy sweep at its last legs (iron run
                     # 20261113T012352828934Z, stop=stalled at radius 64). A stuck
                     # walk never arrives, so the treeless-shore guard stands.
                     self._seen, self._since = dict(self.body.inventory()), self.clock()
-                if found():
+                # a leg that did not arrive is a failure, not a success (the strip's
+                # restart passes a bare True): try the next leg
+                if arrived and found():
                     return True
         return False
 
@@ -320,7 +384,47 @@ class _Exec:
         table = self.state.stations.get("crafting_table")
         return tuple(table) if table else self.body.position()
 
-    def dig_to_stone(self, block: str, ignore_stair: bool = False) -> bool:
+    def note(self, what: str, **fields) -> None:
+        """One progress row in the body's log (the run's record), events and stdout."""
+        row = {"gather": what, **fields}
+        if (log := getattr(self.body, "log", None)) is not None:
+            log.append(row)
+        if (bridge := getattr(self.body, "bridge", None)) is not None and hasattr(
+            bridge, "record"
+        ):
+            bridge.record("gather_note", row)
+        print(row, flush=True)
+
+    def fell_tree(
+        self, pos: Pos, tool: str | None, items: Collection[str], skip: set[Pos]
+    ) -> int | None:
+        """Fell the whole tree holding the log ``pos`` with the site-clearing feller,
+        past the need (no floating tops), and pick up its drops. Returns the logs
+        felled, or None for a huge or unknown tree: the caller then breaks logs one
+        at a time and stops at the need. Logs left standing are noted and skipped."""
+        body = self.body
+        tree = tree_at(body.world, pos)
+        if tree is None or is_huge(tree) or (len(tree.all_logs) <= 1 and not tree.leaves):
+            return None
+        logs = tree.all_logs
+        TreeFeller(body).fell(tree, tool)
+        left = {p for p in logs if is_log(body.world(*p))}
+        self.collect(items, tree.base, None)
+        if left:
+            skip.update(left)
+            self.note("tree_incomplete", base=tree.base, left=sorted(left))
+        return len(logs) - len(left)
+
+    def stair_down(self, ore: Pos) -> bool:
+        """Ore more than DEEP_BELOW under the feet: staircase to just above it first.
+        True when the ore is now within planning range (one short plan, not a capped one)."""
+        if self.body.position()[1] - ore[1] > DEEP_BELOW:
+            Digger(self).descend(ore[1] + DESCEND_ABOVE, (ore[0], ore[2]))
+        return self.body.position()[1] - ore[1] <= DEEP_BELOW
+
+    def dig_to_stone(
+        self, block: str, ignore_stair: bool = False, vision: bool = False
+    ) -> bool:
         """Baritone-style first stone: let the planner dig down to stand on the top of
         known buried ``block`` (the sensor delivers whole sections, buried cells too).
         Its cut rules refuse cells beside fluid or unknown cells, and the way back is
@@ -329,9 +433,33 @@ class _Exec:
         # an earlier staircase is the way down to stone (not to ore)
         if dig_to is None or (self.state.dig_tail and not ignore_stair):
             return False
-        for top in buried_tops(self.body, block, self.home())[:DIG_CANDIDATES]:
-            if dig_to((top[0], top[1] + 1, top[2])):
+        if vision:  # body-anchored, vertical band round the task's start height
+            bx, _, bz = self.body.position()
+            tops = buried_tops(
+                self.body,
+                block,
+                (math.floor(bx), self.start_y, math.floor(bz)),
+                self.opts.radius,
+                SENSE_DY,
+                SENSE_DY,
+            )
+        else:
+            tops = buried_tops(self.body, block, self.home())
+        here = self.body.position()
+        tops = sorted(
+            (t for t in tops if t not in self.dig_skip), key=lambda p: _dist(p, here)
+        )
+        for top in tops[:DIG_CANDIDATES]:
+            if top in self.dig_skip:  # its vein failed a moment ago
+                continue
+            # Deep ore: a player stairs down first. One plan over 30+ blocks of stone
+            # always hit the node cap (run 20261113T154142741359Z: 26 plans, 35 s still).
+            before = _dist(self.body.position(), top)
+            if self.stair_down(top) and dig_to((top[0], top[1] + 1, top[2])):
                 return True
+            if _dist(self.body.position(), top) < before - 1:
+                break  # a partial walk grew the map: the next dig may see more (MAX_DIGS bounds it)
+            self.dig_skip.update(p for p in tops if _dist(p, top) <= PATCH)
         return False
 
     def dig_for(self, item: str, target: int) -> int:
@@ -457,8 +585,19 @@ class _Exec:
 
     def gather(self, t, *, near: Pos | None = None, radius: float = IDLE_RADIUS) -> Result:
         body = self.body
-        target = body.inventory().get(t.item, 0) + max(1, t.item_count)
-        broken, skip, digs = 0, set(), 0
+        self.start_y = int(body.position()[1])
+        self.dig_skip = set()
+        # Interchangeable drops (any log for planks) count together and are searched
+        # together; `t.item` alone when the plan named no stand-ins.
+        items = {t.item, *(i for i, _ in t.alternatives)}
+        blocks = [t.block, *(b for _, b in t.alternatives)]
+
+        def held() -> int:
+            inv = body.inventory()
+            return sum(inv.get(i, 0) for i in items)
+
+        target = held() + max(1, t.item_count)
+        broken, skip, digs, stripped = 0, set(), 0, 0
         # Where exploring last saw ore: near is judged from there too, or ore past
         # the table's reach is walked by and never mined (run 20261112T181731902927Z
         # explored for seven minutes). Ore only: stone is everywhere, and judging it
@@ -467,15 +606,22 @@ class _Exec:
         name = t.block.removeprefix("minecraft:")
         ore = name.endswith("_ore")
         underground = name in UNDERGROUND or ore
-        while broken < t.count and body.inventory().get(t.item, 0) < target:
+        vision = ore and self.opts.ore_vision and near is None
+        radius_v = self.opts.radius
+        while broken < t.count and held() < target:
             if self.stalled():
                 return Result(False, "stalled")
             if not self.harvests(t):
-                # The tool broke mid-task: never hand-tunnel toward ore the hand
-                # cannot mine. The replan crafts new tools; the way up to wood is a
-                # planned route, dug by hand if it must be (body_search.edit_payload).
-                return Result(False, "missing_tool", {"broken": broken})
+                # The tool broke mid-task: craft one here from the carried kit (live
+                # runs 20261113T174328610209Z, 20261113T175858389732Z climbed or sat).
+                # Else never hand-tunnel toward ore the hand cannot mine: the replan
+                # crafts new tools; the way up to wood is a planned route, dug by
+                # hand if it must be (body_search.edit_payload).
+                if not (craft_underground(self, t) and self.harvests(t)):
+                    return Result(False, "missing_tool", {"broken": broken})
             here, home = body.position(), self.home()
+            if vision:
+                home = _cell(here)  # ore is judged from the body, not the table
             # Never a block touching water or lava, surface ones included: sand dug out
             # of a shore let water into the pit (run 20261103T003648615312Z drowned).
             # The cheap position tests go first: the open-face test on every stone
@@ -484,23 +630,52 @@ class _Exec:
             # plausibly walk to; never a ravine floor.
             known = [
                 p
+                for b in blocks
                 for p in body.find_blocks(
-                    t.block,
+                    b,
                     lambda p, home=home, seen=found_at: p not in skip
                     and (near is None or _dist(p, near) <= radius)
                     and (
                         not underground
-                        or _near(p, home)
-                        or (seen is not None and _near(p, seen))
+                        or (
+                            _seen_near(p, home, self.start_y, radius_v)
+                            if vision
+                            else _near(p, home)
+                            or (seen is not None and _near(p, seen))
+                        )
                     ),
                     [(near, radius)]
                     if near is not None
+                    else _reach(home, radius=radius_v)
+                    if vision
                     else _reach(home, found_at)
                     if underground
                     else None,
                 )
                 if _sealed(body, p) and (not underground or _floored(body, p, here))
             ]
+            # ore vision off: strip-mine at the ore's height. Never dig_to_stone here:
+            # it reads buried blocks (x-ray). A descent that fell short retries from a
+            # walked-to start (run 20261113T172130173999Z: never logged a leg).
+            if not known and ore and not vision and self.cap:
+                if stripped >= MAX_DIGS:
+                    return Result(False, f"descent_failed:{self.last_dig}", {"broken": broken})
+                stripped += 1
+                from mclab.gather_strip import Strip
+
+                before = body.inventory().get(t.item, 0)
+                res = Strip(self, t, target).run()
+                if res is not None:
+                    broken += max(0, body.inventory().get(t.item, 0) - before)
+                    if res.reason == "missing_tool":
+                        return Result(False, "missing_tool", {"broken": broken})
+                    if body.inventory().get(t.item, 0) < target:
+                        # no fallback to planned digs or surface rings after a strip
+                        return Result(False, "leg_limit", {"broken": broken})
+                    continue
+                if not self.explore(lambda: True):  # a short walk to another start
+                    return Result(False, f"descent_failed:{self.last_dig}", {"broken": broken})
+                continue
             # cap 0 (a build's refill) stays home: no mine under the site, no ring walk
             if not known and underground and digs < MAX_DIGS and self.cap:
                 digs += 1
@@ -511,7 +686,7 @@ class _Exec:
                     # the MAX_DIGS budget retires digging, not one bad verdict
                     # (iron run 20261113T014723010253Z: one incomplete leg
                     # retired all digging and the sweep ended not_found).
-                    self.dig_to_stone(t.block, ignore_stair=True)
+                    self.dig_to_stone(t.block, ignore_stair=True, vision=vision)
                 else:  # else the staircase starts at the surface
                     self.dig_to_stone(t.block)
                     self.dig_for(t.item, target)
@@ -520,19 +695,28 @@ class _Exec:
                 continue
             if not known:
                 if not self.explore(
-                    lambda: bool(
+                    lambda: any(
                         body.find_blocks(
-                            t.block,
+                            b,
                             lambda q: q not in skip
                             and (
                                 not underground
-                                or _near(q, self.home())
-                                or (ore and _near(q, _cell(body.position())))
+                                or (
+                                    _seen_near(
+                                        q, body.position(), self.start_y, radius_v
+                                    )
+                                    if vision
+                                    else _near(q, self.home())
+                                    or (ore and _near(q, _cell(body.position())))
+                                )
                             ),
-                            _reach(self.home(), _cell(body.position()))
+                            _reach(body.position(), radius=radius_v)
+                            if vision
+                            else _reach(self.home(), _cell(body.position()))
                             if underground
                             else None,
                         )
+                        for b in blocks
                     )
                 ):
                     return Result(
@@ -542,22 +726,36 @@ class _Exec:
                 continue
             # Several nearest per scan: a scan of a big map costs seconds, and most
             # near candidates (cliff faces, ravine walls) have no stance.
-            for pos in sorted(known, key=lambda p: _dist(p, here))[:SCAN_BATCH]:
+            for pos in _by_yield(known, here, target - held())[:SCAN_BATCH]:
                 if pos in skip:  # its patch was skipped earlier in this batch
                     continue
-                result = self.reach_and_do(pos, lambda p=pos: body.break_block(p))
+                # Deep known ore: stair down, then plan once. Planning 20-40 blocks of
+                # stone hit the 10000-node cap ~25 times (run 20261113T171138236559Z).
+                if ore and self.cap and not self.stair_down(pos):
+                    skip.update(p for p in known if _dist(p, pos) <= PATCH)
+                    continue
+                tool = pick_tool(self.k, body.inventory(), t.block, self.opts.tool_choice)
+                if is_log(body.world(*pos)):
+                    # a log is a whole tree: fell it all before any other candidate
+                    # (live run: six trees, a floating top left at each)
+                    felled = self.fell_tree(pos, tool, items, skip)
+                    if felled is not None:
+                        broken += felled
+                        break
+                result = self.reach_and_do(
+                    pos, lambda p=pos, tl=tool: body.break_block(p, tl)
+                )
                 if result.ok:
                     broken += 1
-                    self.collect(
-                        {t.item},
-                        pos,
-                        lambda: body.inventory().get(t.item, 0) >= target,
-                    )
+                    self.collect(items, pos, lambda: held() >= target)
                     break
                 skip.add(pos)
                 if result.reason == "no_stance":
                     skip.update(p for p in known if _dist(p, pos) <= PATCH)
                 if result.reason in ("wrong_tool", "missing_tool"):
+                    # make the tool where it stands; the climb is for when it cannot
+                    if underground and craft_underground(self, t):
+                        break
                     return result
         return Result(broken > 0, None if broken else "nothing_mined", {"broken": broken})
 
@@ -594,6 +792,7 @@ class _Exec:
         # more remains. Come back to collect every few slices, never stand and wait
         # while there is something to do.
         slices, loaded_at = 0, self.clock()
+        self.idle_reason = ""
         while self.idle_work and slices < MAX_IDLE_SLICES:
             slices += 1
             if not self.idle_work():
@@ -609,13 +808,32 @@ class _Exec:
         if not self.body.goto_stance(pos, STATION_REACH):
             return Result(False, "no_stance")
 
+        why = (
+            "no_idle_work_configured"
+            if self.idle_work is None
+            else f"idle_work_slice_limit:{MAX_IDLE_SLICES}"
+            if slices >= MAX_IDLE_SLICES
+            else self.idle_reason
+            or f"{getattr(self.idle_work, '__name__', 'idle_work')}_done"
+        )
         for _ in range(2 * t.count + 4):
             self.body.furnace(pos, "collect")
             if self.body.inventory().get(t.result, 0) >= want:
                 return Result(True)
             held = self.body.inventory().get(t.result, 0)
             remaining = max(1, want - held)
-            self.body.wait_ticks(min(SMELT_TICKS_PER_ITEM * remaining, 200))
+            wait = min(SMELT_TICKS_PER_ITEM * remaining, 200)
+            self.note(
+                "smelt_wait",
+                item=t.result,
+                ingredient=t.ingredient,
+                remaining=remaining,
+                want=want,
+                ticks=wait,
+                at=pos,
+                why=why,
+            )
+            self.body.wait_ticks(wait)
         return Result(False, "smelt_incomplete")
 
     def place_station(self, t) -> Result:
@@ -766,9 +984,14 @@ def _hunger(ex: _Exec, report: GatherReport, targets: dict | None) -> None:
             targets.update(wanted)
 
 
-# Failures that, underground, mean the body cannot get on with its plan where it is:
-# its tools broke (new ones are made from surface wood) or it cannot reach a stance.
+# Failures that, underground, mean the body cannot make what it needs where it stands
+# (a tool broke and the kit cannot replace it; no stance): the way up to wood. A failed
+# walk or dig is not one: the task's own failure limit handles those.
 ESCAPE_REASONS = frozenset({"missing_tool", "wrong_tool", "no_stance"})
+
+
+def _buried(reason: str | None) -> bool:
+    return (reason or "") in ESCAPE_REASONS
 
 
 def _escape(ex: _Exec, report: GatherReport) -> bool:
@@ -797,6 +1020,7 @@ def run_gather(
     clock: Callable[[], float] = time.monotonic,
     storage: Callable[[], list] | None = None,
     idle_work: Callable[[], None] | None = None,
+    opts: GatherOptions | None = None,
 ) -> GatherReport:
     """Run the plan's tasks through ``body``; see the module docstring.
 
@@ -806,7 +1030,7 @@ def run_gather(
     state = state or GatherState()
     report = GatherReport(state=state)
     stall = STALL_S if stall_s is None else stall_s
-    ex = _Exec(body, knowledge, state, explore_cap, stall, clock, idle_work=idle_work)
+    ex = _Exec(body, knowledge, state, explore_cap, stall, clock, idle_work=idle_work, opts=opts)
     targets = dict(targets) if targets is not None else None
     tasks = list(plan_result.tasks)
 
@@ -823,6 +1047,7 @@ def run_gather(
         pick up drops round the furnace. False: nothing."""
         furnace = state.stations.get("furnace")
         if furnace is None:
+            ex.idle_reason = "no_furnace_station"
             return False
         ahead = tasks[:1] if tasks and type(tasks[0]).__name__ == "Gather" else []
         for task in ahead + spares:
@@ -855,11 +1080,29 @@ def run_gather(
                 return True
         before = dict(body.inventory())
         ex.collect(None, furnace)
-        return body.inventory() != before
+        if body.inventory() != before:
+            return True
+        next_task = _label(tasks[0]) if tasks else "none"
+        checked = sorted({task.block for task in ahead + spares})
+        ex.idle_reason = (
+            f"no_open_face_blocks_within_{IDLE_RADIUS}_or_drops"
+            f"(next={next_task},checked={checked})"
+        )
+        return False
 
     if idle_work is None:
         ex.idle_work = _gather_ahead
+    def _note_plan() -> None:
+        names = {type(t).__name__ for t in tasks}
+        ex.plan_ores = {
+            t.block for t in tasks if type(t).__name__ == "Gather" and t.block.endswith("_ore")
+        }
+        if "Smelt" in names:
+            ex.plan_ores.add("minecraft:coal_ore")  # the furnace's fuel, taken along the strip
+
+    _note_plan()
     failures = executed = 0
+    last_failed = None
     while tasks and executed < max_tasks:
         task = tasks.pop(0)
         executed += 1
@@ -869,9 +1112,12 @@ def run_gather(
             failures = 0
             report.done.append(_label(task))
         else:
-            failures += 1
+            # only consecutive failures of one task count: a failed task that the
+            # re-plan then gets past is not a strike against the next one
+            failures = failures + 1 if _label(task) == last_failed else 1
+            last_failed = _label(task)
             report.failures.append((_label(task), result.reason or "failed"))
-            if result.reason in ESCAPE_REASONS and _escape(ex, report):
+            if _buried(result.reason) and _escape(ex, report):
                 failures = 0  # out under the sky: the re-plan below starts afresh
             if ex.stalled():
                 report.stop = "stalled"
@@ -887,6 +1133,7 @@ def run_gather(
                 state.stations,
                 starter_tools=starter_tools,
                 storage=storage() if storage else None,
+                kit=opts,
             )
             report.replans += 1
             tasks = [
@@ -895,6 +1142,7 @@ def run_gather(
                 if not (type(t).__name__ == "Equip" and t.item in state.equipped)
             ]
             report.missing = [m.item for m in fresh.missing]
+            _note_plan()
             if not tasks and fresh.missing:
                 report.stop = "missing"
                 return report

@@ -14,6 +14,7 @@ from itertools import count
 
 from mclab import build_plan as bp
 from mclab.build_runner import Result
+from mclab.gather_tasks import item_stack, slots_used
 from mclab.knowledge import Knowledge
 
 Pos = tuple[int, int, int]
@@ -38,7 +39,9 @@ class FakeGatherBody:
         food_per_op: int = 0,
         sight: float | None = None,
         can_dig: bool = False,
+        slots: int = 36,
     ):
+        self.slots = slots  # main inventory size
         self.can_dig = can_dig  # dig_to works (a real body with DIG_TERRAIN)
         self.sight = sight  # find_blocks / entities only within this distance
         self.k, self.w, self.inv = knowledge, dict(world), dict(inventory or {})
@@ -58,6 +61,13 @@ class FakeGatherBody:
 
     def position(self):
         return self.pos
+
+    def free_slots(self) -> int:
+        return self.slots - slots_used(self.inv, self.k.items)
+
+    def can_hold(self, item, items=None) -> bool:
+        stack = item_stack(self.k.items, item)
+        return self.free_slots() > 0 or self.inv.get(item, 0) % stack > 0
 
     def inventory(self):
         return {i: n for i, n in self.inv.items() if n > 0}
@@ -140,7 +150,8 @@ class FakeGatherBody:
         self.log.append(("walk", tuple(pos)))
         self.pos = tuple(pos)
         for e in [e for e in self.ents if e.get("item")]:
-            if math.dist(e["position"], self.pos) <= PICKUP:
+            near = math.dist(e["position"], self.pos) <= PICKUP
+            if near and self.can_hold(e["item"]):
                 self.ents.remove(e)
                 self.inv[e["item"]] = self.inv.get(e["item"], 0) + e.get("count", 1)
         return True
@@ -158,6 +169,12 @@ class FakeGatherBody:
         return best
 
     def _drop_item(self, item: str, count: int, at) -> None:
+        # a drop from a high log falls to the first solid block below (if any)
+        for dy in range(1, 65):
+            state = self.w.get((at[0], at[1] - dy, at[2]))
+            if state is not None and bp.parse_state(state)[0] not in bp.AIR:
+                at = (at[0], at[1] - dy + 1, at[2]) if dy > 1 else at
+                break
         self.ents.append(
             {
                 "uuid": f"drop-{next(self._ids)}",

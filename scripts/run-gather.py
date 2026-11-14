@@ -24,6 +24,7 @@ from mclab.companion_body import (
 )
 from mclab.companion_jobs import load_vanilla_pack
 from mclab.companion_progress import write_progress
+from mclab.gather_options import GatherOptions
 from mclab.gather_plan import plan, summarize
 from mclab.gather_runner import GatherState, run_gather
 from mclab.recorder import exclusive_arena
@@ -48,7 +49,34 @@ def main() -> int:
         help="disable climbing (ladders/scaffolding) for this run; the seed 20261026 "
         "iron baseline dropped 9/9 to 7/9 when climbing turned on (Nov 3 suspect)",
     )
+    parser.add_argument(
+        "--tool-choice", choices=("lowest_sufficient", "best"), default="lowest_sufficient"
+    )
+    parser.add_argument("--ore-collect", choices=("greedy", "specific"), default="greedy")
+    parser.add_argument("--no-ore-vision", action="store_true", help="old ore reach")
+    parser.add_argument("--vision-radius", type=int, default=32, help="max 64")
+    parser.add_argument("--search-radius", type=int, help="default: all sensed")
+    parser.add_argument("--strip-leg", type=int, default=64, help="blocks per strip leg")
+    parser.add_argument("--strip-turn", type=int, default=16, help="blocks per connector")
+    parser.add_argument("--strip-max-legs", type=int, default=8, help="0: unlimited")
+    parser.add_argument("--spare-pickaxes", type=int, default=3, help="carried below")
+    parser.add_argument("--carry-logs", type=int, default=16, help="0: no kit")
+    parser.add_argument(
+        "--raw-iron", type=int, metavar="N", help="mine N raw iron, no smelting"
+    )
     args = parser.parse_args()
+    opts = GatherOptions(
+        args.tool_choice,
+        args.ore_collect,
+        not args.no_ore_vision,
+        min(args.vision_radius, 64),
+        args.search_radius,
+        args.strip_leg,
+        args.strip_turn,
+        args.strip_max_legs or None,
+        spare_pickaxes=args.spare_pickaxes,
+        carry_logs=args.carry_logs,
+    )
     folder = results_folder()
     folder.mkdir(parents=True, exist_ok=True)
     write_progress(folder, job="gather", stage="starting")
@@ -73,22 +101,25 @@ def main() -> int:
             kit(bridge, inventory=[])
             body.observe()
             targets = [(M + "stone_pickaxe", "stone pickaxe")]
-            if args.iron:
+            if args.raw_iron:
+                targets.append((M + "raw_iron", "raw iron"))
+            elif args.iron:
                 targets.append((M + "iron_pickaxe", "iron pickaxe"))
             for i, (item, label) in enumerate(targets):
                 write_progress(
                     folder, job="gather", stage=label, done=i, total=len(targets)
                 )
-                wanted = {item: 1}
+                wanted = {item: args.raw_iron if item == M + "raw_iron" else 1}
                 first = plan(
                     wanted,
                     body.inventory(),
                     knowledge,
                     state.stations,
                     starter_tools=True,
+                    kit=opts,
                 )
                 print(summarize(first))
-                report = run_gather(first, body, knowledge, wanted, state=state)
+                report = run_gather(first, body, knowledge, wanted, state=state, opts=opts)
                 body.observe()
                 (folder / f"gather-{label.replace(' ', '-')}.json").write_text(
                     json.dumps(
@@ -109,7 +140,7 @@ def main() -> int:
                 rows.append(
                     {
                         "case": label,
-                        "pass": body.inventory().get(item, 0) >= 1,
+                        "pass": body.inventory().get(item, 0) >= wanted[item],
                         "detail": f"stop={report.stop} tasks={len(report.done)} failures={report.failures[:3]}",
                     }
                 )

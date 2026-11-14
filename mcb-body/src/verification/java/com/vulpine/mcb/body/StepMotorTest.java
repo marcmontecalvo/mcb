@@ -71,6 +71,30 @@ public final class StepMotorTest {
         if(!underCeiling.test(aim) || aim.y>66.1) throw new AssertionError("a cut hidden at its centre is aimed at a face in view"); checks++;
         if(!StepMotor.aim(top,v->true).equals(centre)) throw new AssertionError("a centre in view stays the aim"); checks++;
         if(!StepMotor.aim(top,v->false).equals(centre)) throw new AssertionError("with nothing in view the centre stays the aim"); checks++;
+        // Flowers vs grass: short grass & ferns are replaced directly; flowers must be punched first.
+        var grass=java.util.Map.<String,Object>of("block","minecraft:short_grass","fluid","minecraft:empty",
+                "collision_boxes",java.util.List.of(),"replaceable",true);
+        var fern=java.util.Map.<String,Object>of("block","minecraft:fern","fluid","minecraft:empty",
+                "collision_boxes",java.util.List.of());
+        var dandelion=java.util.Map.<String,Object>of("block","minecraft:dandelion","fluid","minecraft:empty",
+                "collision_boxes",java.util.List.of(),"replaceable",false);
+        var poppy=java.util.Map.<String,Object>of("block","minecraft:poppy","fluid","minecraft:empty",
+                "collision_boxes",java.util.List.of());
+        var air=java.util.Map.<String,Object>of("block","minecraft:air","fluid","minecraft:empty",
+                "collision_boxes",java.util.List.of(),"replaceable",true);
+        if(!StepMotor.replaceableCover(grass) || StepMotor.flower(grass)) throw new AssertionError("short grass replaces directly"); checks++;
+        if(!StepMotor.replaceableCover(fern) || StepMotor.flower(fern)) throw new AssertionError("fern replaces directly even without replaceable flag"); checks++;
+        if(StepMotor.replaceableCover(dandelion) || !StepMotor.flower(dandelion)) throw new AssertionError("dandelion must be punched first"); checks++;
+        if(StepMotor.replaceableCover(poppy) || !StepMotor.flower(poppy)) throw new AssertionError("poppy must be punched first"); checks++;
+        if(StepMotor.replaceableCover(air) || StepMotor.flower(air)) throw new AssertionError("air is neither cover nor flower"); checks++;
+        var pt=new net.minecraft.core.BlockPos(1,1,0); var exp=pt.below();
+        if(!StepMotor.placeHit(pt,"NORTH",pt,exp,"UP",true)) throw new AssertionError("direct replace accepts hitting the grass cell itself"); checks++;
+        if(!StepMotor.placeHit(exp,"UP",pt,exp,"UP",true)) throw new AssertionError("direct replace also accepts hitting anchor face"); checks++;
+        if(StepMotor.placeHit(pt,"UP",pt,exp,"UP",false)) throw new AssertionError("air placement requires anchor face"); checks++;
+        // Source-clearing cuts (e.g. gravel on feet/head) are valid step breaks.
+        var gravelSource=request.deepCopy();
+        gravelSource.getAsJsonObject("plan").add("breaks",JsonParser.parseString("[[0,2,0],[0,1,0],[1,1,0]]"));
+        if(!new StepMotor(gravelSource).active()) throw new AssertionError("source-clearing cuts admitted"); checks++;
         System.out.println("StepMotor: "+checks+" admission checks passed");
     }
 }

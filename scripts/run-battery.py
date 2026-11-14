@@ -1,7 +1,7 @@
 """Run the live regression checks one at a time and write one verdict per check.
 
     uv run --locked python scripts/run-battery.py --out results/<battery>/<round>
-    uv run --locked python scripts/run-battery.py --out <folder> --only small-house iron
+    uv run --locked python scripts/run-battery.py --out <dir> --only iron-xray iron-mine
     uv run --locked python scripts/run-battery.py --list
 
 HOW TO READ THE OUTPUT. Each check prints exactly one line starting with RESULT:
@@ -35,6 +35,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "results"
 HILL = ["--collision-shapes", "--control-profile", "dev-native-route-v1"]
+IRON = ["scripts/run-gather.py", "--start", "68", "71", "-64", "--iron"]
+IRON += ["--seed", "42424242"]
 
 # name: (arguments after ``python``, timeout in seconds). The modes are fixed here
 # because a small house run without --supply is a different, unscaffolded job.
@@ -70,17 +72,12 @@ CHECKS: dict[str, tuple[list[str], int]] = {
     "animals": (["scripts/check-animals.py"], 600),
     "natural-ops": (["scripts/check-natural-ops.py"], 300),
     "site-fill": (["scripts/check-site-fill.py"], 600),
-    "iron": (
-        [
-            "scripts/run-gather.py",
-            "--start",
-            "68",
-            "71",
-            "-64",
-            "--iron",
-            "--seed",
-            "42424242",
-        ],
+    # Same seed and start: ore vision (sensed buried ore) against strip mining blind.
+    "iron-xray": (IRON, 900),
+    "iron-mine": ([*IRON, "--no-ore-vision"], 900),
+    # Mining only: stone pickaxes, no smelting or iron tools.
+    "iron-raw": (
+        [a for a in IRON if a != "--iron"] + ["--raw-iron", "3", "--no-ore-vision"],
         900,
     ),
     "small-house": (

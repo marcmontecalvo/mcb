@@ -61,7 +61,7 @@ KNOWLEDGE = ROOT / "knowledge"
 def load_vanilla_pack() -> Knowledge:
     """The committed vanilla pack with its hand-written sources, transforms and foods."""
     return load_pack(
-        KNOWLEDGE / "26.3-f7dba04d8b5b",
+        KNOWLEDGE / "26.3-446ec6bbd497",  # the one with ores.json
         sources=KNOWLEDGE / "sources/vanilla-26.3.json",
         transforms=KNOWLEDGE / "transforms/vanilla-26.3.json",
         foods=KNOWLEDGE / "sources/foods-26.3.json",

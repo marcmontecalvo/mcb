@@ -24,6 +24,10 @@ final class StepMotor {
     // Must match terrain_steps.WIDE_EXCAVATABLE (tests/test_planner_core.py checks).
     // Python decides which blocks a plan may cut; this is the body-side allowlist.
     /** Non-colliding ground cover the body clears by hand when it blocks the edit ray. */
+    private static final Set<String> COVER = Set.of("minecraft:short_grass","minecraft:tall_grass",
+            "minecraft:fern","minecraft:large_fern","minecraft:dead_bush","minecraft:vine",
+            "minecraft:glow_lichen","minecraft:bush","minecraft:firefly_bush","minecraft:leaf_litter",
+            "minecraft:wildflowers","minecraft:pink_petals");
     private static final Set<String> PLANTS = Set.of("minecraft:short_grass","minecraft:tall_grass",
             "minecraft:fern","minecraft:large_fern","minecraft:dead_bush","minecraft:dandelion","minecraft:poppy",
             "minecraft:blue_orchid","minecraft:allium","minecraft:azure_bluet","minecraft:red_tulip",
@@ -96,6 +100,7 @@ final class StepMotor {
     private final List<Operation> operations;
     private final Set<BlockPos> protectedPositions;
     private final Set<String> protectedBlocks, materials;
+    private final Map<String,String> tools;
     private final boolean bridge, downward;
     private final int reserve, tickLimit;
     // Baritone Settings.pauseMiningForFallingBlocks: wait this long after a cut under a
@@ -125,6 +130,11 @@ final class StepMotor {
         bridge = bool(policy,"allow_bridge"); reserve = integer(policy,"reserve_blocks",0,128);
         tickLimit = integer(policy,"interaction_tick_limit",1,1000);
         protectedBlocks = strings(policy.getAsJsonArray("protected_blocks"));
+        // Python's tool_choice: block -> the exact hotbar item to cut it with (optional).
+        tools = new HashMap<>();
+        if (request.has("tools") && request.get("tools").isJsonObject())
+            for (var e:request.getAsJsonObject("tools").entrySet())
+                if (e.getValue().isJsonPrimitive()) tools.put(e.getKey(),e.getValue().getAsString());
         materials = strings(policy.getAsJsonArray("material_allowlist"));
         if (materials.isEmpty() || !Set.of("minecraft:cobblestone","minecraft:dirt").containsAll(materials))
             throw new IllegalArgumentException("native_step_materials");
@@ -215,6 +225,26 @@ final class StepMotor {
                 && c.get("collision_boxes") instanceof List<?> boxes && boxes.isEmpty()
                 && Set.of("minecraft:air","minecraft:cave_air","minecraft:void_air").contains(c.get("block"));
     }
+    /** Ground cover (short grass, ferns, vines) replaced directly by placing a block onto it. */
+    static boolean replaceableCover(Map<String,Object> c) {
+        return c!=null && !empty(c) && "minecraft:empty".equals(c.getOrDefault("fluid","minecraft:empty"))
+                && c.get("collision_boxes") instanceof List<?> boxes && boxes.isEmpty()
+                && !Set.of("minecraft:air","minecraft:cave_air","minecraft:void_air").contains(c.get("block"))
+                && (Boolean.TRUE.equals(c.get("replaceable")) || (c.get("replaceable")==null && COVER.contains(c.get("block"))));
+    }
+    /** Non-replaceable flower/bush that must be punched first before placing a block in its cell. */
+    static boolean flower(Map<String,Object> c) {
+        return c!=null && !empty(c) && "minecraft:empty".equals(c.getOrDefault("fluid","minecraft:empty"))
+                && c.get("collision_boxes") instanceof List<?> boxes && boxes.isEmpty()
+                && !Set.of("minecraft:air","minecraft:cave_air","minecraft:void_air").contains(c.get("block"))
+                && !replaceableCover(c) && PLANTS.contains(c.get("block"));
+    }
+    /** Any non-air, non-colliding plant/cover cell (replaceable cover or flower). */
+    static boolean replaceable(Map<String,Object> c) { return replaceableCover(c) || flower(c); }
+    static boolean placeHit(BlockPos hitPos, String hitFace, BlockPos point, BlockPos expected, String face, boolean directReplace) {
+        return (hitPos.equals(expected) && (face==null || hitFace.equals(face)))
+                || (directReplace && hitPos.equals(point));
+    }
     static boolean cube(Map<String,Object> c) {
         return c!=null && "minecraft:empty".equals(c.getOrDefault("fluid","minecraft:empty"))
                 && c.get("collision_boxes") instanceof List<?> boxes && boxes.size()==1
@@ -244,8 +274,9 @@ final class StepMotor {
      * The step deadline grows once per hand-dug cell by its vanilla bare-hand time:
      * hardness x 100 ticks when the block needs a tool for drops, else x 30.
      */
-    private int breakSlot(ServerPlayer p,BlockPos pos,String tool) {
-        int n=slot(p,tool);
+    private int breakSlot(ServerPlayer p,BlockPos pos,String block) {
+        int n=exactSlot(p,tools.get(block));
+        if(n<0) n=slot(p,TOOLS.get(block));
         if(n>=0) return n;
         if(handCells.add(pos)) {
             var s=p.level().getBlockState(pos);
@@ -347,10 +378,12 @@ final class StepMotor {
             if(tick-issueTick>15) return stopInput(tick,"native_placement_not_observed");
             return input(tick,0,0,0,false,!pillar,false,false,0);
         }
-        if(!pillar && (!p.onGround() || !geometry.standable(new RouteMotor.Point(source.getX(),source.getY(),source.getZ()))))
+        boolean sourceOk=geometry.standable(new RouteMotor.Point(source.getX(),source.getY(),source.getZ()))
+                || (!op.place && cube(read(reader,source.below())) && (op.point.equals(source) || op.point.equals(source.above())));
+        if(!pillar && (!p.onGround() || !sourceOk))
             return stopInput(tick,"native_edit_stance_changed");
         Vec3 aim; BlockPos expected=op.point; String face=null; int selected;
-        boolean sneak=false;
+        boolean sneak=false, directReplace=false;
         if(!op.place) {
             if(!cube(cell) || !TOOLS.containsKey(cell.get("block"))) return stopInput(tick,"native_cut_not_permitted");
             if(downward && !cube(read(reader,target.below()))) return stopInput(tick,"native_downward_landing_changed");
@@ -359,18 +392,10 @@ final class StepMotor {
                 var neighbor=read(reader,op.point.relative(direction));
                 if(neighbor==null || !"minecraft:empty".equals(neighbor.getOrDefault("fluid","minecraft:empty")))
                     return stopInput(tick,"native_cut_neighbor_unsafe");
-                if(FALLING.contains(neighbor.get("block"))) {
-                    // Sand/gravel straight above may be cut under (Baritone prices the stack);
-                    // it then falls into the cell, which is waited out and mined again.
-                    // A side one only falls if its own support goes: allowed while that is solid
-                    // (matches the planner's cut_allowed and Baritone avoidBreaking).
-                    if(direction!=net.minecraft.core.Direction.UP) {
-                        if(!cube(read(reader,op.point.relative(direction).below())))
-                            return stopInput(tick,"native_cut_neighbor_unsafe");
-                    } else settleWatch.add(op.point);
-                }
+                // Sand/gravel above falls into the cut: wait it out and mine again. Beside: no hazard (owner ruling).
+                if(direction==net.minecraft.core.Direction.UP && FALLING.contains(neighbor.get("block"))) settleWatch.add(op.point);
             }
-            selected=breakSlot(p,op.point,TOOLS.get(cell.get("block")));
+            selected=breakSlot(p,op.point,(String)cell.get("block"));
             // Rays end inside the cut cell, so they cross only the columns between eye and cell.
             Vec3 from=p.getEyePosition(); BlockPos cut=op.point;
             for(int cx=Math.min((int)Math.floor(from.x),cut.getX())>>4;cx<=Math.max((int)Math.floor(from.x),cut.getX())>>4;cx++)
@@ -381,7 +406,17 @@ final class StepMotor {
                 return seen.getType()==HitResult.Type.BLOCK && seen.getBlockPos().equals(cut);
             });
         } else {
-            if(!empty(cell)) return stopInput(tick,"native_placement_not_empty");
+            // Flowers are non-replaceable and block placement: punch first (instant), then place next tick.
+            if(flower(cell)) {
+                if(protectedBlocks.contains(cell.get("block"))) return stopInput(tick,"native_edit_protected");
+                Vec3 e=p.getEyePosition(),c=Vec3.atCenterOf(op.point);
+                double py=wrap(Math.toDegrees(Math.atan2(-(c.x-e.x),c.z-e.z))-p.getYRot());
+                double pp=-Math.toDegrees(Math.atan2(c.y-e.y,Math.hypot(c.x-e.x,c.z-e.z)))-p.getXRot();
+                boolean on=Math.abs(py)<2 && Math.abs(pp)<2;
+                return input(tick,0,Math.max(-45,Math.min(45,py)),Math.max(-45,Math.min(45,pp)),false,false,on,false,BreakTask.emptyHotbarSlot(p));
+            }
+            directReplace=replaceableCover(cell);
+            if(!empty(cell) && !directReplace) return stopInput(tick,"native_placement_not_empty");
             selected=-1; int stock=0;
             for(String material:materials) {
                 for(int n=0;n<9;n++) {
@@ -395,12 +430,15 @@ final class StepMotor {
             expected=op.point.below(); face="UP";
             int dx=op.point.getX()-source.getX(),dz=op.point.getZ()-source.getZ();
             double progress=(p.getX()-source.getX()-.5)*dx+(p.getZ()-source.getZ()-.5)*dz;
-            aim=new Vec3(op.point.getX()+.5,op.point.getY()-.001,op.point.getZ()+.5);
+            aim=directReplace
+                    ? new Vec3(op.point.getX()+.5,op.point.getY()+.05,op.point.getZ()+.5)
+                    : new Vec3(op.point.getX()+.5,op.point.getY()-.001,op.point.getZ()+.5);
             boolean below=cube(read(reader,expected));
             if(!below) {
                 expected=source.below();
                 if(!bridge || op.point.getY()!=source.getY()-1 || Math.abs(dx)+Math.abs(dz)!=1
-                        || !empty(read(reader,op.point.below())) || !cube(read(reader,expected)))
+                        || !(empty(read(reader,op.point.below())) || replaceable(read(reader,op.point.below())))
+                        || !cube(read(reader,expected)))
                     return stopInput(tick,"native_placement_anchor_changed");
                 face=dx==1?"EAST":dx==-1?"WEST":dz==1?"SOUTH":"NORTH";
                 aim=new Vec3(source.getX()+.5+dx*.499,op.point.getY()+.5,source.getZ()+.5+dz*.499);
@@ -444,7 +482,7 @@ final class StepMotor {
                 if(p.level().getChunkSource().getChunkNow(cx,cz)==null) return stopInput(tick,"native_ray_chunk_unavailable");
         var ray=p.pick(4.2,1,false);
         boolean hit=ray.getType()==HitResult.Type.BLOCK && ray instanceof BlockHitResult block
-                && block.getBlockPos().equals(expected) && (face==null || block.getDirection().name().equals(face));
+                && placeHit(block.getBlockPos(),block.getDirection().name(),op.point,expected,face,op.place && directReplace);
         BlockPos miningPoint=op.point;
         if(!op.place && aligned && ray instanceof BlockHitResult block && ray.getType()==HitResult.Type.BLOCK
                 && operations.stream().anyMatch(candidate->!candidate.place && candidate.point.equals(block.getBlockPos()))) {
@@ -455,9 +493,9 @@ final class StepMotor {
                         net.minecraft.core.Direction.SOUTH,net.minecraft.core.Direction.EAST,net.minecraft.core.Direction.WEST)) {
                     var neighbor=read(reader,block.getBlockPos().relative(direction));
                     if(neighbor==null || !"minecraft:empty".equals(neighbor.getOrDefault("fluid","minecraft:empty"))
-                            || FALLING.contains(neighbor.get("block"))) safe=false;
+                            || (direction==net.minecraft.core.Direction.UP && FALLING.contains(neighbor.get("block")))) safe=false;
                 }
-                if(safe) { miningPoint=block.getBlockPos(); selected=breakSlot(p,miningPoint,TOOLS.get(occluder.get("block"))); hit=true; }
+                if(safe) { miningPoint=block.getBlockPos(); selected=breakSlot(p,miningPoint,(String)occluder.get("block")); hit=true; }
             }
         }
         // A plant (short grass, a flower) in the stance or target line is hit by the ray before the
@@ -467,7 +505,7 @@ final class StepMotor {
         boolean plant=false;
         if(!op.place && aligned && !hit && ray instanceof BlockHitResult cover && ray.getType()==HitResult.Type.BLOCK) {
             var plantCell=read(reader,cover.getBlockPos());
-            if(plantCell!=null && PLANTS.contains(plantCell.get("block"))
+            if(plantCell!=null && (PLANTS.contains(plantCell.get("block")) || replaceableCover(plantCell))
                     && "minecraft:empty".equals(plantCell.getOrDefault("fluid","minecraft:empty"))
                     && !protectedBlocks.contains(plantCell.get("block"))) {
                 miningPoint=cover.getBlockPos(); hit=true; plant=true;

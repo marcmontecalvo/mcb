@@ -8,27 +8,38 @@ edge's plan, which the controller executes like a Python-planned one.
 """
 
 import itertools
+import math
+from collections import ChainMap
 from dataclasses import asdict
 from functools import cache
 
 from mclab.grid_cache import FALLING
+from mclab.pathing_grid import GridView, Section, offset_of
 from mclab.planner_values import FALL_SETTLE_TICKS
 from mclab.route_types import RouteResult, segment
 from mclab.terrain_steps import (
     BREAK_AIM_TICKS,
     BREAK_EXTRA_TICKS,
+    TIER_SPEED,
+    TOOL_TIERS,
     WIDE_EXCAVATABLE,
     Inventory,
     StepPlan,
     TerrainPolicy,
+    _hotbar,
     break_ticks,
     excavatable,
     hand_ticks,
-    hotbar,
-    stack_supply,
+    pick_tool,
+    tool_speed,
 )
 
 BODY_NODE_LIMIT = 4000  # past the 3,000-node commit floor; ~10 ms of body time per tick
+# Dig plans: a broken stone costs ~158 ticks against a walking heuristic, so A* floods
+# the walkable area first. Replays of run 20261113T155715976895Z reached 5-block digs
+# at 4.9k-9.5k nodes with heuristic_weight 4 (34k+ at weight 1, same route cost).
+EDIT_NODE_LIMIT = 10_000
+BOXED_IN_NODES = 5  # a dead plan this small with banned exits is boxed in by them
 # Live-terrain plans read the world within this (horizontal, vertical) radius of the
 # body (LiveTerrain.java); None means the session's awareness radius.
 LIVE_TERRAIN_RADIUS = None
@@ -59,40 +70,109 @@ def live_radius(controller):
 
 SEGMENT = 16  # same segment as BackgroundSearch
 _ids = itertools.count(1)
+_AIR = {"block": "minecraft:air", "fluid": "minecraft:empty", "collision_boxes": []}
+_SOLID = {
+    "block": "minecraft:cobblestone",
+    "fluid": "minecraft:empty",
+    "collision_boxes": [[0, 0, 0, 1, 1, 1]],
+}
+
+
+def predicted_cells(cells, steps):
+    """``cells`` with the steps' breaks made air and their places made solid.
+
+    A GridView stays one: only the touched sections are copied, so the map encoder
+    resends just those and the next real snapshot restores the true cells. Other
+    maps become a layered lookup (read-only, like the original)."""
+    edits = [(p, _AIR) for s in steps for p in s.breaks]
+    edits += [(p, _SOLID) for s in steps for p in s.places]
+    if not isinstance(cells, GridView):
+        return ChainMap({tuple(p): dict(f) for p, f in edits}, cells)
+    grid, sections, copied = cells.grid, dict(cells.sections), set()
+    for p, facts in edits:
+        x, y, z = p
+        key = (x >> 4, y >> 4, z >> 4)
+        if key not in copied:
+            old = sections.get(key)
+            sections[key] = Section(grid.generation, old)
+            copied.add(key)
+        section, offset = sections[key], offset_of(x, y, z)
+        if not section.states[offset]:
+            section.known += 1
+        section.states[offset] = grid.state_id(facts)
+    return GridView(grid, sections, frozen=True)
 
 
 @cache
-def _break_cost(block, tool=True):
-    ticks = break_ticks(block) if tool else hand_ticks(block)
+def _break_cost(block, tool=True, speed=None):
+    if tool and speed is not None and speed < 0:  # held, but cannot harvest
+        ticks = max(1, math.ceil(WIDE_EXCAVATABLE[block][0] * 100 / -speed))
+    else:
+        ticks = break_ticks(block, speed) if tool else hand_ticks(block)
     return ticks + BREAK_EXTRA_TICKS + BREAK_AIM_TICKS
 
 
-def edit_payload(policy, inventory, protected):
+def _unsuited_swing(inventory, tool):
+    """(tool?, speed) the motor really swings at a block no held tool harvests: the
+    best hotbar tool of the kind (StepMotor.breakSlot) at 1/100 damage, because it
+    cannot harvest, not the iron speed the table names (a wooden pickaxe on iron ore
+    was priced 23 ticks, takes about 150)."""
+    kind = tool.removeprefix("minecraft:iron_")
+    for tier in TOOL_TIERS:
+        if _hotbar(inventory, f"minecraft:{tier}_{kind}") is not None:
+            return True, -TIER_SPEED[tier]  # negative speed: cannot harvest
+    return False, None
+
+
+def tool_map(policy, inventory, tool_choice="lowest_sufficient"):
+    """block -> hotbar tool item the motor should break it with (StepMotor), only for
+    blocks where a sufficient tool is held; the others keep the motor's own search."""
+    inventory = Inventory(dict(r) for r in inventory)
+    picks = ((b, pick_tool(inventory, b, tool_choice)) for b in excavatable(policy))
+    return {b: t for b, t in picks if t}
+
+
+def edit_payload(policy, inventory, protected, tool_choice="lowest_sufficient"):
     """Edit permissions and prices for RoutePlanner.EditPolicy.
 
     break_costs lists every excavatable block that is not protected, priced with
     its tool when one is on the hotbar, else at bare-hand speed: dirt over stone
     with no shovel walled the bot in (run 20261113T024449677184Z), and a bot whose
-    tools all broke must still dig out to make more. place_supply is how many
-    blocks can be placed in a row (stack_supply), at most the support stack height.
+    tools all broke must still dig out to make more. The tool is the one
+    ``tool_choice`` picks (edits["tools"]), priced at its tier's speed. place_supply
+    is how many blocks can be placed in a row (stack_supply), at most the support
+    stack height.
     """
+    tools = tool_map(policy, inventory, tool_choice)
     inventory = Inventory(dict(r) for r in inventory)
     breaks = {}
     if policy.allow_break:
         for block, tool in excavatable(policy).items():
-            if block not in policy.protected_blocks:
-                breaks[block] = _break_cost(block, hotbar(inventory, tool) is not None)
-    supply = 0
-    while supply < policy.max_support_stack and stack_supply(
-        inventory, supply + 1, policy.reserve_blocks, policy.material_allowlist
-    ):
-        supply += 1
+            if block in policy.protected_blocks:
+                continue
+            if block in tools:
+                breaks[block] = _break_cost(block, True, tool_speed(tools[block]))
+            else:
+                breaks[block] = _break_cost(block, *_unsuited_swing(inventory, tool))
+    # The true stock of every allowed building block held, in any slot (stage_fill puts
+    # them on the hotbar before the motor needs them). The old count stopped at the
+    # support stack height and saw only the first material: a bot holding cobblestone
+    # was sent place_supply 0 and could not pillar out of a hole.
+    # ponytail: the allowlist is dirt/cobblestone because StepMotor refuses any other
+    # material; widen TerrainPolicy BUILDING and the motor together.
+    held = {}
+    for row in inventory:
+        if row.get("item") in policy.material_allowlist:
+            held[row["item"]] = held.get(row["item"], 0) + row.get("count", 0)
+    materials = sorted((m for m, n in held.items() if n > 0), key=lambda m: -held[m])
+    supply = max(0, sum(held.values()) - policy.reserve_blocks)
     cells = set(map(tuple, protected)) | set(policy.protected_positions)
     return {
         "step": bool(
             policy.planner_edits and (policy.allow_break or policy.allow_place)
         ),
         "break_costs": breaks,
+        **({"tools": tools} if tools else {}),
         "fall_costs": {
             b: break_ticks(b) + BREAK_EXTRA_TICKS + FALL_SETTLE_TICKS
             for b in sorted(FALLING)
@@ -107,7 +187,12 @@ def edit_payload(policy, inventory, protected):
         "place_supply": supply,
         "protected": sorted([int(v) for v in p] for p in cells),
         "protected_blocks": list(policy.protected_blocks),
-        "material": policy.material_allowlist[0]
+        # "materials": the whole list, most held first; "material" stays its head for
+        # a body that reads only the single field.
+        "materials": materials,
+        "material": materials[0]
+        if materials
+        else policy.material_allowlist[0]
         if policy.material_allowlist
         else "minecraft:cobblestone",
         **(
@@ -161,10 +246,15 @@ def plan_payload(controller, start, plan_id):
         "threats": [list(p) for p in controller.threats],
         "max_gap": m.max_gap,
         "unknown_penalty": float(t.unknown_penalty) if t.planner_unknown else 0.0,
-        "node_limit": BODY_NODE_LIMIT,
+        "node_limit": EDIT_NODE_LIMIT if t.allow_break else BODY_NODE_LIMIT,
         "favored": [list(p) for p in controller.previous_route],
         "excluded": [[list(a), list(b)] for a, b in controller.failed_edges],
-        "edits": edit_payload(t, controller.inventory, controller.own_footholds),
+        "edits": edit_payload(
+            t,
+            controller.inventory,
+            controller.own_footholds,
+            getattr(controller, "tool_choice", "lowest_sufficient"),
+        ),
     }
 
 
@@ -192,7 +282,7 @@ class BodySearch:
 
     token = -1  # never matches a worker job, so planner_lane.cancel(token) is a no-op
 
-    def __init__(self, controller, start, revision, cells=None):
+    def __init__(self, controller, start, revision, cells=None, edits=()):
         self.controller = controller
         self.start = tuple(start)
         self.revision = revision
@@ -201,7 +291,10 @@ class BodySearch:
         self.plan_id = f"plan-{next(_ids)}"
         self.superseded = False
         self.submitted = False
-        live = live_radius(controller)
+        # Planned edits not yet made: this plan starts past them, on a map where they
+        # are done (predicted_cells). The body's live world lacks them, so it uploads.
+        self.edits = tuple(edits)
+        live = None if self.edits else live_radius(controller)
         # A live plan reads the world in the body; nothing is uploaded for it.
         self.map_transfer = None if live else getattr(controller, "planner_map", None)
         if self.map_transfer is not None:
@@ -216,7 +309,28 @@ class BodySearch:
             self.submitted = True
 
     def payload(self):
-        return plan_payload(self.controller, self.start, self.plan_id)
+        payload = plan_payload(self.controller, self.start, self.plan_id)
+        if self.edits:  # the blocks the pending steps place are not to be broken
+            places = [list(p) for s in self.edits for p in s.places]
+            protected = payload["edits"]["protected"]
+            payload["edits"]["protected"] = protected + [
+                p for p in places if p not in protected
+            ]
+        return payload
+
+    def _unban_start(self, status):
+        """A plan that died after a few nodes with banned exits from the start cell is
+        boxed in by its own bans: lift them once so the replan can try (run
+        20261113T172130173999Z: 25 'stuck' gotos in a pit, expanded=2)."""
+        c = self.controller
+        edges = getattr(c, "failed_edges", ())
+        lifted = [e for e in edges if tuple(e[0]) == self.start]
+        dead = status in ("unreachable", "incomplete")
+        dead = dead and self.expanded <= BOXED_IN_NODES
+        if dead and lifted:
+            c.failed_edges.difference_update(lifted)
+            event = {"start": self.start, "edges": len(lifted)}
+            c.events.append(("failed_edges_cleared", event))
 
     def cancel(self):
         if self.superseded:
@@ -256,6 +370,7 @@ class BodySearch:
                 "searching", (self.start,), self.revision, 0, "body plan pending"
             )
         self.expanded = report["expanded"]
+        self._unban_start(report["status"])
         result = RouteResult(
             report["status"],
             tuple(_point(p) for p in report["route"]),

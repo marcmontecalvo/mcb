@@ -124,3 +124,42 @@ def test_foods_table_is_loaded_when_given():
 
     assert k.foods[M + "cooked_beef"]["nutrition"] == 8
     assert dict(load_pack(MINI).foods) == {}
+
+
+def _ore(size, count, height, biomes, rarity=None):
+    placement = [{"type": "minecraft:count", "count": count}]
+    if rarity:
+        placement.append({"type": "minecraft:rarity_filter", "chance": rarity})
+    placement.append({"type": "minecraft:height_range", "height": height})
+    return {
+        "feature": {"size": size, "targets": [{"state": {"Name": M + "iron_ore"}}]},
+        "placement": placement,
+        "biomes": biomes,
+    }
+
+
+def test_best_y_prefers_worldwide_trapezoid_over_mountain_band():
+    from dataclasses import replace
+
+    from mclab.knowledge import best_y
+
+    tz = {
+        "type": "minecraft:trapezoid",
+        "min_inclusive": {"absolute": -24},
+        "max_inclusive": {"absolute": 56},
+    }
+    up = {
+        "type": "minecraft:uniform",
+        "min_inclusive": {"absolute": 80},
+        "max_inclusive": {"below_top": 0},
+    }
+    ores = {
+        "a": _ore(9, 10, tz, ["plains", "desert", "peak"]),
+        "b": _ore(9, 90, up, ["peak"]),
+    }
+    k = replace(load_pack(MINI), ores=ores)
+
+    assert best_y(k, M + "iron_ore") == 16
+    assert best_y(k, M + "deepslate_iron_ore") == 16
+    assert best_y(k, M + "coal_ore") is None
+    assert best_y(replace(k, ore_overrides={M + "iron_ore": 40}), M + "iron_ore") == 40

@@ -384,6 +384,20 @@ def _is_scaffold(body, cell: Pos) -> bool:
     return (body.world(*cell) or "").startswith(sc.BLOCK)
 
 
+def _plan_ahead(runner: _Runner, act, pool: list) -> None:
+    """Start planning the walk to the next target before ``act`` is made, so the
+    route is ready when the placement ends instead of a stop-and-plan per block.
+    Optional body method ``plan_ahead(pos, reach)``; nothing when the next target
+    is already within reach of where the body stands (no walk to plan)."""
+    plan = getattr(runner.body, "plan_ahead", None)
+    if plan is None or not pool:
+        return
+    here = runner.body.position()
+    nxt = min(pool, key=lambda b: (b.pos[1], _dist2(b.pos, act.pos)))
+    if _dist2(nxt.pos, here) > (REACH - 0.5) ** 2:
+        plan(nxt.pos, REACH)
+
+
 def _sweep(runner: _Runner, template: bp.Template, acts: list) -> None:
     """Work one batch in walking order: lowest layer first, then everything within
     reach of where the body stands (same item as the last one first), only then the
@@ -396,6 +410,67 @@ def _sweep(runner: _Runner, template: bp.Template, acts: list) -> None:
     pool = list(acts)
     corners = {a.pos for a in pool if bp.inside_corner(template, a.pos)}
     last, tried = None, False
+    # While the body walks (a goto drive), place what comes within reach: a body
+    # with an ``on_pass`` slot calls it with its position along the route.
+    if hasattr(runner.body, "on_pass"):
+        runner.body.on_pass = _passing(runner, pool, corners)
+    try:
+        _sweep_pool(runner, pool, corners, last, tried)
+    finally:
+        if hasattr(runner.body, "on_pass"):
+            runner.body.on_pass = None
+
+
+def _ready(a, corners) -> bool:
+    return a.pos in corners or not any(
+        (a.pos[0] + dx, a.pos[1], a.pos[2] + dz) in corners
+        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))
+    )
+
+
+def _passing(runner: _Runner, pool: list, corners: set):
+    """The ``on_pass`` hook: place one pending block the body can reach right now.
+
+    Margin of one block inside REACH (the body is moving). A failure is not
+    recorded and the block is not tried again while passing: the sweep's own
+    attempt keeps the retry and failure bookkeeping."""
+    refused: set = set()
+
+    def on_pass(position) -> None:
+        body = runner.body
+        if runner._towering or runner.short or runner.report.steps >= runner.max_steps:
+            return
+        near = [
+            a
+            for a in pool
+            if isinstance(a, bp.Place)
+            and a.pos not in refused
+            and _dist2(a.pos, position) <= (REACH - 1.0) ** 2
+            and _ready(a, corners)
+        ]
+        if not near:
+            return
+        if observe := getattr(body, "observe", None):
+            observe()  # the position the checks below read is the body's own
+        can_place = getattr(body, "can_place_here", None)
+        for act in sorted(near, key=lambda a: (a.pos[1], _dist2(a.pos, position))):
+            if can_place is not None and not can_place(
+                act.pos, REACH, _support(act, runner.blocks)
+            ):
+                continue
+            refused.add(act.pos)
+            if _do(body, act).ok:
+                pool.remove(act)
+                corners.discard(act.pos)
+                runner.report.steps += 1
+                _take_back(runner, act)
+                _record(runner.report, act)
+            return
+
+    return on_pass
+
+
+def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:
     while pool and runner.report.steps < runner.max_steps and not runner.short:
         here = runner.body.position()
 
@@ -405,15 +480,7 @@ def _sweep(runner: _Runner, template: bp.Template, acts: list) -> None:
             same = getattr(a, "item", None) != last
             return (a.pos[1], not near, 0 if near else d2, same, d2)
 
-        ready = [
-            a
-            for a in pool
-            if a.pos in corners
-            or not any(
-                (a.pos[0] + dx, a.pos[1], a.pos[2] + dz) in corners
-                for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))
-            )
-        ]
+        ready = [a for a in pool if _ready(a, corners)]
         act = min(ready, key=key)
         if tried and _dist2(act.pos, here) > (REACH + LEAD) ** 2:
             return  # stale: only far leftovers (the batch was cut round the old spot)
@@ -435,8 +502,11 @@ def _sweep(runner: _Runner, template: bp.Template, acts: list) -> None:
                 runner.body.required_support = _support(lead, runner.blocks)
             if lead is not act:
                 runner.body.goto_stance(lead.pos, REACH)
+        if act not in pool:
+            continue  # placed on the way (on_pass)
         pool.remove(act)
         corners.discard(act.pos)
+        _plan_ahead(runner, act, pool)
         runner.attempt(act)
         last, tried = getattr(act, "item", None), True
 
