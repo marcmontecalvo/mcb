@@ -19,6 +19,7 @@ from mclab.modbuild import source_hash
 from mclab.paths import MOD_SOURCES, ROOT, SERVER, digest, read_json, write_json
 from mclab.protocolproof import controls
 from mclab.recorder import EpisodeRecorder, exclusive_arena
+from mclab.run_launch import recorded
 
 
 class RecordedBridge(Bridge):
@@ -159,9 +160,7 @@ class RecordedBridge(Bridge):
             self.writer.join(timeout=10)
         if self.writer.is_alive():
             raise RuntimeError("Recorder writer did not stop; recording invalid")
-        print(
-            f"bridge.close: recorder stopped {time.perf_counter() - started:.2f}s"
-        )
+        print(f"bridge.close: recorder stopped {time.perf_counter() - started:.2f}s")
         super().close()
         if failure or self.writer_error:
             raise RuntimeError("Episode recording failed during shutdown") from (
@@ -437,6 +436,7 @@ def _drive_controller(client: Bridge, wall_timeout: float) -> dict:
     return terminal_event(client)
 
 
+@recorded("courses")
 def qualify_execution(count: int = 10, *, development: bool = False) -> dict:
     if not 1 <= count <= 20:
         raise ValueError("Execution count must be 1 to 20")

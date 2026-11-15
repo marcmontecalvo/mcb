@@ -21,6 +21,7 @@ from mclab.execution import (
 from mclab.modbuild import source_hash
 from mclab.paths import ROOT, SERVER, digest, read_json, write_json
 from mclab.recorder import EpisodeRecorder, exclusive_arena
+from mclab.run_launch import recorded
 from mclab.tactical import TacticalController
 
 __all__ = ["ControllerFailure", "close_selector", "drive", "record_selector", "run"]
@@ -57,6 +58,7 @@ def close_selector(client, controller, backend, summary):
                     client.record("planner_backend_provenance", planner.provenance())
 
 
+@recorded("models")
 def run(backend_name, *, count=1, request_limit=40):
     if type(count) is not int or not 1 <= count <= 5:
         raise ValueError("Live model smoke count must be 1..5")
@@ -84,6 +86,7 @@ def run(backend_name, *, count=1, request_limit=40):
         return _run(spec, count, request_limit)
 
 
+@recorded("models", operation="tandem")
 def run_tandem(
     tactical_backend_name,
     planner_backend_name,

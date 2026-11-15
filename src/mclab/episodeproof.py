@@ -12,8 +12,10 @@ from mclab.modbuild import source_hash
 from mclab.paths import MOD_SOURCES, ROOT, read_json, write_json
 from mclab.protocolproof import controls
 from mclab.recorder import EpisodeRecorder, exclusive_arena
+from mclab.run_launch import recorded
 
 
+@recorded("courses", operation="episodes")
 def qualify_episodes() -> dict:
     with exclusive_arena():
         return _qualify_episodes()

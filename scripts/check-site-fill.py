@@ -16,8 +16,10 @@ from mclab.companion_body import (
 )
 from mclab.paths import ROOT, write_json
 from mclab.recorder import exclusive_arena
+from mclab.run_launch import script_run
 
 
+@script_run("site-fill")
 def main():
     folder = ROOT / "results/site-fill" / datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     folder.mkdir(parents=True)

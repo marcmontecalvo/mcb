@@ -502,7 +502,7 @@ def falling_stack(cells, point):
 def prepare_step(
     cells, source, target, policy, inventory, *, protected=(), cut_memo=None
 ):
-    """Plan a bounded support stack and four headroom cuts; unknown is forbidden."""
+    """Plan a bounded support stack and up to seven cuts; unknown is forbidden."""
     x, y, z = source
     tx, ty, tz = target
     if abs(tx - x) + abs(tz - z) != 1 or ty - y not in (0, 1):
@@ -556,7 +556,7 @@ def prepare_step(
         if not cut_ok(cells, point, policy, inventory, protected, tools, cut_memo):
             return None
         cuts.append(point)
-    if len(cuts) > min(4, policy.break_budget):
+    if len(cuts) > min(7, policy.break_budget):
         return None
     if not cuts and not places:
         return None

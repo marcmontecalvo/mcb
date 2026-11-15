@@ -1,24 +1,76 @@
 # Local lab UI
 
-Run from the repo root:
+## Current React interface
+
+The current interface is a React/TypeScript app built with Vite and Tailwind,
+using the pinned portable `@homenet/ui` package. The existing Python dashboard
+serves the static `ui/dist` build and `/assets`; it remains the API and worker
+owner. Build it before starting the dashboard:
+
+```powershell
+cd ui
+npm ci
+npm run build
+cd ..
+uv run --locked python -m mclab.dashboard
+```
+
+The dashboard launcher remains available from the repository root:
 
 ```powershell
 rtk proxy powershell -NoProfile -File scripts/lab-ui.ps1
 ```
 
-The script loads the existing ignored `.env` when present, runs the project's
-locked Python environment and opens `http://127.0.0.1:8770/`. Optional arguments:
-`--no-browser` and `--port 8771`. The direct entry point is
-`rtk proxy uv run --locked python -m mclab.dashboard`; add `--env-file .env` to
-`uv run` when model credentials are needed. Python's standard library serves the
-page; no packages, JavaScript framework or build step are added.
+The launcher loads the ignored `.env` when present and opens
+`http://127.0.0.1:8770/`. Use `--no-browser` to print the URL or `--port 8771` to
+select a port. The direct entry point is `uv run --locked python -m
+mclab.dashboard`; pass `--env-file .env` when launching directly with model
+credentials. Without a built `ui/dist`, `/` falls back to the previous page;
+`/legacy` explicitly serves that page when the React app is built. See
+[ui/README.md](../ui/README.md) for build, test, and UI contribution instructions.
+
+### Catalog, configuration, and queue
+
+The dynamic catalog currently exposes 46 tests across seven families: gather,
+build, natural routes, courses, models, battery, and companion checks. Forms come
+from the server's `/api/schema`; preset choices use partial config files in
+`config/presets/`. Saved suites in `config/suites/` contain references and
+explicit overrides, not copies of the underlying configuration. Configure
+override matrices, seeds, and repetitions, preview the resolved run settings,
+and enqueue up to 60 jobs in a batch.
+
+The app uses the existing detached, durable session worker and exclusive arena
+ownership. Live status uses authenticated server-sent events; each connection
+receives an `event: snapshot` with the full durable state on initial connect and
+reconnect. The server bounds active listeners to eight. Refreshing the page or
+reconnecting resynchronizes from backend state; closing a browser tab does not
+own or stop a worker.
+
+**Stop after batch** lets the active batch finish cleanup, then skips pending
+jobs. **Cancel current run** requests cancellation of the active job. **Shut down
+dashboard** stops the HTTP dashboard process; it does not stop Minecraft or
+implicitly cancel the worker. Use the explicit queue/job controls for those
+actions. Existing loopback binding, Host/Origin checks, UI-token authentication,
+arena locking, and POST authorization remain in force.
+
+UI tests and the production build do not launch Minecraft and do not qualify bot
+behavior. Current full-suite and browser E2E verification status is tracked in
+[IMPLEMENTED.md](IMPLEMENTED.md).
+
+## Legacy dashboard page
+
+The rest of this document preserves the previous dashboard's operation,
+configuration, comparisons, companion jobs, and evidence references. Those
+controls are available at `/legacy`; use the React interface instructions above
+for the current root page. Historical proof links and run references remain here
+for audit and prune retention.
 
 Running the launcher again opens the existing dashboard and exits successfully.
 It does not start another UI server or interrupt an active session. `--no-browser`
 prints the existing URL instead. The running UI's port is recorded in
 `runtime/dashboard-ui.json` so reopening also works with a custom port.
 
-### Stopping or restarting the dashboard
+### Legacy dashboard: stopping or restarting
 
 Click **Shut down dashboard** to stop the dashboard's HTTP server and release its
 process/lock. The page displays a stopped message. Run `scripts/lab-ui.ps1` again
@@ -46,7 +98,7 @@ A real launch-ID mismatch still invalidates the attempt, with the endpoint and
 expected/received IDs in the error. New sessions load the current runner code;
 an already running test worker does not reload it mid-batch.
 
-## Running
+## Legacy dashboard: run operation
 
 1. Use **Start lab** if the lab server is stopped. It waits for the existing
    server status to report protocol-ready `running`. Existing installation,
@@ -90,7 +142,7 @@ to reconnect. A worker that exited before completion is marked interrupted;
 inspect its console log and lab state. A runner/cleanup error stops the queue;
 ordinary task failures remain results and do not trigger automatic retries.
 
-## Shared configuration and evidence
+## Legacy dashboard: configuration and evidence
 
 ### Natural-terrain development setup
 
@@ -191,7 +243,7 @@ declaration of equivalent awareness or qualification. Different configurations
 stay separate; there is no automatic pooling of cohorts. Original JSON remains
 available from each run's detail button, outside the comparison table.
 
-## Companion jobs
+## Legacy dashboard: companion jobs
 
 Run type **Companion** starts one of the standalone scripts that drive the lab
 server through `mclab.bridge.Bridge`: the live checks (`scripts/check-crafting.py`,
@@ -240,7 +292,7 @@ exist are offered), **Gather** (`run-gather.py`, optional iron pickaxe) or
   worker when the script exits), else `progress.json`'s `job`, else
   `build.json` / `gather-*.json`; older folders read "companion check".
 
-### House builds: stats and comparison
+### Legacy dashboard: house-build stats and comparison
 
 The **House builds** section lists every `results/companion/<run>/` that has a
 `build.json`, checkpoints or a `progress.json` with job `build`, whether or not
@@ -286,7 +338,7 @@ inspection-wait marker or graceful finish control. Cache versions that cannot be
 recomputed after log pruning are shown as unavailable rather than current stats.
 The metric inventory and audit limitations are in [DASHBOARD_BUILD_REVIEW.md](DASHBOARD_BUILD_REVIEW.md).
 
-### Progress hook
+### Legacy dashboard: progress hook
 
 `src/mclab/companion_progress.py`: `write_progress(folder, job=None, stage=None,
 done=None, total=None, detail=None)` atomically replaces `<folder>/progress.json`
@@ -294,7 +346,7 @@ as `{"job", "stage", "done", "total", "detail", "updated_at"}`; `write_job(folde
 job)` writes `job.json` as `{"job": name}`. Both ignore I/O errors and never
 raise. The dashboard polls them every 3 s; scripts need not call either.
 
-## Extending
+## Legacy dashboard: extending
 
 `src/mclab/dashboard_runs.py` discovers original inputs, validates selections and
 adapts them to runner calls. Add a body or stage there and expose its supported

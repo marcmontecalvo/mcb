@@ -3,6 +3,7 @@
 import _thread
 import argparse
 import json
+import mimetypes
 import os
 import re
 import secrets
@@ -18,7 +19,7 @@ from datetime import datetime
 from http.client import HTTPConnection, HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
 
 from mclab import build_stats
@@ -27,6 +28,7 @@ from mclab.paths import ROOT, read_json, write_json
 from mclab.recorder import exclusive_run
 
 SESSIONS = ROOT / "results/sessions"
+UI_DIST = ROOT / "ui/dist"
 WORKER_LOCK = ROOT / "runtime/dashboard-worker.lock"
 ACTIVE = {"queued", "running"}
 QUALIFICATION_JOBS = {
@@ -553,7 +555,13 @@ class Dashboard:
         with self.lock:
             values = []
             for path in sorted(SESSIONS.glob("*/session.json"), reverse=True):
-                value = read_json(path)
+                try:
+                    value = read_json(path)
+                    value["status"]
+                except (OSError, ValueError, KeyError, TypeError):
+                    # One truncated record must not hide every other session.
+                    values.append({"id": path.parent.name, "status": "unreadable"})
+                    continue
                 if not include_qualification and value.get("kind") == "qualification":
                     continue
                 if value["status"] in ACTIVE:
@@ -606,6 +614,7 @@ class Dashboard:
 
     def start(self, request):
         kind = request.get("kind")
+        suite_entries = None
         if kind == "qualification":
             requested = request.get("checks")
             if not isinstance(requested, list) or not requested:
@@ -628,6 +637,19 @@ class Dashboard:
                 request = {**request, "kind": "setup"}
             jobs = runs.plan(request)
             worker_target = "session"
+            suite_entries = None
+        elif kind == "suite":
+            from mclab import dashboard_suites
+            from mclab.dashboard_events import redact
+
+            entries = request.get("entries")
+            jobs = dashboard_suites.resolve_entries(entries)
+            worker_target = "session"
+            allowed = {"test_id", "preset", "overrides", "seeds", "repetitions"}
+            suite_entries = [
+                {key: value for key, value in redact(entry).items() if key in allowed}
+                for entry in entries
+            ]
         else:
             raise ValueError("Unknown dashboard run type")
         if any(j.get("kind") == "companion" for j in jobs):
@@ -655,6 +677,8 @@ class Dashboard:
                 "created_at": time.time(),
                 "jobs": [{**j, "status": "queued"} for j in jobs],
             }
+            if suite_entries is not None:
+                value["suite_entries"] = suite_entries
             save(path, value)
             try:
                 with path.with_name("console.log").open("ab") as output:
@@ -728,8 +752,18 @@ class Dashboard:
 
 def handler(dashboard):
     token = secrets.token_urlsafe(32)
+    from mclab.dashboard_events import EventBroker, TooManyListeners
+
+    events = EventBroker(dashboard)
 
     class Handler(BaseHTTPRequestHandler):
+        def handle(self):
+            try:
+                super().handle()
+            except ConnectionError:
+                # Browsers can cancel a request while closing or refreshing a tab.
+                pass
+
         def log_message(self, *_args):
             pass
 
@@ -755,22 +789,97 @@ def handler(dashboard):
         def trusted_host(self):
             return self.headers.get("Host") == f"127.0.0.1:{self.server.server_port}"
 
+        def legacy_page(self):
+            html = (
+                Path(__file__).with_name("dashboard.html").read_text(encoding="utf-8")
+            )
+            return self.reply(
+                200,
+                html.replace("__TOKEN__", token).encode(),
+                "text/html; charset=utf-8",
+            )
+
+        def static_asset(self, relative):
+            try:
+                dist = UI_DIST.resolve()
+                root = (dist / "assets").resolve(strict=True)
+                root.relative_to(dist)
+                asset = (root / relative).resolve(strict=True)
+                asset.relative_to(root)
+                if not asset.is_file():
+                    raise FileNotFoundError(relative)
+                content_type = mimetypes.guess_type(asset.name)[0]
+                if content_type is None:
+                    content_type = "application/octet-stream"
+                body = asset.read_bytes()
+            except (OSError, ValueError, RuntimeError):
+                return self.reply(404, {"error": "Asset not found"})
+            return self.reply(
+                200,
+                body,
+                f"{content_type}; charset=utf-8"
+                if content_type.startswith(("text/", "application/javascript"))
+                else content_type,
+            )
+
+        def event_stream(self):
+            supplied = parse_qs(urlsplit(self.path).query).get("token", [""])[0]
+            if not secrets.compare_digest(supplied, token):
+                return self.reply(403, {"error": "Reload the local dashboard"})
+            try:
+                subscription = events.subscribe()
+            except TooManyListeners as error:
+                return self.reply(503, {"error": str(error)})
+            try:
+                # Headers inside the try: a disconnect here must still free the slot.
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+                for frame in subscription.stream():
+                    self.wfile.write(frame.encode("utf-8"))
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                # A disconnected browser is the normal end of an SSE request.
+                pass
+            finally:
+                subscription.close()
+
         def do_GET(self):
             if not self.trusted_host():
                 return self.reply(403, {"error": "Use the printed loopback URL"})
             parsed = urlsplit(self.path)
             try:
                 if parsed.path == "/":
-                    html = (
-                        Path(__file__)
-                        .with_name("dashboard.html")
-                        .read_text(encoding="utf-8")
-                    )
+                    index = UI_DIST / "index.html"
+                    if not index.is_file():
+                        return self.reply(
+                            503,
+                            b"The React dashboard is not built. Run `cd ui && "
+                            b"npm run build`, then restart the dashboard. "
+                            b"The legacy interface remains available at /legacy.\n",
+                            "text/plain; charset=utf-8",
+                        )
+                    html = index.read_text(encoding="utf-8")
                     return self.reply(
                         200,
                         html.replace("__TOKEN__", token).encode(),
                         "text/html; charset=utf-8",
                     )
+                if parsed.path == "/legacy":
+                    return self.legacy_page()
+                if parsed.path.startswith("/assets/"):
+                    relative = unquote(parsed.path.removeprefix("/assets/"))
+                    return self.static_asset(relative)
+                if parsed.path == "/api/events":
+                    return self.event_stream()
+                if parsed.path == "/api/schema":
+                    from mclab.run_config import config_schema
+
+                    return self.reply(200, config_schema())
                 if parsed.path == "/api/catalog":
                     catalog = runs.catalog()
                     catalog["companion"]["default_start"] = runs.COMPANION_DEFAULT_START
@@ -789,6 +898,10 @@ def handler(dashboard):
                     return self.reply(200, dashboard.builds())
                 if parsed.path == "/api/results":
                     return self.reply(200, dashboard.history())
+                if parsed.path == "/api/suites":
+                    from mclab import dashboard_suites
+
+                    return self.reply(200, dashboard_suites.list_suites())
                 if parsed.path == "/api/detail":
                     relative = parse_qs(parsed.query).get("path", [""])[0]
                     path = runs.project_file(relative)
@@ -812,8 +925,25 @@ def handler(dashboard):
                 if not 0 < length <= 16_384:
                     raise ValueError("Invalid request size")
                 request = json.loads(self.rfile.read(length))
+                if not isinstance(request, dict):
+                    raise ValueError("JSON request must be an object")
                 if self.path == "/api/start":
                     return self.reply(200, dashboard.start(request))
+                if self.path == "/api/suites":
+                    from mclab import dashboard_suites
+
+                    return self.reply(200, dashboard_suites.save_suite(request))
+                if self.path == "/api/resolve":
+                    from mclab import dashboard_suites
+
+                    return self.reply(
+                        200,
+                        {
+                            "jobs": dashboard_suites.resolve_entries(
+                                request.get("entries")
+                            )
+                        },
+                    )
                 if self.path == "/api/shutdown":
                     self.reply(
                         200,
@@ -847,6 +977,8 @@ def handler(dashboard):
             except (OSError, ValueError, TypeError, KeyError) as error:
                 return self.reply(400, {"error": str(error)})
 
+    Handler.events = events
+    Handler.token = token
     return Handler
 
 
@@ -910,6 +1042,8 @@ def main():
                 http.serve_forever()
             except KeyboardInterrupt:
                 pass
+            finally:
+                http.RequestHandlerClass.events.close()
 
 
 if __name__ == "__main__":

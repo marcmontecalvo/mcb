@@ -42,10 +42,15 @@ from mclab.companion_body import (
 )
 from mclab.companion_jobs import build_job, load_vanilla_pack, materials_of
 from mclab.companion_progress import write_progress
+from mclab.gather_options import GatherOptions
 from mclab.gather_plan import Gather, Hunt, Shear, plan
 from mclab.gather_tasks import item_stack
 from mclab.paths import ROOT
 from mclab.recorder import exclusive_arena
+from mclab.run_config import policies
+from mclab.run_config_cli import invocation, parse_run
+from mclab.run_launch import launch_record, record_outcome
+from mclab.run_launch import record_effective_run as record_run
 
 DEFAULT_BUILD = ROOT / "tests/fixtures/schematics/small-house.build.json"
 CLEAR = [10, 6, 10]
@@ -217,7 +222,14 @@ def main() -> int:
     parser.add_argument(
         "--seed", type=int, help="run in a fresh copy of this natural seed's world"
     )
-    args = parser.parse_args()
+    args, config = parse_run(parser, "build")
+    with launch_record(config):
+        result = run(args, config, parser)
+        record_outcome(result)
+        return result
+
+
+def run(args, config, parser):
     # the mode decides the job: a run without --supply has no scaffolding
     print(f"run-build: arguments {' '.join(sys.argv[1:])}", flush=True)
     if args.margin < 0:
@@ -243,6 +255,23 @@ def main() -> int:
         parser.error("--start is required without --resume")
     folder = results_folder()
     folder.mkdir(parents=True, exist_ok=True)
+    # Resolution precedes admission; a changed checkpoint must not change the task.
+    actual_origin = (
+        list(resume["origin"])
+        if resume
+        else [args.start[0] + args.dx, args.start[1], args.start[2] + args.dz]
+    )
+    actual = (args.start, args.seed, args.rotation, actual_origin, args.build.resolve())
+    recorded = (
+        config["run"]["start"],
+        config["run"]["seed"],
+        config["run"]["rotation"],
+        config["run"]["origin"],
+        (ROOT / config["run"]["build"]).resolve(),
+    )
+    if actual != recorded:
+        raise ValueError("Checkpoint changed after launch configuration was resolved")
+    record_run(folder, config, invocation=invocation())
     knowledge = load_vanilla_pack()
     build = json.loads(args.build.read_text(encoding="utf-8"))
     origin = (
@@ -270,7 +299,9 @@ def main() -> int:
         bridge = open_bridge(folder)
         memory = None
         try:
-            body, memory = start_session(bridge, folder, args.start, dig=True)
+            body, memory = start_session(
+                bridge, folder, args.start, dig=True, **policies(config)
+            )
             body.places.remember("build_site", args.start)
             chests = []
             if resume:
@@ -390,12 +421,14 @@ def main() -> int:
                     f"cleared={site.get('cleared', 0)} filled={site.get('filled', 0)} "
                     f"steps={report.steps} stalls={len(report.stalls)} stop={report.stop}",
                 )
+
             job = build_job(
                 args.build,
                 origin,
                 args.rotation,
                 body,
                 knowledge,
+                gather_options=GatherOptions(**config["run"]["gather"]),
                 clock=lambda: int(body.observe()["tick"]),
                 chests=chests,
                 build_only=bool(resume),

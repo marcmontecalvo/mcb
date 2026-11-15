@@ -1,12 +1,13 @@
 # MCB — start here
 
-1. Read [docs/ROADMAP.md](docs/ROADMAP.md): current status, the ordered work list,
-   findings that changed earlier assumptions, and an index of every plan and ledger.
+1. Read [docs/ROADMAP.md](docs/ROADMAP.md) for upcoming work.
+   [docs/IMPLEMENTED.md](docs/IMPLEMENTED.md) summarizes verified behavior and its
+   limits; [docs/DECISION_MATRIX.md](docs/DECISION_MATRIX.md) separates settled
+   choices from open decisions; [docs/INDEX.md](docs/INDEX.md) routes to plans,
+   proof, contracts, and history.
 2. [docs/NAVIGATION_DIRECTION_2026-10-28.md](docs/NAVIGATION_DIRECTION_2026-10-28.md)
-   is the authoritative plan (decisions D1–D12, phases). Phase 0, step A (mod split)
-   and step B (in-mod route follower) are done for development; **step C** (planner
-   core) is in progress, ledger in
-   [docs/STEP_C_PROGRESS_2026-10-29.md](docs/STEP_C_PROGRESS_2026-10-29.md).
+   remains authoritative for navigation decisions and phases. Check the linked
+   gate records and source hashes before treating dated results as current.
 3. To operate the lab, read the README and [docs/LAB_UI.md](docs/LAB_UI.md). Recheck
    live server status rather than trusting recorded PIDs. Attempt analysis scripts
    are in `scripts/analysis/`.
@@ -15,8 +16,10 @@
 
 - The direction document above overrides older docs where they conflict.
   Docs with a "Partly superseded (Oct 28, 2026)" or "History (Oct 31, 2026)" banner
-  contain legacy sections. `docs/ROADMAP.md` lists every document's role.
-- When work finishes an item or finds a new one, update `docs/ROADMAP.md`.
+  contain legacy sections. `docs/INDEX.md` lists each document's role.
+- When work finishes an item or finds a new one, update `docs/ROADMAP.md`; keep
+  implementation/proof claims in `docs/IMPLEMENTED.md` and choices in
+  `docs/DECISIONS.md` / `docs/DECISION_MATRIX.md`.
 - When you edit an older doc for other reasons and find a conflict, update it to
   match the direction document or mark the section legacy. Do not leave two answers.
 - `Minecraft_AI_Technical_Handoff.md` is the original specification: do not edit it.
@@ -34,7 +37,7 @@
   a run whose id appears in `docs/` keeps its databases and has `events.jsonl`
   gzipped; any other old run loses its raw logs and databases. Small results
   (`summary.json`, `build.json`, `checkpoints/`) always stay. To keep a run, cite its
-  id in `docs/ROADMAP.md`. `MCLAB_NO_PRUNE=1` turns the sweep off for a session.
+  id in `docs/IMPLEMENTED.md` or the relevant proof document. `MCLAB_NO_PRUNE=1` turns the sweep off for a session.
 - Do not pool earlier configurations into a new denominator when comparing results.
   Native changes require source-bound requalification before legacy scored admission.
 - To test a build from a known point, do not rerun gathering: each build run writes

@@ -283,7 +283,7 @@ def test_goto_stance_replans_when_the_planned_stance_is_avoided(monkeypatch):
     b._obs["body"]["position"] = [20.5, 0.0, 20.5]  # far: not in reach
     calls = []
 
-    def navigate(goal, *, reach, radius):
+    def navigate(goal, *, reach, radius, probe=False, progress=None):
         calls.append((goal, reach))
         b._obs["body"]["position"] = [0.5, 0.0, 0.5]  # lands on a stance we avoid
         return True
@@ -467,7 +467,7 @@ def test_goto_stance_walks_known_stances_before_any_interaction_search(monkeypat
     b._obs["body"]["position"] = [20.5, 0.0, 20.5]  # far: not in reach
     calls = []
 
-    def navigate(goal, *, reach, radius, probe=False):
+    def navigate(goal, *, reach, radius, probe=False, progress=None):
         calls.append((goal, reach))
         return False  # the walk fails
 
@@ -485,7 +485,7 @@ def test_goto_stance_skips_candidates_the_planner_cannot_route(monkeypatch):
     b._obs["body"]["position"] = [20.5, 0.0, 20.5]  # far: not in reach
     seen = []
 
-    def navigate(goal, *, reach, radius, probe=False):
+    def navigate(goal, *, reach, radius, probe=False, progress=None):
         seen.append((goal, probe))
         return goal != (2, 0, 0)  # no route to that first stance
 
@@ -534,7 +534,7 @@ def test_goto_stance_far_target_uses_the_edit_search_after_probes_park(monkeypat
     b._obs["body"]["position"] = [20.5, 0.0, 20.5]
     calls = []
 
-    def navigate(goal, *, reach, radius, probe=False):
+    def navigate(goal, *, reach, radius, probe=False, progress=None):
         calls.append((goal, probe))
         return False
 
@@ -552,7 +552,7 @@ def test_goto_stance_keeps_probing_near_targets_without_the_edit_search(monkeypa
     b._obs["body"]["position"] = [20.5, 0.0, 20.5]
     calls = []
 
-    def navigate(goal, *, reach, radius, probe=False):
+    def navigate(goal, *, reach, radius, probe=False, progress=None):
         calls.append((goal, probe))
         return False
 
@@ -960,7 +960,7 @@ def _stale_idle_body(monkeypatch):
     b._navigation_idle = {"anchor": (20.5, 0.0, 20.5), "since": 10.0}  # 90 s stale
     seen = []
 
-    def navigate(goal, *, reach, radius, probe=False):
+    def navigate(goal, *, reach, radius, probe=False, progress=None):
         seen.append(dict(b._navigation_idle))
         b._navigation_idle.update(anchor=(1.0, 0.0, 1.0), since=now[0])
         now[0] += 3  # two walks inside one operation share one clock
@@ -1228,7 +1228,7 @@ def test_goto_stance_skips_duplicate_distant_hops_and_fallback_when_hop_fails(
     )
     calls = []
 
-    def navigate(goal, *, reach, radius, probe=False):
+    def navigate(goal, *, reach, radius, probe=False, progress=None):
         calls.append((goal, reach, probe))
         return False
 

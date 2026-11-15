@@ -21,6 +21,7 @@ from mclab.execution import PolicyMapRecorder, RecordedBridge, terminal_event
 from mclab.modbuild import source_hash
 from mclab.paths import MOD_SOURCES, ROOT, SERVER, config, digest, read_json, write_json
 from mclab.recorder import EpisodeRecorder, episode_databases, exclusive_arena
+from mclab.run_launch import recorded
 
 
 def _validate(course, seeds):
@@ -146,6 +147,7 @@ def _restore_initial(client, summary, destination):
     )
 
 
+@recorded("courses", operation="reset")
 def qualify_resets(course, seed=0, count=20):
     if type(count) is not int or not 1 <= count <= 20:
         raise ValueError("Navigation reset count must be 1..20")
@@ -155,6 +157,7 @@ def qualify_resets(course, seed=0, count=20):
         return _run(course, seeds, reset_only=True, scored=False)
 
 
+@recorded("courses")
 def execute(course, seeds, *, scored=False):
     _validate(course, seeds)
     if type(scored) is not bool:

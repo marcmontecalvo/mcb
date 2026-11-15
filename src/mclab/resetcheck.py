@@ -12,6 +12,7 @@ from mclab.bridge import Bridge
 from mclab.modbuild import source_hash
 from mclab.paths import MOD_SOURCES, ROOT, read_json, write_json
 from mclab.recorder import arena_guard
+from mclab.run_launch import recorded
 
 
 class ResetRecorder:
@@ -62,6 +63,7 @@ class ResetRecorder:
         self.db.close()
 
 
+@recorded("courses", operation="reset")
 @arena_guard
 def qualify_resets(count: int = 20) -> dict:
     if not 1 <= count <= 20:

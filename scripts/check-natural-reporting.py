@@ -9,8 +9,10 @@ from mclab.execution import RecordedBridge, terminal_event
 from mclab.modbuild import source_hash
 from mclab.paths import ROOT, SERVER, read_json, write_json
 from mclab.recorder import exclusive_arena
+from mclab.run_launch import script_run
 
 
+@script_run("natural-reporting")
 def main():
     if (
         "level-name=world"

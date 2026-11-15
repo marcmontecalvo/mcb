@@ -24,6 +24,7 @@ from mclab.navigation_runner import (
 )
 from mclab.paths import ROOT, SERVER, config, digest, read_json, write_json
 from mclab.recorder import EpisodeRecorder, exclusive_arena
+from mclab.run_launch import recorded
 
 POLL_SECONDS = 0.25
 
@@ -66,6 +67,7 @@ def _attempt(client, baritone, player, profile, spec):
     }
 
 
+@recorded("courses", entrant="baritone")
 def execute(course, seeds):
     _validate(course, seeds)
     with exclusive_arena():

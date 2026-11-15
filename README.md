@@ -19,8 +19,12 @@ Earlier failed configurations remain in the report, grouped by timing/source pro
 See [setup status](docs/SETUP_STATUS.md) and
 [implementation decisions](docs/DECISIONS.md).
 
-**Where to start:** [docs/ROADMAP.md](docs/ROADMAP.md) has current status, the ordered
-next steps and an index of every plan and ledger.
+**Where to start:** [docs/ROADMAP.md](docs/ROADMAP.md) has upcoming work;
+[docs/IMPLEMENTED.md](docs/IMPLEMENTED.md) summarizes verified scope and limits;
+[docs/DECISION_MATRIX.md](docs/DECISION_MATRIX.md) records settled and open
+decisions; [docs/INDEX.md](docs/INDEX.md) routes to plans, proof, contracts, and
+history. The full prior roadmap snapshot is retained as
+[historical evidence](docs/ROADMAP_HISTORY_2026-11-15.md).
 
 ## Companion track: gathering and building (Nov 3, 2026)
 
@@ -46,12 +50,14 @@ traceback is in `error.txt` and the summary has a failing "driver crashed" row.
 
 ## Local operation
 
-**Current direction:** start with the [roadmap](docs/ROADMAP.md) (status, ordered
-work, findings, and an index of every plan and ledger), then the
+**Current direction:** start with the [roadmap](docs/ROADMAP.md), then the
+[documentation index](docs/INDEX.md) and [implemented scope](docs/IMPLEMENTED.md).
+For navigation decisions, use the
 [October 28 navigation direction](docs/NAVIGATION_DIRECTION_2026-10-28.md), which
 supersedes older planning docs where they conflict. The
 [October 27 handoff](docs/PAUSE_HANDOFF_2026-10-27.md) is history for latency
-findings; its source hashes are out of date (the current body hash is in the roadmap).
+findings; its source hashes are out of date. Verify installed identity against
+`runtime/mod-build.json` and the source-bound gate records before using it.
 
 Development terrain sensing supports configurable visible, chunk and `sections`
 (whole loaded sections, the current development preset) awareness modes, separate
@@ -115,11 +121,13 @@ startup; `server status` reports `running` only after a Minecraft protocol respo
 rtk proxy powershell -NoProfile -File scripts/lab-ui.ps1
 ```
 
-This opens **http://127.0.0.1:8770/**. No additional libraries or frontend build
-are required. Select MCB/Baritone setups and courses or natural routes, start a
-session, follow progress and recorded timeout clocks, then select historical runs
-for comparison. The page also starts the lab and prepares/launches Baritone through
-the existing tools. Mineflayer is not integrated yet.
+Build the React interface first (`cd ui`, `npm ci`, `npm run build`, then return to
+the repository root). The Python dashboard serves the static app at
+**http://127.0.0.1:8770/**. It offers a dynamic catalog across all seven run
+families, schema-generated settings, configuration preview, saved suite
+references, queued batches and live status. If `ui/dist` is absent, `/` falls back
+to the previous page at `/legacy`. See [the UI guide](docs/LAB_UI.md) for build,
+configuration, lifecycle and verification details.
 
 The launcher reads the original configuration/profile files and calls the existing
 runners. It writes only selections, status and logs to `results/sessions/`; runner

@@ -13,8 +13,10 @@ from mclab.protocolproof import controls
 from mclab.qualify import QualificationCheckFailure
 from mclab.recorder import arena_guard
 from mclab.reference import MECHANICS
+from mclab.run_launch import recorded
 
 
+@recorded("companion", check="reference-fixtures")
 @arena_guard
 def qualify_reference_fixtures() -> dict:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")

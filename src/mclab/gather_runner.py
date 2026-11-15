@@ -38,7 +38,7 @@ from mclab import build_plan as bp
 from mclab import gather_plan as gp
 from mclab.build_runner import REACH, STANCE_REASONS, BuildBody, Result
 from mclab.gather_dig import LAVA, Digger
-from mclab.gather_kit import craft_underground
+from mclab.gather_kit import craft_local, craft_underground
 from mclab.gather_options import SENSE_DY, GatherOptions, pick_tool
 from mclab.gather_tasks import TIER_RANK, UNKNOWN_TIER_RANK
 from mclab.knowledge import Knowledge
@@ -49,6 +49,9 @@ Pos = tuple[int, int, int]
 EAT_BELOW = 14
 HUNT_BELOW = 10
 STATION_REACH = 3.5
+# Beyond this to a placed crafting table, crafting where the body stands beats
+# a walk the planner may never price (see _Exec.craft).
+LOCAL_CRAFT_DIST = 8.0
 DROP_RADIUS = 10.0
 EXPLORE_STEP = 16
 SURFACE_SCAN = 24  # how far up/down an explore ring column is read for its surface
@@ -778,6 +781,15 @@ class _Exec:
             table = self.station_pos("crafting_table")
             if table is None:
                 return Result(False, "no_table")
+            # A table far away or a floor up is a walk the plan cannot price; the
+            # held stock alone may make the item right here (20261114T201928310227Z:
+            # 430 s livelocked below a shaft for the surface table).
+            if (
+                math.dist(_cell(self.body.position()), table) > LOCAL_CRAFT_DIST
+                and not getattr(self, "_local_craft", False)
+                and craft_local(self, t.result, max(1, t.result_count))
+            ):
+                return Result(True)
             if not self.body.goto_stance(table, STATION_REACH):
                 return Result(False, "no_stance")
         return self.body.craft(t.recipe_id, t.times, table)

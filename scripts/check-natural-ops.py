@@ -12,8 +12,10 @@ from live_common import at, call, feet_cell, finish, kit, results_folder
 
 from mclab.companion_body import end_session, open_bridge, start_session
 from mclab.recorder import exclusive_arena
+from mclab.run_launch import script_run
 
 
+@script_run("natural-ops")
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", nargs=3, type=int, default=[990, 80, 988])
