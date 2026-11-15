@@ -1182,7 +1182,11 @@ final class RoutePlanner {
                         ? cuts(new int[]{tx, ty, tz}, new int[]{tx, ty + 1, tz})
                         : cuts(new int[]{tx, ty, tz}, new int[]{tx, ty + 1, tz}, new int[]{x, y + 2, z}, new int[]{x, y + 3, z},
                                 new int[]{tx, ty + 2, tz}));
-        if (cuts == null || cuts.size() > Math.min(recover ? 7 : 4, edits.breakBudget) || (cuts.isEmpty() && places.isEmpty())
+        // 7 cuts: the ceiling StepMotor has always executed (the recover form proved
+        // it). At 4, a +1 rise through solid rock listed 5 and was never offered, so
+        // the body could dig down but not back up (iron run 20261114T201928310227Z:
+        // 430 s of node-limit-incomplete plans below a 41-block shaft).
+        if (cuts == null || cuts.size() > Math.min(7, edits.breakBudget) || (cuts.isEmpty() && places.isEmpty())
                 || overHead(source, cuts))
             return null;
         return new Edit(source, target, cuts, places, "step");

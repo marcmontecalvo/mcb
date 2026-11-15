@@ -115,6 +115,27 @@ def test_cut_step_rejects_unknown_fluid_gravity_and_wrong_tool():
         cells[1, 1, 1] = neighbor
 
 
+def test_rise_through_solid_is_a_five_cut_step_up_to_the_budget():
+    # A +1 rise into all-solid rock lists five cells (target feet/head, two launch
+    # cells over the source head, target headroom). At the old 4-cut ceiling the
+    # edge was never offered and a bot that had dug down could not dig back up
+    # (iron run 20261114T201928310227Z: 430 s of node-limit-incomplete plans).
+    cells = {
+        (x, y, z): cell((x, y, z), True)
+        for x in range(-1, 3)
+        for y in range(-1, 6)
+        for z in range(-1, 2)
+    }
+    for y in (0, 1):  # the two-high pocket the body stands in
+        cells[0, y, 0] = cell((0, y, 0), False)
+    policy = TerrainPolicy(allow_place=False)
+    plan = prepare_step(cells, (0, 0, 0), (1, 1, 0), policy, inventory())
+    # bottom-up order: every cut's face is exposed by the one before it
+    assert plan.breaks == ((1, 1, 0), (1, 2, 0), (0, 2, 0), (0, 3, 0), (1, 3, 0))
+    tight = replace(policy, break_budget=4)
+    assert prepare_step(cells, (0, 0, 0), (1, 1, 0), tight, inventory()) is None
+
+
 @pytest.mark.parametrize(
     "policy",
     [

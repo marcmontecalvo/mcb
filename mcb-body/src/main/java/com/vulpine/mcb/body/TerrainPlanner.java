@@ -132,7 +132,7 @@ final class TerrainPlanner {
         List<RoutePlanner.Node> clearance=new ArrayList<>(List.of(t,add(t,0,1,0)));
         if(dy>0) clearance.addAll(List.of(add(s,0,2,0),add(s,0,3,0),add(t,0,2,0)));
         for(var p:new LinkedHashSet<>(clearance)) if(!empty(at(b,p))) { if(!cut(b,p)) return null; cuts.add(p); }
-        if(cuts.size()>Math.min(4,policy.breakBudget()-b.broken()) || (cuts.isEmpty() && places.isEmpty())) return null;
+        if(cuts.size()>Math.min(7,policy.breakBudget()-b.broken()) || (cuts.isEmpty() && places.isEmpty())) return null;
         return new Step(s,t,List.copyOf(cuts),List.copyOf(places),"step",null);
     }
     private Branch apply(Branch b,Step step) {
