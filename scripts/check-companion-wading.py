@@ -19,8 +19,10 @@ from mclab.companion_body import (
 )
 from mclab.paths import ROOT, write_json
 from mclab.recorder import exclusive_arena
+from mclab.run_launch import script_run
 
 
+@script_run("companion-wading")
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(

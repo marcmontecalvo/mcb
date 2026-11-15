@@ -65,18 +65,28 @@ def craft_underground(ex, t) -> bool:
     """A tool broke where ``t`` is mined: craft the lowest tier that harvests it
     from the inventory (carried table, logs, cobblestone), taking the table back after.
     False: it cannot (the caller escapes upward)."""
+    if (pick := pickaxe_for(ex.k, TIER_RANK.get(t.min_tier, 0))) is None:
+        return False
+    return craft_local(ex, pick, 1)
+
+
+def craft_local(ex, item: str, count: int = 1) -> bool:
+    """Craft ``item`` x ``count`` where the body stands: only steps that walk
+    nowhere (Craft from held stock, PlaceStation), taking back any table placed.
+    False: the held inventory alone cannot make it, or a step was refused."""
     from mclab import gather_plan as gp
 
-    k, body = ex.k, ex.body
-    if (pick := pickaxe_for(k, TIER_RANK.get(t.min_tier, 0))) is None:
+    if getattr(ex, "_local_craft", False):  # never recurse into a local craft
         return False
+    k, body = ex.k, ex.body
     # stations={}: the plan must place its own table, none of the far-away one
-    steps = gp.plan({pick: 1}, body.inventory(), k, {}, with_chest=False).tasks
+    steps = gp.plan({item: count}, body.inventory(), k, {}, with_chest=False).tasks
     allowed = (gp.Craft, gp.PlaceStation)
     if not steps or any(not isinstance(s, allowed) for s in steps):
         return False
     placed = None
     before = ex.state.stations.pop("crafting_table", None)
+    ex._local_craft = True
     try:
         for s in steps:
             if isinstance(s, gp.PlaceStation):
@@ -86,8 +96,9 @@ def craft_underground(ex, t) -> bool:
                 ex.state.stations[s.kind] = placed
             elif not ex.craft(s).ok:
                 return False
-        return body.inventory().get(pick, 0) > 0
+        return body.inventory().get(item, 0) >= count
     finally:
+        del ex._local_craft
         ex.state.stations.pop("crafting_table", None)
         if before is not None:
             ex.state.stations["crafting_table"] = before

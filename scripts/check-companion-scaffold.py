@@ -9,8 +9,10 @@ from live_common import kit
 from mclab.companion_body import WALK_TERRAIN, end_session, open_bridge, start_session
 from mclab.paths import ROOT, write_json
 from mclab.recorder import exclusive_arena
+from mclab.run_launch import script_run
 
 
+@script_run("companion-scaffold")
 def main():
     folder = (
         ROOT / "results/scaffolding" / datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")

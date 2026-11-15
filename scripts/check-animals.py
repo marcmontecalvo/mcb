@@ -17,6 +17,7 @@ from live_common import (
 )  # fmt: skip
 
 from mclab.recorder import exclusive_arena
+from mclab.run_launch import script_run
 
 ANIMALS = [
     ("minecraft:sheep", [2, 0, 0]),
@@ -28,6 +29,7 @@ ANIMALS = [
 ]
 
 
+@script_run("animals")
 def main() -> int:
     folder = results_folder()
     rows: list[dict] = []

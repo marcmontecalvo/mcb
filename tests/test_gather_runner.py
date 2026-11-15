@@ -657,6 +657,61 @@ def test_smelt_wait_logs_item_and_reason():
     assert recorded == [("gather_note", note)]
 
 
+def test_craft_far_from_the_table_crafts_where_the_body_stands():
+    # iron run 20261114T201928310227Z: with the station on the surface the bot
+    # livelocked 430 s at the bottom of its shaft instead of placing the carried
+    # table a few blocks from where it stood.
+    from mclab.gather_runner import GatherState
+    from mclab.gather_tasks import Craft
+
+    far = (20, 0, 0)
+    world = floor() | {far: M + "crafting_table"}
+    body = FakeGatherBody(
+        K,
+        world,
+        {M + "iron_ingot": 3, M + "stick": 2, M + "crafting_table": 1},
+    )
+    state = GatherState(stations={"crafting_table": far})
+    craft = Craft(M + "iron_pickaxe", 1, "crafting_table", M + "iron_pickaxe", 1)
+
+    report = run_gather(
+        PlanResult((craft,), (), 0.0),
+        body,
+        K,
+        state=state,
+    )
+
+    assert report.stop == "done", report.failures
+    assert body.inventory()[M + "iron_pickaxe"] == 1
+    assert body.inventory()[M + "crafting_table"] == 1  # taken back up after
+    assert state.stations["crafting_table"] == far  # the station record survives
+    assert ("goto", far) not in body.log  # never walked to the surface table
+    assert sum(1 for p, b in body.w.items() if b == M + "crafting_table") == 1
+
+
+def test_craft_needing_gathered_stock_still_walks_to_the_station():
+    from mclab.gather_runner import GatherState
+    from mclab.gather_tasks import Craft
+
+    far = (20, 0, 0)
+    world = floor() | {far: M + "crafting_table"} | {(3, 0, 0): M + "oak_log"}
+    body = FakeGatherBody(
+        K, world, {M + "iron_ingot": 3, M + "stick": 2}, sight=8
+    )  # no table, no planks: local crafting cannot, walking can
+    craft = Craft(M + "iron_pickaxe", 1, "crafting_table", M + "iron_pickaxe", 1)
+
+    report = run_gather(
+        PlanResult((craft,), (), 0.0),
+        body,
+        K,
+        state=GatherState(stations={"crafting_table": far}),
+    )
+
+    assert report.stop == "done", report.failures
+    assert body.inventory()[M + "iron_pickaxe"] == 1
+    assert ("goto", far) in body.log
+
+
 def test_explore_skips_tree_canopy_and_fluid_columns():
     from mclab.gather_runner import GatherState, _Exec
 

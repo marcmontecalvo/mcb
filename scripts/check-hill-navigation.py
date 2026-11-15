@@ -28,10 +28,12 @@ from mclab.navigation_runner import _motor_gc_policy
 from mclab.navigation_segmented import SegmentedController
 from mclab.paths import ROOT, SERVER, read_json, write_json
 from mclab.recorder import exclusive_arena
+from mclab.run_launch import script_run
 from mclab.spatial_memory import MapArchive, MapIdentity, SpatialMemory
 from mclab.terrain_steps import TerrainPolicy
 
 
+@script_run("hill-navigation")
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(

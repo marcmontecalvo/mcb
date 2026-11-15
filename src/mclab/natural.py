@@ -30,6 +30,7 @@ from mclab.navigation_runner import _motor_gc_policy, _new_identity, _source_com
 from mclab.navigation_segmented import SegmentedController
 from mclab.paths import ROOT, RUNTIME, SERVER, read_json, write_json
 from mclab.recorder import arena_guard
+from mclab.run_launch import recorded
 from mclab.spatial_memory import MapArchive, MapIdentity, SpatialMemory
 from mclab.terrain_steps import TerrainPolicy
 
@@ -525,6 +526,7 @@ def _error_chain(error):
     return chain
 
 
+@recorded("natural")
 @arena_guard
 def run(
     seed: int,

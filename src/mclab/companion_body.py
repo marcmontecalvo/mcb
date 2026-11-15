@@ -55,6 +55,7 @@ from mclab.control_loop import NATIVE, drive
 from mclab.execution import RecordedBridge, policy_state
 from mclab.gather_tasks import item_stack
 from mclab.interaction_goal import interacts
+from mclab.memory_policy import MemoryPolicy
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation_runner import _new_identity
 from mclab.navigation_segmented import SegmentedController
@@ -354,6 +355,7 @@ class _GotoController(SegmentedController):
         self.unreachable_since: int | None = None
         self.searching_since: int | None = None
         self.goal_progress_ticks = None  # companion goals may be far and slow
+        self.progress_state = None  # set by goto_stance: one clock across its loop
         self.guard = StuckGuard()
         self.idle_anchor = None
         self.idle_since = time.monotonic()
@@ -1038,7 +1040,13 @@ class CompanionBody:
         controller.close()
 
     def _navigate(
-        self, goal: Pos, *, reach: float | None, radius: float, probe: bool = False
+        self,
+        goal: Pos,
+        *,
+        reach: float | None,
+        radius: float,
+        probe: bool = False,
+        progress: dict | None = None,
     ) -> bool:
         mid = self._hop_toward(goal) if reach is None else None
         if mid is not None:
@@ -1047,11 +1055,13 @@ class CompanionBody:
             before = self.position()
             if math.hypot(mid[0] - before[0], mid[2] - before[2]) > SENSED_RADIUS:
                 return False
-            if not self._navigate(mid, reach=None, radius=2.0, probe=probe):
+            if not self._navigate(mid, reach=None, radius=2.0, probe=probe, progress=progress):
                 return False
             if math.dist(self.position(), before) < 2.0:
                 return False  # the hop did not move us: do not loop
-            return self._navigate(goal, reach=reach, radius=radius, probe=probe)
+            return self._navigate(
+                goal, reach=reach, radius=radius, probe=probe, progress=progress
+            )
         self.stage_fill()
         # ponytail: the bridge keeps every event and observation and its ack waits
         # rescan all of them; after 835 blocks (run 20261110T075452397123Z, 18.6 GB)
@@ -1069,6 +1079,7 @@ class CompanionBody:
         if controller is None:
             controller = self._goto_controller(goal, reach, radius, probe, wall)
         controller.on_pass = self.on_pass
+        controller.progress_state = progress
         # A passive mob that still blocks a step after the pushes is killed
         # (native_driver.no_progress_decision); an axe first, else the mod's pick.
         controller.clear_mob = lambda uuid: self.attack_entity(uuid, self._axe())
@@ -1414,6 +1425,9 @@ class CompanionBody:
         stances = stances[:MAX_CANDIDATES]
         radius = PRECISE_RADIUS if self.precise_stance else 0.6
         hopped = False
+        # One no-progress clock for the whole stance loop: each probe resets the
+        # drive's own timer, so 6 stances could burn 6 x 150 s on one goal.
+        progress = {"distance": math.dist(here, target), "tick": None}
         for node in stances:
             # Ask the planner before walking (roadmap item 1): a candidate across
             # known water is unroutable, and testing that by walking it costs the
@@ -1432,7 +1446,7 @@ class CompanionBody:
                 continue
             if distant and self._hop_toward(node) is not None:
                 hopped = True
-            if self._navigate(node, reach=None, radius=radius, probe=True):
+            if self._navigate(node, reach=None, radius=radius, probe=True, progress=progress):
                 return True
             if getattr(self, "walk_only", False) and self.position() == here:
                 self._failed_stance_probes[key] = time.monotonic() + 10.0
@@ -1447,7 +1461,7 @@ class CompanionBody:
             # (iron run 20261112T233253015689Z: 15 unreachable probes, then three
             # furnace crafts died on no_stance and the job with them). The
             # interaction search may edit, so it can dig its own way out.
-            if self._navigate(target, reach=reach, radius=2):
+            if self._navigate(target, reach=reach, radius=2, progress=progress):
                 if self.position() not in avoid:
                     return True
         return False
@@ -1539,15 +1553,24 @@ def _level_dir():
     return SERVER / "world"
 
 
-def session_archive(folder, awareness, episode_id, world_memory=None):
+def session_archive(
+    folder, awareness, episode_id, world_memory=None, memory_policy=None
+):
     """Per-world archive that outlives the session, or a per-run one.
 
     None: world memory only in a kept world. A companion_world(seed) copy is
     restored fresh every run, so remembering it would make a run depend on the
     runs before it. Arena/course runs (natural.py) never come here.
     """
+    memory_policy = memory_policy or MemoryPolicy()
+    if not isinstance(memory_policy, MemoryPolicy):
+        raise ValueError("Invalid memory policy")
     if world_memory is None:
         world_memory = not _restored_world
+    else:
+        # A copied seed world is isolated even if a caller requests persistence.
+        world_memory = bool(world_memory) and not _restored_world
+    world_memory = world_memory and memory_policy.memory_mode == "persistent"
     level = _level_dir()
     if world_memory:
         archive = world_archive(level, awareness, WORLD_MEMORY)
@@ -1573,16 +1596,21 @@ def start_session(
     movement_policy: MovementPolicy | None = None,
     terrain_policy: TerrainPolicy | None = None,
     world_memory: bool | None = None,
+    memory_policy: MemoryPolicy | None = None,
 ):
     """Begin the long ``natural_start`` episode that keeps /policy and the follower
     open, and return ``(CompanionBody, SpatialMemory)``. Needs an idle lab.
     ``dig`` selects edit permissions; explicit movement/terrain policies override
     the defaults, without changing the available action methods.
-    ``world_memory``: see session_archive (default: on in a kept world)."""
+    ``world_memory``: see session_archive (default: on in a kept world).
+    ``memory_policy`` controls retention, history visibility and memory budgets."""
     # sections-v1 terrain needs the "sections" preset; same profile as natural runs.
     awareness = awareness or Awareness.from_payload(
         read_json(ROOT / "config/stepc/awareness-sections-64.json")
     )
+    memory_policy = memory_policy or MemoryPolicy()
+    if not isinstance(memory_policy, MemoryPolicy):
+        raise ValueError("Invalid memory policy")
     _new_identity(bridge, "companion")
     bridge.policy_memory = None
     # Opened before the body exists: creating the file costs about a second of disk
@@ -1591,8 +1619,11 @@ def start_session(
     # on, else per-run. Home is the requested feet cell (the mod spawns the body
     # there; the standable check below verifies the observed one).
     memory = SpatialMemory(
-        session_archive(folder, awareness, bridge.episode_id, world_memory),
+        session_archive(
+            folder, awareness, bridge.episode_id, world_memory, memory_policy
+        ),
         bridge.episode_id,
+        policy=memory_policy,
     )
     places = PlaceGraph(memory.archive)
     if places.named("home") is None:

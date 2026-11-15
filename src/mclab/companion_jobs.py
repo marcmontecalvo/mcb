@@ -30,6 +30,7 @@ from pathlib import Path
 from mclab import build_plan as bp
 from mclab import gather_plan as gp
 from mclab.build_runner import BuildReport, SiteCutter, run_build
+from mclab.gather_options import GatherOptions
 from mclab.gather_runner import STATION_REACH, GatherReport, GatherState, run_gather
 from mclab.gather_tasks import Deposit, PlanResult, Withdraw
 from mclab.knowledge import Knowledge, load_pack
@@ -142,7 +143,13 @@ def junk(inventory: dict[str, int], wanted: dict[str, int]) -> dict[str, int]:
     }
 
 
-def _stow_junk(wanted: dict[str, int], body, knowledge, state: GatherState) -> None:
+def _stow_junk(
+    wanted: dict[str, int],
+    body,
+    knowledge,
+    state: GatherState,
+    gather_options: GatherOptions | None = None,
+) -> None:
     # ponytail: the emptiest known chest takes the site-clearing leftovers (dirt,
     # flowers, saplings). Run 20261110T124208809624Z stopped need_materials at 294
     # blocks: the inventory was full of them, so the refill withdrew nothing.
@@ -151,14 +158,20 @@ def _stow_junk(wanted: dict[str, int], body, knowledge, state: GatherState) -> N
         return
     pos = min(state.containers, key=lambda c: sum(state.containers[c].values()))
     plan = PlanResult((Deposit(tuple(sorted(spare.items())), pos),), (), 0.0)
-    run_gather(plan, body, knowledge, state=state)
+    run_gather(plan, body, knowledge, state=state, opts=gather_options)
 
 
-def _take(items: dict[str, int], body, knowledge, state: GatherState) -> None:
+def _take(
+    items: dict[str, int],
+    body,
+    knowledge,
+    state: GatherState,
+    gather_options: GatherOptions | None = None,
+) -> None:
     """Withdraw `items` from the remembered containers, as far as they hold them."""
     plan = _withdraw_plan(items, body, state)
     if plan.tasks:
-        run_gather(plan, body, knowledge, state=state)
+        run_gather(plan, body, knowledge, state=state, opts=gather_options)
 
 
 def build_job(
@@ -177,6 +190,7 @@ def build_job(
     build_only: bool = False,
     on_progress=None,
     site_margin: int | None = 1,
+    gather_options: GatherOptions | None = None,
 ) -> JobReport:
     """``chests``: positions of chests known at the start. They are read first; shulker
     boxes are taken at once (they carry the gather's overflow), scaffolding stays put
@@ -193,7 +207,7 @@ def build_job(
     started = clock() if clock else 0
     if not build_only:
         read_chests(chests, body, state)
-        _take({SHULKER: 2}, body, knowledge, state)
+        _take({SHULKER: 2}, body, knowledge, state, gather_options)
     needed = materials_of(build, knowledge)
     needed.update(bp.tool_needs(template, body.inventory()))
     report.needed = dict(needed)
@@ -220,6 +234,7 @@ def build_job(
             state.stations,
             starter_tools=True,
             storage=_storage_boxes(state),
+            kit=gather_options,
         )
         report.starter = run_gather(
             starter,
@@ -229,12 +244,12 @@ def build_job(
             state=state,
             max_failures=max_failures,
             storage=lambda: _storage_boxes(state),
+            opts=gather_options,
         )
         if report.starter.stop in GATHER_ENDS:
             report.stop = "gather_failed"
             return report
     if gap and not build_only:
-
         cutter = (
             SiteCutter(
                 template,
@@ -264,6 +279,7 @@ def build_job(
             state.stations,
             starter_tools=True,
             storage=_storage_boxes(state),
+            kit=gather_options,
         )
         report.gather = run_gather(
             first,
@@ -274,6 +290,7 @@ def build_job(
             max_failures=max_failures,
             storage=lambda: _storage_boxes(state),
             idle_work=_clear_area,
+            opts=gather_options,
         )
         if report.gather.stop in GATHER_ENDS:
             report.stop = "gather_failed"
@@ -288,12 +305,12 @@ def build_job(
             return False
         refills += 1
         wanted = dict(shortfall)
-        _stow_junk({**needed, **wanted}, body, knowledge, state)
+        _stow_junk({**needed, **wanted}, body, knowledge, state, gather_options)
         before = body.inventory()
         # Chests first, and back to building on any gain. Run 20261110T170929838024Z
         # was short one detector rail with the rest of the house in the chests: the
         # full plan put the ore hunt first and walked the explore ring over a swamp.
-        _take(wanted, body, knowledge, state)
+        _take(wanted, body, knowledge, state, gather_options)
         if any(body.inventory().get(i, 0) > before.get(i, 0) for i in wanted):
             report.refills.append(GatherReport(stop="done"))
             return True
@@ -304,6 +321,7 @@ def build_job(
             state.stations,
             starter_tools=True,
             storage=_storage_boxes(state),
+            kit=gather_options,
         )
         outcome = run_gather(
             fresh,
@@ -314,6 +332,7 @@ def build_job(
             max_failures=max_failures,
             explore_cap=0,  # craft and cut what is in sight; never leave the site
             storage=lambda: _storage_boxes(state),
+            opts=gather_options,
         )
         report.refills.append(outcome)
         held_now = body.inventory()
@@ -324,7 +343,13 @@ def build_job(
             held_now.get(i, 0) >= n for i, n in wanted.items()
         )
 
-    _take({bp.SCAFFOLD_ITEMS[0]: SCAFFOLD_STACK}, body, knowledge, state)
+    _take(
+        {bp.SCAFFOLD_ITEMS[0]: SCAFFOLD_STACK},
+        body,
+        knowledge,
+        state,
+        gather_options,
+    )
     body.precise_stance = True  # placing needs the body centred and out of the cell
     try:
         report.build = run_build(

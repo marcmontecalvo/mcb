@@ -10,12 +10,14 @@ from mclab.bridge import Bridge
 from mclab.modbuild import source_hash
 from mclab.paths import MOD_SOURCES, ROOT, digest, read_json, write_json
 from mclab.recorder import arena_guard
+from mclab.run_launch import recorded
 
 
 class QualificationCheckFailure(RuntimeError):
     """An observed mechanics result fell outside the declared tolerance."""
 
 
+@recorded("companion", check="body-commands")
 @arena_guard
 def qualify_commands() -> dict:
     profile = read_json(ROOT / "config/qualification.json")

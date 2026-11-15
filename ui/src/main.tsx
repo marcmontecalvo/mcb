@@ -1,0 +1,863 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { Button, Card, Badge, Alert } from "@homenet/ui";
+import "@homenet/ui/styles.css";
+import "./style.css";
+import {
+  type Entry,
+  type Json,
+  type Schema,
+  getPath,
+  mergeObjects,
+  nonNullSchema,
+  setPath,
+  seedsFromText,
+  updateEntry,
+  supportsSeeds,
+  isLocked,
+  loadedSuite,
+} from "./model";
+
+type Test = {
+  id: string;
+  label: string;
+  family: string;
+  description: string;
+  default_config: Record<string, Json>;
+  locked_fields?: string[];
+};
+type Preset = {
+  id: string;
+  label: string;
+  config: Record<string, Json>;
+  supported_tests?: string[];
+};
+type Suite = { id: string; name: string; entries: Entry[] };
+type Job = {
+  id: string;
+  label?: string;
+  kind?: string;
+  entrant?: string;
+  run_config?: Json;
+};
+type Snapshot = {
+  status?: Record<string, unknown>;
+  sessions?: Record<string, unknown>[];
+  results?: Record<string, unknown>[];
+};
+const token =
+  document.querySelector<HTMLMetaElement>('meta[name="mcb-token"]')?.content ??
+  "";
+async function api<T>(url: string, method = "GET", body?: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method,
+    credentials: "same-origin",
+    headers: {
+      "X-UI-Token": token,
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await response.json();
+  if (!response.ok)
+    throw new Error(
+      data.error || data.detail || `Request failed (${response.status})`,
+    );
+  return data as T;
+}
+const label = (s: string) =>
+  s.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+const derived = new Set([
+  "model.model",
+  "model.deadline_s",
+  "model.planner_model",
+  "model.prompt_identity",
+  "model.planner_prompt_identity",
+]);
+
+function JsonInput({
+  value,
+  onChange,
+  id,
+  validity,
+}: {
+  value: Json;
+  onChange: (v: Json) => void;
+  id: string;
+  validity: (id: string, valid: boolean) => void;
+}) {
+  const [text, setText] = useState(JSON.stringify(value, null, 2));
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setText(JSON.stringify(value, null, 2));
+    setError("");
+  }, [JSON.stringify(value)]);
+  useEffect(() => () => validity(id, true), [id]);
+  return (
+    <>
+      <textarea
+        id={id}
+        rows={3}
+        value={text}
+        aria-invalid={!!error}
+        onChange={(e) => {
+          setText(e.target.value);
+          try {
+            onChange(JSON.parse(e.target.value));
+            setError("");
+            validity(id, true);
+          } catch {
+            setError("Enter valid JSON.");
+            validity(id, false);
+          }
+        }}
+      />
+      {error && <span className="field-error">{error}</span>}
+    </>
+  );
+}
+function Fields({
+  schema,
+  value,
+  overrides,
+  family,
+  path = [],
+  change,
+  validity,
+  locked,
+}: {
+  schema: Schema;
+  value: unknown;
+  overrides: Record<string, Json>;
+  family: string;
+  path?: string[];
+  change: (path: string[], value: Json) => void;
+  validity: (id: string, valid: boolean) => void;
+  locked: string[];
+}) {
+  const node = nonNullSchema(schema);
+  if (schema.supported_tests && !schema.supported_tests.includes(family))
+    return null;
+  if (isLocked(path, locked)) return null;
+  if (path.length && derived.has(path.join("."))) return null;
+  if (node.properties) {
+    return (
+      <div className={path.length ? "field-group" : ""}>
+        {path.length > 0 && <h4>{schema.label || label(path.at(-1)!)}</h4>}
+        <div className="fields">
+          {Object.entries(node.properties)
+            .filter(
+              ([key]) =>
+                !(path.length === 0 && ["schema_version", "run"].includes(key)),
+            )
+            .map(([key, child]) =>
+              key === "test" ? null : (
+                <Fields
+                  key={key}
+                  schema={child}
+                  value={value}
+                  overrides={overrides}
+                  family={family}
+                  path={[...path, key]}
+                  change={change}
+                  validity={validity}
+                  locked={locked}
+                />
+              ),
+            )}
+        </div>
+      </div>
+    );
+  }
+  const override = getPath(overrides, path);
+  const effective =
+    override !== undefined ? override : (getPath(value, path) ?? null);
+  const id = "field-" + path.join("-");
+  const title = schema.label || label(path.at(-1) || "Setting");
+  if ((node.type === "object" && !node.properties) || node.type === "array")
+    return (
+      <div className="field wide">
+        <label htmlFor={id}>{title}</label>
+        <JsonInput
+          id={id}
+          value={effective}
+          onChange={(v) => change(path, v)}
+          validity={validity}
+        />
+      </div>
+    );
+  if (node.type === "boolean")
+    return (
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={effective === true}
+          onChange={(e) => change(path, e.target.checked)}
+        />
+        <span>{title}</span>
+      </label>
+    );
+  if (node.enum) {
+    return (
+      <div className="field">
+        <label htmlFor={id}>{title}</label>
+        <select
+          id={id}
+          value={effective === null ? "" : String(effective)}
+          onChange={(e) =>
+            change(path, e.target.value === "" ? null : e.target.value)
+          }
+        >
+          {effective === null && <option value="">Default / none</option>}
+          {node.enum
+            .filter((x) => x !== null)
+            .map((x) => (
+              <option key={String(x)} value={String(x)}>
+                {String(x)}
+              </option>
+            ))}
+        </select>
+      </div>
+    );
+  }
+  const numeric = node.type === "integer" || node.type === "number";
+  return (
+    <div className="field">
+      <label htmlFor={id}>{title}</label>
+      <input
+        id={id}
+        type={numeric ? "number" : "text"}
+        min={node.minimum}
+        max={node.maximum}
+        step={node.type === "integer" ? 1 : "any"}
+        value={effective === null ? "" : String(effective)}
+        onChange={(e) =>
+          change(
+            path,
+            e.target.value === ""
+              ? null
+              : numeric
+                ? Number(e.target.value)
+                : e.target.value,
+          )
+        }
+      />
+      {schema.description && <small>{schema.description}</small>}
+    </div>
+  );
+}
+function App() {
+  const [tests, setTests] = useState<Test[]>([]),
+    [presets, setPresets] = useState<Preset[]>([]),
+    [suites, setSuites] = useState<Suite[]>([]),
+    [schema, setSchema] = useState<Schema | null>(null),
+    [entries, setEntries] = useState<Entry[]>([]),
+    [selected, setSelected] = useState(-1),
+    [name, setName] = useState("My suite"),
+    [jobs, setJobs] = useState<Job[]>([]),
+    [snapshot, setSnapshot] = useState<Snapshot>({}),
+    [error, setError] = useState(""),
+    [notice, setNotice] = useState(""),
+    [connected, setConnected] = useState(false),
+    [tab, setTab] = useState<"configure" | "activity" | "history">("configure"),
+    [history, setHistory] = useState<unknown>(null),
+    [seedText, setSeedText] = useState(""),
+    [suiteId, setSuiteId] = useState("");
+  const [invalid, setInvalid] = useState<Record<string, boolean>>({});
+  const validity = (id: string, valid: boolean) =>
+    setInvalid((old) => {
+      if (valid && !old[id]) return old;
+      const next = { ...old };
+      if (valid) delete next[id];
+      else next[id] = true;
+      return next;
+    });
+  useEffect(() => {
+    Promise.all([
+      api<{ tests: Test[]; presets: Preset[] }>("/api/catalog"),
+      api<Schema>("/api/schema"),
+      api<Suite[]>("/api/suites"),
+    ])
+      .then(([catalog, s, stored]) => {
+        setTests(catalog.tests || []);
+        setPresets(catalog.presets || []);
+        setSchema(s);
+        setSuites(Array.isArray(stored) ? stored : []);
+      })
+      .catch((e) => setError(String(e.message)));
+    let stream: EventSource | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let closed = false;
+    const connect = () => {
+      stream = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
+      stream.addEventListener("snapshot", (event) => {
+        try {
+          setSnapshot(JSON.parse((event as MessageEvent).data));
+          setConnected(true);
+        } catch {
+          setConnected(false);
+        }
+      });
+      stream.onerror = () => {
+        setConnected(false);
+        // The browser does not retry after a non-200 reply (e.g. 503 when full).
+        if (stream?.readyState === EventSource.CLOSED && !closed) {
+          stream.close();
+          retry = setTimeout(connect, 3000);
+        }
+      };
+    };
+    connect();
+    return () => {
+      closed = true;
+      clearTimeout(retry);
+      stream?.close();
+    };
+  }, []);
+  const current = entries[selected],
+    test = tests.find((t) => t.id === current?.test_id);
+  const preset = presets.find((p) => p.id === current?.preset);
+  const displayConfig = test
+    ? mergeObjects(test.default_config, preset?.config || {})
+    : {};
+  useEffect(() => {
+    setSeedText(current?.seeds?.join(", ") || "");
+  }, [selected]);
+  const update = (fn: (entry: Entry) => Entry) => {
+    setEntries((old) => updateEntry(old, selected, fn));
+    setJobs([]);
+  };
+  const toggle = (id: string) => {
+    const index = entries.findIndex((e) => e.test_id === id);
+    if (index >= 0) {
+      const next = entries.filter((e) => e.test_id !== id);
+      setEntries(next);
+      setSelected(next.length ? 0 : -1);
+    } else {
+      setEntries([...entries, { test_id: id }]);
+      setSelected(entries.length);
+    }
+    setInvalid({});
+    setJobs([]);
+  };
+  const change = (path: string[], value: Json) =>
+    update((e) => {
+      let overrides = setPath(e.overrides || {}, path, value);
+      if (
+        path.join(".") === "model.backend" ||
+        path.join(".") === "model.planner_backend"
+      ) {
+        const model = overrides.model;
+        if (model && typeof model === "object" && !Array.isArray(model)) {
+          model.model = null;
+          model.deadline_s = null;
+          model.planner_model = null;
+          model.prompt_identity = null;
+          model.planner_prompt_identity = null;
+        }
+      }
+      return { ...e, overrides };
+    });
+  async function resolve() {
+    if (Object.keys(invalid).length) {
+      setError("Correct invalid settings before resolving the suite.");
+      return null;
+    }
+    try {
+      setError("");
+      const result = await api<{ jobs: Job[] }>("/api/resolve", "POST", {
+        entries,
+      });
+      setJobs(result.jobs);
+      return result.jobs;
+    } catch (e) {
+      setError((e as Error).message);
+      return null;
+    }
+  }
+  async function save() {
+    try {
+      setError("");
+      const result = await api<Suite>("/api/suites", "POST", { name, entries });
+      setSuites(await api<Suite[]>("/api/suites"));
+      setNotice(`Saved ${result.name || name}.`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function start() {
+    if (!(await resolve())) return;
+    try {
+      await api("/api/start", "POST", { kind: "suite", entries });
+      setTab("activity");
+      setNotice("Suite submitted.");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function action(name: string) {
+    try {
+      const result = await api<{ status?: string }>(`/api/${name}`, "POST", {});
+      setNotice(result.status || `${label(name)} requested.`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function openHistory() {
+    setTab("history");
+    try {
+      const [results, builds] = await Promise.all([
+        api("/api/results"),
+        api("/api/builds"),
+      ]);
+      setHistory({ results, builds });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  const status = String(snapshot.status?.state || "unknown");
+  const groups = useMemo(
+    () => Array.from(new Set(tests.map((t) => t.family))),
+    [tests],
+  );
+  return (
+    <div className="shell">
+      <aside className="rail">
+        <div className="brand">
+          <span className="brand-mark">M</span>
+          <div>
+            <strong>MCB</strong>
+            <small>LAB COMPANION</small>
+          </div>
+        </div>
+        <p className="rail-label">WORKSPACE</p>
+        <nav aria-label="Workspace">
+          <button
+            className={tab === "configure" ? "active" : ""}
+            onClick={() => setTab("configure")}
+          >
+            ◇ <span>Suite builder</span>
+          </button>
+          <button
+            className={tab === "activity" ? "active" : ""}
+            onClick={() => setTab("activity")}
+          >
+            ◉ <span>Live activity</span>
+          </button>
+          <button
+            className={tab === "history" ? "active" : ""}
+            onClick={openHistory}
+          >
+            ▤ <span>History & builds</span>
+          </button>
+        </nav>
+        <div className="rail-bottom">
+          <span className={"dot " + (connected ? "online" : "")} />
+          {connected ? "Live connection" : "Reconnecting"}
+          <a href="/legacy">Open classic dashboard ↗</a>
+        </div>
+      </aside>
+      <main>
+        <header className="top">
+          <span>
+            CONTROL CENTER <b>/</b>{" "}
+            {tab === "configure"
+              ? "SUITE BUILDER"
+              : tab === "activity"
+                ? "LIVE ACTIVITY"
+                : "HISTORY"}
+          </span>
+          <div>
+            <span className={"dot " + (connected ? "online" : "")} />
+            {connected ? "CONNECTED" : "RECONNECTING"}
+          </div>
+        </header>
+        <div className="content">
+          <div className="heading">
+            <div>
+              <p className="eyebrow">MCB LAB COMPANION</p>
+              <h1>
+                {tab === "configure"
+                  ? "Build a run suite"
+                  : tab === "activity"
+                    ? "Live activity"
+                    : "History & builds"}
+              </h1>
+              <p>
+                {tab === "configure"
+                  ? "Choose tests, tune the settings, and review the queue before launch."
+                  : tab === "activity"
+                    ? "Follow the current session and its jobs."
+                    : "Browse previous results and build runs."}
+              </p>
+            </div>
+            <Badge tone={status === "running" ? "working" : "quiet"}>
+              {status}
+            </Badge>
+          </div>
+          {error && (
+            <Alert title="Something needs attention" tone="attention">
+              {error}
+            </Alert>
+          )}
+          {notice && (
+            <p className="notice" role="status">
+              {notice}
+            </p>
+          )}
+          {tab === "configure" && (
+            <div className="workspace">
+              <Card
+                className="panel picker"
+                title="Tests"
+                description="Select one or more tests to add to your suite."
+              >
+                <div className="suite-load">
+                  <label htmlFor="saved">Load saved suite</label>
+                  <select
+                    id="saved"
+                    value={suiteId}
+                    onChange={(e) => setSuiteId(e.target.value)}
+                  >
+                    <option value="">Choose a suite</option>
+                    {suites.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    variant="secondary"
+                    disabled={!suiteId}
+                    onClick={() => {
+                      const suite = suites.find((x) => x.id === suiteId);
+                      if (suite) {
+                        const loaded = loadedSuite(suite.entries);
+                        setName(suite.name);
+                        setEntries(loaded.entries);
+                        setSelected(loaded.selected);
+                        setSeedText(loaded.seedText);
+                        setInvalid({});
+                        setJobs([]);
+                      }
+                    }}
+                  >
+                    Load suite
+                  </Button>
+                </div>
+                {entries.length > 0 && (
+                  <div className="test-group">
+                    <h3>Suite entries</h3>
+                    {entries.map((entry, i) => (
+                      <button
+                        key={i}
+                        className={selected === i ? "selected" : ""}
+                        onClick={() => {
+                          setSelected(i);
+                          setInvalid({});
+                        }}
+                      >
+                        {i + 1}.{" "}
+                        {tests.find((t) => t.id === entry.test_id)?.label ||
+                          entry.test_id}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {groups.map((group) => (
+                  <section key={group} className="test-group">
+                    <h3>{label(group)}</h3>
+                    {tests
+                      .filter((t) => t.family === group)
+                      .map((t) => (
+                        <div
+                          className={
+                            "test-row " +
+                            (current?.test_id === t.id ? "selected" : "")
+                          }
+                          key={t.id}
+                        >
+                          <input
+                            aria-label={`Include ${t.label}`}
+                            type="checkbox"
+                            checked={entries.some((e) => e.test_id === t.id)}
+                            onChange={() => toggle(t.id)}
+                          />
+                          <button
+                            onClick={() => {
+                              if (!entries.some((e) => e.test_id === t.id))
+                                toggle(t.id);
+                              else {
+                                setSelected(
+                                  entries.findIndex((e) => e.test_id === t.id),
+                                );
+                                setInvalid({});
+                              }
+                            }}
+                          >
+                            <strong>{t.label}</strong>
+                            <small>{t.description}</small>
+                          </button>
+                        </div>
+                      ))}
+                  </section>
+                ))}
+              </Card>
+              <div className="editor">
+                <Card
+                  className="panel"
+                  title={test?.label || "Test settings"}
+                  description={
+                    test?.description || "Select a test to configure it."
+                  }
+                >
+                  {current && test && schema ? (
+                    <>
+                      <div className="fields">
+                        <div className="field">
+                          <label htmlFor="preset">Preset</label>
+                          <select
+                            id="preset"
+                            value={current.preset || ""}
+                            onChange={(e) =>
+                              update((x) => ({
+                                ...x,
+                                preset: e.target.value || undefined,
+                              }))
+                            }
+                          >
+                            <option value="">Built-in defaults</option>
+                            {presets
+                              .filter(
+                                (p) =>
+                                  !p.supported_tests ||
+                                  p.supported_tests.includes(test.family),
+                              )
+                              .map((p) => (
+                                <option value={p.id} key={p.id}>
+                                  {p.label}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                        {supportsSeeds(test.family) && (
+                          <div className="field">
+                            <label htmlFor="seeds">Seeds</label>
+                            <input
+                              id="seeds"
+                              placeholder="e.g. 1, 2, 3"
+                              value={seedText}
+                              onChange={(e) => {
+                                setSeedText(e.target.value);
+                                try {
+                                  const seeds = seedsFromText(e.target.value);
+                                  update((x) => ({ ...x, seeds }));
+                                  validity("seeds", true);
+                                  setError("");
+                                } catch (err) {
+                                  validity("seeds", false);
+                                  setError((err as Error).message);
+                                }
+                              }}
+                            />
+                            <small>
+                              Comma-separated; leave blank for the test default.
+                            </small>
+                          </div>
+                        )}
+                        <div className="field">
+                          <label htmlFor="repetitions">Repetitions</label>
+                          <input
+                            id="repetitions"
+                            type="number"
+                            min="1"
+                            max="3"
+                            value={current.repetitions ?? ""}
+                            placeholder="Default"
+                            onChange={(e) =>
+                              update((x) => ({
+                                ...x,
+                                repetitions: e.target.value
+                                  ? Number(e.target.value)
+                                  : undefined,
+                              }))
+                            }
+                          />
+                        </div>
+                      </div>
+                      <Fields
+                        schema={schema.properties?.run || {}}
+                        path={["run"]}
+                        value={displayConfig}
+                        overrides={current.overrides || {}}
+                        family={test.family}
+                        change={change}
+                        validity={validity}
+                        locked={test.locked_fields || []}
+                      />
+                      {["body", "planner", "model"].map((key) => (
+                        <Fields
+                          key={key}
+                          schema={schema.properties?.[key] || {}}
+                          path={[key]}
+                          value={displayConfig}
+                          overrides={current.overrides || {}}
+                          family={test.family}
+                          change={change}
+                          validity={validity}
+                          locked={test.locked_fields || []}
+                        />
+                      ))}
+                    </>
+                  ) : (
+                    <div className="empty">
+                      Choose a test from the list to see its settings.
+                    </div>
+                  )}
+                </Card>
+                <Card
+                  className="panel queue"
+                  title="Queue preview"
+                  description="Resolve the suite to see the exact jobs that will run."
+                >
+                  <div className="queue-head">
+                    <span>
+                      {entries.length} TEST{entries.length === 1 ? "" : "S"}{" "}
+                      SELECTED
+                    </span>
+                    <Button
+                      variant="secondary"
+                      disabled={
+                        !entries.length || !!Object.keys(invalid).length
+                      }
+                      onClick={resolve}
+                    >
+                      Resolve queue
+                    </Button>
+                  </div>
+                  {jobs.length ? (
+                    <ol>
+                      {jobs.map((job, i) => (
+                        <li key={job.id || i}>
+                          <span className="job-number">
+                            {String(i + 1).padStart(2, "0")}
+                          </span>
+                          <span>
+                            <strong>{job.label || job.kind || job.id}</strong>
+                            <small>{job.entrant || job.kind}</small>
+                          </span>
+                          <details>
+                            <summary>Configuration</summary>
+                            <pre>{JSON.stringify(job.run_config, null, 2)}</pre>
+                          </details>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <div className="empty">
+                      Your expanded jobs will appear here.
+                    </div>
+                  )}
+                  <div className="queue-actions">
+                    <label className="suite-name">
+                      Suite name
+                      <input
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                      />
+                    </label>
+                    <Button
+                      variant="secondary"
+                      disabled={
+                        !entries.length ||
+                        !name.trim() ||
+                        !!Object.keys(invalid).length
+                      }
+                      onClick={save}
+                    >
+                      Save suite
+                    </Button>
+                    <Button
+                      disabled={
+                        !entries.length || !!Object.keys(invalid).length
+                      }
+                      onClick={start}
+                    >
+                      ▶ &nbsp; Start suite
+                    </Button>
+                  </div>
+                </Card>
+              </div>
+            </div>
+          )}
+          {tab === "activity" && (
+            <div className="activity">
+              <Card className="panel" title="Session status">
+                <div className="status-line">
+                  <Badge tone={status === "running" ? "working" : "quiet"}>
+                    {status}
+                  </Badge>
+                  <span>
+                    {connected
+                      ? "Receiving live updates"
+                      : "Waiting for connection"}
+                  </span>
+                </div>
+                <div className="actions">
+                  <Button variant="secondary" onClick={() => action("stop")}>
+                    Stop after current batch
+                  </Button>
+                  <Button variant="danger" onClick={() => action("kill")}>
+                    Cancel current run (cleanup first)
+                  </Button>
+                </div>
+                <p>Dashboard shutdown leaves batches running.</p>
+                <div className="actions">
+                  <Button className="dashboard-shutdown" variant="ghost" onClick={() => action("shutdown")}>
+                    Shut down dashboard
+                  </Button>
+                </div>
+                <pre>{JSON.stringify(snapshot.status || {}, null, 2)}</pre>
+              </Card>
+              <Card className="panel" title="Sessions & jobs">
+                {snapshot.sessions?.length ? (
+                  snapshot.sessions.map((s, i) => (
+                    <details key={String(s.id || i)} open>
+                      <summary>
+                        {String(s.label || s.id || `Session ${i + 1}`)} ·{" "}
+                        {String(s.state || s.status || "unknown")}
+                        {s.kill_requested ? " · cancel requested" : s.stop_requested ? " · stop requested" : ""}
+                      </summary>
+                      <pre>{JSON.stringify(s, null, 2)}</pre>
+                    </details>
+                  ))
+                ) : (
+                  <div className="empty">No sessions yet.</div>
+                )}
+              </Card>
+            </div>
+          )}
+          {tab === "history" && (
+            <Card className="panel" title="Results & builds">
+              <p>
+                Open the classic dashboard for detailed inspection and existing
+                run tools.
+              </p>
+              <a className="text-link" href="/legacy">
+                Open classic dashboard ↗
+              </a>
+              <pre>
+                {history ? JSON.stringify(history, null, 2) : "Loading…"}
+              </pre>
+            </Card>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);

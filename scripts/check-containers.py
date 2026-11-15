@@ -17,8 +17,10 @@ from live_common import (
 )  # fmt: skip
 
 from mclab.recorder import exclusive_arena
+from mclab.run_launch import script_run
 
 
+@script_run("containers")
 def main() -> int:
     folder = results_folder()
     rows: list[dict] = []

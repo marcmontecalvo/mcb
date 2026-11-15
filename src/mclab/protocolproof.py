@@ -11,6 +11,7 @@ from mclab.modbuild import source_hash
 from mclab.paths import MOD_SOURCES, ROOT, read_json, write_json
 from mclab.qualify import QualificationCheckFailure
 from mclab.recorder import arena_guard
+from mclab.run_launch import recorded
 
 
 def controls(tick: int, action_id: str, **changes) -> dict:
@@ -37,6 +38,7 @@ def controls(tick: int, action_id: str, **changes) -> dict:
     return value
 
 
+@recorded("companion", check="body-protocol")
 @arena_guard
 def qualify_protocol() -> dict:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")

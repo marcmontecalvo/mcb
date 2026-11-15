@@ -20,6 +20,11 @@ PLANNING_TICK_LOOKAHEAD = 150
 # new best; a stuck water exit went 3,934. 2400 ticks (2 min) sits between them.
 GOAL_PROGRESS_TICKS = 2400
 GOAL_PROGRESS_BLOCKS = 1.0
+# A companion goto shares one clock across its stance probes and walks
+# (controller.progress_state): six stances x 150 s of per-drive resets were 430 s
+# of no-motion churn below a shaft (run 20261114T201928310227Z). Companion goals
+# are far and slow, so the shared cutoff is double the per-attempt one.
+GOTO_PROGRESS_TICKS = 2 * GOAL_PROGRESS_TICKS
 # Body planner only: re-plan continuously from this many nodes ahead of the motor
 # (~20 ticks, past a body plan's ~1-19 tick latency). Cohort 30 R3 locked each
 # piece in ~30 blocks ahead on the map of that moment and walked into a valley
@@ -478,7 +483,10 @@ def drive_native(client, controller, wall_timeout):
         "routes_spliced": 0,
     }
     client.last_controller_error = None
-    best_distance, best_tick = math.inf, None
+    progress = getattr(controller, "progress_state", None)
+    best_distance, best_tick = (
+        (progress["distance"], progress["tick"]) if progress else (math.inf, None)
+    )
     bans, mob_retries = {}, Counter()  # no-progress edges: expiry tick, mob retries
     geometry_storm = 0  # consecutive route_swept_geometry kills of this drive
     try:
@@ -521,6 +529,8 @@ def drive_native(client, controller, wall_timeout):
             goal, tick = getattr(controller, "goal", None), observation.get("tick")
             # stall_seconds = 0 turns off both stall cutoffs (natural.py sets None).
             limit = getattr(controller, "goal_progress_ticks", GOAL_PROGRESS_TICKS)
+            if limit is None and progress is not None:
+                limit = GOTO_PROGRESS_TICKS  # one clock across a goto's stance loop
             if goal is not None and tick is not None and limit is not None:
                 distance = math.dist(observation["body"]["position"], goal)
                 if (
@@ -528,6 +538,9 @@ def drive_native(client, controller, wall_timeout):
                     or distance <= best_distance - GOAL_PROGRESS_BLOCKS
                 ):
                     best_distance, best_tick = distance, tick
+                    if progress is not None:
+                        progress["distance"] = best_distance
+                        progress["tick"] = best_tick
                 elif tick - best_tick >= limit:
                     raise ControllerFailure(
                         f"goal_no_progress: best {best_distance:.1f} blocks from goal "

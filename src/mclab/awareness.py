@@ -2,6 +2,8 @@
 
 from dataclasses import asdict, dataclass
 
+from mclab.run_launch import recorded
+
 
 @dataclass(frozen=True)
 class Awareness:
@@ -100,6 +102,7 @@ class Awareness:
         return cls(preset=preset, **(values[preset] | overrides))
 
 
+@recorded("companion", check="awareness")
 def check():
     """Exercise native sensors in a restored development fixture, never a scored run."""
     from datetime import UTC, datetime

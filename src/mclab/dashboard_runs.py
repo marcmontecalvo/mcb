@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
+from pathlib import Path
 from statistics import median
 
 from mclab import build_stats, companion_progress
@@ -97,7 +98,7 @@ def catalog():
                 profiles[key].append(path.relative_to(ROOT).as_posix())
         except (OSError, ValueError):
             continue
-    return {
+    value = {
         "profiles": profiles,
         "route_ids": route_ids,
         "backends": [
@@ -116,6 +117,14 @@ def catalog():
             "config/baselines.lock.json",
         ],
     }
+    from mclab import dashboard_suites
+
+    value.update(
+        tests=dashboard_suites.test_catalog(),
+        presets=dashboard_suites.presets(),
+        suites=dashboard_suites.list_suites(),
+    )
+    return value
 
 
 def companion_files(suffix, directories):
@@ -192,7 +201,7 @@ def selection(value, allowed, name):
     return value
 
 
-def plan(request):
+def _plan(request):
     """Validate a small, explicit run matrix before starting any world operations."""
     if not isinstance(request, dict):
         raise ValueError("Expected a run selection")
@@ -324,6 +333,169 @@ def plan(request):
     return jobs
 
 
+def plan(request):
+    """Freeze one shared config per batch while retaining legacy admissions."""
+    from mclab.run_config import resolve_config
+    from mclab.run_launch import validate_launch
+
+    shared = request.get("run_config")
+    if shared is not None and (
+        not isinstance(shared, dict) or not isinstance(shared.get("run", {}), dict)
+    ):
+        raise ValueError("Run config must be an object with a run object")
+    family = (shared or {}).get("run", {}).get("test", request.get("kind"))
+    if family == "companion" and request.get("job") in {"gather", "build"}:
+        family = request["job"]
+    if family in {"gather", "build"} and (shared is not None or request.get("preset")):
+        request = {**request, "kind": "companion", "job": family}
+    if (shared is not None or request.get("preset")) and family not in {
+        "gather",
+        "build",
+        "setup",
+    }:
+        explicit = {
+            key: request[key]
+            for key in ("seed", "count", "course", "seeds")
+            if key in request
+        }
+        if family == "companion" and "job" in request:
+            explicit["check"] = request["job"]
+        model = {
+            key: request[key] for key in ("backend", "request_limit") if key in request
+        }
+        config = resolve_config(
+            family,
+            preset=request.get("preset"),
+            base=shared,
+            overrides={"run": explicit, "model": model},
+            root=ROOT,
+        )
+        validate_launch(config)
+        if family == "battery":
+            output = (ROOT / config["run"]["output"]).resolve()
+            if not output.is_relative_to((ROOT / "results").resolve()):
+                raise ValueError("Battery output must be inside results")
+        return [
+            {
+                "kind": family,
+                "run_config": config,
+                "expected": 1,
+                "entrant": config["run"].get("entrant") or family,
+                "course": config["run"].get("course"),
+                "shared_launch": True,
+                "input_files": {
+                    "preset": "config/presets/"
+                    + request["preset"].removesuffix(".json")
+                    + ".json"
+                }
+                if request.get("preset")
+                else {},
+            }
+        ]
+    jobs = _plan(request)
+    for job in jobs:
+        if job["kind"] != "setup":
+            job["run_config"] = config_for_job(job)
+            job["input_files"] = {
+                key: value
+                for key, value in job.items()
+                if key
+                in {
+                    "routes",
+                    "awareness_profile",
+                    "movement_profile",
+                    "terrain_profile",
+                    "memory_profile",
+                }
+            }
+            if request.get("preset"):
+                job["input_files"]["preset"] = (
+                    "config/presets/"
+                    + request["preset"].removesuffix(".json")
+                    + ".json"
+                )
+    return jobs
+
+
+def config_for_job(job):
+    from mclab.run_config import resolve_config
+    from mclab.run_launch import _runtime_config
+
+    if "run_config" in job:
+        return job["run_config"]
+    kind = job["kind"]
+    if kind == "companion":
+        return resolve_config(
+            "companion",
+            overrides={"run": {"check": job["companion"], "arguments": job["args"]}},
+        )
+    if kind == "courses":
+        return _runtime_config(
+            "courses",
+            {
+                "course": job["course"],
+                "seeds": job["seeds"],
+                "count": 1,
+                "development": job["course"] == "C1",
+            },
+            entrant=job["entrant"],
+            root=ROOT,
+        )
+    if kind == "models":
+        spec = next(
+            b
+            for b in read_json(ROOT / "config/backends.json")["backends"]
+            if b["name"] == job["backend"] and b.get("enabled")
+        )
+        return _runtime_config(
+            "models",
+            {
+                "backend_name": job["backend"],
+                "count": 1,
+                "request_limit": spec["request_limit"],
+            },
+            root=ROOT,
+        )
+    from mclab.awareness import Awareness
+    from mclab.memory_policy import MemoryPolicy
+    from mclab.movement_policy import MovementPolicy
+    from mclab.terrain_steps import TerrainPolicy
+
+    routes = selected_routes(
+        read_json(project_file(job["routes"])), job.get("route_ids")
+    )
+    job["route_inputs"] = routes
+    values = {
+        key: job[key]
+        for key in (
+            "seed",
+            "repetitions",
+            "show_markers",
+            "stall_seconds",
+            "control_profile",
+            "view_distance",
+        )
+    }
+    values.update(
+        routes=routes,
+        entrants=(job["entrant"],),
+        conditions=tuple(job["conditions"]),
+        flee=None,
+        baritone_settings=None,
+    )
+    for name, cls in (
+        ("awareness", Awareness),
+        ("memory", MemoryPolicy),
+        ("movement", MovementPolicy),
+        ("terrain", TerrainPolicy),
+    ):
+        path = job.get(name + "_profile")
+        values["awareness" if name == "awareness" else name + "_policy"] = (
+            cls.from_payload(read_json(project_file(path))) if path else None
+        )
+    return _runtime_config("natural", values, root=ROOT)
+
+
 def script_name(name):
     if name == "gather":
         return "run-gather.py"
@@ -336,6 +508,51 @@ def companion_job(request):
         raise ValueError("Unknown companion job")
     if not (ROOT / "scripts" / script_name(name)).is_file():
         raise ValueError(f"scripts/{script_name(name)} does not exist yet")
+    resolved = None
+    if name in {"gather", "build"} or "run_config" in request or "preset" in request:
+        from mclab.run_config import resolve_config
+
+        if name not in {"gather", "build"}:
+            raise ValueError("Shared configuration is supported for gather/build only")
+        # Explicit legacy form values take precedence over preset/config values.
+        explicit = {
+            key: request[key]
+            for key in (
+                "start",
+                "seed",
+                "iron",
+                "build",
+                "dx",
+                "dz",
+                "rotation",
+                "margin",
+                "supply",
+                "coal",
+                "inspect",
+            )
+            if key in request
+        }
+        resolved = resolve_config(
+            name,
+            defaults={
+                "run": {
+                    "start": COMPANION_DEFAULT_START,
+                    "seed": 1337 if name == "gather" else None,
+                }
+            },
+            preset=request.get("preset"),
+            base=request.get("run_config"),
+            overrides={"run": explicit},
+        )
+        if resolved["run"]["resume"]:
+            from mclab.run_launch import prepare_config
+
+            project_file(resolved["run"]["resume"])
+            resolved = prepare_config(resolved)
+        request = {**request, **resolved["run"]}
+        if request["start"] is None:
+            request["start"] = COMPANION_DEFAULT_START
+            resolved["run"]["start"] = request["start"]
     job = {"kind": "companion", "companion": name, "entrant": name, "expected": 0}
     args = []
     if name in {"gather", "build"}:
@@ -375,6 +592,8 @@ def companion_job(request):
         args += ["--rotation", str(rotation)]
         args += build_options(request, job)
     job["args"] = args
+    if resolved is not None:
+        job["run_config"] = resolved
     return job
 
 
@@ -436,6 +655,24 @@ def selected_routes(value, route_ids):
 
 
 def folder(job):
+    config = job.get("run_config") or {}
+    run = config.get("run", {})
+    if job["kind"] == "battery":
+        return str((ROOT / run["output"]).resolve().parent)
+    if job["kind"] == "courses" and run.get("operation") in {"reset", "episodes"}:
+        return "qualification" if run.get("course") == "C1" else "navigation"
+    if job.get("shared_launch") and job["kind"] == "companion":
+        return {
+            "body-commands": "qualification",
+            "body-protocol": "qualification",
+            "reference-fixtures": "qualification",
+            "awareness": "awareness",
+            "companion-wading": "wading",
+            "companion-scaffold": "scaffolding",
+            "site-fill": "site-fill",
+            "hill-navigation": "hills",
+            "spatial-navigation": "spatial",
+        }.get(run.get("check"), "companion")
     if job["kind"] == "setup":
         return "__setup_no_artifacts__"
     if job["kind"] == "natural":
@@ -469,6 +706,45 @@ def setup(operation):
 
 
 def execute(job):
+    from mclab.run_launch import (
+        execute_config,
+        launch_record,
+        prepare_config,
+        record_outcome,
+    )
+
+    if job["kind"] == "setup":
+        return _execute(job)
+    if job["kind"] in {"models", "natural"} and not job.get("shared_launch"):
+        # File references are resolved at batch start, as with legacy runs.
+        pending = {key: value for key, value in job.items() if key != "run_config"}
+        config = config_for_job(pending)
+        job["run_config"] = config
+        if "route_inputs" in pending:
+            job["route_inputs"] = pending["route_inputs"]
+    else:
+        config = job.get("run_config") or config_for_job(job)
+    config = prepare_config(config)
+    job["run_config"] = config
+    with launch_record(config, input_references=job.get("input_files")):
+        if job.get("shared_launch"):
+            result = execute_config(config)
+            if type(result) is int:
+                result = {
+                    "status": "completed_" + config["run"]["test"]
+                    if result == 0
+                    else "failed",
+                    "returncode": result,
+                }
+                if config["run"]["test"] == "battery":
+                    result["run_id"] = Path(config["run"]["output"]).name
+        else:
+            result = _execute(job)
+        record_outcome(result)
+        return result
+
+
+def _execute(job):
     """Pass original objects to original runners, including all admission checks."""
     if job["kind"] == "setup":
         return setup(job["operation"])
@@ -500,7 +776,7 @@ def execute(job):
     from mclab.movement_policy import MovementPolicy
     from mclab.terrain_steps import TerrainPolicy
 
-    routes = selected_routes(
+    routes = job.get("route_inputs") or selected_routes(
         read_json(project_file(job["routes"])), job.get("route_ids")
     )
     profiles = {}
@@ -511,8 +787,18 @@ def execute(job):
         ("terrain", TerrainPolicy),
     ):
         if job.get(name + "_profile"):
+            snapshot = job.get("run_config")
+            payload = (
+                (
+                    snapshot["body"]["awareness"]
+                    if name == "awareness"
+                    else snapshot["planner"][name]
+                )
+                if snapshot
+                else read_json(project_file(job[name + "_profile"]))
+            )
             profiles[name if name == "awareness" else name + "_policy"] = (
-                cls.from_payload(read_json(project_file(job[name + "_profile"])))
+                cls.from_payload(payload)
             )
     return natural.run(
         job["seed"],
@@ -569,6 +855,7 @@ def companion_result_dir(job):
 def run_companion(job):
     """Run one companion script as a child process; its stdout is the session log."""
     from mclab import server
+    from mclab.run_launch import active_record_folder
 
     if server.status()["state"] != "running":
         raise RuntimeError("The lab server is not running; use Start lab first")
@@ -582,23 +869,40 @@ def run_companion(job):
     )
     # Inherits the worker's stdout/stderr (console.log); -u keeps lines live.
     # The script takes the arena lock itself, so the worker must not.
-    process = subprocess.Popen(
-        [sys.executable, "-u", "-c", _SHIM, str(script), *job["args"]],
-        cwd=ROOT,
-        stdin=subprocess.DEVNULL,
-        creationflags=flags,
-    )
+    import tempfile
+
+    # A file avoids Windows command-line limits for large protected footprints.
+    temporary = tempfile.TemporaryDirectory(prefix="mcb-run-config-")
     try:
-        while True:
-            try:
-                code = process.wait(0.5)
-                break
-            except subprocess.TimeoutExpired:
-                continue
-    except KeyboardInterrupt:
-        stop_child(process)
-        record_launch(job)
-        raise
+        args = job["args"]
+        if "run_config" in job:
+            config_path = Path(temporary.name) / "run_config.json"
+            config_path.write_text(
+                json.dumps(job["run_config"], allow_nan=False), encoding="utf-8"
+            )
+            args = ["--run-config", str(config_path)]
+        process = subprocess.Popen(
+            [sys.executable, "-u", "-c", _SHIM, str(script), *args],
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            creationflags=flags,
+            env={**os.environ, "MCB_LAUNCH_RECORD": active_record_folder()}
+            if active_record_folder() is not None
+            else None,
+        )
+        try:
+            while True:
+                try:
+                    code = process.wait(0.5)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+        except KeyboardInterrupt:
+            stop_child(process)
+            record_launch(job)
+            raise
+    finally:
+        temporary.cleanup()
     folder = record_launch(job)
     if folder is not None and not (folder / companion_progress.JOB).exists():
         companion_progress.write_job(folder, job["companion"])

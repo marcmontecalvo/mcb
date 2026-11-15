@@ -231,7 +231,9 @@ def main() -> int:
         help="use the lab server as it is (default: restart it first, which also "
         "clears a body left by an earlier run)",
     )
-    a = ap.parse_args()
+    from mclab.run_launch import parse_battery_args
+
+    a = parse_battery_args(ap)
     if a.list:
         for name, (cmd, timeout) in CHECKS.items():
             print(f"{name:15} timeout {timeout:4} s  python {' '.join(cmd)}")
@@ -240,6 +242,15 @@ def main() -> int:
         ap.error("--out is required")
     out = a.out if a.out.is_absolute() else ROOT / a.out
     out.mkdir(parents=True, exist_ok=True)
+    from mclab.run_launch import launch_record, record_outcome
+
+    with launch_record(a.run_config, folder=out):
+        result = run_battery(a, out)
+        record_outcome(result)
+        return result
+
+
+def run_battery(a, out):
     if not a.no_restart and not restart_server():
         print("BATTERY: NOT RUN. The lab server did not start; no check was run.")
         return 2
@@ -266,6 +277,7 @@ def main() -> int:
     tally = {"PASS": 0, "FAIL": 0, "UNSURE": 0}
     for name in a.only or CHECKS:
         cmd, timeout = CHECKS[name]
+        timeout = a.timeout if a.timeout is not None else timeout
         before = run_folders()
         code = run([*UV, "python", *cmd], out / f"{name}.log", timeout)
         folders = sorted(run_folders() - before)
@@ -298,7 +310,23 @@ def main() -> int:
     (out / "SUMMARY.md").write_text(
         "\n".join([*summary, "", last]) + "\n", encoding="utf-8"
     )
-    return 0 if tally["FAIL"] == tally["UNSURE"] == 0 else 1
+    code = 0 if tally["FAIL"] == tally["UNSURE"] == 0 else 1
+    (out / "summary.json").write_text(
+        json.dumps(
+            {
+                "run_id": out.name,
+                "status": "completed_battery" if code == 0 else "failed",
+                "returncode": code,
+                "checks": list(a.only or CHECKS),
+                "tally": tally,
+            },
+            indent=2,
+            allow_nan=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return code
 
 
 if __name__ == "__main__":

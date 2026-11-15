@@ -5,6 +5,7 @@ import threading
 import time
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
+from types import SimpleNamespace
 
 import pytest
 
@@ -68,6 +69,8 @@ def test_native_dashboard_selection_reaches_natural_runner(workspace, monkeypatc
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
+    # Child-process fakes must not replace git/provenance's subprocess.Popen.
+    monkeypatch.setattr(runs, "subprocess", SimpleNamespace(**vars(runs.subprocess)))
     monkeypatch.setattr(runs, "ROOT", tmp_path)
     monkeypatch.setattr(ui, "ROOT", tmp_path)
     monkeypatch.setattr(ui, "SESSIONS", tmp_path / "results/sessions")
@@ -505,8 +508,15 @@ def test_http_rejects_foreign_origins_hosts_and_arbitrary_files(workspace, monke
 
         try:
             # Page assets use the installed package, not the test workspace.
-            status, html = request("GET", "/")
+            status, html = request("GET", "/legacy")
             assert status == 200
+            status, schema_body = request("GET", "/api/schema")
+            assert status == 200
+            assert json.loads(schema_body)["schema_version"] == 1
+            assert (
+                request("GET", "/api/schema", headers={"Host": "evil.example"})[0]
+                == 403
+            )
             token = html.decode().split("const token='")[1].split("'")[0]
             assert "__TOKEN__" not in html.decode()
             assert request("POST", "/api/start", "{}", {"X-UI-Token": token})[0] == 403
@@ -539,13 +549,35 @@ def test_http_rejects_foreign_origins_hosts_and_arbitrary_files(workspace, monke
             thread.join(timeout=3)
 
 
+def test_shared_companion_config_preserves_defaults_and_applies_overrides(companion):
+    legacy = runs.companion_job({"job": "gather"})
+    shared = runs.companion_job({"job": "gather", "run_config": {}})
+    assert legacy["run_config"] == shared["run_config"]
+    assert shared["run_config"]["run"]["seed"] == 1337
+    assert shared["run_config"]["run"]["start"] == runs.COMPANION_DEFAULT_START
+    job = runs.companion_job(
+        {
+            "job": "gather",
+            "seed": 1337,
+            "run_config": {
+                "run": {"seed": None},
+                "planner": {"movement": {"max_gap": 0}},
+            },
+        }
+    )
+    assert job["run_config"]["run"]["seed"] == 1337
+    assert job["run_config"]["planner"]["movement"]["max_gap"] == 0
+    kept = runs.companion_job({"job": "gather", "run_config": {"run": {"seed": None}}})
+    assert kept["run_config"]["run"]["seed"] is None
+
+
 def test_shutdown_requires_local_token_and_stops_http_server(workspace):
     with ThreadingHTTPServer(("127.0.0.1", 0), ui.handler(ui.Dashboard())) as http:
         thread = threading.Thread(target=http.serve_forever, daemon=True)
         thread.start()
         connection = HTTPConnection("127.0.0.1", http.server_port, timeout=3)
         try:
-            connection.request("GET", "/")
+            connection.request("GET", "/legacy")
             response = connection.getresponse()
             token = response.read().decode().split("const token='")[1].split("'")[0]
             origin = f"http://127.0.0.1:{http.server_port}"
@@ -770,6 +802,49 @@ def test_companion_catalog_lists_builds_and_schematics(companion):
         "tests/fixtures/schematics/a.build.json",
     ]
     assert found["schematics"] == ["tests/fixtures/schematics/h.litematic"]
+
+
+def test_shared_battery_output_is_discovered_under_results(workspace):
+    job = runs.plan(
+        {
+            "kind": "battery",
+            "run_config": {
+                "run": {
+                    "test": "battery",
+                    "output": "results/test-battery",
+                    "checks": ["wading"],
+                }
+            },
+        }
+    )[0]
+    assert (workspace / "results" / runs.folder(job)) == workspace / "results"
+    with pytest.raises(ValueError, match="inside results"):
+        runs.plan(
+            {
+                "kind": "battery",
+                "run_config": {
+                    "run": {
+                        "test": "battery",
+                        "output": "../outside",
+                        "checks": ["wading"],
+                    }
+                },
+            }
+        )
+
+
+def test_shared_gather_admission_uses_same_defaults_as_existing_form(companion):
+    job = runs.plan({"run_config": {"run": {"test": "gather"}}})[0]
+    assert job["kind"] == "companion"
+    assert job["companion"] == "gather"
+    assert job["run_config"]["run"]["seed"] == 1337
+    assert job["run_config"]["run"]["start"] == runs.COMPANION_DEFAULT_START
+
+
+@pytest.mark.parametrize("config", [[], {"run": []}, "invalid"])
+def test_shared_admission_rejects_malformed_config(workspace, config):
+    with pytest.raises(ValueError, match="Run config"):
+        runs.plan({"kind": "natural", "run_config": config})
 
 
 def test_convert_schematic_stays_inside_allowed_folders(companion, monkeypatch):

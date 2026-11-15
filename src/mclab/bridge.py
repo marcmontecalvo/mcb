@@ -71,6 +71,9 @@ def block_center(cell: list) -> list:
 
 class Bridge:
     def __init__(self, output: Path):
+        from mclab.run_launch import attach_run
+
+        attach_run(output.parent)
         state = read_json(STATE)
         settings = config()
         self.launch_id = state["launch_id"]

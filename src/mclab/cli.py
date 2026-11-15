@@ -137,8 +137,13 @@ def _terrain_with_profile(args):
 
 
 def main() -> int:
+    if sys.argv[1:2] == ["run"]:
+        from mclab.run_launch import main as launch_main
+
+        return launch_main(sys.argv[2:])
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("run", help="launch a shared run config (run --help)")
     sub.add_parser("bootstrap")
     sub.add_parser("doctor")
     sub.add_parser("report")

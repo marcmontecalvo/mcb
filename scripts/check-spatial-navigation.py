@@ -11,9 +11,11 @@ from mclab.modbuild import source_hash
 from mclab.navigation_segmented import SegmentedController
 from mclab.paths import ROOT, SERVER, read_json, write_json
 from mclab.recorder import exclusive_arena
+from mclab.run_launch import script_run
 from mclab.spatial_memory import MapArchive, MapIdentity, SpatialMemory
 
 
+@script_run("spatial-navigation")
 def main():
     if (
         "level-name=world"
