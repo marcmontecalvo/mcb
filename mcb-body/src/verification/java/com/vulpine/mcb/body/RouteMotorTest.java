@@ -86,6 +86,15 @@ public final class RouteMotorTest {
         lip.put(new Key(2,1,0),water("0")); lip.put(new Key(2,0,0),water("0")); lip.put(new Key(2,2,0),AIR);
         var dive=RouteMotor.surface(new RouteMotor.Pose(.5,2,.5,0,0,0,false,20,true),2.5,geometry(lip));
         check(dive.sneak() && !dive.jump(),"a way out below: swim down");
+        // Air pocket beside the shaft under a roof: air at (1,1..2,0), stone at (1,3,0). A body floating
+        // with feet at 1.7 (head cell 2) would hit the roof: sink first, then walk in without jumping.
+        var nook=box();
+        for(int y=1;y<=3;y++) nook.put(new Key(0,y,0),water("0"));
+        nook.put(new Key(1,1,0),AIR); nook.put(new Key(1,2,0),AIR); nook.put(new Key(0,4,0),stone());
+        var high=RouteMotor.surface(new RouteMotor.Pose(.5,1.7,.5,0,0,0,false,20,true),2.97,geometry(nook));
+        check(high.sneak() && !high.jump() && high.forward()==0,"pocket under a roof, body too high: sink first");
+        var low=RouteMotor.surface(new RouteMotor.Pose(.5,1,.5,0,0,0,false,20,true),2.6,geometry(nook));
+        check(low.forward()>0 && !low.jump() && !low.sneak(),"pocket under a roof, body low enough: walk in without jumping");
     }
     private static void swimAndLandingChecks() {
         var channel=floor();

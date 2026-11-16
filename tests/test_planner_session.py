@@ -17,6 +17,10 @@ class Client:
         self.run_id = "run"
         self.episode_id = "episode"
         self.body_id = "body"
+        self.body_state = "ready"
+
+    def state(self, heartbeat=True):
+        return {"state": self.body_state}
 
     def send(self, operation, **fields):
         self.calls.append((operation, fields))
@@ -72,6 +76,17 @@ def test_route_policy_is_scoped_to_each_planner_session():
         "route_policy",
         {"use_doors": False, "climb_vines": True},
     )
+    client.planner_map_coordinator.close()
+
+
+def test_detach_skips_route_policy_reset_for_a_dead_body():
+    client = Client()
+    controller = SimpleNamespace(terrain_policy=None)
+    attach(client, controller)
+    client.body_state = "disconnected_or_dead"
+    client.calls.clear()
+    detach(controller)  # the mod would reject route_policy for a non-ready body
+    assert client.calls == []
     client.planner_map_coordinator.close()
 
 
