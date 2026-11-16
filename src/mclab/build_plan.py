@@ -31,7 +31,7 @@ WATER_PLANTS = frozenset(
 
 
 def is_wet(state: str | None) -> bool:
-    """A block state that is a fluid, a water plant or waterlogged: breaking beside it floods."""
+    """A fluid, water plant or waterlogged state: breaking beside it floods."""
     if not state:
         return False
     ident, props = parse_state(state)

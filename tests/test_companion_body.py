@@ -1152,7 +1152,8 @@ def test_inventory_reuses_the_observation_until_the_game_ticks(monkeypatch):
     b, bridge, _ = body()
     bridge.last_tick = 100
     bridge.state = lambda: {"tick": bridge.last_tick}
-    obs = {"tick": 100, "body": {"position": [0.5, 0, 0.5], "inventory": [{"slot": 0, "item": "minecraft:dirt", "count": 2}]}}
+    dirt = {"slot": 0, "item": "minecraft:dirt", "count": 2}
+    obs = {"tick": 100, "body": {"position": [0.5, 0, 0.5], "inventory": [dirt]}}
     reads = []
 
     def read(client):
