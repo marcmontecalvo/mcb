@@ -117,10 +117,45 @@ def test_sealed_refuses_water_flowing_water_and_waterlogged_neighbours():
     body = FakeGatherBody(K, column_world(), {}, pos=(0, 0, 0))
     pos = (0, -5, 0)
     assert gr._sealed(body, pos)
-    for state in (M + "water", M + "water[level=3]", M + "slab[waterlogged=true]"):
+    for state in (
+        M + "water",
+        M + "water[level=3]",
+        M + "slab[waterlogged=true]",
+        M + "seagrass",
+        M + "tall_seagrass[half=lower]",
+        M + "kelp[age=3]",
+        M + "bubble_column[drag=true]",
+    ):
         for face in gr.FACES:
             at = (pos[0] + face[0], pos[1] + face[1], pos[2] + face[2])
             old = body.w[at]
             body.w[at] = state
             assert not gr._sealed(body, pos), (state, face)
             body.w[at] = old
+
+
+class _Hidden(FakeGatherBody):
+    """The target cell refuses no_line_of_sight while ``blocker`` stands."""
+
+    def __init__(self, *a, blocker, **kw):
+        super().__init__(*a, **kw)
+        self.blocker, self.cell = blocker, None
+
+    def break_block(self, pos, tool=None, drops_optional=False):
+        if pos == self.cell and self.w.get(self.blocker) != M + "air":
+            return Result(
+                False,
+                "no_line_of_sight",
+                {"blocker": list(self.blocker), "blocker_state": self.w[self.blocker]},
+            )
+        return super().break_block(pos, tool, drops_optional)
+
+
+def test_a_solid_blocker_named_by_no_line_of_sight_is_broken_not_waited_out():
+    cell, blocker = (1, -5, 0), (0, -5, 0)
+    body = _Hidden(K, column_world(), {}, pos=(0, 0, 0), blocker=blocker)
+    body.cell = cell
+    body.w[blocker] = M + "dirt"
+    digger = Digger(gr._Exec(body, K, gr.GatherState(), 64))
+    assert digger._dig_cells([cell], drops_optional=True)
+    assert body.w[blocker] == M + "air" and body.w[cell] == M + "air"

@@ -247,8 +247,7 @@ def _sealed(body, pos: Pos, unknown_ok: bool = False) -> bool:
             if unknown_ok:
                 continue
             return False
-        ident, props = bp.parse_state(state)
-        if ident in bp.FLUIDS or props.get("waterlogged") == "true":
+        if bp.is_wet(state):
             return False
     return True
 

@@ -161,7 +161,7 @@ final class RoutePlanner {
     Result advance(int nodeLimit, long deadlineNanos) {
         if (terminal != null) return terminal;
         if (best == null) {
-            if (!stance(start) && !canRecoverStart())
+            if (!stance(start) && !canRecoverStart() && !submerged(start))
                 return terminal = new Result("unreachable", List.of(), 0, 0, List.of());
             best = start;
             costs.put(start, 0.0); nodes.add(start);
@@ -591,6 +591,7 @@ final class RoutePlanner {
     private List<Move> moves(Node node) {
         var out = new ArrayList<Move>(8);
         int x = node.x, z = node.z; double y = node.y;
+        if (submerged(node) && !stance(node)) { swimOut(node, out); return out; }
         if (node.equals(start) && !stance(start)) {
             if (canRecoverStart()) for (var d : DIRECTIONS) for (int dy = 0; dy <= 1; dy++)
                 addEdit(planEdit(node, new Node(x + d[0], y + dy, z + d[1])), heightCost(dy), node, out);
@@ -705,6 +706,20 @@ final class RoutePlanner {
     /** water_movement.supported_node with shapes: a surface stance, or standable over a safe cell. */
     boolean supported(Node n) {
         return surfaceNode(n) || ((shapes ? standable(n) : blockStandable(n)) && safe(cell(n.x, (int) Math.ceil(n.y) - 1, n.z)));
+    }
+    /** Feet inside still or flowing water: no stance, but a body already there must swim out. */
+    private boolean submerged(Node n) { return integral(n.y) && wadeable(at(n.x, n.y, n.z)); }
+    /** From a submerged cell: up, or sideways into more water, until the feet clear the surface. */
+    private void swimOut(Node node, List<Move> out) {
+        double cost = ticks ? SWIM : 1.8;
+        var up = at(node.x, node.y + 1, node.z);
+        if (wadeable(up) || (empty(up) && surfaceNode(new Node(node.x, node.y + 1, node.z)))) {
+            out.add(new Move(new Node(node.x, node.y + 1, node.z), cost));
+        }
+        for (var d : DIRECTIONS) {
+            var target = new Node(node.x + d[0], node.y, node.z + d[1]);
+            if (submerged(target)) out.add(new Move(target, cost));
+        }
     }
     /** Swim cost under planner_swim; 0 when there is no swim edge. */
     private double swimCost(Node source, Node target) {

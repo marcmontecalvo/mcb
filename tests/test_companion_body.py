@@ -1278,3 +1278,26 @@ def test_position_of_a_dead_body_raises_bodydied():
     b._obs = {"tick": 5, "body": {"food": 17}}  # a dead body reports no position
     with pytest.raises(BodyDied):
         b.position()
+
+
+def test_inventory_reuses_the_observation_until_the_game_ticks(monkeypatch):
+    from mclab import companion_body
+
+    b, bridge, _ = body()
+    bridge.last_tick = 100
+    bridge.state = lambda: {"tick": bridge.last_tick}
+    obs = {"tick": 100, "body": {"position": [0.5, 0, 0.5], "inventory": [{"slot": 0, "item": "minecraft:dirt", "count": 2}]}}
+    reads = []
+
+    def read(client):
+        reads.append(client.last_tick)
+        return obs
+
+    monkeypatch.setattr(companion_body, "policy_state", read)
+    assert b.inventory() == {"minecraft:dirt": 2}  # nothing observed yet: reads
+    assert b.inventory() == {"minecraft:dirt": 2}
+    assert b.inventory() == {"minecraft:dirt": 2}
+    assert len(reads) == 1  # same tick: no further round-trips
+    bridge.last_tick = 101  # the game advanced: a drop may have been picked up
+    b.inventory()
+    assert len(reads) == 2

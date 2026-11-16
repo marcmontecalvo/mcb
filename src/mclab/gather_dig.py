@@ -28,9 +28,7 @@ GRAVEL_CAP = 8  # re-breaks of a dug cell that gravel or sand keeps falling into
 FALL_WAIT_TICKS = 10  # for what is above a broken cell to land in it
 LAVA = "minecraft:lava"
 WATER = "minecraft:water"
-WATERLOGGED = frozenset(
-    "minecraft:" + n for n in ("seagrass", "tall_seagrass", "kelp", "kelp_plant")
-)
+WATERLOGGED = bp.WATER_PLANTS
 STONE_LIKE = ("stone", "cobblestone", "deepslate", "andesite", "diorite", "granite")
 
 
@@ -68,14 +66,7 @@ class Digger:
     def _wet(self, cells) -> bool:
         """Any of ``cells`` is water or waterlogged (as gather_runner._sealed)."""
         for state in self._states(cells):
-            if state is None:
-                continue
-            ident, props = bp.parse_state(state)
-            if (
-                ident in bp.FLUIDS
-                or ident in WATERLOGGED
-                or props.get("waterlogged") == "true"
-            ):
+            if bp.is_wet(state):
                 return True
         return False
 
@@ -153,6 +144,8 @@ class Digger:
                 if result.reason != "no_line_of_sight":
                     self.reason = failed
                     return False
+                if self._break_blocker(result, cell, tries):
+                    continue
                 # something fell in between: let it land, then look at every cell again
                 if settle := getattr(body, "settle", None):
                     settle(dig)
@@ -165,6 +158,29 @@ class Digger:
                 if settle := getattr(body, "settle", None):
                     settle([cell])
                 body.wait_ticks(FALL_WAIT_TICKS)
+
+    def _break_blocker(self, result, cell: Pos, tries: dict[Pos, int]) -> bool:
+        """A no_line_of_sight that names a solid, non-falling block (one the bot
+        refilled, run 20261116T151620961429Z: 40 refusals on dirt) is broken, not
+        waited out. Air or falling blocks are a fall-in: the caller waits."""
+        data = result.data or {}
+        blocker = tuple(data.get("blocker") or ())
+        ident = _ident(data.get("blocker_state"))
+        if (
+            len(blocker) != 3
+            or blocker == cell
+            or ident is None
+            or ident in bp.AIR | bp.REPLACEABLE | FALLING
+            or tries.get(blocker, 0) >= GRAVEL_CAP
+        ):
+            return False
+        faces = [
+            (blocker[0] + fx, blocker[1] + fy, blocker[2] + fz) for fx, fy, fz in FACES
+        ]
+        if self._blocked(faces) or self._wet(faces):
+            return False  # breaking it would open a flow
+        tries[blocker] = tries.get(blocker, 0) + 1
+        return self.body.break_block(blocker).ok
 
     def _toward(self, target: tuple[int, int] | None) -> list[tuple[int, int]]:
         """DIRS, those pointing at the horizontal ``target`` (x, z) first; ties keep
