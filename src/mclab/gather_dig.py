@@ -264,7 +264,7 @@ class Digger:
             if self._wet([*dig, (new[0], new[1] + len(dig), new[2])]):
                 self.reason = "water"  # the dug stair flooded: do not walk in
                 break
-            if not body.walk_to(new, 0.8):
+            if not self._onto(new):
                 self.reason = "walk_failed"
                 break
             self._collect(item, new, target)
@@ -285,7 +285,18 @@ class Digger:
         self.descended += not tunnel
         if self._wet([*dig, (new[0], new[1] + len(dig), new[2])]):
             return "water"  # the dug stair flooded: do not walk in
-        return None if self.body.walk_to(new, 0.8) else "walk_failed"
+        return None if self._onto(new) else "walk_failed"
+
+    def _onto(self, new) -> bool:
+        """Walk to ``new`` and prove the feet are in it: walk_to's radius test reports
+        "arrived" within 0.8 of the centre without moving (run 20261116T201022250721Z
+        stood 31 s on a step that "succeeded" each time)."""
+        body = self.body
+        if not body.walk_to(new, 0.8):
+            return False
+        return tuple(body.position()) == tuple(new) or (
+            body.walk_to(new, 0.3) and tuple(body.position()) == tuple(new)
+        )
 
     def hard(self, why: str) -> bool:
         return why == "walk_failed" or why.startswith("break_failed")

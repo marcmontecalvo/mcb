@@ -1,4 +1,5 @@
 # ruff: noqa: E501
+from mclab.build_runner import Result
 from mclab.companion_jobs import load_vanilla_pack
 from mclab.gather_fake import FakeGatherBody
 from mclab.gather_options import GatherOptions
@@ -266,3 +267,54 @@ def test_skipped_strip_underground_resumes_in_place_not_on_surface_rings():
     walks = [c[1][1] for c in body.log if isinstance(c, tuple) and c[0] == "walk"]
     first = next(i for i, y in enumerate(walks) if y < TOP)
     assert max(walks[first:]) < TOP and "strip_leg_start" in [r["gather"] for r in notes(body)]
+
+
+class RadiusBody(FakeGatherBody):
+    """walk_to reports "arrived" within 0.8 of a cell without moving (run 20261116T201022250721Z)."""
+
+    def __init__(self, *a, centre_ok=True, **k):
+        super().__init__(*a, **k)
+        self.centre_ok, self.radii = centre_ok, []
+
+    def walk_to(self, pos, radius=1.5):
+        self.radii.append(radius)
+        if radius >= 0.5 or not self.centre_ok:
+            return True  # "arrived", feet unmoved
+        return super().walk_to(pos, radius)
+
+
+def test_step_that_arrived_without_moving_walks_to_the_cell_centre():
+    body = RadiusBody(K, world({}), dict(PICK), pos=(16, 16, 5))
+    ex = _Exec(body, K, GatherState(), 64, opts=opts())
+    strip = Strip(ex, Gather(IRON, 1, "pickaxe", "stone", M + "raw_iron", 1), 1)
+    assert strip.digger.step((0, 1), True) is None
+    assert body.position() == (16, 16, 6) and body.radii == [0.8, 0.3]
+
+
+def test_tunnel_does_not_loop_on_steps_that_never_advance():
+    body = RadiusBody(K, world({}), dict(PICK), pos=(16, 16, 5), centre_ok=False)
+    ex = _Exec(body, K, GatherState(), 64, opts=opts())
+    strip = Strip(ex, Gather(IRON, 1, "pickaxe", "stone", M + "raw_iron", 1), 1)
+    assert strip.tunnel((0, 1), 8) == "walk_failed"
+    assert len(body.radii) == 2  # one step tried, not eight
+
+
+def test_bridge_within_reach_does_not_probe_stances():
+    class Spy(FakeGatherBody):
+        calls = 0
+
+        def goto_stance(self, *a, **k):
+            Spy.calls += 1
+            return super().goto_stance(*a, **k)
+
+    body = Spy(K, world({(16, 15, 6): AIR}), dict(PICK) | {M + "cobblestone": 4}, pos=(16, 16, 5))
+    ex = _Exec(body, K, GatherState(), 64, opts=opts())
+    strip = Strip(ex, Gather(IRON, 1, "pickaxe", "stone", M + "raw_iron", 1), 1)
+    real, tries = body.place_block, []
+
+    def place_once_fails(*a, **k):
+        tries.append(a)
+        return real(*a, **k) if len(tries) > 1 else Result(False, "place_failed")
+
+    body.place_block = place_once_fails
+    assert not strip.bridge((0, 1)) and Spy.calls == 0 and len(tries) == 1

@@ -167,8 +167,7 @@ class Strip:
         # found none for a floor cell beside the body (run 20261116T135356630645Z).
         x, y, z = body.position()
         if math.dist((x + 0.5, y + EYE, z + 0.5), (floor[0] + 0.5, floor[1] + 0.5, floor[2] + 0.5)) <= REACH:
-            if body.place_block(floor, item, item).ok:
-                return True
+            return body.place_block(floor, item, item).ok  # no stance probes for a reachable cell
         return self.ex.reach_and_do(floor, lambda: body.place_block(floor, item, item)).ok
 
     def mine(self) -> str | None:
