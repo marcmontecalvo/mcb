@@ -1181,3 +1181,12 @@ def test_companion_policies_have_every_movement_ability_on():
         assert b.movement_policy.allow_swim and b.movement_policy.allow_climb
         assert b.terrain_policy.planner_swim and b.terrain_policy.climb_vines
     assert NATURAL_MOVEMENT.allow_swim and NATURAL_MOVEMENT.allow_climb
+
+
+def test_search_stall_outlasts_a_capped_planner_search():
+    # run 20261116T163035614307Z: 10000-node searches finish in 58-66 ticks
+    ctl = cb._GotoController.__new__(cb._GotoController)
+    ctl.deadline, ctl.unreachable_since, ctl.searching_since = 10**12, None, None
+    ctl.mode = "searching"
+    assert ctl.stop_reason({"tick": 100}) is None
+    assert ctl.stop_reason({"tick": 100 + 70}) is None

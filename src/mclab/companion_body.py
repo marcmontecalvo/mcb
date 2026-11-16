@@ -99,7 +99,11 @@ MAX_CANDIDATES = (
 WALK_ONLY_CANDIDATES = 2  # building: 2 probes is 5 s, the longest pause allowed
 FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 SENSED_RADIUS = 40.0  # awareness delivers 64; beyond this a stance may be unsensed
-SEARCH_STALL_TICKS = 60  # a search that yields no move for this long is abandoned
+# A search that yields no move for this long is abandoned. The planner's capped
+# 10000-node search takes 58-66 ticks, so 60 cancelled it a tick before its verdict:
+# six stance probes in a row burned 21 s without a plan (run 20261116T163035614307Z,
+# plan-405..409, adopted only when plan-410 finished 2 ticks inside the limit).
+SEARCH_STALL_TICKS = 150
 SETTLE_TICKS = 40  # settle(): longest wait for the map to show broken blocks
 SETTLE_STEP = 5
 STUCK_TICKS = 200  # a goto or walk whose position does not change for this long fails
