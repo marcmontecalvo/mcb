@@ -12,6 +12,18 @@ from mclab.recorder import exclusive_arena
 from mclab.run_launch import script_run
 
 
+FLOOR = [(x, 79) for x in range(990, 994)]
+
+
+def missing_floor(body):
+    """Floor cells under the work cells that are not solid."""
+    return [
+        (x, y, 988)
+        for x, y in FLOOR
+        if body.world(x, y, 988) in ("minecraft:air", "minecraft:cave_air", None)
+    ]
+
+
 @script_run("companion-scaffold")
 def main():
     folder = (
@@ -24,13 +36,39 @@ def main():
             bridge = open_bridge(folder)
             memory, original, touched = None, {}, set()
             try:
-                body, memory = start_session(
-                    bridge,
-                    folder,
-                    (990, 80, 988),
-                    terrain_policy=replace(WALK_TERRAIN, baritone_moves=False),
-                    world_memory=False,
-                )
+                def start():
+                    return start_session(
+                        bridge,
+                        folder,
+                        (990, 80, 988),
+                        terrain_policy=replace(WALK_TERRAIN, baritone_moves=False),
+                        world_memory=False,
+                    )
+
+                body, memory = start()
+                if missing := missing_floor(body):
+                    # Run 20261116T155647537135Z: the stone under the spawn had gone,
+                    # the body fell to y69 and the first placement had no support.
+                    fill = [
+                        (x, y, 988)
+                        for x, _ in FLOOR
+                        for y in range(math.floor(body.position()[1]) - 1, 80)
+                    ]
+                    feet = body.position()
+                    kit(
+                        bridge,
+                        place=[
+                            {
+                                "state": "minecraft:stone",
+                                "offset": [p[i] - feet[i] for i in range(3)],
+                            }
+                            for p in fill
+                        ],
+                    )
+                    end_session(bridge, memory)
+                    body, memory = start()  # spawn again on the restored floor
+                    if missing_floor(body) or abs(body.position()[1] - 80) > 0.2:
+                        raise RuntimeError(f"Could not restore floor {missing}")
                 column = [(993, y, 988) for y in range(80, 86)]
                 original = {p: body.world(*p) for p in column}
                 if any(s != "minecraft:air" for s in original.values()):
