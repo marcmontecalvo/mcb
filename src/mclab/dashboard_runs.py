@@ -6,11 +6,12 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 from statistics import median
 
-from mclab import build_stats, companion_progress
+from mclab import build_stats, companion_progress, companion_status
 from mclab.dashboard_metrics import compare_data
 from mclab.paths import ROOT, read_json
 
@@ -954,6 +955,15 @@ def companion_live(folder, events=12):
         if path.suffix != ".gz"
         for row in companion_events(path, events)
     ][-events:]
+    # one-line "what is it doing / why stalled" from the same logic as the CLI status
+    failures = [
+        {"type": f"{e['op']}_failed", "data": {"reason": e["reason"]}}
+        for e in live["events"]
+        if e["result"] != "done"
+    ]
+    live["explain"] = companion_status.explain(
+        progress, {"status": "running"}, failures, time.time()
+    )
     return live
 
 
@@ -988,6 +998,10 @@ def companion_event(event):
         "op": op,
         "result": result,
         "reason": data.get("reason"),
+        "target": next(
+            (str(data[k]) for k in ("target", "block", "item", "pos") if k in data),
+            None,
+        ),
         "tick": payload.get("tick"),
     }
 

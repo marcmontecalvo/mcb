@@ -59,3 +59,32 @@ it("limits seeds and locks to supported fields", () => {
   expect(isLocked(["run", "seed"], ["run.check"])).toBe(false);
   expect(isLocked(["run", "gather", "carry_logs"], ["run.gather"])).toBe(true);
 });
+import {
+  formatElapsed,
+  progressPercent,
+  isStalled,
+  toEpochSeconds,
+} from "./model";
+describe("live view formatting", () => {
+  it("formats elapsed time", () => {
+    expect(formatElapsed(65)).toBe("1:05");
+    expect(formatElapsed(3725)).toBe("1:02:05");
+    expect(formatElapsed(-3)).toBe("0:00");
+  });
+  it("computes progress percent", () => {
+    expect(progressPercent(3, 10)).toBe(30);
+    expect(progressPercent(5, 0)).toBeNull();
+    expect(progressPercent(null, 4)).toBe(0);
+    expect(progressPercent(9, 4)).toBe(100);
+  });
+  it("detects stalls after 20 s", () => {
+    expect(isStalled(100, 120)).toBe(false);
+    expect(isStalled(100, 121)).toBe(true);
+    expect(isStalled(undefined, 500)).toBe(false);
+  });
+  it("parses start times", () => {
+    expect(toEpochSeconds(12)).toBe(12);
+    expect(toEpochSeconds("1970-01-01T00:00:10Z")).toBe(10);
+    expect(toEpochSeconds("nope")).toBeUndefined();
+  });
+});

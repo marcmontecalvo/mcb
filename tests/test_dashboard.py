@@ -963,6 +963,7 @@ def test_companion_live_reads_progress_summary_and_op_events(companion):
         ("use", "rejected", "x"),
     ]
     assert cp.job_name(folder) == "build"
+    assert live["explain"].startswith("Running build: placing 3/10")
 
 
 def test_progress_helper_never_raises(tmp_path):

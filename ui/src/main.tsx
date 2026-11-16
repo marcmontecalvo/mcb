@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Button, Card, Badge, Alert } from "@homenet/ui";
 import "@homenet/ui/styles.css";
 import "./style.css";
+import { LiveSession } from "./LiveSession";
 import {
   type Entry,
   type Json,
@@ -896,19 +897,11 @@ function App() {
                     Shut down dashboard
                   </Button>
                 </div>
-                <pre>{JSON.stringify(snapshot.status || {}, null, 2)}</pre>
               </Card>
               <Card className="panel" title="Sessions & jobs">
                 {snapshot.sessions?.length ? (
                   snapshot.sessions.map((s, i) => (
-                    <details key={String(s.id || i)} open>
-                      <summary>
-                        {String(s.label || s.id || `Session ${i + 1}`)} ·{" "}
-                        {String(s.state || s.status || "unknown")}
-                        {s.kill_requested ? " · cancel requested" : s.stop_requested ? " · stop requested" : ""}
-                      </summary>
-                      <pre>{JSON.stringify(s, null, 2)}</pre>
-                    </details>
+                    <LiveSession key={String(s.id || i)} session={s} />
                   ))
                 ) : (
                   <div className="empty">No sessions yet.</div>

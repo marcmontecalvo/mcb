@@ -112,3 +112,29 @@ export function loadedSuite(entries: Entry[]): {
     seedText: entries[0]?.seeds?.join(", ") || "",
   };
 }
+
+export const STALL_SECONDS = 20;
+export function formatElapsed(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
+}
+export function progressPercent(done?: number | null, total?: number | null) {
+  if (!total || total <= 0) return null;
+  return Math.min(100, Math.max(0, Math.round(((done || 0) / total) * 100)));
+}
+/** Stalled when a progress record exists but has not been updated for >20 s. */
+export function isStalled(updatedAt: number | undefined, nowSeconds: number) {
+  return !!updatedAt && nowSeconds - updatedAt > STALL_SECONDS;
+}
+/** started_at is an epoch number or an ISO-ish string; returns epoch seconds. */
+export function toEpochSeconds(value: unknown): number | undefined {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const ms = Date.parse(value);
+    return Number.isNaN(ms) ? undefined : ms / 1000;
+  }
+  return undefined;
+}
