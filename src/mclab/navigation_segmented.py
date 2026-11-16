@@ -79,6 +79,7 @@ class SegmentedController(NavigationController):
     # refreshes plan_reports (plan_id -> report) from each observation.
     submit_plan = None
     plan_reports = {}
+    _terrain_dry = None  # (node, map revision): plan and terrain step found nothing
 
     def __init__(
         self,
@@ -801,8 +802,13 @@ class SegmentedController(NavigationController):
             if block:
                 self.own_breaks.setdefault(tuple(pos), block)
 
+    def _revision_now(self):
+        return self.map_view.revision if self.map_view else self.memory.revision
+
     def _plan_terrain_step(self, node, observation):
         plan, policy = self._next_step(node, observation)
+        if plan is None and self.mode == "terrain_incomplete":
+            self._terrain_dry = (node, self._revision_now())
         if plan is not None:
             self._note_breaks(plan)
             self.terrain = executor_for(plan, policy)
@@ -1213,7 +1219,13 @@ class SegmentedController(NavigationController):
             revision = self.map_view.revision if self.map_view else self.memory.revision
             exhausted_snapshot = (
                 self.last_result is not None
-                and self.last_result.status == "incomplete"
+                and (
+                    self.last_result.status == "incomplete"
+                    or (  # dry on the old map: ask again on the new one
+                        self.last_result.status == "unreachable"
+                        and self._terrain_dry is not None
+                    )
+                )
                 and self.last_result.map_revision != revision
             )
             # Budget-limited workers are finished. Once acquisition publishes a
@@ -1269,8 +1281,18 @@ class SegmentedController(NavigationController):
                     self.mode = "arrived"
                     return {}
                 if self.mode == "unreachable":
+                    if self._terrain_dry == (node, self._revision_now()):
+                        return {}  # same node and map: the same answer, not a replan
                     if self.terrain_policy is not None:
                         self._plan_terrain_step(node, observation)
+                        if self.mode == "terrain_incomplete":
+                            # No step on this map either: hold the verdict (and the
+                            # finished search) until the map revision changes, so the
+                            # probe ends instead of replanning to the 150-tick stall.
+                            self.mode = "unreachable"
+                            return {}
+                        if self.mode == "terrain_planning":
+                            return {}  # the edit search is in flight; the plan is final
                     # New acquisition may expose an edge next observation.
                     self.search = None
                 return {}

@@ -208,6 +208,41 @@ def test_unreachable_starts_terrain_forecast_with_inventory_and_protection(
     assert controller.terrain_forecast[0].target == (1, 1, 0)
 
 
+def test_dry_terrain_step_holds_unreachable_instead_of_replanning_each_tick(
+    setup_controller,
+):
+    # run 20261116T232024268879Z: plan unreachable + terrain step with no steps set
+    # search = None, so the identical plan was sent every tick until the 150-tick stall.
+    controller, body, cells = setup_controller(terrain_policy=TerrainPolicy())
+
+    def tick():
+        obs = observation(cells)
+        obs["route_planner"] = list(body.reports)
+        controller.decide(obs, native=True)
+
+    def run_until(predicate):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            tick()
+            if predicate():
+                return
+            time.sleep(0.002)
+        raise AssertionError((controller.mode, controller.reason))
+
+    run_until(lambda: len(body.plans) == 1)
+    body.report(body.plans[0], "unreachable", [[0, 1, 0]])
+    ordinary = list(body.reports)
+    run_until(lambda: len(body.plans) == 2)
+    body.report(body.plans[1], "unreachable", [[0, 1, 0]])
+    body.reports = ordinary + body.reports  # the body keeps every plan's report
+    run_until(lambda: controller.mode == "unreachable" and controller._terrain_dry)
+    for _ in range(40):
+        tick()
+        time.sleep(0.002)
+    assert len(body.plans) == 2
+    assert controller.mode == "unreachable"
+
+
 @pytest.mark.parametrize(
     "profile", [control_loop.LOCKSTEP, control_loop.PIPELINED, control_loop.NATIVE]
 )
