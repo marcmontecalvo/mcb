@@ -121,30 +121,50 @@ class Digger:
         ]
 
     def _dig_cells(self, dig: list[Pos], drops_optional: bool = False) -> bool:
+        """Break every cell of ``dig`` until all stay empty. Gravel or sand that falls
+        into a cell dug earlier is found by rescanning the whole list (run
+        20261116T135356630645Z: it fell behind the break, and the next break had no line of
+        sight). Each cell is broken at most GRAVEL_CAP times."""
         body = self.body
-        for cell in dig:
-            for _ in range(GRAVEL_CAP):
-                ident = _ident(body.world(*cell))
-                if ident in bp.AIR or ident in bp.REPLACEABLE:
-                    break
-                result = (
-                    body.break_block(cell, drops_optional=True)
-                    if drops_optional
-                    else body.break_block(cell)
-                )
-                if not result.ok:
-                    self.reason = f"break_failed:{result.reason}"
-                    return False
-                self.broken += 1
-                # gravel or sand over the cell falls into it: wait, look again
-                if _ident(body.world(cell[0], cell[1] + 1, cell[2])) in FALLING:
-                    if settle := getattr(body, "settle", None):
-                        settle([cell])
-                    body.wait_ticks(FALL_WAIT_TICKS)
-            else:
-                self.reason = "gravel_cap"
+        tries: dict[Pos, int] = {}
+        failed = ""
+        while True:
+            cell = next(
+                (
+                    c
+                    for c in dig
+                    if _ident(body.world(*c)) not in bp.AIR | bp.REPLACEABLE
+                ),
+                None,
+            )
+            if cell is None:
+                return True
+            tries[cell] = tries.get(cell, 0) + 1
+            if tries[cell] > GRAVEL_CAP:
+                self.reason = failed or "gravel_cap"
                 return False
-        return True
+            result = (
+                body.break_block(cell, drops_optional=True)
+                if drops_optional
+                else body.break_block(cell)
+            )
+            if not result.ok:
+                failed = f"break_failed:{result.reason}"
+                if result.reason != "no_line_of_sight":
+                    self.reason = failed
+                    return False
+                # something fell in between: let it land, then look at every cell again
+                if settle := getattr(body, "settle", None):
+                    settle(dig)
+                body.wait_ticks(FALL_WAIT_TICKS)
+                continue
+            failed = ""
+            self.broken += 1
+            # gravel or sand over the cell falls into it: wait, look again
+            if _ident(body.world(cell[0], cell[1] + 1, cell[2])) in FALLING:
+                if settle := getattr(body, "settle", None):
+                    settle([cell])
+                body.wait_ticks(FALL_WAIT_TICKS)
 
     def _toward(self, target: tuple[int, int] | None) -> list[tuple[int, int]]:
         """DIRS, those pointing at the horizontal ``target`` (x, z) first; ties keep

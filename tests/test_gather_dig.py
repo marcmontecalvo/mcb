@@ -2,6 +2,7 @@ import pytest
 
 from mclab.companion_body import StuckGuard
 from mclab.companion_jobs import load_vanilla_pack
+from mclab.build_runner import Result
 from mclab.gather_dig import Digger
 from mclab.gather_fake import FakeGatherBody
 from mclab.gather_plan import plan
@@ -445,3 +446,26 @@ def test_stair_does_not_walk_into_a_flooded_stance_nor_back_onto_it():
     body.w[(1, -1, 0)] = M + "air"
     assert digger.descend(-1) is None
     assert body.pos[:1] != (-1,)  # never the reverse of last_dir
+
+
+class LateGravel(FakeGatherBody):
+    """Gravel lands in an already-dug cell after the next break; a break below it
+    then has no line of sight (run 20261116T135356630645Z)."""
+
+    def break_block(self, pos, tool=None, drops_optional=False):
+        above = [(pos[0], y, pos[2]) for y in (pos[1] + 1, pos[1] + 2)]
+        if any(self.w.get(c, "").endswith("gravel") for c in above):
+            return Result(False, "no_line_of_sight")
+        res = super().break_block(pos, tool, drops_optional)
+        if pos == (1, 1, 0):
+            self.w[(1, 2, 0)] = M + "gravel"
+        return res
+
+
+def test_gravel_falling_into_a_dug_cell_does_not_end_the_step():
+    world = layered(-30) | {(1, y, 0): M + "dirt" for y in (0, 1, 2)}
+    body = LateGravel(K, world, pos=(0, 0, 0))
+
+    assert Digger(_Exec(body, K, GatherState(), 64)).step((1, 0), False) is None
+
+    assert all(body.world(1, y, 0) == M + "air" for y in (2, 1, 0, -1))
