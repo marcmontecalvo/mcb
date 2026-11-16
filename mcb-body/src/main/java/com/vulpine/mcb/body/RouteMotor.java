@@ -46,6 +46,10 @@ final class RouteMotor {
         default boolean waterLanding(Point point) { return false; }
         default boolean climbable(Point point) { return false; }
         default boolean swimSafe(Pose pose, Point target, double originY, double distance, boolean jumping) { return false; }
+        /** Known water or air from the head cell up to the target's cell: the body can rise to the stance here. */
+        default boolean openAbove(Pose pose, Point target) { return true; }
+        /** First cell of the nearest swimmable way from the head cell to air, or null. */
+        default int[] surfaceStep(int x, int y, int z) { return null; }
     }
     /**
      * Pitch delta that levels the view (at most 45 degrees a tick). Swimming moves along
@@ -57,6 +61,7 @@ final class RouteMotor {
     static final int MAX_WATER_DROP = 24;
     /** About two ~29-tick bobs with no horizontal progress. */
     private static final int SWIM_STALL_TICKS = 70;
+    private static final double EYE_HEIGHT = 1.62;
 
     private final String id;
     private final List<Point> route;
@@ -467,6 +472,19 @@ final class RouteMotor {
         double distance = target.distance(pose);
         // Already over the target column but below the stance: do not steer, just rise.
         if (distance < .3) return new Input(0, 0, true, false);
+        // Drifted under a roof below the stance: jumping only presses the head into stone
+        // (run 20261116T163035614307Z sat 100+ s under it). Swim to the nearest column that rises.
+        if (pose.y < target.y - 1.0 && !geometry.openAbove(pose, target)) {
+            int x = (int) Math.floor(pose.x), y = (int) Math.floor(pose.y + EYE_HEIGHT), z = (int) Math.floor(pose.z);
+            var step = geometry.surfaceStep(x, y, z);
+            if (step != null) {
+                var dest = new Point(step[0], step[1], step[2]);
+                if (flat < .01) stalled++; else stalled = 0;
+                if (stalled > SWIM_STALL_TICKS) { stop("route_no_progress"); return Input.STOP; }
+                if (step[0] == x && step[2] == z) return new Input(0, 0, true, false);
+                return new Input(1, wrap(turn + wrap(yawTo(pose, dest) - pose.yaw)), true, false);
+            }
+        }
         boolean last = index == route.size() - 1;
         double forward = last && !exiting ? Math.min(1, Math.max(.12, distance / .3)) : 1;
         boolean jump = pose.inWater || (target.y > pose.y + .6 && pose.grounded && distance <= 1.2);

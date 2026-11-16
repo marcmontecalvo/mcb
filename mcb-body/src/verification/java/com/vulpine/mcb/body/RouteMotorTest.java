@@ -494,6 +494,20 @@ public final class RouteMotorTest {
         dry.tick(new RouteMotor.Pose(2.5,-2,.5,0,0,-90,true,20,false),geometry(deep));
         check(!dry.active(),"far below the start out of water is still displaced");
         lakeDropChecks();
+        roofedUnderStanceChecks();
+    }
+    /** Run 20261116T163035614307Z: drifted under stone below the stance; jumping there goes nowhere. */
+    private static void roofedUnderStanceChecks() {
+        var cells=box();
+        for(int x=1;x<=3;x++) { cells.put(new Key(x,4,0),water("0")); cells.put(new Key(x,5,0),AIR); cells.put(new Key(x,6,0),AIR); }
+        for(int y=1;y<=2;y++) cells.put(new Key(2,y,2),water("0"));
+        for(int y=1;y<=4;y++) cells.put(new Key(2,y,3),water("0"));
+        cells.put(new Key(2,5,3),AIR);
+        var g=geometry(cells);
+        var m=new RouteMotor("roof",List.of(new RouteMotor.Point(1,5,0),new RouteMotor.Point(2,5,0),new RouteMotor.Point(3,5,0)),SWIM);
+        m.tick(wet(1.5,4.3,.5),g);
+        var in=m.tick(new RouteMotor.Pose(2.5,.5,2.5,0,0,0,false,20,true),g);
+        check(m.active() && in.forward()>0 && in.jump() && Math.abs(in.yaw())<1,"roofed below the stance: swim to the open column (+z), not at the target");
     }
     /** Two-block ledge at z>=-7 (stone y=18..19, stance y=20) overhanging a lake (still water y=-2..0, stance y=1). */
     private static void lakeDropChecks() {
