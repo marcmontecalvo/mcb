@@ -1,5 +1,4 @@
 import math
-from dataclasses import replace
 
 import pytest
 
@@ -410,24 +409,6 @@ def test_exhausted_plan_without_a_move_tries_another_goal_instead_of_replanning(
     assert ctl.stop_reason({"tick": 2}) is None
 
 
-def test_navigation_enables_water_recovery_when_a_dry_walk_enters_deep_water(
-    monkeypatch,
-):
-    from mclab.movement_policy import MovementPolicy
-
-    ctl = cb._GotoController.__new__(cb._GotoController)
-    ctl.deadline, ctl.mode = 10**12, "following"
-    ctl.guard = cb.StuckGuard()
-    ctl.movement_policy = MovementPolicy(allow_swim=False)
-    monkeypatch.setattr(ctl, "_known_cells", lambda: {})
-    obs = {
-        "tick": 1,
-        "body": {"position": [-17.14, 62, 71.33], "survival": {"in_water": True}},
-    }
-    assert ctl.stop_reason(obs) is None
-    assert ctl.movement_policy.allow_swim
-
-
 def test_a_goal_beyond_the_sensed_terrain_is_reached_through_hops(monkeypatch):
     b, _, _ = body()
     b._obs["body"]["position"] = [0.5, 1.0, 0.5]
@@ -449,17 +430,6 @@ def test_a_goal_beyond_the_sensed_terrain_is_reached_through_hops(monkeypatch):
     assert goals[-1] == far and len(goals) >= 4  # far, hop, far, hop, ..., far
     assert all(0 < g[0] <= cb.SENSED_RADIUS * 3 for g in goals[1:-1])
     assert b._hop_toward((120, 1, 0)) is None  # inside the sensed radius
-
-
-def test_walk_to_refuses_a_water_goal_when_swimming_is_off(monkeypatch):
-    b, _, _ = body()
-    b.movement_policy = replace(b.movement_policy, allow_swim=False)
-    water = {(5, 62, 5): {"block": "minecraft:water", "fluid": "minecraft:water"}}
-    monkeypatch.setattr(b, "_cells_now", lambda: water)
-    monkeypatch.setattr(
-        b, "_navigate", lambda *a, **k: (_ for _ in ()).throw(AssertionError)
-    )
-    assert b.walk_to((5, 62, 5)) is False
 
 
 def test_goto_stance_walks_known_stances_before_any_interaction_search(monkeypatch):
@@ -798,13 +768,13 @@ def test_a_face_hidden_behind_a_wall_does_not_make_a_stance():
     assert not sees_support(cells, far, target)
 
 
-def test_companion_plans_ask_for_doors_and_no_vines_and_old_requests_are_unchanged():
+def test_companion_plans_ask_for_doors_and_vines_and_old_requests_are_unchanged():
     from mclab.body_search import edit_payload
     from mclab.companion_body import DIG_TERRAIN, NATURAL_MOVEMENT
     from mclab.terrain_steps import TerrainPolicy
 
     edits = edit_payload(DIG_TERRAIN, [], [])
-    assert edits["doors"] is True and edits["vines"] is False
+    assert edits["doors"] is True and "vines" not in edits  # vines climbable: default
     assert NATURAL_MOVEMENT.allow_climb  # ladders and scaffolding
     plain = edit_payload(TerrainPolicy(), [], [])
     assert "doors" not in plain and "vines" not in plain
@@ -857,7 +827,7 @@ def test_no_placing_turns_placement_off_and_restores_the_policy():
         p = b.terrain_policy
         assert not (p.allow_place or p.allow_pillar or p.allow_bridge)
         assert p.allow_break == DIG_TERRAIN.allow_break
-        assert not b.movement_policy.allow_climb  # no vines up a swamp tree
+        assert b.movement_policy.allow_climb
     assert b.terrain_policy is DIG_TERRAIN
     assert b.movement_policy.allow_climb
 
@@ -874,14 +844,6 @@ def test_stances_rank_walkable_cells_before_nearer_unreachable_ones(monkeypatch)
     found = b.stances((4, 2, 0), 4.5)
     assert ledge in found and (5, 0, 0) in found
     assert found.index((5, 0, 0)) < found.index(ledge)
-
-
-def test_no_placing_can_keep_climbing_for_scaffolding_towers():
-    b, _, _ = body()
-    with b.no_placing(climb=True):
-        assert b.movement_policy.allow_climb
-        assert not b.terrain_policy.allow_place
-    assert b.movement_policy.allow_climb
 
 
 def test_the_top_of_a_scaffolding_column_is_a_stance(monkeypatch):
@@ -912,30 +874,6 @@ def test_scaffold_top_supports_feet_but_the_column_is_not_a_stance():
     }
     assert cb.standable(cells, (0, 1, 0))
     assert not cb.standable(cells, (0, 0, 0))
-
-
-def test_a_body_floating_in_water_plans_with_swimming_on(monkeypatch):
-    b, _, _ = body()
-    assert not b._move_policy().allow_swim
-    wet = {**b._obs.get("body", {}), "survival": {"in_water": True}}
-    b._obs = {**b._obs, "body": wet}
-    monkeypatch.setattr(cb, "standable", lambda cells, node: False)
-    assert b._move_policy().allow_swim and not b.movement_policy.allow_swim
-    monkeypatch.setattr(cb, "standable", lambda cells, node: True)
-    assert not b._move_policy().allow_swim
-
-
-def test_real_shallow_water_geometry_keeps_swimming_disabled():
-    b, _, memory = body()
-    p = b.position()
-    memory.cells[p] = {
-        "block": "minecraft:water",
-        "fluid": "minecraft:water",
-        "properties": {"level": "0"},
-        "collision_boxes": [],
-    }
-    b._obs["body"]["survival"] = {"in_water": True}
-    assert not b._move_policy().allow_swim
 
 
 def test_fill_walk_can_disable_drops_and_restore_the_original_policy():
@@ -1005,35 +943,6 @@ def test_drop_pickup_defers_an_item_still_falling_instead_of_giving_up(monkeypat
         b, "_navigate", lambda *a, **k: (_ for _ in ()).throw(AssertionError)
     )
     assert b.walk_to_drop((1, 75, 0), 0.8) is None  # not False: retry once it lands
-
-
-@pytest.mark.parametrize(
-    "y, deep, swim", [(0.42, False, False), (0.9, False, False), (0.0, True, True)]
-)
-def test_jumping_in_shallow_water_does_not_enable_swimming(y, deep, swim):
-    from mclab.movement_policy import MovementPolicy
-
-    memory = FakeMemory()
-    water = {
-        "block": "minecraft:water",
-        "fluid": "minecraft:water",
-        "properties": {"level": "0"},
-        "collision_boxes": [],
-    }
-    memory.cells[(0, 0, 0)] = water
-    if deep:  # the floor is gone: a pond, not a puddle
-        memory.cells[(0, -1, 0)] = water
-    ctl = cb._GotoController.__new__(cb._GotoController)
-    ctl.deadline, ctl.mode = 10**12, "following"
-    ctl.guard = cb.StuckGuard()
-    ctl.movement_policy = MovementPolicy(allow_swim=False)
-    ctl._known_cells = lambda: memory.cells
-    obs = {
-        "tick": 1,
-        "body": {"position": [0.5, y, 0.5], "survival": {"in_water": True}},
-    }
-    ctl.stop_reason(obs)
-    assert ctl.movement_policy.allow_swim is swim
 
 
 def test_probe_with_a_partial_route_becomes_the_walk_unless_placing_is_off():
@@ -1163,33 +1072,6 @@ def test_free_slots_and_can_hold_come_from_the_per_slot_rows():
     assert b.free_slots() == 6 and b.can_hold("minecraft:stone")  # armour is no slot
 
 
-def test_walk_to_allows_wadeable_shallow_water_when_swimming_is_off(monkeypatch):
-    b, _, _ = body()
-    b.movement_policy = replace(b.movement_policy, allow_swim=False)
-    shallow = {
-        (5, 61, 5): {
-            "block": "minecraft:stone",
-            "collision_boxes": [FULL],
-            "fluid": "minecraft:empty",
-        },
-        (5, 62, 5): {
-            "block": "minecraft:water",
-            "collision_boxes": [],
-            "fluid": "minecraft:flowing_water",
-        },
-        (5, 63, 5): {
-            "block": "minecraft:air",
-            "collision_boxes": [],
-            "fluid": "minecraft:empty",
-        },
-    }
-    monkeypatch.setattr(b, "_cells_now", lambda: shallow)
-    goals = []
-    monkeypatch.setattr(b, "_navigate", lambda goal, **k: goals.append(goal) or True)
-    assert b.walk_to((5, 62, 5)) is True
-    assert goals == [(5, 62, 5)]
-
-
 def test_planning_terrain_incomplete_cycle_stops_as_stalled():
     ctl = cb._GotoController.__new__(cb._GotoController)
     ctl.deadline, ctl.unreachable_since, ctl.searching_since = 10**12, None, None
@@ -1217,23 +1099,6 @@ def test_diagonal_hop_stays_within_sensed_radius_and_avoids_recursion(monkeypatc
     # Even if _hop_toward returned an over-radius point, _navigate refuses cleanly
     monkeypatch.setattr(b, "_hop_toward", lambda goal: (29, 1, 29))
     assert b._navigate((40, 1, 40), reach=None, radius=1.0) is False
-
-
-def test_walk_to_refuses_air_over_deep_water_when_swimming_is_off(monkeypatch):
-    b, _, _ = body()
-    b.movement_policy = replace(b.movement_policy, allow_swim=False)
-    water = {
-        "block": "minecraft:water",
-        "collision_boxes": [],
-        "fluid": "minecraft:water",
-    }
-    air = {"block": "minecraft:air", "collision_boxes": [], "fluid": "minecraft:empty"}
-    lake = {(5, 61, 5): water, (5, 62, 5): water, (5, 63, 5): air}
-    monkeypatch.setattr(b, "_cells_now", lambda: lake)
-    monkeypatch.setattr(
-        b, "_navigate", lambda *a, **k: (_ for _ in ()).throw(AssertionError)
-    )
-    assert b.walk_to((5, 63, 5)) is False
 
 
 def test_dig_to_straight_up_fails_fast_without_place_supply(monkeypatch):
@@ -1301,3 +1166,16 @@ def test_inventory_reuses_the_observation_until_the_game_ticks(monkeypatch):
     bridge.last_tick = 101  # the game advanced: a drop may have been picked up
     b.inventory()
     assert len(reads) == 2
+
+
+def test_companion_policies_have_every_movement_ability_on():
+    from mclab.companion_body import DIG_TERRAIN, NATURAL_MOVEMENT, WALK_TERRAIN
+
+    for terrain in (DIG_TERRAIN, WALK_TERRAIN):
+        assert terrain.planner_swim and terrain.climb_vines
+    b, _, _ = body()
+    b.movement_policy, b.terrain_policy = NATURAL_MOVEMENT, DIG_TERRAIN
+    with b.no_placing():
+        assert b.movement_policy.allow_swim and b.movement_policy.allow_climb
+        assert b.terrain_policy.planner_swim and b.terrain_policy.climb_vines
+    assert NATURAL_MOVEMENT.allow_swim and NATURAL_MOVEMENT.allow_climb

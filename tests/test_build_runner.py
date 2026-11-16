@@ -437,7 +437,7 @@ class TowerBody(FakeBody):
         self.placed_from: dict[bp.Pos, bp.Pos] = {}
         self.planner_placing = True
 
-    def no_placing(self, wall=10.0, climb=False):
+    def no_placing(self, wall=10.0):
         import contextlib
 
         @contextlib.contextmanager
