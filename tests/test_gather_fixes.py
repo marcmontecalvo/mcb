@@ -117,7 +117,15 @@ def test_sealed_refuses_water_flowing_water_and_waterlogged_neighbours():
     body = FakeGatherBody(K, column_world(), {}, pos=(0, 0, 0))
     pos = (0, -5, 0)
     assert gr._sealed(body, pos)
-    for state in (M + "water", M + "water[level=3]", M + "slab[waterlogged=true]"):
+    for state in (
+        M + "water",
+        M + "water[level=3]",
+        M + "slab[waterlogged=true]",
+        M + "seagrass",
+        M + "tall_seagrass[half=lower]",
+        M + "kelp[age=3]",
+        M + "bubble_column[drag=true]",
+    ):
         for face in gr.FACES:
             at = (pos[0] + face[0], pos[1] + face[1], pos[2] + face[2])
             old = body.w[at]

@@ -23,6 +23,22 @@ Pos = tuple[int, int, int]
 
 AIR = frozenset({"minecraft:air", "minecraft:cave_air", "minecraft:void_air"})
 FLUIDS = frozenset({"minecraft:water", "minecraft:lava"})
+# Always water, yet carry no ``waterlogged`` property.
+WATER_PLANTS = frozenset(
+    "minecraft:" + n
+    for n in ("seagrass", "tall_seagrass", "kelp", "kelp_plant", "bubble_column")
+)
+
+
+def is_wet(state: str | None) -> bool:
+    """A block state that is a fluid, a water plant or waterlogged: breaking beside it floods."""
+    if not state:
+        return False
+    ident, props = parse_state(state)
+    return (
+        ident in FLUIDS or ident in WATER_PLANTS or props.get("waterlogged") == "true"
+    )
+
 REPLACEABLE = (
     AIR
     | FLUIDS

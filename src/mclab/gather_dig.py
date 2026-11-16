@@ -28,9 +28,7 @@ GRAVEL_CAP = 8  # re-breaks of a dug cell that gravel or sand keeps falling into
 FALL_WAIT_TICKS = 10  # for what is above a broken cell to land in it
 LAVA = "minecraft:lava"
 WATER = "minecraft:water"
-WATERLOGGED = frozenset(
-    "minecraft:" + n for n in ("seagrass", "tall_seagrass", "kelp", "kelp_plant")
-)
+WATERLOGGED = bp.WATER_PLANTS
 STONE_LIKE = ("stone", "cobblestone", "deepslate", "andesite", "diorite", "granite")
 
 
@@ -68,14 +66,7 @@ class Digger:
     def _wet(self, cells) -> bool:
         """Any of ``cells`` is water or waterlogged (as gather_runner._sealed)."""
         for state in self._states(cells):
-            if state is None:
-                continue
-            ident, props = bp.parse_state(state)
-            if (
-                ident in bp.FLUIDS
-                or ident in WATERLOGGED
-                or props.get("waterlogged") == "true"
-            ):
+            if bp.is_wet(state):
                 return True
         return False
 
