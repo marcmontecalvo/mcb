@@ -1059,8 +1059,10 @@ def outcomes(value):
     for key in ("attempts", "episodes", "outcomes", "checks", "resets"):
         rows = value.get(key)
         # Some summaries list check names as strings; only dict rows are outcomes.
-        if isinstance(rows, list) and (rows := [r for r in rows if isinstance(r, dict)]):
-            return rows
+        if isinstance(rows, list):
+            rows = [r for r in rows if isinstance(r, dict)]
+            if rows:
+                return rows
     if isinstance(value.get("outcome"), dict):
         row = dict(value["outcome"])
         if isinstance(value.get("controller"), dict):
