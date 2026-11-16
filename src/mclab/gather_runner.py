@@ -37,7 +37,7 @@ from typing import Protocol
 from mclab import build_plan as bp
 from mclab import gather_plan as gp
 from mclab.build_runner import REACH, STANCE_REASONS, BuildBody, Result
-from mclab.gather_dig import LAVA, Digger
+from mclab.gather_dig import Digger
 from mclab.gather_kit import craft_local, craft_underground
 from mclab.gather_options import SENSE_DY, GatherOptions, pick_tool
 from mclab.gather_tasks import TIER_RANK, UNKNOWN_TIER_RANK
@@ -216,8 +216,9 @@ FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
 
 def _sealed(body, pos: Pos, unknown_ok: bool = False) -> bool:
-    """No lava (nor, unless ``unknown_ok``, unknown) cell touches ``pos``: breaking it
-    opens no flow. Live run 20261102T005434368454Z: mining surface stone beside a lava
+    """No lava or water (nor, unless ``unknown_ok``, unknown) cell touches ``pos``:
+    breaking it opens no flow. Run 20261116T134201634342Z: breaking ore beside water
+    flooded a dug pit and drowned the body. Live run 20261102T005434368454Z: mining surface stone beside a lava
     pool killed the bot. Surface blocks allow unknown neighbours: sand's underside is
     rarely sensed (run 20261103T005102941195Z stalled with every candidate refused)."""
     for dx, dy, dz in FACES:
@@ -226,7 +227,8 @@ def _sealed(body, pos: Pos, unknown_ok: bool = False) -> bool:
             if unknown_ok:
                 continue
             return False
-        if bp.parse_state(state)[0] == LAVA:
+        ident, props = bp.parse_state(state)
+        if ident in bp.FLUIDS or props.get("waterlogged") == "true":
             return False
     return True
 
