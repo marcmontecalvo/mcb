@@ -7,39 +7,40 @@ test("configure, save, resolve, launch and recover a mixed suite", async ({
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Build a run suite" }),
+    page.getByRole("heading", { name: "Send the bot on missions" }),
   ).toBeVisible();
   await page.getByRole("checkbox", { name: "Include Gather" }).check();
+  await page.getByText("Advanced settings (safe to ignore)").click();
   await page.locator("#preset").selectOption("careful");
-  await page.getByLabel("Seeds", { exact: true }).fill("11, 12");
-  await page.getByLabel("Repetitions", { exact: true }).fill("2");
+  await page.getByLabel("Seeds (optional)", { exact: true }).fill("11, 12");
+  await page.getByLabel("Times to run", { exact: true }).fill("2");
   await page.getByRole("checkbox", { name: "Include Crafting" }).check();
-  await expect(page.getByLabel("Seeds", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Seeds (optional)", { exact: true })).toHaveCount(0);
   const resolving = page.waitForResponse((response) =>
     response.url().endsWith("/api/resolve"),
   );
-  await page.getByRole("button", { name: "Resolve queue" }).click();
+  await page.getByRole("button", { name: "Check run list" }).click();
   const queue = await (await resolving).json();
   expect(queue.jobs).toHaveLength(5);
   expect(queue.jobs[0].run_config.planner.movement.max_gap).toBe(0);
-  await page.getByLabel("Suite name").fill(`${info.project.name} suite`);
+  await page.getByLabel("Name (to save this set for later)").fill(`${info.project.name} suite`);
   const saving = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/suites") &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Save suite" }).click();
+  await page.getByRole("button", { name: "Save set" }).click();
   const saved = await (await saving).json();
   expect(saved.entries).toHaveLength(2);
   expect(saved.entries[0].preset).toBe("careful");
   expect(saved.entries[0].overrides ?? {}).not.toHaveProperty("schema_version");
   await page.reload();
-  await page.getByLabel("Load saved suite").selectOption(saved.id);
-  await page.getByRole("button", { name: "Load suite", exact: true }).click();
-  await expect(page.getByLabel("Seeds", { exact: true })).toHaveValue("11, 12");
-  await page.getByRole("button", { name: "Resolve queue" }).click();
-  await expect(page.getByRole("button", { name: /Start suite/ })).toBeEnabled();
-  await page.getByRole("button", { name: /Start suite/ }).click();
+  await page.getByLabel("Load a saved set").selectOption(saved.id);
+  await page.getByRole("button", { name: "Load set", exact: true }).click();
+  await expect(page.getByLabel("Seeds (optional)", { exact: true })).toHaveValue("11, 12");
+  await page.getByRole("button", { name: "Check run list" }).click();
+  await expect(page.getByRole("button", { name: /Start$/ })).toBeEnabled();
+  await page.getByRole("button", { name: /Start$/ }).click();
   await expect(
     page.getByRole("heading", { name: "Live activity" }),
   ).toBeVisible();
@@ -82,17 +83,17 @@ test("invalid seeds block resolve; keyboard navigation remains usable", async ({
 }) => {
   await page.goto("/");
   await page.getByRole("checkbox", { name: "Include Gather" }).check();
-  await page.getByLabel("Seeds", { exact: true }).fill("not a seed");
+  await page.getByLabel("Seeds (optional)", { exact: true }).fill("not a seed");
   await expect(
-    page.getByRole("button", { name: "Resolve queue" }),
+    page.getByRole("button", { name: "Check run list" }),
   ).toBeDisabled();
-  await page.getByLabel("Seeds", { exact: true }).fill("13");
+  await page.getByLabel("Seeds (optional)", { exact: true }).fill("13");
   await expect(
-    page.getByRole("button", { name: "Resolve queue" }),
+    page.getByRole("button", { name: "Check run list" }),
   ).toBeEnabled();
-  await page.getByLabel("Seeds", { exact: true }).focus();
+  await page.getByLabel("Seeds (optional)", { exact: true }).focus();
   await page.keyboard.press("Tab");
-  await expect(page.getByLabel("Repetitions", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Times to run", { exact: true })).toBeFocused();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,

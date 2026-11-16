@@ -200,3 +200,14 @@ def test_preset_listing_rejects_unrecognized_content(workspace):
     )
     with pytest.raises(ValueError, match="no supported run family"):
         suites.presets()
+
+
+def test_catalog_rows_have_plain_sections_and_cover_every_plain_entry():
+    rows = suites.test_catalog()
+    ids = {row["id"] for row in rows}
+    assert set(suites.PLAIN) <= ids
+    assert all(row["section"] in suites.SECTIONS for row in rows)
+    assert all(row["description"] for row in rows)
+    order = [list(suites.SECTIONS).index(row["section"]) for row in rows]
+    assert order == sorted(order)
+    assert not any(row["advanced"] for row in rows if row["id"] == "gather")

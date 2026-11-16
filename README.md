@@ -26,6 +26,24 @@ decisions; [docs/INDEX.md](docs/INDEX.md) routes to plans, proof, contracts, and
 history. The full prior roadmap snapshot is retained as
 [historical evidence](docs/ROADMAP_HISTORY_2026-11-15.md).
 
+## Start here: everyday lab use
+
+See [the lab quickstart](docs/LAB_QUICKSTART.md) for setup, readiness,
+interaction, stopping and troubleshooting. The daily entry points are:
+
+```powershell
+# If stopped, start Minecraft; wait for status to report running.
+rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server start
+rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server status
+# Open/reuse the dashboard in another terminal.
+rtk proxy powershell -NoProfile -File scripts/lab-ui.ps1
+```
+
+Dashboard: **http://127.0.0.1:8770/**. Minecraft Java 26.3:
+**127.0.0.1:25575**. Initial setup and UI build are covered in the quickstart.
+[The script audit](docs/SCRIPT_AUDIT_2026-11-15.md) inventories the 37 retained scripts
+and records the 19 unused diagnostics removed during cleanup.
+
 ## Companion track: gathering and building (Nov 3, 2026)
 
 The bot gathers, crafts and builds schematics from an empty inventory

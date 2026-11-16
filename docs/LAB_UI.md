@@ -1,5 +1,8 @@
 # Local lab UI
 
+For the short startup, interaction and shutdown workflow, see
+[LAB_QUICKSTART.md](LAB_QUICKSTART.md).
+
 ## Current React interface
 
 The current interface is a React/TypeScript app built with Vite and Tailwind,

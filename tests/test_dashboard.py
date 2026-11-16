@@ -983,3 +983,39 @@ def test_sessions_show_live_companion_progress(companion):
     dashboard.process = type("P", (), {"poll": lambda self: None})()
     [session] = dashboard.sessions()
     assert session["jobs"][0]["live"]["progress"]["total"] == 4
+
+
+@pytest.mark.parametrize(
+    ("job", "expected"),
+    [
+        ({"entrant": "v8_goal", "label": "C2 run"}, "v8_goal:passed"),
+        (
+            {"id": "body-protocol", "label": "Body protocol qualification"},
+            "Body protocol qualification:passed",
+        ),
+        ({"id": "body-protocol"}, "body-protocol:passed"),
+        ({"kind": "companion"}, "companion:passed"),
+        ({}, "unknown:passed"),
+    ],
+)
+def test_sessions_cli_lists_legacy_and_qualification_jobs(
+    workspace, monkeypatch, capsys, job, expected
+):
+    path = workspace / "results/sessions/mixed/session.json"
+    value = {
+        "id": "mixed",
+        "status": "completed",
+        "jobs": [
+            {"entrant": "baritone", "status": "failed"},
+            {**job, "status": "passed"},
+        ],
+    }
+    write_json(path, value)
+    monkeypatch.setattr("sys.argv", ["mclab.dashboard", "--sessions"])
+
+    ui.main()
+
+    assert capsys.readouterr().out.strip() == (
+        f"mixed  completed   baritone:failed, {expected}"
+    )
+    assert read_json(path) == value

@@ -14,6 +14,10 @@ experiment reports preserve provenance; they are not current work instructions.
 | [NAVIGATION_DIRECTION_2026-10-28.md](NAVIGATION_DIRECTION_2026-10-28.md) | Authoritative navigation strategy, phases, acceptance, and superseded-doc guidance |
 | [LAB_COMPANION_PLAN_2026-11-15.md](LAB_COMPANION_PLAN_2026-11-15.md) | Chosen lab UI/companion scope and phase definitions; current delivery status is in the roadmap and implementation summary |
 
+For everyday operation, start with [LAB_QUICKSTART.md](LAB_QUICKSTART.md).
+For script ownership and cleanup candidates, see
+[SCRIPT_AUDIT_2026-11-15.md](SCRIPT_AUDIT_2026-11-15.md).
+
 ## Setup and current contracts
 
 | Document | Role |

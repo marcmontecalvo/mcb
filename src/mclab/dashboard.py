@@ -1007,7 +1007,17 @@ def main():
     if args.sessions:
         for path in sorted(SESSIONS.glob("*/session.json")):
             value = read_json(path)
-            jobs = ", ".join(f"{j['entrant']}:{j['status']}" for j in value["jobs"])
+            entries = []
+            for job in value["jobs"]:
+                name = (
+                    job.get("entrant")
+                    or job.get("label")
+                    or job.get("id")
+                    or job.get("kind")
+                    or "unknown"
+                )
+                entries.append(f"{name}:{job['status']}")
+            jobs = ", ".join(entries)
             print(f"{value['id']}  {value['status']:<11} {jobs}")
         return
     if args.kill:

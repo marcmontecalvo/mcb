@@ -22,6 +22,8 @@ type Test = {
   id: string;
   label: string;
   family: string;
+  section?: string;
+  advanced?: boolean;
   description: string;
   default_config: Record<string, Json>;
   locked_fields?: string[];
@@ -253,7 +255,7 @@ function App() {
     [schema, setSchema] = useState<Schema | null>(null),
     [entries, setEntries] = useState<Entry[]>([]),
     [selected, setSelected] = useState(-1),
-    [name, setName] = useState("My suite"),
+    [name, setName] = useState("My missions"),
     [jobs, setJobs] = useState<Job[]>([]),
     [snapshot, setSnapshot] = useState<Snapshot>({}),
     [error, setError] = useState(""),
@@ -262,7 +264,8 @@ function App() {
     [tab, setTab] = useState<"configure" | "activity" | "history">("configure"),
     [history, setHistory] = useState<unknown>(null),
     [seedText, setSeedText] = useState(""),
-    [suiteId, setSuiteId] = useState("");
+    [suiteId, setSuiteId] = useState(""),
+    [showAdvanced, setShowAdvanced] = useState(false);
   const [invalid, setInvalid] = useState<Record<string, boolean>>({});
   const validity = (id: string, valid: boolean) =>
     setInvalid((old) => {
@@ -360,7 +363,7 @@ function App() {
     });
   async function resolve() {
     if (Object.keys(invalid).length) {
-      setError("Correct invalid settings before resolving the suite.");
+      setError("Fix the settings marked in red first.");
       return null;
     }
     try {
@@ -380,7 +383,7 @@ function App() {
       setError("");
       const result = await api<Suite>("/api/suites", "POST", { name, entries });
       setSuites(await api<Suite[]>("/api/suites"));
-      setNotice(`Saved ${result.name || name}.`);
+      setNotice(`Saved "${result.name || name}". Load it from the top of the missions list.`);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -390,7 +393,7 @@ function App() {
     try {
       await api("/api/start", "POST", { kind: "suite", entries });
       setTab("activity");
-      setNotice("Suite submitted.");
+      setNotice("Started. Follow along here or watch the bot in Minecraft.");
     } catch (e) {
       setError((e as Error).message);
     }
@@ -416,10 +419,12 @@ function App() {
     }
   }
   const status = String(snapshot.status?.state || "unknown");
+  const sectionOf = (t: Test) => t.section || label(t.family);
   const groups = useMemo(
-    () => Array.from(new Set(tests.map((t) => t.family))),
+    () => Array.from(new Set(tests.map(sectionOf))),
     [tests],
   );
+  const hasAdvanced = tests.some((t) => t.advanced);
   return (
     <div className="shell">
       <aside className="rail">
@@ -478,14 +483,14 @@ function App() {
               <p className="eyebrow">MCB LAB COMPANION</p>
               <h1>
                 {tab === "configure"
-                  ? "Build a run suite"
+                  ? "Send the bot on missions"
                   : tab === "activity"
                     ? "Live activity"
                     : "History & builds"}
               </h1>
               <p>
                 {tab === "configure"
-                  ? "Choose tests, tune the settings, and review the queue before launch."
+                  ? "Pick what you want the bot to try, then press Start. Watch it in Minecraft or on Live activity."
                   : tab === "activity"
                     ? "Follow the current session and its jobs."
                     : "Browse previous results and build runs."}
@@ -506,20 +511,46 @@ function App() {
             </p>
           )}
           {tab === "configure" && (
+            <ol className="steps" aria-label="How it works">
+              <li>
+                <b>1</b>
+                <span>
+                  <strong>Pick missions</strong>
+                  <small>Tick one or more on the left.</small>
+                </span>
+              </li>
+              <li>
+                <b>2</b>
+                <span>
+                  <strong>Change settings (optional)</strong>
+                  <small>The defaults work fine.</small>
+                </span>
+              </li>
+              <li>
+                <b>3</b>
+                <span>
+                  <strong>Press Start</strong>
+                  <small>Missions run one at a time.</small>
+                </span>
+              </li>
+            </ol>
+          )}
+          {tab === "configure" && (
             <div className="workspace">
               <Card
                 className="panel picker"
-                title="Tests"
-                description="Select one or more tests to add to your suite."
+                title="Missions"
+                description="Tick the missions you want. Click a name to see its settings."
               >
+                {suites.length > 0 && (
                 <div className="suite-load">
-                  <label htmlFor="saved">Load saved suite</label>
+                  <label htmlFor="saved">Load a saved set</label>
                   <select
                     id="saved"
                     value={suiteId}
                     onChange={(e) => setSuiteId(e.target.value)}
                   >
-                    <option value="">Choose a suite</option>
+                    <option value="">Choose a set</option>
                     {suites.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
@@ -542,12 +573,13 @@ function App() {
                       }
                     }}
                   >
-                    Load suite
+                    Load set
                   </Button>
                 </div>
+                )}
                 {entries.length > 0 && (
                   <div className="test-group">
-                    <h3>Suite entries</h3>
+                    <h3>Your picks (run in this order)</h3>
                     {entries.map((entry, i) => (
                       <button
                         key={i}
@@ -564,12 +596,17 @@ function App() {
                     ))}
                   </div>
                 )}
-                {groups.map((group) => (
+                {groups.map((group) => {
+                  const rows = tests.filter((t) => sectionOf(t) === group);
+                  const hidden =
+                    !showAdvanced &&
+                    rows.every((t) => t.advanced) &&
+                    !rows.some((t) => entries.some((e) => e.test_id === t.id));
+                  if (hidden) return null;
+                  return (
                   <section key={group} className="test-group">
-                    <h3>{label(group)}</h3>
-                    {tests
-                      .filter((t) => t.family === group)
-                      .map((t) => (
+                    <h3>{group}</h3>
+                    {rows.map((t) => (
                         <div
                           className={
                             "test-row " +
@@ -601,18 +638,82 @@ function App() {
                         </div>
                       ))}
                   </section>
-                ))}
+                  );
+                })}
+                {hasAdvanced && (
+                  <button
+                    className="advanced-toggle"
+                    aria-expanded={showAdvanced}
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                  >
+                    {showAdvanced
+                      ? "Hide lab tools"
+                      : "Show lab tools (for developers)"}
+                  </button>
+                )}
               </Card>
               <div className="editor">
                 <Card
                   className="panel"
-                  title={test?.label || "Test settings"}
-                  description={
-                    test?.description || "Select a test to configure it."
-                  }
+                  title={test?.label || "Mission settings"}
+                  description={test?.description || "Nothing picked yet."}
                 >
                   {current && test && schema ? (
                     <>
+                      <div className="fields">
+                        {supportsSeeds(test.family) && (
+                          <div className="field">
+                            <label htmlFor="seeds">Seeds (optional)</label>
+                            <input
+                              id="seeds"
+                              placeholder="Leave blank, or e.g. 1, 2, 3"
+                              value={seedText}
+                              onChange={(e) => {
+                                setSeedText(e.target.value);
+                                try {
+                                  const seeds = seedsFromText(e.target.value);
+                                  update((x) => ({ ...x, seeds }));
+                                  validity("seeds", true);
+                                  setError("");
+                                } catch (err) {
+                                  validity("seeds", false);
+                                  setError((err as Error).message);
+                                }
+                              }}
+                            />
+                            <small>
+                              A seed picks the random layout. Same seed, same
+                              layout, so runs can be compared. Each seed you
+                              list is one run.
+                            </small>
+                          </div>
+                        )}
+                        <div className="field">
+                          <label htmlFor="repetitions">Times to run</label>
+                          <input
+                            id="repetitions"
+                            type="number"
+                            min="1"
+                            max="3"
+                            value={current.repetitions ?? ""}
+                            placeholder="1"
+                            onChange={(e) =>
+                              update((x) => ({
+                                ...x,
+                                repetitions: e.target.value
+                                  ? Number(e.target.value)
+                                  : undefined,
+                              }))
+                            }
+                          />
+                          <small>
+                            1 to 3. Running more than once shows whether it
+                            succeeds every time or just got lucky.
+                          </small>
+                        </div>
+                      </div>
+                      <details className="advanced-settings">
+                        <summary>Advanced settings (safe to ignore)</summary>
                       <div className="fields">
                         <div className="field">
                           <label htmlFor="preset">Preset</label>
@@ -640,50 +741,6 @@ function App() {
                               ))}
                           </select>
                         </div>
-                        {supportsSeeds(test.family) && (
-                          <div className="field">
-                            <label htmlFor="seeds">Seeds</label>
-                            <input
-                              id="seeds"
-                              placeholder="e.g. 1, 2, 3"
-                              value={seedText}
-                              onChange={(e) => {
-                                setSeedText(e.target.value);
-                                try {
-                                  const seeds = seedsFromText(e.target.value);
-                                  update((x) => ({ ...x, seeds }));
-                                  validity("seeds", true);
-                                  setError("");
-                                } catch (err) {
-                                  validity("seeds", false);
-                                  setError((err as Error).message);
-                                }
-                              }}
-                            />
-                            <small>
-                              Comma-separated; leave blank for the test default.
-                            </small>
-                          </div>
-                        )}
-                        <div className="field">
-                          <label htmlFor="repetitions">Repetitions</label>
-                          <input
-                            id="repetitions"
-                            type="number"
-                            min="1"
-                            max="3"
-                            value={current.repetitions ?? ""}
-                            placeholder="Default"
-                            onChange={(e) =>
-                              update((x) => ({
-                                ...x,
-                                repetitions: e.target.value
-                                  ? Number(e.target.value)
-                                  : undefined,
-                              }))
-                            }
-                          />
-                        </div>
                       </div>
                       <Fields
                         schema={schema.properties?.run || {}}
@@ -708,22 +765,24 @@ function App() {
                           locked={test.locked_fields || []}
                         />
                       ))}
+                      </details>
                     </>
                   ) : (
                     <div className="empty">
-                      Choose a test from the list to see its settings.
+                      Tick a mission on the left. Its settings show up here,
+                      but you do not have to change anything.
                     </div>
                   )}
                 </Card>
                 <Card
                   className="panel queue"
-                  title="Queue preview"
-                  description="Resolve the suite to see the exact jobs that will run."
+                  title="Ready to go"
+                  description="Press Start to run your picks. Check run list shows every run first."
                 >
                   <div className="queue-head">
                     <span>
-                      {entries.length} TEST{entries.length === 1 ? "" : "S"}{" "}
-                      SELECTED
+                      {entries.length} MISSION{entries.length === 1 ? "" : "S"}{" "}
+                      PICKED
                     </span>
                     <Button
                       variant="secondary"
@@ -732,7 +791,7 @@ function App() {
                       }
                       onClick={resolve}
                     >
-                      Resolve queue
+                      Check run list
                     </Button>
                   </div>
                   {jobs.length ? (
@@ -747,7 +806,7 @@ function App() {
                             <small>{job.entrant || job.kind}</small>
                           </span>
                           <details>
-                            <summary>Configuration</summary>
+                            <summary>Details</summary>
                             <pre>{JSON.stringify(job.run_config, null, 2)}</pre>
                           </details>
                         </li>
@@ -755,12 +814,14 @@ function App() {
                     </ol>
                   ) : (
                     <div className="empty">
-                      Your expanded jobs will appear here.
+                      {entries.length
+                        ? "Press Check run list to see each run, or just press Start."
+                        : "Pick at least one mission to start."}
                     </div>
                   )}
                   <div className="queue-actions">
                     <label className="suite-name">
-                      Suite name
+                      Name (to save this set for later)
                       <input
                         value={name}
                         onChange={(e) => setName(e.target.value)}
@@ -775,7 +836,7 @@ function App() {
                       }
                       onClick={save}
                     >
-                      Save suite
+                      Save set
                     </Button>
                     <Button
                       disabled={
@@ -783,7 +844,7 @@ function App() {
                       }
                       onClick={start}
                     >
-                      ▶ &nbsp; Start suite
+                      ▶ &nbsp; Start
                     </Button>
                   </div>
                 </Card>
