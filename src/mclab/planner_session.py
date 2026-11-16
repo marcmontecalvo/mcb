@@ -163,13 +163,18 @@ def detach(controller):
     client = getattr(controller, "planner_policy_client", None)
     if client is not None:
         try:
-            _send_and_ack(
-                client,
-                "route_policy",
-                "route_policy_accepted",
-                use_doors=False,
-                climb_vines=True,
-            )
+            # The mod accepts route_policy only for a ready body, and a spawn
+            # resets the policy anyway: a body that died mid-drive has nothing to
+            # restore. Sending it raised RuntimeError that masked the death
+            # (run 20261116T125602216319Z).
+            if client.state(heartbeat=False)["state"] == "ready":
+                _send_and_ack(
+                    client,
+                    "route_policy",
+                    "route_policy_accepted",
+                    use_doors=False,
+                    climb_vines=True,
+                )
         except Exception as error:
             failures.append(error)
         finally:
