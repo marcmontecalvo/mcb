@@ -178,7 +178,17 @@ final class RouteMotor {
         var step = geometry.surfaceStep(x, y, z);
         if (step == null || (step[0] == x && step[2] == z && step[1] > y)) return Surface.UP;
         double yaw = wrap(yawTo(pose, new Point(step[0], step[1], step[2])) - pose.yaw);
-        return step[1] < y ? new Surface(step[0] == x && step[2] == z ? 0 : 1, yaw, false, true) : new Surface(1, yaw, true, false);
+        if (step[1] < y) return new Surface(step[0] == x && step[2] == z ? 0 : 1, yaw, false, true);
+        if (step[1] == y) {
+            // Level step into an air pocket under a roof: the body is 1.8 tall, so a body floating
+            // high in its column (feet at 55.7, a 1-block pocket's roof at 57) bumps the roof and
+            // never enters, and jumping only presses it harder. Sink first, then walk in without
+            // jumping. Run 20261116T125602216319Z drowned oscillating 66 s beside such a pocket.
+            boolean roof = !geometry.roomAbove(step[0], y, step[2]);
+            if (roof && pose.y + 1.8 > y + 1 + 1e-6) return new Surface(0, yaw, false, true);
+            return new Surface(1, yaw, !roof, false);
+        }
+        return new Surface(1, yaw, true, false);
     }
     Map<String, Object> status() {
         return Map.of("route_id", id, "state", state, "reason", reason, "next_index", index,

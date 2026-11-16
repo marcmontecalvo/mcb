@@ -101,6 +101,8 @@ final class RouteGeometry implements RouteMotor.Geometry {
         var cell = cell(x, y, z);
         return breathable(x, y, z) || (collisionFree(cell) && waterFluid(cell.get("fluid")));
     }
+    /** The cell above (x,y,z) is known water or air, so a body can rise into it. */
+    boolean roomAbove(int x, int y, int z) { return swimmable(x, y + 1, z); }
     static final int SURFACE_RADIUS = 8, SURFACE_NODES = 400;
     private static final int[][] SIX = {{0,1,0},{-1,0,0},{1,0,0},{0,0,-1},{0,0,1},{0,-1,0}};
     /** First cell on the shortest swimmable path from the head cell to a breathable cell,
