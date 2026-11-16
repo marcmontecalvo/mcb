@@ -43,6 +43,7 @@ from mclab import scaffolding as sc
 from mclab.build_plan import Pos
 from mclab.progress_watch import (
     STALL_SECONDS,
+    BodyDied,
     ProgressWatch,
     StallError,
     WatchedBody,
@@ -621,6 +622,10 @@ def run_build(
         report.stop, report.stall_reason = "stalled", str(exc)
         if log:
             log(f"STOP stalled: {exc}")
+    except BodyDied:
+        report.stop = "died"
+        if log:
+            log("STOP died")
     if not report.counts:  # stopped early (stalled, site not ready)
         report.counts = bp.progress(template, body.world)
         report.unknown = bp.diff(template, body.world).unknown

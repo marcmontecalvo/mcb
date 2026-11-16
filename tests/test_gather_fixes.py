@@ -35,7 +35,7 @@ def test_gravel_and_water_do_not_stop_a_stair_step_but_lava_behind_a_block_does(
     assert digger._check(new, dig) == "lava"
     assert not gr._sealed(body, (new[0], new[1], 0))
     body.w[(new[0] + 1, new[1], 0)] = M + "water"
-    assert gr._sealed(body, (new[0], new[1], 0))
+    assert not gr._sealed(body, (new[0], new[1], 0))  # surface mining refuses water
 
 
 def test_only_a_missing_tool_runs_the_escape(monkeypatch):
@@ -111,3 +111,16 @@ def test_candidates_rank_by_yield_per_distance_capped_at_the_need():
     assert gr._by_yield(known, (0, 0, 0), 5)[0] in cluster
     assert gr._by_yield(known, (0, 0, 0), 1)[0] == lone  # one needed: nearest
     assert gr._by_yield(known, (0, 0, 0), 2)[0] == lone  # cap 2: 3/1 vs 12/2 (6/1)
+
+
+def test_sealed_refuses_water_flowing_water_and_waterlogged_neighbours():
+    body = FakeGatherBody(K, column_world(), {}, pos=(0, 0, 0))
+    pos = (0, -5, 0)
+    assert gr._sealed(body, pos)
+    for state in (M + "water", M + "water[level=3]", M + "slab[waterlogged=true]"):
+        for face in gr.FACES:
+            at = (pos[0] + face[0], pos[1] + face[1], pos[2] + face[2])
+            old = body.w[at]
+            body.w[at] = state
+            assert not gr._sealed(body, pos), (state, face)
+            body.w[at] = old

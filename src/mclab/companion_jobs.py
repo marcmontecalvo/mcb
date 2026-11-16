@@ -60,7 +60,7 @@ def _storage_boxes(state: GatherState) -> list[dict]:
     ]
 
 
-GATHER_ENDS = ("stalled", "failed")
+GATHER_ENDS = ("stalled", "failed", "died")
 SHULKER = "minecraft:shulker_box"
 SCAFFOLD_STACK = 64
 KNOWLEDGE = ROOT / "knowledge"

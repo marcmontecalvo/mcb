@@ -787,3 +787,16 @@ def test_a_second_gather_walks_to_the_stored_sighting_instead_of_exploring(
 
     assert report.stop == "done", report
     assert body.inventory()[M + "oak_log"] >= 1
+
+def test_a_body_that_dies_mid_run_ends_it_died_not_crashed():
+    from mclab.progress_watch import BodyDied
+
+    body = FakeGatherBody(K, floor())
+
+    def dead(*a, **k):
+        raise BodyDied("dead")
+
+    body.walk_to = dead
+    body.goto_stance = dead
+    report = run({M + "oak_planks": 4}, body)
+    assert report.stop == "died", report

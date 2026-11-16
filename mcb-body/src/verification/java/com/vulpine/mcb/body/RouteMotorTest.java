@@ -463,6 +463,10 @@ public final class RouteMotorTest {
         check(!up.treading(wet(3.5,.4,.5),g),"a cancel ends it");
         check(RouteMotor.afloat(up,wet(2.5,-.5,.5),true,g),"head under water after a cancel: swim up");
         check(RouteMotor.afloat(null,wet(2.5,-.5,.5),true,g),"head under water with no route ever: swim up");
+        // companion/20261116T134201634342Z: a dig under water held the body down until it drowned.
+        check(RouteMotor.drowning(true,99,300),"head under water, air under a third: drowning");
+        check(!RouteMotor.drowning(true,100,300),"air still at a third: keep working");
+        check(!RouteMotor.drowning(false,0,300),"head out of water: not drowning");
         var two=pool();
         for(int x=2;x<=4;x++) { two.put(new Key(x,-1,0),water("0")); two.put(new Key(x,-2,0),stone()); }
         check(RouteMotor.afloat(null,wet(2.5,.4,.5),false,geometry(two)),"afloat in water too deep to stand in, head out: hold (float, don't bob)");

@@ -61,6 +61,7 @@ from mclab.navigation_runner import _new_identity
 from mclab.navigation_segmented import SegmentedController
 from mclab.paths import ROOT, RUNTIME, SERVER, read_json
 from mclab.place_graph import Connection, PlaceGraph
+from mclab.progress_watch import BodyDied
 from mclab.schematic import format_state, parse_state
 from mclab.spatial_memory import (
     MapArchive,
@@ -609,7 +610,10 @@ class CompanionBody:
         return int(self._obs.get("tick", 0))
 
     def position(self) -> Pos:
-        x, y, z = self._obs["body"]["position"]
+        pos = self._obs["body"].get("position")
+        if pos is None:
+            raise BodyDied("observation has no position: the body is dead")
+        x, y, z = pos
         return (math.floor(x), math.floor(y + 1e-6), math.floor(z))
 
     def inventory(self) -> dict[str, int]:

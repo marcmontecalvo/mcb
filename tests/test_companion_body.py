@@ -1236,3 +1236,14 @@ def test_goto_stance_skips_duplicate_distant_hops_and_fallback_when_hop_fails(
     assert b.goto_stance((90, 63, -59), 4.5) is False
     assert calls == [((90, 62, -59), None, True)]
 
+
+
+def test_position_of_a_dead_body_raises_bodydied():
+    import pytest
+
+    from mclab.progress_watch import BodyDied
+
+    b, _, _ = body()
+    b._obs = {"tick": 5, "body": {"food": 17}}  # a dead body reports no position
+    with pytest.raises(BodyDied):
+        b.position()
