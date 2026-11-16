@@ -250,9 +250,9 @@ def test_control_profile_drives_production_planner(
             return {}
         return original_ack(request, expected)
 
-    def state():
+    def state(heartbeat=True):
         body.tick += 1
-        return {"tick": body.tick}
+        return {"tick": body.tick, "state": "ready"}
 
     def policy(_client):
         if profile != control_loop.PIPELINED:
