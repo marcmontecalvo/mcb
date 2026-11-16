@@ -10,7 +10,8 @@ def last_failure(events_tail):
         kind = event.get("type", "")
         if kind.endswith("_failed") or kind == "route_stopped":
             data = event.get("data") or {}
-            return f"{kind}: {data.get('reason') or data.get('state') or 'no reason given'}"
+            reason = data.get("reason") or data.get("state") or "no reason given"
+            return f"{kind}: {reason}"
     return None
 
 

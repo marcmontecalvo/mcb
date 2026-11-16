@@ -1,5 +1,6 @@
-import pytest
 from pathlib import Path
+
+import pytest
 
 from mclab.build_runner import Result
 from mclab.gather_fake import FakeGatherBody

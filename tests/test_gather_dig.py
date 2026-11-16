@@ -1,8 +1,8 @@
 import pytest
 
+from mclab.build_runner import Result
 from mclab.companion_body import StuckGuard
 from mclab.companion_jobs import load_vanilla_pack
-from mclab.build_runner import Result
 from mclab.gather_dig import Digger
 from mclab.gather_fake import FakeGatherBody
 from mclab.gather_plan import plan

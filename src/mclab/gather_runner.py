@@ -667,7 +667,7 @@ class _Exec:
                 for b in blocks
                 for p in body.find_blocks(
                     b,
-                    lambda p, home=home, seen=found_at: p not in skip
+                    lambda p, home=home, seen=found_at, here=here: p not in skip
                     and (near is None or _dist(p, near) <= radius)
                     and (
                         (not underground and here[1] - p[1] <= SURFACE_BELOW)

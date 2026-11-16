@@ -1,7 +1,8 @@
 """In-game /mcb commands -> the dashboard's companion job path.
 
-The body mod records each /mcb use as a `player_command` event (stop also cancels the body in the mod, with
-no Python or model involved). This loop reads those events, applies the owner/allowlist from
+The body mod records each /mcb use as a `player_command` event (stop also cancels
+the body in the mod, with no Python or model involved). This loop reads those
+events, applies the owner/allowlist from
 config/companion.json (empty lists refuse everyone), validates arguments and dispatches.
 """
 
@@ -26,12 +27,15 @@ def allowed(uuid):
         value = read_json(CONFIG)
     except (OSError, ValueError):
         return False
-    people = {str(u).lower() for key in ("owners", "allowlist") for u in value.get(key, [])}
+    people = {
+        str(u).lower() for key in ("owners", "allowlist") for u in value.get(key, [])
+    }
     return str(uuid).lower() in people
 
 
 def parse(data):
-    """The validated (command, args) of a player_command, or ValueError with a player-safe message."""
+    """The validated (command, args) of a player_command, or ValueError with a
+    player-safe message."""
     command = data.get("command")
     if command in {"status", "stop"}:
         return command, {}
@@ -39,7 +43,7 @@ def parse(data):
         coords = [data.get(axis) for axis in "xyz"]
         if any(type(c) is not int or abs(c) > 30_000_000 for c in coords):
             raise ValueError("Bad coordinates.")
-        return command, dict(zip("xyz", coords))
+        return command, dict(zip("xyz", coords, strict=True))
     if command == "gather":
         count = data.get("count")
         if not isinstance(data.get("item"), str) or not ITEM.fullmatch(data["item"]):
@@ -72,7 +76,8 @@ def _status(tail):
     sessions = sorted(dashboard.SESSIONS.glob("*/session.json"))
     session = read_json(sessions[-1]) if sessions else None
     folders = sorted(
-        (ROOT / "results/companion").glob("*/progress.json"), key=lambda p: p.stat().st_mtime
+        (ROOT / "results/companion").glob("*/progress.json"),
+        key=lambda p: p.stat().st_mtime,
     )
     progress = companion_progress.read_progress(folders[-1].parent) if folders else None
     return companion_status.explain(progress, session, list(tail), time.time())
@@ -86,16 +91,22 @@ def handle(event, tail=()):
     try:
         command, args = parse(data)
         if command == "stop":
-            return "Stopped." if "Kill requested" in _kill()["status"] else "Nothing to stop."
+            return (
+                "Stopped." if "Kill requested" in _kill()["status"]
+                else "Nothing to stop."
+            )
         if command == "status":
             return _status(tail)
         if command == "goto":
             return "goto not supported yet."
         if command == "gather":
-            # run-gather has no item/count option yet: only the iron-pickaxe target is selectable.
-            _start({"kind": "companion", "job": "gather", "iron": args["item"] in {"iron", "iron_pickaxe"}})
+            # run-gather has no item/count option yet: only the iron-pickaxe target
+            # is selectable.
+            iron = args["item"] in {"iron", "iron_pickaxe"}
+            _start({"kind": "companion", "job": "gather", "iron": iron})
             return "Gathering started (item and count are not used yet)."
-        _start({"kind": "companion", "job": "build", "build": f"builds/{args['name']}.build.json"})
+        build = f"builds/{args['name']}.build.json"
+        _start({"kind": "companion", "job": "build", "build": build})
         return "Build started."
     except ValueError as error:
         return str(error)[:200]
@@ -108,17 +119,22 @@ def _call(path, payload=None):
     request = urllib.request.Request(
         f"http://127.0.0.1:{config()['bridge_port']}{path}",
         data=None if payload is None else json.dumps(payload).encode(),
-        headers={"Authorization": "Bearer " + state["token"], "Content-Type": "application/json"},
+        headers={
+            "Authorization": "Bearer " + state["token"],
+            "Content-Type": "application/json",
+        },
     )
     with urllib.request.urlopen(request, timeout=4) as response:
         return json.loads(response.read())
 
 
 def poll(state, fetch=_call, tell=None):
-    """One poll: advance state's cursor, reply to each player_command. A ring gap skips forward."""
+    """One poll: advance state's cursor, reply to each player_command.
+    A ring gap skips forward."""
     batch = fetch(f"/events?after={state['cursor']}")
     if batch["launch_id"] != state.get("launch_id"):
-        state.update(launch_id=batch["launch_id"], cursor=0)  # server restarted: sequences restart
+        # server restarted: sequences restart
+        state.update(launch_id=batch["launch_id"], cursor=0)
         if batch["events"]:
             batch = fetch("/events?after=0")
     if batch.get("gap"):
@@ -129,20 +145,24 @@ def poll(state, fetch=_call, tell=None):
         if event["type"] == "player_command":
             reply = handle(event, state["tail"])
             data = event["data"]
-            (tell or (lambda u, t: fetch("/tell", {"uuid": u, "text": t})))(data["player_uuid"], reply)
+            send = tell or (lambda u, t: fetch("/tell", {"uuid": u, "text": t}))
+            send(data["player_uuid"], reply)
     state["cursor"] = max(state["cursor"], batch["latest_sequence"])
 
 
 def run():
     if not CONFIG.is_file():
-        CONFIG.write_text(json.dumps({"owners": [], "allowlist": []}, indent=2) + "\n", encoding="utf-8")
+        text = json.dumps({"owners": [], "allowlist": []}, indent=2) + "\n"
+        CONFIG.write_text(text, encoding="utf-8")
     state = {"cursor": 2**62, "launch_id": None, "tail": deque(maxlen=50)}
     first = True
     while True:
         try:
             if first:  # start at the head: old commands are not replayed
                 head = _call(f"/events?after={2**62}")
-                state.update(cursor=head["latest_sequence"], launch_id=head["launch_id"])
+                state.update(
+                    cursor=head["latest_sequence"], launch_id=head["launch_id"]
+                )
                 first = False
             poll(state)
         except (OSError, ValueError, KeyError) as error:

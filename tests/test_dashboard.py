@@ -878,7 +878,8 @@ def test_companion_session_boots_a_stopped_lab_first(companion, monkeypatch):
         patch.setattr(ui.subprocess, "Popen", lambda *_a, **_k: fake)
         result = ui.Dashboard().start({"kind": "companion", "job": "crafting"})
     jobs = read_json(ui.SESSIONS / result["id"] / "session.json")["jobs"]
-    assert [j.get("operation") or j["kind"] for j in jobs] == ["server-start", "companion"]
+    names = [j.get("operation") or j["kind"] for j in jobs]
+    assert names == ["server-start", "companion"]
     with pytest.raises(RuntimeError, match="not running"):
         runs.execute(runs.plan({"kind": "companion", "job": "crafting"})[0])
 

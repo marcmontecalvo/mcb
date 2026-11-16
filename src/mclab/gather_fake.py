@@ -13,10 +13,10 @@ from collections.abc import Collection
 from itertools import count
 
 from mclab import build_plan as bp
-from mclab.collision_geometry import standable
 from mclab.build_runner import Result
-from mclab.interaction_goal import interacts
+from mclab.collision_geometry import standable
 from mclab.gather_tasks import item_stack, slots_used
+from mclab.interaction_goal import interacts
 from mclab.knowledge import Knowledge
 
 Pos = tuple[int, int, int]
@@ -44,7 +44,8 @@ class FakeGatherBody:
         slots: int = 36,
         strict_stance: bool = False,
     ):
-        self.strict_stance = strict_stance  # stances as the real body: standable + line of sight
+        # stances as the real body: standable + line of sight
+        self.strict_stance = strict_stance
         self.slots = slots  # main inventory size
         self.can_dig = can_dig  # dig_to works (a real body with DIG_TERRAIN)
         self.sight = sight  # find_blocks / entities only within this distance
