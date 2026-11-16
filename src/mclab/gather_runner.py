@@ -369,16 +369,6 @@ class _Exec:
                 x = ox + round(radius * math.cos(rad))
                 z = oz + round(radius * math.sin(rad))
                 goal = (x, self._surface_y(x, z, oy), z)
-                allow_swim = getattr(
-                    getattr(self.body, "movement_policy", None), "allow_swim", False
-                )
-                surface = self.body.world(x, goal[1] - 1, z)
-                if (
-                    not allow_swim
-                    and surface is not None
-                    and bp.parse_state(surface)[0] in bp.FLUIDS
-                ):
-                    continue
                 if not climbed and goal[1] - self.body.position()[1] > CLIMB_MIN:
                     # a surface goal from inside a pit costs hundreds of plans
                     # (run 20261113T202531741432Z): climb out first

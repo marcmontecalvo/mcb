@@ -701,7 +701,7 @@ def _run(
     def calm():
         # The route planner places no dirt while building: the body stands on
         # scaffolding towers (climbing on) instead of dirt stairs it never takes down.
-        return no_placing(body, wall=BUILD_WALL, climb=True)
+        return no_placing(body, wall=BUILD_WALL)
 
     recoveries = retries = 0
     fetched: set[frozenset[str]] = set()

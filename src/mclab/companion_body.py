@@ -130,12 +130,9 @@ NATURAL_MOVEMENT = MovementPolicy(
     max_drop=3,
     allow_shapes=True,
     max_gap=2,
-    # ponytail: no swimming until the body has a drowning reflex (surface when air
-    # runs low); run 20261102T041702403876Z explored across a lake and drowned on
-    # its floor while the planner planned from the surface node.
-    allow_swim=False,
-    # ladders and scaffolding are climbed; vines are not (DIG_TERRAIN.climb_vines):
-    # run 20261102T052209764957Z stepped onto vines over a pond and drowned.
+    # swimming is always on: the body has the drowning reflex (treadWater, surface)
+    allow_swim=True,
+    # every movement ability is always on; the planner prices them
     allow_climb=True,
 )
 DIG_TERRAIN = TerrainPolicy(
@@ -153,11 +150,11 @@ DIG_TERRAIN = TerrainPolicy(
     baritone_search=True,
     baritone_diagonals=True,
     baritone_moves=True,
-    planner_swim=False,
+    planner_swim=True,
     heuristic_weight=4,  # see body_search.EDIT_NODE_LIMIT
     allow_falling_neighbours=False,
     use_doors=True,
-    climb_vines=False,
+    climb_vines=True,
 )
 
 # One motor and action inventory. A task changes permissions, not body classes.
@@ -402,22 +399,6 @@ class _GotoController(SegmentedController):
                 shared.update(anchor=tuple(position), since=now)
             if editing or self.mode in PLANNING_MODES:
                 self.guard.anchor = None  # ticks spent planning or editing are not idle
-            # A walk can begin on land and slip into a deeper pond mid-route.
-            # Enable recovery from the delivered water column on the next replan.
-            if (
-                body.get("survival", {}).get("in_water") is True
-                and not self.movement_policy.allow_swim
-                # a jump while wading lifts the feet off the half-rounded cell: the
-                # whole cell under them must be unstandable too (a pond, not a puddle)
-                and not any(
-                    standable(
-                        self._known_cells(),
-                        (math.floor(position[0]), y, math.floor(position[2])),
-                    )
-                    for y in (round(position[1] * 2) / 2, math.floor(position[1]))
-                )
-            ):
-                self.movement_policy = replace(self.movement_policy, allow_swim=True)
         if self.probe:
             return self._probe_verdict()
         last = getattr(self, "last_result", None)
@@ -951,18 +932,6 @@ class CompanionBody:
                     return item
         return None
 
-    def _move_policy(self) -> MovementPolicy:
-        """ponytail: swimming stays off for routes (run 20261102 drowned crossing
-        lakes), but a body already in water has no standable start without it and
-        every plan came back unreachable (run 20261110T112815592970Z)."""
-        wet = self._obs.get("body", {}).get("survival", {}).get("in_water")
-        policy = self.movement_policy
-        # Wading in one-deep water is a standable start: no swimming needed, and
-        # turning it on there would let the route cross the deep pond.
-        if not wet or standable(self._cells_now(), self.position()):
-            return policy
-        return replace(policy, allow_swim=True)
-
     def _goto_controller(self, goal, reach, radius, probe, wall):
         return _GotoController(
             goal,
@@ -970,7 +939,7 @@ class CompanionBody:
             radius=radius,
             interact_reach=reach,
             background_planning=True,
-            movement_policy=self._move_policy(),
+            movement_policy=self.movement_policy,
             terrain_policy=self.terrain_policy,
             deadline=time.monotonic() + wall,
             probe=probe,
@@ -1163,20 +1132,6 @@ class CompanionBody:
     def walk_to(self, pos: Pos, radius: float = 1.5) -> bool:
         x, y, z = pos
         goal = (x, self._stand_y(x, y, z), z)
-        cells = self._cells_now()
-        if (
-            not self._move_policy().allow_swim
-            and not standable(cells, goal)
-            and (
-                self._in_water(goal)
-                or (
-                    cells.get(goal) is not None
-                    and cells[goal].get("block") in AIR_BLOCKS
-                    and self._in_water((goal[0], goal[1] - 1, goal[2]))
-                )
-            )
-        ):
-            return False  # no stand within reach and the cell is water: not a stance
         # With placing off, ask the planner first (as goto_stance does): an
         # unroutable walk stood still for the whole 10 s wall, 11 times in the
         # site prep of run 20261111T021416142202Z.
@@ -1237,19 +1192,15 @@ class CompanionBody:
 
     @contextmanager
     def no_placing(
-        self, wall: float = 10.0, climb: bool = False, max_drop: int | None = None
+        self, wall: float = 10.0, max_drop: int | None = None
     ):
         """Move without placing blocks, and give up a walk after ``wall`` seconds:
         an unreachable goal otherwise replans for 90 s (42 s gaps with 18 plans,
-        run 20261110T020332013460Z). ``climb``: keep climbing (the build climbs its
-        scaffolding towers)."""
+        run 20261110T020332013460Z)."""
         saved, saved_wall = self.terrain_policy, self.goto_wall_s
         saved_move = self.movement_policy
-        # no vine climbing: site work is on the ground, and a route up the vines left
-        # the body standing on a swamp tree's canopy (run 20261110T024448883505Z)
         self.movement_policy = replace(
             saved_move,
-            allow_climb=saved_move.allow_climb and climb,
             max_drop=saved_move.max_drop if max_drop is None else max_drop,
         )
         self.terrain_policy = replace(

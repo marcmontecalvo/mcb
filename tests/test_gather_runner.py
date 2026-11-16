@@ -713,20 +713,18 @@ def test_craft_needing_gathered_stock_still_walks_to_the_station():
     assert ("goto", far) in body.log
 
 
-def test_explore_skips_tree_canopy_and_fluid_columns():
+def test_explore_skips_tree_canopy():
     from mclab.gather_runner import GatherState, _Exec
 
     world = floor()
     # floor() top solid block is y=-1 (standable surface y=0); tree canopy sits above
     for y in range(4, 8):
         world[(16, y, 0)] = M + "oak_leaves"
-    world[(-16, -1, 0)] = M + "water"
     body = FakeGatherBody(K, world, pos=(0, 0, 0), sight=32)
     ex = _Exec(body, K, GatherState(), 16)
     assert ex._surface_y(16, 0, 0) == 0
     assert ex.explore(lambda: True) is True
     walked = [c[1] for c in body.log if c[0] == "walk"]
-    assert all(body.w.get((p[0], p[1] - 1, p[2])) != M + "water" for p in walked)
     assert all(p[1] <= 1 for p in walked)
 
 
