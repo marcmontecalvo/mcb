@@ -1272,6 +1272,7 @@ public final class BodyRuntime implements AutoCloseable {
                 "run_id", runId, "episode_id", episodeId, "body_id", bodyId,
                 "tick", server.getTickCount(), "state", readyState,
                 "body", body == null ? Map.of() : body.observe(), "requests_received", received));
+        status.put("visible_entities",policySnapshot.getOrDefault("visible_entities",List.of())); // small: lets Python skip /policy
         status.put("awareness",awarenessState());
         status.put("route_follower",routeStatus());
         status.put("step_follower",stepMotor==null?Map.of("state","idle"):stepMotor.status());

@@ -1186,3 +1186,17 @@ def test_search_stall_outlasts_a_capped_planner_search():
     ctl.mode = "searching"
     assert ctl.stop_reason({"tick": 100}) is None
     assert ctl.stop_reason({"tick": 100 + 70}) is None
+
+
+def test_entities_read_state_not_policy(monkeypatch):
+    from mclab import companion_body
+
+    b, bridge, _ = body()
+    cow = {"uuid": "u1", "type": "minecraft:cow", "position": [1.0, 0.0, 2.0]}
+    bridge.state = lambda: {"tick": 100, "visible_entities": [cow]}
+    monkeypatch.setattr(
+        companion_body,
+        "policy_state",
+        lambda client: pytest.fail("entities() must not call /policy"),
+    )
+    assert b.entities() == [cow]

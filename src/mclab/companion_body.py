@@ -649,7 +649,12 @@ class CompanionBody:
         return int(body.get("food", 20))
 
     def entities(self) -> list[dict]:
-        return list(self.observe().get("visible_entities") or ())
+        """From the small /state (it carries visible_entities); /policy only when it does not."""
+        state = getattr(self.bridge, "state", None)
+        found = state().get("visible_entities") if state is not None else None
+        if found is None:
+            found = self.observe().get("visible_entities")
+        return list(found or ())
 
     def world(self, x: int, y: int, z: int) -> str | None:
         over = self._overlay.get((x, y, z))
