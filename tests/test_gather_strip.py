@@ -240,3 +240,10 @@ def test_strip_that_dug_no_tunnel_reports_its_own_stop_reason(monkeypatch):
     monkeypatch.setattr(Digger, "step", lambda self, d, tunnel: "no_floor" if tunnel else step(self, d, tunnel))
     ex, body, res = run(opts(), 99, {})
     assert res.reason == "no_floor"
+
+
+def test_ore_touching_the_descent_staircase_is_mined():
+    # run 20261116T135356630645Z: four iron cells touched the staircase and were left
+    ores = {(6, 28, 4): IRON}
+    ex, body, res = run(opts(), 1, ores)
+    assert body.inv.get(M + "raw_iron", 0) >= 1 and body.position()[1] > 16

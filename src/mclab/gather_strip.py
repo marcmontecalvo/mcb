@@ -72,7 +72,13 @@ class Strip:
             ex.note("strip_skipped", why=ex.last_dig, at=(x, y, z))
             return None
         ty = max(ty, MIN_BUILD_Y + BEDROCK_MARGIN)
-        why = self.digger.descend(ty)
+        # ore touching the staircase is mined on the way (run 20261116T135356630645Z
+        # walked past four iron cells)
+        why = self.digger.descend(ty, after=lambda: self.mine() or ("done" if self.done() else None))
+        if why in TERMINAL:
+            self.stop = why
+            data = {"broken": self.broken, "stop": why, "tunnelled": self.digger.tunnelled}
+            return Result(self.broken > 0, why if why == "missing_tool" else None, data)
         if body.position()[1] > ty + DEPTH_SLACK:
             ex.last_dig = why or "short_descent"
             ex.note("strip_skipped", why=ex.last_dig, target_y=ty, at=_cell(body.position()))

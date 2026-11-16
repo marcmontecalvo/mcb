@@ -269,9 +269,10 @@ class Digger:
     def hard(self, why: str) -> bool:
         return why == "walk_failed" or why.startswith("break_failed")
 
-    def descend(self, y: int, toward: tuple[int, int] | None = None) -> str | None:
+    def descend(self, y: int, toward: tuple[int, int] | None = None, after=None) -> str | None:
         """Staircase down until the feet are at ``y`` or lower, heading for the
-        horizontal ``toward`` (x, z) when given; None, else why not."""
+        horizontal ``toward`` (x, z) when given; None, else why not. ``after()`` runs
+        on every new step; a reason it returns ends the descent."""
         body = self.body
         d, why = None, "no_direction"
         while body.position()[1] > y:
@@ -287,6 +288,8 @@ class Digger:
                 why = self.step(cand, False)
                 if why is None:
                     d = cand
+                    if after and (stop := after()):
+                        return stop
                     break
                 if self.hard(why):
                     return why
