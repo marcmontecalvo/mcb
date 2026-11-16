@@ -495,11 +495,16 @@ def test_a_cell_with_no_stance_gets_a_scaffolding_tower_and_it_comes_down():
     assert not [p for p, s in body.w.items() if s.startswith("minecraft:scaffolding")]
 
 
+def _no_scaffold_items(body):
+    for item in bp.SCAFFOLD_ITEMS:
+        body.inv[item] = 0
+
+
 def test_a_tower_without_scaffolding_stops_the_build_asking_for_it():
     # Run 20261112T143613464413Z: no scaffolding held, every roof cell was probed
     # for a stance again and again (27 cells, 5-12 s of standing still each).
     body, t = tall_column_body()
-    body.inv["minecraft:scaffolding"] = 0
+    _no_scaffold_items(body)
     report = br.run_build(t, body, BLOCKS)
     assert report.stop == "need_materials"
     assert report.needed == {"minecraft:scaffolding": 6}
@@ -509,7 +514,7 @@ def test_a_tower_without_scaffolding_stops_the_build_asking_for_it():
 
 def test_a_tower_short_of_scaffolding_is_built_after_the_refill():
     body, t = tall_column_body()
-    body.inv["minecraft:scaffolding"] = 0
+    _no_scaffold_items(body)
     asked = []
 
     def refill(items):
@@ -520,6 +525,29 @@ def test_a_tower_short_of_scaffolding_is_built_after_the_refill():
     report = br.run_build(t, body, BLOCKS, on_need_materials=refill)
     assert asked == [{"minecraft:scaffolding": 6}]
     assert report.stop == "done" and (3, 6, 3) in report.placed
+
+
+def test_a_tower_is_built_of_dirt_when_no_scaffolding_is_held_and_taken_down():
+    body, t = tall_column_body()
+    _no_scaffold_items(body)
+    body.inv["minecraft:dirt"] = 20
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done" and (3, 6, 3) in report.placed
+    assert report.scaffolded
+    assert not [p for p in report.scaffolded if body.w.get(p) == "minecraft:dirt"]
+
+
+def test_the_retry_round_towers_a_cell_whose_first_tower_was_short():
+    body, t = tall_column_body()
+    _no_scaffold_items(body)
+    body.inv["minecraft:dirt"] = 3  # fewer than the 6-cell tower
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.scaffolds, runner.template = set(), t
+    assert not runner._tower((3, 6, 3), set()) and runner.short
+    body.inv["minecraft:dirt"] = 20
+    runner.short = {}
+    runner.towered.clear()  # what the retry round does
+    assert runner._tower((3, 6, 3), set())
 
 
 def test_the_planner_places_no_dirt_while_the_build_runs():
