@@ -542,6 +542,7 @@ class CompanionBody:
         )
         # building: arrive near the cell centre, clear of the target
         self.precise_stance = False
+        self.stray_footholds: set[Pos] = set()  # blocks the planner placed to walk
         # set per placement by build_runner: the one face the block hangs on
         self.required_support: Pos | None = None
         self._obs: dict = {}
@@ -1114,6 +1115,7 @@ class CompanionBody:
         finally:
             self.bridge.state()  # heartbeat: close() joins the worker threads
             controller.close()
+            self.stray_footholds |= set(getattr(controller, "own_footholds", ()))
         self.observe()
         last = getattr(controller, "last_result", None)
         if not controller.probe and last is not None and last.status == "incomplete":

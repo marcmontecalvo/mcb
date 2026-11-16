@@ -595,9 +595,17 @@ class _Exec:
                     return Result(False, "no_free_spot"), None
                 continue
             tried.add(spot)
-            result = self.reach_and_do(
-                spot, lambda p=spot: self.body.place_block(p, state, item)
-            )
+            # A free-standing block needs the body centred, out of the cell and
+            # facing a support face; the 0.6 arrival radius let it stand 0.016
+            # into the cell (run 20261116T220215760808Z seq 623, no_state x76).
+            saved_precise = getattr(self.body, "precise_stance", False)
+            self.body.precise_stance = True
+            try:
+                result = self.reach_and_do(
+                    spot, lambda p=spot: self.body.place_block(p, state, item)
+                )
+            finally:
+                self.body.precise_stance = saved_precise
             # the body refuses a cell whose six neighbours are all non-solid: a
             # different stance cannot place into it (run 20261106T182245230212Z
             # ended the task retrying the same cell 3x)

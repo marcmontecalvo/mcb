@@ -143,3 +143,20 @@ def test_wrong_tool_underground_crafts_a_pickaxe_and_retries_before_any_escape()
     ex = _Exec(body, K, GatherState(), 64, opts=GatherOptions(ore_vision=True))
     res = ex.gather(GatherTask(IRON, 1, "pickaxe", "stone", M + "raw_iron", 1))
     assert res.ok and body.inv.get(M + "raw_iron", 0) >= 1, res
+
+
+def test_placing_a_station_asks_for_a_precise_stance():
+    seen = []
+
+    class Spy(FakeGatherBody):
+        def place_block(self, pos, state, item):
+            seen.append(self.precise_stance)
+            return super().place_block(pos, state, item)
+
+    w = {(x, 0, z): M + "stone" for x in range(-3, 4) for z in range(-3, 4)}
+    body = Spy(K, w, {M + "crafting_table": 1}, pos=(0, 1, 0))
+    body.precise_stance = False
+    ex = _Exec(body, K, GatherState(), 64, opts=GatherOptions())
+    res, _ = ex.place_free(M + "crafting_table", M + "crafting_table")
+    assert res.ok and seen == [True]
+    assert body.precise_stance is False  # restored

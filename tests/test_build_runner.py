@@ -798,3 +798,14 @@ def test_stages_are_published_through_site_prep_and_placing():
     names = [n for n, _ in seen]
     assert names[0] == "clearing trees" and names[-1] == "placing"
     assert any(n == "site prep" and d.startswith("site round") for n, d in seen)
+
+
+def test_dirt_the_planner_placed_to_walk_is_taken_down_at_the_end():
+    body, t = tall_column_body(top=2)
+    stray = (9, 1, 9)
+    body.w[stray] = "minecraft:dirt"
+    body.stray_footholds = {stray}
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done"
+    assert body.w.get(stray) in (None, "minecraft:air")
+    assert not body.stray_footholds

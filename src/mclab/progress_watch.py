@@ -137,6 +137,13 @@ class WatchedBody:
         setattr(self._body, name, value)
 
 
+def walking_with_edits(body, **options):
+    """Walk the way a player does (pillar, bridge, place dirt); bodies without it
+    use no_placing. Blocks it places are in ``body.stray_footholds`` for cleanup."""
+    make = getattr(body, "walking_with_edits", None)
+    return make(**options) if make else no_placing(body, **options)
+
+
 def no_placing(body, **options):
     """The body's no-placing movement context, or a no-op for bodies without one."""
     make = getattr(body, "no_placing", None)

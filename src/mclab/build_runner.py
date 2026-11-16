@@ -47,7 +47,7 @@ from mclab.progress_watch import (
     ProgressWatch,
     StallError,
     WatchedBody,
-    no_placing,
+    walking_with_edits,
 )
 
 REACH = 4.5
@@ -547,6 +547,11 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
     the rest drops with them), then pick up what fell. A few rounds, since the blocks
     that hung from a root go a few ticks later. True if anything was broken."""
     body, broken = runner.body, False
+    # dirt the planner placed to walk (walking_with_edits) comes down with the rest
+    strays = getattr(body, "stray_footholds", None)
+    if strays:
+        scaffolds |= {p for p in strays if p not in template.cells}
+        strays.clear()
     for _ in range(CLEANUP_ROUNDS):
         acts = [
             a
@@ -708,7 +713,7 @@ def _run(
     def calm():
         # The route planner places no dirt while building: the body stands on
         # scaffolding towers (climbing on) instead of dirt stairs it never takes down.
-        return no_placing(body, wall=BUILD_WALL)
+        return walking_with_edits(body, wall=BUILD_WALL)
 
     recoveries = retries = 0
     fetched: set[frozenset[str]] = set()

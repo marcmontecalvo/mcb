@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 from mclab import build_plan as bp
 from mclab.build_plan import Pos
-from mclab.progress_watch import StallError, no_placing
+from mclab.progress_watch import StallError, no_placing, walking_with_edits
 from mclab.tree_removal import clear_trees_in_footprint, is_log
 
 FILL = "minecraft:dirt"
@@ -747,18 +747,11 @@ def _fill_sweep(
                 observe()
         # Once on the working surface, stay there. Above it, allow the normal
         # descent back from a dirt-borrowing hill before locking out pond drops.
-        with _fill_walk(body, max_drop=0 if here[1] == ground + 1 else None):
+        with walking_with_edits(body, max_drop=0 if here[1] == ground + 1 else None):
             walk(goal, 0.45)
         walks_without_edit += 1
         refused.clear()  # stance history survives walks; only edits permit a retry
     return placed
-
-
-def _fill_walk(body, **options):
-    """The walk between fill stances may pillar, bridge and place dirt itself (a
-    player in a hollow builds out of it); bodies without it use no_placing."""
-    make = getattr(body, "walking_with_edits", None)
-    return make(**options) if make else no_placing(body, **options)
 
 
 def _solid(state) -> bool:

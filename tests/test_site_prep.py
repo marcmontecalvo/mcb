@@ -499,7 +499,7 @@ def test_fill_can_descend_from_borrow_hill_before_locking_work_surface(
         body.pos = goal
         return True
 
-    monkeypatch.setattr(sp, "no_placing", policy)
+    monkeypatch.setattr(sp, "walking_with_edits", policy)
     body.walk_to = walk
     runner = SimpleNamespace(report=br.BuildReport(), max_steps=100)
     assert sp._fill_sweep(body, runner, [hole], 1, 63) == 1

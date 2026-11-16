@@ -116,6 +116,11 @@ final class PlacementLogic {
         };
     }
 
+    /** Offset from the block centre of a face plane: the outline's extent (0..1) on the face's axis. */
+    static double facePlane(boolean positive, double min, double max) {
+        return (positive ? max : min) - 0.5;
+    }
+
     /** Pitch (degrees, positive looks down) toward an offset from the eye. */
     static float pitchTo(double dx, double dy, double dz) {
         return (float) -Math.toDegrees(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)));

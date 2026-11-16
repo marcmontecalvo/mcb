@@ -284,8 +284,8 @@ final class BodyBuild {
             // 20261116T220215760808Z: 19 points in reach, 0 visible). Full cubes are unchanged.
             Direction.Axis axis = face.getAxis();
             double plane = shape.isEmpty() ? 0.5
-                    : face.getAxisDirection() == Direction.AxisDirection.POSITIVE
-                        ? shape.max(axis) - 0.5 : shape.min(axis) - 0.5;
+                    : PlacementLogic.facePlane(face.getAxisDirection() == Direction.AxisDirection.POSITIVE,
+                        shape.min(axis), shape.max(axis));
             for (double[] offset : PlacementLogic.HIT_OFFSETS) {
                 double[] v = PlacementLogic.facePoint(face.getSerializedName(), offset[0], offset[1]);
                 v[axis.ordinal()] = plane;

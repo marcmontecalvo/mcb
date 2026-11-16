@@ -37,6 +37,8 @@ public final class PlacementLogicTest {
             int axis = centre[0] != 0 ? 0 : centre[1] != 0 ? 1 : 2;
             check(Math.abs(centre[axis]) == 0.5 && quarter[axis] == centre[axis], "points stay on the " + face + " plane");
         }
+        check(Math.abs(PlacementLogic.facePlane(true, 0, 0.875) - 0.375) < 1e-9, "chest top is at y=0.875");
+        check(PlacementLogic.facePlane(true, 0, 1) == 0.5 && PlacementLogic.facePlane(false, 0, 1) == -0.5, "cube planes");
         check(Math.abs(PlacementLogic.pitchTo(0, -1, 1) - 45f) < 1e-4, "looking down is positive pitch");
         check(Math.abs(PlacementLogic.pitchTo(0, 0, 3)) < 1e-4, "level pitch");
         System.out.println("PlacementLogicTest ok");
