@@ -909,6 +909,13 @@ def _run(
                 if settle:
                     settle(5)
         final = bp.diff(template, body.world)
+        if (final.breaks or final.places or final.unknown or final.uses) and (
+            settle := getattr(body, "wait_ticks", None)
+        ):
+            # the door use may not be delivered yet (run 20261116T232024268879Z:
+            # "blocked" with all 84 correct and an empty diff moments later)
+            settle(SETTLE_TICKS)
+            final = bp.diff(template, body.world)
         if final.breaks or final.places or final.unknown or final.uses:
             report.stop = "blocked"
     report.counts = bp.progress(template, body.world)

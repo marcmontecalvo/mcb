@@ -892,3 +892,32 @@ def test_a_door_opened_by_the_last_cleanup_walk_is_closed_despite_a_stale_sensor
     monkeypatch.setattr(br, "_clean_up", cleanup)
     report = br.run_build(template, body, BLOCKS)
     assert report.stop == "done" and not bp.diff(template, body.world).uses
+
+
+def test_a_final_audit_waits_for_the_sensor_before_calling_a_built_house_blocked(
+    monkeypatch,
+):
+    # run 20261116T232024268879Z: stop "blocked" with all 84 correct
+    body, template = small_house_body()
+    stale: dict = {}
+    waits = [0]
+
+    def world(x, y, z):
+        return stale.get((x, y, z), body.w.get((x, y, z)))
+
+    def wait_ticks(n):
+        waits[0] += 1
+        if waits[0] >= 2:  # the sensor catches up only on a later wait
+            stale.clear()
+
+    body.world = world
+    body.wait_ticks = wait_ticks
+
+    def cleanup(runner, template, scaffolds):
+        pos = next(p for p, s in body.w.items() if "planks" in s)
+        stale[pos] = "minecraft:air"  # what the sensor still shows
+        waits[0] = 0
+
+    monkeypatch.setattr(br, "_clean_up", cleanup)
+    report = br.run_build(template, body, BLOCKS)
+    assert report.stop == "done"
