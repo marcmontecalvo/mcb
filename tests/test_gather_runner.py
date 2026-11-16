@@ -787,6 +787,35 @@ def test_a_second_gather_walks_to_the_stored_sighting_instead_of_exploring(
     assert report.stop == "done", report
     assert body.inventory()[M + "oak_log"] >= 1
 
+def test_a_sighting_already_within_reach_is_forgotten_not_walked_to(
+    tmp_path, monkeypatch
+):
+    from test_spatial_memory import identity
+
+    from mclab.gather_runner import _Exec
+    from mclab.place_graph import PlaceGraph
+    from mclab.spatial_memory import MapArchive
+
+    places = PlaceGraph(MapArchive(tmp_path / "map.db", identity()))
+    body = FakeGatherBody(K, floor())
+    here = body.position()
+    near = (here[0] + 1, here[1], here[2])  # the log is gone: the world has none
+    places.note_sightings(M + "oak_log", [near])
+    body.places = places
+    body.walk_to = lambda *a, **k: pytest.fail("walked to a sighting within reach")
+
+    class Explored(Exception):
+        pass
+
+    def explore(*a):
+        raise Explored
+
+    monkeypatch.setattr(_Exec, "explore", explore)
+    with pytest.raises(Explored):
+        run({M + "oak_log": 1}, body)
+    assert places.nearest_sighting(M + "oak_log", here, set()) is None
+
+
 def test_a_body_that_dies_mid_run_ends_it_died_not_crashed():
     from mclab.progress_watch import BodyDied
 

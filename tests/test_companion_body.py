@@ -1146,28 +1146,24 @@ def test_position_of_a_dead_body_raises_bodydied():
         b.position()
 
 
-def test_inventory_reuses_the_observation_until_the_game_ticks(monkeypatch):
+def test_inventory_and_food_read_state_not_policy(monkeypatch):
     from mclab import companion_body
 
     b, bridge, _ = body()
-    bridge.last_tick = 100
-    bridge.state = lambda: {"tick": bridge.last_tick}
     dirt = {"slot": 0, "item": "minecraft:dirt", "count": 2}
-    obs = {"tick": 100, "body": {"position": [0.5, 0, 0.5], "inventory": [dirt]}}
-    reads = []
-
-    def read(client):
-        reads.append(client.last_tick)
-        return obs
-
-    monkeypatch.setattr(companion_body, "policy_state", read)
-    assert b.inventory() == {"minecraft:dirt": 2}  # nothing observed yet: reads
-    assert b.inventory() == {"minecraft:dirt": 2}
-    assert b.inventory() == {"minecraft:dirt": 2}
-    assert len(reads) == 1  # same tick: no further round-trips
-    bridge.last_tick = 101  # the game advanced: a drop may have been picked up
-    b.inventory()
-    assert len(reads) == 2
+    stone = {"slot": 1, "item": "minecraft:dirt", "count": 3}
+    state = {"tick": 100, "body": {"inventory": [dirt, stone], "food": 14}}
+    bridge.state = lambda: state
+    monkeypatch.setattr(
+        companion_body,
+        "policy_state",
+        lambda client: pytest.fail("inventory()/food() must not call /policy"),
+    )
+    assert b.inventory() == {"minecraft:dirt": 5}
+    assert b.food() == 14
+    assert b.free_slots() == 34
+    state["body"]["inventory"] = []  # emptied: still a read, not a fallback
+    assert b.inventory() == {}
 
 
 def test_companion_policies_have_every_movement_ability_on():

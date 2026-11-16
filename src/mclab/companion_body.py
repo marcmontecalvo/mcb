@@ -545,7 +545,6 @@ class CompanionBody:
         # set per placement by build_runner: the one face the block hangs on
         self.required_support: Pos | None = None
         self._obs: dict = {}
-        self._obs_tick: int | None = None
         self._inv: dict[str, int] = {}
         self._rows: list[dict] = []  # the per-slot rows behind _inv
         self._overlay: dict[Pos, tuple[str, int]] = {}
@@ -587,10 +586,6 @@ class CompanionBody:
             if sensed_at is not None and sensed_at > at:
                 del self._overlay[pos]
         self._obs = obs
-        # the server tick the observation was read at: inventory() reuses it until the
-        # game moves on (run 20261116T153811910615Z: 17 s of full observe() round-trips
-        # for one gather-loop iteration's inventory reads)
-        self._obs_tick = getattr(self.bridge, "last_tick", None)
         self._set_inventory(obs.get("body", {}).get("inventory"))
         return obs
 
@@ -628,24 +623,30 @@ class CompanionBody:
         x, y, z = pos
         return (math.floor(x), math.floor(y + 1e-6), math.floor(z))
 
+    def _state_body(self) -> dict | None:
+        """The body block of the bridge's small /state: it carries the held inventory,
+        food and health already, so the gather loop's many reads of them need no
+        /policy round trip (run 20261116T181120247153Z: ~1 s each, 12-75 s standstills).
+        None when the bridge has no /state or it holds no body."""
+        state = getattr(self.bridge, "state", None)
+        return (state().get("body") or None) if state is not None else None
+
     def inventory(self) -> dict[str, int]:
         """Fresh from the body: an op result's inventory predates the pickup of its
         own drop, so a stale count made each replan ask for more stone (run
-        20261102T042713034884Z: five stone passes, 102 cobblestone). Only the cheap
-        /state tick is read when the game has not advanced since the last
-        observation: nothing can have changed, so the held inventory is exact."""
-        tick = getattr(self.bridge, "state", None)
-        if (
-            self._obs_tick is not None
-            and tick is not None
-            and tick()["tick"] == self._obs_tick
-        ):
-            return dict(self._inv)
-        self.observe()
+        20261102T042713034884Z: five stone passes, 102 cobblestone)."""
+        body = self._state_body()
+        if body is None or body.get("inventory") is None:
+            self.observe()
+        else:
+            self._set_inventory(body["inventory"])
         return dict(self._inv)
 
     def food(self) -> int:
-        return int(self.observe()["body"].get("food", 20))
+        body = self._state_body()
+        if body is None or body.get("food") is None:
+            body = self.observe()["body"]
+        return int(body.get("food", 20))
 
     def entities(self) -> list[dict]:
         return list(self.observe().get("visible_entities") or ())

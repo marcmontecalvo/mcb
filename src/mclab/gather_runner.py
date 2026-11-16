@@ -179,6 +179,9 @@ def _label(task) -> str:
     )
 
 
+SIGHT_REACH = 3.0
+
+
 def _dist(a, b) -> float:
     return math.dist(a, b)
 
@@ -699,7 +702,9 @@ class _Exec:
                 # so a block that is gone does not draw the bot back
                 tried_sights.add(seen)
                 places.forget_sighting(t.item, seen)
-                body.walk_to(seen, 3.0)
+                # already within reach and still not in `known`: nothing to walk to
+                if _dist(seen, here) > SIGHT_REACH:
+                    body.walk_to(seen, SIGHT_REACH)
                 continue
             # ore vision off: strip-mine at the ore's height. Never dig_to_stone here:
             # it reads buried blocks (x-ray). A descent that fell short retries from a
