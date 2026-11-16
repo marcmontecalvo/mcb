@@ -38,6 +38,7 @@ from mclab import build_plan as bp
 from mclab import gather_plan as gp
 from mclab.build_runner import REACH, STANCE_REASONS, BuildBody, Result
 from mclab.gather_dig import Digger
+from mclab.progress_watch import BodyDied
 from mclab.gather_kit import craft_local, craft_underground
 from mclab.gather_options import SENSE_DY, GatherOptions, pick_tool
 from mclab.gather_tasks import TIER_RANK, UNKNOWN_TIER_RANK
@@ -142,7 +143,7 @@ class GatherReport:
     replans: int = 0
     ate: int = 0
     food_targets: dict[str, int] = field(default_factory=dict)
-    stop: str = ""  # done | failed | missing | max_tasks | stalled
+    stop: str = ""  # done | failed | missing | max_tasks | stalled | died
     missing: list[str] = field(default_factory=list)
     state: GatherState = field(default_factory=GatherState)
 
@@ -1128,50 +1129,54 @@ def run_gather(
             ex.plan_ores.add("minecraft:coal_ore")  # the furnace's fuel, taken along the strip
 
     _note_plan()
-    failures = executed = 0
-    last_failed = None
-    while tasks and executed < max_tasks:
-        task = tasks.pop(0)
-        executed += 1
-        _hunger(ex, report, targets)
-        result = ex.run(task)
-        if result.ok:
-            failures = 0
-            report.done.append(_label(task))
-        else:
-            # only consecutive failures of one task count: a failed task that the
-            # re-plan then gets past is not a strike against the next one
-            failures = failures + 1 if _label(task) == last_failed else 1
-            last_failed = _label(task)
-            report.failures.append((_label(task), result.reason or "failed"))
-            if _buried(result.reason) and _escape(ex, report):
-                failures = 0  # out under the sky: the re-plan below starts afresh
-            if ex.stalled():
-                report.stop = "stalled"
-                return report
-            if failures >= max_failures:
-                report.stop = "failed"
-                return report
-        if targets is not None:
-            fresh = gp.plan(
-                targets,
-                body.inventory(),
-                knowledge,
-                state.stations,
-                starter_tools=starter_tools,
-                storage=storage() if storage else None,
-                kit=opts,
-            )
-            report.replans += 1
-            tasks = [
-                t
-                for t in fresh.tasks
-                if not (type(t).__name__ == "Equip" and t.item in state.equipped)
-            ]
-            report.missing = [m.item for m in fresh.missing]
-            _note_plan()
-            if not tasks and fresh.missing:
-                report.stop = "missing"
-                return report
-    report.stop = "max_tasks" if tasks else "done"
-    return report
+    try:
+        failures = executed = 0
+        last_failed = None
+        while tasks and executed < max_tasks:
+            task = tasks.pop(0)
+            executed += 1
+            _hunger(ex, report, targets)
+            result = ex.run(task)
+            if result.ok:
+                failures = 0
+                report.done.append(_label(task))
+            else:
+                # only consecutive failures of one task count: a failed task that the
+                # re-plan then gets past is not a strike against the next one
+                failures = failures + 1 if _label(task) == last_failed else 1
+                last_failed = _label(task)
+                report.failures.append((_label(task), result.reason or "failed"))
+                if _buried(result.reason) and _escape(ex, report):
+                    failures = 0  # out under the sky: the re-plan below starts afresh
+                if ex.stalled():
+                    report.stop = "stalled"
+                    return report
+                if failures >= max_failures:
+                    report.stop = "failed"
+                    return report
+            if targets is not None:
+                fresh = gp.plan(
+                    targets,
+                    body.inventory(),
+                    knowledge,
+                    state.stations,
+                    starter_tools=starter_tools,
+                    storage=storage() if storage else None,
+                    kit=opts,
+                )
+                report.replans += 1
+                tasks = [
+                    t
+                    for t in fresh.tasks
+                    if not (type(t).__name__ == "Equip" and t.item in state.equipped)
+                ]
+                report.missing = [m.item for m in fresh.missing]
+                _note_plan()
+                if not tasks and fresh.missing:
+                    report.stop = "missing"
+                    return report
+        report.stop = "max_tasks" if tasks else "done"
+        return report
+    except BodyDied:
+        report.stop = "died"  # the body has no position: dead
+        return report

@@ -729,3 +729,17 @@ def test_explore_skips_tree_canopy_and_fluid_columns():
     assert all(p[1] <= 1 for p in walked)
 
 
+
+
+def test_a_body_that_dies_mid_run_ends_it_died_not_crashed():
+    from mclab.progress_watch import BodyDied
+
+    body = FakeGatherBody(K, floor())
+
+    def dead(*a, **k):
+        raise BodyDied("dead")
+
+    body.walk_to = dead
+    body.goto_stance = dead
+    report = run({M + "oak_planks": 4}, body)
+    assert report.stop == "died", report

@@ -29,6 +29,10 @@ class StallError(RuntimeError):
     """Work made no progress through repeated recovery; the message says where."""
 
 
+class BodyDied(RuntimeError):
+    """The body is dead: its observation carries no position."""
+
+
 @dataclass
 class ProgressWatch:
     limit: float = STALL_SECONDS
