@@ -88,7 +88,7 @@ def main():
                 )
                 for kind, goal in zip(kinds, goals, strict=True):
                     before = body.position()
-                    swim = body._move_policy().allow_swim
+                    swim = body.movement_policy.allow_swim
                     with body.no_placing(wall=15):
                         ok = body.walk_to(goal, radius=0.45)
                     after = body.position()

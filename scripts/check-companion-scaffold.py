@@ -83,7 +83,7 @@ def main():
                     touched.add(p)
                 body.wait_ticks(5)
                 body.observe()
-                with body.no_placing(wall=15, climb=True):
+                with body.no_placing(wall=15):
                     assert body.movement_policy.allow_climb
                     assert not body.terrain_policy.baritone_moves
                     ok = body.walk_to((993, 83, 988), radius=0.2)
@@ -101,7 +101,7 @@ def main():
                 )
                 if not summary["passed"]:
                     raise RuntimeError("Scaffold platform was not reached and stood on")
-                with body.no_placing(wall=15, climb=True):
+                with body.no_placing(wall=15):
                     if not body.walk_to((990, 80, 988), radius=0.2):
                         raise RuntimeError("Could not descend from scaffold platform")
                     before = body._obs["body"]["position"]
