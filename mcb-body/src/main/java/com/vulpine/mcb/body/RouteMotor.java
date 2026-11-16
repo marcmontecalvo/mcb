@@ -167,6 +167,8 @@ final class RouteMotor {
         return (pose.inWater && (headUnder || (!pose.grounded && geometry.deepWater(pose))))
                 || (last != null && last.treading(pose, geometry));
     }
+    /** Head under water and under a third of the air left: nothing else (a dig, a use) may hold the body down. */
+    static boolean drowning(boolean headUnder, int air, int maxAir) { return headUnder && air * 3 < maxAir; }
     record Surface(double forward, double yaw, boolean jump, boolean sneak) {
         static final Surface UP = new Surface(0, 0, true, false);
     }

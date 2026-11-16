@@ -720,7 +720,7 @@ public final class BodyRuntime implements AutoCloseable {
                 && (stepMotor == null || !stepMotor.active()) && (gapMotor == null || !gapMotor.active())
                 // Do not pull the body off a block it is mining or using unless air runs low.
                 && ((breakTask == null && actionTask == null)
-                    || body.player().getAirSupply() * 3 < body.player().getMaxAirSupply())) {
+                    || RouteMotor.drowning(body.player().isUnderWater(), body.player().getAirSupply(), body.player().getMaxAirSupply()))) {
             var p = body.player();
             var pose = new RouteMotor.Pose(p.getX(),p.getY(),p.getZ(),0,0,p.getYRot(),p.onGround(),
                     p.getFoodData().getFoodLevel(),p.isInWater());
@@ -1073,7 +1073,10 @@ public final class BodyRuntime implements AutoCloseable {
             emit("break_block_failed", "fabric_start", Map.of("request_sequence", task.requestSequence, "reason", "body_not_ready"));
             return;
         }
-        String outcome = task.step(player);
+        // Its controls would override treadWater every tick (no jump): run 20261116T134201634342Z
+        // stood in a flooded pit mining until it drowned. Give up the dig; treadWater surfaces.
+        String outcome = RouteMotor.drowning(player.isUnderWater(), player.getAirSupply(), player.getMaxAirSupply())
+                ? "drowning" : task.step(player);
         int tick = server.getTickCount();
         if (outcome == null) {
             // An entity on every ray: hold the attack so the mob or player in the way is never struck.

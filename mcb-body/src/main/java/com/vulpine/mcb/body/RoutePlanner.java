@@ -1035,7 +1035,7 @@ final class RoutePlanner {
 
     // MCB-measured edit overheads (terrain_steps constants of the same names).
     static final double EDIT_STEP = 15, PLACE = 20, STACK_PLACE = 20, BRIDGE_PLACE = 15, EDIT_CHAIN = 10;
-    private static final int[][] CUT_SIDES = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, -1}};
+    private static final int[][] CUT_SIDES = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
     private static final Set<String> FALLING = Set.of("minecraft:sand", "minecraft:red_sand", "minecraft:gravel",
             "minecraft:suspicious_sand", "minecraft:suspicious_gravel");
     private static final Map<String, Object> AIR = Map.of("block", "minecraft:air", "fluid", "minecraft:empty",
