@@ -106,6 +106,13 @@ public final class RoutePlannerTest {
         var swum = new RoutePlanner((x, y, z) -> moat.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0), far, 0, 3, true)
                 .withMoves(true, true).search(100_000);
         check(swum.status().equals("reached") && swum.route().stream().anyMatch(n -> n.x() == 4), "swims across the moat");
+        // A body already underwater in a flooded 1x1 floodedShaft (no swim flag) plans out over the lip.
+        var floodedShaft = floor(12);
+        for (int x = -2; x <= 12; x++) for (int z = -2; z <= 12; z++) for (int y = 1; y <= 3; y++)
+            floodedShaft.put(new Key(x, y, z), x == 0 && z == 0 ? water() : stone());
+        var surfaced = new RoutePlanner((x, y, z) -> floodedShaft.get(new Key(x, y, z)), new RoutePlanner.Node(0, 2, 0),
+                new RoutePlanner.Node(4, 4, 0), 0, 3, true).search(100_000);
+        check(surfaced.status().equals("reached"), "a body in a flooded floodedShaft plans out: " + surfaced.status());
         // Ladder: a 3-high wall at x=3 with a ladder column on its west face at x=2.
         var wall = floor(12);
         for (int z = -2; z <= 12; z++) for (int y = 1; y <= 3; y++) wall.put(new Key(3, y, z), stone());
