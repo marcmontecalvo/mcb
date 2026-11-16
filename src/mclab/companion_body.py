@@ -326,6 +326,7 @@ class _GotoController(SegmentedController):
     walk_partial = False  # a probe that ran out of search walks the moves it found
     on_pass = None  # called with the body position while a route is followed
     last_partial_walk = None  # (start, end) of the last partial walked to this goal
+    dead_ends = None  # {"revision", "ends"}: partial endpoints known unreachable-from, per goal
 
     @property
     def planner_radius(self):
@@ -495,6 +496,13 @@ class _GotoController(SegmentedController):
         # A partial that looks nearer on paper but moved the body nowhere last time
         # (boxed in by its own wall: run 20261116T155654335035Z, 13 s standstill)
         # is the same dead end again: let the stance go unreachable instead.
+        dead = self.dead_ends
+        if dead is not None and dead["ends"]:
+            revision = getattr(getattr(self, "map_view", None), "revision", None)
+            if dead["revision"] != revision:  # a map fact: new terrain may open the way on
+                dead["ends"].clear()
+            elif any(math.dist(route[-1], end) <= 1.5 for end in dead["ends"]):
+                return False
         walked = self.last_partial_walk
         if walked is None or math.dist(walked[1], route[0]) > 1.5:
             return True
@@ -534,6 +542,7 @@ class CompanionBody:
         self.bridge, self.memory = bridge, memory
         self.goto_wall_s = goto_wall_s
         self._partial_walks: dict = {}
+        self._dead_ends: dict = {}  # goal -> {"revision": map revision, "ends": [endpoints]}
         self.movement_policy = (
             movement_policy if movement_policy is not None else NATURAL_MOVEMENT
         )
@@ -1102,6 +1111,9 @@ class CompanionBody:
         controller.on_pass = self.on_pass
         controller.progress_state = progress
         controller.last_partial_walk = self._partial_walks.get(tuple(goal))
+        controller.dead_ends = dead = self._dead_ends.setdefault(
+            tuple(goal), {"revision": None, "ends": []}
+        )
         before = tuple(self.position())
         # A passive mob that still blocks a step after the pushes is killed
         # (native_driver.no_progress_decision); an axe first, else the mod's pick.
@@ -1121,6 +1133,18 @@ class CompanionBody:
                 self.stray_breaks.setdefault(pos, state)
         self.observe()
         last = getattr(controller, "last_result", None)
+        walked = controller.last_partial_walk
+        if (
+            walked is not None
+            and math.dist(before, walked[1]) <= 1.5
+            and (controller.mode == "unreachable" or (last is not None and last.status == "unreachable"))
+        ):
+            # The last partial ended here and no plan leaves: a dead end for this goal.
+            revision = getattr(controller.map_view, "revision", None)
+            if dead["revision"] != revision:
+                dead["ends"].clear()
+            dead["revision"] = revision
+            dead["ends"].append(walked[1])
         if not controller.probe and last is not None and last.status == "incomplete":
             # the probe became a walk of a partial route: remember what it gained
             self._partial_walks[tuple(goal)] = (before, tuple(self.position()))

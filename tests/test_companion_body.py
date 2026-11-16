@@ -557,6 +557,22 @@ def test_build_runner_tries_second_walk_only_stance_when_first_fails(monkeypatch
     assert not report.failures
 
 
+def test_partial_ending_at_a_known_dead_end_is_not_walked_again_until_the_map_changes():
+    # run 20261116T232024268879Z: a partial walked into a dead-end endpoint and back
+    # out was re-walked five times; the endpoint is a map fact for that goal.
+    from types import SimpleNamespace
+
+    ctl = cb._GotoController.__new__(cb._GotoController)
+    ctl.goal, ctl.last_partial_walk = (9, 0, 0), None
+    ctl.map_view = SimpleNamespace(revision=7)
+    ctl.dead_ends = {"revision": 7, "ends": [(1, 0, 0)]}
+    assert not ctl._partial_gains(((0, 0, 0), (1, 0, 0)))
+    assert ctl._partial_gains(((0, 0, 0), (3, 0, 0)))  # another endpoint
+    ctl.map_view = SimpleNamespace(revision=8)  # the map changed: ask again
+    assert ctl._partial_gains(((0, 0, 0), (1, 0, 0)))
+    assert ctl.dead_ends["ends"] == []
+
+
 @pytest.mark.parametrize("walk_only", [False, True])
 def test_walk_to_plans_once_and_probes_only_when_walk_only(monkeypatch, walk_only):
     b, _, _ = body()
