@@ -543,6 +543,7 @@ class CompanionBody:
         # building: arrive near the cell centre, clear of the target
         self.precise_stance = False
         self.stray_footholds: set[Pos] = set()  # blocks the planner placed to walk
+        self.stray_breaks: dict[Pos, str] = {}  # blocks it broke to walk -> original state
         # set per placement by build_runner: the one face the block hangs on
         self.required_support: Pos | None = None
         self._obs: dict = {}
@@ -1116,6 +1117,8 @@ class CompanionBody:
             self.bridge.state()  # heartbeat: close() joins the worker threads
             controller.close()
             self.stray_footholds |= set(getattr(controller, "own_footholds", ()))
+            for pos, state in getattr(controller, "own_breaks", {}).items():
+                self.stray_breaks.setdefault(pos, state)
         self.observe()
         last = getattr(controller, "last_result", None)
         if not controller.probe and last is not None and last.status == "incomplete":
@@ -1273,7 +1276,11 @@ class CompanionBody:
         cobblestone to get there, never dig. Protected cells (the house) stay
         untouched through ``protected_positions``; what lands inside the site that
         is not a fill cell is cut by the next site round. ``no_placing`` made a body
-        2 below the surface unable to leave a hollow (run 20261116T220215760808Z)."""
+        2 below the surface unable to leave a hollow (run 20261116T220215760808Z).
+        Non-protected blocks may be broken too, so a body with nothing to place can
+        staircase out of a pit; the planner records them (``stray_breaks``) and the
+        build puts them back. ``walk_only`` is the stance filter and probe cache of
+        goto_stance, not a permission: it stays on here."""
         saved, saved_wall = self.terrain_policy, self.goto_wall_s
         saved_move = self.movement_policy
         self.movement_policy = replace(
@@ -1285,14 +1292,17 @@ class CompanionBody:
             allow_place=True,
             allow_bridge=True,
             allow_pillar=True,
-            allow_break=False,
+            allow_break=True,
+            break_budget=max(saved.break_budget, 64),
             place_budget=max(saved.place_budget, 64),
             material_allowlist=("minecraft:dirt", "minecraft:cobblestone"),
         )
         self.goto_wall_s = min(saved_wall, wall)
+        saved_only, self.walk_only = getattr(self, "walk_only", False), True
         try:
             yield
         finally:
+            self.walk_only = saved_only
             self.terrain_policy, self.goto_wall_s = saved, saved_wall
             self.movement_policy = saved_move
 

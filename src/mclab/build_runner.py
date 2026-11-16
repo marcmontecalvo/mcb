@@ -101,6 +101,9 @@ class BuildReport:
     counts: dict[str, int] = field(default_factory=dict)  # build_plan.progress
     unknown: list[Pos] = field(default_factory=list)  # template cells never delivered
     surveyed: int = 0  # perimeter points visited (B4)
+    # blocks the planner broke to walk: put back / why not
+    restored: list[Pos] = field(default_factory=list)
+    unrestored: dict[Pos, str] = field(default_factory=dict)
     trees_cleared: int = 0  # trees felled by Tree Removal skill
     site: dict = field(default_factory=dict)  # site_prep.SiteReport.summary()
     stalls: list[dict] = field(default_factory=list)  # progress_watch events
@@ -335,6 +338,18 @@ class _Runner:
         self.towered.add(pos)
         cells = bp.tower_cells(pos, self.body.world, self.blocks, self.reserved)
         if not cells:
+            # Every neighbouring column is the template itself (an interior roof
+            # cell): the stance is the roof's edge, reached by pillaring or stairs of
+            # placed blocks. A body holding none has nothing to plan with (run
+            # 20261116T224011482858Z: 8 roof cells no_stance, dirt never asked for).
+            held = self.body.inventory()
+            have = sum(
+                held.get(i, 0) for i in ("minecraft:dirt", "minecraft:cobblestone")
+            )
+            need = max(1, pos[1] - self.body.position()[1])
+            if have < need:
+                self.short = {"minecraft:dirt": need - have}
+                self.towered.discard(pos)
             return False
         item = self._scaffold_item(len(cells))
         if item is None:
@@ -542,11 +557,42 @@ def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:
         last, tried = getattr(act, "item", None), True
 
 
+def _restore_breaks(runner: _Runner, template: bp.Template) -> None:
+    """Put back the non-template blocks the planner broke to walk,
+    with the drop the body picked up; a cell whose item is not held is reported in
+    ``unrestored``. Done before the footholds come down so the body keeps its way
+    out."""
+    body, report = runner.body, runner.report
+    lost = getattr(body, "stray_breaks", None)
+    if not lost:
+        return
+    pending = dict(lost)
+    lost.clear()
+    held = dict(body.inventory())
+    for pos, state in sorted(pending.items(), key=lambda kv: (kv[0][1], kv[0]) ):
+        if pos in template.cells:
+            continue  # the build owns it
+        current = body.world(*pos)
+        if current is not None and bp.parse_state(current)[0] not in bp.AIR:
+            continue  # something stands there again (a foothold, the build)
+        item = bp.parse_state(state)[0]
+        if held.get(item, 0) < 1:
+            report.unrestored[pos] = f"not held: {item}"
+            continue
+        held[item] -= 1
+        runner.attempt(bp.Place(pos, state, item))
+        if pos in report.placed:
+            report.restored.append(pos)
+        else:
+            report.unrestored[pos] = "place failed"
+
+
 def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
     """Take the scaffolds back: break them (scaffolding: only the blocks on the ground,
     the rest drops with them), then pick up what fell. A few rounds, since the blocks
     that hung from a root go a few ticks later. True if anything was broken."""
     body, broken = runner.body, False
+    _restore_breaks(runner, template)
     # dirt the planner placed to walk (walking_with_edits) comes down with the rest
     strays = getattr(body, "stray_footholds", None)
     if strays:

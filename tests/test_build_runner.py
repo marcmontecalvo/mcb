@@ -809,3 +809,36 @@ def test_dirt_the_planner_placed_to_walk_is_taken_down_at_the_end():
     assert report.stop == "done"
     assert body.w.get(stray) in (None, "minecraft:air")
     assert not body.stray_footholds
+
+
+def test_blocks_the_planner_broke_are_put_back_and_template_cells_left_alone():
+    body, t = small_house_body()
+    dug, template_cell = (7, 0, 7), next(iter(t.cells))
+    body.w[dug] = "minecraft:air"
+    body.stray_breaks = {dug: "minecraft:dirt", template_cell: "minecraft:dirt"}
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done"
+    assert body.w.get(dug) == "minecraft:dirt" and dug in report.restored
+    assert template_cell not in report.restored
+    assert template_cell not in report.unrestored
+    assert not body.stray_breaks
+
+
+def test_a_break_whose_item_is_not_held_is_reported_not_failed():
+    body, t = small_house_body()
+    body.inv.pop("minecraft:dirt", None)
+    dug = (7, 0, 7)
+    body.stray_breaks = {dug: "minecraft:dirt"}
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done"
+    assert dug in report.unrestored and dug not in report.restored
+
+
+def test_a_cell_with_no_tower_site_asks_for_dirt_when_nothing_is_held(monkeypatch):
+    body, t = tall_column_body()
+    _no_scaffold_items(body)
+    body.inv["minecraft:cobblestone"] = 0
+    monkeypatch.setattr(bp, "tower_cells", lambda *a, **k: [])
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "need_materials"
+    assert "minecraft:dirt" in report.needed

@@ -167,9 +167,14 @@ def edit_payload(policy, inventory, protected, tool_choice="lowest_sufficient"):
     materials = sorted((m for m, n in held.items() if n > 0), key=lambda m: -held[m])
     supply = max(0, sum(held.values()) - policy.reserve_blocks)
     cells = set(map(tuple, protected)) | set(policy.protected_positions)
+    # Zero supply is a price, not a toggle: with nothing to place the planner must not
+    # explore place edges it cannot pay for (502 plans ran out at 4,000 nodes, run
+    # 20261116T224011482858Z). Breaks stay as permitted.
+    can_place = supply > 0
     return {
         "step": bool(
-            policy.planner_edits and (policy.allow_break or policy.allow_place)
+            policy.planner_edits
+            and (policy.allow_break or (policy.allow_place and can_place))
         ),
         "break_costs": breaks,
         **({"tools": tools} if tools else {}),
@@ -178,9 +183,9 @@ def edit_payload(policy, inventory, protected, tool_choice="lowest_sufficient"):
             for b in sorted(FALLING)
             if b in WIDE_EXCAVATABLE
         },
-        "allow_place": policy.allow_place,
-        "allow_bridge": policy.allow_bridge,
-        "allow_pillar": policy.allow_pillar,
+        "allow_place": policy.allow_place and can_place,
+        "allow_bridge": policy.allow_bridge and can_place,
+        "allow_pillar": policy.allow_pillar and can_place,
         "max_stack": policy.max_support_stack,
         "break_budget": policy.break_budget,
         "place_budget": policy.place_budget,

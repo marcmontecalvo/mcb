@@ -132,6 +132,7 @@ class SegmentedController(NavigationController):
         self.commit_started = None
         self.commit_progress = None  # (tick, position) of the last movement
         self.own_footholds = set()
+        self.own_breaks = {}  # cell -> block state before the planner broke it
         self.terrain_search = None
         self.terrain_queue = []
         self.terrain_forecast = ()
@@ -792,9 +793,18 @@ class SegmentedController(NavigationController):
             default=node,
         )
 
+    def _note_breaks(self, plan):
+        """Remember what a step is about to break, for the build to put back."""
+        cells = self.memory.cells
+        for pos in plan.breaks:
+            block = (cells.get(tuple(pos)) or {}).get("block")
+            if block:
+                self.own_breaks.setdefault(tuple(pos), block)
+
     def _plan_terrain_step(self, node, observation):
         plan, policy = self._next_step(node, observation)
         if plan is not None:
+            self._note_breaks(plan)
             self.terrain = executor_for(plan, policy)
             self.events.append(
                 (
@@ -853,6 +863,7 @@ class SegmentedController(NavigationController):
             self.mode = "terrain_replanning"
             return
         self.terrain_queue.pop(0)
+        self._note_breaks(plan)
         self.terrain = executor_for(plan, self.terrain_queue_policy)
         self.mode = (
             "terrain_editing" if plan.breaks or plan.places else "terrain_planned_walk"

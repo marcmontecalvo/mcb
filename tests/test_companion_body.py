@@ -1,4 +1,5 @@
 import math
+from dataclasses import replace
 
 import pytest
 
@@ -1200,3 +1201,30 @@ def test_entities_read_state_not_policy(monkeypatch):
         lambda client: pytest.fail("entities() must not call /policy"),
     )
     assert b.entities() == [cow]
+
+
+def test_walking_with_edits_keeps_stance_filtering_and_may_break():
+    from mclab.companion_body import DIG_TERRAIN
+
+    b, _bridge, _memory = body()
+    b.terrain_policy = replace(DIG_TERRAIN, allow_break=False)
+    b.walk_only = False
+    with b.walking_with_edits():
+        p = b.terrain_policy
+        assert p.allow_place and p.allow_pillar and p.allow_bridge and p.allow_break
+        assert b.walk_only  # goto_stance filters and caches failed probes
+    assert not b.walk_only
+
+
+def test_goto_stance_filters_candidates_while_walking_with_edits(monkeypatch):
+    b, _, _ = body()
+    b._obs["body"]["position"] = [20.5, 0, 20.5]
+    goals = [(2, 0, 0), (3, 0, 1)]
+    monkeypatch.setattr(b, "stances", lambda *a, **k: goals)
+    monkeypatch.setattr(b, "_walkable", lambda *a: set(goals[1:]))
+    seen = []
+    monkeypatch.setattr(b, "_navigate", lambda goal, **kw: seen.append(goal) or False)
+    with b.walking_with_edits():
+        assert not b.goto_stance((2, 0, 2), 4.5)
+        assert not b.goto_stance((2, 0, 2), 4.5)
+    assert seen == goals[1:]  # unwalkable stance dropped, failed probe cached

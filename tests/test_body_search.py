@@ -340,3 +340,17 @@ def test_predicted_cells_apply_planned_breaks_and_places():
     assert cells[(1, 1, 0)]["collision_boxes"] == []
     assert cells[(1, 0, 0)]["collision_boxes"] == [[0, 0, 0, 1, 1, 1]]
     assert base[(1, 1, 0)]["block"] == "minecraft:stone"  # the original is untouched
+
+
+def test_zero_place_supply_sends_no_place_edges_but_keeps_breaks():
+    edits = body_search.edit_payload(PROD, [], ())
+    assert edits["place_supply"] == 0 and edits["materials"] == []
+    assert not (edits["allow_place"] or edits["allow_bridge"] or edits["allow_pillar"])
+    assert edits["break_costs"]  # a bot with nothing to place can still dig out
+    held = body_search.edit_payload(PROD, KIT, ())
+    assert held["allow_place"] and held["allow_pillar"] and held["allow_bridge"]
+
+
+def test_template_cells_are_protected_in_the_payload():
+    policy = replace(PROD, protected_positions=((4, 1, 4),))
+    assert [4, 1, 4] in body_search.edit_payload(policy, KIT, ())["protected"]
