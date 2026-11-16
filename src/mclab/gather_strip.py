@@ -28,6 +28,7 @@ BEDROCK_MARGIN = 5  # lowest strip height: the build floor + this (diamond lands
 SURFACE_MARGIN = 4  # the search height is this far under the surface
 DEPTH_SLACK = 8  # a descent that stopped this far above the target gives up
 VEIN_CAP = 24
+FILL = ("minecraft:cobblestone", "minecraft:dirt")  # floor patches, first held
 # these end the whole strip; any other leg or connector failure ends only that leg
 TERMINAL = frozenset({"done", "missing_tool", "stalled", "search_radius", "inventory_full"})
 REASON = {"done": "count_met", "ok": "leg_done", "search_radius": "radius"}
@@ -125,6 +126,8 @@ class Strip:
             if self.ex.stalled():
                 return "stalled"
             why = self.digger.step(d, True)
+            if why == "no_floor" and self.bridge(d):  # a player fills the hole and goes on
+                why = self.digger.step(d, True)
             if why:
                 return why
             x, _, z = _cell(self.body.position())
@@ -134,6 +137,19 @@ class Strip:
             if why := self.mine():
                 return why
         return "ok"
+
+    def bridge(self, d: tuple[int, int]) -> bool:
+        """Place a carried block in the missing floor cell ahead (a cave, or ore mined
+        out of the floor). Runs 20261116T124031122360Z and 20261114T203457845925Z ended
+        legs at 17 and 37 of 64 blocks on ``no_floor``."""
+        body = self.body
+        new, _ = self.digger._step_cells(body.position(), d, True)
+        floor = (new[0], new[1] - 1, new[2])
+        inv = body.inventory()
+        item = next((i for i in FILL if inv.get(i, 0) > 0), None)
+        if item is None:
+            return False
+        return self.ex.reach_and_do(floor, lambda: body.place_block(floor, item, item)).ok
 
     def mine(self) -> str | None:
         """Mine the wanted ores touching the tunnel here, and their veins."""

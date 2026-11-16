@@ -180,3 +180,14 @@ def test_inventory_full_is_the_real_slot_state_not_a_guess():
         res = Strip(ex, task, 1).run()
         assert (res.data["stop"] == "inventory_full") is stops, res
         assert (body.inv.get(M + "raw_iron", 0) == 0) is stops
+
+
+def test_floor_hole_is_bridged_not_a_leg_end():
+    # runs 20261116T124031122360Z, 20261114T203457845925Z: legs ended no_floor at 17/64
+    inv = dict(PICK) | {M + "cobblestone": 4}
+    w = world({(16, 15, 8): AIR, (16, 15, 9): AIR})
+    body = FakeGatherBody(K, w, inv, pos=(3, TOP + 1, 3))
+    ex = _Exec(body, K, GatherState(), 64, opts=opts())
+    ex.gather(Gather(IRON, 1, "pickaxe", "stone", M + "raw_iron", 1))
+    ends = [r["why"] for r in notes(body) if r["gather"] == "strip_leg_end"]
+    assert ends[0] == "leg_done" and body.world(16, 15, 8) == M + "cobblestone"
