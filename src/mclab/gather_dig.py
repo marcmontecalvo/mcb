@@ -76,6 +76,10 @@ class Digger:
             return "water"
         if _ident(self.body.world(*floor)) in bp.AIR:
             return "no_floor"
+        # A water stance cannot be walked onto (the planner does not swim): run
+        # 20261114T205022516064Z dug a stair into a water pocket, then walk_failed.
+        if {_ident(self.body.world(*c)) for c in (new, floor)} & bp.FLUIDS:
+            return "water"
         # Every face of every dug cell: a dug block next to liquid lets it flow in
         # (the surface-mining rule, gather_runner._sealed). Unknown faces stop too.
         faces = {

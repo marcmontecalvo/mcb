@@ -148,6 +148,9 @@ class FakeGatherBody:
 
     def walk_to(self, pos, radius=1.5):
         self.log.append(("walk", tuple(pos)))
+        state = self.w.get(tuple(pos))
+        if state and bp.parse_state(state)[0] in bp.FLUIDS:
+            return False  # a water cell is no stance (the planner does not swim)
         self.pos = tuple(pos)
         for e in [e for e in self.ents if e.get("item")]:
             near = math.dist(e["position"], self.pos) <= PICKUP

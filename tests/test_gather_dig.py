@@ -412,3 +412,11 @@ def test_stair_stops_at_seagrass_and_ceiling_water():
     digger2 = Digger(_Exec(body2, K, GatherState(), 64))
     assert digger2._check(new, dig) == "water"
 
+
+
+def test_stair_stops_before_a_water_stance_instead_of_failing_the_walk():
+    world = layered(-30) | {(1, -1, 0): M + "water"}  # the cell the step stands in
+    body = FakeGatherBody(K, world, {M + "wooden_pickaxe": 1}, pos=(0, 0, 0))
+    digger = Digger(_Exec(body, K, GatherState(), 64))
+    assert digger.step((1, 0), False) == "water"
+    assert body.pos == (0, 0, 0)
