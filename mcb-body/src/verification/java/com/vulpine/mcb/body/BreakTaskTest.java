@@ -37,6 +37,21 @@ public final class BreakTaskTest {
         }
         check(failedAt == 3 * (BreakTask.ENTITY_WAIT_TICKS + 1), "flickering mob: entity_in_way, got " + failedAt);
         check(BreakTask.ENTITY_WAIT_TICKS <= 20, "held (still) ticks stay at or under 1 s");
+
+        // Plug-the-leak material (a fluid flowed into the broken cell): cobblestone, dirt, then other solids.
+        java.util.function.Predicate<String> solid = id -> !id.endsWith("torch") && !id.endsWith("_slab");
+        check("minecraft:cobblestone".equals(LeakPlug.choose(
+                List.of("minecraft:stone", "minecraft:dirt", "minecraft:cobblestone"), solid)), "cobblestone first");
+        check("minecraft:dirt".equals(LeakPlug.choose(List.of("minecraft:stone", "minecraft:dirt"), solid)), "dirt second");
+        check("minecraft:stone".equals(LeakPlug.choose(List.of("minecraft:torch", "minecraft:stone"), solid)), "other solid");
+        check(LeakPlug.choose(List.of(), solid) == null, "no block: no plug");
+        check(LeakPlug.choose(List.of("minecraft:torch", "minecraft:oak_slab"), solid) == null, "non-solid only: no plug");
+        check(LeakPlug.choose(List.of("minecraft:sand", "minecraft:red_sand", "minecraft:gravel",
+                "minecraft:white_concrete_powder"), id -> true) == null, "gravity-only: no plug");
+        check(LeakPlug.choose(List.of("minecraft:diamond_ore", "minecraft:deepslate_iron_ore", "minecraft:iron_block",
+                "minecraft:gold_block", "minecraft:raw_iron_block"), id -> true) == null, "valuables are kept");
+        check("minecraft:sandstone".equals(LeakPlug.choose(List.of("minecraft:sand", "minecraft:sandstone"), id -> true)),
+                "sandstone is not a gravity block");
         System.out.println("BreakTaskTest ok");
     }
 }

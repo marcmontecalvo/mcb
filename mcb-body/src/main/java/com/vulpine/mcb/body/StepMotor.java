@@ -119,6 +119,9 @@ final class StepMotor {
     private final Set<BlockPos> issuedBreaks = new HashSet<>();
     private final Map<BlockPos,String> placed = new HashMap<>();
 
+    /** Cells whose break was issued (LeakPlug watches them for a fluid). */
+    Set<BlockPos> issuedBreaks() { return issuedBreaks; }
+
     StepMotor(JsonObject request) {
         id = request.get("step_id").getAsString();
         if (!id.matches("[A-Za-z0-9_.:-]{1,80}")) throw new IllegalArgumentException("step_id");
