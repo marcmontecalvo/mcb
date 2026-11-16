@@ -33,3 +33,29 @@ def test_interaction_checks_actual_eye_position_before_arrival(tmp_path):
     finally:
         controller.close()
         memory.close()
+
+
+def test_planner_reached_with_a_failing_arrival_check_ends_the_goto_not_idles(tmp_path):
+    # iron-mine run 20261116T145041448719Z: the body planner said "reached" but the
+    # controller's snapshot ray check failed (a just-broken cell still solid), so it
+    # sat in mode "reached" with no route and no search until the StuckGuard fired.
+    from mclab.route_types import RouteResult
+
+    cells = floor_map([(x, z) for x in range(-1, 4) for z in (-1, 0, 1)])
+    cells[1, 2, 0] = {**cells[1, 2, 0], "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController((2, 1, 0), memory, radius=0, interact_reach=4.5)
+
+    class Search:
+        start = (0, 1, 0)
+
+        def advance(self, **_):
+            return RouteResult("reached", ((0, 1, 0),), 0, 0, "body planner reached")
+
+    try:
+        controller.search = Search()
+        assert controller.decide(observation(cells, x=0.5), native=True) == {}
+        assert controller.mode == "arrived"
+    finally:
+        controller.close()
+        memory.close()

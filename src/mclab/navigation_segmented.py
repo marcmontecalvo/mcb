@@ -1246,6 +1246,13 @@ class SegmentedController(NavigationController):
                 self.route = [node]
             if len(self.route) < 2:
                 self.mode = self.last_result.status
+                if self.mode == "reached":
+                    # The body planner shares the reach rule and reads live terrain;
+                    # the arrival check above read a snapshot that can miss the cells
+                    # just broken. Without this the controller idled here until the
+                    # StuckGuard fired (iron-mine run 20261116T145041448719Z, 10 s).
+                    self.mode = "arrived"
+                    return {}
                 if self.mode == "unreachable":
                     if self.terrain_policy is not None:
                         self._plan_terrain_step(node, observation)
