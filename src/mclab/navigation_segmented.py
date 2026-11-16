@@ -1210,6 +1210,10 @@ class SegmentedController(NavigationController):
             # finished result forever. Do not resubmit on an unchanged snapshot.
             if self.search is None or self.search.start != node or exhausted_snapshot:
                 revision, cells = self._planning_snapshot()
+                # A replaced search still holds the body's plan slice: cancel it
+                # so the new one does not queue behind it (20261116T205325790448Z).
+                if isinstance(self.search, body_search.BodySearch):
+                    self.search.cancel()
                 self.search = self._new_search(cells, node, revision)
             # The first commitment sets the attempt's direction: hold it to the
             # full 3,000-node floor, as if moving. Cohort 27 R5 rep 2 committed a

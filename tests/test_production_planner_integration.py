@@ -286,3 +286,13 @@ def test_control_profile_drives_production_planner(
     else:
         assert any(op == "controls" for op, _ in body.sent)
     assert controller.planner_map is None
+
+
+def test_replaced_unfinished_search_cancels_its_body_plan(setup_controller):
+    controller, body, cells = setup_controller(goal=(40, 1, 0))
+    poll(controller, body, cells, lambda: len(body.plans) == 1)
+    old, first = controller.search, body.plans[0]["plan_id"]
+    # Moved off the search's start with no report: a new search replaces it.
+    poll(controller, body, cells, lambda: controller.search is not old, x=1.5)
+    assert old.superseded
+    assert ("cancel_plan", {"plan_id": first}) in body.sent
