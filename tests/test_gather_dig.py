@@ -420,3 +420,28 @@ def test_stair_stops_before_a_water_stance_instead_of_failing_the_walk():
     digger = Digger(_Exec(body, K, GatherState(), 64))
     assert digger.step((1, 0), False) == "water"
     assert body.pos == (0, 0, 0)
+
+
+def test_stair_refuses_a_stance_whose_face_is_water():
+    world = layered(-30) | {(1, -1, 1): M + "water"}  # beside the stance, not in it
+    body = FakeGatherBody(K, world, {M + "wooden_pickaxe": 1}, pos=(0, 0, 0))
+    digger = Digger(_Exec(body, K, GatherState(), 64))
+    new, dig = digger._step_cells((0, 0, 0), (1, 0), False)
+    assert digger._check(new, dig) == "water"
+
+
+def test_stair_does_not_walk_into_a_flooded_stance_nor_back_onto_it():
+    world = layered(-30)
+    body = FakeGatherBody(K, world, {M + "wooden_pickaxe": 1}, pos=(0, 0, 0))
+    digger = Digger(_Exec(body, K, GatherState(), 64))
+
+    def flood(cells):
+        body.w[(1, -1, 0)] = M + "water"
+
+    body.settle = flood
+    assert digger.step((1, 0), False) == "water"
+    assert body.pos == (0, 0, 0) and digger.last_dir == (1, 0)
+    del body.settle
+    body.w[(1, -1, 0)] = M + "air"
+    assert digger.descend(-1) is None
+    assert body.pos[:1] != (-1,)  # never the reverse of last_dir

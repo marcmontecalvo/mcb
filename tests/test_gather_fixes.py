@@ -22,15 +22,15 @@ def task(block="stone"):
     return Gather(M + block, 1, "pickaxe", "wood", M + "cobblestone", 1)
 
 
-def test_gravel_and_water_do_not_stop_a_stair_step_but_lava_behind_a_block_does():
+def test_gravel_does_not_stop_a_stair_step_but_water_and_lava_behind_a_block_does():
     body = FakeGatherBody(K, column_world(), {}, pos=(0, 0, 0))
     digger = Digger(gr._Exec(body, K, gr.GatherState(), 64))
     new, dig = digger._step_cells((0, 0, 0), (1, 0), False)
     assert digger._check(new, dig) is None
     body.w[(1, new[1] - 1, 0)] = M + "gravel"  # the floor under the new stair
     body.w[dig[0]] = M + "sand"
-    body.w[(new[0] + 1, new[1], 0)] = M + "water"  # beside a dug cell
-    assert digger._check(new, dig) is None
+    body.w[(new[0] + 1, new[1], 0)] = M + "water"  # beside a dug cell: floods it
+    assert digger._check(new, dig) == "water"
     body.w[(new[0] + 1, new[1], 0)] = M + "lava"
     assert digger._check(new, dig) == "lava"
     assert not gr._sealed(body, (new[0], new[1], 0))

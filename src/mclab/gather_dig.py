@@ -51,6 +51,7 @@ class Digger:
         self.ex, self.body = ex, ex.body
         self.reason = ""  # why the dig ended
         self.descended = self.tunnelled = self.broken = 0
+        self.last_dir: tuple[int, int] | None = None  # direction of the last dug step
 
     def _states(self, cells) -> list[str | None]:
         return [self.body.world(*c) for c in cells]
@@ -63,6 +64,20 @@ class Digger:
             if _ident(state) == LAVA:
                 return "lava"
         return None
+
+    def _wet(self, cells) -> bool:
+        """Any of ``cells`` is water or waterlogged (as gather_runner._sealed)."""
+        for state in self._states(cells):
+            if state is None:
+                continue
+            ident, props = bp.parse_state(state)
+            if (
+                ident in bp.FLUIDS
+                or ident in WATERLOGGED
+                or props.get("waterlogged") == "true"
+            ):
+                return True
+        return False
 
     def _check(self, new: Pos, dig: list[Pos]) -> str | None:
         x, y, z = new
@@ -85,7 +100,10 @@ class Digger:
         faces = {
             (cx + fx, cy + fy, cz + fz) for cx, cy, cz in dig for fx, fy, fz in FACES
         } - set(dig)
-        return self._blocked(sorted(faces))
+        if why := self._blocked(sorted(faces)):
+            return why
+        # Run 20261116T134626528028Z: a stance beside an aquifer flooded the stair.
+        return "water" if self._wet(sorted(faces)) else None
 
     def _step_cells(self, feet: Pos, d, tunnel: bool):
         x, y, z = feet
@@ -202,6 +220,9 @@ class Digger:
                 settle(dig)  # the map must show the cleared cells before walking
             self.tunnelled += tunnel
             self.descended += not tunnel
+            if self._wet([*dig, (new[0], new[1] + len(dig), new[2])]):
+                self.reason = "water"  # the dug stair flooded: do not walk in
+                break
             if not body.walk_to(new, 0.8):
                 self.reason = "walk_failed"
                 break
@@ -218,8 +239,11 @@ class Digger:
             return self.reason
         if settle := getattr(self.body, "settle", None):
             settle(dig)
+        self.last_dir = d
         self.tunnelled += tunnel
         self.descended += not tunnel
+        if self._wet([*dig, (new[0], new[1] + len(dig), new[2])]):
+            return "water"  # the dug stair flooded: do not walk in
         return None if self.body.walk_to(new, 0.8) else "walk_failed"
 
     def hard(self, why: str) -> bool:
@@ -236,7 +260,10 @@ class Digger:
             order = self._toward(toward)
             if toward is None and d:
                 order = [d] + [c for c in order if c != d]
+            back = (-self.last_dir[0], -self.last_dir[1]) if self.last_dir else None
             for cand in order:
+                if cand == back:  # onto the stair just dug, which may be flooded
+                    continue
                 why = self.step(cand, False)
                 if why is None:
                     d = cand
