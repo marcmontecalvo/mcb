@@ -71,7 +71,7 @@ def craft_underground(ex, t) -> bool:
 
 
 def craft_local(ex, item: str, count: int = 1) -> bool:
-    """Craft ``item`` x ``count`` where the body stands: only steps that walk
+    """Craft ``count`` more ``item`` where the body stands: only steps that walk
     nowhere (Craft from held stock, PlaceStation), taking back any table placed.
     False: the held inventory alone cannot make it, or a step was refused."""
     from mclab import gather_plan as gp
@@ -79,8 +79,11 @@ def craft_local(ex, item: str, count: int = 1) -> bool:
     if getattr(ex, "_local_craft", False):  # never recurse into a local craft
         return False
     k, body = ex.k, ex.body
+    # ``count`` is more than held, not a total: a spare pickaxe while two were held
+    # planned nothing and walked 47 blocks up to the table (20261116T135356630645Z)
+    goal = body.inventory().get(item, 0) + count
     # stations={}: the plan must place its own table, none of the far-away one
-    steps = gp.plan({item: count}, body.inventory(), k, {}, with_chest=False).tasks
+    steps = gp.plan({item: goal}, body.inventory(), k, {}, with_chest=False).tasks
     allowed = (gp.Craft, gp.PlaceStation)
     if not steps or any(not isinstance(s, allowed) for s in steps):
         return False
@@ -96,7 +99,7 @@ def craft_local(ex, item: str, count: int = 1) -> bool:
                 ex.state.stations[s.kind] = placed
             elif not ex.craft(s).ok:
                 return False
-        return body.inventory().get(item, 0) >= count
+        return body.inventory().get(item, 0) >= goal
     finally:
         del ex._local_craft
         ex.state.stations.pop("crafting_table", None)

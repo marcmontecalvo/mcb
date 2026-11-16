@@ -83,6 +83,21 @@ def test_pickaxe_breaks_below_and_is_crafted_with_the_carried_table():
     assert body.position()[1] <= 21  # never climbed to the surface (y 30)
 
 
+def test_a_spare_is_crafted_locally_while_the_same_pickaxe_is_held():
+    # 20261116T135356630645Z: two stone picks held, the plan wanted a third; the
+    # local craft planned "own 1" (nothing) and the body walked for the far table
+    from mclab.gather_kit import craft_local
+
+    inv = {M + "stone_pickaxe": 2, M + "crafting_table": 1, M + "oak_log": 4}
+    inv[M + "cobblestone"] = 3
+    body = FakeGatherBody(K, pocket(), inv, pos=(0, 20, 0))
+    ex = _Exec(body, K, GatherState(), 64)
+
+    assert craft_local(ex, M + "stone_pickaxe", 1)
+    assert body.inventory()[M + "stone_pickaxe"] == 3
+    assert body.inventory()[M + "crafting_table"] == 1  # picked back up
+
+
 def strip_run(plan_ores):
     w = {
         (x, y, z): M + "stone" for x in range(-4, 60) for y in range(8, 31) for z in range(-4, 40)
