@@ -109,6 +109,7 @@ def catalog():
         ],
         "courses": read_json(ROOT / "courses/profiles.json")["courses"],
         "companion": companion_catalog(),
+        "houses": houses(),
         "config_files": [
             "config/lab.json",
             "courses/profiles.json",
@@ -135,6 +136,17 @@ def companion_files(suffix, directories):
         pattern = "*/*" if directory == "results/companion" else "*"
         found += [p for p in (ROOT / directory).glob(pattern + suffix) if p.is_file()]
     return sorted(p.relative_to(ROOT).as_posix() for p in found)
+
+
+def houses():
+    """Selectable build files with plain names; the value stays the repo path."""
+    result = []
+    for path in companion_files(".build.json", SCHEMATIC_DIRS):
+        name = Path(path).name.removesuffix(".build.json").replace("_", "-")
+        if name.startswith("house-"):
+            name = name[6:] + " house"
+        result.append({"path": path, "label": name.replace("-", " ").capitalize()})
+    return result
 
 
 def companion_catalog():

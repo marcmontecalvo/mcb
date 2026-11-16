@@ -138,3 +138,15 @@ export function toEpochSeconds(value: unknown): number | undefined {
   }
   return undefined;
 }
+/** Schema node at a path, looking through nullable wrappers. */
+export function schemaAt(schema: Schema, path: string[]): Schema | undefined {
+  let node: Schema | undefined = schema;
+  for (const key of path) node = node && nonNullSchema(node).properties?.[key];
+  return node;
+}
+/** Three text boxes to a position: [x,y,z], null when all blank, undefined when incomplete or not whole numbers. */
+export function positionFrom(parts: string[]): number[] | null | undefined {
+  if (parts.every((p) => !p.trim())) return null;
+  if (parts.some((p) => !/^[-+]?\d+$/.test(p.trim()))) return undefined;
+  return parts.map(Number);
+}

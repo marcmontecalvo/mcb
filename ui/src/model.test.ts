@@ -88,3 +88,19 @@ describe("live view formatting", () => {
     expect(toEpochSeconds("nope")).toBeUndefined();
   });
 });
+
+import { positionFrom, schemaAt } from "./model";
+describe("position and schema helpers", () => {
+  it("parses three boxes", () => {
+    expect(positionFrom(["-24", "64", " 56"])).toEqual([-24, 64, 56]);
+    expect(positionFrom(["", "", ""])).toBeNull();
+    expect(positionFrom(["1", "", "3"])).toBeUndefined();
+    expect(positionFrom(["1", "2.5", "3"])).toBeUndefined();
+  });
+  it("finds nested schema through nullable wrappers", () => {
+    const leaf = { type: "integer" };
+    const s = { properties: { run: { properties: { seed: { anyOf: [leaf, { type: "null" }] } } } } };
+    expect(schemaAt(s, ["run", "seed"])?.anyOf?.[0]).toBe(leaf);
+    expect(schemaAt(s, ["run", "nope"])).toBeUndefined();
+  });
+});

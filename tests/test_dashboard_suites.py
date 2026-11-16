@@ -211,3 +211,26 @@ def test_catalog_rows_have_plain_sections_and_cover_every_plain_entry():
     order = [list(suites.SECTIONS).index(row["section"]) for row in rows]
     assert order == sorted(order)
     assert not any(row["advanced"] for row in rows if row["id"] == "gather")
+
+
+def test_catalog_declares_basic_fields_and_large_house_validates():
+    from mclab.run_launch import prepare_config, validate_launch
+
+    rows = {row["id"]: row for row in suites.test_catalog()}
+    assert all(row["basic_fields"] for row in rows.values())
+    assert rows["build"]["basic_fields"][:2] == ["run.build", "run.start"]
+    assert rows["battery:small-house"]["basic_fields"] == ["repetitions"]
+    large = rows["build:large-house"]
+    assert large["section"] == "Big jobs" and not large["advanced"]
+    config = prepare_config(large["default_config"])
+    validate_launch(config)
+    run = config["run"]
+    assert run["build"].endswith("house-large.build.json")
+    assert (run["start"], run["seed"], run["supply"]) == ([-24, 64, 56], 31415926, True)
+    assert rows["build"]["default_config"]["run"]["start"] == [-24, 64, 56]
+
+
+def test_houses_list_small_and_large_with_friendly_names():
+    labels = {h["path"]: h["label"] for h in runs.houses()}
+    assert labels["tests/fixtures/schematics/small-house.build.json"] == "Small house"
+    assert labels["tests/fixtures/schematics/house-large.build.json"] == "Large house"

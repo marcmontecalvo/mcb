@@ -84,6 +84,11 @@ PLAIN = {
         "Build a small house",
         "Is given the materials and builds a small house.",
     ),
+    "build:large-house": (
+        "Big jobs",
+        "Build a large house",
+        "Is given the materials and builds the large house.",
+    ),
     "battery:small-house": (
         "Big jobs",
         "Build a house from chests",
@@ -189,6 +194,19 @@ PLAIN = {
 }
 
 
+HOUSE_START = [-24, 64, 56]
+HOUSE_SEED = 31415926
+# The few fields a mission shows up front, by family; "seeds" and "repetitions"
+# are the per-entry controls. Everything else sits under "More settings".
+BASIC_FIELDS = {
+    "build": ["run.build", "run.start", "run.seed", "run.supply", "repetitions"],
+    "gather": ["run.start", "run.seed", "repetitions"],
+    "courses": ["seeds", "repetitions"],
+    "natural": ["seeds", "repetitions"],
+    "models": ["seeds", "repetitions"],
+}
+
+
 def battery_checks():
     """Read the battery's real fixed commands; do not maintain a second list."""
     return runpy.run_path(str(ROOT / "scripts/run-battery.py"))["CHECKS"]
@@ -222,7 +240,20 @@ def test_catalog():
             "Uses the existing check and its original control path.",
         )
     add("gather", "Gather", "gather", {"run": {"start": runs.COMPANION_DEFAULT_START}})
-    add("build", "Build", "build", {"run": {"start": runs.COMPANION_DEFAULT_START}})
+    # The tested house site (scripts/run-battery.py small-house); (0, 64, 0) is not.
+    house_site = {"start": HOUSE_START, "seed": HOUSE_SEED, "supply": True}
+    add("build", "Build", "build", {"run": house_site})
+    add(
+        "build:large-house",
+        "Build a large house",
+        "build",
+        {
+            "run": {
+                **house_site,
+                "build": "tests/fixtures/schematics/house-large.build.json",
+            }
+        },
+    )
     for course in ("C1", "C2", "C3", "C4", "C5"):
         add(
             f"course:{course}",
@@ -340,6 +371,7 @@ def test_catalog():
         else:
             row["section"] = "Developer checks"
         row["advanced"] = SECTIONS[row["section"]]
+        row["basic_fields"] = BASIC_FIELDS.get(family, ["repetitions"])
     order, listed = list(SECTIONS), list(PLAIN)
     return sorted(
         rows,

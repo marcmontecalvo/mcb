@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { Button, Card, Badge, Alert } from "@homenet/ui";
 import "@homenet/ui/styles.css";
@@ -17,6 +23,8 @@ import {
   supportsSeeds,
   isLocked,
   loadedSuite,
+  positionFrom,
+  schemaAt,
 } from "./model";
 
 type Test = {
@@ -28,7 +36,11 @@ type Test = {
   description: string;
   default_config: Record<string, Json>;
   locked_fields?: string[];
+  basic_fields?: string[];
 };
+type House = { path: string; label: string };
+const HousesCtx = createContext<House[]>([]);
+const POSITIONS = new Set(["start", "origin", "preview_offset"]);
 type Preset = {
   id: string;
   label: string;
@@ -119,6 +131,51 @@ function JsonInput({
     </>
   );
 }
+function PositionInput({
+  id,
+  title,
+  value,
+  onChange,
+  validity,
+}: {
+  id: string;
+  title: string;
+  value: Json;
+  onChange: (v: Json) => void;
+  validity: (id: string, valid: boolean) => void;
+}) {
+  const from = (v: Json) =>
+    Array.isArray(v) ? v.map(String) : ["", "", ""];
+  const [parts, setParts] = useState(from(value));
+  useEffect(() => setParts(from(value)), [JSON.stringify(value)]);
+  useEffect(() => () => validity(id, true), [id]);
+  const set = (i: number, text: string) => {
+    const next = parts.map((p, j) => (j === i ? text : p));
+    setParts(next);
+    const position = positionFrom(next);
+    validity(id, position !== undefined);
+    if (position !== undefined) onChange(position);
+  };
+  const bad = positionFrom(parts) === undefined;
+  return (
+    <fieldset className="field position" aria-invalid={bad}>
+      <legend>{title}</legend>
+      {["X", "Y", "Z"].map((axis, i) => (
+        <label key={axis} htmlFor={`${id}-${axis}`}>
+          {axis}
+          <input
+            id={`${id}-${axis}`}
+            type="number"
+            step={1}
+            value={parts[i]}
+            onChange={(e) => set(i, e.target.value)}
+          />
+        </label>
+      ))}
+      {bad && <span className="field-error">Enter all three whole numbers.</span>}
+    </fieldset>
+  );
+}
 function Fields({
   schema,
   value,
@@ -128,6 +185,7 @@ function Fields({
   change,
   validity,
   locked,
+  skip = [],
 }: {
   schema: Schema;
   value: unknown;
@@ -137,11 +195,13 @@ function Fields({
   change: (path: string[], value: Json) => void;
   validity: (id: string, valid: boolean) => void;
   locked: string[];
+  skip?: string[];
 }) {
+  const houses = useContext(HousesCtx);
   const node = nonNullSchema(schema);
   if (schema.supported_tests && !schema.supported_tests.includes(family))
     return null;
-  if (isLocked(path, locked)) return null;
+  if (isLocked(path, locked) || skip.includes(path.join("."))) return null;
   if (path.length && derived.has(path.join("."))) return null;
   if (node.properties) {
     return (
@@ -165,6 +225,7 @@ function Fields({
                   change={change}
                   validity={validity}
                   locked={locked}
+                  skip={skip}
                 />
               ),
             )}
@@ -177,6 +238,36 @@ function Fields({
     override !== undefined ? override : (getPath(value, path) ?? null);
   const id = "field-" + path.join("-");
   const title = schema.label || label(path.at(-1) || "Setting");
+  if (node.type === "array" && POSITIONS.has(path.at(-1)!))
+    return (
+      <PositionInput
+        id={id}
+        title={title}
+        value={effective}
+        onChange={(v) => change(path, v)}
+        validity={validity}
+      />
+    );
+  if (path.join(".") === "run.build" && houses.length) {
+    const known = houses.some((h) => h.path === effective);
+    return (
+      <div className="field">
+        <label htmlFor={id}>{title}</label>
+        <select
+          id={id}
+          value={String(effective ?? "")}
+          onChange={(e) => change(path, e.target.value)}
+        >
+          {!known && <option value={String(effective ?? "")}>{String(effective ?? "")}</option>}
+          {houses.map((h) => (
+            <option key={h.path} value={h.path}>
+              {h.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
   if ((node.type === "object" && !node.properties) || node.type === "array")
     return (
       <div className="field wide">
@@ -252,6 +343,7 @@ function Fields({
 function App() {
   const [tests, setTests] = useState<Test[]>([]),
     [presets, setPresets] = useState<Preset[]>([]),
+    [houses, setHouses] = useState<House[]>([]),
     [suites, setSuites] = useState<Suite[]>([]),
     [schema, setSchema] = useState<Schema | null>(null),
     [entries, setEntries] = useState<Entry[]>([]),
@@ -278,13 +370,14 @@ function App() {
     });
   useEffect(() => {
     Promise.all([
-      api<{ tests: Test[]; presets: Preset[] }>("/api/catalog"),
+      api<{ tests: Test[]; presets: Preset[]; houses?: House[] }>("/api/catalog"),
       api<Schema>("/api/schema"),
       api<Suite[]>("/api/suites"),
     ])
       .then(([catalog, s, stored]) => {
         setTests(catalog.tests || []);
         setPresets(catalog.presets || []);
+        setHouses(catalog.houses || []);
         setSchema(s);
         setSuites(Array.isArray(stored) ? stored : []);
       })
@@ -439,7 +532,9 @@ function App() {
     [tests],
   );
   const hasAdvanced = tests.some((t) => t.advanced);
+  const basic = test?.basic_fields || ["repetitions"];
   return (
+    <HousesCtx.Provider value={houses}>
     <div className="shell">
       <aside className="rail">
         <div className="brand">
@@ -680,7 +775,22 @@ function App() {
                   {current && test && schema ? (
                     <>
                       <div className="fields">
-                        {supportsSeeds(test.family) && (
+                        {basic
+                          .filter((p) => p.startsWith("run."))
+                          .map((p) => (
+                            <Fields
+                              key={p}
+                              schema={schemaAt(schema, p.split(".")) || {}}
+                              path={p.split(".")}
+                              value={displayConfig}
+                              overrides={current.overrides || {}}
+                              family={test.family}
+                              change={change}
+                              validity={validity}
+                              locked={test.locked_fields || []}
+                            />
+                          ))}
+                        {supportsSeeds(test.family) && basic.includes("seeds") && (
                           <div className="field">
                             <label htmlFor="seeds">Seeds (optional)</label>
                             <input
@@ -707,6 +817,7 @@ function App() {
                             </small>
                           </div>
                         )}
+                        {basic.includes("repetitions") && (
                         <div className="field">
                           <label htmlFor="repetitions">Times to run</label>
                           <input
@@ -730,9 +841,10 @@ function App() {
                             succeeds every time or just got lucky.
                           </small>
                         </div>
+                        )}
                       </div>
                       <details className="advanced-settings">
-                        <summary>Advanced settings (safe to ignore)</summary>
+                        <summary>More settings</summary>
                       <div className="fields">
                         <div className="field">
                           <label htmlFor="preset">Preset</label>
@@ -770,8 +882,9 @@ function App() {
                         change={change}
                         validity={validity}
                         locked={test.locked_fields || []}
+                        skip={basic}
                       />
-                      {["body", "planner", "model"].map((key) => (
+                      {showAdvanced && ["body", "planner", "model"].map((key) => (
                         <Fields
                           key={key}
                           schema={schema.properties?.[key] || {}}
@@ -926,6 +1039,7 @@ function App() {
         </div>
       </main>
     </div>
+    </HousesCtx.Provider>
   );
 }
 createRoot(document.getElementById("root")!).render(
