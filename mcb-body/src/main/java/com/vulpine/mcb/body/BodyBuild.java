@@ -277,9 +277,18 @@ final class BodyBuild {
         Vec3 eye = player.getEyePosition();
         double reach = player.blockInteractionRange();
         var out = new ArrayList<BlockHitResult>();
+        var shape = level.getBlockState(block).getShape(level, block, CollisionContext.of(player));
         for (Direction face : faces) {
+            // The face of the block's own outline, not of a full cube: a chest top is at 0.875, so
+            // points on the cube plane lay in the air above it and no ray ever met the chest (run
+            // 20261116T220215760808Z: 19 points in reach, 0 visible). Full cubes are unchanged.
+            Direction.Axis axis = face.getAxis();
+            double plane = shape.isEmpty() ? 0.5
+                    : face.getAxisDirection() == Direction.AxisDirection.POSITIVE
+                        ? shape.max(axis) - 0.5 : shape.min(axis) - 0.5;
             for (double[] offset : PlacementLogic.HIT_OFFSETS) {
                 double[] v = PlacementLogic.facePoint(face.getSerializedName(), offset[0], offset[1]);
+                v[axis.ordinal()] = plane;
                 Vec3 point = Vec3.atCenterOf(block).add(v[0], v[1], v[2]);
                 if (eye.distanceTo(point) > reach) continue;
                 stats[0]++;

@@ -1265,6 +1265,35 @@ class CompanionBody:
             self.terrain_policy, self.goto_wall_s = saved, saved_wall
             self.movement_policy = saved_move
 
+    @contextmanager
+    def walking_with_edits(self, wall: float = 20.0, max_drop: int | None = None):
+        """Walk to a goal the way a player does: pillar, bridge and place dirt or
+        cobblestone to get there, never dig. Protected cells (the house) stay
+        untouched through ``protected_positions``; what lands inside the site that
+        is not a fill cell is cut by the next site round. ``no_placing`` made a body
+        2 below the surface unable to leave a hollow (run 20261116T220215760808Z)."""
+        saved, saved_wall = self.terrain_policy, self.goto_wall_s
+        saved_move = self.movement_policy
+        self.movement_policy = replace(
+            saved_move,
+            max_drop=saved_move.max_drop if max_drop is None else max_drop,
+        )
+        self.terrain_policy = replace(
+            saved,
+            allow_place=True,
+            allow_bridge=True,
+            allow_pillar=True,
+            allow_break=False,
+            place_budget=max(saved.place_budget, 64),
+            material_allowlist=("minecraft:dirt", "minecraft:cobblestone"),
+        )
+        self.goto_wall_s = min(saved_wall, wall)
+        try:
+            yield
+        finally:
+            self.terrain_policy, self.goto_wall_s = saved, saved_wall
+            self.movement_policy = saved_move
+
     def _place_supply(self) -> int:
         policy = self.terrain_policy
         if not (policy.allow_pillar or policy.allow_bridge or policy.allow_place):

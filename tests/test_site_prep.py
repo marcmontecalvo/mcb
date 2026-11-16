@@ -790,3 +790,39 @@ def test_fill_stock_is_any_dug_up_solid_the_house_does_not_use():
     held["minecraft:gravel"] = 5  # falls: never fill
 
     assert sp.fill_stock(held, template) == {"minecraft:dirt": 2, "minecraft:stone": 3}
+
+
+def test_fill_walk_from_a_pit_may_place_blocks_to_get_out():
+    """Run 20261116T220215760808Z: 2 below the surface under no_placing, every walk
+    out failed and the fill stalled. The walk now runs with edits allowed."""
+    from contextlib import contextmanager
+
+    class Body:
+        pos, edits_on = (0, 62, 0), False
+
+        def position(self):
+            return self.pos
+
+        def world(self, x, y, z):
+            return STONE if (x, y, z) == (2, 63, 0) else AIR
+
+        @contextmanager
+        def walking_with_edits(self, **kw):
+            self.edits_on = True
+            yield
+            self.edits_on = False
+
+        def walk_to(self, goal, radius=0.5):
+            if not self.edits_on:
+                return False
+            self.pos = goal
+            return True
+
+        def place_block(self, pos, state, item):
+            assert self.pos[1] == 64
+            return br.Result(True)
+
+    class Runner:
+        report, max_steps = br.BuildReport(), 100
+
+    assert sp._fill_sweep(Body(), Runner, [(1, 63, 0)], 1, 63) == 1
