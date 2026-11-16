@@ -19,6 +19,7 @@ from mclab.recorder import exclusive_arena
 from mclab.run_launch import script_run
 
 SMELT_TICKS = 650
+PLACED = ([2, 0, 0], [0, 0, 2], [9, 0, 0])  # table, furnace, far table
 
 
 @script_run("crafting")
@@ -122,9 +123,15 @@ def main() -> int:
             )
         finally:
             try:
-                bridge.send("despawn")
+                # The furnace is a block entity: left behind, it fails every later
+                # course reset (reset_requires_fluid_and_block_entity_free_arena,
+                # battery 20261116-review-baseline after an interrupted crafting run).
+                kit(bridge, place=[{"state": "minecraft:air", "offset": o} for o in PLACED])
             finally:
-                bridge.close()
+                try:
+                    bridge.send("despawn")
+                finally:
+                    bridge.close()
     return finish(folder, rows, "check-crafting")
 
 
