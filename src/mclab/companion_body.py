@@ -467,7 +467,12 @@ class _GotoController(SegmentedController):
             last is not None
             and last.status == "incomplete"
             and len(last.route) > 1
-            and (self.walk_partial or getattr(self, "route_steps", None) or self.mode in EDIT_MODES)
+            and (
+                self.walk_partial
+                or getattr(self, "route_steps", None)
+                or self.mode in EDIT_MODES
+                or self._partial_gains(last.route)
+            )
         ):
             # The search ran out of nodes. Its moves toward the goal are walked at
             # once, edits included: probing the other stances first stood the body
@@ -493,6 +498,13 @@ class _GotoController(SegmentedController):
             # in-flight map upload and search (run 20261111T134723510228Z).
             return self._walk_on()
         return None
+
+    def _partial_gains(self, route) -> bool:
+        """A partial route that ends nearer the goal than it starts is walked even
+        with placing off: dropping it and asking again re-ran the same capped
+        search from the same start and stood the body 5 s (iron-xray run
+        20261116T143915798373Z, plan-172 then plan-173)."""
+        return math.dist(route[-1], self.goal) < math.dist(route[0], self.goal)
 
     def _walk_on(self) -> None:
         """Turn the parked probe into the walk on the same plan and upload."""

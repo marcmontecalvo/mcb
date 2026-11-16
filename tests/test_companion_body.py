@@ -1056,8 +1056,24 @@ def test_probe_with_a_partial_route_becomes_the_walk_unless_placing_is_off():
     walking = probe(True)
     assert walking.stop_reason({"tick": 1}) is None
     assert (walking.probe, walking.no_drive) == (False, False)
-    # walk_only (building): an incomplete probe is an unreachable stance
-    assert probe(False).stop_reason({"tick": 1}) == "unreachable"
+    # walk_only (building): an incomplete probe that gets no nearer is an unreachable stance
+    ctl = probe(False)
+    ctl.goal = (0, 0, 0)
+    assert ctl.stop_reason({"tick": 1}) == "unreachable"
+
+
+def test_walk_only_probe_walks_a_partial_that_gains_ground():
+    # iron-xray run 20261116T143915798373Z: plan-172 came back incomplete (10000
+    # expanded, length 9), the driver dropped it and re-sent the same search.
+    from mclab.route_types import RouteResult
+
+    partial = RouteResult("incomplete", ((0, 0, 0), (1, 0, 0)), 10000, 0, "limit")
+    ctl = cb._GotoController.__new__(cb._GotoController)
+    ctl.probe, ctl.no_drive, ctl.deadline = True, True, 10**18
+    ctl.mode, ctl.walk_wall, ctl.walk_partial = "following", 90.0, False
+    ctl.last_result, ctl.goal = partial, (9, 0, 0)
+    assert ctl.stop_reason({"tick": 1}) is None
+    assert (ctl.probe, ctl.no_drive) == (False, False)
 
 
 @pytest.mark.parametrize("walk_only", [False, True])
