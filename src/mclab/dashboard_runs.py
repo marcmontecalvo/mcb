@@ -968,30 +968,63 @@ def companion_live(folder, events=12):
         for row in companion_events(path, events)
     ][-events:]
     # one-line "what is it doing / why stalled" from the same logic as the CLI status
-    failures = [
-        {"type": f"{e['op']}_failed", "data": {"reason": e["reason"]}}
+    tail = [
+        {"type": f"{e['op']}_{e['result']}", "at": e.get("at"),
+         "data": {"reason": e["reason"]}}
         for e in live["events"]
-        if e["result"] != "done"
+        if e["result"] != "rejected"
     ]
     live["explain"] = companion_status.explain(
-        progress, {"status": "running"}, failures, time.time()
+        progress, {"status": "running"}, tail, time.time()
     )
     return live
 
 
+TAIL_SIZES = (400_000, 4_000_000, 32_000_000)  # widen until `count` actions are found
+_MONO = re.compile(r'"monotonic_ns":\s*(\d+)')
+
+
 def companion_events(path, count):
-    """Last op results (X_done / X_failed / rejected) from a bounded tail."""
+    """Last `count` op results (X_done / X_failed / rejected), stable however many
+    policy_sample lines sit between them: the tail window widens until enough are found.
+    Each row gets `at`, the wall time (epoch s) it was logged, from monotonic_ns
+    relative to the newest line and the file's mtime."""
     from mclab.dashboard import tail
 
-    rows = []
-    for line in tail(path, 400_000).splitlines():
+    for size in TAIL_SIZES:
+        lines = tail(path, size).splitlines()
+        rows = []
+        for line in lines:
+            if not any(k in line for k in ('_done"', '_failed"', '"rejected')):
+                continue  # cheap prefilter: skip the bulk of the log unparsed
+            try:
+                event = json.loads(line)
+                row = companion_event(event)
+            except (ValueError, AttributeError, TypeError, KeyError):
+                continue  # truncated first line or an in-progress append
+            if row:
+                row["mono"] = event.get("monotonic_ns")
+                rows.append(row)
         try:
-            row = companion_event(json.loads(line))
-        except (ValueError, AttributeError, TypeError):
-            continue  # truncated first line or an in-progress append
-        if row:
-            rows.append(row)
-    return rows[-count:]
+            exhausted = path.stat().st_size <= size
+        except OSError:
+            exhausted = True
+        if len(rows) >= count or exhausted:
+            break
+    rows = rows[-count:]
+    last = next((m.group(1) for m in map(_MONO.search, reversed(lines)) if m), None)
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = None
+    for row in rows:
+        mono = row.pop("mono")
+        row["at"] = (
+            mtime - (int(last) - mono) / 1e9
+            if last and mtime and isinstance(mono, int)
+            else None
+        )
+    return rows
 
 
 def companion_event(event):
@@ -1011,7 +1044,11 @@ def companion_event(event):
         "result": result,
         "reason": data.get("reason"),
         "target": next(
-            (str(data[k]) for k in ("target", "block", "item", "pos") if k in data),
+            (
+                str(data[k])
+                for k in ("target", "block", "item", "pos", "position", "cell")
+                if data.get(k) is not None
+            ),
             None,
         ),
         "tick": payload.get("tick"),

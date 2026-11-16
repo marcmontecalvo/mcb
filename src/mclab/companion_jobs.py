@@ -197,6 +197,7 @@ def build_job(
     chests=(),
     build_only: bool = False,
     on_progress=None,
+    on_stage=None,
     site_margin: int | None = 1,
     gather_options: GatherOptions | None = None,
 ) -> JobReport:
@@ -207,6 +208,7 @@ def build_job(
     ``on_progress(report, final)`` is passed to ``run_build``. ``site_margin``: blocks
     of levelled ground prepared around the footprint before building (>= 0, default
     1; None skips site preparation)."""
+    stage = on_stage or (lambda *a, **k: None)  # publishes the dashboard's live stage
     build = json.loads(Path(build_json_path).read_text(encoding="utf-8"))
     template = bp.Template.from_build(build, tuple(origin), rotation, mirror)
     protect(body, template, site_margin)
@@ -216,6 +218,7 @@ def build_job(
     report = JobReport()
     started = clock() if clock else 0
     if not build_only:
+        stage("reading chests")
         read_chests(chests, body, state)
         _take({SHULKER: 2}, body, knowledge, state, gather_options)
     needed = materials_of(build, knowledge)
@@ -246,6 +249,7 @@ def build_job(
             storage=_storage_boxes(state),
             kit=gather_options,
         )
+        stage("gathering starter tools")
         report.starter = run_gather(
             starter,
             body,
@@ -267,7 +271,7 @@ def build_job(
                 knowledge.blocks,
                 site_margin,
                 protected=tuple(tuple(c) for c in chests),
-                log=lambda m: print(m, flush=True),
+                log=lambda m: (print(m, flush=True), stage("site prep (gathering)", detail=m)),
             )
             if site_margin is not None
             else None
@@ -291,6 +295,7 @@ def build_job(
             storage=_storage_boxes(state),
             kit=gather_options,
         )
+        stage("gathering materials")
         report.gather = run_gather(
             first,
             body,
@@ -314,6 +319,7 @@ def build_job(
         if refills >= MAX_REFILLS:
             return False
         refills += 1
+        stage("refilling materials", refills, MAX_REFILLS)
         wanted = dict(shortfall)
         _stow_junk({**needed, **wanted}, body, knowledge, state, gather_options)
         before = body.inventory()
@@ -360,6 +366,7 @@ def build_job(
         state,
         gather_options,
     )
+    stage("scaffolding")
     body.precise_stance = True  # placing needs the body centred and out of the cell
     try:
         report.build = run_build(
@@ -369,6 +376,7 @@ def build_job(
             on_need_materials=refill,
             survey=survey,
             on_progress=on_progress,
+            on_stage=stage,
             site_margin=site_margin,
             log=lambda m: print(m, flush=True),
             protected=tuple(tuple(c) for c in chests),

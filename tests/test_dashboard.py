@@ -1027,3 +1027,29 @@ def test_sessions_cli_lists_legacy_and_qualification_jobs(
         f"mixed  completed   baritone:failed, {expected}"
     )
     assert read_json(path) == value
+
+
+def test_companion_events_stay_stable_among_many_policy_samples(tmp_path):
+    noise = json.dumps({"type": "server_event", "payload": {"type": "policy_sample"}})
+    action = lambda i: json.dumps(  # noqa: E731
+        {
+            "type": "server_event",
+            "monotonic_ns": i * 10**9,
+            "payload": {"type": "break_block_done", "data": {"pos": [i, 1, 2]}},
+        }
+    )
+    failed = json.dumps(
+        {
+            "type": "server_event",
+            "payload": {"type": "place_failed", "data": {"position": [9, 9, 9]}},
+        }
+    )
+    path = tmp_path / "events.jsonl"
+    body = []
+    for i in range(20):
+        body += [action(i)] + [noise] * 4000  # ~ 400 KB between actions
+    body.append(failed)
+    path.write_text("\n".join(body) + "\n")
+    rows = runs.companion_events(path, 12)
+    assert len(rows) == 12
+    assert rows[-1]["result"] == "failed" and rows[-1]["target"] == "[9, 9, 9]"

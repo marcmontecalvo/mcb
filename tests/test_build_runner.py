@@ -785,3 +785,16 @@ def test_blocks_that_come_within_reach_are_placed_while_the_body_walks_past():
     assert (d.breaks, d.places, d.unknown, d.uses) == ([], [], [], [])
     assert body.passed > 0, "nothing was placed while passing"
     assert body.on_pass is None  # the hook is removed when the sweep ends
+
+
+def test_stages_are_published_through_site_prep_and_placing():
+    body, t = small_house_body()
+    body.w[(2, 1, 2)] = "minecraft:dirt"
+    seen = []
+    def stage(name, **kw):
+        seen.append((name, kw.get("detail")))
+
+    br.run_build(t, body, BLOCKS, on_stage=stage)
+    names = [n for n, _ in seen]
+    assert names[0] == "clearing trees" and names[-1] == "placing"
+    assert any(n == "site prep" and d.startswith("site round") for n, d in seen)

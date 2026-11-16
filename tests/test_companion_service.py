@@ -108,3 +108,13 @@ def test_explain():
     tail = [{"type": "route_stopped", "data": {"reason": "cancelled:watchdog"}}]
     text = explain(fresh, session, tail, 200)
     assert "Stalled" in text and "route_stopped: cancelled:watchdog" in text
+
+
+def test_explain_counts_recent_done_ops_as_activity():
+    session = {"status": "running"}
+    stale = {"job": "build", "stage": "starting", "updated_at": 0}
+    acting = [{"type": "break_block_done", "at": 195}]
+    assert explain(stale, session, acting, 200).startswith("Running build: starting")
+    old = [{"type": "break_block_done", "at": 100}]
+    assert "Stalled" in explain(stale, session, old, 200)
+    assert "Stalled" in explain(stale, session, [], 200)

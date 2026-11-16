@@ -409,14 +409,25 @@ def run(args, config, parser):
                 every=5,
             )
 
+            def stage(name, done=None, total=None, detail=None):
+                write_progress(
+                    folder, job="build", stage=name, done=done, total=total, detail=detail
+                )
+
             def recorder(report, final):
                 checkpoint(report, final)
                 site = report.site or {}
                 write_progress(
                     folder,
                     job="build",
-                    stage="done" if final else "building",
+                    stage="done"
+                    if final
+                    else ("placing" if report.site else "site prep"),
                     done=len(report.placed),
+                    total=sum(
+                        bp.parse_state(c)[0] not in bp.AIR
+                        for c in template.cells.values()
+                    ),
                     detail=f"site={site.get('stop') or 'preparing'} "
                     f"cleared={site.get('cleared', 0)} filled={site.get('filled', 0)} "
                     f"steps={report.steps} stalls={len(report.stalls)} stop={report.stop}",
@@ -433,6 +444,7 @@ def run(args, config, parser):
                 chests=chests,
                 build_only=bool(resume),
                 on_progress=recorder,
+                on_stage=stage,
                 site_margin=args.margin,
             )
             report = job.build

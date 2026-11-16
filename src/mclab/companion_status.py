@@ -26,7 +26,13 @@ def explain(progress, session, events_tail, now):
     counts = ""
     if progress.get("total"):
         counts = f" {progress.get('done') or 0:g}/{progress['total']:g}"
-    age = now - (progress.get("updated_at") or 0)
+    # a successful op (`*_done`, stamped `at` by the reader) is activity too
+    seen = [
+        e.get("at") or 0
+        for e in events_tail or []
+        if e.get("type", "").endswith("_done")
+    ]
+    age = now - max([progress.get("updated_at") or 0, *seen])
     if age <= STALL_SECONDS:
         return f"Running {job}: {stage}{counts}."
     reason = last_failure(events_tail) or "no failure reported"

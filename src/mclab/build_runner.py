@@ -576,6 +576,7 @@ def run_build(
     on_progress: Callable[[BuildReport, bool], None] | None = None,
     site_margin: int | None = 1,
     protected: Collection[Pos] = (),
+    on_stage: Callable[..., None] | None = None,
     stall_seconds: float | None = STALL_SECONDS,
     clock: Callable[[], float] | None = None,
     log: Callable[[str], None] | None = None,
@@ -618,6 +619,7 @@ def run_build(
             site_margin,
             protected,
             log or (lambda m: None),
+            on_stage or (lambda *a, **k: None),
         )
     except StallError as exc:
         report.stop, report.stall_reason = "stalled", str(exc)
@@ -648,7 +650,9 @@ def _run(
     site_margin,
     protected,
     log,
+    on_stage=lambda *a, **k: None,
 ) -> None:
+    on_stage("clearing trees")
     if survey:
         report.surveyed = survey_footprint(template, body)
     from mclab.tree_removal import clear_trees_in_footprint
@@ -668,6 +672,7 @@ def _run(
 
         def site_log(message: str) -> None:
             log(message)
+            on_stage("site prep", detail=message)
             if on_progress:  # each round refreshes the run's progress/status
                 on_progress(report, False)
 
@@ -683,6 +688,7 @@ def _run(
         sr.trees = report.trees_cleared
         report.site = sr.summary()
         log(f"site prepared: {report.site}")
+        on_stage("placing")
         if on_progress:
             on_progress(report, False)
         if sr.stop != "ready":
