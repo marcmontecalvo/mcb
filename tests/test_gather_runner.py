@@ -822,3 +822,31 @@ def test_noting_sightings_keeps_the_near_bound_for_the_next_scan(tmp_path):
 
     assert result.ok, result
     assert body.inventory()[M + "oak_log"] >= 2
+
+
+def test_a_surface_gather_never_targets_logs_buried_far_below_the_feet():
+    # 20261116T150256102133Z: sensed sections held mineshaft logs 43 blocks down;
+    # the gather planned to them until it stalled instead of taking surface trees
+    from mclab.gather_runner import SURFACE_BELOW, GatherState, _Exec
+    from mclab.gather_tasks import Gather
+
+    buried = (3, -(SURFACE_BELOW + 5), 0)
+    surface = (20, 0, 0)
+    body = FakeGatherBody(
+        K, floor() | {buried: M + "oak_log", surface: M + "oak_log"}, sight=100
+    )
+    attempted = []
+    stance = body.goto_stance
+
+    def record(pos, *args, **kw):
+        attempted.append(tuple(pos))
+        return stance(pos, *args, **kw)
+
+    body.goto_stance = record
+    executor = _Exec(body, K, GatherState(), 0)
+    task = Gather(M + "oak_log", 1, None, "hand", M + "oak_log", 1)
+
+    result = executor.gather(task)
+
+    assert result.ok, result
+    assert buried not in attempted

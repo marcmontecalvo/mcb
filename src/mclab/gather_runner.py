@@ -78,6 +78,10 @@ BURIED_DEPTH = 12  # dig_to_stone: buried stone down to this many blocks below t
 DIG_CANDIDATES = 3  # buried stone tops offered to the planner, nearest first
 DEEP_BELOW = 8  # ore further under the feet than this: staircase down first, no plan
 DESCEND_ABOVE = 3  # the staircase stops this far over the ore's top
+# A surface block (log, sand, dirt) this far under the feet is not a surface find:
+# sensed sections hold buried mineshaft logs 43 below the bot, and every plan to
+# them stalled (run 20261116T150256102133Z). Valleys and tall trees stay in range.
+SURFACE_BELOW = 12
 UNDERGROUND = ("stone", "cobblestone", "deepslate", "andesite", "diorite", "granite")
 FOOD_CANDIDATES = 6
 FOOD_COUNT = 4
@@ -677,8 +681,8 @@ class _Exec:
                     lambda p, home=home, seen=found_at: p not in skip
                     and (near is None or _dist(p, near) <= radius)
                     and (
-                        not underground
-                        or (
+                        (not underground and here[1] - p[1] <= SURFACE_BELOW)
+                        or underground and (
                             _seen_near(p, home, self.start_y, radius_v)
                             if vision
                             else _near(p, home)
