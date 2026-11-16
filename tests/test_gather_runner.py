@@ -800,3 +800,25 @@ def test_a_body_that_dies_mid_run_ends_it_died_not_crashed():
     body.goto_stance = dead
     report = run({M + "oak_planks": 4}, body)
     assert report.stop == "died", report
+
+
+def test_noting_sightings_keeps_the_near_bound_for_the_next_scan(tmp_path):
+    # 20261116T142743554621Z: the sightings list reused the name ``near`` and the
+    # next scan crashed on a list where a centre position belonged.
+    from test_spatial_memory import identity
+
+    from mclab.gather_runner import GatherState, _Exec
+    from mclab.gather_tasks import Gather
+    from mclab.place_graph import PlaceGraph
+    from mclab.spatial_memory import MapArchive
+
+    logs = {(4, 0, 0): M + "oak_log", (6, 0, 0): M + "oak_log"}
+    body = FakeGatherBody(K, floor() | logs, sight=100)
+    body.places = PlaceGraph(MapArchive(tmp_path / "map.db", identity()))
+    executor = _Exec(body, K, GatherState(), 0)
+    task = Gather(M + "oak_log", 2, None, "hand", M + "oak_log", 2)
+
+    result = executor.gather(task, near=(0, 0, 0), radius=24)
+
+    assert result.ok, result
+    assert body.inventory()[M + "oak_log"] >= 2

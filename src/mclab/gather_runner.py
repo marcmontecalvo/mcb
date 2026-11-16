@@ -697,8 +697,8 @@ class _Exec:
             ]
             places = getattr(body, "places", None)
             if known and places is not None:  # remember the nearest finds
-                near = sorted(known, key=lambda p: _dist(p, here))[:SCAN_BATCH]
-                places.note_sightings(t.item, near)
+                finds = sorted(known, key=lambda p: _dist(p, here))[:SCAN_BATCH]
+                places.note_sightings(t.item, finds)
             elif places is not None and (
                 seen := places.nearest_sighting(t.item, here, tried_sights)
             ):
