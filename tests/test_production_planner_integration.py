@@ -22,6 +22,9 @@ class BodyFixture:
         self.plans = []
         self.reports = []
 
+    def state(self, heartbeat=True):
+        return {"state": "ready"}
+
     def send(self, op, **fields):
         self.sent.append((op, fields))
         if op == "planner_map":
