@@ -86,6 +86,33 @@ class PlaceGraph:
                     target TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL,
                     PRIMARY KEY(namespace,source,target,kind))
             """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS containers (
+                    namespace TEXT NOT NULL, pos TEXT NOT NULL, contents TEXT NOT NULL,
+                    PRIMARY KEY(namespace,pos))
+            """)
+
+    def load_containers(self):
+        """{(x,y,z): {item: count}} as last saved for this world."""
+        with self.archive.connect() as db:
+            rows = db.execute(
+                "SELECT pos, contents FROM containers WHERE namespace=?",
+                (self.archive.identity.key,),
+            ).fetchall()
+        return {tuple(json.loads(p)): json.loads(c) for p, c in rows}
+
+    def save_containers(self, containers):
+        """Replace this world's remembered containers with `containers`."""
+        key = self.archive.identity.key
+        with self.archive.connect(writing=True) as db:
+            db.execute("DELETE FROM containers WHERE namespace=?", (key,))
+            db.executemany(
+                "INSERT INTO containers VALUES(?,?,?)",
+                [
+                    (key, json.dumps(list(pos)), json.dumps(contents))
+                    for pos, contents in containers.items()
+                ],
+            )
 
     def put_place(self, place):
         if not isinstance(place, Place):
