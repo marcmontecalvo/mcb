@@ -191,3 +191,20 @@ def test_floor_hole_is_bridged_not_a_leg_end():
     ex.gather(Gather(IRON, 1, "pickaxe", "stone", M + "raw_iron", 1))
     ends = [r["why"] for r in notes(body) if r["gather"] == "strip_leg_end"]
     assert ends[0] == "leg_done" and body.world(16, 15, 8) == M + "cobblestone"
+
+
+def test_vein_cell_refused_before_its_neighbour_is_mined_is_retried():
+    """Run 20261116T124031122360Z: iron at (122,19,-64) under the tunnel floor and a 2x2
+    vein beside it. The upper vein cell has no stance from the tunnel (the ceiling
+    blocks the sight line), and the lower one is blocked by the upper. Once the floor
+    iron is mined the body drops into the hole and sees the upper cell; the cell
+    refused first must be tried again."""
+    w = {(x, y, z): M + "stone" for x in range(115, 130) for y in range(15, 24) for z in range(-70, -58)}
+    w.update({(x, y, -64): AIR for x in range(115, 130) for y in (20, 21)})
+    w.update({(x, y, -63): IRON for x in (122, 123) for y in (19, 20)})
+    w[(122, 19, -64)] = IRON
+    body = FakeGatherBody(K, w, dict(PICK), pos=(122, 20, -64), strict_stance=True)
+    ex = _Exec(body, K, GatherState(), 64, opts=opts())
+    Strip(ex, Gather(IRON, 99, "pickaxe", "stone", M + "raw_iron", 99), 99).mine()
+    assert body.inv[M + "raw_iron"] == 5
+    assert IRON not in {body.world(x, y, -63) for x in (122, 123) for y in (19, 20)}

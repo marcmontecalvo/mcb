@@ -163,6 +163,7 @@ class Strip:
         seeds = {(x + fx, y + dy + fy, z + fz) for dy in (0, 1) for fx, fy, fz in FACES}
         queue = [(p, None) for p in seeds if ident(p) in wanted]
         seen: set = set()
+        refused: list = []  # cells with no stance yet: a break elsewhere can open one
         while queue and len(seen) < VEIN_CAP:
             p, kind = queue.pop()
             if p in seen or ident(p) not in ({kind} if kind else wanted):
@@ -178,7 +179,15 @@ class Strip:
             if not res.ok:
                 if res.reason in ("wrong_tool", "missing_tool") and block == self.t.block:
                     return "missing_tool"
+                refused.append((p, kind))
                 continue
+            # Run 20261116T124031122360Z: a vein cell tried before the cell below it
+            # had no stance, was marked seen, and was never retried once that cell was
+            # mined and the body stood in the hole, so the cells next to it stayed.
+            for q, k in refused:
+                seen.discard(q)
+                queue.append((q, k))
+            refused.clear()
             self.broken += block == self.t.block
             ex.collect(None, p, self.done)
             if any(e.get("item") and not body.can_hold(e["item"], ex.k.items) for e in body.entities()):
