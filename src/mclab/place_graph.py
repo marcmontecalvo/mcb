@@ -91,6 +91,42 @@ class PlaceGraph:
                     namespace TEXT NOT NULL, pos TEXT NOT NULL, contents TEXT NOT NULL,
                     PRIMARY KEY(namespace,pos))
             """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS sightings (
+                    namespace TEXT NOT NULL, item TEXT NOT NULL, pos TEXT NOT NULL,
+                    seen_ns INTEGER NOT NULL, count INTEGER NOT NULL,
+                    PRIMARY KEY(namespace,item,pos))
+            """)
+
+    def note_sightings(self, item, positions):
+        """Remember where `item` was seen to be had (blocks found by a scan)."""
+        key, now = self.archive.identity.key, time.time_ns()
+        with self.archive.connect(writing=True) as db:
+            db.executemany(
+                "INSERT INTO sightings VALUES(?,?,?,?,1) ON CONFLICT(namespace,item,pos) "
+                "DO UPDATE SET seen_ns=excluded.seen_ns",
+                [(key, item, json.dumps(list(p)), now) for p in positions],
+            )
+
+    def nearest_sighting(self, item, position, exclude=()):
+        with self.archive.connect() as db:
+            rows = db.execute(
+                "SELECT pos FROM sightings WHERE namespace=? AND item=?",
+                (self.archive.identity.key, item),
+            ).fetchall()
+        seen = [tuple(json.loads(r[0])) for r in rows]
+        return min(
+            (p for p in seen if p not in exclude),
+            key=lambda p: math.dist(p, position),
+            default=None,
+        )
+
+    def forget_sighting(self, item, position):
+        with self.archive.connect(writing=True) as db:
+            db.execute(
+                "DELETE FROM sightings WHERE namespace=? AND item=? AND pos=?",
+                (self.archive.identity.key, item, json.dumps(list(position))),
+            )
 
     def load_containers(self):
         """{(x,y,z): {item: count}} as last saved for this world."""

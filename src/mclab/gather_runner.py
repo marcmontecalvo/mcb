@@ -633,6 +633,7 @@ class _Exec:
 
         target = held() + max(1, t.item_count)
         broken, skip, digs, stripped = 0, set(), 0, 0
+        tried_sights: set[Pos] = set()
         # Where exploring last saw ore: near is judged from there too, or ore past
         # the table's reach is walked by and never mined (run 20261112T181731902927Z
         # explored for seven minutes). Ore only: stone is everywhere, and judging it
@@ -689,6 +690,19 @@ class _Exec:
                 )
                 if _sealed(body, p) and (not underground or _floored(body, p, here))
             ]
+            places = getattr(body, "places", None)
+            if known and places is not None:  # remember the nearest finds
+                near = sorted(known, key=lambda p: _dist(p, here))[:SCAN_BATCH]
+                places.note_sightings(t.item, near)
+            elif places is not None and (
+                seen := places.nearest_sighting(t.item, here, tried_sights)
+            ):
+                # a stored sighting beats exploring; it is forgotten once visited,
+                # so a block that is gone does not draw the bot back
+                tried_sights.add(seen)
+                places.forget_sighting(t.item, seen)
+                body.walk_to(seen, 3.0)
+                continue
             # ore vision off: strip-mine at the ore's height. Never dig_to_stone here:
             # it reads buried blocks (x-ray). A descent that fell short retries from a
             # walked-to start (run 20261113T172130173999Z: never logged a leg).

@@ -1,3 +1,4 @@
+import pytest
 from pathlib import Path
 
 from mclab.build_runner import Result
@@ -762,3 +763,27 @@ def test_a_second_chest_is_placed_near_the_first_but_not_touching_it():
     (b,) = [p for p in state.containers if p != a]
     gap = abs(b[0] - a[0]) + abs(b[2] - a[2])
     assert b[1] == a[1] and 2 <= gap <= 4
+
+
+def test_a_second_gather_walks_to_the_stored_sighting_instead_of_exploring(
+    tmp_path, monkeypatch
+):
+    from test_spatial_memory import identity
+
+    from mclab.gather_runner import _Exec
+    from mclab.place_graph import PlaceGraph
+    from mclab.spatial_memory import MapArchive
+
+    world = floor() | {(30, 0, 0): M + "oak_log"}
+    places = PlaceGraph(MapArchive(tmp_path / "map.db", identity()))
+    places.note_sightings(M + "oak_log", [(30, 0, 0)])
+    body = FakeGatherBody(K, world, sight=10)
+    body.places = places
+    monkeypatch.setattr(
+        _Exec, "explore", lambda *a: pytest.fail("explored despite a sighting")
+    )
+
+    report = run({M + "oak_log": 1}, body)
+
+    assert report.stop == "done", report
+    assert body.inventory()[M + "oak_log"] >= 1
