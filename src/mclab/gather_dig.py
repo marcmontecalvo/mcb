@@ -13,6 +13,7 @@ into a dug cell is broken again until the cell stays empty.
 from __future__ import annotations
 
 from mclab import build_plan as bp
+from mclab.grid_cache import FALLING
 
 Pos = tuple[int, int, int]
 
@@ -30,7 +31,6 @@ WATER = "minecraft:water"
 WATERLOGGED = frozenset(
     "minecraft:" + n for n in ("seagrass", "tall_seagrass", "kelp", "kelp_plant")
 )
-FALLING = frozenset("minecraft:" + n for n in ("gravel", "sand", "red_sand"))
 STONE_LIKE = ("stone", "cobblestone", "deepslate", "andesite", "diorite", "granite")
 
 

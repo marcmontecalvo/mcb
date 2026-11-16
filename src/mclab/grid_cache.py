@@ -5,12 +5,19 @@
 """
 
 AIR_FLUID = "minecraft:empty"
+# Every block that falls when unsupported (the knowledge pack's `gravity` flag, plus the
+# brushable and dripstone blocks that fall too but the pack does not flag).
 FALLING = {
-    "minecraft:sand",
-    "minecraft:red_sand",
-    "minecraft:gravel",
-    "minecraft:suspicious_sand",
-    "minecraft:suspicious_gravel",
+    "minecraft:" + n
+    for n in (
+        "sand", "red_sand", "gravel", "suspicious_sand", "suspicious_gravel",
+        "anvil", "chipped_anvil", "damaged_anvil", "dragon_egg", "pointed_dripstone",
+        *(c + "_concrete_powder" for c in (
+            "white", "orange", "magenta", "light_blue", "yellow", "lime", "pink",
+            "gray", "light_gray", "cyan", "purple", "blue", "brown", "green", "red",
+            "black",
+        )),
+    )
 }
 HAZARDS = {
     "minecraft:fire",
