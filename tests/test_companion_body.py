@@ -1076,6 +1076,21 @@ def test_walk_only_probe_walks_a_partial_that_gains_ground():
     assert (ctl.probe, ctl.no_drive) == (False, False)
 
 
+def test_partial_that_moved_the_body_nowhere_is_not_walked_again():
+    # run 20261116T155654335035Z: boxed in by its own wall, each partial ended
+    # nearer on paper, was cancelled and the body snapped back (13 s standstill).
+    from mclab.route_types import RouteResult
+
+    partial = RouteResult("incomplete", ((0, 0, 0), (1, 0, 0)), 10000, 0, "limit")
+    ctl = cb._GotoController.__new__(cb._GotoController)
+    ctl.goal, ctl.last_partial_walk = (9, 0, 0), ((0, 0, 0), (0, 0, 0))
+    assert not ctl._partial_gains(partial.route)
+    ctl.last_partial_walk = ((-3, 0, 0), (0, 0, 0))  # that walk did gain ground
+    assert ctl._partial_gains(partial.route)
+    ctl.last_partial_walk = ((0, 0, 0), (0, 0, 0))
+    assert ctl._partial_gains(((5, 0, 0), (6, 0, 0)))  # a different start
+
+
 @pytest.mark.parametrize("walk_only", [False, True])
 def test_navigate_lets_a_probe_walk_a_partial_only_when_placing_is_on(
     monkeypatch, walk_only

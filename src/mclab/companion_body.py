@@ -324,6 +324,7 @@ class _GotoController(SegmentedController):
     walk_wall = 0.0  # wall of the walk a successful probe turns into
     walk_partial = False  # a probe that ran out of search walks the moves it found
     on_pass = None  # called with the body position while a route is followed
+    last_partial_walk = None  # (start, end) of the last partial walked to this goal
 
     @property
     def planner_radius(self):
@@ -504,7 +505,15 @@ class _GotoController(SegmentedController):
         with placing off: dropping it and asking again re-ran the same capped
         search from the same start and stood the body 5 s (iron-xray run
         20261116T143915798373Z, plan-172 then plan-173)."""
-        return math.dist(route[-1], self.goal) < math.dist(route[0], self.goal)
+        if math.dist(route[-1], self.goal) >= math.dist(route[0], self.goal):
+            return False
+        # A partial that looks nearer on paper but moved the body nowhere last time
+        # (boxed in by its own wall: run 20261116T155654335035Z, 13 s standstill)
+        # is the same dead end again: let the stance go unreachable instead.
+        walked = self.last_partial_walk
+        if walked is None or math.dist(walked[1], route[0]) > 1.5:
+            return True
+        return math.dist(walked[1], self.goal) < math.dist(walked[0], self.goal) - 0.5
 
     def _walk_on(self) -> None:
         """Turn the parked probe into the walk on the same plan and upload."""
@@ -539,6 +548,7 @@ class CompanionBody:
     ):
         self.bridge, self.memory = bridge, memory
         self.goto_wall_s = goto_wall_s
+        self._partial_walks: dict = {}
         self.movement_policy = (
             movement_policy if movement_policy is not None else NATURAL_MOVEMENT
         )
@@ -1096,6 +1106,8 @@ class CompanionBody:
             controller = self._goto_controller(goal, reach, radius, probe, wall)
         controller.on_pass = self.on_pass
         controller.progress_state = progress
+        controller.last_partial_walk = self._partial_walks.get(tuple(goal))
+        before = tuple(self.position())
         # A passive mob that still blocks a step after the pushes is killed
         # (native_driver.no_progress_decision); an axe first, else the mod's pick.
         controller.clear_mob = lambda uuid: self.attack_entity(uuid, self._axe())
@@ -1110,6 +1122,10 @@ class CompanionBody:
             self.bridge.state()  # heartbeat: close() joins the worker threads
             controller.close()
         self.observe()
+        last = getattr(controller, "last_result", None)
+        if not controller.probe and last is not None and last.status == "incomplete":
+            # the probe became a walk of a partial route: remember what it gained
+            self._partial_walks[tuple(goal)] = (before, tuple(self.position()))
         why = end.get("data", {}).get("reason") if end else None
         ok = end.get("type") == "navigation_stopped" and why == "arrived"
         row = {
