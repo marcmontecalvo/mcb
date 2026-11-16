@@ -562,3 +562,7 @@ summary {
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
+.queued-list, .recent-list { margin: 0; padding-left: 20px; }
+.recent-list { list-style: none; padding: 0; }
+.recent-run summary { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; cursor: pointer; padding: 6px 0; font-size: 13px; }
+.recent-run summary:focus-visible { outline: 2px solid #8fd3ff; outline-offset: 2px; }

@@ -4,6 +4,7 @@ import {
   formatElapsed,
   isStalled,
   progressPercent,
+  sessionName,
   toEpochSeconds,
 } from "./model";
 
@@ -113,5 +114,25 @@ export function LiveSession({ session }: { session: Rec }) {
         <pre>{JSON.stringify(session, null, 2)}</pre>
       </details>
     </section>
+  );
+}
+
+export function RecentRun({ session }: { session: Rec }) {
+  const [open, setOpen] = useState(false);
+  const end = toEpochSeconds(session.finished_at);
+  const start = toEpochSeconds(session.started_at);
+  const when = end ?? start;
+  return (
+    <li className="recent-run">
+      <details onToggle={(e) => setOpen(e.currentTarget.open)}>
+        <summary>
+          <strong>{sessionName(session)}</strong>
+          <Badge tone="quiet">{String(session.status || session.state || "unknown")}</Badge>
+          {when && <span>{new Date(when * 1000).toLocaleString()}</span>}
+          {start && end && <span>took {formatElapsed(end - start)}</span>}
+        </summary>
+        {open && <LiveSession session={session} />}
+      </details>
+    </li>
   );
 }

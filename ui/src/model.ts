@@ -150,3 +150,26 @@ export function positionFrom(parts: string[]): number[] | null | undefined {
   if (parts.some((p) => !/^[-+]?\d+$/.test(p.trim()))) return undefined;
   return parts.map(Number);
 }
+type Rec = Record<string, unknown>;
+export const RECENT_RUNS = 5;
+const stateOf = (s: Rec) => String(s.status || s.state || "unknown");
+export function sessionName(s: Rec): string {
+  const jobs = (s.jobs as Rec[] | undefined) || [];
+  return String(s.label || s.title || jobs[0]?.label || jobs[0]?.kind || s.id || "Run");
+}
+/** Live activity layout: running sessions, waiting sessions, newest-first finished ones (capped), and how many were cut. */
+export function splitSessions(sessions: Rec[]) {
+  const active = sessions.filter((s) => ["running", "starting"].includes(stateOf(s)));
+  const waiting = sessions.filter((s) => stateOf(s) === "queued");
+  const when = (s: Rec) =>
+    toEpochSeconds(s.finished_at) ?? toEpochSeconds(s.started_at) ?? 0;
+  const done = sessions
+    .filter((s) => !active.includes(s) && !waiting.includes(s))
+    .sort((a, b) => when(b) - when(a));
+  return {
+    active,
+    waiting,
+    recent: done.slice(0, RECENT_RUNS),
+    hidden: Math.max(0, done.length - RECENT_RUNS),
+  };
+}

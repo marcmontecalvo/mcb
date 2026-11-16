@@ -9,7 +9,7 @@ import { createRoot } from "react-dom/client";
 import { Button, Card, Badge, Alert } from "@homenet/ui";
 import "@homenet/ui/styles.css";
 import "./style.css";
-import { LiveSession } from "./LiveSession";
+import { LiveSession, RecentRun } from "./LiveSession";
 import {
   type Entry,
   type Json,
@@ -25,6 +25,8 @@ import {
   loadedSuite,
   positionFrom,
   schemaAt,
+  sessionName,
+  splitSessions,
 } from "./model";
 
 type Test = {
@@ -482,6 +484,7 @@ function App() {
       setError((e as Error).message);
     }
   }
+  useEffect(() => window.scrollTo(0, 0), [tab]);
   async function start() {
     if (!(await resolve())) return;
     try {
@@ -1011,15 +1014,55 @@ function App() {
                   </Button>
                 </div>
               </Card>
-              <Card className="panel" title="Sessions & jobs">
-                {snapshot.sessions?.length ? (
-                  snapshot.sessions.map((s, i) => (
-                    <LiveSession key={String(s.id || i)} session={s} />
-                  ))
-                ) : (
-                  <div className="empty">No sessions yet.</div>
-                )}
-              </Card>
+              {(() => {
+                const { active, waiting, recent, hidden } = splitSessions(
+                  snapshot.sessions || [],
+                );
+                const queued = [
+                  ...active.flatMap((s) =>
+                    ((s.jobs as Record<string, unknown>[]) || []).filter(
+                      (j) => j.status === "queued",
+                    ),
+                  ),
+                  ...waiting,
+                ];
+                return (
+                  <>
+                    <Card className="panel" title="Now running">
+                      {active.length ? (
+                        active.map((s, i) => (
+                          <LiveSession key={String(s.id || i)} session={s} />
+                        ))
+                      ) : (
+                        <div className="empty">
+                          Nothing is running. Pick a mission and press Start!
+                        </div>
+                      )}
+                    </Card>
+                    {queued.length > 0 && (
+                      <Card className="panel" title="Up next">
+                        <ol className="queued-list">
+                          {queued.map((j, i) => (
+                            <li key={i}>{sessionName(j)}</li>
+                          ))}
+                        </ol>
+                      </Card>
+                    )}
+                    {recent.length > 0 && (
+                      <Card className="panel" title="Recent runs">
+                        <ul className="recent-list">
+                          {recent.map((s, i) => (
+                            <RecentRun key={String(s.id || i)} session={s} />
+                          ))}
+                        </ul>
+                        {hidden > 0 && (
+                          <p>Older runs are on the History tab.</p>
+                        )}
+                      </Card>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
           {tab === "history" && (

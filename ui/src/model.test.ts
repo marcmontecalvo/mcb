@@ -104,3 +104,18 @@ describe("position and schema helpers", () => {
     expect(schemaAt(s, ["run", "nope"])).toBeUndefined();
   });
 });
+import { splitSessions } from "./model";
+describe("splitSessions", () => {
+  it("separates active, queued and caps recent newest-first", () => {
+    const old = Array.from({ length: 7 }, (_, i) => ({ id: `d${i}`, status: "finished", finished_at: i }));
+    const r = splitSessions([
+      ...old,
+      { id: "a", status: "running" },
+      { id: "q", status: "queued" },
+    ]);
+    expect(r.active.map((s) => s.id)).toEqual(["a"]);
+    expect(r.waiting.map((s) => s.id)).toEqual(["q"]);
+    expect(r.recent.map((s) => s.id)).toEqual(["d6", "d5", "d4", "d3", "d2"]);
+    expect(r.hidden).toBe(2);
+  });
+});
