@@ -694,8 +694,10 @@ def setup(operation):
 
     with exclusive_arena():
         if operation == "server-start":
-            if server.status()["state"] != "running":
+            state = server.status()["state"]
+            if state in {"stopped", "exited"}:
                 server.start()
+            if state != "running":  # also covers a lab that is still booting
                 natural._wait_state({"running"}, 300)
             result = {"state": server.status()["state"]}
         elif operation == "baritone-prepare":

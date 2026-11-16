@@ -284,6 +284,16 @@ def job_outputs(job):
     return sorted(found)
 
 
+def needs_lab_server(job):
+    """Every world run needs the lab server; setup jobs manage it themselves and
+    a battery restarts it unless told to use it as it is."""
+    if job.get("kind") == "setup":
+        return False
+    if job.get("kind") == "battery":
+        return bool(((job.get("run_config") or {}).get("run") or {}).get("no_restart"))
+    return True
+
+
 def worker(path):
     session = read_json(path)
     done = threading.Event()
@@ -652,11 +662,16 @@ class Dashboard:
             ]
         else:
             raise ValueError("Unknown dashboard run type")
-        if any(j.get("kind") == "companion" for j in jobs):
+        if worker_target == "session" and any(map(needs_lab_server, jobs)):
             from mclab import server
 
             if server.status()["state"] != "running":
-                raise ValueError("The lab server is not running; use Start lab first")
+                # Boot the lab as the session's first job instead of refusing;
+                # a failed start stops the queue before any run touches the world.
+                jobs = [
+                    {**job, "id": "lab-start", "label": "Start lab server"}
+                    for job in runs.plan({"kind": "setup", "operation": "server-start"})
+                ] + jobs
         # sessions() also reconciles workers that died unexpectedly.
         if any(s["status"] in ACTIVE for s in self.sessions()):
             raise ValueError("A session is already active")

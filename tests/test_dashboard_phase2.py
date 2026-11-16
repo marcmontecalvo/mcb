@@ -295,6 +295,9 @@ def test_suites_resolve_save_list_and_suite_start_persists_selected_entries(
     monkeypatch.setattr(dashboard_suites, "resolve_entries", lambda entries: jobs)
     monkeypatch.setattr(dashboard, "SESSIONS", tmp_path / "results" / "sessions")
     monkeypatch.setattr(dashboard, "worker_busy", lambda: False)
+    from mclab import server as lab_server
+
+    monkeypatch.setattr(lab_server, "status", lambda: {"state": "running"})
 
     class Process:
         @staticmethod
@@ -354,3 +357,27 @@ def test_corrupt_session_record_does_not_hide_others(tmp_path, monkeypatch):
     statuses = {row.get("id", row.get("status")): row["status"] for row in rows}
     assert statuses["a"] == "unreadable"
     assert "passed" in statuses.values()
+
+
+def test_session_boots_a_stopped_lab_before_world_runs(tmp_path, monkeypatch):
+    from mclab import dashboard_suites
+    from mclab import server as lab_server
+
+    monkeypatch.setattr(dashboard, "SESSIONS", tmp_path / "sessions")
+    monkeypatch.setattr(dashboard, "worker_busy", lambda: False)
+    monkeypatch.setattr(lab_server, "status", lambda: {"state": "stopped"})
+    monkeypatch.setattr(
+        dashboard.subprocess, "Popen", lambda *_a, **_k: SimpleNamespace(poll=lambda: None)
+    )
+
+    def start(jobs):
+        monkeypatch.setattr(dashboard_suites, "resolve_entries", lambda _e: jobs)
+        result = dashboard.Dashboard().start({"kind": "suite", "entries": []})
+        path = dashboard.SESSIONS / result["id"] / "session.json"
+        return [j.get("operation") or j["kind"] for j in json.loads(path.read_text())["jobs"]]
+
+    course = {"id": "job-1", "kind": "courses", "course": "C1"}
+    assert start([course]) == ["server-start", "courses"]
+    battery = {"id": "job-1", "kind": "battery", "run_config": {"run": {"no_restart": False}}}
+    assert start([battery]) == ["battery"]  # the battery restarts the lab itself
+    assert not dashboard.needs_lab_server({"kind": "setup"})

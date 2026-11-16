@@ -276,8 +276,12 @@ exist are offered), **Gather** (`run-gather.py`, optional iron pickaxe) or
   writes `builds/<name>.build.json` and shows the material list and flags. The
   new file is selected in the build dropdown.
 - **Rules.** Companion jobs use the same session worker as course runs: one
-  active session, Stop after batch, Kill now. The lab server must already be
-  running (use **Start lab**); starting is refused otherwise. The scripts take
+  active session, Stop after batch, Kill now. If the lab server is stopped when
+  a session starts, the session boots it first (a `server-start` setup job named
+  "Start lab server"); a failed start stops the queue before any run. Every run
+  type gets this except a battery that restarts the server itself. The React
+  UI also shows **Start lab** next to the server badge when it is not running.
+  The scripts take
   the arena lock (`recorder.exclusive_arena`) themselves, so the worker does not;
   if another runner holds it the script fails and the job is an error. Kill sends
   Ctrl+Break (SIGINT off Windows) so the script's `finally` despawns its body,

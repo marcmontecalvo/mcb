@@ -393,7 +393,20 @@ function App() {
     try {
       await api("/api/start", "POST", { kind: "suite", entries });
       setTab("activity");
-      setNotice("Started. Follow along here or watch the bot in Minecraft.");
+      setNotice(
+        status === "running"
+          ? "Started. Follow along here or watch the bot in Minecraft."
+          : "Starting the lab server first (a minute or two), then your missions run.",
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function startLab() {
+    try {
+      await api("/api/start", "POST", { kind: "setup", operation: "server-start" });
+      setTab("activity");
+      setNotice("Starting the lab server. The badge turns to running when it's ready.");
     } catch (e) {
       setError((e as Error).message);
     }
@@ -496,9 +509,14 @@ function App() {
                     : "Browse previous results and build runs."}
               </p>
             </div>
-            <Badge tone={status === "running" ? "working" : "quiet"}>
-              {status}
-            </Badge>
+            <div className="lab-state">
+              <Badge tone={status === "running" ? "working" : "quiet"}>
+                {status === "running" ? "lab running" : `lab ${status}`}
+              </Badge>
+              {status !== "running" && status !== "starting" && (
+                <Button onClick={startLab}>Start lab</Button>
+              )}
+            </div>
           </div>
           {error && (
             <Alert title="Something needs attention" tone="attention">

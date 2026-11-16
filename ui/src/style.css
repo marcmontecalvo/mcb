@@ -525,3 +525,9 @@ summary {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.lab-state {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}

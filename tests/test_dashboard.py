@@ -867,12 +867,18 @@ def test_convert_schematic_stays_inside_allowed_folders(companion, monkeypatch):
             runs.convert_schematic(relative)
 
 
-def test_companion_job_is_refused_while_lab_server_is_down(companion, monkeypatch):
+def test_companion_session_boots_a_stopped_lab_first(companion, monkeypatch):
     from mclab import server
 
     monkeypatch.setattr(server, "status", lambda: {"state": "stopped"})
-    with pytest.raises(ValueError, match="not running"):
-        ui.Dashboard().start({"kind": "companion", "job": "crafting"})
+    monkeypatch.setattr(ui, "worker_busy", lambda: False)
+    # Never spawn a real worker from a test: it would drive the live lab.
+    with monkeypatch.context() as patch:
+        fake = SimpleNamespace(poll=lambda: None)
+        patch.setattr(ui.subprocess, "Popen", lambda *_a, **_k: fake)
+        result = ui.Dashboard().start({"kind": "companion", "job": "crafting"})
+    jobs = read_json(ui.SESSIONS / result["id"] / "session.json")["jobs"]
+    assert [j.get("operation") or j["kind"] for j in jobs] == ["server-start", "companion"]
     with pytest.raises(RuntimeError, match="not running"):
         runs.execute(runs.plan({"kind": "companion", "job": "crafting"})[0])
 

@@ -74,6 +74,8 @@ class Bridge:
         from mclab.run_launch import attach_run
 
         attach_run(output.parent)
+        if not STATE.is_file():
+            raise RuntimeError("The lab server is not running; use Start lab first")
         state = read_json(STATE)
         settings = config()
         self.launch_id = state["launch_id"]
