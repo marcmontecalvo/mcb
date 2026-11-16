@@ -283,3 +283,14 @@ def test_minecraft_flowing_water_fluid_is_wadeable_and_passable():
     shallow = {(0, 61, 0): STONE, (0, 62, 0): flowing, (0, 63, 0): AIR}
     assert collision_geometry.standable(shallow, (0, 62, 0))
     assert collision_geometry.edit_stance(shallow, (0, 62, 0))
+
+
+def test_off_centre_body_under_a_roof_edge_cannot_surface():
+    # Centre column open, but the box at x=3.02 overlaps x=2, whose roof pins the head.
+    cells = pool()
+    cells[2, 0, 3] = STONE
+    body = swimmer()
+    body["position"] = [3.02, -1.5, 3.5]
+    assert not wm.can_surface(cells, body)
+    assert not wm._column_open(cells, 3.02, 3.5, -1.5)
+    assert wm._column_open(cells, 3.5, 3.5, -1.5)

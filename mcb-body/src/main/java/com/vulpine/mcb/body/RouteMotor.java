@@ -49,7 +49,7 @@ final class RouteMotor {
         /** Known water or air from the head cell up to the target's cell: the body can rise to the stance here. */
         default boolean openAbove(Pose pose, Point target) { return true; }
         /** First cell of the nearest swimmable way from the head cell to air, or null. */
-        default int[] surfaceStep(int x, int y, int z) { return null; }
+        default int[] surfaceStep(double px, int y, double pz) { return null; }
     }
     /**
      * Pitch delta that levels the view (at most 45 degrees a tick). Swimming moves along
@@ -182,7 +182,7 @@ final class RouteMotor {
      *  No known way: jump anyway. */
     static Surface surface(Pose pose, double eyeY, RouteGeometry geometry) {
         int x = (int) Math.floor(pose.x), y = (int) Math.floor(eyeY), z = (int) Math.floor(pose.z);
-        var step = geometry.surfaceStep(x, y, z);
+        var step = geometry.surfaceStep(pose.x, y, pose.z);
         if (step == null || (step[0] == x && step[2] == z && step[1] > y)) return Surface.UP;
         double yaw = wrap(yawTo(pose, new Point(step[0], step[1], step[2])) - pose.yaw);
         if (step[1] < y) return new Surface(step[0] == x && step[2] == z ? 0 : 1, yaw, false, true);
@@ -476,7 +476,7 @@ final class RouteMotor {
         // (run 20261116T163035614307Z sat 100+ s under it). Swim to the nearest column that rises.
         if (pose.y < target.y - 1.0 && !geometry.openAbove(pose, target)) {
             int x = (int) Math.floor(pose.x), y = (int) Math.floor(pose.y + EYE_HEIGHT), z = (int) Math.floor(pose.z);
-            var step = geometry.surfaceStep(x, y, z);
+            var step = geometry.surfaceStep(pose.x, y, pose.z);
             if (step != null) {
                 var dest = new Point(step[0], step[1], step[2]);
                 if (flat < .01) stalled++; else stalled = 0;

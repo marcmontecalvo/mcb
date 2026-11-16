@@ -135,7 +135,7 @@ def _air_above(cells, x, z, y):
 def _column_open(cells, px, pz, py):
     air = _air_above(cells, math.floor(px), math.floor(pz), math.floor(py + EYE))
     return air is not None and collision_geometry.clear_body(
-        cells, px, pz, py, air, cell_safe=_passable
+        cells, px, pz, py, air + 1.8 - EYE, cell_safe=_passable
     )
 
 

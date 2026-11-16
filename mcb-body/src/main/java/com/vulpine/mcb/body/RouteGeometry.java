@@ -104,8 +104,16 @@ final class RouteGeometry implements RouteMotor.Geometry {
     /** The cell above (x,y,z) is known water or air, so a body can rise into it. */
     boolean roomAbove(int x, int y, int z) { return swimmable(x, y + 1, z); }
     @Override public boolean openAbove(RouteMotor.Pose p, RouteMotor.Point target) {
-        int x = (int) Math.floor(p.x()), z = (int) Math.floor(p.z()), head = (int) Math.floor(p.y() + 1.62);
-        for (int y = head + 1; y <= (int) target.y(); y++) if (!swimmable(x, y, z)) return false;
+        int head = (int) Math.floor(p.y() + 1.62);
+        for (int y = head + 1; y <= (int) target.y(); y++) if (!fits(p.x(), p.z(), y)) return false;
+        return true;
+    }
+    /** Every column the 0.6-wide body at (px,pz) overlaps is swimmable at cell height y. */
+    private boolean fits(double px, double pz, int y) {
+        double r = .3 - 1e-6;
+        for (int cx = (int) Math.floor(px - r); cx <= Math.floor(px + r); cx++)
+            for (int cz = (int) Math.floor(pz - r); cz <= Math.floor(pz + r); cz++)
+                if (!swimmable(cx, y, cz)) return false;
         return true;
     }
     static final int SURFACE_RADIUS = 8, SURFACE_NODES = 400;
@@ -113,8 +121,10 @@ final class RouteGeometry implements RouteMotor.Geometry {
     /** First cell on the shortest swimmable path from the head cell to a breathable cell,
      *  or null when none lies within SURFACE_RADIUS (Manhattan) and SURFACE_NODES.
      *  Horizontal steps also need the cell below free, so the body fits. */
-    @Override public int[] surfaceStep(int hx, int hy, int hz) {
-        for (int y = hy + 1; y <= hy + SURFACE_RADIUS && swimmable(hx, y, hz); y++)
+    @Override public int[] surfaceStep(double px, int hy, double pz) {
+        int hx = (int) Math.floor(px), hz = (int) Math.floor(pz);
+        // Rising needs the whole hitbox clear, not just the centre column (run 20261116T172715478561Z).
+        for (int y = hy + 1; y <= hy + SURFACE_RADIUS && fits(px, pz, y); y++)
             if (breathable(hx, y, hz)) return new int[]{hx, hy + 1, hz};  // open column: straight up
         var parent = new HashMap<Key, Key>();
         var start = new Key(hx, hy, hz);
@@ -126,6 +136,7 @@ final class RouteGeometry implements RouteMotor.Geometry {
                 var next = new Key(at.x() + d[0], at.y() + d[1], at.z() + d[2]);
                 if (parent.containsKey(next) || Math.abs(next.x() - hx) + Math.abs(next.y() - hy) + Math.abs(next.z() - hz) > SURFACE_RADIUS
                         || !swimmable(next.x(), next.y(), next.z())
+                        || (d[1] > 0 && at == start && !fits(px, pz, next.y()))
                         || (d[1] == 0 && !swimmable(next.x(), next.y() - 1, next.z()))) continue;
                 parent.put(next, at);
                 if (breathable(next.x(), next.y(), next.z())) {

@@ -95,6 +95,16 @@ public final class RouteMotorTest {
         check(high.sneak() && !high.jump() && high.forward()==0,"pocket under a roof, body too high: sink first");
         var low=RouteMotor.surface(new RouteMotor.Pose(.5,1,.5,0,0,0,false,20,true),2.6,geometry(nook));
         check(low.forward()>0 && !low.jump() && !low.sneak(),"pocket under a roof, body low enough: walk in without jumping");
+        // Run 20261116T172715478561Z: centre column x=1 is open to air but the 0.6-wide body at x=1.02
+        // overlaps x=0, whose stone at y=3 pins the head. Jumping straight up drowned it: steer to x=2.
+        var edge=box();
+        for(int y=1;y<=2;y++) edge.put(new Key(0,y,0),water("0"));
+        for(int x=1;x<=2;x++) { for(int y=1;y<=3;y++) edge.put(new Key(x,y,0),water("0")); edge.put(new Key(x,4,0),AIR); }
+        var pinned=new RouteMotor.Pose(1.02,1.2,.5,0,0,0,false,20,true);
+        var wedge=RouteMotor.surface(pinned,2.82,geometry(edge));
+        check(wedge.forward()>0 && Math.abs(wedge.yaw()+90)<1e-6,"body overlapping a roofed column steers sideways, not straight up");
+        check(!geometry(edge).openAbove(pinned,new RouteMotor.Point(1,3,0)),"openAbove tests the whole hitbox");
+        check(geometry(edge).openAbove(new RouteMotor.Pose(2.5,1.2,.5,0,0,0,false,20,true),new RouteMotor.Point(2,3,0)),"openAbove true when the box fits");
     }
     private static void swimAndLandingChecks() {
         var channel=floor();
