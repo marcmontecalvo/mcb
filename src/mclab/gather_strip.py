@@ -13,16 +13,18 @@ ponytail: no torches, no mob handling. Steps walk with body.walk_to (one cleared
 
 from __future__ import annotations
 
+import math
 from itertools import count
 
 from mclab import build_plan as bp
-from mclab.build_runner import Result
+from mclab.build_runner import REACH, Result
 from mclab.gather_dig import FACES, Digger
 from mclab.gather_options import SENSE_DY, pick_tool, wanted_ores
 from mclab.gather_runner import _cell, _sealed
 from mclab.knowledge import best_y
 
 CHUNK = 16
+EYE = 1.62
 MIN_BUILD_Y = -64
 BEDROCK_MARGIN = 5  # lowest strip height: the build floor + this (diamond lands at -59)
 SURFACE_MARGIN = 4  # the search height is this far under the surface
@@ -89,8 +91,11 @@ class Strip:
         far = dx if on_x else dz
         if far:
             step = (1 if far > 0 else -1) * across[0], (1 if far > 0 else -1) * across[1]
-            if (why := self.tunnel(step, abs(far))) != "ok":
+            why = self.tunnel(step, abs(far))
+            if why in TERMINAL:
                 return why
+            if why != "ok":  # the way to the border is only a convenience: legs start here
+                self.ex.note("strip_approach_failed", why=why, at=_cell(self.body.position()))
         sign, legs = 1, self.opts.strip_max_legs
         for i in count():
             if legs is not None and i >= legs:
@@ -149,6 +154,12 @@ class Strip:
         item = next((i for i in FILL if inv.get(i, 0) > 0), None)
         if item is None:
             return False
+        # From where the body stands when the cell is in reach: the goto_stance search
+        # found none for a floor cell beside the body (run 20261116T135356630645Z).
+        x, y, z = body.position()
+        if math.dist((x + 0.5, y + EYE, z + 0.5), (floor[0] + 0.5, floor[1] + 0.5, floor[2] + 0.5)) <= REACH:
+            if body.place_block(floor, item, item).ok:
+                return True
         return self.ex.reach_and_do(floor, lambda: body.place_block(floor, item, item)).ok
 
     def mine(self) -> str | None:

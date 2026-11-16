@@ -208,3 +208,26 @@ def test_vein_cell_refused_before_its_neighbour_is_mined_is_retried():
     Strip(ex, Gather(IRON, 99, "pickaxe", "stone", M + "raw_iron", 99), 99).mine()
     assert body.inv[M + "raw_iron"] == 5
     assert IRON not in {body.world(x, y, -63) for x in (122, 123) for y in (19, 20)}
+
+
+def test_bridge_places_from_the_current_stance_when_no_other_stance_exists():
+    # run 20261116T135356630645Z: no_floor on a cave floor beside the body, bridge placed nothing
+    class NoStance(FakeGatherBody):
+        def goto_stance(self, *a, **k):
+            return False
+
+    body = NoStance(K, world({(16, 15, 6): AIR}), dict(PICK) | {M + "cobblestone": 4}, pos=(16, 16, 5))
+    ex = _Exec(body, K, GatherState(), 64, opts=opts())
+    strip = Strip(ex, Gather(IRON, 1, "pickaxe", "stone", M + "raw_iron", 1), 1)
+    assert strip.bridge((0, 1)) and body.world(16, 15, 6) == M + "cobblestone"
+
+
+def test_failed_approach_to_the_chunk_border_still_runs_the_legs():
+    body = FakeGatherBody(K, world({}), dict(PICK), pos=(3, TOP + 1, 3))
+    ex = _Exec(body, K, GatherState(), 64, opts=opts())
+    strip = Strip(ex, Gather(IRON, 99, "pickaxe", "stone", M + "raw_iron", 99), 99)
+    real, calls = strip.tunnel, []
+    strip.tunnel = lambda d, n: "no_floor" if not calls.append(d) and len(calls) == 1 else real(d, n)
+    strip.digger.descend(16)
+    assert strip.serpentine() == "legs_done"
+    assert "strip_leg_start" in [r["gather"] for r in notes(body)]
