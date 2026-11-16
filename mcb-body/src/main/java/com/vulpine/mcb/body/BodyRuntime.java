@@ -46,7 +46,7 @@ public final class BodyRuntime implements AutoCloseable {
     private static volatile BodyRuntime active;
     private final MinecraftServer server;
     private volatile Map<String,Object> policySnapshot = Map.of();
-    private volatile Object servedTerrain; // last terrain batch /policy actually served
+    private final ServedTerrain servedTerrain=new ServedTerrain(); // last terrain batch /policy served
     private TerrainBatch loggedBatch; // this update's newly scanned sections, for the event log
     private boolean compactTerrain;
     private TerrainBatch terrainBatch = new TerrainBatch(List.of(),-100);
@@ -131,9 +131,8 @@ public final class BodyRuntime implements AutoCloseable {
             String path = exchange.getRequestURI().getPath();
             if (exchange.getRequestMethod().equals("GET")) {
                 if (path.equals("/policy")) {
-                    var served=policySnapshot;
-                    respond(exchange,200,served);
-                    servedTerrain=served.get("terrain_sections"); // delivered: see requeue()
+                    // Mark before the slow encode+send: a scan during it must not carry this batch again.
+                    respond(exchange,200,servedTerrain.serve(()->policySnapshot));
                     return;
                 }
                 if (path.equals("/state")) { respond(exchange, 200, snapshot); return; }
@@ -1299,6 +1298,11 @@ public final class BodyRuntime implements AutoCloseable {
     }
 
     private void updatePolicySnapshot() {
+        // Atomic with /policy's read+mark: otherwise a batch served mid-scan is carried and resent.
+        synchronized(servedTerrain) { updatePolicySnapshotLocked(); }
+    }
+
+    private void updatePolicySnapshotLocked() {
         var filtered=new LinkedHashMap<String,Object>();
         boolean streaming=streaming();
         if(body!=null && body.player()!=null) {
@@ -1317,7 +1321,7 @@ public final class BodyRuntime implements AutoCloseable {
             }
             if(streaming && server.getTickCount()-sensorTick>=awareness.interval()) {
                 // A section batch nobody fetched is carried into the next one.
-                if(compactTerrain && servedTerrain!=terrainBatch) awarenessSensor.carry(awarenessSensor.sections());
+                if(compactTerrain && servedTerrain.unread(terrainBatch)) awarenessSensor.carry(awarenessSensor.sections());
                 visibleBlocks=awareness.preset().equals("legacy")?PolicySensor.visible(body.player(),server.getTickCount())
                         :awarenessSensor.sample(body.player(),server.getTickCount());
                 sensorTick=server.getTickCount();
