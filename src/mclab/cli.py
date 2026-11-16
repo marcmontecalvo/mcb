@@ -144,6 +144,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("run", help="launch a shared run config (run --help)")
+    sub.add_parser("companion-service", help="run the in-game /mcb command listener")
     sub.add_parser("bootstrap")
     sub.add_parser("doctor")
     sub.add_parser("report")
@@ -280,6 +281,10 @@ def main() -> int:
     args = parser.parse_args()
     try:
         match args.command:
+            case "companion-service":
+                from mclab import companion_service
+
+                companion_service.run()
             case "schematic":
                 from mclab import schematic
 

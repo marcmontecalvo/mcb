@@ -159,6 +159,19 @@ public final class BodyRuntime implements AutoCloseable {
                 respond(exchange, 202, Map.of("status", "queued", "launch_id", launchId));
                 return;
             }
+            if (exchange.getRequestMethod().equals("POST") && path.equals("/tell")) {
+                var request = JsonParser.parseString(new String(
+                        exchange.getRequestBody().readNBytes(2048), StandardCharsets.UTF_8)).getAsJsonObject();
+                var id = java.util.UUID.fromString(request.get("uuid").getAsString());
+                var message = request.get("text").getAsString();
+                if (message.length() > 256) throw new IllegalArgumentException("text_too_long");
+                server.execute(() -> {
+                    var player = server.getPlayerList().getPlayer(id);
+                    if (player != null) player.sendSystemMessage(net.minecraft.network.chat.Component.literal(message));
+                });
+                respond(exchange, 202, Map.of("status", "queued", "launch_id", launchId));
+                return;
+            }
             respond(exchange, 404, Map.of("error", "not_found"));
         } catch (RuntimeException error) {
             respond(exchange, 400, Map.of("error", "invalid_request"));
@@ -183,6 +196,21 @@ public final class BodyRuntime implements AutoCloseable {
         if (events.size() == 2048) events.removeFirst();
         events.addLast(new Event(1, launchId, runId, episodeId, bodyId, ++eventSequence,
                 server.getTickCount(), phase, type, Map.copyOf(data)));
+    }
+
+    /**
+     * A player's /mcb command, on the server thread. Always recorded for the Python service, which owns
+     * authority (owner and allowlist). stop also cancels the body here, so it needs neither Python nor a model.
+     */
+    static void playerCommand(ServerPlayer player, String sub, Map<String, Object> args) {
+        var runtime = active;
+        if (runtime == null) return;
+        var data = new HashMap<String, Object>(args);
+        data.put("player_uuid", player.getUUID().toString());
+        data.put("player_name", player.getName().getString());
+        data.put("command", sub);
+        runtime.emit("player_command", "fabric_start", data);
+        if (sub.equals("stop")) runtime.cancelRoute("player_stop"); // no body spawned: nothing is active, a no-op
     }
 
     private static String text(JsonObject request, String key) {
