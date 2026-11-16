@@ -335,10 +335,12 @@ class _Runner:
         cells = bp.tower_cells(pos, self.body.world, self.blocks, self.reserved)
         if not cells:
             return False
-        if self.body.inventory().get(sc.BLOCK, 0) < len(cells):
+        item = self._scaffold_item(len(cells))
+        if item is None:
             # standing towers are taken back first; the whole stack is only 64
             _clean_up(self, self.template, self.scaffolds)
-            if self.body.inventory().get(sc.BLOCK, 0) < len(cells):
+            item = self._scaffold_item(len(cells))
+            if item is None:
                 # Without a tower every cell up there is one more round of failed
                 # stance probes: 27 roof cells, 5-12 s of standing still each (run
                 # 20261112T143613464413Z). Ask for the scaffolding instead.
@@ -359,7 +361,7 @@ class _Runner:
         try:
             for cell in cells:
                 n = len(self.report.scaffolded)
-                self.attempt(bp.Scaffold(cell, sc.BLOCK))
+                self.attempt(bp.Scaffold(cell, item))
                 if len(self.report.scaffolded) == n:
                     return False  # what stands is cleaned up with the rest
                 self.scaffolds.add(cell)
@@ -373,6 +375,12 @@ class _Runner:
             if not _is_scaffold(self.body, cell):
                 self.scaffolds.discard(cell)
         return False
+
+    def _scaffold_item(self, n: int) -> str | None:
+        """First item the planner may scaffold with (scaffolding, then dirt, ...) of
+        which the body holds ``n``."""
+        held = self.body.inventory()
+        return next((i for i in bp.SCAFFOLD_ITEMS if held.get(i, 0) >= n), None)
 
     def _fail(self, pos: Pos, reason: str) -> None:
         self.fails[pos] = self.fails.get(pos, 0) + 1
@@ -737,6 +745,7 @@ def _run(
             skipped.clear()
             runner.fails.clear()
             runner.avoid.clear()
+            runner.towered.clear()
             continue
         if not acts:
             d = bp.diff(template, body.world)
@@ -767,6 +776,7 @@ def _run(
             skipped.clear()  # the cells that waited for the tower are tried again
             runner.fails.clear()
             runner.avoid.clear()
+            runner.towered.clear()
         if on_progress:
             on_progress(report, False)
     if report.stop != "need_materials":
