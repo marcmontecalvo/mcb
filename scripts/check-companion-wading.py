@@ -7,7 +7,6 @@ the lab. Evidence is kept even if either movement fails.
 
 import argparse
 import math
-from dataclasses import replace
 from datetime import UTC, datetime
 
 from mclab.collision_geometry import standable
@@ -76,11 +75,6 @@ def main():
                     # Enter the tall-seagrass column from its adjacent shallow
                     # shelf, then leave for the bank. No teleport or terrain edit.
                     goals.insert(0, (-19, 63, 71))
-                    # Explicitly admit the deep-water leg. The normal shallow
-                    # variant still proves that wading needs no swim permission.
-                    body.movement_policy = replace(
-                        body.movement_policy, allow_swim=True
-                    )
                 kinds = (
                     ("plant_water", "wade", "bank")
                     if args.trapped
@@ -104,7 +98,9 @@ def main():
                     print(row, flush=True)
                     if (
                         not ok
-                        or (swim and not args.trapped)
+                        # swimming is always on: a wade must still end on the
+                        # shallow floor, not afloat
+                        or (kind == "wade" and math.floor(after[1]) != spawn[1])
                         or math.dist(before, after) < 1
                     ):
                         raise RuntimeError(f"Failed {kind} regression")
