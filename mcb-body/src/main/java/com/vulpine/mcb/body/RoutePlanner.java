@@ -48,7 +48,8 @@ final class RoutePlanner {
     private final RouteGeometry.Reader reader;
     private final Map<Long, Map<String, Object>> cells = new HashMap<>();
     private final Map<Long, double[]> heights = new HashMap<>();
-    private final Node start, goal;
+    private Node start;  // advance() may snap a start inside a climbable cell to its cell
+    private final Node goal;
     private final double radius;
     private Double reach;
     private Set<Node> avoidStances = Set.of();
@@ -161,7 +162,10 @@ final class RoutePlanner {
     Result advance(int nodeLimit, long deadlineNanos) {
         if (terminal != null) return terminal;
         if (best == null) {
-            if (!stance(start) && !canRecoverStart() && !submerged(start))
+            // A body hanging in a ladder/scaffold column is at a valid start whatever its fractional y.
+            if (climb && !integral(start.y) && climbable(cell(start.x, (int) Math.floor(start.y), start.z)))
+                start = new Node(start.x, Math.floor(start.y), start.z);
+            if (!stance(start) && !(climb && climbOnly(start)) && !canRecoverStart() && !submerged(start))
                 return terminal = new Result("unreachable", List.of(), 0, 0, List.of());
             best = start;
             costs.put(start, 0.0); nodes.add(start);
@@ -592,7 +596,7 @@ final class RoutePlanner {
         var out = new ArrayList<Move>(8);
         int x = node.x, z = node.z; double y = node.y;
         if (submerged(node) && !stance(node)) { swimOut(node, out); return out; }
-        if (node.equals(start) && !stance(start)) {
+        if (node.equals(start) && !stance(start) && !(climb && climbOnly(node))) {
             if (canRecoverStart()) for (var d : DIRECTIONS) for (int dy = 0; dy <= 1; dy++)
                 addEdit(planEdit(node, new Node(x + d[0], y + dy, z + d[1])), heightCost(dy), node, out);
             return out;

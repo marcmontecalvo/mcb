@@ -134,6 +134,11 @@ public final class RoutePlannerTest {
         var scaffoldClimb = new RoutePlanner((x, y, z) -> scaffold.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
                 new RoutePlanner.Node(2, 4, 0), 0, 3, true).withPolicy(true,true,true,true,true,1).withMoves(false, false).search(100_000);
         check(scaffoldClimb.status().equals("reached"), "normal build policy stands above the top scaffold platform");
+        for (double sy : new double[]{1, 2, 2.38, 2.5}) {
+            var inside = new RoutePlanner((x, y, z) -> scaffold.get(new Key(x, y, z)), new RoutePlanner.Node(2, sy, 0),
+                    new RoutePlanner.Node(3, 1, 2), 0, 3, true).withPolicy(true,true,true,true,true,1).withMoves(false, false).search(100_000);
+            check(inside.status().equals("reached"), "a start inside a scaffold column (y=" + sy + ") plans out: " + inside.status());
+        }
         var interaction = floor(12);
         interaction.put(new Key(4, 4, 0), stone());
         var reachedBlock = new RoutePlanner((x, y, z) -> interaction.get(new Key(x, y, z)),
