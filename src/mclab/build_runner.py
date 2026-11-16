@@ -318,9 +318,9 @@ class _Runner:
         )
         freed = False
         for cell in near:  # lowest first: the rest of the column falls
-            if self.body.break_block(cell).ok or not _is_scaffold(self.body, cell):
+            if self.body.break_block(cell).ok or not _standing(self.body, cell):
                 freed = True
-        for cell in [c for c in self.scaffolds if not _is_scaffold(self.body, c)]:
+        for cell in [c for c in self.scaffolds if not _standing(self.body, c)]:
             self.scaffolds.discard(cell)
         return freed
 
@@ -347,6 +347,8 @@ class _Runner:
                 self.short = {sc.BLOCK: len(cells)}
                 self.towered.discard(pos)
                 return False
+        if item != sc.BLOCK:
+            return self._pillar(pos, cells, item, avoid)
         # Place from two cells away: beside the column the body's box overlaps it.
         cx, _, cz = cells[0]
         _, by, _ = self.body.position()
@@ -372,8 +374,26 @@ class _Runner:
         # Not climbed: a tower nobody stands on is only in the way.
         self.body.break_block(cells[0])
         for cell in cells:
-            if not _is_scaffold(self.body, cell):
+            if not _standing(self.body, cell):
                 self.scaffolds.discard(cell)
+        return False
+
+    def _pillar(self, pos: Pos, cells: list, item: str, avoid) -> bool:
+        """A column of anything but scaffolding is solid: nothing walks or climbs onto
+        its top (run 20261116T131538770036Z: 116 plans, all unreachable). The body
+        pillars up it itself, so it ends up standing on the top."""
+        pillar = getattr(self.body, "pillar_to", None)  # optional, like walk_to
+        if pillar is None:
+            return False
+        cx, _, cz = cells[0]
+        pillar((cx, cells[-1][1] + 1, cz), item, len(cells))
+        for cell in cells:  # what stands is cleaned up with the rest
+            if _standing(self.body, cell):
+                self.scaffolds.add(cell)
+                self.report.scaffolded.append(cell)
+        if self.body.goto_stance(pos, REACH, avoid):
+            return True
+        _clean_up(self, self.template, self.scaffolds)
         return False
 
     def _scaffold_item(self, n: int) -> str | None:
@@ -388,8 +408,9 @@ class _Runner:
             self.report.skipped[pos] = reason
 
 
-def _is_scaffold(body, cell: Pos) -> bool:
-    return (body.world(*cell) or "").startswith(sc.BLOCK)
+def _standing(body, cell: Pos) -> bool:
+    """A tower cell still holds a block (scaffolding or the dirt of a pillared column)."""
+    return bp.parse_state(body.world(*cell) or "minecraft:air")[0] not in bp.AIR
 
 
 def _plan_ahead(runner: _Runner, act, pool: list) -> None:

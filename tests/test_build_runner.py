@@ -450,6 +450,32 @@ class TowerBody(FakeBody):
 
         return ctx()
 
+    def goto_stance(self, target_pos, reach, avoid=()):
+        # Walking only (as the real planner under no_placing): the top of a solid
+        # dirt column the body put up cannot be stepped or climbed onto.
+        if not self.planner_placing:
+            tops = {(x, y + 1, z) for (x, y, z), v in self.w.items() if v == self.DIRT}
+            avoid = set(avoid) | (tops - {self.pos})
+        return super().goto_stance(target_pos, reach, avoid)
+
+    DIRT = "minecraft:dirt"
+
+    def pillar_to(self, feet, item, n):
+        """Pillar straight up the column under ``feet`` with ``item`` only."""
+        self.pillared = getattr(self, "pillared", 0) + 1
+        x, y, z = feet
+        base = y
+        while not bp._is_solid(self.w.get((x, base - 1, z)), self.blocks):
+            base -= 1
+        if y - base > n:
+            return False
+        for cy in range(base, y):
+            self.pos = (x, cy, z)
+            if not super().place_block((x, cy, z), self.DIRT, item).ok:
+                return False
+        self.pos = feet
+        return True
+
     def _stance_ok(self, s, target, reach):
         if str(self.w.get(s)).startswith("minecraft:scaffolding"):
             head = self.w.get((s[0], s[1] + 1, s[2]))
@@ -535,6 +561,10 @@ def test_a_tower_is_built_of_dirt_when_no_scaffolding_is_held_and_taken_down():
     assert report.stop == "done" and (3, 6, 3) in report.placed
     assert report.scaffolded
     assert not [p for p in report.scaffolded if body.w.get(p) == "minecraft:dirt"]
+    # the body pillared up the column itself (a dirt top cannot be walked onto) and
+    # no dirt column is left standing
+    assert body.pillared == 1
+    assert not [p for p, s in body.w.items() if s == "minecraft:dirt" and p[1] >= 0]
 
 
 def test_the_retry_round_towers_a_cell_whose_first_tower_was_short():

@@ -1263,6 +1263,26 @@ class CompanionBody:
         return max(0, held - policy.reserve_blocks)
 
     @_fresh_idle
+    def pillar_to(self, feet: Pos, item: str, n: int) -> bool:
+        """Stand at ``feet`` straight above the body by pillaring with ``item`` only
+        (at most ``n`` blocks, no digging or bridging), even inside ``no_placing``: the
+        build's tower of dirt is a solid column nothing can walk or climb onto."""
+        saved = self.terrain_policy
+        self.terrain_policy = replace(
+            saved,
+            allow_place=True,
+            allow_pillar=True,
+            allow_break=False,
+            allow_bridge=False,
+            place_budget=n,
+            material_allowlist=(item,),
+        )
+        try:
+            return self._navigate(tuple(feet), reach=None, radius=0.6)
+        finally:
+            self.terrain_policy = saved
+
+    @_fresh_idle
     def dig_to(self, feet: Pos) -> bool:
         """Stand at ``feet``, letting the planner dig there. False when digging is off."""
         if not self.terrain_policy.allow_break:
