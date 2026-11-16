@@ -11,7 +11,6 @@ from mclab.paths import ROOT, write_json
 from mclab.recorder import exclusive_arena
 from mclab.run_launch import script_run
 
-
 FLOOR = [(x, 79) for x in range(990, 994)]
 
 
