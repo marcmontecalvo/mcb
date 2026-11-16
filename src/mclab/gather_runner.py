@@ -38,11 +38,11 @@ from mclab import build_plan as bp
 from mclab import gather_plan as gp
 from mclab.build_runner import REACH, STANCE_REASONS, BuildBody, Result
 from mclab.gather_dig import Digger
-from mclab.progress_watch import BodyDied
 from mclab.gather_kit import craft_local, craft_underground
 from mclab.gather_options import SENSE_DY, GatherOptions, pick_tool
 from mclab.gather_tasks import TIER_RANK, UNKNOWN_TIER_RANK
 from mclab.knowledge import Knowledge
+from mclab.progress_watch import BodyDied
 from mclab.tree_removal import TreeFeller, is_huge, is_leaf, is_log, tree_at
 
 Pos = tuple[int, int, int]
