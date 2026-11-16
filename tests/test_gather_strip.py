@@ -231,3 +231,12 @@ def test_failed_approach_to_the_chunk_border_still_runs_the_legs():
     strip.digger.descend(16)
     assert strip.serpentine() == "legs_done"
     assert "strip_leg_start" in [r["gather"] for r in notes(body)]
+
+
+def test_strip_that_dug_no_tunnel_reports_its_own_stop_reason(monkeypatch):
+    from mclab.gather_dig import Digger
+
+    step = Digger.step
+    monkeypatch.setattr(Digger, "step", lambda self, d, tunnel: "no_floor" if tunnel else step(self, d, tunnel))
+    ex, body, res = run(opts(), 99, {})
+    assert res.reason == "no_floor"

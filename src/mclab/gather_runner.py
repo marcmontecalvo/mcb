@@ -722,8 +722,10 @@ class _Exec:
                     if res.reason == "missing_tool":
                         return Result(False, "missing_tool", {"broken": broken})
                     if body.inventory().get(t.item, 0) < target:
-                        # no fallback to planned digs or surface rings after a strip
-                        return Result(False, "leg_limit", {"broken": broken})
+                        # no fallback to planned digs or surface rings after a strip;
+                        # a strip that dug no tunnel says why, not "leg_limit"
+                        why = "leg_limit" if res.data.get("tunnelled") else res.data["stop"]
+                        return Result(False, why, {"broken": broken})
                     continue
                 if not self.explore(lambda: True):  # a short walk to another start
                     return Result(False, f"descent_failed:{self.last_dig}", {"broken": broken})

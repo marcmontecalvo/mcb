@@ -78,7 +78,7 @@ class Strip:
             ex.note("strip_skipped", why=ex.last_dig, target_y=ty, at=_cell(body.position()))
             return None
         self.stop = self.serpentine()
-        data = {"broken": self.broken, "stop": self.stop}
+        data = {"broken": self.broken, "stop": self.stop, "tunnelled": self.digger.tunnelled}
         if self.stop == "missing_tool":
             return Result(False, "missing_tool", data)
         return Result(self.broken > 0, None, data)
