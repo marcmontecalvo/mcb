@@ -103,7 +103,8 @@ class PlaceGraph:
         key, now = self.archive.identity.key, time.time_ns()
         with self.archive.connect(writing=True) as db:
             db.executemany(
-                "INSERT INTO sightings VALUES(?,?,?,?,1) ON CONFLICT(namespace,item,pos) "
+                "INSERT INTO sightings VALUES(?,?,?,?,1) "
+                "ON CONFLICT(namespace,item,pos) "
                 "DO UPDATE SET seen_ns=excluded.seen_ns",
                 [(key, item, json.dumps(list(p)), now) for p in positions],
             )

@@ -1056,7 +1056,8 @@ def test_probe_with_a_partial_route_becomes_the_walk_unless_placing_is_off():
     walking = probe(True)
     assert walking.stop_reason({"tick": 1}) is None
     assert (walking.probe, walking.no_drive) == (False, False)
-    # walk_only (building): an incomplete probe that gets no nearer is an unreachable stance
+    # walk_only (building): an incomplete probe that gets no nearer is an
+    # unreachable stance
     ctl = probe(False)
     ctl.goal = (0, 0, 0)
     assert ctl.stop_reason({"tick": 1}) == "unreachable"

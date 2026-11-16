@@ -123,8 +123,8 @@ class Digger:
     def _dig_cells(self, dig: list[Pos], drops_optional: bool = False) -> bool:
         """Break every cell of ``dig`` until all stay empty. Gravel or sand that falls
         into a cell dug earlier is found by rescanning the whole list (run
-        20261116T135356630645Z: it fell behind the break, and the next break had no line of
-        sight). Each cell is broken at most GRAVEL_CAP times."""
+        20261116T135356630645Z: it fell behind the break, and the next break had
+        no line of sight). Each cell is broken at most GRAVEL_CAP times."""
         body = self.body
         tries: dict[Pos, int] = {}
         failed = ""
@@ -269,7 +269,9 @@ class Digger:
     def hard(self, why: str) -> bool:
         return why == "walk_failed" or why.startswith("break_failed")
 
-    def descend(self, y: int, toward: tuple[int, int] | None = None, after=None) -> str | None:
+    def descend(
+        self, y: int, toward: tuple[int, int] | None = None, after=None
+    ) -> str | None:
         """Staircase down until the feet are at ``y`` or lower, heading for the
         horizontal ``toward`` (x, z) when given; None, else why not. ``after()`` runs
         on every new step; a reason it returns ends the descent."""

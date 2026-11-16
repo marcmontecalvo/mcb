@@ -410,7 +410,8 @@ class _Runner:
 
 
 def _standing(body, cell: Pos) -> bool:
-    """A tower cell still holds a block (scaffolding or the dirt of a pillared column)."""
+    """A tower cell still holds a block (scaffolding or the dirt of a
+    pillared column)."""
     return bp.parse_state(body.world(*cell) or "minecraft:air")[0] not in bp.AIR
 
 

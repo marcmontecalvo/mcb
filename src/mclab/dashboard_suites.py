@@ -33,36 +33,159 @@ SECTIONS = {
 }
 _COURSE_GOAL = " Goal: reach the oak log, break it and pick it up."
 PLAIN = {
-    "companion:crafting": ("Skills", "Crafting", "Crafts at a crafting table, smelts in a furnace and equips gear."),
-    "companion:placement": ("Skills", "Placing and breaking blocks", "Places blocks, uses them and breaks them again."),
-    "companion:animals": ("Skills", "Animals and eating", "Attacks and interacts with penned animals, then eats."),
-    "companion:containers": ("Skills", "Chests and shulker boxes", "Puts items into containers, takes them out, and checks shulker boxes keep their items."),
-    "companion:hill-navigation": ("Getting around", "Climbing hills", "Walks over a hilly test area to a goal."),
-    "companion:companion-wading": ("Getting around", "Wading through a pond", "Walks into shallow pond water and back out onto a dry bank."),
-    "companion:companion-scaffold": ("Getting around", "Scaffold climb", "Builds a scaffold under itself to climb up."),
-    "companion:spatial-navigation": ("Getting around", "Walking and remembering the map", "Walks across the flat lab, saves its map, then reloads it."),
-    "gather": ("Big jobs", "Make a stone pickaxe", "Starts with nothing, chops trees, mines stone and crafts a stone pickaxe."),
-    "build": ("Big jobs", "Build a small house", "Is given the materials and builds a small house."),
-    "battery:small-house": ("Big jobs", "Build a house from chests", "Starts empty-handed beside chests of materials, crafts what it needs and builds the house."),
-    "battery:iron-xray": ("Big jobs", "Iron pickaxe (sees ore)", "Works up to an iron pickaxe and can sense buried ore nearby."),
-    "battery:iron-mine": ("Big jobs", "Iron pickaxe (strip mining)", "The same job, but it can't see ore, so it strip-mines to find it."),
-    "battery:iron-raw": ("Big jobs", "Mine 3 raw iron", "Mines three raw iron with stone pickaxes. No smelting."),
-    "companion:site-fill": ("Big jobs", "Fill in a pond", "Fills a natural pond to make flat ground, then puts the lab back."),
-    "course:C1": ("Obstacle courses", "Course 1: Straight ahead", "The log is 12 blocks straight in front." + _COURSE_GOAL),
-    "course:C2": ("Obstacle courses", "Course 2: Find the log", "Starts facing a random way; the log can be in any direction." + _COURSE_GOAL),
-    "course:C3": ("Obstacle courses", "Course 3: Wall in the way", "A wall two blocks tall blocks the path, so it has to go around." + _COURSE_GOAL),
-    "course:C4": ("Obstacle courses", "Course 4: Up and over", "A raised ridge to climb up and back down." + _COURSE_GOAL),
-    "course:C5": ("Obstacle courses", "Course 5: All of it", "Random facing, a wall to go around and a ridge to climb." + _COURSE_GOAL),
-    "course:C1:reset": ("Developer checks", "Course reset check", "Checks the course arena rebuilds itself exactly between runs."),
-    "course:C1:episodes": ("Developer checks", "Course scoring check", "Scripted Course 1 runs that check pass/fail scoring."),
-    "battery": ("Regression checks", "Full regression battery", "Runs every regression check below, one after another. Takes a long time."),
-    "natural": ("Developer checks", "Natural terrain routes", "Routes across a saved natural world. Needs a saved seed and route data."),
-    "companion:natural-ops": ("Developer checks", "Every action in the wild", "Runs each body action once inside a natural world."),
-    "companion:natural-reporting": ("Developer checks", "Death report", "Takes one lethal hit and checks the death is reported, then restores the lab."),
-    "companion:body-commands": ("Developer checks", "Body commands", "Checks the bot's command interface."),
-    "companion:body-protocol": ("Developer checks", "Body protocol", "Checks messages between the bot and the server."),
-    "companion:reference-fixtures": ("Developer checks", "Reference arenas", "Checks the reference test arenas are built correctly."),
-    "companion:awareness": ("Developer checks", "Awareness", "Checks what the bot can see and sense around it."),
+    "companion:crafting": (
+        "Skills",
+        "Crafting",
+        "Crafts at a crafting table, smelts in a furnace and equips gear.",
+    ),
+    "companion:placement": (
+        "Skills",
+        "Placing and breaking blocks",
+        "Places blocks, uses them and breaks them again.",
+    ),
+    "companion:animals": (
+        "Skills",
+        "Animals and eating",
+        "Attacks and interacts with penned animals, then eats.",
+    ),
+    "companion:containers": (
+        "Skills",
+        "Chests and shulker boxes",
+        "Puts items into containers, takes them out, and checks shulker boxes keep "
+        "their items.",
+    ),
+    "companion:hill-navigation": (
+        "Getting around",
+        "Climbing hills",
+        "Walks over a hilly test area to a goal.",
+    ),
+    "companion:companion-wading": (
+        "Getting around",
+        "Wading through a pond",
+        "Walks into shallow pond water and back out onto a dry bank.",
+    ),
+    "companion:companion-scaffold": (
+        "Getting around",
+        "Scaffold climb",
+        "Builds a scaffold under itself to climb up.",
+    ),
+    "companion:spatial-navigation": (
+        "Getting around",
+        "Walking and remembering the map",
+        "Walks across the flat lab, saves its map, then reloads it.",
+    ),
+    "gather": (
+        "Big jobs",
+        "Make a stone pickaxe",
+        "Starts with nothing, chops trees, mines stone and crafts a stone pickaxe.",
+    ),
+    "build": (
+        "Big jobs",
+        "Build a small house",
+        "Is given the materials and builds a small house.",
+    ),
+    "battery:small-house": (
+        "Big jobs",
+        "Build a house from chests",
+        "Starts empty-handed beside chests of materials, crafts what it needs and "
+        "builds the house.",
+    ),
+    "battery:iron-xray": (
+        "Big jobs",
+        "Iron pickaxe (sees ore)",
+        "Works up to an iron pickaxe and can sense buried ore nearby.",
+    ),
+    "battery:iron-mine": (
+        "Big jobs",
+        "Iron pickaxe (strip mining)",
+        "The same job, but it can't see ore, so it strip-mines to find it.",
+    ),
+    "battery:iron-raw": (
+        "Big jobs",
+        "Mine 3 raw iron",
+        "Mines three raw iron with stone pickaxes. No smelting.",
+    ),
+    "companion:site-fill": (
+        "Big jobs",
+        "Fill in a pond",
+        "Fills a natural pond to make flat ground, then puts the lab back.",
+    ),
+    "course:C1": (
+        "Obstacle courses",
+        "Course 1: Straight ahead",
+        "The log is 12 blocks straight in front." + _COURSE_GOAL,
+    ),
+    "course:C2": (
+        "Obstacle courses",
+        "Course 2: Find the log",
+        "Starts facing a random way; the log can be in any direction." + _COURSE_GOAL,
+    ),
+    "course:C3": (
+        "Obstacle courses",
+        "Course 3: Wall in the way",
+        "A wall two blocks tall blocks the path, so it has to go"
+        " around." + _COURSE_GOAL,
+    ),
+    "course:C4": (
+        "Obstacle courses",
+        "Course 4: Up and over",
+        "A raised ridge to climb up and back down." + _COURSE_GOAL,
+    ),
+    "course:C5": (
+        "Obstacle courses",
+        "Course 5: All of it",
+        "Random facing, a wall to go around and a ridge to climb." + _COURSE_GOAL,
+    ),
+    "course:C1:reset": (
+        "Developer checks",
+        "Course reset check",
+        "Checks the course arena rebuilds itself exactly between runs.",
+    ),
+    "course:C1:episodes": (
+        "Developer checks",
+        "Course scoring check",
+        "Scripted Course 1 runs that check pass/fail scoring.",
+    ),
+    "battery": (
+        "Regression checks",
+        "Full regression battery",
+        "Runs every regression check below, one after another. Takes a long time.",
+    ),
+    "natural": (
+        "Developer checks",
+        "Natural terrain routes",
+        "Routes across a saved natural world. Needs a saved seed and route data.",
+    ),
+    "companion:natural-ops": (
+        "Developer checks",
+        "Every action in the wild",
+        "Runs each body action once inside a natural world.",
+    ),
+    "companion:natural-reporting": (
+        "Developer checks",
+        "Death report",
+        "Takes one lethal hit and checks the death is reported, then restores the lab.",
+    ),
+    "companion:body-commands": (
+        "Developer checks",
+        "Body commands",
+        "Checks the bot's command interface.",
+    ),
+    "companion:body-protocol": (
+        "Developer checks",
+        "Body protocol",
+        "Checks messages between the bot and the server.",
+    ),
+    "companion:reference-fixtures": (
+        "Developer checks",
+        "Reference arenas",
+        "Checks the reference test arenas are built correctly.",
+    ),
+    "companion:awareness": (
+        "Developer checks",
+        "Awareness",
+        "Checks what the bot can see and sense around it.",
+    ),
 }
 
 

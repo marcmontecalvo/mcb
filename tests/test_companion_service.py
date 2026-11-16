@@ -66,18 +66,26 @@ def test_stop_without_session(calls):
 
 def test_build_and_goto(calls):
     assert svc.handle(event(1, "build", name="house")) == "Build started."
-    assert calls["start"] == [{"kind": "companion", "job": "build", "build": "builds/house.build.json"}]
+    assert calls["start"] == [
+        {"kind": "companion", "job": "build", "build": "builds/house.build.json"}
+    ]
     assert svc.handle(event(2, "goto", x=1, y=2, z=3)) == "goto not supported yet."
 
 
 def test_gap_and_restart_do_not_crash(calls):
     sent = []
     batches = [
-        {"launch_id": "a", "gap": True, "latest_sequence": 90, "events": [event(80, "stop")]},
+        {
+            "launch_id": "a",
+            "gap": True,
+            "latest_sequence": 90,
+            "events": [event(80, "stop")],
+        },
         {"launch_id": "b", "gap": False, "latest_sequence": 1, "events": []},
     ]
     state = {"cursor": 5, "launch_id": "a", "tail": deque(maxlen=50)}
-    tell = lambda uuid, text: sent.append(text)
+    def tell(uuid, text):
+        sent.append(text)
     svc.poll(state, fetch=lambda path, payload=None: batches.pop(0), tell=tell)
     assert state["cursor"] == 90 and sent == ["Nothing to stop."]
     svc.poll(state, fetch=lambda path, payload=None: batches.pop(0), tell=tell)
@@ -86,7 +94,13 @@ def test_gap_and_restart_do_not_crash(calls):
 
 def test_explain():
     session = {"status": "running"}
-    fresh = {"job": "build", "stage": "placing", "done": 3, "total": 10, "updated_at": 100}
+    fresh = {
+        "job": "build",
+        "stage": "placing",
+        "done": 3,
+        "total": 10,
+        "updated_at": 100,
+    }
     assert explain(None, None, [], 0) == "Idle."
     assert explain(None, {"status": "failed"}, [], 0) == "Finished: failed."
     assert explain(None, session, [], 0) == "Starting up."
