@@ -135,6 +135,20 @@ class GatherState:
     dig_start_y: int | None = None  # surface height where that staircase began
 
 
+def hydrate_containers(body, state: GatherState) -> None:
+    """Containers the world archive remembers (none: no archive on this body)."""
+    places = getattr(body, "places", None)
+    if places is not None:
+        for pos, contents in places.load_containers().items():
+            state.containers.setdefault(pos, contents)
+
+
+def flush_containers(body, state: GatherState) -> None:
+    places = getattr(body, "places", None)
+    if places is not None:
+        places.save_containers(state.containers)
+
+
 @dataclass
 class GatherReport:
     done: list[str] = field(default_factory=list)
@@ -931,6 +945,7 @@ class _Exec:
         if result.ok:
             self.state.containers[spot] = {}
             self.state.last_container = spot
+            flush_containers(self.body, self.state)
         return result
 
     def container(self, t, action: str) -> Result:
@@ -951,6 +966,7 @@ class _Exec:
                 )
             self.state.containers[pos] = contents
             self.state.last_container = pos
+            flush_containers(self.body, self.state)
         return result
 
     def run(self, t) -> Result:
@@ -1052,7 +1068,9 @@ def run_gather(
     ``storage`` (a callable built fresh at every re-plan) lists the known
     containers, so re-plans withdraw from them instead of mining the item again.
     """
-    state = state or GatherState()
+    if state is None:
+        state = GatherState()
+        hydrate_containers(body, state)
     report = GatherReport(state=state)
     stall = STALL_S if stall_s is None else stall_s
     ex = _Exec(body, knowledge, state, explore_cap, stall, clock, idle_work=idle_work, opts=opts)

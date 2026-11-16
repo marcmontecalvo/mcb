@@ -729,3 +729,24 @@ def test_explore_skips_tree_canopy_and_fluid_columns():
     assert all(p[1] <= 1 for p in walked)
 
 
+
+
+def test_a_new_state_knows_the_chests_a_gather_placed(tmp_path):
+    from test_spatial_memory import identity
+
+    from mclab.place_graph import PlaceGraph
+    from mclab.spatial_memory import MapArchive
+
+    archive = MapArchive(tmp_path / "map.db", identity())
+    body = FakeGatherBody(K, floor(), {M + "chest": 1, M + "oak_log": 5})
+    body.places = PlaceGraph(archive)
+    tasks = PlanResult(
+        (PlaceContainer("chest"), Deposit(((M + "oak_log", 3),))), (), 0.0
+    )
+    first = run_gather(tasks, body, K)
+
+    later = FakeGatherBody(K, floor())
+    later.places = PlaceGraph(MapArchive(archive.path, identity()))
+    second = run_gather(PlanResult((), (), 0.0), later, K)
+
+    assert first.state.containers and second.state.containers == first.state.containers
