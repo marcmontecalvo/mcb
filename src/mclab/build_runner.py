@@ -32,6 +32,7 @@ stop.
 
 from __future__ import annotations
 
+import functools
 import time
 from collections.abc import Callable, Collection
 from contextlib import nullcontext
@@ -557,6 +558,20 @@ def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:
         last, tried = getattr(act, "item", None), True
 
 
+@functools.cache
+def _drop_items(block: str) -> tuple[str, ...]:
+    """Items breaking ``block`` can drop without silk touch, from the knowledge
+    pack (stone: cobblestone; grass_block: dirt). Empty when the pack has none."""
+    from mclab.companion_jobs import load_vanilla_pack
+
+    table = load_vanilla_pack().drops.get(block) or {}
+    return tuple(
+        dict.fromkeys(
+            d.item for t, ds in table.items() if t != "silk_touch" for d in ds
+        )
+    )
+
+
 def _restore_breaks(runner: _Runner, template: bp.Template) -> None:
     """Put back the non-template blocks the planner broke to walk,
     with the drop the body picked up; a cell whose item is not held is reported in
@@ -575,11 +590,16 @@ def _restore_breaks(runner: _Runner, template: bp.Template) -> None:
         current = body.world(*pos)
         if current is not None and bp.parse_state(current)[0] not in bp.AIR:
             continue  # something stands there again (a foothold, the build)
-        item = bp.parse_state(state)[0]
-        if held.get(item, 0) < 1:
-            report.unrestored[pos] = f"not held: {item}"
+        ident = bp.parse_state(state)[0]
+        # The block's own item, else what breaking it drops (stone gives cobblestone).
+        options = (ident, *_drop_items(ident))
+        item = next((i for i in options if held.get(i, 0) > 0), None)
+        if item is None:
+            report.unrestored[pos] = f"not held: {ident}"
             continue
         held[item] -= 1
+        if item != ident:
+            state = item  # the stand-in is placed as itself
         runner.attempt(bp.Place(pos, state, item))
         if pos in report.placed:
             report.restored.append(pos)
@@ -871,6 +891,11 @@ def _run(
         # Repair only state toggles, with automatic door opening disabled;
         # audit again after all movement, rather than reporting stale success.
         with calm(), getattr(body, "no_opening_doors", nullcontext)():
+            # The cleanup's last steps may have opened a door the sensor has not
+            # delivered yet: a stale audit skipped the repair and ended blocked
+            # with one open door (run 20261116T230737426066Z).
+            if settle := getattr(body, "wait_ticks", None):
+                settle(SETTLE_TICKS)
             for _ in range(CLEANUP_ROUNDS):
                 uses = bp.diff(template, body.world).uses
                 if not uses:

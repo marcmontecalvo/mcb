@@ -842,3 +842,53 @@ def test_a_cell_with_no_tower_site_asks_for_dirt_when_nothing_is_held(monkeypatc
     report = br.run_build(t, body, BLOCKS)
     assert report.stop == "need_materials"
     assert "minecraft:dirt" in report.needed
+
+
+def test_a_broken_stone_is_put_back_as_the_cobblestone_it_dropped():
+    body, t = small_house_body()
+    body.inv.pop("minecraft:stone", None)
+    dug = (7, 0, 7)
+    body.w[dug] = "minecraft:air"
+    body.stray_breaks = {dug: "minecraft:stone"}
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done"
+    assert dug in report.restored and dug not in report.unrestored
+    assert body.w[dug] == "minecraft:cobblestone"
+
+
+def test_a_break_is_unrestored_only_when_neither_it_nor_its_drop_is_held():
+    body, t = small_house_body()
+    body.w[(7, 0, 7)] = "minecraft:air"
+    body.stray_breaks = {(7, 0, 7): "minecraft:deepslate"}
+    report = br.run_build(t, body, BLOCKS)
+    assert (7, 0, 7) in report.unrestored
+
+
+def test_a_door_opened_by_the_last_cleanup_walk_is_closed_despite_a_stale_sensor(
+    monkeypatch,
+):
+    body, template = small_house_body()
+    stale: dict = {}
+    reads = [0]
+
+    def world(x, y, z):
+        reads[0] += 1
+        if stale and reads[0] > len(template.cells):  # one audit later it has caught up
+            stale.clear()
+        return stale.get((x, y, z), body.w.get((x, y, z)))
+
+    body.world = world
+    body.wait_ticks = lambda n: stale.clear()  # or when the build waits for it
+
+    def cleanup(runner, template, scaffolds):
+        for pos, state in body.w.items():
+            if "_door[" in state and "half=lower" in state:
+                stale[pos] = state  # what the sensor still shows
+                reads[0] = 0
+                body.w[pos] = state.replace("open=false", "open=true")
+                return True
+        raise AssertionError("Fixture has no built door")
+
+    monkeypatch.setattr(br, "_clean_up", cleanup)
+    report = br.run_build(template, body, BLOCKS)
+    assert report.stop == "done" and not bp.diff(template, body.world).uses
