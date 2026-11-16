@@ -247,3 +247,22 @@ def test_ore_touching_the_descent_staircase_is_mined():
     ores = {(6, 28, 4): IRON}
     ex, body, res = run(opts(), 1, ores)
     assert body.inv.get(M + "raw_iron", 0) >= 1 and body.position()[1] > 16
+
+
+def test_skipped_strip_underground_resumes_in_place_not_on_surface_rings():
+    # run 20261116T135356630645Z: strip_skipped at y=19, then rings at y=57 undid the descent
+    class Hiccup(FakeGatherBody):
+        failed = False
+
+        def walk_to(self, pos, radius=1.5):
+            if pos[1] <= 24 and not self.failed:
+                self.failed = True
+                return False
+            return super().walk_to(pos, radius)
+
+    body = Hiccup(K, world({(20, 16, 10): IRON}), dict(PICK), pos=(3, TOP + 1, 3))
+    ex = _Exec(body, K, GatherState(), 64, opts=opts())
+    ex.gather(Gather(IRON, 99, "pickaxe", "stone", M + "raw_iron", 99))
+    walks = [c[1][1] for c in body.log if isinstance(c, tuple) and c[0] == "walk"]
+    first = next(i for i, y in enumerate(walks) if y < TOP)
+    assert max(walks[first:]) < TOP and "strip_leg_start" in [r["gather"] for r in notes(body)]

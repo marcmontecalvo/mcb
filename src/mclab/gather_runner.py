@@ -69,6 +69,7 @@ SCAN_BATCH = 8 # candidates tried per map scan in gather
 PATCH = 6.0
 NEAR_STONE = 24.0  # exposed stone beyond this horizontal distance is not walked to
 NEAR_DY = 6  # nor stone this far above or below the bot (ravines, cliffs)
+STRIP_UNDERGROUND = 3  # a skipped strip this far under its start resumes in place
 MAX_DIGS = 3  # dig-down macros per gather task
 FALL_RETRIES = 2  # collect: waits for a still-falling drop before it is given up
 DROP_WAIT_TICKS = 40  # one wait for a falling drop to land (2 s)
@@ -636,6 +637,7 @@ class _Exec:
 
         target = held() + max(1, t.item_count)
         broken, skip, digs, stripped = 0, set(), 0, 0
+        strip_ty: int | None = None
         tried_sights: set[Pos] = set()
         # Where exploring last saw ore: near is judged from there too, or ore past
         # the table's reach is walked by and never mined (run 20261112T181731902927Z
@@ -716,7 +718,9 @@ class _Exec:
                 from mclab.gather_strip import Strip
 
                 before = body.inventory().get(t.item, 0)
-                res = Strip(self, t, target).run()
+                strip = Strip(self, t, target, strip_ty)
+                res = strip.run()
+                strip_ty = strip.ty
                 if res is not None:
                     broken += max(0, body.inventory().get(t.item, 0) - before)
                     if res.reason == "missing_tool":
@@ -726,6 +730,10 @@ class _Exec:
                         # a strip that dug no tunnel says why, not "leg_limit"
                         why = "leg_limit" if res.data.get("tunnelled") else res.data["stop"]
                         return Result(False, why, {"broken": broken})
+                    continue
+                # Already under the surface (run 20261116T135356630645Z): resume from
+                # here; surface rings would walk the descent back up.
+                if strip_ty is not None and body.position()[1] <= self.start_y - STRIP_UNDERGROUND:
                     continue
                 if not self.explore(lambda: True):  # a short walk to another start
                     return Result(False, f"descent_failed:{self.last_dig}", {"broken": broken})

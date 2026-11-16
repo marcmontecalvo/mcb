@@ -52,10 +52,11 @@ def border_step(v: int) -> int:
 
 
 class Strip:
-    def __init__(self, ex, t, target: int) -> None:
+    def __init__(self, ex, t, target: int, ty: int | None = None) -> None:
         self.ex, self.body, self.t, self.target = ex, ex.body, t, target
         self.opts, self.digger = ex.opts, Digger(ex)
         self.broken, self.stop, self.origin = 0, "", (0, 0)
+        self.ty = ty  # target height; kept by a rerun from underground, where the surface is unsensed
 
     def done(self) -> bool:
         return self.body.inventory().get(self.t.item, 0) >= self.target
@@ -66,12 +67,14 @@ class Strip:
         x, y, z = _cell(body.position())
         self.origin = (x, z)
         top = surface_y(body, x, y, z)
-        ty = best_y(ex.k, self.t.block, (y if top is None else top) - SURFACE_MARGIN)
+        ty = self.ty
+        if ty is None:
+            ty = best_y(ex.k, self.t.block, (y if top is None else top) - SURFACE_MARGIN)
         if ty is None:
             ex.last_dig = "no_target_height"
             ex.note("strip_skipped", why=ex.last_dig, at=(x, y, z))
             return None
-        ty = max(ty, MIN_BUILD_Y + BEDROCK_MARGIN)
+        ty = self.ty = max(ty, MIN_BUILD_Y + BEDROCK_MARGIN)
         # ore touching the staircase is mined on the way (run 20261116T135356630645Z
         # walked past four iron cells)
         why = self.digger.descend(ty, after=lambda: self.mine() or ("done" if self.done() else None))
