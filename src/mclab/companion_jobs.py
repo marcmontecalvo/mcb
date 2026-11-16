@@ -31,7 +31,14 @@ from mclab import build_plan as bp
 from mclab import gather_plan as gp
 from mclab.build_runner import BuildReport, SiteCutter, run_build
 from mclab.gather_options import GatherOptions
-from mclab.gather_runner import STATION_REACH, GatherReport, GatherState, run_gather
+from mclab.gather_runner import (
+    STATION_REACH,
+    GatherReport,
+    GatherState,
+    flush_containers,
+    hydrate_containers,
+    run_gather,
+)
 from mclab.gather_tasks import Deposit, PlanResult, Withdraw
 from mclab.knowledge import Knowledge, load_pack
 from mclab.paths import ROOT
@@ -125,6 +132,7 @@ def read_chests(chests, body, state: GatherState) -> None:
                     contents.get(stack["item"], 0) + stack["count"]
                 )
             state.containers[pos] = contents
+            flush_containers(body, state)
 
 
 TOOL_WORDS = ("_axe", "_pickaxe", "_shovel", "_hoe", "_sword", "shears", "bucket")
@@ -202,7 +210,9 @@ def build_job(
     build = json.loads(Path(build_json_path).read_text(encoding="utf-8"))
     template = bp.Template.from_build(build, tuple(origin), rotation, mirror)
     protect(body, template, site_margin)
-    state = state or GatherState()
+    if state is None:
+        state = GatherState()
+        hydrate_containers(body, state)
     report = JobReport()
     started = clock() if clock else 0
     if not build_only:

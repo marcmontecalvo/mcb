@@ -86,6 +86,69 @@ class PlaceGraph:
                     target TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL,
                     PRIMARY KEY(namespace,source,target,kind))
             """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS containers (
+                    namespace TEXT NOT NULL, pos TEXT NOT NULL, contents TEXT NOT NULL,
+                    PRIMARY KEY(namespace,pos))
+            """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS sightings (
+                    namespace TEXT NOT NULL, item TEXT NOT NULL, pos TEXT NOT NULL,
+                    seen_ns INTEGER NOT NULL, count INTEGER NOT NULL,
+                    PRIMARY KEY(namespace,item,pos))
+            """)
+
+    def note_sightings(self, item, positions):
+        """Remember where `item` was seen to be had (blocks found by a scan)."""
+        key, now = self.archive.identity.key, time.time_ns()
+        with self.archive.connect(writing=True) as db:
+            db.executemany(
+                "INSERT INTO sightings VALUES(?,?,?,?,1) ON CONFLICT(namespace,item,pos) "
+                "DO UPDATE SET seen_ns=excluded.seen_ns",
+                [(key, item, json.dumps(list(p)), now) for p in positions],
+            )
+
+    def nearest_sighting(self, item, position, exclude=()):
+        with self.archive.connect() as db:
+            rows = db.execute(
+                "SELECT pos FROM sightings WHERE namespace=? AND item=?",
+                (self.archive.identity.key, item),
+            ).fetchall()
+        seen = [tuple(json.loads(r[0])) for r in rows]
+        return min(
+            (p for p in seen if p not in exclude),
+            key=lambda p: math.dist(p, position),
+            default=None,
+        )
+
+    def forget_sighting(self, item, position):
+        with self.archive.connect(writing=True) as db:
+            db.execute(
+                "DELETE FROM sightings WHERE namespace=? AND item=? AND pos=?",
+                (self.archive.identity.key, item, json.dumps(list(position))),
+            )
+
+    def load_containers(self):
+        """{(x,y,z): {item: count}} as last saved for this world."""
+        with self.archive.connect() as db:
+            rows = db.execute(
+                "SELECT pos, contents FROM containers WHERE namespace=?",
+                (self.archive.identity.key,),
+            ).fetchall()
+        return {tuple(json.loads(p)): json.loads(c) for p, c in rows}
+
+    def save_containers(self, containers):
+        """Replace this world's remembered containers with `containers`."""
+        key = self.archive.identity.key
+        with self.archive.connect(writing=True) as db:
+            db.execute("DELETE FROM containers WHERE namespace=?", (key,))
+            db.executemany(
+                "INSERT INTO containers VALUES(?,?,?)",
+                [
+                    (key, json.dumps(list(pos)), json.dumps(contents))
+                    for pos, contents in containers.items()
+                ],
+            )
 
     def put_place(self, place):
         if not isinstance(place, Place):

@@ -2,8 +2,9 @@
 inventory by gathering in batches and depositing into a container.
 
 Greedy and simple, on purpose. Limits:
-- one container is used for deposits (a known chest, else a placed shulker box or
-  chest); capacity of the container is not modelled;
+- deposits go first-fit across the known containers (27 stacks each; one holding
+  more is a double chest, 54); a carried chest is placed when all are full, else
+  `needs_chest`; the first deposit may use a placed shulker box instead;
 - on every deposit it empties everything not needed before the next gathering task
   (it may re-withdraw later; that costs trips, not correctness);
 - a stack of one task is never split below one item, and tools are never deposited;
@@ -41,6 +42,8 @@ from mclab.knowledge import Knowledge
 SLOT_LIMIT = INVENTORY_SLOTS - RESERVED_FREE_SLOTS
 EPS = 1e-9
 CHEST = "minecraft:chest"
+CHEST_SLOTS = 27
+DOUBLE_SLOTS = 54
 SHULKER = "minecraft:shulker_box"
 
 
@@ -113,6 +116,11 @@ class _Box:
         self.pos = pos
         self.contents: Counter[str] = Counter(contents)
         self.initial: Counter[str] = Counter(contents)
+        # ponytail: the body does not report the size; a box already holding more
+        # than 27 stacks must be a double chest. Upgrade: return the menu size.
+        self.cap = (
+            DOUBLE_SLOTS if slots_used(contents, {}) > CHEST_SLOTS else CHEST_SLOTS
+        )
 
 
 class _Storage:
@@ -133,7 +141,7 @@ class _Storage:
             pos = tuple(b["pos"]) if b.get("pos") is not None else None
             contents, _ = normalize_inventory(b.get("contents"))
             self.boxes.append(_Box(pos, contents))
-        self.placed: _Box | None = None
+        self.placed: list[_Box] = []
         self.target: _Box | None = None
         self.out: list[Task] = []
         self.needs_chest = False
@@ -196,10 +204,19 @@ class _Storage:
     def place(self, item: str) -> None:
         self.out.append(PlaceContainer(item.removeprefix("minecraft:")))
         self.inv[item] -= 1
-        self.placed = self.target = _Box(None, {})
+        self.target = _Box(None, {})
+        self.placed.append(self.target)
 
     def place_missing(self) -> None:
-        self.target = self.placed = _Box(None, {})  # a deposit with nothing to place
+        self.target = _Box(None, {})  # a deposit with nothing to place
+        self.placed.append(self.target)
+
+    def room(self, box: _Box, item: str) -> int:
+        """Items of `item` the box still takes within its slot count."""
+        stack = item_stack(self.k.items, item)
+        n = box.contents[item]
+        other = slots_used(box.contents, self.k.items) - math.ceil(n / stack)
+        return max(0, (box.cap - other) * stack - n)
 
     def withdraw_from(self, box: _Box, items: Counter[str]) -> None:
         items = Counter({i: min(n, box.contents[i]) for i, n in items.items()})
@@ -211,7 +228,7 @@ class _Storage:
         self.inv.update(items)
 
     def all_boxes(self) -> list[_Box]:
-        return self.boxes + ([self.placed] if self.placed else [])
+        return self.boxes + self.placed
 
     # ---- moves
     def deposit(self, keep: Mapping[str, int]) -> bool:
@@ -223,14 +240,38 @@ class _Storage:
         moving: Counter[str] = Counter()
         for item, n in self.inv.items():
             spare = n - keep.get(item, 0)
-            if spare > 0 and self.is_depositable(item):
+            if spare > 0 and self.is_depositable(item) and item != CHEST:
                 moving[item] = spare
         if box is None or not moving:
             return False
-        self.out.append(Deposit(tuple(sorted(moving.items())), box.pos))
-        self.inv.subtract(moving)
-        box.contents.update(moving)
-        return True
+        total = sum(moving.values())
+        while True:  # first fit over the boxes; a full set takes one more chest
+            moving = self.fill(moving)
+            if not moving or self.inv[CHEST] <= self.later_need(CHEST):
+                break
+            self.place(CHEST)
+        if moving:
+            self.needs_chest = True
+        return sum(moving.values()) < total
+
+    def fill(self, moving: Counter[str]) -> Counter[str]:
+        """Deposit as much of `moving` as the boxes take, first fit; the rest."""
+        parts: dict[int, Counter[str]] = {}
+        left: Counter[str] = Counter()
+        boxes = self.all_boxes()
+        for item, n in sorted(moving.items()):
+            for bi, box in enumerate(boxes):
+                take = min(n, self.room(box, item) - parts.get(bi, Counter())[item])
+                if take > 0:
+                    parts.setdefault(bi, Counter())[item] += take
+                    n -= take
+            if n:
+                left[item] = n
+        for bi, items in parts.items():
+            self.out.append(Deposit(tuple(sorted(items.items())), boxes[bi].pos))
+            self.inv.subtract(items)
+            boxes[bi].contents.update(items)
+        return left
 
     def fetch(self, i: int, t: Task) -> None:
         """Withdraw what task `t` consumes and is not carried."""

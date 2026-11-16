@@ -1,3 +1,4 @@
+import pytest
 from pathlib import Path
 
 from mclab.build_runner import Result
@@ -729,3 +730,60 @@ def test_explore_skips_tree_canopy_and_fluid_columns():
     assert all(p[1] <= 1 for p in walked)
 
 
+
+
+def test_a_new_state_knows_the_chests_a_gather_placed(tmp_path):
+    from test_spatial_memory import identity
+
+    from mclab.place_graph import PlaceGraph
+    from mclab.spatial_memory import MapArchive
+
+    archive = MapArchive(tmp_path / "map.db", identity())
+    body = FakeGatherBody(K, floor(), {M + "chest": 1, M + "oak_log": 5})
+    body.places = PlaceGraph(archive)
+    tasks = PlanResult(
+        (PlaceContainer("chest"), Deposit(((M + "oak_log", 3),))), (), 0.0
+    )
+    first = run_gather(tasks, body, K)
+
+    later = FakeGatherBody(K, floor())
+    later.places = PlaceGraph(MapArchive(archive.path, identity()))
+    second = run_gather(PlanResult((), (), 0.0), later, K)
+
+    assert first.state.containers and second.state.containers == first.state.containers
+
+
+def test_a_second_chest_is_placed_near_the_first_but_not_touching_it():
+    body = FakeGatherBody(K, floor(), {M + "chest": 2})
+    state = run_gather(PlanResult((PlaceContainer("chest"),), (), 0.0), body, K).state
+    (a,) = state.containers
+
+    run_gather(PlanResult((PlaceContainer("chest"),), (), 0.0), body, K, state=state)
+
+    (b,) = [p for p in state.containers if p != a]
+    gap = abs(b[0] - a[0]) + abs(b[2] - a[2])
+    assert b[1] == a[1] and 2 <= gap <= 4
+
+
+def test_a_second_gather_walks_to_the_stored_sighting_instead_of_exploring(
+    tmp_path, monkeypatch
+):
+    from test_spatial_memory import identity
+
+    from mclab.gather_runner import _Exec
+    from mclab.place_graph import PlaceGraph
+    from mclab.spatial_memory import MapArchive
+
+    world = floor() | {(30, 0, 0): M + "oak_log"}
+    places = PlaceGraph(MapArchive(tmp_path / "map.db", identity()))
+    places.note_sightings(M + "oak_log", [(30, 0, 0)])
+    body = FakeGatherBody(K, world, sight=10)
+    body.places = places
+    monkeypatch.setattr(
+        _Exec, "explore", lambda *a: pytest.fail("explored despite a sighting")
+    )
+
+    report = run({M + "oak_log": 1}, body)
+
+    assert report.stop == "done", report
+    assert body.inventory()[M + "oak_log"] >= 1

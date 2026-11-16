@@ -135,6 +135,20 @@ class GatherState:
     dig_start_y: int | None = None  # surface height where that staircase began
 
 
+def hydrate_containers(body, state: GatherState) -> None:
+    """Containers the world archive remembers (none: no archive on this body)."""
+    places = getattr(body, "places", None)
+    if places is not None:
+        for pos, contents in places.load_containers().items():
+            state.containers.setdefault(pos, contents)
+
+
+def flush_containers(body, state: GatherState) -> None:
+    places = getattr(body, "places", None)
+    if places is not None:
+        places.save_containers(state.containers)
+
+
 @dataclass
 class GatherReport:
     done: list[str] = field(default_factory=list)
@@ -561,12 +575,17 @@ class _Exec:
         here = self.body.position()
         return min(near, key=lambda p: _dist(p, here)) if near else None
 
-    def place_free(self, state: str, item: str) -> tuple[Result, Pos | None]:
-        tried: set[Pos] = set()
-        worksite = None
+    def place_free(
+        self, state: str, item: str, *, center: Pos | None = None, tried=()
+    ) -> tuple[Result, Pos | None]:
+        tried = set(tried)
+        worksite = center  # tried first; no free spot there: the usual search
         while True:
             spot = self.free_spot(tried, center=worksite)
             if spot is None:
+                if center is not None:
+                    center = worksite = None
+                    continue
                 # Search at the table's base level, not the top of the table:
                 # walking to the table itself can arrive standing on top of it.
                 if worksite is not None:
@@ -614,6 +633,7 @@ class _Exec:
 
         target = held() + max(1, t.item_count)
         broken, skip, digs, stripped = 0, set(), 0, 0
+        tried_sights: set[Pos] = set()
         # Where exploring last saw ore: near is judged from there too, or ore past
         # the table's reach is walked by and never mined (run 20261112T181731902927Z
         # explored for seven minutes). Ore only: stone is everywhere, and judging it
@@ -670,6 +690,19 @@ class _Exec:
                 )
                 if _sealed(body, p) and (not underground or _floored(body, p, here))
             ]
+            places = getattr(body, "places", None)
+            if known and places is not None:  # remember the nearest finds
+                near = sorted(known, key=lambda p: _dist(p, here))[:SCAN_BATCH]
+                places.note_sightings(t.item, near)
+            elif places is not None and (
+                seen := places.nearest_sighting(t.item, here, tried_sights)
+            ):
+                # a stored sighting beats exploring; it is forgotten once visited,
+                # so a block that is gone does not draw the bot back
+                tried_sights.add(seen)
+                places.forget_sighting(t.item, seen)
+                body.walk_to(seen, 3.0)
+                continue
             # ore vision off: strip-mine at the ore's height. Never dig_to_stone here:
             # it reads buried blocks (x-ray). A descent that fell short retries from a
             # walked-to start (run 20261113T172130173999Z: never logged a leg).
@@ -927,10 +960,21 @@ class _Exec:
 
     def place_container(self, t) -> Result:
         item = "minecraft:" + t.kind
-        result, spot = self.place_free(item, item)
+        # Next to the known chests but never touching one: two touching chests
+        # merge into one double chest, which this state would count twice.
+        known = list(self.state.containers)
+        touching = {
+            (x + dx, y, z + dz)
+            for x, y, z in known
+            for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))
+        }
+        result, spot = self.place_free(
+            item, item, center=known[0] if known else None, tried=touching
+        )
         if result.ok:
             self.state.containers[spot] = {}
             self.state.last_container = spot
+            flush_containers(self.body, self.state)
         return result
 
     def container(self, t, action: str) -> Result:
@@ -951,6 +995,7 @@ class _Exec:
                 )
             self.state.containers[pos] = contents
             self.state.last_container = pos
+            flush_containers(self.body, self.state)
         return result
 
     def run(self, t) -> Result:
@@ -1052,7 +1097,9 @@ def run_gather(
     ``storage`` (a callable built fresh at every re-plan) lists the known
     containers, so re-plans withdraw from them instead of mining the item again.
     """
-    state = state or GatherState()
+    if state is None:
+        state = GatherState()
+        hydrate_containers(body, state)
     report = GatherReport(state=state)
     stall = STALL_S if stall_s is None else stall_s
     ex = _Exec(body, knowledge, state, explore_cap, stall, clock, idle_work=idle_work, opts=opts)

@@ -87,3 +87,15 @@ def test_coarse_graph_budgets_and_gaps_fail_closed(tmp_path):
     g.archive.mark_gap()
     with pytest.raises(RuntimeError, match="gap"):
         g.route("home", "hill", verified_after_ns=1)
+
+
+def test_containers_round_trip_across_reopen(tmp_path):
+    g = graph(tmp_path)
+    g.save_containers({(1, 64, 2): {"minecraft:dirt": 5}, (3, 64, 2): {}})
+    reopened = PlaceGraph(MapArchive(g.archive.path, identity()))
+    assert reopened.load_containers() == {
+        (1, 64, 2): {"minecraft:dirt": 5},
+        (3, 64, 2): {},
+    }
+    reopened.save_containers({(3, 64, 2): {"minecraft:stone": 1}})
+    assert g.load_containers() == {(3, 64, 2): {"minecraft:stone": 1}}
