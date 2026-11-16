@@ -314,6 +314,7 @@ public final class BodyRuntime implements AutoCloseable {
             BuildingMoves.openNear(body.player());
         if (!tickReflex()) { tickRoute(); tickStep(); tickGap(); }
         tickBreak();
+        tickLeak();
         tickAction();
         tickPlans();
     }
@@ -1085,6 +1086,16 @@ public final class BodyRuntime implements AutoCloseable {
             expiryTick = tick + 2;
             return;
         }
+        if (outcome.equals("done")) {
+            // A fluid beside the cell may arrive within a few ticks (water: 5): hold the report for it.
+            if (LeakPlug.fluidAt(player, task.pos)) outcome = plugBreak(player, task);
+            else if (task.settle < LeakPlug.SETTLE && LeakPlug.fluidBeside(player, task.pos)) {
+                task.settle++;
+                body.release(); expiryTick = -1;
+                return;
+            }
+            if (outcome.equals("done")) watchLeak(task.pos, tick);
+        }
         breakTask = null;
         body.release();
         expiryTick = -1;
@@ -1099,6 +1110,50 @@ public final class BodyRuntime implements AutoCloseable {
         } else {
             data.put("reason", outcome);
             emit("break_block_failed", "fabric_start", data);
+        }
+    }
+
+    /** Cells just broken -> the tick their watch ends; StepMotor cells already seen this step. */
+    private final Map<net.minecraft.core.BlockPos, Integer> leakWatch = new LinkedHashMap<>();
+    private final Set<net.minecraft.core.BlockPos> leakSeen = new HashSet<>();
+    private StepMotor leakStep;
+
+    private void watchLeak(net.minecraft.core.BlockPos pos, int tick) { leakWatch.put(pos, tick + LeakPlug.WINDOW); }
+
+    /** Plugs the cell of a finished break; the break reports the fluid as its failure reason. */
+    private String plugBreak(ServerPlayer player, BreakTask task) {
+        var result = LeakPlug.plug(player, task.pos);
+        leakWatch.remove(task.pos);
+        emit("leak_plugged", "fabric_start", result);
+        return (String) result.get("fluid");
+    }
+
+    /** Plug reflex: a fluid in a cell broken within WINDOW ticks (any break: break_block or a step edit). */
+    private void tickLeak() {
+        if (body == null || body.player() == null || !body.player().isAlive() || !readyState.equals("ready")) return;
+        var player = body.player();
+        int tick = server.getTickCount();
+        if (stepMotor != leakStep) { leakStep = stepMotor; leakSeen.clear(); }
+        if (stepMotor != null) for (var cut : stepMotor.issuedBreaks()) {
+            if (leakSeen.contains(cut)) continue;
+            var state = player.level().getBlockState(cut);
+            if (state.isAir() || !state.getFluidState().isEmpty()) { leakSeen.add(cut); watchLeak(cut, tick); }
+        }
+        if (leakWatch.isEmpty()) return;
+        leakWatch.values().removeIf(end -> end < tick);
+        var wet = new ArrayList<net.minecraft.core.BlockPos>();
+        for (var pos : leakWatch.keySet()) if (LeakPlug.fluidAt(player, pos)) wet.add(pos);
+        // Lava first.
+        wet.sort(Comparator.comparing(pos -> LeakPlug.fluidName(player, pos).equals("lava") ? 0 : 1));
+        for (var pos : wet) {
+            leakWatch.remove(pos);
+            var result = LeakPlug.plug(player, pos);
+            emit("leak_plugged", "fabric_start", result);
+            // The edit is not done: stop what is running so Python replans from the real position.
+            if ((routeMotor != null && routeMotor.active()) || (stepMotor != null && stepMotor.active())
+                    || (gapMotor != null && gapMotor.active()) || breakTask != null) {
+                cancelRoute("leak_plugged"); body.release(); expiryTick = -1;
+            }
         }
     }
 
@@ -1142,6 +1197,7 @@ public final class BodyRuntime implements AutoCloseable {
         var candidate = new CarpetBodyAdapter(server, at, name, yaw, pitch);
         retireBody();
         plannerMap = new PlannerMap();
+        leakWatch.clear();
         planData = new PlanData();
         routePermissions = RoutePermissions.defaults(); flee = RouteReflex.Flee.DEFAULT;
         legacyMoving = false;

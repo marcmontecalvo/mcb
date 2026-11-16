@@ -469,3 +469,17 @@ def test_gravel_falling_into_a_dug_cell_does_not_end_the_step():
     assert Digger(_Exec(body, K, GatherState(), 64)).step((1, 0), False) is None
 
     assert all(body.world(1, y, 0) == M + "air" for y in (2, 1, 0, -1))
+
+
+class Plugging(FakeGatherBody):
+    def break_block(self, pos, tool=None, drops_optional=False):
+        return Result(False, "water", {})  # the body plugged the flooded cell
+
+
+def test_a_plugged_break_is_a_soft_reason_not_a_hard_failure():
+    body = Plugging(K, layered(-30), {M + "wooden_pickaxe": 1}, pos=(0, 0, 0))
+    digger = Digger(_Exec(body, K, GatherState(), 64))
+
+    why = digger.step((1, 0), False)
+
+    assert why == "water" and not digger.hard(why)

@@ -25,6 +25,7 @@ SKY_CHECK = 8  # the escape ends once this many cells over the head are known ai
 MAX_TUNNEL = 24
 DROP_WAIT_TICKS = 20
 GRAVEL_CAP = 8  # re-breaks of a dug cell that gravel or sand keeps falling into
+LEAK_REASONS = {"water", "lava"}  # break reasons once the body plugged the cell
 FALL_WAIT_TICKS = 10  # for what is above a broken cell to land in it
 LAVA = "minecraft:lava"
 WATER = "minecraft:water"
@@ -140,6 +141,10 @@ class Digger:
                 else body.break_block(cell)
             )
             if not result.ok:
+                if result.reason in LEAK_REASONS:
+                    # the body plugged the flooded cell itself: not a hard failure
+                    self.reason = result.reason
+                    return False
                 failed = f"break_failed:{result.reason}"
                 if result.reason != "no_line_of_sight":
                     self.reason = failed

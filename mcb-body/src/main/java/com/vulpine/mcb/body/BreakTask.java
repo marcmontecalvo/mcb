@@ -29,6 +29,8 @@ final class BreakTask {
     final BlockPos pos;
     final BlockState original;
     int ticks;
+    /** Ticks waited after the block went for a fluid beside the cell to flow in (LeakPlug.SETTLE). */
+    int settle;
     /** Ticks so far with an entity on every ray. */
     int blocked;
     /** False this tick when an entity is on every ray: BodyRuntime holds the attack so nothing is hit. */
