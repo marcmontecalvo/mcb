@@ -750,3 +750,15 @@ def test_a_new_state_knows_the_chests_a_gather_placed(tmp_path):
     second = run_gather(PlanResult((), (), 0.0), later, K)
 
     assert first.state.containers and second.state.containers == first.state.containers
+
+
+def test_a_second_chest_is_placed_near_the_first_but_not_touching_it():
+    body = FakeGatherBody(K, floor(), {M + "chest": 2})
+    state = run_gather(PlanResult((PlaceContainer("chest"),), (), 0.0), body, K).state
+    (a,) = state.containers
+
+    run_gather(PlanResult((PlaceContainer("chest"),), (), 0.0), body, K, state=state)
+
+    (b,) = [p for p in state.containers if p != a]
+    gap = abs(b[0] - a[0]) + abs(b[2] - a[2])
+    assert b[1] == a[1] and 2 <= gap <= 4

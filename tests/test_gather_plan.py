@@ -20,6 +20,7 @@ from mclab.gather_plan import (
     food_needed,
     plan,
 )
+from mclab.gather_storage import add_storage
 from mclab.knowledge import load_pack
 
 MINI = Path(__file__).parent / "fixtures" / "knowledge" / "mini"
@@ -428,7 +429,7 @@ def test_a_carried_shulker_box_is_placed_instead_of_crafting_a_chest():
     r = _ok(plan(BIG, {SHULKER: 1}, K), {SHULKER: 1})
 
     assert _of(r, PlaceContainer)[0].kind == "shulker_box"
-    assert M + "chest" not in {t.result for t in _of(r, Craft)}
+    # a shulker box holds 27 stacks; BIG overflows it, so a chest is crafted as well
 
 
 def test_shulker_boxes_in_a_known_chest_are_withdrawn_and_preferred():
@@ -441,7 +442,6 @@ def test_shulker_boxes_in_a_known_chest_are_withdrawn_and_preferred():
     assert r.tasks[first] == Withdraw(((SHULKER, 1),), pos)
     assert first < _index(r, lambda t: isinstance(t, PlaceContainer))
     assert _of(r, PlaceContainer)[0].kind == "shulker_box"
-    assert M + "chest" not in {t.result for t in _of(r, Craft)}
     assert _of(r, Deposit)
 
 
@@ -450,8 +450,7 @@ def test_a_known_chest_without_shulkers_takes_the_deposits_in_place():
 
     r = _ok(plan(BIG, {}, K, storage=box), storage=box)
 
-    assert not _of(r, PlaceContainer)
-    assert {t.pos for t in _of(r, Deposit)} == {(0, 64, 0)}
+    assert _of(r, Deposit)[0].pos == (0, 64, 0)  # the known chest first, then new ones
 
 
 def test_stored_items_count_as_available_behind_a_withdraw():
@@ -543,3 +542,17 @@ def test_every_coal_form_pays_for_torches_from_the_supply_box(tmp_path):
             assert any(
                 isinstance(t, Smelt) and t.ingredient == M + "coal_ore" for t in r.tasks
             ), form
+
+
+def test_deposits_beyond_one_chest_fill_known_chests_first_fit_then_a_placed_one():
+    box = [{"kind": "chest", "pos": [0, 64, 0], "contents": {}}]
+    held = {M + "dirt": 40 * 64, M + "chest": 1}
+    idle = Gather(M + "dirt", 0, None, "hand", M + "dirt", 0)
+
+    r = add_storage([idle], held, box, K)
+
+    deposits = [t for t in r.tasks if isinstance(t, Deposit)]
+    assert [t.pos for t in deposits] == [(0, 64, 0), None]
+    assert [t.items[0][1] for t in deposits] == [27 * 64, 13 * 64]
+    assert any(isinstance(t, PlaceContainer) for t in r.tasks)
+    assert not r.needs_chest

@@ -575,12 +575,17 @@ class _Exec:
         here = self.body.position()
         return min(near, key=lambda p: _dist(p, here)) if near else None
 
-    def place_free(self, state: str, item: str) -> tuple[Result, Pos | None]:
-        tried: set[Pos] = set()
-        worksite = None
+    def place_free(
+        self, state: str, item: str, *, center: Pos | None = None, tried=()
+    ) -> tuple[Result, Pos | None]:
+        tried = set(tried)
+        worksite = center  # tried first; no free spot there: the usual search
         while True:
             spot = self.free_spot(tried, center=worksite)
             if spot is None:
+                if center is not None:
+                    center = worksite = None
+                    continue
                 # Search at the table's base level, not the top of the table:
                 # walking to the table itself can arrive standing on top of it.
                 if worksite is not None:
@@ -941,7 +946,17 @@ class _Exec:
 
     def place_container(self, t) -> Result:
         item = "minecraft:" + t.kind
-        result, spot = self.place_free(item, item)
+        # Next to the known chests but never touching one: two touching chests
+        # merge into one double chest, which this state would count twice.
+        known = list(self.state.containers)
+        touching = {
+            (x + dx, y, z + dz)
+            for x, y, z in known
+            for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))
+        }
+        result, spot = self.place_free(
+            item, item, center=known[0] if known else None, tried=touching
+        )
         if result.ok:
             self.state.containers[spot] = {}
             self.state.last_container = spot
