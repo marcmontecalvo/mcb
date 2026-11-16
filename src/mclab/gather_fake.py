@@ -13,7 +13,9 @@ from collections.abc import Collection
 from itertools import count
 
 from mclab import build_plan as bp
+from mclab.collision_geometry import standable
 from mclab.build_runner import Result
+from mclab.interaction_goal import interacts
 from mclab.gather_tasks import item_stack, slots_used
 from mclab.knowledge import Knowledge
 
@@ -40,7 +42,9 @@ class FakeGatherBody:
         sight: float | None = None,
         can_dig: bool = False,
         slots: int = 36,
+        strict_stance: bool = False,
     ):
+        self.strict_stance = strict_stance  # stances as the real body: standable + line of sight
         self.slots = slots  # main inventory size
         self.can_dig = can_dig  # dig_to works (a real body with DIG_TERRAIN)
         self.sight = sight  # find_blocks / entities only within this distance
@@ -128,10 +132,44 @@ class FakeGatherBody:
     def goto_stance(self, target_pos, reach, avoid: Collection[Pos] = ()):
         self.log.append(("goto", tuple(target_pos)))
         tx, ty, tz = target_pos
+        if self.strict_stance:
+            return self._strict_stance(tuple(target_pos), reach, avoid)
         for dx, dy, dz in OFFSETS:
             spot = (tx + dx, ty + dy, tz + dz)
             if spot not in avoid:
                 self.pos = spot
+                return True
+        return False
+
+    def _strict_stance(self, target, reach, avoid):
+        """CompanionBody.goto_stance on the known cells: stay if the target is in sight,
+        else the nearest standable cell that sees it (no stance: False, no movement)."""
+        cells = {
+            p: {
+                "collision_boxes": []
+                if bp.parse_state(s)[0] in bp.AIR
+                else [[0, 0, 0, 1, 1, 1]]
+            }
+            for p, s in self.w.items()
+        }
+        if self.pos not in avoid and interacts(cells, self.pos, target, reach):
+            return True
+        tx, ty, tz = target
+        r = math.ceil(reach)
+        near = (
+            (tx + dx, ty + dy, tz + dz)
+            for dx in range(-r, r + 1)
+            for dz in range(-r, r + 1)
+            for dy in range(-r, 2)
+        )
+        for n in sorted(near, key=lambda n: math.dist(n, self.pos)):
+            if (
+                n not in avoid
+                and n != target
+                and standable(cells, n)
+                and interacts(cells, n, target, reach)
+            ):
+                self.pos = n
                 return True
         return False
 
@@ -206,6 +244,8 @@ class FakeGatherBody:
             self.w[pos] = "minecraft:air"
             return Result(True, data={"broken": state})
         self.w[pos] = "minecraft:air"
+        if self.strict_stance and pos == (self.pos[0], self.pos[1] - 1, self.pos[2]):
+            self.pos = pos  # the floor went: the body drops into the hole
         for d in drops or (
             (self.k.drops_for(ident, "hand")) if ident in self.k.drops else ()
         ):
