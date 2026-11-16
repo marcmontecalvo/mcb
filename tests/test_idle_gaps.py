@@ -338,3 +338,32 @@ def test_uncorroborated_or_missing_reason_smelt_wait_is_violation(tmp_path):
         key=lambda e: e["monotonic_ns"],
     )
     assert [w["kind"] for w in run(tmp_path, evs2)] == ["VIOLATION"]
+
+
+def _drop_note(tick, ticks=40):
+    return {
+        "body_id": "b",
+        "monotonic_ns": int((T0 + tick / 20) * 1e9),
+        "type": "gather_note",
+        "payload": {"gather": "drop_wait", "ticks": ticks},
+    }
+
+
+def _req(tick, op):
+    return {
+        "body_id": "b",
+        "monotonic_ns": int((T0 + tick / 20) * 1e9),
+        "type": "request",
+        "payload": {"op": op, "sequence": tick},
+    }
+
+
+def test_drop_wait_is_work_and_last_op_is_request_in_flight(tmp_path):
+    base = [ev("course_started", 0), _req(1, "kit"), _req(5, "break_block")]
+    base += still(0, 240)
+    # 12 s still; the drop wait at 1-3.5 s leaves 8.5 s (12 s without the note)
+    r = run(tmp_path, base + [_drop_note(20)])[0]
+    assert r["evidence"].get("drop_wait") == 1 and r["unjustified_s"] < 10
+    # a later request does not relabel a gap that began before it
+    r = run(tmp_path, base + [_req(200, "craft"), _drop_note(20)])[0]
+    assert r["last_op"][0] == "req:break_block"

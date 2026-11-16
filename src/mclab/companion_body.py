@@ -1188,6 +1188,9 @@ class CompanionBody:
     def collect_drops(self, near: Collection[Pos], radius: float = DROP_RADIUS) -> None:
         """Wait for what fell (a scaffolding tower drops block by block), then walk onto
         the dropped items within ``radius`` of the cells ``near``."""
+        # The wait leaves no event of its own; idle_gaps.py counts this note as work.
+        if (record := getattr(self.bridge, "record", None)) is not None:
+            record("gather_note", {"gather": "drop_wait", "ticks": DROP_WAIT_TICKS})
         self.wait_ticks(DROP_WAIT_TICKS)
         centres = [(x + 0.5, y + 0.5, z + 0.5) for x, y, z in near]
         skipped: set = set()

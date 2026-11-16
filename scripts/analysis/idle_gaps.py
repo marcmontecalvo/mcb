@@ -179,6 +179,14 @@ def load(path: Path) -> dict:
         if t != "server_event":
             if (
                 t == "gather_note"
+                and p.get("gather") == "drop_wait"
+                and isinstance(p.get("ticks"), (int, float))
+                and 0 < p["ticks"] <= 200
+            ):
+                # collect_drops waits in place for items to fall: bounded active work
+                b["actions"].append((w, w + p["ticks"] / 20 + 0.5, "drop_wait"))
+            if (
+                t == "gather_note"
                 and p.get("gather") == "smelt_wait"
                 and isinstance(p.get("ticks"), (int, float))
                 and 0 < p["ticks"] <= 200
@@ -367,10 +375,11 @@ def classify(b, w0, w1):
     cov = merge([(a, z) for a, z, _ in ev])
     gaps, cur = [], w0
     for a, z in cov:
-        gaps.append(a - cur)
+        gaps.append((a - cur, cur))
         cur = z
-    gaps.append(w1 - cur)
-    return max(gaps), sum(z - a for a, z in cov), Counter(k for *_, k in ev)
+    gaps.append((w1 - cur, cur))
+    longest, start = max(gaps)
+    return longest, sum(z - a for a, z in cov), Counter(k for *_, k in ev), start
 
 
 def analyse(path: Path, min_s, move):
@@ -411,7 +420,7 @@ def analyse(path: Path, min_s, move):
         ev_w = [e[0] for e in b["events"]]
         for i, j in ws:
             a, z = s[i], s[j]
-            unj, active, ev = classify(b, a[1], z[1])
+            unj, active, ev, gap_at = classify(b, a[1], z[1])
             lo, hi = bisect_left(ev_w, a[1]), bisect_right(ev_w, z[1])
             inside, dist = (
                 b["events"][lo:hi],
@@ -443,7 +452,8 @@ def analyse(path: Path, min_s, move):
                     last_op=next(
                         (
                             (e[2], e[3])
-                            for e in reversed(b["events"][:lo])
+                            # the request in flight when the longest unexplained gap began
+                            for e in reversed(b["events"][: bisect_right(ev_w, gap_at)])
                             if e[2].startswith("req:") and e[2] not in NOISE
                         ),
                         None,
