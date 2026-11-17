@@ -337,3 +337,98 @@ class PlaceGraph:
                         costs[edge.target], previous[edge.target] = total, node
                         heapq.heappush(frontier, (total, edge.target))
             return ()
+
+
+class Knowledge:
+    """Facts about the world (structures, entrances ...) in the per-world archive.
+
+    One fact per (namespace, kind, subject): putting it again replaces it.
+    ``region`` is a box [[x0,y0,z0],[x1,y1,z1]] or None.
+    """
+
+    def __init__(self, archive):
+        self.archive = archive
+        with archive.connect(writing=True) as db:
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS facts (
+                    namespace TEXT NOT NULL, kind TEXT NOT NULL,
+                    subject TEXT NOT NULL, region TEXT, value TEXT NOT NULL,
+                    source TEXT NOT NULL, seen_ns INTEGER NOT NULL,
+                    "check" TEXT NOT NULL,
+                    PRIMARY KEY(namespace,kind,subject))
+            """)
+
+    def put(self, kind, subject, value, *, region=None, source="", check=""):
+        with self.archive.connect(writing=True) as db:
+            db.execute(
+                "INSERT INTO facts VALUES(?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(namespace,kind,subject) DO UPDATE SET "
+                "region=excluded.region, value=excluded.value, "
+                "source=excluded.source, seen_ns=excluded.seen_ns, "
+                '"check"=excluded."check"',
+                (
+                    self.archive.identity.key,
+                    kind,
+                    subject,
+                    None if region is None else json.dumps(region),
+                    json.dumps(value),
+                    source,
+                    time.time_ns(),
+                    check,
+                ),
+            )
+
+    def all(self, kind):
+        with self.archive.connect() as db:
+            rows = db.execute(
+                'SELECT subject, region, value, source, seen_ns, "check" '
+                "FROM facts WHERE namespace=? AND kind=? ORDER BY rowid",
+                (self.archive.identity.key, kind),
+            ).fetchall()
+        return [
+            {
+                "kind": kind,
+                "subject": s,
+                "region": None if r is None else json.loads(r),
+                "value": json.loads(v),
+                "source": src,
+                "seen_ns": ns,
+                "check": chk,
+            }
+            for s, r, v, src, ns, chk in rows
+        ]
+
+    def get(self, kind, subject):
+        return next((f for f in self.all(kind) if f["subject"] == subject), None)
+
+    # ponytail: containing/near read every fact of the kind and filter in Python
+    # (like listed() above); they run at planning time. A bounding-box index is
+    # the upgrade if a world collects thousands of facts of one kind.
+    def containing(self, kind, position):
+        def inside(f):
+            lo, hi = f["region"]
+            return all(a <= v <= b for v, a, b in zip(position, lo, hi, strict=True))
+
+        return [f for f in self.all(kind) if f["region"] and inside(f)]
+
+    def near(self, kind, position, radius):
+        """Facts whose region box is within ``radius`` of ``position``."""
+
+        def dist(f):
+            lo, hi = f["region"]
+            return math.dist(
+                position,
+                [min(max(v, a), b) for v, a, b in zip(position, lo, hi, strict=True)],
+            )
+
+        return sorted(
+            (f for f in self.all(kind) if f["region"] and dist(f) <= radius),
+            key=dist,
+        )
+
+    def drop(self, kind, subject):
+        with self.archive.connect(writing=True) as db:
+            db.execute(
+                "DELETE FROM facts WHERE namespace=? AND kind=? AND subject=?",
+                (self.archive.identity.key, kind, subject),
+            )

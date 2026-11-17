@@ -42,6 +42,7 @@ from typing import NamedTuple, Protocol
 from mclab import build_plan as bp
 from mclab import scaffolding as sc
 from mclab.build_plan import Pos
+from mclab.place_graph import Knowledge
 from mclab.progress_watch import (
     STALL_SECONDS,
     BodyDied,
@@ -636,6 +637,68 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
     return broken
 
 
+_FACING = {"north": (0, -1), "south": (0, 1), "west": (-1, 0), "east": (1, 0)}
+
+
+def _opens_by_hand(ident: str, props: dict) -> bool:
+    """Wooden doors and fence gates (BuildingMoves.opensByHand); not iron doors."""
+    if ident.endswith("_door"):
+        return not ident.endswith("iron_door") and props.get("half") != "upper"
+    return ident.endswith("_fence_gate")
+
+
+def record_build(knowledge, template: bp.Template, phase: str) -> None:
+    """Put the build's `structure` fact and one `entrance` per hand-opened door.
+
+    A door's `facing` is the way you walk in: inside is one cell along it,
+    outside one cell against it, both at the door's own (floor) level.
+    """
+    cells = [p for p, s in template.cells.items() if bp.parse_state(s)[0] not in bp.AIR]
+    if not cells:
+        return
+    lo, hi = (tuple(f(c) for c in zip(*cells, strict=True)) for f in (min, max))
+    box = [list(lo), list(hi)]
+    ox, oy, oz = template.origin
+    subject = f"{template.name}@{ox},{oy},{oz}"
+    source = f"build:{template.name}"
+    knowledge.put(
+        "structure",
+        subject,
+        {"template": template.name, "phase": phase},
+        region=box,
+        source=source,
+    )
+    for pos, state in template.cells.items():
+        ident, props = bp.parse_state(state)
+        if not _opens_by_hand(ident, props) or props.get("facing") not in _FACING:
+            continue
+        dx, dz = _FACING[props["facing"]]
+        x, y, z = pos
+        knowledge.put(
+            "entrance",
+            f"{x},{y},{z}",
+            {
+                "door": [x, y, z],
+                "structure": subject,
+                "outside": [x - dx, y, z - dz],
+                "inside": [x + dx, y, z + dz],
+            },
+            region=[[x, y, z], [x, y, z]],
+            source=source,
+            check="door",
+        )
+
+
+def recheck(knowledge, cells: dict) -> None:
+    """Drop an `entrance` whose door cell was sensed and is no longer a door/gate."""
+    for fact in knowledge.all("entrance"):
+        cell = cells.get(tuple(fact["value"]["door"]))
+        if cell is not None and not _opens_by_hand(
+            *bp.parse_state(str(cell["block"]).removeprefix("minecraft:"))
+        ):
+            knowledge.drop("entrance", fact["subject"])
+
+
 def run_build(
     template: bp.Template,
     body: BuildBody,
@@ -661,6 +724,10 @@ def run_build(
     (progress_watch; ``None`` disables). Stops: ``site_not_ready``, ``stalled``.
     """
     report = BuildReport()
+    places = getattr(body, "places", None)  # None for fakes and tests
+    knowledge = Knowledge(places.archive) if places is not None else None
+    if knowledge:
+        record_build(knowledge, template, "build")
     watch = None
     if stall_seconds is not None:
         watch = ProgressWatch(limit=stall_seconds, events=report.stalls)
@@ -704,6 +771,8 @@ def run_build(
     if not report.counts:  # stopped early (stalled, site not ready)
         report.counts = bp.progress(template, body.world)
         report.unknown = bp.diff(template, body.world).unknown
+    if knowledge and report.stop == "done":
+        record_build(knowledge, template, "done")
     if on_progress:
         on_progress(report, True)
     return report
