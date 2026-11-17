@@ -826,3 +826,26 @@ def test_fill_walk_from_a_pit_may_place_blocks_to_get_out():
         report, max_steps = br.BuildReport(), 100
 
     assert sp._fill_sweep(Body(), Runner, [(1, 63, 0)], 1, 63) == 1
+
+
+def test_an_unknown_cell_over_a_pond_is_approached_from_dry_footing():
+    # run 20261117T015107803188Z: the walk goal snapped above the unknown pond cell,
+    # where no stance can be, and each plan for it ran the 10,000-node limit
+    t = template()
+    s, w = mixed_world(t)
+    pond = [(s.x0 + i, s.z0 + j) for i in range(3) for j in range(3)]
+    for x, z in pond:
+        w[(x, s.ground_y, z)] = WATER
+        w[(x, s.ground_y - 1, z)] = WATER
+    cell = (s.x0 + 1, s.ground_y + 1, s.z0 + 1)
+    del w[cell]
+    body = FakeBody(w, {DIRT: 5}, BLOCKS, pos=(1, 0, 1))
+    walks = []
+    body.walk_to = lambda p, *a, **k: walks.append(p) or False
+    br.run_build(t, body, BLOCKS, survey=False, site_margin=1)
+    approach = [
+        p for p in walks if abs(p[0] - cell[0]) <= 4 and abs(p[2] - cell[2]) <= 4
+    ]
+    assert approach
+    assert all(w[(x, y - 1, z)] == STONE for x, y, z in approach)
+    assert all((x, z) not in pond for x, _, z in approach)

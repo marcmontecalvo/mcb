@@ -312,7 +312,7 @@ def prepare_site(
             p = min(fresh, key=lambda q: _dist2(q, here))
             # whole column and neighbours: one approach per place, never a retry loop
             visited.update(q for q in fresh if _dist2(q, p) <= 36 or q[::2] == p[::2])
-            reached = walk(p) if walk else body.goto_stance(p, 3.0)
+            reached = _approach(body, walk, p, site.ground_y)
             if not reached:
                 unreachable.append(p)
                 log(f"site: cannot approach unknown cell {p}; not retrying")
@@ -411,8 +411,12 @@ def prepare_site(
         rep.filled += swept
         if swept:
             continue
-        # nothing placeable from a plain walk: the builder's stance search, per cell
-        for pos in plan.fills[: min(BATCH, have)]:
+        # nothing placeable from a plain walk: the builder's stance search, per cell,
+        # bottom up: only cells already standing on something. A cell over water or
+        # air has no face to click and no stance beside it that is not itself over
+        # the hole (run 20261117T015107803188Z: 64 node-limit plans at a pond).
+        supported = [p for p in plan.fills if _solid(body.world(p[0], p[1] - 1, p[2]))]
+        for pos in supported[: min(BATCH, have)]:
             before = len(report.placed)
             try:
                 if _ident(body.world(*pos)) in FLOWERS:
@@ -437,6 +441,34 @@ def prepare_site(
             rep.filled += len(report.placed) - before
     rep.stop = "max_rounds"
     return rep
+
+
+APPROACH_RANGE = 4  # the sensor delivers the cells around the body: beside is enough
+
+
+def _approach(body, walk, cell: Pos, ground: int) -> bool:
+    """Walk onto known footing near an unknown cell, never onto the cell itself: the
+    goal snapped above an unknown pond cell had no stance, and every plan for it ran
+    the 10,000-node limit (run 20261117T015107803188Z)."""
+    if not walk:
+        return body.goto_stance(cell, 3.0)
+    here = body.position()
+    spots = []
+    for dx in range(-APPROACH_RANGE, APPROACH_RANGE + 1):
+        for dz in range(-APPROACH_RANGE, APPROACH_RANGE + 1):
+            x, z = cell[0] + dx, cell[2] + dz
+            for y in range(ground + 4, ground - 3, -1):
+                if _solid(body.world(x, y, z)):
+                    if all(
+                        _ident(body.world(x, y + h, z)) in bp.AIR | FLOWERS
+                        for h in (1, 2)
+                    ):
+                        spots.append((x, y + 1, z))
+                    break
+    if not spots:
+        return False
+    goal = min(spots, key=lambda q: (_dist2(q, cell), _dist2(q, here), q))
+    return walk(goal, 0.45)
 
 
 def _phases(breaks: list[Pos], world) -> tuple[list[Pos], list[Pos], list[Pos]]:

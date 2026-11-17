@@ -239,6 +239,25 @@ public final class RoutePlannerTest {
                 new RoutePlanner.Node(0, -5, 0), 0, 3, true).withPolicy(true, true, true, true, true, 1)
                 .withMoves(false, true).withEdits(policy(false)).search(4000);
         check(deep.status().equals("reached"), "digs 6 down to a buried goal within 4,000 nodes: " + deep.status() + " " + deep.expanded());
+        // A goal over a pond whose surface cells are protected (run 20261117T015107803188Z): no stance can be
+        // stood or placed at goal height, so the answer comes before any search, not after the node limit.
+        var pondEdge = floor(12);
+        for (int x = 4; x <= 8; x++) for (int z = 4; z <= 8; z++) pondEdge.put(new Key(x, 0, z), water());
+        var surface = new java.util.HashSet<Long>();
+        for (int x = 4; x <= 8; x++) for (int z = 4; z <= 8; z++) surface.add(RoutePlanner.key(x, 0, z));
+        var keepSurface = new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), true, true, true,
+                3, 64, 64, 3, surface, java.util.Set.of(), "minecraft:cobblestone");
+        var overPond = new RoutePlanner((x, y, z) -> pondEdge.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(6, 1, 6), 1.3, 3, true).withMoves(false, true).withEdits(keepSurface).search(10_000);
+        check(overPond.status().equals("unreachable") && overPond.expanded() == 0,
+                "no stance possible over a protected pond: unreachable at once: " + overPond.status() + " " + overPond.expanded());
+        var unguarded = new RoutePlanner((x, y, z) -> pondEdge.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(6, 1, 6), 1.3, 3, true).withMoves(false, true).withEdits(policy(true)).search(100_000);
+        check(!unguarded.status().equals("unreachable") || unguarded.expanded() > 0,
+                "an unprotected pond may be built over: the search runs: " + unguarded.status());
+        var shore = new RoutePlanner((x, y, z) -> pondEdge.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(3, 1, 6), 1.3, 3, true).withMoves(false, true).withEdits(keepSurface).search(10_000);
+        check(shore.status().equals("reached"), "a goal disk touching the shore is reached: " + shore.status());
         // Protected cells are never broken.
         var guarded = new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), false, false, false,
                 1, 64, 64, 3, java.util.Set.of(RoutePlanner.key(5, 1, 0), RoutePlanner.key(5, 2, 0)), java.util.Set.of(),

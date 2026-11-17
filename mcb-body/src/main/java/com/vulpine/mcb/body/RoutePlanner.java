@@ -208,6 +208,35 @@ final class RoutePlanner {
         }
         return true;
     }
+    /**
+     * A goal disk without a cell that has, or could be given, support at goal height is unreachable at any
+     * distance; searching it expands the whole node limit (run 20261117T015107803188Z: 64 capped plans at a
+     * pond edge over protected air). Possible: unknown cells, fluid or a climbable at goal height, a support
+     * top at goal height now, or with place/pillar/bridge an unprotected support cell that is empty or
+     * breakable. Water under the goal is no support: a swimmer floats a block lower. Headroom as headroomOk.
+     */
+    private boolean noGoalStance() {
+        if (reach != null || !integral(goal.y)) return false;
+        int r = (int) Math.ceil(radius), gy = (int) goal.y;
+        boolean canPlace = edits != null && (edits.allowPlace || edits.allowPillar || edits.allowBridge);
+        for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) {
+            if (Math.hypot(dx, dz) > radius) continue;
+            int x = goal.x + dx, z = goal.z + dz;
+            if (isStart(new Node(x, goal.y, z))) return false;
+            for (int cy = gy - 2; cy <= gy + 1; cy++) if (cell(x, cy, z) == null) return false;
+            var below = cell(x, gy - 1, z);
+            // Swimming or wading at goal height, or a climbable to hang in: possible.
+            if (!dry(cell(x, gy, z)) || !dry(cell(x, gy + 1, z)) || climbable(cell(x, gy, z))) return false;
+            for (int cy = gy - 2; cy <= gy - 1; cy++)
+                for (var box : boxes(cell(x, cy, z)))
+                    if (Math.abs(cy + at(box, 4) - goal.y) < EPS && at(box, 0) < .8 - EPS && at(box, 3) > .2 + EPS
+                            && at(box, 2) < .8 - EPS && at(box, 5) > .2 + EPS && headroomOk(x, z, cy, goal.y)) return false;
+            if (canPlace && !edits.protectedCells.contains(key(x, gy - 1, z))
+                    && (below == null || boxes(below).isEmpty() || edits.breakCosts.containsKey(below.get("block")))
+                    && headroomOk(x, z, gy - 1, goal.y)) return false;
+        }
+        return true;
+    }
     /** The start's column and height, or the cell it hangs in. */
     private boolean isStart(Node n) {
         return n.x == start.x && n.z == start.z && n.y >= Math.floor(start.y) - EPS && n.y <= start.y + EPS;
@@ -258,6 +287,7 @@ final class RoutePlanner {
             if (!stance(start) && !(climb && climbOnly(start)) && !canRecoverStart() && !submerged(start))
                 return terminal = new Result("unreachable", List.of(), 0, 0, List.of());
             if (provablyUnreachable()) return terminal = new Result("unreachable", List.of(), 0, 0, List.of());
+            if (noGoalStance()) return terminal = new Result("unreachable", List.of(), 0, 0, List.of());
             best = start;
             costs.put(start, 0.0); nodes.add(start);
             frontier.add(new double[]{heuristic(start), 0, 0, 0});
