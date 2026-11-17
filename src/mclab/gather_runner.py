@@ -43,6 +43,7 @@ from mclab.gather_options import SENSE_DY, GatherOptions, pick_tool
 from mclab.gather_tasks import TIER_RANK, UNKNOWN_TIER_RANK
 from mclab.knowledge import Knowledge
 from mclab.progress_watch import BodyDied
+from mclab.site_prep import FLOWERS
 from mclab.tree_removal import TreeFeller, is_huge, is_leaf, is_log, tree_at
 
 Pos = tuple[int, int, int]
@@ -90,6 +91,7 @@ RETRY_REASONS = STANCE_REASONS | {"no_line_of_sight"}
 # reaches it, so rotate to another free cell (run 20261106T182245230212Z ended the
 # task retrying one cell three times).
 PLACE_ROTATE_REASONS = frozenset({"no_support_face"})
+SPOT_TRIES = 4  # free spots tried for one station before its task fails
 STALL_S = 120.0  # no inventory change for this long ends the run ("stalled")
 
 
@@ -580,12 +582,20 @@ class _Exec:
             above = self.body.world(c[0], c[1] + 1, c[2])
             if (
                 below is not None
-                and bp.parse_state(below)[0] not in bp.REPLACEABLE
+                and self._face(c[0], c[1] - 1, c[2], below)
                 and not _lid_below(below)
                 and above in bp.AIR
             ):
                 return c
         return None
+
+    def _face(self, x: int, y: int, z: int, state: str) -> bool:
+        """A support with a collision box. Run 20261117T030711461347Z chose the air
+        over a red tulip three times: no stance sees a face there, no_stance."""
+        has_face = getattr(self.body, "has_face", None)
+        if has_face is not None:
+            return has_face(x, y, z)
+        return bp.parse_state(state)[0] not in bp.REPLACEABLE | FLOWERS
 
     def station_pos(self, kind: str) -> Pos | None:
         known = self.state.stations.get(kind)
@@ -629,6 +639,9 @@ class _Exec:
             # the body refuses a cell whose six neighbours are all non-solid: a
             # different stance cannot place into it (run 20261106T182245230212Z
             # ended the task retrying the same cell 3x)
+            # no stance for this spot is no verdict on the next one
+            if result.reason == "no_stance" and len(tried) < SPOT_TRIES:
+                continue
             if result.ok or result.reason not in PLACE_ROTATE_REASONS:
                 return result, spot
 

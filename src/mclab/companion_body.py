@@ -667,6 +667,11 @@ class CompanionBody:
             found = self.observe().get("visible_entities")
         return list(found or ())
 
+    def has_face(self, x: int, y: int, z: int) -> bool:
+        """The cell has a collision box to click or stand on, by its real shape (modded
+        blocks included): a flower, torch or carpet has none."""
+        return _clickable(self._cells_now().get((x, y, z)))
+
     def world(self, x: int, y: int, z: int) -> str | None:
         over = self._overlay.get((x, y, z))
         if over is not None and self._tick() - over[1] <= OVERLAY_TICKS:

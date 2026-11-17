@@ -326,6 +326,47 @@ def test_station_is_never_put_on_a_chest_or_shulker_box():
     assert state.stations["crafting_table"] not in {(-1, 0, 0), (0, 0, -1)}
 
 
+def test_station_is_never_put_over_a_flower():
+    # Run 20261117T030711461347Z: the furnace spot was the air over a red tulip,
+    # which has no face to click; three tasks failed no_stance on it.
+    from mclab.gather_runner import GatherState, _Exec
+
+    world = floor()
+    world[(-1, -1, 0)] = M + "red_tulip"
+    body = FakeGatherBody(K, world, {M + "furnace": 1})
+    state = GatherState()
+
+    result = _Exec(body, K, state, 0).place_station(PlaceStation("furnace"))
+
+    assert result.ok and state.stations["furnace"] != (-1, 0, 0)
+
+
+def test_station_support_is_judged_by_the_real_collision_shape():
+    # a modded or unlisted block with no collision box is no support either
+    from mclab.gather_runner import GatherState, _Exec
+
+    body = FakeGatherBody(K, floor(), {M + "furnace": 1})
+    body.has_face = lambda x, y, z: (x, y, z) != (-1, -1, 0)
+    state = GatherState()
+
+    result = _Exec(body, K, state, 0).place_station(PlaceStation("furnace"))
+
+    assert result.ok and state.stations["furnace"] != (-1, 0, 0)
+
+
+def test_a_spot_with_no_stance_moves_on_to_the_next_spot():
+    from mclab.gather_runner import GatherState, _Exec
+
+    body = FakeGatherBody(K, floor(), {M + "furnace": 1})
+    real = body.goto_stance
+    body.goto_stance = lambda pos, *a, **k: pos != (-1, 0, 0) and real(pos, *a, **k)
+    state = GatherState()
+
+    result = _Exec(body, K, state, 0).place_station(PlaceStation("furnace"))
+
+    assert result.ok and state.stations["furnace"] != (-1, 0, 0)
+
+
 def test_station_returns_to_worksite_from_one_wide_mine_staircase():
     # Iron run 20261112T140455643180Z ended in a narrow, unsupported shaft;
     # the crafting table was on the surface above the entrance.
