@@ -52,6 +52,9 @@ over sorted "modid@version" lines and datapack names>`, e.g. `26.3-3f9a0c1b2d4e`
   "minecraft:fire": {"item": null, "...": "..."}}}
 ```
 - `item`: `Block.asItem()` id, or `null` when the block has no item.
+- `full_cube`: the default state's collision shape is a full block (from the game, so modded
+  blocks are right too). Footholds and temporary blocks need it. Packs dumped before it lack the
+  key; readers treat that as not known.
 - `needs_support`: `null`, `"below"` (torch, carpet, door, sapling), `"facing_opposite"`
   (wall torch, ladder, wall sign), `"any_face"` (button, lever per `face` property),
   `"above"` (hanging lantern etc.).

@@ -156,7 +156,7 @@ final class StepMotor {
             for (var e:request.getAsJsonObject("tools").entrySet())
                 if (e.getValue().isJsonPrimitive()) tools.put(e.getKey(),e.getValue().getAsString());
         materials = strings(policy.getAsJsonArray("material_allowlist"));
-        if (materials.isEmpty() || !Set.of("minecraft:cobblestone","minecraft:dirt").containsAll(materials))
+        if (materials.isEmpty() || materials.stream().anyMatch(m -> m.indexOf(':') <= 0))
             throw new IllegalArgumentException("native_step_materials");
         protectedPositions = new HashSet<>();
         for (var value:policy.getAsJsonArray("protected_positions")) protectedPositions.add(point(value.getAsJsonArray()));

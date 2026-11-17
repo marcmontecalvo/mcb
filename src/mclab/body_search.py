@@ -159,13 +159,13 @@ def edit_payload(policy, inventory, protected, tool_choice="lowest_sufficient"):
     # them on the hotbar before the motor needs them). The old count stopped at the
     # support stack height and saw only the first material: a bot holding cobblestone
     # was sent place_supply 0 and could not pillar out of a hole.
-    # ponytail: the allowlist is dirt/cobblestone because StepMotor refuses any other
-    # material; widen TerrainPolicy BUILDING and the motor together.
+    # The allowlist is in preference order (mclab.temporary_blocks: dirt, cobblestone,
+    # then spare plain blocks); the motor places the first one it holds.
     held = {}
     for row in inventory:
         if row.get("item") in policy.material_allowlist:
             held[row["item"]] = held.get(row["item"], 0) + row.get("count", 0)
-    materials = sorted((m for m, n in held.items() if n > 0), key=lambda m: -held[m])
+    materials = [m for m in policy.material_allowlist if held.get(m, 0) > 0]
     supply = max(0, sum(held.values()) - policy.reserve_blocks)
     cells = set(map(tuple, protected)) | set(policy.protected_positions)
     # Zero supply is a price, not a toggle: with nothing to place the planner must not

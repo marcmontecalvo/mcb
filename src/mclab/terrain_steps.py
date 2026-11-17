@@ -262,11 +262,9 @@ class TerrainPolicy:
         for name in ("material_allowlist", "protected_blocks"):
             values = getattr(self, name)
             if not isinstance(values, tuple) or any(
-                type(v) is not str or not v.startswith("minecraft:") for v in values
+                type(v) is not str or not all(v.partition(":")[::2]) for v in values
             ):
                 raise ValueError("Invalid terrain block policy")
-        if any(v not in BUILDING for v in self.material_allowlist):
-            raise ValueError("Unsupported building material")
         if not isinstance(self.protected_positions, tuple) or any(
             not isinstance(p, tuple)
             or len(p) != 3

@@ -24,7 +24,11 @@ public final class StepMotorTest {
         bad=request.deepCopy(); bad.getAsJsonObject("plan").add("target",JsonParser.parseString("[2,1,0]")); reject(bad);
         bad=request.deepCopy(); bad.getAsJsonObject("plan").add("breaks",JsonParser.parseString("[[0,0,0]]")); reject(bad);
         bad=request.deepCopy(); bad.getAsJsonObject("terrain_policy").add("protected_positions",JsonParser.parseString("[[1,1,0]]")); reject(bad);
-        bad=request.deepCopy(); bad.getAsJsonObject("terrain_policy").add("material_allowlist",JsonParser.parseString("[\"minecraft:tnt\"]")); reject(bad);
+        bad=request.deepCopy(); bad.getAsJsonObject("terrain_policy").add("material_allowlist",JsonParser.parseString("[\"tnt\"]")); reject(bad);
+        // Which blocks are temporaries is Python's choice (mclab.temporary_blocks); the motor needs an id.
+        bad=request.deepCopy(); bad.getAsJsonObject("terrain_policy").add("material_allowlist",JsonParser.parseString("[]")); reject(bad);
+        var planks=request.deepCopy(); planks.getAsJsonObject("terrain_policy").add("material_allowlist",JsonParser.parseString("[\"minecraft:oak_planks\"]"));
+        if(!new StepMotor(planks).active()) throw new AssertionError("planks as a temporary"); checks++;
         bad=request.deepCopy(); bad.getAsJsonObject("plan").add("breaks",JsonParser.parseString("[[1,1,0],[1,1,0]]")); reject(bad);
         bad=request.deepCopy(); bad.getAsJsonObject("plan").add("source",JsonParser.parseString("[0,1.5,0]")); reject(bad);
         bad=request.deepCopy(); bad.getAsJsonObject("plan").addProperty("kind","pillar"); reject(bad);

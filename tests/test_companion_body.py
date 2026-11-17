@@ -1376,3 +1376,35 @@ def test_goto_stance_filters_candidates_while_walking_with_edits(monkeypatch):
         assert not b.goto_stance((2, 0, 2), 4.5)
         assert not b.goto_stance((2, 0, 2), 4.5)
     assert seen == goals[1:]  # unwalkable stance dropped, failed probe cached
+
+
+def test_the_planner_footholds_are_dirt_then_cobblestone_then_spare_plain_blocks(
+    monkeypatch,
+):
+    from dataclasses import replace
+
+    from mclab import temporary_blocks as tb
+    from mclab.companion_jobs import load_vanilla_pack
+
+    b, _, _ = body()
+    held = {
+        "minecraft:scaffolding": 30,  # towers only: a planner foothold is solid
+        "minecraft:stone": 64,  # breaks to cobblestone
+        "minecraft:oak_log": 20,
+        "minecraft:oak_planks": 10,  # all still wanted by the house
+        "minecraft:cobblestone": 4,
+    }
+    monkeypatch.setattr(b, "inventory", lambda: held)
+    monkeypatch.setattr(b, "world", lambda *p: "minecraft:air")
+    b.build_cells = {(0, y, 0): "minecraft:oak_planks" for y in range(10)}
+    b.temporary_ok = tb.eligible(load_vanilla_pack())
+    b.terrain_policy = replace(cb.DIG_TERRAIN, allow_place=True)
+    assert b.temporary_items() == [
+        "minecraft:scaffolding",
+        "minecraft:cobblestone",
+        "minecraft:oak_log",
+    ]
+    assert b._with_temporaries(b.terrain_policy).material_allowlist == (
+        "minecraft:cobblestone",
+        "minecraft:oak_log",
+    )

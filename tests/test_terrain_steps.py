@@ -72,7 +72,7 @@ def test_protected_block_denylist_cannot_be_cut():
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"material_allowlist": ("minecraft:sand",)},
+        {"material_allowlist": ("sand",)},  # an id needs its namespace
         {"protected_positions": ((0, True, 1),)},
         {"break_penalty": float("nan")},
         {"placement_penalty": -1},

@@ -209,6 +209,10 @@ final class KnowledgeDump {
             entry.addProperty("needs_correct_tool", state.requiresCorrectToolForDrops());
             entry.add("mineable", GSON.toJsonTree(kinds.getOrDefault(block, List.of())));
             entry.addProperty("gravity", block instanceof FallingBlock);
+            // The real collision shape, modded blocks included: a full cube is something to stand on
+            // and to put down as a temporary foothold (mclab.temporary_blocks).
+            entry.addProperty("full_cube", Block.isShapeFullBlock(state.getCollisionShape(
+                    net.minecraft.world.level.EmptyBlockGetter.INSTANCE, net.minecraft.core.BlockPos.ZERO)));
             String support = KnowledgeLogic.needsSupport(classChain(block));
             if (support == null) entry.add("needs_support", com.google.gson.JsonNull.INSTANCE);
             else entry.addProperty("needs_support", support);

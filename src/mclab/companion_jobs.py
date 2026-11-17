@@ -29,6 +29,7 @@ from pathlib import Path
 
 from mclab import build_plan as bp
 from mclab import gather_plan as gp
+from mclab import temporary_blocks
 from mclab.build_runner import BuildReport, SiteCutter, run_build
 from mclab.gather_options import GatherOptions
 from mclab.gather_runner import (
@@ -237,6 +238,9 @@ def build_job(
     build = json.loads(Path(build_json_path).read_text(encoding="utf-8"))
     template = bp.Template.from_build(build, tuple(origin), rotation, mirror)
     protect(body, template, site_margin)
+    # What the body may put down to climb and take back: scaffolding, dirt,
+    # cobblestone, then spare plain blocks that drop themselves (mclab.temporary_blocks).
+    body.temporary_ok = temporary_blocks.eligible(knowledge)
     if state is None:
         state = GatherState()
         hydrate_containers(body, state)

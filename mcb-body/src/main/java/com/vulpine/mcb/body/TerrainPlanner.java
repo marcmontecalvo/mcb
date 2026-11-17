@@ -140,7 +140,6 @@ final class TerrainPlanner {
         for(var p:step.breaks()) edits.put(p,AIR);
         List<Stock> stock=new ArrayList<>(b.stock());
         for(var p:step.places()) { int i=supply(stock); if(i<0) return null; Stock s=stock.get(i);
-            if(!Set.of("minecraft:dirt","minecraft:cobblestone").contains(s.item())) return null;
             stock.set(i,new Stock(s.slot(),s.item(),s.count()-1)); edits.put(p,Map.of("block",s.item(),"fluid","minecraft:empty","collision_boxes",CUBE)); }
         List<Step> steps=new ArrayList<>(b.steps()); steps.add(step);
         Set<RoutePlanner.Node> protectedCells=new HashSet<>(b.protectedCells()); protectedCells.addAll(step.places());

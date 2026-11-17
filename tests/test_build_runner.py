@@ -483,7 +483,9 @@ class TowerBody(FakeBody):
         # Walking only (as the real planner under no_placing): the top of a solid
         # dirt column the body put up cannot be stepped or climbed onto.
         if not self.planner_placing:
-            tops = {(x, y + 1, z) for (x, y, z), v in self.w.items() if v == self.DIRT}
+            pillar = getattr(self, "pillar_cells", set())
+            stood = [c for c in pillar if self.w.get(c) not in (None, AIR)]
+            tops = {(x, y + 1, z) for x, y, z in stood}
             avoid = set(avoid) | (tops - {self.pos})
         return super().goto_stance(target_pos, reach, avoid)
 
@@ -500,8 +502,9 @@ class TowerBody(FakeBody):
             return False
         for cy in range(base, y):
             self.pos = (x, cy, z)
-            if not super().place_block((x, cy, z), self.DIRT, item).ok:
+            if not super().place_block((x, cy, z), item, item).ok:
                 return False
+            self.pillar_cells = getattr(self, "pillar_cells", set()) | {(x, cy, z)}
         self.pos = feet
         return True
 
@@ -1044,3 +1047,40 @@ def test_one_stack_of_scaffolding_is_taken_down_and_used_again_for_the_next_towe
     assert (3, 6, 3) in report.placed and (11, 6, 3) in report.placed
     assert not getattr(body, "pillared", 0)  # no dirt column instead of a tower
     assert not [p for p, s in body.w.items() if s.startswith("minecraft:scaffolding")]
+
+
+def test_a_tower_refill_that_fails_skips_that_cell_and_the_build_goes_on():
+    # Run 20261117T140114411942Z: one upper-floor cell wanted 2 dirt for a pillar,
+    # none could be had, and the build stopped at 416 of 1227 placed.
+    body, t = tall_column_body()
+    _no_scaffold_items(body)
+    asked = []
+    report = br.run_build(
+        t, body, BLOCKS, on_need_materials=lambda m: asked.append(dict(m)) or False
+    )
+    assert asked == [{"minecraft:scaffolding": 6}]
+    assert report.stop != "need_materials"
+    assert report.skipped.get((3, 6, 3)) == "no_material"
+    assert [p for p in t.cells if p[1] < 5 and p in report.placed]
+
+
+def test_without_scaffolding_dirt_or_cobblestone_a_tower_is_of_a_spare_plain_block():
+    from mclab import temporary_blocks as tb
+    from mclab.companion_jobs import load_vanilla_pack
+
+    body, t = tall_column_body()
+    _no_scaffold_items(body)
+    body.inv["minecraft:stone"] = 64  # breaks to cobblestone: never a temporary
+    body.inv["minecraft:oak_log"] = 20  # comes back as itself: a temporary
+    allowed = tb.eligible(load_vanilla_pack())
+    body.temporary_ok = allowed
+    body.still_needed = lambda: {"minecraft:oak_planks": 100}  # none spare
+    body.temporary_items = lambda scaffolding=True: tb.order(
+        body.inv, body.still_needed(), allowed
+    )
+    used = []
+    pillar = body.pillar_to
+    body.pillar_to = lambda feet, item, n: used.append(item) or pillar(feet, item, n)
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done" and (3, 6, 3) in report.placed
+    assert used and set(used) == {"minecraft:oak_log"}, used

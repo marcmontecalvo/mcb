@@ -69,6 +69,8 @@ from mclab.spatial_memory import (
     SpatialMemory,
     world_archive,
 )
+from mclab.temporary_blocks import SCAFFOLDING
+from mclab.temporary_blocks import order as temporary_order
 from mclab.terrain_steps import TOOL_TIERS, TerrainPolicy
 
 Pos = tuple[int, int, int]
@@ -1016,7 +1018,7 @@ class CompanionBody:
         None. (Run 20261109T204446994225Z: dirt only in slots 14 and 16, so
         placeSupply was 0, every pillar edit was refused and the body stood in a pit
         planning "unreachable".)"""
-        policy = self.terrain_policy
+        policy = self._with_temporaries(self.terrain_policy)
         if not (policy.allow_pillar or policy.allow_bridge or policy.allow_place):
             return None
         rows = self._inventory_rows()
@@ -1089,7 +1091,7 @@ class CompanionBody:
         the upper floor of a closed house was unreachable, run 20261117T055944364786Z).
         The template's air cells (``build_air``) may take footholds: the build loop
         adopts those as scaffolds and takes them back. The site ground stays protected."""
-        policy = self.terrain_policy
+        policy = self._with_temporaries(self.terrain_policy)
         if not policy.protected_positions:
             return policy
         cells = self._cells_now()
@@ -1115,6 +1117,40 @@ class CompanionBody:
         return replace(
             policy, protected_positions=tuple(keep), costly_positions=tuple(costly)
         )
+
+    def temporary_items(self, scaffolding: bool = True) -> list[str]:
+        """Held blocks the body may put down to climb or bridge and take back, best
+        first (mclab.temporary_blocks): scaffolding, dirt, cobblestone, then spare
+        plain blocks that drop themselves. Spare means beyond what the build still
+        has to place. Without a build job: the policy's own materials."""
+        allowed = getattr(self, "temporary_ok", None)
+        if allowed is None:
+            items = list(self.terrain_policy.material_allowlist)
+            held = self.inventory()
+            return [i for i in items if held.get(i, 0) > 0]
+        items = temporary_order(self.inventory(), self.still_needed(), allowed)
+        return items if scaffolding else [i for i in items if i != SCAFFOLDING]
+
+    def still_needed(self) -> dict[str, int]:
+        """Blocks the build has yet to place, by block id (for the plain cubes that
+        can be temporaries, block id and item id are the same)."""
+        need: dict[str, int] = {}
+        for p, state in (getattr(self, "build_cells", None) or {}).items():
+            block = parse_state(state)[0]
+            if parse_state(self.world(*p) or "minecraft:air")[0] != block:
+                need[block] = need.get(block, 0) + 1
+        return need
+
+    def _with_temporaries(self, policy):
+        """The planner pillars and bridges with the temporaries in preference order.
+        Scaffolding is not one of them: the planner's edits are solid cubes, and a
+        scaffolding foothold is only solid from above (towers handle it instead)."""
+        if getattr(self, "temporary_ok", None) is None or not policy.allow_place:
+            return policy
+        items = tuple(self.temporary_items(scaffolding=False))
+        if not items or items == policy.material_allowlist:
+            return policy
+        return replace(policy, material_allowlist=items)
 
     def _goto_controller(self, goal, reach, radius, probe, wall):
         return _GotoController(

@@ -152,14 +152,15 @@ def test_place_supply_is_the_true_stock_of_every_allowed_material():
         {"slot": 12, "item": "minecraft:cobblestone", "count": 40},  # main inventory
         {"slot": 13, "item": "minecraft:cobblestone", "count": 20},
         {"slot": 4, "item": "minecraft:dirt", "count": 5},
-        {"slot": 5, "item": "minecraft:andesite", "count": 99},  # motor refuses it
+        {"slot": 5, "item": "minecraft:andesite", "count": 99},  # not allowed here
     )
     allowed = ("minecraft:dirt", "minecraft:cobblestone")
     policy = replace(PROD, material_allowlist=allowed)
     edits = body_search.edit_payload(policy, held, ())
     assert edits["place_supply"] == 65 - policy.reserve_blocks
-    assert edits["materials"] == ["minecraft:cobblestone", "minecraft:dirt"]
-    assert edits["material"] == "minecraft:cobblestone"
+    # the allowlist's preference order (mclab.temporary_blocks), not the most held
+    assert edits["materials"] == ["minecraft:dirt", "minecraft:cobblestone"]
+    assert edits["material"] == "minecraft:dirt"
 
 
 def test_body_edit_steps_become_step_plans():

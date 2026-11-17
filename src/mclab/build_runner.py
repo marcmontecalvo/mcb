@@ -254,6 +254,7 @@ class _Runner:
         self._towering = False
         # scaffolding a tower lacked: _run asks for it once, or stops the build
         self.short: dict[str, int] = {}
+        self.short_for: Pos | None = None  # the cell the short tower was for
 
     def attempt(self, act) -> None:
         """Stance, act, record. Retries other stances while the failure says so."""
@@ -365,12 +366,11 @@ class _Runner:
             # placed blocks. A body holding none has nothing to plan with (run
             # 20261116T224011482858Z: 8 roof cells no_stance, dirt never asked for).
             held = self.body.inventory()
-            have = sum(
-                held.get(i, 0) for i in ("minecraft:dirt", "minecraft:cobblestone")
-            )
+            have = sum(held.get(i, 0) for i in self._temporaries(scaffolding=False))
             need = max(1, pos[1] - self.body.position()[1])
             if have < need:
                 self.short = {"minecraft:dirt": need - have}
+                self.short_for = pos
                 self.towered.discard(pos)
             return False
         item = self._scaffold_item(len(cells))
@@ -383,6 +383,7 @@ class _Runner:
                 # stance probes: 27 roof cells, 5-12 s of standing still each (run
                 # 20261112T143613464413Z). Ask for the scaffolding instead.
                 self.short = {sc.BLOCK: len(cells)}
+                self.short_for = pos
                 self.towered.discard(pos)
                 return False
         if item != sc.BLOCK:
@@ -471,7 +472,23 @@ class _Runner:
         """First item the planner may scaffold with (scaffolding, then dirt, ...) of
         which the body holds ``n``."""
         held = self.body.inventory()
-        return next((i for i in bp.SCAFFOLD_ITEMS if held.get(i, 0) >= n), None)
+        need = {}
+        if getattr(self.body, "temporary_ok", None) is not None:
+            need = self.body.still_needed()  # the house's own blocks are not spare
+        return next(
+            (i for i in self._temporaries() if held.get(i, 0) - need.get(i, 0) >= n),
+            None,
+        )
+
+    def _temporaries(self, scaffolding: bool = True) -> list[str]:
+        """Blocks to climb on and take back, best first: scaffolding, dirt,
+        cobblestone, then spare plain blocks that drop themselves (the body's
+        ``temporary_items``; a body without it: the fixed scaffold items)."""
+        pick = getattr(self.body, "temporary_items", None)
+        if pick is not None and getattr(self.body, "temporary_ok", None) is not None:
+            return pick(scaffolding)
+        items = list(bp.SCAFFOLD_ITEMS)
+        return items if scaffolding else [i for i in items if i != sc.BLOCK]
 
     def _fail(self, pos: Pos, reason: str) -> None:
         self.fails[pos] = self.fails.get(pos, 0) + 1
@@ -1016,12 +1033,20 @@ def _run(
             _sweep(runner, template, acts)
         if runner.short:
             need, runner.short = runner.short, {}
+            short_for, runner.short_for = runner.short_for, None
             ask = frozenset(need.items())
             if (
                 on_need_materials is None
                 or ask in refused  # asked before and the tower is still short
                 or not on_need_materials(need)
             ):
+                if on_need_materials is not None and short_for is not None:
+                    # One cell out of reach is not the house: run
+                    # 20261117T140114411942Z stopped at 416 of 1227 placed because a
+                    # pillar to one upper-floor cell wanted 2 dirt nobody had.
+                    refused.add(ask)  # the next cell short the same is not asked again
+                    report.skipped[short_for] = "no_material"
+                    continue
                 report.needed, report.stop = need, "need_materials"
                 break
             refused.add(ask)

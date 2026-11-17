@@ -451,7 +451,8 @@ public final class BodyRuntime implements AutoCloseable {
         var materials = new ArrayList<String>();
         for (var e : p.getAsJsonArray("material_allowlist")) {
             String material = e.getAsString();
-            if (!Set.of("minecraft:cobblestone", "minecraft:dirt").contains(material) || materials.size() >= 64)
+            // Any namespaced block item, in preference order (mclab.temporary_blocks).
+            if (material.indexOf(':') <= 0 || materials.size() >= 64)
                 throw new IllegalArgumentException("terrain_material");
             materials.add(material);
         }
