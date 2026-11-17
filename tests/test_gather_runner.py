@@ -180,6 +180,27 @@ def test_containers_record_position_and_contents():
     assert body.inventory()[M + "oak_log"] == 3
 
 
+def test_a_table_on_the_chest_is_broken_and_put_down_elsewhere():
+    # Run 20261117T013027902540Z: the crafting table sat on the supply chest and
+    # every withdraw failed cannot_open until the job gave up.
+    from mclab.gather_runner import GatherState
+
+    chest, table = (3, 0, 0), (3, 1, 0)
+    world = floor() | {chest: M + "chest", table: M + "crafting_table"}
+    body = FakeGatherBody(K, world)
+    body.boxes[chest] = {M + "oak_log": 4}
+    state = GatherState(stations={"crafting_table": table})
+    tasks = PlanResult((Withdraw(((M + "oak_log", 2),), chest),), (), 0.0)
+
+    report = run_gather(tasks, body, K, state=state)
+
+    assert report.stop == "done", report
+    assert body.inventory()[M + "oak_log"] == 2
+    moved = state.stations["crafting_table"]
+    assert moved != table and body.w[moved] == M + "crafting_table"
+    assert body.w.get(table) in (None, M + "air")
+
+
 def test_a_run_whose_walks_never_arrive_stops_stalled():
     # The treeless-shore guard (run 20261102T120137588638Z: 100,000 ticks): the
     # watchdog counts an arrived ring leg as progress, so the guard for a body

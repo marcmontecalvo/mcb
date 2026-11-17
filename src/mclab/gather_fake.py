@@ -412,6 +412,9 @@ class FakeGatherBody:
     def container(self, pos, action, items=None):
         if not self._near("minecraft:chest", pos):
             return Result(False, "not_a_container")
+        above = self.w.get((pos[0], pos[1] + 1, pos[2]))
+        if above is not None and bp.parse_state(above)[0] not in bp.AIR:
+            return Result(False, "cannot_open")  # a block on top keeps the lid shut
         box = self.boxes.setdefault(pos, {})
         wanted = (
             []

@@ -304,6 +304,16 @@ def _held(inv: dict[str, int], suffix: str) -> str | None:
 
 
 
+_FACING = {
+    "up": (0, 1, 0),
+    "down": (0, -1, 0),
+    "north": (0, 0, -1),
+    "south": (0, 0, 1),
+    "west": (-1, 0, 0),
+    "east": (1, 0, 0),
+}
+
+
 def _lid_below(state: str) -> bool:
     """A chest or shulker box: a block on top keeps it shut. Run
     20261117T013027902540Z put the crafting table on the supply chest and
@@ -1016,6 +1026,8 @@ class _Exec:
             return Result(False, "no_stance")
         items = [{"item": i, "count": n} for i, n in t.items] or None
         result = self.body.container(pos, action, items)
+        if not result.ok and result.reason == "cannot_open" and self.unblock(pos):
+            result = self.body.container(pos, action, items)
         if result.ok:
             contents: dict[str, int] = {}
             for stack in result.data.get("contents") or ():
@@ -1026,6 +1038,38 @@ class _Exec:
             self.state.last_container = pos
             flush_containers(self.body, self.state)
         return result
+
+    def unblock(self, pos: Pos) -> bool:
+        """Clear the block holding a lid shut: a chest opens upwards, a shulker
+        box towards its facing. A station there (run 20261117T013027902540Z: the
+        crafting table on the supply chest) is put down again elsewhere."""
+        state = self.body.world(*pos)
+        if state is None:
+            return False
+        name, props = bp.parse_state(state)
+        dx, dy, dz = (
+            _FACING.get(props.get("facing", "up"), (0, 1, 0))
+            if name.endswith("shulker_box")
+            else (0, 1, 0)
+        )
+        lid = (pos[0] + dx, pos[1] + dy, pos[2] + dz)
+        blocker = self.body.world(*lid)
+        if blocker is None or blocker in bp.AIR:
+            return False  # nothing to clear (a sitting cat, say): fail as before
+        item = bp.parse_state(blocker)[0]
+        station = next((k for k, v in self.state.stations.items() if v == lid), None)
+        broken = self.reach_and_do(lid, lambda: self.body.break_block(lid))
+        if not broken.ok:
+            return False
+        self.collect({item}, lid)
+        if station is not None:
+            del self.state.stations[station]
+            if self.body.inventory().get(item, 0) > 0:
+                # Beside the container, at its level: the body may stand on it.
+                placed, spot = self.place_free(item, item, center=pos)
+                if placed.ok:
+                    self.state.stations[station] = spot
+        return self.body.goto_stance(pos, STATION_REACH)
 
     def run(self, t) -> Result:
         name = type(t).__name__
