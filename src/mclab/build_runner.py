@@ -647,11 +647,15 @@ def _opens_by_hand(ident: str, props: dict) -> bool:
     return ident.endswith("_fence_gate")
 
 
+def _within(box, pos) -> bool:
+    return all(lo <= v <= hi for lo, v, hi in zip(box[0], pos, box[1], strict=True))
+
+
 def record_build(knowledge, template: bp.Template, phase: str) -> None:
     """Put the build's `structure` fact and one `entrance` per hand-opened door.
 
-    A door's `facing` is the way you walk in: inside is one cell along it,
-    outside one cell against it, both at the door's own (floor) level.
+    Inside is the door's neighbour (along its `facing` axis, at the door's own
+    floor level) that lies within the structure's box; `facing` only breaks a tie.
     """
     cells = [p for p, s in template.cells.items() if bp.parse_state(s)[0] not in bp.AIR]
     if not cells:
@@ -674,6 +678,8 @@ def record_build(knowledge, template: bp.Template, phase: str) -> None:
             continue
         dx, dz = _FACING[props["facing"]]
         x, y, z = pos
+        if _within(box, (x - dx, y, z - dz)) and not _within(box, (x + dx, y, z + dz)):
+            dx, dz = -dx, -dz  # the footprint, not `facing`, says which side is in
         knowledge.put(
             "entrance",
             f"{x},{y},{z}",

@@ -56,8 +56,8 @@ def test_build_records_structure_and_entrance(tmp_path):
     assert e["value"] == {
         "door": [1, 65, 0],
         "structure": s["subject"],
-        "outside": [1, 65, 1],
-        "inside": [1, 65, -1],
+        "outside": [1, 65, -1],
+        "inside": [1, 65, 1],  # the side within the house box
     }
 
 
