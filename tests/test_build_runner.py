@@ -923,7 +923,7 @@ def test_a_final_audit_waits_for_the_sensor_before_calling_a_built_house_blocked
     assert report.stop == "done"
 
 
-def test_cleanup_runs_with_door_opening_disabled_and_a_blocked_loop_still_repairs_doors(
+def test_cleanup_may_open_doors_and_a_blocked_loop_still_repairs_them(
     monkeypatch,
 ):
     from contextlib import contextmanager
@@ -961,5 +961,6 @@ def test_cleanup_runs_with_door_opening_disabled_and_a_blocked_loop_still_repair
     monkeypatch.setattr(bp, "diff", diff)
     monkeypatch.setattr(br, "_clean_up", cleanup)
     report = br.run_build(template, body, BLOCKS)
-    assert state["in_cleanup"] == [1]
+    # cleanup walks use doors; the body closes them behind it
+    assert state["in_cleanup"] == [0]
     assert report.stop == "done" and not real_diff(template, body.world).uses

@@ -170,9 +170,9 @@ def step_clear(cells, source, target):
     if not standable(cells, source) or not standable(cells, target):
         return False
     if ty > y:
-        # Keep the existing conservative jump envelope on full-block ascents.
-        extra = 1.2 if ty - y > 0.6 else 0
-        return clear_column(
-            cells, x, z, y, max(y + 1.8, ty + 1.8 + extra)
-        ) and clear_column(cells, tx, tz, ty, ty + 1.8 + extra)
+        # Jump room above the take-off, as RoutePlanner.stepClear.
+        top = max(ty + 1.8, y + 1.8 + (1.2 if ty - y > 0.6 else 0))
+        return clear_column(cells, x, z, y, top) and clear_column(
+            cells, tx, tz, ty, top
+        )
     return clear_column(cells, tx, tz, ty, y + 1.8)

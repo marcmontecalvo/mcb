@@ -6,6 +6,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
@@ -13,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Companion moves (edits "doors" / "vines" of a plan request): how the planner and the motor see
@@ -21,6 +23,7 @@ import java.util.Set;
  *   within reach, the way a player walks through (iron doors need redstone and stay walls).
  * - Without vines, a vine cell reads as plain air: it is never climbed (ladders and scaffolding are).
  * Trapdoors are left as they are: open ones are already passable, closed ones are floor.
+ * A door the body opened is closed behind it, as a player keeps mobs out (closeBehind).
  */
 final class BuildingMoves {
     private BuildingMoves() {}
@@ -29,6 +32,9 @@ final class BuildingMoves {
             "minecraft:twisting_vines_plant", "minecraft:weeping_vines", "minecraft:weeping_vines_plant",
             "minecraft:cave_vines", "minecraft:cave_vines_plant");
     private static final double OPEN_REACH = 1.5; // opened once the body is this close
+    private static final double PASSED_BY = 2.5;   // an opened door never walked through closes this far off
+    /** Doors each body opened, and whether it has been in the doorway since. */
+    private static final Map<UUID, Map<BlockPos, Boolean>> OPENED = new HashMap<>();
 
     static boolean opensByHand(String block) {
         return block != null && !block.equals("minecraft:iron_door")
@@ -63,6 +69,31 @@ final class BuildingMoves {
                 continue;
             if (player.position().distanceTo(Vec3.atBottomCenterOf(pos)) > OPEN_REACH) continue;
             state.useWithoutItem(level, player, new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false));
+            OPENED.computeIfAbsent(player.getUUID(), k -> new HashMap<>()).put(pos.immutable(), false);
         }
+    }
+
+    /** Close each door this body opened once it has walked through and out of the doorway. */
+    static void closeBehind(ServerPlayer player) {
+        var doors = OPENED.get(player.getUUID());
+        if (doors == null) return;
+        var level = player.level();
+        var box = player.getBoundingBox();
+        for (var it = doors.entrySet().iterator(); it.hasNext(); ) {
+            var door = it.next();
+            BlockPos pos = door.getKey();
+            BlockState state = level.getBlockState(pos);
+            if (!state.hasProperty(BlockStateProperties.OPEN) || !state.getValue(BlockStateProperties.OPEN)) {
+                it.remove(); // broken, or closed already
+                continue;
+            }
+            // Either half of a door may be the one recorded: the doorway spans the cell below and above.
+            var doorway = new AABB(pos.getX(), pos.getY() - 1, pos.getZ(), pos.getX() + 1, pos.getY() + 2, pos.getZ() + 1);
+            if (box.intersects(doorway)) { door.setValue(true); continue; }
+            if (!door.getValue() && player.position().distanceTo(Vec3.atBottomCenterOf(pos)) <= PASSED_BY) continue;
+            state.useWithoutItem(level, player, new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false));
+            it.remove();
+        }
+        if (doors.isEmpty()) OPENED.remove(player.getUUID());
     }
 }

@@ -948,9 +948,11 @@ final class RoutePlanner {
         if (!standable(source) || !standable(target)) return false;
         boolean clear;
         if (target.y > source.y) {
-            double extra = target.y - source.y > .6 ? 1.2 : 0;
-            clear = clearColumn(source.x, source.z, source.y, Math.max(source.y + 1.8, target.y + 1.8 + extra))
-                    && clearColumn(target.x, target.z, target.y, target.y + 1.8 + extra);
+            // Jump room is above the take-off (feet peak 1.25 up): a block step into a
+            // 2-high doorway under a roof is open, as in Baritone's MovementAscend
+            // (small house run 20261116T234547601261Z searched 10000 nodes past one).
+            double top = Math.max(target.y + 1.8, source.y + 1.8 + (target.y - source.y > .6 ? 1.2 : 0));
+            clear = clearColumn(source.x, source.z, source.y, top) && clearColumn(target.x, target.z, target.y, top);
         } else clear = clearColumn(target.x, target.z, target.y, source.y + 1.8);
         if (!clear) return false;
         // A clear stance centre can hide a thin entry-face obstacle (an open

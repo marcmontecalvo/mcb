@@ -893,8 +893,7 @@ def _run(
             on_progress(report, False)
     no_doors = getattr(body, "no_opening_doors", nullcontext)
     if report.stop != "need_materials":
-        # a cleanup walk that opens a door leaves it open (run 20261116T234547601261Z)
-        with calm(), no_doors():
+        with calm():
             _clean_up(runner, template, scaffolds)
     if report.stop in ("done", "blocked"):
         # the final audit below decides: a clean diff is done, whatever the loop said

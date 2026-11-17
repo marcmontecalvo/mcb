@@ -311,6 +311,7 @@ public final class BodyRuntime implements AutoCloseable {
         if (body != null && body.player() != null && readyState.equals("ready") && !courseLimits
                 && extendedObservation && !nativeMode && legacyMoving && routePermissions.doors())
             BuildingMoves.openNear(body.player());
+        if (body != null && body.player() != null && body.player().isAlive()) BuildingMoves.closeBehind(body.player());
         if (!tickReflex()) { tickRoute(); tickStep(); tickGap(); }
         tickBreak();
         tickLeak();

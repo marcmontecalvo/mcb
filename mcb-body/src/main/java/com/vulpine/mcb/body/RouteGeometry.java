@@ -311,7 +311,8 @@ final class RouteGeometry implements RouteMotor.Geometry {
             if (sample == 0) required = cut ? Math.min(2, Math.max(1, supported)) : Math.max(1, supported);
             if (supported == 0 || supported < required) return false;
             double bottom = Math.max(pose.y(), topSupport);
-            if (!clear(x, z, bottom, bottom + 1.8 + (jumping ? 1.2 : 0))) return false;
+            // Jump room is measured from the take-off (RoutePlanner.stepClear).
+            if (!clear(x, z, bottom, Math.max(bottom + 1.8, jumping ? originY + 3.0 : 0))) return false;
         }
         return true;
     }

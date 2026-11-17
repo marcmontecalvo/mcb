@@ -234,6 +234,8 @@ public final class RouteMotorTest {
         check(!slow.jump(),"standing start keeps the short jump range");
         var run=motor(route).tick(new RouteMotor.Pose(1.2,1,.5,.25,0,-90,true,20),g);
         check(run.sprint() && !run.jump(),"sprint continues through the traverse before the ascent");
+        var porch=floor(); porch.putAll(cells); porch.put(new Key(3,4,0),stone()); porch.put(new Key(4,4,0),stone());
+        check(motor(route).tick(fast,geometry(porch)).jump(),"jumps up into a roofed 2-high doorway");
         var walking=new RouteMotor("w",route,new RouteMotor.Policy(true,false,true,3));
         check(!walking.tick(fast,g).sprint(),"sprint policy off");
         var bend=List.of(new RouteMotor.Point(1,1,0),new RouteMotor.Point(2,1,0),new RouteMotor.Point(3,2,0),new RouteMotor.Point(3,2,1));

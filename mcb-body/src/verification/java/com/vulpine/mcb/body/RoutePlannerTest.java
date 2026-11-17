@@ -52,6 +52,15 @@ public final class RoutePlannerTest {
         for (int z = -2; z <= 12; z++) if (z != 0) { step.put(new Key(3, 1, z), stone()); step.put(new Key(3, 2, z), stone()); step.put(new Key(3, 3, z), stone()); }
         var up = plan(step, new RoutePlanner.Node(3, 2, 0), 100_000);
         check(up.status().equals("reached"), "climbs a one-block step");
+        // House doorway: floor one block up, 2-high opening, roof right above it (y=4).
+        var porch = floor(6);
+        for (int z = -2; z <= 6; z++) { porch.put(new Key(3, 1, z), stone()); porch.put(new Key(3, 4, z), stone()); }
+        for (int z = -2; z <= 6; z++) if (z != 0) { porch.put(new Key(3, 2, z), stone()); porch.put(new Key(3, 3, z), stone()); }
+        var door = plan(porch, new RoutePlanner.Node(3, 2, 0), 10_000);
+        check(door.status().equals("reached") && door.expanded() < 100, "steps up into a roofed 2-high doorway");
+        for (int z = -2; z <= 6; z++) porch.put(new Key(2, 3, z), stone());
+        check(!plan(porch, new RoutePlanner.Node(3, 2, 0), 10_000).status().equals("reached"),
+                "no jump room above the take-off: no step");
         // Small-house shutter: the goal centre is clear, but its entry face is not.
         var shutter = floor(4);
         shutter.put(new Key(1, 1, 0), stone());
