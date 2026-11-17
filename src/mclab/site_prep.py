@@ -194,6 +194,7 @@ class _Plan:
     fills: list[Pos] = field(default_factory=list)
     unknown: list[Pos] = field(default_factory=list)
     blocked: dict[Pos, str] = field(default_factory=dict)
+    held: set[Pos] = field(default_factory=set)  # skipped fills, retried bottom up
 
 
 def plan_site(
@@ -351,7 +352,8 @@ def prepare_site(
             stuck = [
                 p
                 for p, w in report.skipped.items()
-                if w in {"could not clear", "no_stance"} and site.contains(p)
+                if site.contains(p)
+                and (w in {"could not clear", "no_stance"} or p in plan.held)
             ]
             if stuck and not retried:
                 # Given up before the fill: with the ground now whole there is a
@@ -834,7 +836,18 @@ def _round_plan(site, template, body, protected, skipped) -> _Plan:
         site, template, body.world, protected, getattr(body, "has_face", None)
     )
     plan.breaks = [p for p in plan.breaks if p not in skipped]
-    plan.fills = [p for p in plan.fills if p not in skipped]
+    # A fill over a skipped fill would bury it: no face, no retry ever reaches it
+    # again (run 20261117T043111369210Z: seagrass skipped from a far stance, dirt
+    # put on top, site blocked). The column waits for the retry, bottom up.
+    plan.held = {q for q in skipped if q in plan.fills}  # fill cells, any reason
+    floor: dict[tuple[int, int], int] = {}
+    for q in plan.held:
+        floor[q[::2]] = min(q[1], floor.get(q[::2], q[1]))
+    plan.fills = [
+        p
+        for p in plan.fills
+        if p not in skipped and p[1] < floor.get(p[::2], p[1] + 1)
+    ]
     for p, why in skipped.items():  # cells whose edits failed are reported, not retried
         if site.contains(p):
             plan.blocked[p] = why

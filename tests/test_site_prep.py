@@ -102,6 +102,31 @@ def test_site_retries_early_no_stance_after_surrounding_ground_is_ready():
     assert cell not in report.skipped
 
 
+def test_a_skipped_fill_is_never_buried_and_is_retried_bottom_up():
+    # run 20261117T043111369210Z: a pond-bottom fill was skipped from a far stance
+    # (state_unreachable); the next round filled the cell above it, burying it,
+    # and the site ended blocked
+    from types import SimpleNamespace
+
+    t = template()
+    site, world = mixed_world(t)
+    x, g, z = site.x0, site.ground_y, site.z0
+    low, top = (x, g - 1, z), (x, g, z)
+    world[low], world[top] = AIR, AIR
+    body = FakeBody(world, {DIRT: 10}, BLOCKS, pos=(x - 1, g + 1, z))
+    report = br.BuildReport()
+    report.skipped[low] = "state_unreachable"
+    held = sp._round_plan(site, t, body, frozenset(), report.skipped)
+    assert top not in held.fills and low in held.held
+    runner = SimpleNamespace(
+        report=report, max_steps=100, fails={low: 3}, avoid={low: set()}
+    )
+    result = sp.prepare_site(t, body, runner, site)
+    assert result.stop == "ready"
+    assert world[low] == DIRT and world[top] == DIRT
+    assert low not in report.skipped
+
+
 def test_leaf_in_future_house_cell_is_cleared_before_filling_below_it():
     t = template()
     site, world = mixed_world(t)
