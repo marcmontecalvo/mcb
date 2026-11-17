@@ -170,6 +170,7 @@ final class BodyBuild {
         var out = new LinkedHashMap<String, Object>();
         out.put("pos", List.of(pos.getX(), pos.getY(), pos.getZ()));
         out.put("placed", placed);
+        out.put("collision_boxes", PolicySensor.collisionBoxes(level, pos));
         out.put("face", chosen.getDirection().getSerializedName());
         out.put("hit", vec(chosen.getLocation()));
         out.put("yaw", chosenYaw);
@@ -245,6 +246,7 @@ final class BodyBuild {
         out.put("pos", List.of(pos.getX(), pos.getY(), pos.getZ()));
         out.put("before", render(before));
         out.put("after", render(level.getBlockState(pos)));
+        out.put("collision_boxes", PolicySensor.collisionBoxes(level, pos));
         return out;
     }
 

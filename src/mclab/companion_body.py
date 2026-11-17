@@ -558,7 +558,7 @@ class CompanionBody:
         self._obs: dict = {}
         self._inv: dict[str, int] = {}
         self._rows: list[dict] = []  # the per-slot rows behind _inv
-        self._overlay: dict[Pos, tuple[str, int]] = {}
+        self._overlay: dict[Pos, tuple[str, int, list | None]] = {}
         self.log: list[dict] = []  # one row per op or goto, for the results folder
         self.places: PlaceGraph | None = None  # named waypoints (start_session)
         self.policies: list[dict] = []
@@ -592,7 +592,7 @@ class CompanionBody:
         # placed closed and the motor then walked through stayed "closed" in the
         # overlay for 200 ticks, so the final door repair saw nothing to fix (run
         # 20261112T032720895516Z, door [-19, 65, 58] opened at tick 3402).
-        for pos, (_, at) in list(self._overlay.items()):
+        for pos, (_, at, _boxes) in list(self._overlay.items()):
             sensed_at = self.memory.live_observed_tick(pos)
             if sensed_at is not None and sensed_at > at:
                 del self._overlay[pos]
@@ -799,7 +799,14 @@ class CompanionBody:
         self.log.append({"op": name, "ok": result.ok, "reason": result.reason})
         return result
 
-    def _remember(self, pos: Pos, state: str | None, tick: int | None = None) -> None:
+    def _remember(
+        self,
+        pos: Pos,
+        state: str | None,
+        tick: int | None = None,
+        boxes: list | None = None,
+    ) -> None:
+        """``boxes``: the cell's real collision boxes from the body's edit result."""
         if state:
             self._failed_stance_probes.clear()
             self._navigation_idle.update(
@@ -808,13 +815,19 @@ class CompanionBody:
                 ),
                 since=time.monotonic(),
             )
-            self._overlay[tuple(pos)] = (state, self._tick() if tick is None else int(tick))
+            self._overlay[tuple(pos)] = (
+                state,
+                self._tick() if tick is None else int(tick),
+                boxes,
+            )
 
     def place_block(self, pos: Pos, state: str, item: str) -> Result:
         result = self.op("place_block", pos=list(pos), state=state, item=item)
         if result.ok:
             placed = result.data.get("placed")
-            self._remember(pos, placed, result.data.get("_event_tick"))
+            self._remember(
+                pos, placed, result.data.get("_event_tick"), result.data.get("collision_boxes")
+            )
             kind = (placed or "").split("[")[0].removeprefix("minecraft:")
             if kind in RECORDED_BLOCKS:
                 self._record(kind, pos)
@@ -905,7 +918,12 @@ class CompanionBody:
         extra = {"item": item} if item else {}
         result = self.op("use_block", pos=list(pos), **extra)
         if result.ok:
-            self._remember(pos, result.data.get("after"), result.data.get("_event_tick"))
+            self._remember(
+                pos,
+                result.data.get("after"),
+                result.data.get("_event_tick"),
+                result.data.get("collision_boxes"),
+            )
         return result
 
     def break_block(
@@ -1431,17 +1449,20 @@ class CompanionBody:
         placed a moment ago is not sensed yet, and the sight check must not look
         through it (run 20261102T221946087817Z)."""
         tick = self._tick()
-        recent = {
-            pos: {
-                "block": parse_state(state)[0],
-                "fluid": "minecraft:empty",
-                "collision_boxes": []
-                if parse_state(state)[0] in AIR_BLOCKS
-                else [[0, 0, 0, 1, 1, 1]],
-            }
-            for pos, (state, at) in self._overlay.items()
-            if tick - at <= OVERLAY_TICKS
-        }
+        recent = {}
+        for pos, (state, at, boxes) in self._overlay.items():
+            if tick - at > OVERLAY_TICKS:
+                continue
+            block = parse_state(state)[0]
+            if boxes is None:
+                # Old body or fake: the sensed cell already holding this block has the
+                # real shape; else a full cube (a placed trapdoor or torch is not one).
+                sensed = self.memory.cells.get(pos)
+                if sensed is not None and sensed.get("block") == block:
+                    boxes = sensed.get("collision_boxes")
+            if boxes is None:
+                boxes = [] if block in AIR_BLOCKS else [[0, 0, 0, 1, 1, 1]]
+            recent[pos] = {"block": block, "fluid": "minecraft:empty", "collision_boxes": boxes}
         # ponytail: a lookup view, never a copy. Copying the whole sensed map here was
         # 79% of build time, ~13 s per placed block (py-spy, run 20261110T024448883505Z)
         return ChainMap(recent, self.memory.cells) if recent else self.memory.cells

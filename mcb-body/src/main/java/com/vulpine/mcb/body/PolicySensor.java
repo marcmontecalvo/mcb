@@ -24,6 +24,11 @@ public final class PolicySensor {
     }
 
     /** Never force-loads a chunk. Null means unavailable or occluded, never air. */
+    /** The cell's real collision boxes, relative to the block: the sensor's and the edit results' shared format. */
+    static List<List<Double>> collisionBoxes(net.minecraft.world.level.BlockGetter level,BlockPos pos) {
+        return level.getBlockState(pos).getCollisionShape(level,pos).toAabbs().stream()
+                .map(box->List.of(box.minX,box.minY,box.minZ,box.maxX,box.maxY,box.maxZ)).toList();
+    }
     static Map<String,Object> cell(ServerPlayer p,int tick,BlockPos pos,boolean occluded) {
             // getChunkNow returns only a currently available full chunk, without loading it.
             var chunk=p.level().getChunkSource().getChunkNow(pos.getX()>>4,pos.getZ()>>4);
@@ -47,8 +52,7 @@ public final class PolicySensor {
             if(visible) {
                 var properties=new TreeMap<String,String>();
                 for(var property:state.getProperties()) addProperty(properties,state,property);
-                var boxes=state.getCollisionShape(p.level(),pos).toAabbs().stream()
-                        .map(box->List.of(box.minX,box.minY,box.minZ,box.maxX,box.maxY,box.maxZ)).toList();
+                var boxes=collisionBoxes(p.level(),pos);
                 return Map.of("position",List.of(pos.getX(),pos.getY(),pos.getZ()),
                         "block",BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString(),
                         "properties",Map.copyOf(properties),"observed_tick",tick,

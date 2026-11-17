@@ -907,6 +907,29 @@ def test_stand_height_uses_confirmed_placements_before_the_sensor_catches_up():
     assert b._stand_y(1, 1, 0) == 1
 
 
+def test_a_placed_torch_or_trapdoor_does_not_make_the_cell_above_standable():
+    # Run 20261117T003035144857Z: the overlay gave every placed block a full cube.
+    b, _, _ = body()
+    b._remember((1, 0, 0), "minecraft:torch", None, [])
+    b._remember((3, 0, 0), "minecraft:oak_trapdoor", None, [[0, 0, 0, 1, 0.1875, 1]])
+    b._remember((5, 0, 0), "minecraft:dirt", None, [[0, 0, 0, 1, 1, 1]])
+    assert b._stand_y(1, 1, 0) != 1
+    assert b._stand_y(5, 1, 0) == 1
+    cells = b._cells_now()
+    assert cells[(1, 0, 0)]["collision_boxes"] == []
+    assert cells[(3, 0, 0)]["collision_boxes"] == [[0, 0, 0, 1, 0.1875, 1]]
+    assert not cb.standable(cells, (1, 1, 0))
+
+
+def test_overlay_without_boxes_prefers_the_sensed_cell_of_the_same_block():
+    b, _, _ = body()
+    thin = [[0, 0, 0, 1, 0.1875, 1]]
+    sensed = {"block": "minecraft:oak_trapdoor", "collision_boxes": thin}
+    b.memory.cells[(3, 0, 0)] = sensed
+    b._remember((3, 0, 0), "minecraft:oak_trapdoor[half=bottom]")
+    assert b._cells_now()[(3, 0, 0)]["collision_boxes"] == thin
+
+
 def _stale_idle_body(monkeypatch):
     b, _, _ = body()
     b._obs["body"]["position"] = [20.5, 0.0, 20.5]
