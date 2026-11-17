@@ -228,17 +228,22 @@ def plan_site(
                 continue
             target = template.cells.get(pos)
             wanted = _ident(target) if target else None
-            # Natural logs and foliage still need clearing where a future house
-            # block belongs. In particular a low leaf can roof an unfilled hole.
-            natural = (
-                bool(wanted)
-                and ("_log" in ident or "_leaves" in ident)
-                and ident != wanted
-            )
-            if ident in bp.AIR or (wanted and wanted not in bp.AIR and not natural):
-                continue  # empty, or a cell the builder will handle
-            if natural:  # future template cells do not protect existing vegetation
-                plan.breaks.append(pos)
+            if ident in bp.AIR or ident == wanted:
+                continue  # empty, or already what the house wants
+            if wanted and wanted not in bp.AIR:
+                # A house block goes here, so whatever stands in it comes out anyway.
+                # Cut ground and vegetation now: its dirt is the fill. Leaving it to
+                # the builder kept a mound under the ground floor while the fill ran
+                # dry and the body carved the hillside for dirt instead (run
+                # 20261117T130121185147Z). Fluids, containers and bedrock stay the
+                # builder's business.
+                if not (
+                    ident in bp.FLUIDS
+                    or any(c in ident for c in CONTAINERS)
+                    or any(u in ident for u in UNBREAKABLE)
+                ):
+                    plan.breaks.append(pos)
+                continue
             elif pos in protected or any(c in ident for c in CONTAINERS):
                 plan.blocked[pos] = "protected"
             elif any(u in ident for u in UNBREAKABLE):

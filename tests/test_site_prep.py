@@ -961,3 +961,27 @@ def test_an_unknown_cell_over_a_pond_is_approached_from_dry_footing():
     assert approach
     assert all(w[(x, y - 1, z)] == STONE for x, y, z in approach)
     assert all((x, z) not in pond for x, _, z in approach)
+
+
+def test_ground_standing_where_the_house_goes_is_cut_for_fill_not_left_to_the_builder():
+    # run 20261117T130121185147Z: a dirt mound under the ground floor was left for
+    # the builder while the fill ran dry and the body carved the hillside for dirt
+    site = sp.Site(0, 1, 0, 0, 63, 66, 0)
+    cells = {
+        (0, 64, 0): "minecraft:oak_planks",
+        (0, 65, 0): "minecraft:oak_planks",
+        (1, 64, 0): "minecraft:chest",
+    }
+    world = {
+        (0, 63, 0): DIRT,
+        (0, 64, 0): "minecraft:grass_block",
+        (0, 65, 0): "minecraft:oak_planks",  # already built: left alone
+        (1, 63, 0): DIRT,
+        (1, 64, 0): "minecraft:barrel",  # a container is the builder's business
+    }
+    plan = sp.plan_site(
+        site,
+        bp.Template(cells, (2, 2, 1), (0, 64, 0)),
+        lambda *p: world.get(p, "minecraft:air"),
+    )
+    assert plan.breaks == [(0, 64, 0)] and not plan.blocked
