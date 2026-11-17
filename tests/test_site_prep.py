@@ -569,7 +569,7 @@ def test_fill_can_descend_from_borrow_hill_before_locking_work_surface(
     assert world[hole] == DIRT
 
 
-def test_fill_movement_without_edits_is_bounded_and_retains_stance_failures():
+def test_fill_movement_without_edits_is_bounded_and_hands_over_to_stance_search():
     class Body:
         pos = (0, 64, 0)
 
@@ -599,8 +599,7 @@ def test_fill_movement_without_edits_is_bounded_and_retains_stance_failures():
         report, max_steps = br.BuildReport(), 100
 
     b = Body()
-    with pytest.raises(StallError, match="without a placed block"):
-        sp._fill_sweep(b, Runner, [(i, 63, 0) for i in (1, 5, 9, 13)], 64, 63)
+    assert sp._fill_sweep(b, Runner, [(i, 63, 0) for i in (1, 5, 9, 13)], 64, 63) == 0
     assert len(b.moves) == 4
     assert len(b.attempts) == len(set(b.attempts)) == 1
 

@@ -768,10 +768,10 @@ def _fill_sweep(
                 failed_stances[pos, here] = placed
             continue
         if walks_without_edit >= 4:
-            raise StallError(
-                f"site fill: {walks_without_edit} approaches without a placed block "
-                f"at {body.position()}"
-            )
+            # nothing left in reach of a dry rim: hand the rest to the per-cell
+            # stance search, which may stand lower (run 20261117T035331768325Z: a
+            # pond cell two below the ground, 4.36 from every rim eye, ended the run)
+            break
         rest = [p for p in todo if p not in walked]
         if not rest or not walk:
             break
