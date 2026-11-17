@@ -550,3 +550,47 @@ def test_floor_over_water_is_filled_with_dirt_before_it_is_placed():
     # no dirt: ask for it rather than placing the floor over water
     acts = bp.next_actions(template, at(w), BLOCKS, {PLANKS: 5})
     assert all(not isinstance(a, bp.Place) for a in acts)
+
+
+def test_work_in_reach_above_the_lowest_layer_is_offered_where_its_column_is_done():
+    # Two columns built to y1 at x 0..1 and one far cell at x 12 still missing at y0.
+    # The body stands at (0, 2, 0): the y2 cells over finished columns are in reach and
+    # are offered; the far hole does not send it back down first.
+    cells = {(x, y, 0): PLANKS for x in range(2) for y in range(3)} | {
+        (12, 0, 0): PLANKS
+    }
+    t = bp.Template.from_build(make_build(cells, (13, 3, 1)), (0, 0, 0))
+    w = flat_world(hi=14)
+    for x in range(2):
+        w[(x, 0, 0)] = w[(x, 1, 0)] = PLANKS
+
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10}, near=(0, 2, 0))
+
+    assert {a.pos for a in acts} == {(0, 2, 0), (1, 2, 0), (12, 0, 0)}
+    # without a body position the layer rule stands
+    assert [a.pos for a in bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10})] == [
+        (12, 0, 0)
+    ]
+
+
+def test_a_cell_in_reach_is_never_placed_over_a_missing_cell_in_its_column():
+    cells = {(0, y, 0): PLANKS for y in range(3)} | {(12, 0, 0): PLANKS}
+    t = bp.Template.from_build(make_build(cells, (13, 3, 1)), (0, 0, 0))
+    w = flat_world(hi=14)
+    w[(0, 0, 0)] = PLANKS  # (0, 1, 0) is still a hole under (0, 2, 0)
+
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10}, near=(1, 2, 0))
+
+    assert (0, 2, 0) not in {a.pos for a in acts}
+
+
+def test_a_far_break_waits_for_the_placing_in_reach():
+    cells = {(0, 0, 0): PLANKS, (12, 0, 0): AIR}
+    t = bp.Template.from_build(make_build(cells, (13, 1, 1)), (0, 0, 0))
+    w = flat_world(hi=14)
+    w[(12, 0, 0)] = COBBLE
+
+    near = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10}, near=(1, 1, 0))
+    assert [type(a).__name__ for a in near] == ["Place"]
+    far = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10}, near=(30, 1, 0))
+    assert [a.pos for a in far] == [(12, 0, 0)]

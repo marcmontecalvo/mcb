@@ -813,7 +813,35 @@ def test_stage_fill_equips_dirt_that_sits_outside_the_hotbar():
     # planner refused every pillar edit and reported "unreachable" from a pit.
     b, bridge = _stocked(14, cb.DIG_TERRAIN)
     assert b.stage_fill() == "minecraft:dirt"
-    assert bridge.sent[-1] == ("equip", {"item": "minecraft:dirt"})
+    assert bridge.sent[-1] == ("equip", {"item": "minecraft:dirt", "slot": 1})
+
+
+def test_stage_tools_puts_the_axe_on_the_hotbar_over_neither_a_tool_nor_the_fill():
+    # run 20261117T130121185147Z: the iron axe in slot 34, every planned cut through a
+    # log refused at execution, the body circled on the eaves.
+    b, bridge, _ = body()
+    b.terrain_policy = cb.DIG_TERRAIN
+    fill = b.terrain_policy.material_allowlist[0]
+    b._obs["body"]["inventory"] = [
+        {"item": "minecraft:iron_pickaxe", "count": 1, "slot": 0},
+        {"item": fill, "count": 64, "slot": 1},
+        *({"item": "minecraft:oak_planks", "count": 9, "slot": s} for s in range(2, 9)),
+        {"item": "minecraft:stone_axe", "count": 1, "slot": 20},
+        {"item": "minecraft:iron_axe", "count": 1, "slot": 34},
+    ]
+    b.observe = lambda: None
+
+    assert b.stage_tools() == ["minecraft:iron_axe"]
+    assert bridge.sent == [("equip", {"item": "minecraft:iron_axe", "slot": 2})]
+
+
+def test_stage_tools_leaves_a_walk_only_body_alone():
+    b, bridge, _ = body()
+    b.terrain_policy = cb.WALK_TERRAIN
+    b._obs["body"]["inventory"] = [
+        {"item": "minecraft:iron_axe", "count": 1, "slot": 34}
+    ]
+    assert b.stage_tools() == [] and bridge.sent == []
 
 
 def test_stage_fill_leaves_hotbar_stock_and_walk_only_policies_alone():

@@ -69,7 +69,7 @@ from mclab.spatial_memory import (
     SpatialMemory,
     world_archive,
 )
-from mclab.terrain_steps import TerrainPolicy
+from mclab.terrain_steps import TOOL_TIERS, TerrainPolicy
 
 Pos = tuple[int, int, int]
 AIR_BLOCKS = {"minecraft:air", "minecraft:cave_air", "minecraft:void_air"}
@@ -78,6 +78,7 @@ OVERLAY_TICKS = 200  # until the sensor has re-delivered the cell; 40 was too sh
 UNREACHABLE_TICKS = 60
 GOTO_WALL_S = 90.0
 MAIN_SLOTS = 36  # inventory indices 0..35: hotbar and main
+STAGED_TOOLS = ("pickaxe", "axe", "shovel")  # kept on the hotbar (stage_tools)
 
 # Per-world knowledge that outlives sessions (git-ignored runtime/).
 WORLD_MEMORY = RUNTIME / "world-memory"
@@ -977,8 +978,10 @@ class CompanionBody:
             self._record("furnace", pos)
         return result
 
-    def equip(self, item: str) -> Result:
-        return self.op("equip", item=item)
+    def equip(self, item: str, slot: int | None = None) -> Result:
+        if slot is None:
+            return self.op("equip", item=item)
+        return self.op("equip", item=item, slot=slot)
 
     def _axe(self) -> str | None:
         tiers = ("wooden", "golden", "stone", "copper", "iron", "diamond", "netherite")
@@ -1016,14 +1019,65 @@ class CompanionBody:
         policy = self.terrain_policy
         if not (policy.allow_pillar or policy.allow_bridge or policy.allow_place):
             return None
-        rows = ((self._obs or {}).get("body") or {}).get("inventory") or []
+        rows = self._inventory_rows()
         for item in policy.material_allowlist:
             held = [r for r in rows if r.get("item") == item and r.get("count", 0) > 0]
             if held and not any(0 <= r.get("slot", -1) < 9 for r in held):
-                if self.equip(item).ok:
+                if self.equip(item, self._spare_hotbar_slot(rows)).ok:
                     self.observe()
                     return item
         return None
+
+    def _inventory_rows(self) -> list:
+        return ((self._obs or {}).get("body") or {}).get("inventory") or []
+
+    def _spare_hotbar_slot(self, rows) -> int | None:
+        """A hotbar slot to swap into that holds neither a staged tool nor fill
+        material: an empty one first. None leaves the choice to the server."""
+        hot = {
+            r.get("slot"): r.get("item")
+            for r in rows
+            if 0 <= r.get("slot", -1) < 9 and r.get("count", 0) > 0
+        }
+        kept = set(self.terrain_policy.material_allowlist)
+        spare = [s for s in range(9) if s not in hot]
+        spare += [
+            s
+            for s in range(9)
+            if s in hot
+            and hot[s] not in kept
+            and not any(hot[s].endswith(f"_{k}") for k in STAGED_TOOLS)
+        ]
+        return spare[0] if spare else None
+
+    def stage_tools(self) -> list[str]:
+        """The planner prices breaks with a tool, the executor only cuts with one on the
+        hotbar (terrain_steps.hotbar). Put the best pickaxe, axe and shovel held in
+        the main inventory onto the hotbar, never over another tool or the fill.
+        (Run 20261117T130121185147Z: the iron axe sat in slot 34, every planned cut
+        through a log was refused at execution and replanned, the body went round in
+        circles on the eaves.) Returns the tools moved."""
+        if not self.terrain_policy.allow_break:
+            return []
+        moved = []
+        for kind in STAGED_TOOLS:
+            rows = self._inventory_rows()
+            tools = [f"minecraft:{tier}_{kind}" for tier in TOOL_TIERS]
+            held = [
+                r
+                for r in rows
+                if r.get("item") in tools and r.get("count", 0) > 0
+            ]
+            if not held or any(0 <= r.get("slot", -1) < 9 for r in held):
+                continue
+            best = min(held, key=lambda r: tools.index(r["item"]))["item"]
+            slot = self._spare_hotbar_slot(rows)
+            if slot is None:
+                break
+            if self.equip(best, slot).ok:
+                self.observe()
+                moved.append(best)
+        return moved
 
     def _planner_terrain(self):
         """The policy the route planner gets. A protected cell (the house) that holds
@@ -1177,6 +1231,7 @@ class CompanionBody:
             return self._navigate(
                 goal, reach=reach, radius=radius, probe=probe, progress=progress
             )
+        self.stage_tools()
         self.stage_fill()
         # ponytail: the bridge keeps every event and observation and its ack waits
         # rescan all of them; after 835 blocks (run 20261110T075452397123Z, 18.6 GB)

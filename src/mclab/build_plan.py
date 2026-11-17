@@ -563,6 +563,9 @@ def inside_corner(template: Template, pos: Pos) -> bool:
     return any(a[0] * b[0] + a[1] * b[1] == 0 for a in solid for b in solid if a != b)
 
 
+WORK_REACH = 4.5  # the body's block interaction range
+
+
 def next_actions(
     template: Template,
     world,
@@ -594,6 +597,9 @@ def next_actions(
             return 0
         return sum((a - b) ** 2 for a, b in zip(p, near, strict=False))
 
+    def _in_reach(p):  # from where the body stands, without walking
+        return near is not None and far(p) <= WORK_REACH**2
+
     def is_canopy_leaf(p):
         return (
             (s := world(*p))
@@ -609,9 +615,9 @@ def next_actions(
         ),
         key=lambda p: (is_canopy_leaf(p), p[1], far(p), p[0], p[2]),
     )
-    if breaks:
+    if breaks and (near is None or any(_in_reach(p) for p in breaks)):
         return [Break(p) for p in breaks[:limit]]
-    if d.uses:
+    if d.uses and not breaks:
         uses = sorted(d.uses, key=lambda u: (u[0][1], far(u[0]), u[0][0], u[0][2]))
         acts: list = []
         missing: dict[str, int] = {}
@@ -669,6 +675,22 @@ def next_actions(
     ]
     lowest = min(waiting, default=None)
     others_left = any(not _is_door(t[1]) for t in todo)
+    # Work from where the body stands: a cell above the lowest layer that is in reach
+    # now and has nothing left to place under it in its own column is offered too, so
+    # a body that climbed to the roof finishes the roof there instead of being sent
+    # back down for one low cell and coming up again (run 20261117T130121185147Z).
+    # The column rule keeps what the layer rule was for: nothing is built over a
+    # missing cell (a wall over a missed floor corner, run 20261102T212736219778Z).
+    below_todo: dict = {}
+    for t in todo:
+        if parse_state(t[1])[0] in FLUIDS or (skipped is not None and t[0] in skipped):
+            continue
+        col = (t[0][0], t[0][2])
+        below_todo[col] = min(below_todo.get(col, t[0][1]), t[0][1])
+
+    def _pending_below(pos):
+        return below_todo.get((pos[0], pos[2]), pos[1]) < pos[1]
+
     left = dict(inventory)
     out: list = []
     # ponytail: run 20261110T150634125260Z built walls to y 69 with the staircase and
@@ -685,7 +707,9 @@ def next_actions(
     for pos, state, cost, (item, n) in () if starved else todo:
         if len(out) >= limit:
             break
-        if lowest is not None and pos[1] > lowest:
+        if lowest is not None and pos[1] > lowest and not (
+            _in_reach(pos) and not _pending_below(pos)
+        ):
             continue
         # The doorway is the body's way in and out: a door placed while other cells are
         # still missing shut the body inside (it cannot open doors; run
@@ -699,6 +723,9 @@ def next_actions(
             for i, c in cost.items():
                 left[i] -= c
             out.append(Place(pos, state, item, n))
+    if breaks:  # none in reach: place what is in reach here, then walk to the breaks
+        out = [a for a in out if _in_reach(a.pos)]
+        return out or [Break(p) for p in breaks[:limit]]
     if out:
         return out
 

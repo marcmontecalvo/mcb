@@ -200,6 +200,11 @@ final class BodyActions {
         int hotbar = found;
         if (found >= 9) {
             hotbar = -1;
+            // "slot": the hotbar slot to swap into (the caller keeps its tools and fill there).
+            if (request.has("slot")) {
+                hotbar = request.get("slot").getAsInt();
+                if (hotbar < 0 || hotbar > 8) throw new Fail("bad_slot");
+            }
             for (int i = 0; i < 9 && hotbar < 0; i++) if (inventory.getItem(i).isEmpty()) hotbar = i;
             if (hotbar < 0) hotbar = inventory.getSelectedSlot();
             if (player.containerMenu != player.inventoryMenu) player.closeContainer();

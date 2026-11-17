@@ -78,12 +78,13 @@ WIDE_EXCAVATABLE = {
     },
 }
 # Extra price (ticks) to break one cell of the build on top of its block's break cost
-# (~16-18 ticks for 2-hardness blocks with iron, plus EDIT_STEP 15). A walk is 4.6
-# ticks/block, so one broken wall cell (~50 ticks all in) equals a ~11-block detour,
-# and a 2-high doorway cut (~100) a ~22-block one: the planner walks round unless the
-# way round is much longer or does not exist. Far above break_penalty 3.0, which
-# prices ordinary terrain in the non-tick model.
-BUILD_BREAK_COST = 24.0
+# (~16-18 ticks for 2-hardness blocks with iron, plus EDIT_STEP 15). The house is
+# broken only when it has to be: a walk is 3.6-4.6 ticks/block, so one wall cell
+# (~330 ticks all in, the re-place after included) equals a ~70-90 block detour and a
+# 2-high doorway cut twice that. Live run 20261117T130121185147Z at 24 (an ~11-block
+# detour): the body cut through the balcony wall, put it back and shut itself out on
+# the eaves rather than take the stairs and the scaffolding up.
+BUILD_BREAK_COST = 300.0
 IRON_SPEED = 6.0  # ItemTier IRON mining speed; the natural kit carries iron tools
 BREAK_EXTRA_TICKS = 2.0  # Baritone blockBreakAdditionalPenalty (default 2)
 PLACE_TICKS = 20.0  # Baritone placeBlockCost (default 20)
