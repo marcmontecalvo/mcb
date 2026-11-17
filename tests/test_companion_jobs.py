@@ -3,7 +3,7 @@ from pathlib import Path
 
 from test_build_plan import make_build
 
-from mclab.companion_jobs import build_job
+from mclab.companion_jobs import FOOD_KEEP, _food_topup, build_job
 from mclab.gather_fake import FakeGatherBody
 from mclab.gather_runner import GatherState
 from mclab.knowledge import load_pack
@@ -205,3 +205,35 @@ def test_a_refill_records_what_was_asked_gained_and_still_short():
     assert row["gained"] == {"minecraft:oak_planks": 6}
     assert row["short"] == {"minecraft:oak_planks": 10, "minecraft:stone": 4}
     assert row["source"] == "gather:done" and row["ok"] is True
+
+
+def test_the_body_carries_food_from_the_supply_chest_into_the_build(tmp_path):
+    beef = M + "cooked_beef"
+    w = world()
+    w[(2, 0, 2)] = M + "chest"
+    body = FakeGatherBody(K, w, {})
+    body.boxes[(2, 0, 2)] = {PLANKS: 9, COBBLE: 3, beef: 32}
+    state = GatherState(containers={(2, 0, 2): {PLANKS: 9, COBBLE: 3, beef: 32}})
+
+    report = build_job(small_template(tmp_path), (4, 0, 4), 0, body, K, state=state)
+
+    assert report.stop == "built"
+    assert body.inv.get(beef) == FOOD_KEEP
+    assert body.boxes[(2, 0, 2)][beef] == 32 - FOOD_KEEP
+
+
+def test_a_food_only_refill_takes_food_and_never_gathers(tmp_path):
+    class Hungry:
+        foods = {M + "bread": {"nutrition": 5}, M + "cooked_beef": {"nutrition": 8}}
+
+        def __init__(self, held):
+            self.held = held
+
+        def inventory(self):
+            return dict(self.held)
+
+    chest = {M + "bread": 40, M + "cooked_beef": 3}
+    stored = GatherState(containers={(0, 0, 0): chest})
+    assert _food_topup(Hungry({}), stored) == {M + "cooked_beef": 3}
+    assert _food_topup(Hungry({M + "bread": FOOD_KEEP}), stored) == {}
+    assert _food_topup(Hungry({}), GatherState()) == {}

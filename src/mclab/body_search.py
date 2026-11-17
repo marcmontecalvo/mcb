@@ -155,8 +155,8 @@ def edit_payload(policy, inventory, protected, tool_choice="lowest_sufficient"):
                 breaks[block] = _break_cost(block, True, tool_speed(tools[block]))
             else:
                 breaks[block] = _break_cost(block, *_unsuited_swing(inventory, tool))
-    # The true stock of every allowed building block held, in any slot (stage_fill puts
-    # them on the hotbar before the motor needs them). The old count stopped at the
+    # The true stock of every allowed building block held, in any slot (the control
+    # loop brings one to the hotbar when a step uses it). The old count stopped at the
     # support stack height and saw only the first material: a bot holding cobblestone
     # was sent place_supply 0 and could not pillar out of a hole.
     # The allowlist is in preference order (mclab.temporary_blocks: dirt, cobblestone,

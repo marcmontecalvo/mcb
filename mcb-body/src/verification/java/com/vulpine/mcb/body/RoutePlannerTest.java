@@ -198,6 +198,23 @@ public final class RoutePlannerTest {
         var jumped = new RoutePlanner((x, y, z) -> trench.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0), across, 0, 3, true)
                 .withGaps(2).search(100_000);
         check(jumped.status().equals("reached") && jumped.route().stream().noneMatch(n -> n.x() == 3), "jumps the trench");
+        // A drop that hurts is a last resort: from a 6-high ledge with a staircase down, a
+        // body allowed 12-block drops still takes the stairs; with no stairs it drops.
+        for (boolean stairs : new boolean[] {true, false}) {
+            var ledge = new HashMap<Key, Map<String, Object>>();
+            for (int x = -3; x <= 9; x++) for (int z = -2; z <= 2; z++) for (int y = -1; y <= 9; y++) {
+                boolean tower = (x == 0 || x == 1) && z == 0 && y <= 5;
+                boolean stair = stairs && z == 0 && x >= 2 && x <= 5 && y <= 6 - x;
+                ledge.put(new Key(x, y, z), y == 0 || tower || stair ? stone() : air());
+            }
+            var down = new RoutePlanner((x, y, z) -> ledge.get(new Key(x, y, z)), new RoutePlanner.Node(0, 6, 0),
+                    new RoutePlanner.Node(-1, 1, 0), 0, 12, true).search(100_000);
+            check(down.status().equals("reached"), "gets down from the ledge, stairs " + stairs);
+            boolean dropped = false;
+            for (int i = 1; i < down.route().size(); i++)
+                if (down.route().get(i - 1).y() - down.route().get(i).y() > 3) dropped = true;
+            check(dropped != stairs, stairs ? "takes the stairs over a drop that hurts" : "drops when there are no stairs");
+        }
         // Edits (stage D): a full 3-high stone wall across the floor. Without edits it blocks.
         var solid = floor(12);
         for (int z = -2; z <= 12; z++) for (int y = 1; y <= 4; y++) solid.put(new Key(5, y, z), stone());

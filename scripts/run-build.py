@@ -85,6 +85,7 @@ OFFSETS = [
 STATES = ["minecraft:chest", "minecraft:barrel"]
 SUPPLY_ROUNDS = 8
 SUPPLY_MARGIN = 4  # slack per raw item, so a batch margin never means a search
+SUPPLY_FOOD = {"minecraft:cooked_beef": 32}  # the body carries 16 and eats on the job
 
 
 def supply_contents(build: dict, knowledge, coal: str) -> dict[str, int]:
@@ -95,6 +96,7 @@ def supply_contents(build: dict, knowledge, coal: str) -> dict[str, int]:
     targets = materials_of(build, knowledge)
     give = {i: n for i, n in targets.items() if i not in COAL_CONSUMERS}
     give.update(COAL_FORMS[coal])
+    give.update(SUPPLY_FOOD)
     for _ in range(SUPPLY_ROUNDS):
         # planned against the layout the run will really lay out: a chest's slot
         # count changes how the planner batches and what it prefers to mine

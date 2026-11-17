@@ -60,6 +60,7 @@ final class RoutePlanner {
     private double heuristicWeight = 1;
     private double breakPenalty = 3, placePenalty = 4, toolWearPenalty;
     private final int maxDrop;
+    static final double HURT_TICKS_PER_POINT = 40;
     private final boolean sprint;
     // planner_unknown (D3): plan through unknown space; exits priced at this penalty.
     private final double unknownPenalty;
@@ -948,7 +949,7 @@ final class RoutePlanner {
             var target = new Node(node.x, node.y - h, node.z);
             var c = at(target.x, target.y, target.z);
             if (c == null || !boxes(c).isEmpty()) return;
-            double cost = ticks ? fallTicks(h) : 1 + .4 * h;
+            double cost = (ticks ? fallTicks(h) : 1 + .4 * h) + hurt(h);
             if (swim && submerged(target)) { out.add(new Move(target, cost)); return; }
             if (!dry(c)) return;
             if (stance(target)) { if (h <= maxDrop) out.add(new Move(target, cost)); return; }
@@ -980,10 +981,19 @@ final class RoutePlanner {
     private double flat() { return ticks ? (sprint ? SPRINT : WALK) : 1; }
 
     private double heightCost(double dy) {
-        if (!ticks) return 1 + .4 * Math.abs(dy);
+        if (!ticks) return 1 + .4 * Math.abs(dy) + hurt(-dy);
         if (dy > .5) return Math.max(JUMP, WALK) + (baritoneSearch ? JUMP_PENALTY : 0);  // MovementAscend
-        if (dy < -.5) return WALK_OFF + Math.max(fallTicks(-dy), CENTER_AFTER_FALL);  // Descend/Fall
+        if (dy < -.5) return WALK_OFF + Math.max(fallTicks(-dy), CENTER_AFTER_FALL) + hurt(-dy);  // Descend/Fall
         return flat();
+    }
+
+    /** Health a fall of h costs (one point per block past three), priced as a walk of
+     *  HURT_TICKS_PER_POINT each: a body only drops farther than three blocks when
+     *  allowed to (max_drop past 3, a last resort) and then still takes the stairs or
+     *  a short detour over the drop. A 6-block drop (3 points) is a ~26-block walk. */
+    static double hurt(double h) {
+        double points = Math.ceil(h - 3 - EPS);
+        return points > 0 ? points * HURT_TICKS_PER_POINT : 0;
     }
 
     /** -1 unknown or hazard below, 0 blocked, 1 passable. */

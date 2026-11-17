@@ -304,10 +304,12 @@ final class StepMotor {
         }
         return BreakTask.emptyHotbarSlot(p);
     }
+    /** Hotbar slot of item, brought up from the main inventory when only held there. */
     private static int exactSlot(ServerPlayer p,String item) {
-        for(int n=0;n<9;n++) {
+        for(int n=0;n<36;n++) {  // hotbar first
             var stack=p.getInventory().getItem(n);
-            if(stack.getCount()>0 && BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().equals(item)) return n;
+            if(stack.getCount()>0 && BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().equals(item))
+                return BodyActions.toHotbar(p,n,-1);
         }
         return -1;
     }
@@ -439,7 +441,7 @@ final class StepMotor {
             if(!empty(cell) && !directReplace) return stopInput(tick,"native_placement_not_empty");
             selected=-1; int stock=0;
             for(String material:materials) {
-                for(int n=0;n<9;n++) {
+                for(int n=0;n<36;n++) {  // all of the inventory, hotbar first
                     var stack=p.getInventory().getItem(n);
                     if(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().equals(material)) {
                         stock+=stack.getCount(); if(selected<0 && stack.getCount()>0) selected=n;
@@ -447,6 +449,7 @@ final class StepMotor {
                 }
             }
             if(stock<=reserve) return stopInput(tick,"native_material_reserve");
+            if(selected>=9) selected=BodyActions.toHotbar(p,selected,-1);
             expected=op.point.below(); face="UP";
             int dx=op.point.getX()-source.getX(),dz=op.point.getZ()-source.getZ();
             double progress=(p.getX()-source.getX()-.5)*dx+(p.getZ()-source.getZ()-.5)*dz;

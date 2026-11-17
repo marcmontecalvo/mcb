@@ -71,7 +71,7 @@ from mclab.spatial_memory import (
 )
 from mclab.temporary_blocks import SCAFFOLDING
 from mclab.temporary_blocks import order as temporary_order
-from mclab.terrain_steps import TOOL_TIERS, TerrainPolicy
+from mclab.terrain_steps import TerrainPolicy
 
 Pos = tuple[int, int, int]
 AIR_BLOCKS = {"minecraft:air", "minecraft:cave_air", "minecraft:void_air"}
@@ -80,9 +80,10 @@ OVERLAY_TICKS = 200  # until the sensor has re-delivered the cell; 40 was too sh
 UNREACHABLE_TICKS = 60
 GOTO_WALL_S = 90.0
 MAIN_SLOTS = 36  # inventory indices 0..35: hotbar and main
+EAT_BELOW = 14  # the food bar a body eats at (gather_runner.EAT_BELOW)
+REGEN_FOOD = 18  # health regenerates only at or above this food level
 KEEP_HEALTH = 6  # HP a hurt drop must leave (of 20): three hearts; the user would
 # rather take a few hearts than crawl, pillar or stand exposed (docs/RISK_AND_DAMAGE.md)
-STAGED_TOOLS = ("pickaxe", "axe", "shovel")  # kept on the hotbar (stage_tools)
 
 # Per-world knowledge that outlives sessions (git-ignored runtime/).
 WORLD_MEMORY = RUNTIME / "world-memory"
@@ -697,12 +698,18 @@ class CompanionBody:
         spare = int(self.health()) - KEEP_HEALTH
         return max(3, min(HURT_DROP_MAX, 3 + spare))
 
-    def eat_to_heal(self) -> bool:
-        """Eat the most filling held food when hurt and not full, so health comes
-        back by regeneration. `foods` ({item: facts}) is set by the job from the
-        knowledge pack; without it the body does not know what is food."""
+    def held_food(self) -> int:
         foods = getattr(self, "foods", None) or {}
-        if self.health() >= 20 or self.food() >= 20:
+        return sum(n for i, n in self.inventory().items() if i in foods)
+
+    def eat_when_needed(self) -> bool:
+        """Eat the most filling held food when hungry (EAT_BELOW, as gathering
+        does), or when hurt and the bar is too low to regenerate (REGEN_FOOD).
+        `foods` ({item: facts}) is set by the job from the knowledge pack; without
+        it the body does not know what is food."""
+        foods = getattr(self, "foods", None) or {}
+        food = self.food()
+        if food > EAT_BELOW and (food >= REGEN_FOOD or self.health() >= 20):
             return False
         held = [i for i, n in self.inventory().items() if n > 0 and i in foods]
         if not held:
@@ -1053,76 +1060,6 @@ class CompanionBody:
         return result
 
     # --- navigation --------------------------------------------------------
-    def stage_fill(self) -> str | None:
-        """The planner prices a pillar or bridge edit from hotbar stock only. When the
-        policy allows placing and the allowed material sits in the main inventory
-        (slots 9-35) with none on the hotbar, equip it. Returns the item moved, else
-        None. (Run 20261109T204446994225Z: dirt only in slots 14 and 16, so
-        placeSupply was 0, every pillar edit was refused and the body stood in a pit
-        planning "unreachable".)"""
-        policy = self._with_temporaries(self.terrain_policy)
-        if not (policy.allow_pillar or policy.allow_bridge or policy.allow_place):
-            return None
-        rows = self._inventory_rows()
-        for item in policy.material_allowlist:
-            held = [r for r in rows if r.get("item") == item and r.get("count", 0) > 0]
-            if held and not any(0 <= r.get("slot", -1) < 9 for r in held):
-                if self.equip(item, self._spare_hotbar_slot(rows)).ok:
-                    self.observe()
-                    return item
-        return None
-
-    def _inventory_rows(self) -> list:
-        return ((self._obs or {}).get("body") or {}).get("inventory") or []
-
-    def _spare_hotbar_slot(self, rows) -> int | None:
-        """A hotbar slot to swap into that holds neither a staged tool nor fill
-        material: an empty one first. None leaves the choice to the server."""
-        hot = {
-            r.get("slot"): r.get("item")
-            for r in rows
-            if 0 <= r.get("slot", -1) < 9 and r.get("count", 0) > 0
-        }
-        kept = set(self.terrain_policy.material_allowlist)
-        spare = [s for s in range(9) if s not in hot]
-        spare += [
-            s
-            for s in range(9)
-            if s in hot
-            and hot[s] not in kept
-            and not any(hot[s].endswith(f"_{k}") for k in STAGED_TOOLS)
-        ]
-        return spare[0] if spare else None
-
-    def stage_tools(self) -> list[str]:
-        """The planner prices breaks with a tool, the executor only cuts with one on the
-        hotbar (terrain_steps.hotbar). Put the best pickaxe, axe and shovel held in
-        the main inventory onto the hotbar, never over another tool or the fill.
-        (Run 20261117T130121185147Z: the iron axe sat in slot 34, every planned cut
-        through a log was refused at execution and replanned, the body went round in
-        circles on the eaves.) Returns the tools moved."""
-        if not self.terrain_policy.allow_break:
-            return []
-        moved = []
-        for kind in STAGED_TOOLS:
-            rows = self._inventory_rows()
-            tools = [f"minecraft:{tier}_{kind}" for tier in TOOL_TIERS]
-            held = [
-                r
-                for r in rows
-                if r.get("item") in tools and r.get("count", 0) > 0
-            ]
-            if not held or any(0 <= r.get("slot", -1) < 9 for r in held):
-                continue
-            best = min(held, key=lambda r: tools.index(r["item"]))["item"]
-            slot = self._spare_hotbar_slot(rows)
-            if slot is None:
-                break
-            if self.equip(best, slot).ok:
-                self.observe()
-                moved.append(best)
-        return moved
-
     def _planner_terrain(self):
         """The policy the route planner gets. A protected cell (the house) that holds
         foliage now is not the build's block, and site prep cuts it anyway, so the
@@ -1309,8 +1246,6 @@ class CompanionBody:
             return self._navigate(
                 goal, reach=reach, radius=radius, probe=probe, progress=progress
             )
-        self.stage_tools()
-        self.stage_fill()
         # ponytail: the bridge keeps every event and observation and its ack waits
         # rescan all of them; after 835 blocks (run 20261110T075452397123Z, 18.6 GB)
         # the scans ate the whole 2.5 s probe and no route was ever planned again.

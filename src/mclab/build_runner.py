@@ -342,7 +342,7 @@ class _Runner:
             if drop <= 3:
                 return False
             reached = self.body.goto_stance(pos, REACH, avoid)
-        heal = getattr(self.body, "eat_to_heal", None)  # optional
+        heal = getattr(self.body, "eat_when_needed", None)  # optional
         if heal is not None:
             heal()
         return reached
@@ -519,6 +519,24 @@ def _still_needed(body) -> dict[str, int]:
         return {}
     still = getattr(body, "still_needed", None)
     return still() if still is not None else {}
+
+
+HUNGRY = 6  # a food bar this low with nothing to eat sends the body to the chests
+
+
+def _tend_hunger(body, on_need_materials, hunger: dict) -> None:
+    """Eat between actions when hungry or hurt (optional body methods). Starving
+    with nothing to eat, go to the chests once for food; the build goes on either
+    way, and `hunger["asked"]` keeps it from walking there every action."""
+    eat = getattr(body, "eat_when_needed", None)
+    if eat is None:
+        return
+    eat()
+    if body.held_food() > 0:
+        hunger["asked"] = False
+    elif on_need_materials and not hunger.get("asked") and body.food() <= HUNGRY:
+        hunger["asked"] = True
+        on_need_materials({})  # an empty ask: the refill tops up food only
 
 
 def _stock_footholds(runner, on_need_materials, log) -> None:
@@ -988,12 +1006,14 @@ def _run(
     fetched: set[frozenset[str]] = set()
     refused: set[frozenset] = set()
     settled = False
+    hunger: dict = {}
     while True:
         if report.steps >= max_steps:
             report.stop = "max_steps"
             break
         skipped = report.skipped
         _adopt_footholds(body, template, scaffolds)
+        _tend_hunger(body, on_need_materials, hunger)
         acts = bp.next_actions(
             template,
             body.world,

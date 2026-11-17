@@ -197,26 +197,36 @@ final class BodyActions {
         for (int i = 0; i < 36 && found < 0; i++)
             if (!inventory.getItem(i).isEmpty() && itemId(inventory.getItem(i)).equals(item)) found = i;
         if (found < 0) throw new Fail("missing_item");
-        int hotbar = found;
-        if (found >= 9) {
-            hotbar = -1;
-            // "slot": the hotbar slot to swap into (the caller keeps its tools and fill there).
-            if (request.has("slot")) {
-                hotbar = request.get("slot").getAsInt();
-                if (hotbar < 0 || hotbar > 8) throw new Fail("bad_slot");
-            }
-            for (int i = 0; i < 9 && hotbar < 0; i++) if (inventory.getItem(i).isEmpty()) hotbar = i;
-            if (hotbar < 0) hotbar = inventory.getSelectedSlot();
-            if (player.containerMenu != player.inventoryMenu) player.closeContainer();
-            // Menu slots: main inventory 9..35 keep their index; the swap button is the hotbar index.
-            player.inventoryMenu.clicked(found, hotbar, ContainerInput.SWAP, player);
-            if (!itemId(inventory.getItem(hotbar)).equals(item)) throw new Fail("swap_failed");
+        int into = -1;
+        // "slot": the hotbar slot to swap into (the caller keeps its tools and fill there).
+        if (request.has("slot")) {
+            into = request.get("slot").getAsInt();
+            if (into < 0 || into > 8) throw new Fail("bad_slot");
         }
+        int hotbar = toHotbar(player, found, into);
+        if (!itemId(inventory.getItem(hotbar)).equals(item)) throw new Fail("swap_failed");
         inventory.setSelectedSlot(hotbar);
         var out = new LinkedHashMap<String, Object>();
         out.put("item", item);
         out.put("hotbar_slot", hotbar);
         return out;
+    }
+
+    /**
+     * The hotbar slot holding inventory slot {@code found}'s stack: itself when on the hotbar,
+     * else swapped up from the main inventory (9..35) into {@code into}, the first empty hotbar
+     * slot, or the selected one, as a player does with the number keys over the inventory.
+     */
+    static int toHotbar(ServerPlayer player, int found, int into) {
+        if (found < 9) return found;
+        var inventory = player.getInventory();
+        int hotbar = into;
+        for (int i = 0; i < 9 && hotbar < 0; i++) if (inventory.getItem(i).isEmpty()) hotbar = i;
+        if (hotbar < 0) hotbar = inventory.getSelectedSlot();
+        if (player.containerMenu != player.inventoryMenu) player.closeContainer();
+        // Menu slots: main inventory 9..35 keep their index; the swap button is the hotbar index.
+        player.inventoryMenu.clicked(found, hotbar, ContainerInput.SWAP, player);
+        return hotbar;
     }
 
     // ---- helpers

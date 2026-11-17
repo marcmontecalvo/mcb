@@ -1151,3 +1151,29 @@ def test_the_build_starts_holding_spare_footholds():
     asked = []
     br.run_build(t, body, BLOCKS, on_need_materials=lambda m: asked.append(dict(m)))
     assert {"minecraft:dirt": br.FOOTHOLD_STOCK} not in asked
+
+
+def test_a_starving_body_with_no_food_goes_to_the_chests_once():
+    class Body:
+        def __init__(self):
+            self.ate, self.food_held = 0, 0
+
+        def eat_when_needed(self):
+            self.ate += 1
+
+        def held_food(self):
+            return self.food_held
+
+        def food(self):
+            return 4
+
+    body, asks, hunger = Body(), [], {}
+    ask = lambda items: asks.append(items) or False  # noqa: E731
+    for _ in range(3):
+        br._tend_hunger(body, ask, hunger)
+    assert body.ate == 3 and asks == [{}]  # one trip, not one per action
+    body.food_held = 5  # handed some food: a later hunger may ask again
+    br._tend_hunger(body, ask, hunger)
+    body.food_held = 0
+    br._tend_hunger(body, ask, hunger)
+    assert asks == [{}, {}]

@@ -808,49 +808,6 @@ def _stocked(slot, policy):
     return b, bridge
 
 
-def test_stage_fill_equips_dirt_that_sits_outside_the_hotbar():
-    # run 20261109T204446994225Z: dirt only in slots 14/16 -> placeSupply 0 -> the
-    # planner refused every pillar edit and reported "unreachable" from a pit.
-    b, bridge = _stocked(14, cb.DIG_TERRAIN)
-    assert b.stage_fill() == "minecraft:dirt"
-    assert bridge.sent[-1] == ("equip", {"item": "minecraft:dirt", "slot": 1})
-
-
-def test_stage_tools_puts_the_axe_on_the_hotbar_over_neither_a_tool_nor_the_fill():
-    # run 20261117T130121185147Z: the iron axe in slot 34, every planned cut through a
-    # log refused at execution, the body circled on the eaves.
-    b, bridge, _ = body()
-    b.terrain_policy = cb.DIG_TERRAIN
-    fill = b.terrain_policy.material_allowlist[0]
-    b._obs["body"]["inventory"] = [
-        {"item": "minecraft:iron_pickaxe", "count": 1, "slot": 0},
-        {"item": fill, "count": 64, "slot": 1},
-        *({"item": "minecraft:oak_planks", "count": 9, "slot": s} for s in range(2, 9)),
-        {"item": "minecraft:stone_axe", "count": 1, "slot": 20},
-        {"item": "minecraft:iron_axe", "count": 1, "slot": 34},
-    ]
-    b.observe = lambda: None
-
-    assert b.stage_tools() == ["minecraft:iron_axe"]
-    assert bridge.sent == [("equip", {"item": "minecraft:iron_axe", "slot": 2})]
-
-
-def test_stage_tools_leaves_a_walk_only_body_alone():
-    b, bridge, _ = body()
-    b.terrain_policy = cb.WALK_TERRAIN
-    b._obs["body"]["inventory"] = [
-        {"item": "minecraft:iron_axe", "count": 1, "slot": 34}
-    ]
-    assert b.stage_tools() == [] and bridge.sent == []
-
-
-def test_stage_fill_leaves_hotbar_stock_and_walk_only_policies_alone():
-    b, bridge = _stocked(3, cb.DIG_TERRAIN)
-    assert b.stage_fill() is None and bridge.sent == []
-    b, bridge = _stocked(14, cb.WALK_TERRAIN)
-    assert b.stage_fill() is None and bridge.sent == []
-
-
 def test_find_blocks_skips_protected_ground():
     from dataclasses import replace
 
@@ -1440,8 +1397,14 @@ def test_a_hurt_body_eats_its_most_filling_food(monkeypatch):
     }
     monkeypatch.setattr(b, "food", lambda: 17)
     monkeypatch.setattr(b, "health", lambda: 20.0)
-    assert not b.eat_to_heal() and not eaten  # not hurt
+    assert not b.eat_when_needed() and not eaten  # not hurt
     monkeypatch.setattr(b, "health", lambda: 9.0)
-    assert b.eat_to_heal() and eaten == ["minecraft:cooked_beef"]
+    assert b.eat_when_needed() and eaten == ["minecraft:cooked_beef"]
+    eaten.clear()
+    monkeypatch.setattr(b, "food", lambda: 18)
+    assert not b.eat_when_needed()  # hurt, but full enough to regenerate
+    monkeypatch.setattr(b, "health", lambda: 20.0)
+    monkeypatch.setattr(b, "food", lambda: 14)
+    assert b.eat_when_needed() and eaten == ["minecraft:cooked_beef"]  # hungry
     monkeypatch.setattr(b, "food", lambda: 20)
-    assert not b.eat_to_heal()  # full: cannot eat
+    assert not b.eat_when_needed()  # full: cannot eat

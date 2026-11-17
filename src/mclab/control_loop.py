@@ -48,6 +48,31 @@ def record_selector(client, controller):
         client.record(kind, payload)
 
 
+READY_TICKS = 10  # one equip per item per this many ticks while the view catches up
+READY_KEEP = ("yaw_delta", "pitch_delta", "sneak")
+
+
+def ready(client, observation, decision, readied):
+    """A decision may name an item anywhere in the inventory (``hotbar_slot`` 9..35:
+    the executors price and pick from everything held, not only the hotbar). Bring
+    it to the hotbar the way a player does, with an equip into a free hotbar slot,
+    and hold still that tick (turning and sneaking only): the next decision sees it
+    on the hotbar and acts. ``readied`` is the caller's {item: tick} debounce."""
+    slot = decision.get("hotbar_slot")
+    if slot is None or 0 <= slot < 9:
+        return decision
+    rows = observation.get("body", {}).get("inventory", []) or []
+    item = next((r.get("item") for r in rows if r.get("slot") == slot), None)
+    used = {r.get("slot") for r in rows if r.get("count", 0) > 0}
+    target = next((n for n in range(9) if n not in used), 8)
+    tick = observation.get("tick", 0)
+    if item is not None and tick - readied.get(item, -READY_TICKS) >= READY_TICKS:
+        client.send("equip", item=item, slot=target)
+        readied[item] = tick
+    held = {k: v for k, v in decision.items() if k in READY_KEEP}
+    return {**held, "hotbar_slot": target}
+
+
 def _command(tick, index, decision):
     apply_tick = tick + LEAD_TICKS
     return controls(
@@ -144,6 +169,7 @@ def _drive(
         raise ValueError("Unknown control profile")
     deadline = time.monotonic() + wall_timeout
     action_index = discarded = 0
+    readied = {}
     client.last_controller_error = None
     try:
         while time.monotonic() < deadline:
@@ -161,6 +187,7 @@ def _drive(
                 decision = controller.decide(observation)
             finally:
                 record_selector(client, controller)
+            decision = ready(client, observation, decision, readied)
             action_index += 1
             tick = observation["tick"]
             if trace_processing:
@@ -297,6 +324,7 @@ def drive_pipelined(client, controller, wall_timeout=90, *, max_in_flight=3):
         # More than LEAD_TICKS would need two commands for one apply tick.
         raise ValueError("In-flight bound must be between 1 and the lead ticks")
     deadline = time.monotonic() + wall_timeout
+    readied = {}  # item -> tick of the last equip (ready)
     in_flight = {}  # request sequence -> (apply tick, yaw delta, pitch delta)
     sent_at = {}
     stats = {
@@ -350,6 +378,7 @@ def drive_pipelined(client, controller, wall_timeout=90, *, max_in_flight=3):
                 decision = controller.decide(predicted(observation, in_flight))
             finally:
                 record_selector(client, controller)
+            decision = ready(client, observation, decision, readied)
             stats["decisions"] += 1
             request = client.send(
                 "controls",

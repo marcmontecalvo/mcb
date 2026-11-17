@@ -312,16 +312,28 @@ class StepPlan:
         return 1.4 + 5 * len(self.breaks) + 8 * len(self.places)
 
 
+HELD_SLOTS = 36  # hotbar 0..8 and main inventory 9..35: all of it is usable
+
+
+def _held_rows(rows):
+    """Rows that hold something, hotbar first: an item already in hand is used
+    before one that has to be brought up (control_loop.ready)."""
+    held = [
+        r for r in rows if 0 <= r.get("slot", -1) < HELD_SLOTS and r.get("count", 0) > 0
+    ]
+    return sorted(held, key=lambda r: r.get("slot", -1))
+
+
 class Inventory(tuple):
-    """Immutable inventory rows with memoised hotbar and supply lookups."""
+    """Immutable inventory rows with memoised slot and supply lookups. ``hot`` maps
+    an item to the slot it is taken from: a hotbar slot when one holds it, else a
+    main inventory slot (9..35), which the control loop brings to the hotbar."""
 
     def __init__(self, rows=()):
         super().__init__()
         self.hot, self.supply = {}, {}
-        for row in self:
-            slot = row.get("slot", -1)
-            if 0 <= slot < 9 and row.get("count", 0) > 0:
-                self.hot.setdefault(row.get("item"), slot)
+        for row in _held_rows(self):
+            self.hot.setdefault(row.get("item"), row.get("slot"))
 
 
 TOOL_TIERS = ("netherite", "diamond", "iron", "stone", "golden", "wooden")
@@ -329,7 +341,8 @@ TOOL_KINDS = ("pickaxe", "shovel", "axe", "hoe")
 
 
 def hotbar(inventory, item):
-    """Hotbar slot holding ``item``. The excavation table names iron tools (natural
+    """Slot ``item`` is used from: hotbar first, else the main inventory. The
+    excavation table names iron tools (natural
     runs kit them); any tier of that tool counts, best first, so a survival body with
     wooden tools may dig too. ponytail: breaks stay priced at iron speed, so a wooden
     tool's dig looks about 3x cheaper than it is; price by the held tier if routes
@@ -404,18 +417,12 @@ def tool_speed(item):
 
 
 def _hotbar(inventory, item):
+    """The slot ``item`` is used from: hotbar first, else the main inventory."""
     hot = getattr(inventory, "hot", None)
     if hot is not None:
         return hot.get(item)
     return next(
-        (
-            r["slot"]
-            for r in inventory
-            if r.get("item") == item
-            and 0 <= r.get("slot", -1) < 9
-            and r.get("count", 0) > 0
-        ),
-        None,
+        (r["slot"] for r in _held_rows(inventory) if r.get("item") == item), None
     )
 
 
@@ -432,8 +439,8 @@ def building_supply(inventory, reserve, materials=BUILDING):
 def _building_supply(inventory, reserve, materials):
     total = sum(
         row.get("count", 0)
-        for row in inventory
-        if row.get("item") in materials and 0 <= row.get("slot", -1) < 9
+        for row in _held_rows(inventory)
+        if row.get("item") in materials
     )
     if total <= reserve:
         return None
@@ -448,7 +455,7 @@ def _building_supply(inventory, reserve, materials):
 
 
 def stack_supply(inventory, count, reserve, materials):
-    """Can ``count`` blocks be placed in a row from the hotbar supply?"""
+    """Can ``count`` blocks be placed in a row from what is held (any slot)?"""
     memo = getattr(inventory, "supply", None)
     key = (count, reserve, materials)
     if memo is not None and key in memo:

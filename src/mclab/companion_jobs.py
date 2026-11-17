@@ -53,6 +53,35 @@ PICKAXES = tuple(
 )
 
 
+FOOD_KEEP = 16  # food items carried through a build, topped up at the chests
+
+
+def _held_food(body) -> int:
+    foods = getattr(body, "foods", None) or {}
+    return sum(n for i, n in body.inventory().items() if i in foods)
+
+
+def _ate_more(body, before: dict[str, int]) -> bool:
+    foods = getattr(body, "foods", None) or {}
+    held = body.inventory().items()
+    return any(n > before.get(i, 0) for i, n in held if i in foods)
+
+
+def _food_topup(body, state: GatherState) -> dict[str, int]:
+    """{best stored food: what brings the carried food up to FOOD_KEEP}, or {}."""
+    foods = getattr(body, "foods", None) or {}
+    short = FOOD_KEEP - _held_food(body)
+    stored: dict[str, int] = {}
+    for contents in state.containers.values():
+        for item, n in contents.items():
+            if item in foods and n > 0:
+                stored[item] = stored.get(item, 0) + n
+    if short <= 0 or not stored:
+        return {}
+    best = max(stored, key=lambda i: (float(foods[i].get("nutrition", 0)), i))
+    return {best: min(short, stored[best])}
+
+
 def _storage_boxes(state: GatherState) -> list[dict]:
     """The plan ``storage`` view of the remembered containers (live contents)."""
     return [
@@ -241,7 +270,7 @@ def build_job(
     # What the body may put down to climb and take back: scaffolding, dirt,
     # cobblestone, then spare plain blocks that drop themselves (mclab.temporary_blocks).
     body.temporary_ok = temporary_blocks.eligible(knowledge)
-    body.foods = dict(getattr(knowledge, "foods", None) or {})  # eat_to_heal
+    body.foods = dict(getattr(knowledge, "foods", None) or {})  # eat_when_needed
     if state is None:
         state = GatherState()
         hydrate_containers(body, state)
@@ -353,6 +382,19 @@ def build_job(
         wanted = dict(shortfall)
         _stow_junk({**needed, **wanted}, body, knowledge, state, gather_options)
         before = body.inventory()
+        # Every trip to the chests tops up the food carried (FOOD_KEEP). Food is
+        # taken from the chests only, never hunted mid-build: with none stored the
+        # body notes it and builds on (live, a player can hand it some).
+        food = _food_topup(body, state)
+        if food:
+            _take(food, body, knowledge, state, gather_options)
+            if not wanted:
+                fed = _ate_more(body, before)
+                _note_refill(body, food, before, "chests", fed)
+                return fed
+        elif not wanted:
+            _note_refill(body, {"food": FOOD_KEEP}, before, "no_food_stored", False)
+            return False
         # Chests first, and back to building on any gain. Run 20261110T170929838024Z
         # was short one detector rail with the rest of the house in the chests: the
         # full plan put the ore hunt first and walked the explore ring over a swamp.
@@ -393,7 +435,7 @@ def build_job(
         return ok
 
     _take(
-        {bp.SCAFFOLD_ITEMS[0]: SCAFFOLD_STACK},
+        {bp.SCAFFOLD_ITEMS[0]: SCAFFOLD_STACK, **_food_topup(body, state)},
         body,
         knowledge,
         state,
