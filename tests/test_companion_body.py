@@ -835,6 +835,21 @@ def test_find_blocks_skips_protected_ground():
     assert b.find_blocks("minecraft:dirt") == [(9, 0, 0)]
 
 
+def test_protected_cells_holding_leaves_are_breakable_for_the_planner(monkeypatch):
+    from dataclasses import replace
+
+    b, _, _ = body()
+    leaves = {"block": "minecraft:oak_leaves", "collision_boxes": [FULL]}
+    planks = {"block": "minecraft:birch_planks", "collision_boxes": [FULL]}
+    cells = {(0, 2, 0): leaves, (1, 2, 0): planks}
+    monkeypatch.setattr(b, "_cells_now", lambda: cells)
+    house = ((0, 2, 0), (1, 2, 0), (2, 2, 0))
+    b.terrain_policy = replace(cb.DIG_TERRAIN, protected_positions=house)
+    assert b._planner_terrain().protected_positions == ((1, 2, 0), (2, 2, 0))
+    b.terrain_policy = replace(b.terrain_policy, allow_break=False)
+    assert b._planner_terrain().protected_positions == house
+
+
 def test_no_placing_turns_placement_off_and_restores_the_policy():
     from mclab.companion_body import DIG_TERRAIN
 

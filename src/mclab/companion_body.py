@@ -1005,6 +1005,24 @@ class CompanionBody:
                     return item
         return None
 
+    def _planner_terrain(self):
+        """The policy the route planner gets: a protected cell (the house) that holds
+        foliage now is not the build's block, and site prep cuts it anyway, so the
+        planner may break it. A protected leaf canopy sealed a 2-block walk into a
+        10,000-node search (run 20261117T035331768325Z, plans 17-19)."""
+        policy = self.terrain_policy
+        if not (policy.allow_break and policy.protected_positions):
+            return policy
+        cells = self._cells_now()
+        keep = tuple(
+            p
+            for p in policy.protected_positions
+            if "_leaves" not in ((cells.get(p) or {}).get("block") or "")
+        )
+        if len(keep) == len(policy.protected_positions):
+            return policy
+        return replace(policy, protected_positions=keep)
+
     def _goto_controller(self, goal, reach, radius, probe, wall):
         return _GotoController(
             goal,
@@ -1013,7 +1031,7 @@ class CompanionBody:
             interact_reach=reach,
             background_planning=True,
             movement_policy=self.movement_policy,
-            terrain_policy=self.terrain_policy,
+            terrain_policy=self._planner_terrain(),
             deadline=time.monotonic() + wall,
             probe=probe,
             idle_state=self._navigation_idle,
