@@ -503,14 +503,16 @@ public final class RoutePlannerTest {
                 && s[2] == e.places().get(i)[2]);
     }
     private static void scaffoldChecks() {
-        // Pit: the first pillar block goes on stone (scaffolding); the next would be clicked on scaffolding, which
-        // the item redirects sideways, so it stays solid. With none held everything is solid.
+        // Pit: the pillar is scaffolding all the way up; a block on scaffolding is stacked with a sneaking click
+        // (large house run 20261117T233128776004Z: one scaffolding block, then dirt on it). With none held, solid.
         var pit = floor(12);
         var held = scaffoldRun(pit, new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(0, 3, 0), 64);
         var none = scaffoldRun(pit, new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(0, 3, 0), 0);
         check(held.status().equals("reached") && none.status().equals("reached"), "pit is left with and without scaffolding");
         var first = held.steps().get(0);
         check(!first.places().isEmpty() && isScaffold(first, 0), "the first pillar/step-up block on solid ground is scaffolding");
+        check(held.steps().stream().allMatch(e -> e.scaffold().size() == e.places().size()),
+                "every pillar block is scaffolding, the ones on scaffolding too");
         check(none.steps().stream().allMatch(e -> e.scaffold().isEmpty()), "with no scaffolding held everything is solid");
 
         // Bridge off a scaffolding tower: the walkway is scaffolding while its distance is at most 6, solid beyond.

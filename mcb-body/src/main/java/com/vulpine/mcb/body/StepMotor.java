@@ -414,7 +414,7 @@ final class StepMotor {
         if(!pillar && (!p.onGround() || !sourceOk))
             return stopInput(tick,"native_edit_stance_changed");
         Vec3 aim; BlockPos expected=op.point; String face=null; int selected;
-        boolean sneak=false, directReplace=false;
+        boolean sneak=false, directReplace=false, stackOnScaffold=false;
         if(!op.place) {
             if(!cube(cell) || !TOOLS.containsKey(cell.get("block"))) return stopInput(tick,"native_cut_not_permitted");
             if(downward && !cube(read(reader,target.below()))) return stopInput(tick,"native_downward_landing_changed");
@@ -467,8 +467,12 @@ final class StepMotor {
                     ? new Vec3(op.point.getX()+.5,op.point.getY()+.05,op.point.getZ()+.5)
                     : new Vec3(op.point.getX()+.5,op.point.getY()-.001,op.point.getZ()+.5);
             boolean below=sturdy(read(reader,expected)), redirect=false;
-            // ScaffoldingBlockItem sends a click on scaffolding sideways (top face) or up (side face): never the planned cell.
-            if(below && scaffold && scaffolding(read(reader,expected))) return stopInput(tick,"native_scaffold_redirect");
+            // ScaffoldingBlockItem sends a plain click on scaffolding sideways (top face) or up (side face). A sneaking
+            // click places right on the clicked face, so a column is stacked with the use sneaking (vanilla: the
+            // secondary use). Not while standing on a scaffolding floor: sneaking there drops the body through it.
+            stackOnScaffold=below && scaffold && scaffolding(read(reader,expected));
+            if(stackOnScaffold && !pillar && scaffolding(read(reader,source.below())))
+                return stopInput(tick,"native_scaffold_redirect");
             if(!below) {
                 expected=source.below();
                 if(!bridge || op.point.getY()!=source.getY()-1 || Math.abs(dx)+Math.abs(dz)!=1
@@ -568,6 +572,7 @@ final class StepMotor {
         boolean use=op.place && aligned && hit;
         if((mine && !plant) || use) { issued=true; issueTick=tick; }
         if(use) placedItem=BuiltInRegistries.ITEM.getKey(p.getInventory().getItem(selected).getItem()).toString();
+        if(use && stackOnScaffold) sneak=true;  // only on the click tick: the body is in the air (pillar) or on solid ground
         return input(tick,0,Math.max(-45,Math.min(45,yaw)),Math.max(-45,Math.min(45,pitch)),jump,sneak,mine,use,selected);
     }
 }

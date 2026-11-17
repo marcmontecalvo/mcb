@@ -913,18 +913,17 @@ final class RoutePlanner {
         if (cell(x, y, z).get("scaffold_distance") instanceof Integer d) return d;
         return scaffoldDistance(x, y, z, own, budget);  // the map's own scaffolding stands, so this is at most 6
     }
-    /** Which places (lowest first) are scaffolding: held, supported within 6, and not clicked on scaffolding (the item
-     *  redirects such a click sideways or up, away from the planned cell). The rest stay solid. */
+    /** Which places (lowest first) are scaffolding: held and supported within 6. One on scaffolding is stacked with a
+     *  sneaking click (StepMotor), so a pillar is scaffolding all the way up, not one block of it under dirt (large
+     *  house run 20261117T233128776004Z). The rest stay solid. */
     private List<int[]> scaffoldCells(List<int[]> places) {
         if (edits.scaffoldSupply <= 0) return List.of();
         var own = new HashMap<Long, Integer>();
         var out = new ArrayList<int[]>();
         int left = edits.scaffoldSupply;
         for (var p : places) {
-            var ob = own.get(key(p[0], p[1] - 1, p[2]));
-            boolean onScaffolding = ob != null ? ob >= 0 : scaffolding(cell(p[0], p[1] - 1, p[2]));
             int d = scaffoldDistance(p[0], p[1], p[2], own, 6);
-            if (left > 0 && !onScaffolding && d <= 6) { out.add(new int[]{p[0], p[1], p[2], d}); own.put(key(p), d); left--; }
+            if (left > 0 && d <= 6) { out.add(new int[]{p[0], p[1], p[2], d}); own.put(key(p), d); left--; }
             else own.put(key(p), -1);
         }
         return out;
