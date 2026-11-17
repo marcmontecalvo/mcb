@@ -985,3 +985,24 @@ def test_ground_standing_where_the_house_goes_is_cut_for_fill_not_left_to_the_bu
         lambda *p: world.get(p, "minecraft:air"),
     )
     assert plan.breaks == [(0, 64, 0)] and not plan.blocked
+
+
+def test_a_stall_after_the_lab_episode_ended_says_so_at_once():
+    # Run 20261117T200337044791Z: the episode's tick limit cancelled every plan and
+    # the run ended four stalls later as "trapped" on an open upper floor.
+    from mclab.progress_watch import ProgressWatch, StallError
+
+    now = [0.0]
+
+    class Ended:
+        def position(self):
+            return (0, 69, 0)
+
+        def episode_ended(self):
+            return True
+
+    watch = ProgressWatch(clock=lambda: now[0], log=lambda m: None)
+    watch.progress((0, 69, 0))
+    now[0] += 10
+    with pytest.raises(StallError, match="episode ended"):
+        watch.check(Ended(), "goto_stance", (3, 73, 0), False)

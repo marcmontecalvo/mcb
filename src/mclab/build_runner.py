@@ -385,12 +385,17 @@ class _Runner:
                 c
                 for c in self.scaffolds
                 if abs(c[0] - x) <= 1 and abs(c[2] - z) <= 1 and abs(c[1] - y) <= 2
+                # one already gone is no wedge: breaking it again only failed
+                # nothing_to_break (run 20261117T200337044791Z)
+                and _standing(self.body, c)
             ),
             key=lambda c: (underfoot(c), -c[1] if underfoot(c) else c[1]),
         )
         freed = False
         for cell in near:  # lowest first: the rest of the column falls
-            if self.body.break_block(cell).ok or not _standing(self.body, cell):
+            if not _standing(self.body, cell):
+                continue  # fell with the cell broken under it
+            if self.body.break_block(cell).ok:
                 freed = True
         for cell in [c for c in self.scaffolds if not _standing(self.body, c)]:
             self.scaffolds.discard(cell)

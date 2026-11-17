@@ -1255,3 +1255,25 @@ def test_a_block_that_would_shut_the_body_on_its_ledge_is_placed_from_elsewhere(
     assert window in runner.report.placed
     assert body.pos != ledge
     assert all(ledge in avoid for _, avoid in body.stance_calls)
+
+
+def test_scaffolding_already_gone_is_not_broken_again_to_unwedge():
+    # Run 20261117T200337044791Z: stale scaffold cells beside the body were broken
+    # over and over (nothing_to_break), each "freeing" it for another failed walk.
+    body, _t = tall_column_body()
+    x, y, z = body.position()
+    gone = (x + 1, y, z)
+    body.w[gone] = "minecraft:air"
+    tried = []
+    real = body.break_block
+
+    def logged(pos, *a, **k):
+        tried.append(pos)
+        return real(pos, *a, **k)
+
+    body.break_block = logged
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.scaffolds = {gone}
+    assert not runner._unwedge()
+    assert tried == []
+    assert runner.scaffolds == set()

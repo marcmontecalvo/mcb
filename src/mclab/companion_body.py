@@ -113,6 +113,10 @@ SENSED_RADIUS = 40.0  # awareness delivers 64; beyond this a stance may be unsen
 # six stance probes in a row burned 21 s without a plan (run 20261116T163035614307Z,
 # plan-405..409, adopted only when plan-410 finished 2 ticks inside the limit).
 SEARCH_STALL_TICKS = 150
+# The lab episode a companion job runs in: the mod's companion cap (NaturalRun,
+# ~16.7 h). 100 000 ticks (83 min) ended run 20261117T200337044791Z mid-roof, and
+# every plan after it was cancelled.
+COMPANION_TICK_LIMIT = 1_200_000
 SETTLE_TICKS = 40  # settle(): longest wait for the map to show broken blocks
 SETTLE_STEP = 5
 STUCK_TICKS = 200  # a goto or walk whose position does not change for this long fails
@@ -671,6 +675,12 @@ class CompanionBody:
         None when the bridge has no /state or it holds no body."""
         state = getattr(self.bridge, "state", None)
         return (state().get("body") or None) if state is not None else None
+
+    def episode_ended(self) -> bool:
+        """True once the lab episode under the body is over (its tick limit hit):
+        every plan after it is cancelled, so the body can only stand still."""
+        state = getattr(self.bridge, "state", None)
+        return state is not None and state().get("state") == "episode_terminal"
 
     def inventory(self) -> dict[str, int]:
         """Fresh from the body: an op result's inventory predates the pickup of its
@@ -1953,7 +1963,7 @@ def start_session(
             goal=[start[0] + 4000, start[1], start[2]],
             yaw=0,
             goal_radius=3,
-            tick_limit=100_000,
+            tick_limit=COMPANION_TICK_LIMIT,
             mobs=False,
             stall_ticks=0,
             awareness=awareness.payload(),

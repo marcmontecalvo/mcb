@@ -68,6 +68,12 @@ class ProgressWatch:
         idle = now - self._last
         if idle <= self.limit:
             return
+        ended = getattr(body, "episode_ended", None)
+        if ended is not None and ended():
+            raise StallError(
+                f"episode ended: the lab episode's tick limit was reached at {here} "
+                f"during {op} {target}"
+            )
         key = (op, tuple(target) if target is not None else None)
         # consecutive means the same operation on the same target: different
         # unreachable targets are bounded failures, not one retry loop
