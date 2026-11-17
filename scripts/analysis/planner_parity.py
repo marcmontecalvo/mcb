@@ -14,6 +14,7 @@ terrain: uploaded; live plans read the world within their terrain_radius.
 Usage: GOAL="[x,y,z]" CAP=8000 uv run --locked python scripts/analysis/planner_parity.py
        <attempt>/events.jsonl <tick> "[x,y,z]"
 Flags: UNKNOWN=1 (plan through unknown space), SWIM=1 (swimming and Baritone moves),
+PLAN=plan-N replays that recorded plan_route request (edits and all) on the map.
 EDITS=1 (the production terrain profile with the natural kit: everything, edits included).
 The export is kept (path printed) for reruns: gradlew -q -p mcb-body routePlannerParity
 "-Pargs=<export.json> <nodeLimit> 1".
@@ -142,12 +143,32 @@ def export(view, start, goal, target):
         "palette": palette,
         "cells": rows,
     }
+    if PLAN:  # replay the recorded request itself (edits, radius, moves) on this map
+        payload["request"] = PLAN
     target.write_text(json.dumps(payload), encoding="utf-8")
     return len(rows)
 
 
+def recorded_request(path, plan_id):
+    """The `plan_route` request payload that carried `plan_id` (PLAN=plan-N)."""
+    needle = f'"{plan_id}"'
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if '"plan_route"' in line and needle in line:
+                e = json.loads(line)
+                if e["type"] == "request" and e["payload"].get("plan_id") == plan_id:
+                    return e["payload"]
+    raise SystemExit(f"no plan_route request {plan_id} in {path}")
+
+
+PLAN = None
+
+
 def main():
+    global PLAN
     path, tick, start = sys.argv[1], int(sys.argv[2]), tuple(json.loads(sys.argv[3]))
+    if os.environ.get("PLAN"):
+        PLAN = recorded_request(path, os.environ["PLAN"])
     goal, cap = (
         tuple(json.loads(os.environ["GOAL"])),
         int(os.environ.get("CAP", "8000")),
