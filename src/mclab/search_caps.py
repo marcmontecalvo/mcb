@@ -10,9 +10,11 @@ Exit code 1 when any near hit is found.
 
 from __future__ import annotations
 
+import base64
 import json
 import math
 import sys
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -57,17 +59,29 @@ def cap_hits(events: Path) -> list[CapHit]:
     requests: dict[str, dict] = {}
     by_seq: dict[int, dict] = {}
     accepted: dict[str, int] = {}
+    parts: dict[str, list] = {}
     hits: list[CapHit] = []
     t0: int | None = None
     with Path(events).open(encoding="utf-8", errors="replace") as f:
         for line in f:
-            if '"plan_route"' in line:
+            if '"planner_request"' in line:  # a large request is sent in parts
+                rec = json.loads(line)
+                p = rec.get("payload", {})
+                if rec.get("type") == "request" and p.get("kind") == "part":
+                    parts.setdefault(p.get("plan_id"), []).append(
+                        (p["offset"], p["data"])
+                    )
+            elif '"plan_route"' in line:
                 rec = json.loads(line)
                 p = rec.get("payload", {})
                 if rec.get("type") == "request" and p.get("op") == "plan_route":
+                    if p.get("plan_id") in parts:
+                        data = "".join(d for _, d in sorted(parts.pop(p["plan_id"])))
+                        p = json.loads(zlib.decompress(base64.b64decode(data)))
+                        p.setdefault("plan_id", rec["payload"]["plan_id"])
                     if "plan_id" in p:
                         requests[p["plan_id"]] = p
-                    by_seq[p.get("sequence")] = p
+                    by_seq[rec["payload"].get("sequence")] = p
             elif '"plan_accepted"' in line:
                 d = json.loads(line)["payload"].get("data", {})
                 accepted[d.get("plan_id")] = d.get("request_sequence")

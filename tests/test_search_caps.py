@@ -70,3 +70,49 @@ def test_found_and_non_cap_incomplete_ignored(tmp_path):
     )
     assert cap_hits(f) == []
     assert verdict([]) == ("NONE", [])
+
+
+def test_a_request_sent_in_parts_is_decoded(tmp_path):
+    # Run 20261117T015107803188Z: large requests travel as planner_request parts
+    # and the plan_route line carries only the id; 64 near hits were missed.
+    import base64
+    import zlib
+
+    body = {"start": [0, 64, 0], "goal": [1, 64, 1], "node_limit": 10000}
+    data = base64.b64encode(zlib.compress(json.dumps(body).encode())).decode()
+    half = len(data) // 2
+    rows = [{"type": "hello", "monotonic_ns": 0}]
+    for offset, chunk in ((half, data[half:]), (0, data[:half])):
+        rows.append(
+            {
+                "type": "request",
+                "payload": {
+                    "op": "planner_request",
+                    "kind": "part",
+                    "plan_id": "plan-1",
+                    "offset": offset,
+                    "data": chunk,
+                },
+            }
+        )
+    rows.append(
+        {"type": "request", "payload": {"op": "plan_route", "plan_id": "plan-1"}}
+    )
+    rows.append(
+        {
+            "type": "server_event",
+            "monotonic_ns": 1,
+            "payload": {
+                "type": "plan_finished",
+                "data": {
+                    "plan_id": "plan-1",
+                    "status": "incomplete",
+                    "expanded": 10000,
+                },
+            },
+        }
+    )
+    f = tmp_path / "events.jsonl"
+    f.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    (hit,) = cap_hits(f)
+    assert hit.near and hit.goal == (1, 64, 1)
