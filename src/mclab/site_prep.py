@@ -184,6 +184,20 @@ def _eye_dist(eye, p: Pos) -> float:
     return math.dist(eye, (p[0] + 0.5, p[1] + 0.5, p[2] + 0.5))
 
 
+PLACE_REACH = 4.5  # the body's block interaction range, as the server checks it
+
+
+def _in_place_reach(eye, p: Pos) -> bool:
+    """A face of cell p may be clickable from eye: the server ray-tests the centre and
+    quarter points of the clicked face within 4.5, and this estimates the nearest of
+    them by the cell's quarter-point box; the server's answer is final (a refusal
+    is cheap and remembered). The centre test (4.2) left a pond cell two below
+    the ground, 4.24 to its centre and 3.9 to its face, unfilled for 200 s until the
+    build ran out of time (run 20261117T045722501942Z)."""
+    near = [min(max(e, c + 0.25), c + 0.75) for e, c in zip(eye, p, strict=True)]
+    return math.dist(eye, near) <= PLACE_REACH
+
+
 def _dist2(a: Pos, b: Pos) -> int:
     return sum((p - q) ** 2 for p, q in zip(a, b, strict=True))
 
@@ -730,7 +744,7 @@ def _fill_sweep(
             and failed_stances.get((p, here)) != placed
             and here[1] > ground  # never fill the walls around our own trapped feet
             and p[::2] != here[::2]  # never the column the body stands in
-            and _eye_dist(eye, p) <= REACH_BREAK
+            and _in_place_reach(eye, p)
         ]
         if near:
             pos = min(near, key=lambda p: (p[1], _eye_dist(eye, p)))

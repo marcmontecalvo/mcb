@@ -629,6 +629,32 @@ def test_fill_movement_without_edits_is_bounded_and_hands_over_to_stance_search(
     assert len(b.attempts) == len(set(b.attempts)) == 1
 
 
+def test_a_deep_pond_cell_in_face_reach_is_filled_from_the_rim():
+    # Run 20261117T045722501942Z: a cell two below the ground, 4.24 eye to centre
+    # but 3.9 to its face, was never tried and the pond stayed unfilled.
+    deep = (0, 61, 1)
+
+    class Body:
+        placed = []
+
+        def position(self):
+            return (0, 64, 0)
+
+        def world(self, x, y, z):
+            return AIR if (x, z) == (0, 1) and y >= 61 else STONE
+
+        def place_block(self, pos, state, item):
+            self.placed.append(pos)
+            return br.Result(True, "")
+
+    class Runner:
+        report, max_steps = br.BuildReport(), 100
+
+    assert sp._eye_dist((0.5, 65.62, 0.5), deep) > sp.REACH_BREAK
+    assert sp._fill_sweep(Body(), Runner, [deep], 1, 63) == 1
+    assert Body.placed == [deep]
+
+
 def test_fill_never_caps_a_column_after_its_lower_cell_failed():
     class Body:
         attempts = []
