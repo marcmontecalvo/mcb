@@ -11,6 +11,9 @@ HOW TO READ THE OUTPUT. Each check prints exactly one line starting with RESULT:
     RESULT <name>: UNSURE | check: PASS | standstill: UNSURE (...) | <run folder>
 
   PASS    good. The check passed and the bot never stood still for 5 s or more.
+          Each RESULT line also carries ``search cap: NONE`` or ``VIOLATION``: the
+          Java planner hit its node cap toward a goal within 64 blocks (see
+          mclab.search_caps). Far cap hits are listed but do not fail.
   FAIL    bad. The check failed, timed out, or the bot stood still for 5 s or more
           while not breaking, placing or crafting. The lines under it say which.
   UNSURE  not proven. The check passed but the recording has holes, so a standstill
@@ -220,6 +223,14 @@ def standstill(runs: dict, code: int) -> tuple[str, list[str]]:
     return "NONE", []
 
 
+def search_cap_verdict(folders: list[Path]) -> tuple[str, list[str]]:
+    """Verdict and one line per planner node-cap hit in the runs' events."""
+    from mclab.search_caps import cap_hits, verdict
+
+    hits = [h for f in folders for h in cap_hits(f / "events.jsonl")]
+    return verdict(hits)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", type=Path, help="folder for logs and SUMMARY.md")
@@ -269,8 +280,9 @@ def run_battery(a, out):
         "",
         f"Code: `{head}`",
         "",
-        "PASS = check passed and no standstill of 5 s or more. FAIL = check failed, "
-        "timed out, or a standstill was found. UNSURE = check passed but the "
+        "PASS = check passed, no standstill of 5 s or more, and no planner node-cap "
+        "hit toward a goal within 64 blocks. FAIL = check failed, timed out, or "
+        "either of those was found. UNSURE = check passed but the "
         "recording has holes, so a standstill cannot be ruled out.",
         "",
     ]
@@ -283,9 +295,12 @@ def run_battery(a, out):
         folders = sorted(run_folders() - before)
         check, why = check_verdict(code, out / f"{name}.log", timeout)
         still, gaps = standstill_verdict(folders, out / f"{name}.idle.txt")
+        cap, cap_lines = search_cap_verdict(folders)
         overall = (
             "FAIL"
-            if check != "PASS" or still.startswith("VIOLATION")
+            if check != "PASS"
+            or still.startswith("VIOLATION")
+            or cap.startswith("VIOLATION")
             else "PASS"
             if still == "NONE"
             else "UNSURE"
@@ -294,9 +309,10 @@ def run_battery(a, out):
         where = ", ".join(f.relative_to(ROOT).as_posix() for f in folders) or "no run"
         block = [
             f"RESULT {name}: {overall} | check: {check} | "
-            f"standstill: {still} | {where}",
+            f"standstill: {still} | search cap: {cap} | {where}",
             *(f"    check said: {ln[:200]}" for ln in why),
             *(f"    {ln}" for ln in gaps),
+            *(f"    cap hit {ln}" for ln in cap_lines),
         ]
         print("\n".join(block), flush=True)
         summary += block
