@@ -303,6 +303,15 @@ def _held(inv: dict[str, int], suffix: str) -> str | None:
     )
 
 
+
+def _lid_below(state: str) -> bool:
+    """A chest or shulker box: a block on top keeps it shut. Run
+    20261117T013027902540Z put the crafting table on the supply chest and
+    every later withdraw failed cannot_open."""
+    name = bp.parse_state(state)[0]
+    return name.endswith("chest") or name.endswith("shulker_box")
+
+
 class _Exec:
     """One run: the body, the knowledge and the shared state."""
 
@@ -562,6 +571,7 @@ class _Exec:
             if (
                 below is not None
                 and bp.parse_state(below)[0] not in bp.REPLACEABLE
+                and not _lid_below(below)
                 and above in bp.AIR
             ):
                 return c

@@ -288,6 +288,23 @@ def test_a_station_cell_without_support_rotates_to_the_next_free_cell():
     assert first  # the refused cell was actually tried
 
 
+def test_station_is_never_put_on_a_chest_or_shulker_box():
+    # Run 20261117T013027902540Z: the table went on the supply chest, which
+    # then failed cannot_open on every withdraw.
+    from mclab.gather_runner import GatherState, _Exec
+
+    world = floor()
+    world[(-1, -1, 0)] = M + "chest[facing=north,type=single]"
+    world[(0, -1, -1)] = M + "red_shulker_box[facing=up]"
+    body = FakeGatherBody(K, world, {M + "crafting_table": 1})
+    state = GatherState()
+
+    result = _Exec(body, K, state, 0).place_station(PlaceStation("crafting_table"))
+
+    assert result.ok
+    assert state.stations["crafting_table"] not in {(-1, 0, 0), (0, 0, -1)}
+
+
 def test_station_returns_to_worksite_from_one_wide_mine_staircase():
     # Iron run 20261112T140455643180Z ended in a narrow, unsupported shaft;
     # the crafting table was on the surface above the entrance.
