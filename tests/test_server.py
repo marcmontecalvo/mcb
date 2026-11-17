@@ -224,3 +224,34 @@ def test_start_reports_a_foreign_supervisor_exit(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "status", lambda: {"state": "stopped"})
     with pytest.raises(RuntimeError, match="Supervisor exited"):
         server._start()
+
+
+def test_start_waits_for_a_port_a_stopped_server_still_holds(monkeypatch):
+    # Run 20261117T184243178083Z: the switch back to the operator world failed
+    # with "Port 25575 is in use" seconds after the arena server stopped.
+    settings = {"game_port": 1, "bridge_port": 2, "lab_port": 3, "supervisor_port": 4}
+    monkeypatch.setattr(server, "assert_stopped", lambda: None)
+    monkeypatch.setattr(server, "config", lambda: settings)
+    monkeypatch.setattr(server.time, "sleep", lambda *_: None)
+    checks = []
+
+    def port_free(port):
+        checks.append(port)
+        return port != 4 or checks.count(4) > 3  # held for three checks
+
+    class Past(RuntimeError):
+        pass
+
+    def java():
+        raise Past  # the ports were all free: start went on past them
+
+    monkeypatch.setattr(server, "port_free", port_free)
+    monkeypatch.setattr(server, "java", java)
+    with pytest.raises(Past):
+        server._start()
+
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(server.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(server, "port_free", lambda port: port != 4)
+    with pytest.raises(RuntimeError, match="Port 4 is in use"):
+        server._start()

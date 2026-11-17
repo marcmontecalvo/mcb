@@ -98,6 +98,9 @@ def _spawn_detached(output) -> subprocess.Popen:
         return subprocess.Popen(command, creationflags=flags, **options)
 
 
+PORT_WAIT_S = 30.0  # seconds a just-stopped server may keep its ports
+
+
 def assert_stopped() -> None:
     if status()["state"] not in {"stopped", "exited"}:
         raise RuntimeError("Stop the lab server before replacing runtime/course files")
@@ -125,10 +128,16 @@ def _start(accept_eula: bool = False) -> dict:
     assert_stopped()
     settings = config()
     for key in ("game_port", "bridge_port", "lab_port", "supervisor_port"):
-        if not port_free(settings[key]):
-            raise RuntimeError(
-                f"Port {settings[key]} is in use; no process was stopped"
-            )
+        # A server stopped a moment ago may hold its ports a few seconds more:
+        # run 20261117T184243178083Z lost its summary switching back to the
+        # operator world ("Port 25575 is in use").
+        deadline = time.monotonic() + PORT_WAIT_S
+        while not port_free(settings[key]):
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"Port {settings[key]} is in use; no process was stopped"
+                )
+            time.sleep(0.5)
     java()
     if not (SERVER / "fabric-server-launch.jar").exists():
         raise RuntimeError("Run mclab bootstrap first")
