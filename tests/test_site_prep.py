@@ -270,6 +270,28 @@ def test_vines_in_margin_are_required_site_work():
     assert p in sp.plan_site(s, t, lambda *q: w.get(q)).breaks
 
 
+def test_seagrass_under_a_pond_is_filled_through_not_built_on():
+    # seagrass is not REPLACEABLE by name, but it has no collision box to click
+    t = template()
+    s, w = mixed_world(t)
+    x, g, z = s.x0, s.ground_y, s.z0
+    w[(x, g, z)], w[(x, g - 1, z)], w[(x, g - 2, z)] = (
+        WATER,
+        WATER,
+        "minecraft:seagrass",
+    )
+    by_name = sp.plan_site(s, t, lambda *q: w.get(q)).fills
+    assert [p for p in by_name if p[::2] == (x, z)] == [(x, g - 1, z), (x, g, z)]
+
+    def face(*q):
+        state = w.get(q) or ""
+        return not any(n in state for n in ("air", "water", "seagrass"))
+
+    real = sp.plan_site(s, t, lambda *q: w.get(q), face=face).fills
+    column = [p for p in real if p[::2] == (x, z)]
+    assert column == [(x, g - 2, z), (x, g - 1, z), (x, g, z)]  # lowest first
+
+
 def test_short_wait_or_progress_is_not_a_stall():
     clock, lines, body = Clock(), [], Pit()
     watch = ProgressWatch(clock=clock, log=lines.append)

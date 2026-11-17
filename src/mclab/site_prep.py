@@ -196,8 +196,13 @@ class _Plan:
     blocked: dict[Pos, str] = field(default_factory=dict)
 
 
-def plan_site(site: Site, template: bp.Template, world, protected=frozenset()) -> _Plan:
-    """What is still wrong in the area, from the delivered world (pure)."""
+def plan_site(
+    site: Site, template: bp.Template, world, protected=frozenset(), face=None
+) -> _Plan:
+    """What is still wrong in the area, from the delivered world (pure). ``face(x, y,
+    z)`` judges support by real collision boxes: seagrass under a pond is not
+    REPLACEABLE by name but has nothing to click (run 20261117T031430547551Z: 63
+    no_support_face fills over it, then the fill stalled)."""
     plan = _Plan()
     for x, z in site.columns():
         for y in range(site.top_y, site.ground_y, -1):
@@ -236,7 +241,11 @@ def plan_site(site: Site, template: bp.Template, world, protected=frozenset()) -
                 plan.unknown.append((x, y, z))
                 run = []
                 break
-            if ident not in bp.REPLACEABLE and ident not in FLOWERS:
+            if (
+                face(x, y, z)
+                if face
+                else ident not in bp.REPLACEABLE and ident not in FLOWERS
+            ):
                 break  # supporting block found
             run.append((x, y, z))
             y -= 1
@@ -359,7 +368,9 @@ def prepare_site(
             rep.blocked = {**rep.blocked, **dict.fromkeys(unreachable, "unreachable")}
             # Audit the delivered world without the skip filter before declaring
             # readiness. Failed work remains visible even after a bounded retry.
-            audit = plan_site(site, template, body.world, protected)
+            audit = plan_site(
+                site, template, body.world, protected, getattr(body, "has_face", None)
+            )
             remaining = audit.breaks + audit.fills
             rep.blocked.update(audit.blocked)
             rep.blocked.update(dict.fromkeys(remaining, "unfinished site edit"))
@@ -415,7 +426,7 @@ def prepare_site(
         # bottom up: only cells already standing on something. A cell over water or
         # air has no face to click and no stance beside it that is not itself over
         # the hole (run 20261117T015107803188Z: 64 node-limit plans at a pond).
-        supported = [p for p in plan.fills if _solid(body.world(p[0], p[1] - 1, p[2]))]
+        supported = [p for p in plan.fills if _ground(body, p[0], p[1] - 1, p[2])]
         for pos in supported[: min(BATCH, have)]:
             before = len(report.placed)
             try:
@@ -458,7 +469,7 @@ def _approach(body, walk, cell: Pos, ground: int) -> bool:
         for dz in range(-APPROACH_RANGE, APPROACH_RANGE + 1):
             x, z = cell[0] + dx, cell[2] + dz
             for y in range(ground + 4, ground - 3, -1):
-                if _solid(body.world(x, y, z)):
+                if _ground(body, x, y, z):
                     if all(
                         _ident(body.world(x, y + h, z)) in bp.AIR | FLOWERS
                         for h in (1, 2)
@@ -611,9 +622,9 @@ def _sweep(
                     for dx in range(-3, 4)
                     for dz in range(-3, 4)
                     if (pos[0] + dx, pos[2] + dz) not in solid
-                    and _solid(body.world(pos[0] + dx, ground, pos[2] + dz))
-                    and not _solid(body.world(pos[0] + dx, ground + 1, pos[2] + dz))
-                    and not _solid(body.world(pos[0] + dx, ground + 2, pos[2] + dz))
+                    and _ground(body, pos[0] + dx, ground, pos[2] + dz)
+                    and not _ground(body, pos[0] + dx, ground + 1, pos[2] + dz)
+                    and not _ground(body, pos[0] + dx, ground + 2, pos[2] + dz)
                 ]
                 if spots:
                     goal = min(spots, key=lambda q: (_dist2(q, pos), _dist2(q, here)))
@@ -760,7 +771,7 @@ def _fill_sweep(
             for dx in range(-1, 2)
             for dz in range(-1, 2)
             if (pos[0] + dx, pos[2] + dz) not in holes
-            and _solid(body.world(pos[0] + dx, ground, pos[2] + dz))
+            and _ground(body, pos[0] + dx, ground, pos[2] + dz)
             and all(
                 _ident(body.world(pos[0] + dx, y, pos[2] + dz)) in bp.AIR | FLOWERS
                 for y in (ground + 1, ground + 2)
@@ -786,6 +797,13 @@ def _fill_sweep(
     return placed
 
 
+def _ground(body, x: int, y: int, z: int) -> bool:
+    """A face to stand on or click, by the cell's real collision boxes when the body
+    knows them (modded blocks included), else by name."""
+    has_face = getattr(body, "has_face", None)
+    return has_face(x, y, z) if has_face else _solid(body.world(x, y, z))
+
+
 def _solid(state) -> bool:
     ident = _ident(state)
     return (
@@ -797,7 +815,9 @@ def _solid(state) -> bool:
 
 
 def _round_plan(site, template, body, protected, skipped) -> _Plan:
-    plan = plan_site(site, template, body.world, protected)
+    plan = plan_site(
+        site, template, body.world, protected, getattr(body, "has_face", None)
+    )
     plan.breaks = [p for p in plan.breaks if p not in skipped]
     plan.fills = [p for p in plan.fills if p not in skipped]
     for p, why in skipped.items():  # cells whose edits failed are reported, not retried
