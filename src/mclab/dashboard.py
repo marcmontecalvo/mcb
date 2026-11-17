@@ -159,10 +159,22 @@ def reopen_dashboard(port, no_browser):
     return False
 
 
+SAVE_RETRIES = 40  # x 25 ms: a reader holding the file open blocks a replace on Windows
+
+
 def save(path, value):
     temporary = path.with_suffix(".tmp")
     write_json(temporary, value)
-    temporary.replace(path)
+    for attempt in range(SAVE_RETRIES):
+        try:
+            temporary.replace(path)
+            return
+        except PermissionError:
+            # session 20261117T035133-00db9af7 died here, WinError 5, while the
+            # sessions API was reading session.json
+            if attempt == SAVE_RETRIES - 1:
+                raise
+            time.sleep(0.025)
 
 
 def tail(path, size=100_000):
