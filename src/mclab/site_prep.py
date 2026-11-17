@@ -737,7 +737,22 @@ def _fill_sweep(
             if ident and ident not in bp.AIR and ident not in bp.FLUIDS:
                 # a flower or grass in the hole: dirt cannot replace it (run
                 # 20261110T024448883505Z left every flowered hole unfilled)
-                body.break_block(pos)
+                broke = body.break_block(pos)
+                plug = (broke.data or {}).get("plugged") if not broke.ok else None
+                if plug:
+                    # seagrass under water: the leak-plug reflex filled the cell
+                    # itself; dirt on it was refused "occupied" until the run
+                    # stalled (run 20261117T033515924527Z)
+                    item = bp.parse_state(plug)[0]
+                    if stock.get(item, 0) > 0:
+                        stock[item] -= 1
+                    report.placed.append(pos)
+                    todo.discard(pos)
+                    placed += 1
+                    walks_without_edit = 0
+                    walked.clear()
+                    refused -= {q for q in refused if _dist2(q, pos) == 1}
+                    continue
             item = next(i for i, n in stock.items() if n > 0)
             if body.place_block(pos, item, item).ok:
                 stock[item] -= 1

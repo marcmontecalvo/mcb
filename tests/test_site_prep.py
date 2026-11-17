@@ -467,6 +467,46 @@ def test_fill_sweep_places_all_in_reach_without_moving_between_blocks():
     assert len(body.moves) <= 2
 
 
+def test_a_cell_the_leak_plug_filled_counts_as_filled_not_refused():
+    # run 20261117T033515924527Z: seagrass broken under water, the body's plug
+    # reflex put dirt there, then every place_block was refused "occupied"
+    class Body:
+        pos, placed, plugged = (0, 64, 0), [], set()
+        seagrass = {(1, 63, 0)}
+
+        def position(self):
+            return self.pos
+
+        def world(self, *pos):
+            if pos in self.seagrass:
+                return "minecraft:seagrass"
+            solid = pos in self.placed or pos in self.plugged or pos == (0, 63, 0)
+            return DIRT if solid else AIR
+
+        def break_block(self, pos):
+            self.seagrass.discard(pos)
+            self.plugged.add(pos)
+            return br.Result(False, "water", {"plugged": DIRT})
+
+        def place_block(self, pos, state, item):
+            if pos in self.plugged:
+                return br.Result(False, "occupied")
+            self.placed.append(pos)
+            return br.Result(True)
+
+        def walk_to(self, goal, radius=0.5):
+            self.pos = goal
+            return True
+
+    class Runner:
+        report, max_steps = br.BuildReport(), 10_000
+
+    body = Body()
+    fills = [(1, 63, 0), (2, 63, 0)]
+    assert sp._fill_sweep(body, Runner, fills, 64, 63) == 2
+    assert body.placed == [(2, 63, 0)] and Runner.report.placed == fills
+
+
 def test_fill_does_not_build_walls_from_below_the_working_surface():
     class Body:
         pos = (0, 62, 0)

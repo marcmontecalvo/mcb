@@ -940,6 +940,11 @@ class CompanionBody:
         result = self.op("break_block", pos=list(pos), **extra)
         if result.ok:
             self._remember(pos, "minecraft:air", result.data.get("_event_tick"))
+        elif (data := result.data or {}).get("plugged"):
+            # fluid ran in and the leak-plug reflex refilled the cell with a block
+            self._remember(
+                pos, data["plugged"], data.get("_event_tick"), data.get("collision_boxes")
+            )
         return result
 
     def craft(self, recipe: str, times: int, table: Pos | None = None) -> Result:
@@ -1227,7 +1232,10 @@ class CompanionBody:
             # air gap means an overhang. Run 20261117T011432772067Z: a site-prep
             # walk to the ground under leaves snapped 3 up onto the canopy, and two
             # plans burnt their 10000 nodes on a goal the body cannot climb to.
-            if dy > 1 and not all(solid(cy) for cy in range(y, y + dy)):
+            # The same for one step up: the block stepped onto must rest on
+            # something. Run 20261117T033515924527Z: a walk to the ground beside a
+            # pond snapped onto a lone leaf over the water, 2 plans x 10000 nodes.
+            if dy > 0 and not all(solid(cy) for cy in range(y - (dy == 1), y + dy)):
                 continue
             return y + dy
         return y

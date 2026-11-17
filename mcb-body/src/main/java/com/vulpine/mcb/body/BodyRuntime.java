@@ -1109,6 +1109,12 @@ public final class BodyRuntime implements AutoCloseable {
             emit("break_block_done", "fabric_start", data);
         } else {
             data.put("reason", outcome);
+            // The leak-plug reflex refilled the cell: say with what, so the caller's map holds the block.
+            var plugged = player.level().getBlockState(task.pos);
+            if ((outcome.equals("water") || outcome.equals("lava")) && !plugged.isAir() && plugged.getFluidState().isEmpty()) {
+                data.put("plugged", BodyBuild.render(plugged));
+                data.put("collision_boxes", PolicySensor.collisionBoxes(player.level(), task.pos));
+            }
             emit("break_block_failed", "fabric_start", data);
         }
     }

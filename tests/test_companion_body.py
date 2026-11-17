@@ -934,6 +934,12 @@ def test_stand_height_does_not_snap_up_onto_an_overhang():
     column(9, "dirt", "dirt", "dirt", "dirt", "air", "air")
     assert b._stand_y(7, 1, 0) == 1
     assert b._stand_y(9, 1, 0) == 4
+    # one step up onto a lone leaf over a pond is no stance either (run
+    # 20261117T033515924527Z); a step onto a block that rests on the ground is
+    column(11, "air", "air", "oak_leaves", "air", "air")
+    column(13, "dirt", "dirt", "air", "air")
+    assert b._stand_y(11, 2, 0) == 2
+    assert b._stand_y(13, 1, 0) == 2
 
 
 def test_overlay_without_boxes_prefers_the_sensed_cell_of_the_same_block():
