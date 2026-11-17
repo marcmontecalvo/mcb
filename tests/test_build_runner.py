@@ -921,3 +921,45 @@ def test_a_final_audit_waits_for_the_sensor_before_calling_a_built_house_blocked
     monkeypatch.setattr(br, "_clean_up", cleanup)
     report = br.run_build(template, body, BLOCKS)
     assert report.stop == "done"
+
+
+def test_cleanup_runs_with_door_opening_disabled_and_a_blocked_loop_still_repairs_doors(
+    monkeypatch,
+):
+    from contextlib import contextmanager
+
+    body, template = small_house_body()
+    state = {"depth": 0, "in_cleanup": []}
+
+    @contextmanager
+    def no_opening_doors():
+        state["depth"] += 1
+        try:
+            yield
+        finally:
+            state["depth"] -= 1
+
+    body.no_opening_doors = no_opening_doors
+    real_diff = bp.diff
+    first = [True]
+
+    def diff(t, w, *rest):  # the main loop's first empty-action audit sees a gap
+        d = real_diff(t, w, *rest)
+        if not rest and first[0] and not d.places and not d.breaks:
+            first[0] = False
+            d.places.append(next(iter(t.cells)))
+        return d
+
+    def cleanup(runner, template, scaffolds):
+        state["in_cleanup"].append(state["depth"])
+        for pos, s in body.w.items():
+            if "_door[" in s and "half=lower" in s:
+                body.w[pos] = s.replace("open=false", "open=true")
+                return True
+        raise AssertionError("no door")
+
+    monkeypatch.setattr(bp, "diff", diff)
+    monkeypatch.setattr(br, "_clean_up", cleanup)
+    report = br.run_build(template, body, BLOCKS)
+    assert state["in_cleanup"] == [1]
+    assert report.stop == "done" and not real_diff(template, body.world).uses

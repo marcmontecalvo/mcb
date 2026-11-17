@@ -111,6 +111,7 @@ class BuildReport:
     stall_reason: str = ""  # why a "stalled" or "site_not_ready" stop happened
     # (cell, reason, stance, body diagnosis) of every failed attempt, to diagnose from
     failures: list[tuple[Pos, str, Pos, dict]] = field(default_factory=list)
+    diff: dict = field(default_factory=dict)  # what the loop saw when it ended blocked
 
     def progress(self) -> float:
         """Fraction of cells that are correct (1.0 for an empty template)."""
@@ -863,6 +864,13 @@ def _run(
                 settle(SETTLE_TICKS)
                 continue
             report.stop = "done" if clean else "blocked"
+            if not clean:
+                report.diff = {
+                    "breaks": list(d.breaks),
+                    "places": list(d.places),
+                    "unknown": list(d.unknown),
+                    "uses": list(d.uses),
+                }
             break
         with calm():
             _sweep(runner, template, acts)
@@ -883,14 +891,17 @@ def _run(
             runner.towered.clear()
         if on_progress:
             on_progress(report, False)
+    no_doors = getattr(body, "no_opening_doors", nullcontext)
     if report.stop != "need_materials":
-        with calm():
+        # a cleanup walk that opens a door leaves it open (run 20261116T234547601261Z)
+        with calm(), no_doors():
             _clean_up(runner, template, scaffolds)
-    if report.stop == "done":
+    if report.stop in ("done", "blocked"):
+        # the final audit below decides: a clean diff is done, whatever the loop said
         # Cleanup walks can reopen doors after the main loop's clean audit.
         # Repair only state toggles, with automatic door opening disabled;
         # audit again after all movement, rather than reporting stale success.
-        with calm(), getattr(body, "no_opening_doors", nullcontext)():
+        with calm(), no_doors():
             # The cleanup's last steps may have opened a door the sensor has not
             # delivered yet: a stale audit skipped the repair and ended blocked
             # with one open door (run 20261116T230737426066Z).
@@ -918,6 +929,8 @@ def _run(
             final = bp.diff(template, body.world)
         if final.breaks or final.places or final.unknown or final.uses:
             report.stop = "blocked"
+        else:
+            report.stop = "done"
     report.counts = bp.progress(template, body.world)
     report.unknown = bp.diff(template, body.world).unknown
 
