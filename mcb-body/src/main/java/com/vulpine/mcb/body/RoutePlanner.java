@@ -550,12 +550,15 @@ final class RoutePlanner {
         double walk = COST_HEURISTIC * (Math.max(dx, dz) + (SQRT2 - 1) * Math.min(dx, dz));
         return Math.max(lineEstimate(node), field(clamp) - walk);
     }
+    private double extraCost(int x, int y, int z) {
+        return edits.extraCosts.getOrDefault(key(x, y, z), 0.0);
+    }
     private double goalBreakCost() {
         if (goalBreak < 0) {
             goalBreak = 0;
             for (int dy = 0; dy <= 1; dy++) {
                 var c = baseCell(goal.x, (int) goal.y + dy, goal.z);
-                if (fullDry(c) && edits.breakCosts.containsKey(c.get("block"))) goalBreak += edits.breakCosts.get(c.get("block"));
+                if (fullDry(c) && edits.breakCosts.containsKey(c.get("block"))) goalBreak += edits.breakCosts.get(c.get("block")) + extraCost(goal.x, (int) goal.y + dy, goal.z);
             }
         }
         return goalBreak;
@@ -652,7 +655,7 @@ final class RoutePlanner {
         if (boxes(c).isEmpty() || !fullCube(c)) return 0;
         if (edits.protectedCells.contains(key(x, y, z))) return INF;
         Double b = edits.breakCosts.get(c.get("block"));
-        return b == null ? INF : b;
+        return b == null ? INF : b + extraCost(x, y, z);
     }
     /** Outside the field: straight-line walk plus the cheapest break for each known breakable solid on the line. */
     private double lineEstimate(Node node) {
@@ -1123,13 +1126,20 @@ final class RoutePlanner {
     record EditPolicy(boolean stepEdits, Map<String, Double> breakCosts, Map<String, Double> fallCosts,
                       boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxStack, int breakBudget,
                       int placeBudget, int placeSupply, Set<Long> protectedCells, Set<String> protectedBlocks,
-                      String material, List<String> materials) {
+                      String material, List<String> materials, Map<Long, Double> extraCosts) {
+        EditPolicy(boolean stepEdits, Map<String, Double> breakCosts, Map<String, Double> fallCosts,
+                   boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxStack, int breakBudget,
+                   int placeBudget, int placeSupply, Set<Long> protectedCells, Set<String> protectedBlocks,
+                   String material, List<String> materials) {
+            this(stepEdits, breakCosts, fallCosts, allowPlace, allowBridge, allowPillar, maxStack, breakBudget,
+                    placeBudget, placeSupply, protectedCells, protectedBlocks, material, materials, Map.of());
+        }
         EditPolicy(boolean stepEdits, Map<String, Double> breakCosts, Map<String, Double> fallCosts,
                    boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxStack, int breakBudget,
                    int placeBudget, int placeSupply, Set<Long> protectedCells, Set<String> protectedBlocks,
                    String material) {
             this(stepEdits, breakCosts, fallCosts, allowPlace, allowBridge, allowPillar, maxStack, breakBudget,
-                    placeBudget, placeSupply, protectedCells, protectedBlocks, material, List.of(material));
+                    placeBudget, placeSupply, protectedCells, protectedBlocks, material, List.of(material), Map.of());
         }
         static EditPolicy fromJson(JsonObject o) {
             var breakCosts = costs(o.getAsJsonObject("break_costs"));
@@ -1144,6 +1154,18 @@ final class RoutePlanner {
                 if (Math.abs((long)x) > 30_000_000 || Math.abs((long)z) > 30_000_000 || y < -2048 || y > 2047)
                     throw new IllegalArgumentException("edit_protected");
                 cells.add(key(x, y, z));
+            }
+            // "costly": [[x,y,z,cost]]: breakable like any cell whose block is in break_costs, plus cost per cell.
+            var extra = new HashMap<Long, Double>();
+            if (o.has("costly")) for (var e : o.getAsJsonArray("costly")) {
+                var a = e.getAsJsonArray();
+                if (a.size() != 4) throw new IllegalArgumentException("edit_costly");
+                int x = integer(a.get(0)), y = integer(a.get(1)), z = integer(a.get(2));
+                double c = a.get(3).getAsDouble();
+                if (Math.abs((long)x) > 30_000_000 || Math.abs((long)z) > 30_000_000 || y < -2048 || y > 2047
+                        || !Double.isFinite(c) || c < 0 || extra.size() >= 4_000_000)
+                    throw new IllegalArgumentException("edit_costly");
+                extra.put(key(x, y, z), c);
             }
             var blocks = new HashSet<String>();
             for (var e : o.getAsJsonArray("protected_blocks")) blocks.add(e.getAsString());
@@ -1165,7 +1187,7 @@ final class RoutePlanner {
                 throw new IllegalArgumentException("edit_bounds");
             return new EditPolicy(bool(o, "step"), breakCosts, fallCosts, bool(o, "allow_place"),
                     bool(o, "allow_bridge"), bool(o, "allow_pillar"), maxStack, breakBudget,
-                    placeBudget, placeSupply, cells, blocks, material, List.copyOf(materials));
+                    placeBudget, placeSupply, cells, blocks, material, List.copyOf(materials), extra);
         }
         private static int integer(com.google.gson.JsonElement e) {
             if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) throw new IllegalArgumentException("edit_integer");
@@ -1242,9 +1264,10 @@ final class RoutePlanner {
     /** Edit cost, summed in a fixed order so equal-cost ties are deterministic. */
     private double editCost(Edit edit, double base, Node from) {
         if (!ticks) return (edit.target.y > edit.source.y ? 1.4 : 1)
-                + (breakPenalty + toolWearPenalty) * edit.breaks.size() + placePenalty * edit.places.size();
+                + (breakPenalty + toolWearPenalty) * edit.breaks.size() + placePenalty * edit.places.size()
+                + edit.breaks.stream().mapToDouble(p -> extraCost(p[0], p[1], p[2])).sum();
         double breaking = 0;
-        for (var p : edit.breaks) breaking += edits.breakCosts.get(block(p));
+        for (var p : edit.breaks) breaking += edits.breakCosts.get(block(p)) + extraCost(p[0], p[1], p[2]);
         if (extra && !edit.breaks.isEmpty()) {  // getMiningDurationTicks includeFalling
             double falling = 0;
             for (var p : edit.breaks) for (var q : fallingStack(p)) {

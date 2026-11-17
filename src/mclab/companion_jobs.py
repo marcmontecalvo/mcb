@@ -401,4 +401,7 @@ def protect(body, template: bp.Template, site_margin: int | None = None) -> None
     if site_margin is not None:
         site = site_area(template, site_margin)
         cells |= {(x, site.ground_y, z) for x, z in site.columns()}
+    # The planner may break a standing wall cell at a price (CompanionBody._planner_terrain);
+    # the build loop re-places it.
+    body.build_cells = {p: st for p, st in template.cells.items() if bp.parse_state(st)[0] not in bp.AIR}
     body.terrain_policy = replace(policy, protected_positions=tuple(sorted(cells)))

@@ -850,6 +850,38 @@ def test_protected_cells_holding_leaves_are_breakable_for_the_planner(monkeypatc
     assert b._planner_terrain().protected_positions == house
 
 
+def test_placed_build_blocks_are_costly_not_protected_for_the_planner(monkeypatch):
+    from dataclasses import replace
+
+    b, _, _ = body()
+    cube = lambda name: {"block": name, "collision_boxes": [FULL]}  # noqa: E731
+    cells = {
+        (0, 2, 0): cube("minecraft:oak_planks"),
+        (1, 2, 0): {
+            "block": "minecraft:glass_pane",
+            "collision_boxes": [[0.4, 0, 0, 0.6, 1, 1]],
+        },
+        (2, 2, 0): cube("minecraft:chest"),
+        (3, 2, 0): {"block": "minecraft:air", "collision_boxes": []},
+        (4, 2, 0): cube("minecraft:dirt"),  # not the template's block: stays protected
+    }
+    monkeypatch.setattr(b, "_cells_now", lambda: cells)
+    house = tuple(sorted(cells))
+    b.build_cells = {
+        (0, 2, 0): "minecraft:oak_planks",
+        (1, 2, 0): "minecraft:glass_pane[east=true]",
+        (2, 2, 0): "minecraft:chest[facing=north]",
+        (3, 2, 0): "minecraft:air",
+        (4, 2, 0): "minecraft:oak_planks",
+    }
+    b.terrain_policy = replace(cb.DIG_TERRAIN, protected_positions=house)
+    t = b._planner_terrain()
+    assert t.costly_positions == ((0, 2, 0),)
+    assert set(t.protected_positions) == set(house) - {(0, 2, 0)}
+    b.terrain_policy = replace(b.terrain_policy, allow_break=False)
+    assert b._planner_terrain().costly_positions == ()
+
+
 def test_no_placing_turns_placement_off_and_restores_the_policy():
     from mclab.companion_body import DIG_TERRAIN
 

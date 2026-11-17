@@ -20,6 +20,7 @@ from mclab.route_types import RouteResult, segment
 from mclab.terrain_steps import (
     BREAK_AIM_TICKS,
     BREAK_EXTRA_TICKS,
+    BUILD_BREAK_COST,
     TIER_SPEED,
     TOOL_TIERS,
     WIDE_EXCAVATABLE,
@@ -191,6 +192,7 @@ def edit_payload(policy, inventory, protected, tool_choice="lowest_sufficient"):
         "place_budget": policy.place_budget,
         "place_supply": supply,
         "protected": sorted([int(v) for v in p] for p in cells),
+        "costly": [[*p, BUILD_BREAK_COST] for p in sorted(policy.costly_positions)],
         "protected_blocks": list(policy.protected_blocks),
         # "materials": the whole list, most held first; "material" stays its head for
         # a body that reads only the single field.

@@ -806,6 +806,7 @@ def drive_native(client, controller, wall_timeout):
                 stats["steps_submitted"] += 1
                 step_before = observation["body"]
                 terrain_policy = asdict(policy)
+                terrain_policy.pop("costly_positions")  # planner-only
                 # The motor and terrain planner only consult protection within and
                 # beside this plan; sending the whole list re-smuggled a 4,410-cell
                 # house-large template past the body's 16 KB POST limit (run

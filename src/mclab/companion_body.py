@@ -529,6 +529,25 @@ def _fresh_idle(op):
     return wrapped
 
 
+# Build blocks the planner must never break: they do not drop themselves intact or hold
+# state (glass and ice shatter, leaves decay, the rest have block entities or attachments).
+_NO_BUILD_BREAK = (
+    "glass", "_leaves", "ice", "chest", "barrel", "furnace", "smoker", "bed", "door",
+    "sign", "bookshelf", "lantern", "hopper", "campfire", "shulker", "banner", "head",
+)
+
+
+def _breakable_build_block(cell) -> bool:
+    """A full cube (one 0..1 box) whose block drops itself."""
+    block = cell.get("block") or ""
+    boxes = cell.get("collision_boxes") or []
+    return (
+        len(boxes) == 1
+        and tuple(boxes[0]) == (0, 0, 0, 1, 1, 1)
+        and not any(w in block for w in _NO_BUILD_BREAK)
+    )
+
+
 class CompanionBody:
     def __init__(
         self,
@@ -553,6 +572,7 @@ class CompanionBody:
         self.precise_stance = False
         self.stray_footholds: set[Pos] = set()  # blocks the planner placed to walk
         self.stray_breaks: dict[Pos, str] = {}  # blocks it broke to walk -> original state
+        self.build_cells: dict[Pos, str] = {}  # the template's non-air cells (see protect)
         # set per placement by build_runner: the one face the block hangs on
         self.required_support: Pos | None = None
         self._obs: dict = {}
@@ -1006,22 +1026,34 @@ class CompanionBody:
         return None
 
     def _planner_terrain(self):
-        """The policy the route planner gets: a protected cell (the house) that holds
+        """The policy the route planner gets. A protected cell (the house) that holds
         foliage now is not the build's block, and site prep cuts it anyway, so the
-        planner may break it. A protected leaf canopy sealed a 2-block walk into a
-        10,000-node search (run 20261117T035331768325Z, plans 17-19)."""
+        planner may break it (a protected leaf canopy sealed a 2-block walk into a
+        10,000-node search, run 20261117T035331768325Z). A cell holding the build's
+        own placed full-cube block that drops itself moves to ``costly_positions``:
+        breakable at BUILD_BREAK_COST, and the build loop re-places it (without it
+        the upper floor of a closed house was unreachable, run 20261117T055944364786Z).
+        Air cells of the template and the site ground stay protected."""
         policy = self.terrain_policy
         if not (policy.allow_break and policy.protected_positions):
             return policy
         cells = self._cells_now()
-        keep = tuple(
-            p
-            for p in policy.protected_positions
-            if "_leaves" not in ((cells.get(p) or {}).get("block") or "")
-        )
-        if len(keep) == len(policy.protected_positions):
+        built = getattr(self, "build_cells", None) or {}
+        keep, costly = [], []
+        for p in policy.protected_positions:
+            cell = cells.get(p) or {}
+            block = cell.get("block") or ""
+            if "_leaves" in block:
+                continue
+            if p in built and block == parse_state(built[p])[0] and _breakable_build_block(cell):
+                costly.append(p)
+            else:
+                keep.append(p)
+        if not costly and len(keep) == len(policy.protected_positions):
             return policy
-        return replace(policy, protected_positions=keep)
+        return replace(
+            policy, protected_positions=tuple(keep), costly_positions=tuple(costly)
+        )
 
     def _goto_controller(self, goal, reach, radius, probe, wall):
         return _GotoController(

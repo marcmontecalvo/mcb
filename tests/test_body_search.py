@@ -354,3 +354,13 @@ def test_zero_place_supply_sends_no_place_edges_but_keeps_breaks():
 def test_template_cells_are_protected_in_the_payload():
     policy = replace(PROD, protected_positions=((4, 1, 4),))
     assert [4, 1, 4] in body_search.edit_payload(policy, KIT, ())["protected"]
+
+
+def test_edit_payload_sends_costly_build_cells():
+    from mclab.terrain_steps import BUILD_BREAK_COST
+
+    edits = body_search.edit_payload(
+        replace(PROD, costly_positions=((2, 1, 0), (1, 1, 0))), [], ()
+    )
+    assert edits["costly"] == [[1, 1, 0, BUILD_BREAK_COST], [2, 1, 0, BUILD_BREAK_COST]]
+    assert body_search.edit_payload(PROD, [], ())["costly"] == []

@@ -58,6 +58,17 @@ WIDE_EXCAVATABLE = {
         f"minecraft:{w}_log": (2.0, _AXE, True)
         for w in "oak spruce birch jungle acacia dark_oak mangrove cherry".split()
     },
+    # Blocks a house is built of (all drop themselves): the planner may break a placed
+    # one at BUILD_BREAK_COST and the build loop re-places it.
+    **{
+        f"minecraft:{w}_planks": (2.0, _AXE, True)
+        for w in "oak spruce birch jungle acacia dark_oak mangrove cherry".split()
+    },
+    **{
+        f"minecraft:stripped_{w}_log": (2.0, _AXE, True)
+        for w in "oak spruce birch jungle acacia dark_oak mangrove cherry".split()
+    },
+    "minecraft:stone_bricks": (1.5, _PICK, True),
     # Leaves: no axe speed bonus, but the axe slot is a harmless selection.
     **{
         f"minecraft:{w}_leaves": (0.2, _AXE, False)
@@ -66,6 +77,13 @@ WIDE_EXCAVATABLE = {
         )
     },
 }
+# Extra price (ticks) to break one cell of the build on top of its block's break cost
+# (~16-18 ticks for 2-hardness blocks with iron, plus EDIT_STEP 15). A walk is 4.6
+# ticks/block, so one broken wall cell (~50 ticks all in) equals a ~11-block detour,
+# and a 2-high doorway cut (~100) a ~22-block one: the planner walks round unless the
+# way round is much longer or does not exist. Far above break_penalty 3.0, which
+# prices ordinary terrain in the non-tick model.
+BUILD_BREAK_COST = 24.0
 IRON_SPEED = 6.0  # ItemTier IRON mining speed; the natural kit carries iron tools
 BREAK_EXTRA_TICKS = 2.0  # Baritone blockBreakAdditionalPenalty (default 2)
 PLACE_TICKS = 20.0  # Baritone placeBlockCost (default 20)
@@ -118,6 +136,9 @@ class TerrainPolicy:
     material_allowlist: tuple = BUILDING
     protected_blocks: tuple = ()
     protected_positions: tuple = ()
+    # Standing cells of the build: the planner may break one at BUILD_BREAK_COST and
+    # the build loop re-places it; see CompanionBody._planner_terrain.
+    costly_positions: tuple = ()
     break_penalty: float = 3.0
     placement_penalty: float = 4.0
     tool_wear_penalty: float = 0.0
@@ -170,13 +191,19 @@ class TerrainPolicy:
         ):
             raise ValueError("Invalid terrain profile fields")
         values = dict(value)
-        for name in ("material_allowlist", "protected_blocks", "protected_positions"):
+        for name in (
+            "material_allowlist",
+            "protected_blocks",
+            "protected_positions",
+            "costly_positions",
+        ):
             if name in values:
                 if not isinstance(values[name], (list, tuple)):
                     raise ValueError("Invalid terrain profile list")
                 values[name] = tuple(
                     tuple(p)
-                    if name == "protected_positions" and isinstance(p, (list, tuple))
+                    if name in ("protected_positions", "costly_positions")
+                    and isinstance(p, (list, tuple))
                     else p
                     for p in values[name]
                 )
@@ -246,6 +273,13 @@ class TerrainPolicy:
             for p in self.protected_positions
         ):
             raise ValueError("Invalid protected positions")
+        if not isinstance(self.costly_positions, tuple) or any(
+            not isinstance(p, tuple)
+            or len(p) != 3
+            or any(type(v) is not int for v in p)
+            for p in self.costly_positions
+        ):
+            raise ValueError("Invalid costly positions")
         if type(self.mob_coefficient) not in (int, float) or not (
             0.1 <= self.mob_coefficient <= 10
         ):

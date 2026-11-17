@@ -412,6 +412,29 @@ public final class RoutePlannerTest {
                 new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(3, 4, 0), 0, 3, true).withEdits(noPlace).search(10_000);
         check(stairs.status().equals("reached"), "one-block staircase is still found: " + stairs.status());
 
+        // Costly cells (the build's own walls): broken only when no way round exists; protected stays whole.
+        for (var mode : new String[]{"closed", "gap", "protected"}) {
+            var room = new HashMap<Key, Map<String, Object>>();
+            var prot = new java.util.HashSet<Long>();
+            for (int x = -4; x <= 6; x++) for (int z = -4; z <= 4; z++) for (int y = -1; y <= 4; y++) {
+                boolean shell = y <= 0 || y >= 3 || Math.abs(x) == 1 && Math.abs(z) <= 1 || Math.abs(z) == 1 && Math.abs(x) <= 1;
+                boolean isDoor = x == 1 && z == 0 && y >= 1 && y <= 2;
+                boolean isGap = mode.equals("gap") && x == -1 && z == 0 && y >= 1 && y <= 2;
+                room.put(new Key(x, y, z), shell && !isGap ? stone() : air());
+                if (shell && !isGap && !(isDoor && !mode.equals("protected"))) prot.add(RoutePlanner.key(x, y, z));
+            }
+            var extra = mode.equals("protected") ? Map.<Long, Double>of()
+                    : Map.of(RoutePlanner.key(1, 1, 0), 24.0, RoutePlanner.key(1, 2, 0), 24.0);
+            var pol = new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), false, false, false,
+                    1, 64, 64, 3, prot, java.util.Set.of(), "minecraft:cobblestone", List.of("minecraft:cobblestone"), extra);
+            var res = new RoutePlanner((x, y, z) -> room.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                    new RoutePlanner.Node(3, 1, 0), 0, 3, true).withMoves(false, true).withEdits(pol).search(50_000);
+            boolean brokeDoor = res.steps().stream().anyMatch(e -> e.breaks().stream().anyMatch(q -> q[0] == 1 && q[2] == 0));
+            if (mode.equals("closed")) check(res.status().equals("reached") && brokeDoor, "costly wall is broken when sealed in: " + res.status());
+            if (mode.equals("gap")) check(res.status().equals("reached") && !brokeDoor, "walks round rather than break a costly wall: " + res.status());
+            if (mode.equals("protected")) check(!res.status().equals("reached") && !brokeDoor, "protected wall stays whole: " + res.status());
+        }
+
         System.out.println("RoutePlanner: " + checks + " planner checks passed");
     }
 

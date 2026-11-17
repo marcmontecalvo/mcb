@@ -124,6 +124,7 @@ _TUPLE_TYPES = {
     "material_allowlist": list[str],
     "protected_blocks": list[str],
     "protected_positions": list[list[int]],
+    "costly_positions": list[list[int]],
 }
 _ENUMS = {
     "operation": ["execute", "reset", "episodes"],
