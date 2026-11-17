@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from mclab.terrain_transport import NATIVE_SAMPLE_LIMIT
 
+SUBMIT_WAIT = 5.0  # seconds a full admission queue may hold up the driver
+
 
 @dataclass(frozen=True)
 class MapView:
@@ -48,7 +50,11 @@ class ObservationWorker:
             self.memory.gap = True
             raise RuntimeError("Observation admission sample exceeds native bounds")
         try:
-            self.pending.put_nowait(observation)
+            # Backpressure, not a gap: a brief stall in the lane (archive writes, GC)
+            # filled this 2-deep queue 37 minutes into large-house run
+            # 20261117T114555584724Z and the gap ended the run. Waiting slows the
+            # caller by a tick or two; only a lane stuck for SUBMIT_WAIT is a gap.
+            self.pending.put(observation, timeout=SUBMIT_WAIT)
         except queue.Full as error:
             self.memory.gap = True
             raise RuntimeError(

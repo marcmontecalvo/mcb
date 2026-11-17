@@ -8,7 +8,33 @@ from mclab.observation_worker import ObservationWorker
 from mclab.spatial_memory import MapArchive, SpatialMemory
 
 
-def test_distinct_sample_overflow_fails_closed_without_dropping_geometry(tmp_path):
+def test_a_brief_stall_in_the_lane_holds_the_caller_up_instead_of_a_gap(tmp_path):
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    entered = threading.Event()
+    original_ingest = memory.ingest
+
+    def slow_ingest(obs, **kwargs):
+        entered.set()
+        threading.Event().wait(0.3)
+        original_ingest(obs, **kwargs)
+
+    memory.ingest = slow_ingest
+    worker = ObservationWorker(memory)
+    try:
+        worker.submit(observation((0, 0, 0), tick=1))
+        assert entered.wait(3)
+        for tick in range(2, 6):  # more than the queue holds while ingest stalls
+            worker.submit(observation((tick, 0, 0), tick=tick))
+    finally:
+        worker.close()
+        memory.close()
+    assert not memory.gap
+
+
+def test_distinct_sample_overflow_fails_closed_without_dropping_geometry(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr("mclab.observation_worker.SUBMIT_WAIT", 0.05)
     memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
     entered, release = threading.Event(), threading.Event()
     original_ingest = memory.ingest
