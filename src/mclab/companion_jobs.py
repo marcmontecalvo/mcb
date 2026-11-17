@@ -169,6 +169,31 @@ def _stow_junk(
     run_gather(plan, body, knowledge, state=state, opts=gather_options)
 
 
+def _note_refill(body, wanted, before, source: str, ok: bool) -> None:
+    """One ``refill`` record per material request: what was asked, what came in and
+    what the chests still hold. Run 20261117T102553117737Z stopped on need_materials
+    with nothing in the log to say which item could not be had."""
+    held = body.inventory()
+    row = {
+        "wanted": dict(wanted),
+        "gained": {
+            i: held.get(i, 0) - before.get(i, 0)
+            for i in wanted
+            if held.get(i, 0) != before.get(i, 0)
+        },
+        "short": {
+            i: n - held.get(i, 0) for i, n in wanted.items() if held.get(i, 0) < n
+        },
+        "source": source,
+        "ok": ok,
+    }
+    if (bridge := getattr(body, "bridge", None)) is not None and hasattr(
+        bridge, "record"
+    ):
+        bridge.record("refill", row)
+    print({"refill": row["source"], "ok": ok, "short": row["short"]}, flush=True)
+
+
 def _take(
     items: dict[str, int],
     body,
@@ -329,6 +354,7 @@ def build_job(
         _take(wanted, body, knowledge, state, gather_options)
         if any(body.inventory().get(i, 0) > before.get(i, 0) for i in wanted):
             report.refills.append(GatherReport(stop="done"))
+            _note_refill(body, wanted, before, "chests", True)
             return True
         fresh = gp.plan(
             wanted,
@@ -355,9 +381,11 @@ def build_job(
         # ponytail: any gain counts. The whole remaining house does not fit in one
         # inventory, and demanding all of it stopped run 20261110T063137807602Z at
         # 280 of 1227 blocks with the stock sitting in the chests.
-        return any(held_now.get(i, 0) > before.get(i, 0) for i in wanted) or all(
+        ok = any(held_now.get(i, 0) > before.get(i, 0) for i in wanted) or all(
             held_now.get(i, 0) >= n for i, n in wanted.items()
         )
+        _note_refill(body, wanted, before, f"gather:{outcome.stop}", ok)
+        return ok
 
     _take(
         {bp.SCAFFOLD_ITEMS[0]: SCAFFOLD_STACK},

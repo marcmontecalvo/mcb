@@ -174,3 +174,34 @@ def test_junk_is_what_the_build_does_not_want_and_never_tools_or_scaffolding():
     }
     # dirt stays: it is the fallback scaffold and the fill under a cell over water
     assert junk(held, {"minecraft:oak_planks": 287}) == {"minecraft:orange_tulip": 34}
+
+
+def test_a_refill_records_what_was_asked_gained_and_still_short():
+    from mclab.companion_jobs import _note_refill
+
+    class Bridge:
+        def __init__(self):
+            self.rows = []
+
+        def record(self, kind, row):
+            self.rows.append((kind, row))
+
+    class Body:
+        bridge = Bridge()
+
+        def inventory(self):
+            return {"minecraft:oak_planks": 10}
+
+    body = Body()
+    _note_refill(
+        body,
+        {"minecraft:oak_planks": 20, "minecraft:stone": 4},
+        {"minecraft:oak_planks": 4},
+        "gather:done",
+        True,
+    )
+    [(kind, row)] = body.bridge.rows
+    assert kind == "refill"
+    assert row["gained"] == {"minecraft:oak_planks": 6}
+    assert row["short"] == {"minecraft:oak_planks": 10, "minecraft:stone": 4}
+    assert row["source"] == "gather:done" and row["ok"] is True
