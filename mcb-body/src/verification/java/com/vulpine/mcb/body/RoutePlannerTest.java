@@ -366,6 +366,23 @@ public final class RoutePlannerTest {
         check(flowRes.status().equals("reached") && flowRes.route().size() == 5,
                 "wades out of one-deep flowing water onto dry floor: " + flowRes.status());
 
+        // No edit can create support: a 2-high wall with the goal on top is proven unreachable by the backward
+        // flood without burning the node limit; with place/pillar it is still found; a one-block staircase is found.
+        var noPlace = new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), false, false, false,
+                3, 64, 64, 0, java.util.Set.of(), java.util.Set.of(), "minecraft:cobblestone");
+        RoutePlanner.Node wallTop = new RoutePlanner.Node(3, 3, 0);
+        var wallSearch = new RoutePlanner((x, y, z) -> y <= 0 || (x == 3 && z == 0 && y <= 2) ? stone() : air(),
+                new RoutePlanner.Node(0, 1, 0), wallTop, 0, 3, true).withEdits(noPlace);
+        var wallResult = wallSearch.search(10_000);
+        check(wallResult.status().equals("unreachable") && wallSearch.expanded() < 500,
+                "wall top with no place edits is proven unreachable: " + wallResult.status() + " " + wallSearch.expanded());
+        var wallPlace = new RoutePlanner((x, y, z) -> y <= 0 || (x == 3 && z == 0 && y <= 2) ? stone() : air(),
+                new RoutePlanner.Node(0, 1, 0), wallTop, 0, 3, true).withEdits(policy(false)).search(10_000);
+        check(wallPlace.status().equals("reached"), "wall top reachable with place and pillar edits: " + wallPlace.status());
+        var stairs = new RoutePlanner((x, y, z) -> y <= 0 || (x >= 1 && x <= 3 && z == 0 && y <= x) ? stone() : air(),
+                new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(3, 4, 0), 0, 3, true).withEdits(noPlace).search(10_000);
+        check(stairs.status().equals("reached"), "one-block staircase is still found: " + stairs.status());
+
         System.out.println("RoutePlanner: " + checks + " planner checks passed");
     }
 

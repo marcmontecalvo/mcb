@@ -1,6 +1,7 @@
 package com.vulpine.mcb.body;
 
 import com.google.gson.JsonObject;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -155,6 +156,95 @@ final class RoutePlanner {
                 && integral(start.y) && fullDry(at(start.x, start.y - 1, start.z));
     }
 
+    private static final int FLOOD_LIMIT = 4096;
+
+    /**
+     * A near goal must not burn the node limit. When no edit can create support (no place, pillar or bridge),
+     * flood backward from the goal over potential stances; if the flood closes without the start the goal is
+     * unreachable, and the A* is skipped. Sound because breaking never creates support: every node the search
+     * can stand on is a cell that has support now (a collision top below it, a climbable cell) or an unknown
+     * cell. The relaxed model is a superset of the real moves: horizontal reach Chebyshev maxGap+1 (walks,
+     * diagonals, gap jumps); forward rise at most 1 and drop at most maxDrop, on the exact heights;
+     * climbables link vertically (the window covers the column); headroom must be exact without a way to
+     * break, else only breakable unprotected full cubes may stand in it; null (unknown) cells are stances at
+     * their own height and the one above; in the goal's own column only a drop from above or a climbable
+     * links stances. Anything else (fluid in reach, goal reach mode, flood past FLOOD_LIMIT, start reached)
+     * gives up and the normal search runs. Not excluded, so still a superset: protected cells as stances.
+     */
+    private boolean provablyUnreachable() {
+        if (reach != null || (edits != null && (edits.allowPlace || edits.allowPillar || edits.allowBridge))) return false;
+        var startCell = cell(start.x, (int) Math.floor(start.y), start.z);
+        if (startCell == null || !dry(startCell)) return false;
+        int reachXZ = Math.max(maxGap, 0) + 1, r = (int) Math.ceil(radius);
+        boolean noBreak = unknownPenalty == 0 && (edits == null || edits.breakCosts.isEmpty());
+        var seen = new HashSet<Node>();
+        var queue = new ArrayDeque<Node>();
+        for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++)
+            if (Math.hypot(dx, dz) <= radius) {
+                var seed = new Node(goal.x + dx, goal.y, goal.z + dz);
+                if (isStart(seed)) return false;
+                if (seen.add(seed)) queue.add(seed);
+            }
+        while (!queue.isEmpty()) {
+            Node p = queue.poll();
+            for (int dx = -reachXZ; dx <= reachXZ; dx++) for (int dz = -reachXZ; dz <= reachXZ; dz++) {
+                var hs = potentialStances(p.x + dx, p.z + dz, p.y - 1 - EPS, p.y + maxDrop + EPS);
+                if (hs == null) return false;
+                for (double h : hs) {
+                    // Same column: only a drop from above, or a climbable, links two stances (no place, no pillar).
+                    if (dx == 0 && dz == 0 && (Math.abs(h - p.y) < EPS || (h < p.y && !climbable(cell(p.x, (int) Math.floor(h + EPS), p.z))
+                            && !climbable(cell(p.x, (int) Math.floor(p.y + EPS), p.z))))) continue;
+                    var q = new Node(p.x + dx, h, p.z + dz);
+                    // No way to break and no unknown planning: a walking rise is exactly stepClear (jump room, swept
+                    // box); ladders and a drop in the same column are exempt.
+                    if (noBreak && p.y > h + EPS && !(dx == 0 && dz == 0) && !climbable(cell(q.x, (int) Math.floor(h + EPS), q.z))
+                            && !climbable(cell(p.x, (int) Math.floor(p.y + EPS), p.z)) && !stepClear(q, p)) continue;
+                    if (isStart(q)) return false;
+                    if (!seen.add(q)) continue;
+                    if (seen.size() > FLOOD_LIMIT) return false;
+                    queue.add(q);
+                }
+            }
+        }
+        return true;
+    }
+    /** The start's column and height, or the cell it hangs in. */
+    private boolean isStart(Node n) {
+        return n.x == start.x && n.z == start.z && n.y >= Math.floor(start.y) - EPS && n.y <= start.y + EPS;
+    }
+
+    /**
+     * Headroom for a stance at height h on the support in cell sy. Without a way to break it is the exact
+     * clearColumn test; with one, a cell above only needs to be empty or a breakable, unprotected full cube.
+     */
+    private boolean headroomOk(int x, int z, int sy, double h) {
+        if (edits == null || edits.breakCosts.isEmpty()) return clearColumn(x, z, h, h + 1.8);
+        for (int cy = (int) Math.floor(h + EPS); cy < Math.ceil(h + 1.8 - EPS); cy++) {
+            var c = cell(x, cy, z);
+            if (c == null || cy == sy || boxes(c).isEmpty()) continue;
+            if (!fullDry(c) || edits.protectedCells.contains(key(x, cy, z)) || !edits.breakCosts.containsKey(c.get("block")))
+                return false;
+        }
+        return true;
+    }
+
+    /** Heights in [lo, hi] where the column may hold a stance (see provablyUnreachable); null when fluid is in range. */
+    private List<Double> potentialStances(int x, int z, double lo, double hi) {
+        var found = new java.util.TreeSet<Double>();
+        for (int cy = (int) Math.floor(lo) - 1; cy <= Math.floor(hi); cy++) {
+            var c = cell(x, cy, z);
+            if (c == null) { found.add((double) cy); found.add(cy + 1.0); continue; }
+            if (!dry(c)) return null;
+            if (climbable(c)) found.add((double) cy);
+            for (var box : boxes(c))
+                if (at(box, 0) < .8 - EPS && at(box, 3) > .2 + EPS && at(box, 2) < .8 - EPS && at(box, 5) > .2 + EPS
+                        && headroomOk(x, z, cy, cy + at(box, 4)))
+                    found.add(cy + at(box, 4));
+        }
+        found.removeIf(h -> h < lo || h > hi);
+        return new ArrayList<>(found);
+    }
+
     /**
      * Expands until the goal, an unknown-space exit, nodeLimit total expansions or the
      * System.nanoTime() deadline. "searching" means call again; otherwise the result is final.
@@ -167,6 +257,7 @@ final class RoutePlanner {
                 start = new Node(start.x, Math.floor(start.y), start.z);
             if (!stance(start) && !(climb && climbOnly(start)) && !canRecoverStart() && !submerged(start))
                 return terminal = new Result("unreachable", List.of(), 0, 0, List.of());
+            if (provablyUnreachable()) return terminal = new Result("unreachable", List.of(), 0, 0, List.of());
             best = start;
             costs.put(start, 0.0); nodes.add(start);
             frontier.add(new double[]{heuristic(start), 0, 0, 0});
