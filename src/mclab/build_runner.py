@@ -63,6 +63,8 @@ BUILD_WALL = 30.0  # seconds a build walk may take before the route is given up
 SETTLE_TICKS = 60  # wait for the sensor before calling a build blocked
 RETRY_ROUNDS = 2  # fresh tries for skipped cells before stopping blocked
 STANCE_BUDGET_S = 5.0  # a pause longer than this reads as a broken bot
+FOOTHOLD_STOCK = 32  # spare blocks to climb or step down on, held from the start
+FOOTHOLD_ITEM = "minecraft:dirt"
 # entity_in_way: a mob or player on the ray that did not move off within ~1 s
 STANCE_REASONS = frozenset({"out_of_reach", "state_unreachable", "entity_in_way"})
 
@@ -317,6 +319,8 @@ class _Runner:
             return False
         if self._unwedge() and self.body.goto_stance(pos, REACH, avoid):
             return True
+        if self._hurt_drop(pos, avoid):
+            return True
         # Each further try is seconds of standing still; four in a row were the
         # 30-70 s pauses of run 20261110T223248667856Z. Past the budget the cell is
         # skipped and the build moves on.
@@ -327,6 +331,21 @@ class _Runner:
             return False
         self.report.escapes += 1
         return self.body.goto_stance(pos, REACH, avoid)
+
+    def _hurt_drop(self, pos: Pos, avoid) -> bool:
+        """Last way down from a ledge the house has closed around: a drop that costs
+        health, if the body has health to spare (an optional body method)."""
+        hurting = getattr(self.body, "allowing_hurt_drops", None)
+        if hurting is None:
+            return False
+        with hurting() as drop:
+            if drop <= 3:
+                return False
+            reached = self.body.goto_stance(pos, REACH, avoid)
+        heal = getattr(self.body, "eat_to_heal", None)  # optional
+        if heal is not None:
+            heal()
+        return reached
 
     def _unwedge(self) -> bool:
         """Break our own scaffolding touching the body. A column placed against the
@@ -472,9 +491,7 @@ class _Runner:
         """First item the planner may scaffold with (scaffolding, then dirt, ...) of
         which the body holds ``n``."""
         held = self.body.inventory()
-        need = {}
-        if getattr(self.body, "temporary_ok", None) is not None:
-            need = self.body.still_needed()  # the house's own blocks are not spare
+        need = _still_needed(self.body)  # the house's own blocks are not spare
         return next(
             (i for i in self._temporaries() if held.get(i, 0) - need.get(i, 0) >= n),
             None,
@@ -494,6 +511,34 @@ class _Runner:
         self.fails[pos] = self.fails.get(pos, 0) + 1
         if self.fails[pos] >= MAX_TRIES:
             self.report.skipped[pos] = reason
+
+
+def _still_needed(body) -> dict[str, int]:
+    """Blocks the build has yet to place (an optional body method)."""
+    if getattr(body, "temporary_ok", None) is None:
+        return {}
+    still = getattr(body, "still_needed", None)
+    return still() if still is not None else {}
+
+
+def _stock_footholds(runner, on_need_materials, log) -> None:
+    """Start the build holding FOOTHOLD_STOCK spare blocks to pillar, bridge and step
+    down on (dirt first). Site prep spends every dirt it digs on the fill; with none
+    left and the house's own blocks not spare, a body on a ledge had nothing to
+    stand on (run 20261117T144843447702Z)."""
+    if on_need_materials is None:
+        return
+    held = runner.body.inventory()
+    need = _still_needed(runner.body)
+    have = sum(
+        max(0, held.get(i, 0) - need.get(i, 0))
+        for i in runner._temporaries(scaffolding=False)
+    )
+    if have >= FOOTHOLD_STOCK:
+        return
+    ask = {FOOTHOLD_ITEM: FOOTHOLD_STOCK - have}
+    log(f"stocking footholds: {ask} (holding {have} spare)")
+    on_need_materials(ask)  # best effort: the build goes on without them
 
 
 def _standing(body, cell: Pos) -> bool:
@@ -932,6 +977,7 @@ def _run(
     runner.reserved = frozenset(
         p for p, s in template.cells.items() if bp.parse_state(s)[0] not in bp.AIR
     )
+    _stock_footholds(runner, on_need_materials, log)
 
     def calm():
         # The route planner places no dirt while building: the body stands on

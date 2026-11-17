@@ -8,6 +8,9 @@ import java.util.Set;
 
 /** Per-tick route execution. No planner, world edits, networking or lab dependency. */
 final class RouteMotor {
+    /** Longest drop a route may plan. Past 3 a drop hurts (h-3 HP); Python asks for more only
+     *  as a last way out, with health to spare (mclab.companion_body.hurt_drop). */
+    static final int HURT_DROP_MAX = 12;
     // Reference: Baritone v1.20.0 ActionCosts WALK_ONE_BLOCK_COST / SPRINT_ONE_BLOCK_COST.
     // Values are vanilla movement rates, independently used here for motion prediction.
     static final double WALK_BLOCKS_PER_TICK = 4.317 / 20;
@@ -83,7 +86,7 @@ final class RouteMotor {
     RouteMotor(String id, List<Point> route, Policy policy, boolean centerOnly, double arrivalRadius) {
         if (id == null || !id.matches("[A-Za-z0-9_.:-]{1,80}")) throw new IllegalArgumentException("route_id");
         if (route == null || route.size() < 2 || route.size() > 32) throw new IllegalArgumentException("route_length");
-        if (policy.maxDrop < 0 || policy.maxDrop > 3) throw new IllegalArgumentException("route_drop_policy");
+        if (policy.maxDrop < 0 || policy.maxDrop > HURT_DROP_MAX) throw new IllegalArgumentException("route_drop_policy");
         if (!Double.isFinite(arrivalRadius) || arrivalRadius < 0 || arrivalRadius > .2
                 || (centerOnly && (route.size() != 2 || !route.get(0).equals(route.get(1)))))
             throw new IllegalArgumentException("route_center_policy");

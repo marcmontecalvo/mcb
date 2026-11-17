@@ -2,6 +2,10 @@
 
 from dataclasses import asdict, dataclass
 
+# Longest drop a route may plan (Java RouteMotor.HURT_DROP_MAX). Past 3 blocks a drop
+# hurts; the companion asks for more only as a last way out (companion_body.hurt_drop).
+HURT_DROP_MAX = 12
+
 
 @dataclass(frozen=True)
 class MovementPolicy:
@@ -22,8 +26,8 @@ class MovementPolicy:
             or type(self.allow_swim) is not bool
         ):
             raise ValueError("Movement permissions must be booleans")
-        if type(self.max_drop) is not int or not 0 <= self.max_drop <= 3:
-            raise ValueError("Solid-ground drop must be between zero and three blocks")
+        if type(self.max_drop) is not int or not 0 <= self.max_drop <= HURT_DROP_MAX:
+            raise ValueError("Solid-ground drop must be between zero and twelve blocks")
         if type(self.max_gap) is not int or not 0 <= self.max_gap <= 2:
             raise ValueError("Gap jumps must be between zero and two blocks")
 

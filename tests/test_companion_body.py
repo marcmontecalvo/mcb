@@ -1408,3 +1408,40 @@ def test_the_planner_footholds_are_dirt_then_cobblestone_then_spare_plain_blocks
         "minecraft:cobblestone",
         "minecraft:oak_log",
     )
+
+
+def test_a_hurt_drop_keeps_three_hearts_and_is_put_back(monkeypatch):
+    b, _, _ = body()
+    cases = ((20.0, 12), (15.0, 12), (12.0, 9), (9.0, 6), (6.0, 3), (4.0, 3))
+    for health, drop in cases:
+        monkeypatch.setattr(b, "health", lambda h=health: h)
+        assert b.hurt_drop() == drop, health
+    monkeypatch.setattr(b, "health", lambda: 20.0)
+    before = b.movement_policy.max_drop
+    with b.allowing_hurt_drops() as drop:
+        assert b.movement_policy.max_drop == drop == 12
+    assert b.movement_policy.max_drop == before
+
+
+def test_a_hurt_body_eats_its_most_filling_food(monkeypatch):
+    from mclab import build_runner as br
+
+    b, _, _ = body()
+    eaten = []
+    monkeypatch.setattr(
+        b, "eat", lambda item=None: eaten.append(item) or br.Result(True)
+    )
+    monkeypatch.setattr(
+        b, "inventory", lambda: {"minecraft:bread": 2, "minecraft:cooked_beef": 1}
+    )
+    b.foods = {
+        "minecraft:bread": {"nutrition": 5},
+        "minecraft:cooked_beef": {"nutrition": 8},
+    }
+    monkeypatch.setattr(b, "food", lambda: 17)
+    monkeypatch.setattr(b, "health", lambda: 20.0)
+    assert not b.eat_to_heal() and not eaten  # not hurt
+    monkeypatch.setattr(b, "health", lambda: 9.0)
+    assert b.eat_to_heal() and eaten == ["minecraft:cooked_beef"]
+    monkeypatch.setattr(b, "food", lambda: 20)
+    assert not b.eat_to_heal()  # full: cannot eat

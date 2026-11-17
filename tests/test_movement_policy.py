@@ -46,7 +46,7 @@ def test_sprint_requires_permission_food_and_fresh_swept_geometry(tmp_path):
     [
         {"allow_sprint": 1},
         {"max_drop": True},
-        {"max_drop": 4},
+        {"max_drop": 13},
         {"allow_diagonals": "yes"},
     ],
 )

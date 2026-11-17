@@ -577,11 +577,14 @@ def test_a_tower_short_of_scaffolding_is_built_after_the_refill():
 
     def refill(items):
         asked.append(dict(items))
+        if "minecraft:scaffolding" not in items:
+            return False  # the opening foothold stock: none to be had here
         body.inv["minecraft:scaffolding"] = 64
         return True
 
     report = br.run_build(t, body, BLOCKS, on_need_materials=refill)
-    assert asked == [{"minecraft:scaffolding": 6}]
+    stock = {"minecraft:dirt": br.FOOTHOLD_STOCK}  # asked first, at the start
+    assert [a for a in asked if a != stock] == [{"minecraft:scaffolding": 6}]
     assert report.stop == "done" and (3, 6, 3) in report.placed
 
 
@@ -1058,7 +1061,8 @@ def test_a_tower_refill_that_fails_skips_that_cell_and_the_build_goes_on():
     report = br.run_build(
         t, body, BLOCKS, on_need_materials=lambda m: asked.append(dict(m)) or False
     )
-    assert asked == [{"minecraft:scaffolding": 6}]
+    stock = {"minecraft:dirt": br.FOOTHOLD_STOCK}  # asked first, at the start
+    assert [a for a in asked if a != stock] == [{"minecraft:scaffolding": 6}]
     assert report.stop != "need_materials"
     assert report.skipped.get((3, 6, 3)) == "no_material"
     assert [p for p in t.cells if p[1] < 5 and p in report.placed]
@@ -1084,3 +1088,66 @@ def test_without_scaffolding_dirt_or_cobblestone_a_tower_is_of_a_spare_plain_blo
     report = br.run_build(t, body, BLOCKS)
     assert report.stop == "done" and (3, 6, 3) in report.placed
     assert used and set(used) == {"minecraft:oak_log"}, used
+
+
+def test_a_body_shut_out_on_a_ledge_takes_a_drop_that_hurts_to_get_on():
+    # Run 20261117T144843447702Z: on an eave slab 6 above the ground, the house's
+    # glass and flower pots on every side; every plan with a 3-block drop limit was
+    # unreachable and the build stalled at 630 of 1235.
+    w = flat_world()
+    t = bp.Template.from_build(
+        make_build({(0, 0, 0): "minecraft:oak_planks"}, (1, 1, 1)), (3, 0, 3)
+    )
+    inv = {item: 100 for item in {i["item"] for i in BLOCKS.values()}}
+    body = FakeBody(w, inv, BLOCKS)
+    body.max_drop = 3
+    reach = body.goto_stance
+
+    def goto_stance(pos, reach_, avoid=()):
+        return body.max_drop >= 6 and reach(pos, reach_, avoid)
+
+    @contextlib.contextmanager
+    def allowing_hurt_drops():
+        body.max_drop = 9
+        try:
+            yield 9
+        finally:
+            body.max_drop = 3
+
+    body.goto_stance = goto_stance
+    body.allowing_hurt_drops = allowing_hurt_drops
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done" and (3, 0, 3) in report.placed
+    assert body.max_drop == 3  # only while getting down
+
+
+def test_no_hurt_drop_without_health_to_spare():
+    body, t = tall_column_body()
+    _no_scaffold_items(body)
+
+    @contextlib.contextmanager
+    def allowing_hurt_drops():
+        yield 3  # low health: no drop past the safe 3
+
+    tried = []
+    body.allowing_hurt_drops = allowing_hurt_drops
+    runner = br._Runner.__new__(br._Runner)
+    runner.body = body
+    stance = body.goto_stance
+    body.goto_stance = lambda *a, **k: tried.append(a) or stance(*a, **k)
+    assert runner._hurt_drop((3, 6, 3), ()) is False and not tried
+
+
+def test_the_build_starts_holding_spare_footholds():
+    # Run 20261117T144843447702Z: site prep spent all its dirt; the build began with
+    # nothing to pillar or step down on.
+    body, t = tall_column_body()
+    _no_scaffold_items(body)
+    asked = []
+    br.run_build(t, body, BLOCKS, on_need_materials=lambda m: asked.append(dict(m)))
+    assert asked and asked[0] == {"minecraft:dirt": br.FOOTHOLD_STOCK}
+
+    body, t = tall_column_body()  # holds 100 dirt: nothing to ask for
+    asked = []
+    br.run_build(t, body, BLOCKS, on_need_materials=lambda m: asked.append(dict(m)))
+    assert {"minecraft:dirt": br.FOOTHOLD_STOCK} not in asked

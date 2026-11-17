@@ -346,7 +346,7 @@ public final class BodyRuntime implements AutoCloseable {
         double radius = request.get("radius").getAsDouble(), penalty = request.get("unknown_penalty").getAsDouble();
         int maxDrop = exactInt(request.get("max_drop"), "max_drop"), maxGap = exactInt(request.get("max_gap"), "max_gap");
         int limit = exactInt(request.get("node_limit"), "node_limit");
-        if (!Double.isFinite(radius) || radius < 0 || maxDrop < 0 || maxDrop > 3 || maxGap < 0 || maxGap > 2
+        if (!Double.isFinite(radius) || radius < 0 || maxDrop < 0 || maxDrop > RouteMotor.HURT_DROP_MAX || maxGap < 0 || maxGap > 2
                 || limit < 1 || limit > 100_000 || !(penalty == 0 || (penalty >= 1 && penalty <= 10)))
             throw new IllegalArgumentException("plan_bounds");
         var requestedEdits = request.has("edits") ? request.getAsJsonObject("edits") : null;
@@ -434,7 +434,7 @@ public final class BodyRuntime implements AutoCloseable {
         double radius = request.get("radius").getAsDouble();
         int maxDrop = exactInt(request.get("max_drop"), "max_drop"), horizon = exactInt(request.get("horizon"), "horizon");
         int width = exactInt(request.get("beam_width"), "beam_width"), limit = exactInt(request.get("node_limit"), "node_limit");
-        if (!Double.isFinite(radius) || radius < 0 || maxDrop < 0 || maxDrop > 3 || limit < 1 || limit > 100_000)
+        if (!Double.isFinite(radius) || radius < 0 || maxDrop < 0 || maxDrop > RouteMotor.HURT_DROP_MAX || limit < 1 || limit > 100_000)
             throw new IllegalArgumentException("terrain_bounds");
         var p = request.getAsJsonObject("policy");
         RouteGeometry.Reader reader = RoutePermissions.route(p).reader(selected);

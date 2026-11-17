@@ -56,7 +56,7 @@ from mclab.execution import RecordedBridge, policy_state
 from mclab.gather_tasks import item_stack
 from mclab.interaction_goal import interacts
 from mclab.memory_policy import MemoryPolicy
-from mclab.movement_policy import MovementPolicy
+from mclab.movement_policy import HURT_DROP_MAX, MovementPolicy
 from mclab.navigation_runner import _new_identity
 from mclab.navigation_segmented import SegmentedController
 from mclab.paths import ROOT, RUNTIME, SERVER, read_json
@@ -80,6 +80,8 @@ OVERLAY_TICKS = 200  # until the sensor has re-delivered the cell; 40 was too sh
 UNREACHABLE_TICKS = 60
 GOTO_WALL_S = 90.0
 MAIN_SLOTS = 36  # inventory indices 0..35: hotbar and main
+KEEP_HEALTH = 6  # HP a hurt drop must leave (of 20): three hearts; the user would
+# rather take a few hearts than crawl, pillar or stand exposed (docs/RISK_AND_DAMAGE.md)
 STAGED_TOOLS = ("pickaxe", "axe", "shovel")  # kept on the hotbar (stage_tools)
 
 # Per-world knowledge that outlives sessions (git-ignored runtime/).
@@ -681,6 +683,46 @@ class CompanionBody:
         if body is None or body.get("food") is None:
             body = self.observe()["body"]
         return int(body.get("food", 20))
+
+    def health(self) -> float:
+        body = self._state_body()
+        if body is None or body.get("health") is None:
+            body = self.observe()["body"]
+        return float(body.get("health", 20.0))
+
+    def hurt_drop(self) -> int:
+        """The longest drop worth taking to get out of a spot with no other way down:
+        a fall of h blocks costs h-3 HP, and at least KEEP_HEALTH is kept. 3 (no
+        damage) when health is low."""
+        spare = int(self.health()) - KEEP_HEALTH
+        return max(3, min(HURT_DROP_MAX, 3 + spare))
+
+    def eat_to_heal(self) -> bool:
+        """Eat the most filling held food when hurt and not full, so health comes
+        back by regeneration. `foods` ({item: facts}) is set by the job from the
+        knowledge pack; without it the body does not know what is food."""
+        foods = getattr(self, "foods", None) or {}
+        if self.health() >= 20 or self.food() >= 20:
+            return False
+        held = [i for i, n in self.inventory().items() if n > 0 and i in foods]
+        if not held:
+            return False
+        best = max(held, key=lambda i: float(foods[i].get("nutrition", 0)))
+        return self.eat(best).ok
+
+    @contextmanager
+    def allowing_hurt_drops(self):
+        """Routes may drop farther than 3 blocks while health allows (run
+        20261117T144843447702Z: shut out on an eave slab 6 above the ground, glass and
+        flower pots of the house on every side; every plan unreachable for 1 min)."""
+        drop = self.hurt_drop()
+        saved = self.movement_policy
+        if drop > saved.max_drop:
+            self.movement_policy = replace(saved, max_drop=drop)
+        try:
+            yield drop
+        finally:
+            self.movement_policy = saved
 
     def entities(self) -> list[dict]:
         """From the small /state (it carries visible_entities); /policy only when it does not."""

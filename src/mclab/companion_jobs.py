@@ -241,6 +241,7 @@ def build_job(
     # What the body may put down to climb and take back: scaffolding, dirt,
     # cobblestone, then spare plain blocks that drop themselves (mclab.temporary_blocks).
     body.temporary_ok = temporary_blocks.eligible(knowledge)
+    body.foods = dict(getattr(knowledge, "foods", None) or {})  # eat_to_heal
     if state is None:
         state = GatherState()
         hydrate_containers(body, state)

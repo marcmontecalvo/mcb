@@ -171,9 +171,8 @@ class TerrainPolicy:
     mob_coefficient: float = 1.0
     mob_radius: int = 8
     # Ticks added to a move into a cell beside lava, fire or another hazard.
-    # ponytail: no fall-damage gate (D7): dry drops are capped at 3 blocks, below
-    # vanilla's damage threshold, and longer drops land in water. Add one if
-    # max_drop ever exceeds 3.
+    # Dry drops are capped at 3 blocks, below vanilla's damage threshold, except the
+    # companion's last-resort hurt drop (companion_body.hurt_drop), gated by health.
     hazard_penalty: float = 0.0
     # False: never cut beside sand or gravel, even where baritone_moves prices the
     # falling stack (companion: run 20261102T050751840297Z suffocated under gravel).
