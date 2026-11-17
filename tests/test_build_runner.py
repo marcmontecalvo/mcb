@@ -1008,3 +1008,39 @@ def test_cleanup_may_open_doors_and_a_blocked_loop_still_repairs_them(
     # cleanup walks use doors; the body closes them behind it
     assert state["in_cleanup"] == [0]
     assert report.stop == "done" and not real_diff(template, body.world).uses
+
+
+class ReclaimBody(TowerBody):
+    """TowerBody whose broken scaffolding comes back into the inventory."""
+
+    def break_block(self, pos, tool=None):
+        column = []
+        above = pos
+        while str(self.w.get(above)).startswith("minecraft:scaffolding"):
+            column.append(above)
+            above = (above[0], above[1] + 1, above[2])
+        res = super().break_block(pos, tool)
+        if res.ok:
+            self.inv["minecraft:scaffolding"] = self.inv.get(
+                "minecraft:scaffolding", 0
+            ) + len(column)
+        return res
+
+
+def test_one_stack_of_scaffolding_is_taken_down_and_used_again_for_the_next_tower():
+    # run 20261117T130121185147Z: every tower stood to the end of the build, so the
+    # body ran out of scaffolding and climbed the walls on dirt instead
+    w = flat_world(hi=14)
+    cells = {(x, y, 0): "minecraft:oak_planks" for x in (0, 8) for y in range(7)}
+    t = bp.Template.from_build(make_build(cells, (9, 7, 1)), (3, 0, 3))
+    inv = {item: 100 for item in {i["item"] for i in BLOCKS.values()}}
+    for item in bp.SCAFFOLD_ITEMS:
+        inv[item] = 0
+    inv["minecraft:scaffolding"] = 6  # one tower's worth
+    inv["minecraft:dirt"] = 64  # held, as in the run: the old code pillared it
+    body = ReclaimBody(w, inv, BLOCKS)
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done", report.stop
+    assert (3, 6, 3) in report.placed and (11, 6, 3) in report.placed
+    assert not getattr(body, "pillared", 0)  # no dirt column instead of a tower
+    assert not [p for p, s in body.w.items() if s.startswith("minecraft:scaffolding")]

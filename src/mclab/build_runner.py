@@ -33,6 +33,7 @@ stop.
 from __future__ import annotations
 
 import functools
+import math
 import time
 from collections.abc import Callable, Collection
 from contextlib import nullcontext
@@ -356,6 +357,8 @@ class _Runner:
             return False
         self.towered.add(pos)
         cells = bp.tower_cells(pos, self.body.world, self.blocks, self.reserved)
+        if cells:
+            self._reclaim(pos, cells[0], avoid)
         if not cells:
             # Every neighbouring column is the template itself (an interior roof
             # cell): the stance is the roof's edge, reached by pillaring or stairs of
@@ -412,6 +415,39 @@ class _Runner:
             if not _standing(self.body, cell):
                 self.scaffolds.discard(cell)
         return False
+
+    def _reclaim(self, pos: Pos, base: Pos, avoid) -> None:
+        """Take down the towers and footholds the body is done with before raising a
+        new one, and pick them up: one stack of scaffolding moves round the house
+        instead of standing where it was first put up while dirt steps go up the
+        walls (run 20261117T130121185147Z: every tower stood to the end). A column
+        beside ``pos`` stays (the new tower may grow on it). The body first walks to
+        the new tower's ``base``: it is usually still up on the old one."""
+        keep = {(pos[0] + dx, pos[2] + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
+        done = {c for c in self.scaffolds or () if c[::2] not in keep}
+        if not any(_standing(self.body, c) for c in done):
+            return
+        self.body.goto_stance(base, REACH, avoid)
+        bx, _, bz = self.body.position()
+        done = {  # never the column the body stands on, if it is still up there
+            c
+            for c in done
+            if max(abs(c[0] - math.floor(bx)), abs(c[2] - math.floor(bz))) > 1
+        }
+        collect = getattr(self.body, "collect_drops", None)  # optional
+        for _ in range(CLEANUP_ROUNDS):
+            acts = [
+                a
+                for a in bp.cleanup_actions(self.template, self.body.world, done)
+                if a.pos not in self.report.skipped
+            ]
+            if not acts:
+                break
+            for act in acts:
+                self.attempt(act)
+            if collect:
+                collect([a.pos for a in acts])
+        self.scaffolds -= {c for c in done if not _standing(self.body, c)}
 
     def _pillar(self, pos: Pos, cells: list, item: str, avoid) -> bool:
         """A column of anything but scaffolding is solid: nothing walks or climbs onto
