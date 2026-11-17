@@ -921,6 +921,21 @@ def test_a_placed_torch_or_trapdoor_does_not_make_the_cell_above_standable():
     assert not cb.standable(cells, (1, 1, 0))
 
 
+def test_stand_height_does_not_snap_up_onto_an_overhang():
+    # Run 20261117T011432772067Z: the ground under a tree's leaves became a
+    # canopy-top goal 3 up; a solid hillside still snaps up.
+    b, _, _ = body()
+    def column(x, *states):
+        for y, state in enumerate(states):
+            boxes = [] if state == "air" else [[0, 0, 0, 1, 1, 1]]
+            b._remember((x, y, 0), f"minecraft:{state}", None, boxes)
+
+    column(7, "dirt", "oak_leaves", "air", "oak_leaves", "air", "air")
+    column(9, "dirt", "dirt", "dirt", "dirt", "air", "air")
+    assert b._stand_y(7, 1, 0) == 1
+    assert b._stand_y(9, 1, 0) == 4
+
+
 def test_overlay_without_boxes_prefers_the_sensed_cell_of_the_same_block():
     b, _, _ = body()
     thin = [[0, 0, 0, 1, 0.1875, 1]]

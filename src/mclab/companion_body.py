@@ -1210,9 +1210,21 @@ class CompanionBody:
 
     def _stand_y(self, x: int, y: int, z: int) -> int:
         cells = self._cells_now()
+
+        def solid(cy: int) -> bool:
+            cell = cells.get((x, cy, z))
+            return bool(cell and cell.get("collision_boxes"))
+
         for dy in sorted(range(-STAND_SEARCH, STAND_SEARCH + 1), key=abs):
-            if standable(cells, (x, y + dy, z)):
-                return y + dy
+            if not standable(cells, (x, y + dy, z)):
+                continue
+            # More than a step up is a hill only if the column below is solid; an
+            # air gap means an overhang. Run 20261117T011432772067Z: a site-prep
+            # walk to the ground under leaves snapped 3 up onto the canopy, and two
+            # plans burnt their 10000 nodes on a goal the body cannot climb to.
+            if dy > 1 and not all(solid(cy) for cy in range(y, y + dy)):
+                continue
+            return y + dy
         return y
 
     @_fresh_idle
