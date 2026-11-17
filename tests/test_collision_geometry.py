@@ -1,6 +1,11 @@
 from maps import floor_map
 
-from mclab.collision_geometry import clear_body, clear_column, standable
+from mclab.collision_geometry import (
+    clear_body,
+    clear_column,
+    edit_stance,
+    standable,
+)
 
 
 def slab_map():
@@ -38,3 +43,18 @@ def test_stair_support_and_waterlogged_hazard_rejection():
     cells[1, 0, 0].pop("fluid")
     cells[1, 1, 0]["block"] = "minecraft:fire"
     assert not standable(cells, (1, 1, 0))
+
+
+def test_a_top_slab_or_a_stair_high_half_is_a_floor_edits_start_from():
+    cells = floor_map([(x, z) for x in range(3) for z in range(1)])
+    cells[1, 0, 0].update(
+        block="minecraft:birch_slab", collision_boxes=[[0, 0.5, 0, 1, 1, 1]]
+    )
+    assert edit_stance(cells, (1, 1, 0))
+    cells[1, 0, 0].update(collision_boxes=[[0, 0, 0, 1, 0.5, 1]])  # bottom slab
+    assert not edit_stance(cells, (1, 1, 0))
+    cells[1, 0, 0].update(
+        block="minecraft:oak_stairs",
+        collision_boxes=[[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]],
+    )
+    assert edit_stance(cells, (1, 1, 0))

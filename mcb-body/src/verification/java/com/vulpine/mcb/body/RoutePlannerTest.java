@@ -413,7 +413,7 @@ public final class RoutePlannerTest {
         check(stairs.status().equals("reached"), "one-block staircase is still found: " + stairs.status());
 
         // Costly cells (the build's own walls): broken only when no way round exists; protected stays whole.
-        for (var mode : new String[]{"closed", "gap", "protected"}) {
+        for (var mode : new String[]{"closed", "gap", "protected", "slab"}) {
             var room = new HashMap<Key, Map<String, Object>>();
             var prot = new java.util.HashSet<Long>();
             for (int x = -4; x <= 6; x++) for (int z = -4; z <= 4; z++) for (int y = -1; y <= 4; y++) {
@@ -423,6 +423,10 @@ public final class RoutePlannerTest {
                 room.put(new Key(x, y, z), shell && !isGap ? stone() : air());
                 if (shell && !isGap && !(isDoor && !mode.equals("protected"))) prot.add(RoutePlanner.key(x, y, z));
             }
+            // Standing on a top slab (an eave): still a stance edits may start from
+            // (large house run 20261117T075353967859Z: unreachable after one node).
+            if (mode.equals("slab")) room.put(new Key(0, 0, 0), Map.of("block", "minecraft:stone_slab",
+                    "collision_boxes", List.of(List.of(0, .5, 0, 1, 1, 1)), "fluid", "minecraft:empty"));
             var extra = mode.equals("protected") ? Map.<Long, Double>of()
                     : Map.of(RoutePlanner.key(1, 1, 0), 24.0, RoutePlanner.key(1, 2, 0), 24.0);
             var pol = new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), false, false, false,
@@ -432,6 +436,7 @@ public final class RoutePlannerTest {
             boolean brokeDoor = res.steps().stream().anyMatch(e -> e.breaks().stream().anyMatch(q -> q[0] == 1 && q[2] == 0));
             if (mode.equals("closed")) check(res.status().equals("reached") && brokeDoor, "costly wall is broken when sealed in: " + res.status());
             if (mode.equals("gap")) check(res.status().equals("reached") && !brokeDoor, "walks round rather than break a costly wall: " + res.status());
+            if (mode.equals("slab")) check(res.status().equals("reached") && brokeDoor, "breaks out while standing on a top slab: " + res.status());
             if (mode.equals("protected")) check(!res.status().equals("reached") && !brokeDoor, "protected wall stays whole: " + res.status());
         }
 

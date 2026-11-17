@@ -897,6 +897,10 @@ final class RoutePlanner {
     private boolean editStance(Node n) {
         if (blockStandable(n)) return true;
         var floor = at(n.x, n.y - 1, n.z);
+        // A top slab or a stair's high half is a flat floor too: a body on an eave
+        // slab had no edit move and every plan was unreachable after one node
+        // (large house run 20261117T075353967859Z).
+        if (integral(n.y) && flatFloor(floor) && empty(at(n.x, n.y, n.z)) && empty(at(n.x, n.y + 1, n.z))) return true;
         return floor != null && fullCube(floor) && wadeable(at(n.x, n.y, n.z)) && empty(at(n.x, n.y + 1, n.z));
     }
     private boolean climbOnly(Node n) { return climbable(at(n.x, n.y, n.z)) && !blockStandable(n); }
@@ -1064,6 +1068,14 @@ final class RoutePlanner {
         double[] result = found.stream().mapToDouble(Double::doubleValue).toArray();
         if (overlay == null) heights.put(key, result);
         return result;
+    }
+    /** collision_geometry.flat_floor: dry, with a box topped at the block top under the centre. */
+    private static boolean flatFloor(Map<String, Object> c) {
+        if (c == null || !dry(c)) return false;
+        for (var box : boxes(c))
+            if (Math.abs(at(box, 4) - 1) < EPS && at(box, 0) < .8 - EPS && at(box, 3) > .2 + EPS
+                    && at(box, 2) < .8 - EPS && at(box, 5) > .2 + EPS) return true;
+        return false;
     }
     // mclab.navigation.full_cube: any unit box (fluid is already checked by safe()).
     private static boolean fullCube(Map<String, Object> cell) {

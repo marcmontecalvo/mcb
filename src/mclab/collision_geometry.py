@@ -36,6 +36,21 @@ def wadeable(cell):
     )
 
 
+def flat_floor(cell):
+    """A dry floor whose collision top is level with the block top under the stance
+    centre: a full cube, a top slab, a stair's high half. A body on an eave slab
+    had no edit move off it and every plan was unreachable (large house run
+    20261117T075353967859Z)."""
+    return safe_cell(cell) and any(
+        abs(box[4] - 1) < EPS
+        and box[0] < 0.8 - EPS
+        and box[3] > 0.2 + EPS
+        and box[2] < 0.8 - EPS
+        and box[5] > 0.2 + EPS
+        for box in cell.get("collision_boxes") or ()
+    )
+
+
 def edit_stance(cells, node):
     """A stance a terrain edit may start from: a dry block stance, or one wading in
     one-deep water on a full block with the head in air. The body dug itself into a
@@ -44,6 +59,12 @@ def edit_stance(cells, node):
     if block_standable(cells, node):
         return True
     x, y, z = node
+    if (
+        flat_floor(cells.get((x, y - 1, z)))
+        and empty(cells.get(node))
+        and empty(cells.get((x, y + 1, z)))
+    ):
+        return True
     return (
         full_cube(cells.get((x, y - 1, z)))
         and wadeable(cells.get(node))
