@@ -126,6 +126,7 @@ def start(accept_eula: bool = False) -> dict:
 
 def _start(accept_eula: bool = False) -> dict:
     assert_stopped()
+    stop_orphans()
     settings = config()
     for key in ("game_port", "bridge_port", "lab_port", "supervisor_port"):
         # A server stopped a moment ago may hold its ports a few seconds more:
@@ -203,10 +204,60 @@ def _start(accept_eula: bool = False) -> dict:
     raise RuntimeError(f"Supervisor did not respond; inspect {logfile}")
 
 
+LAUNCH_FLAG = "-Dmclab.launch_id="
+
+
+def orphans() -> list[int]:
+    """Lab server JVMs still running with no supervisor. A supervisor that dies
+    leaves its java behind, holding the lab's ports: the next start then failed
+    with "Port 25575 is in use" (session 20261117T195808-cb0ef232)."""
+    if os.name == "nt":
+        query = (
+            "Get-CimInstance Win32_Process -Filter \"Name='java.exe'\" | "
+            'ForEach-Object { "$($_.ProcessId)`t$($_.CommandLine)" }'
+        )
+        command = ["powershell", "-NoProfile", "-Command", query]
+    else:
+        command = ["ps", "-eo", "pid=,args="]
+    try:
+        out = subprocess.run(
+            command, capture_output=True, text=True, timeout=30, check=False
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    pids = []
+    for line in out.splitlines():
+        pid, _, args = line.strip().partition("\t" if os.name == "nt" else " ")
+        if LAUNCH_FLAG in args and pid.isdigit() and int(pid) != os.getpid():
+            pids.append(int(pid))
+    return pids
+
+
+def stop_orphans() -> list[int]:
+    """Kill lab JVMs left without a supervisor; only called once status() says
+    the supervisor is gone, so a running lab is never touched."""
+    killed = []
+    for pid in orphans():
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                check=False,
+            )
+        else:
+            try:
+                os.kill(pid, 9)
+            except ProcessLookupError:
+                continue
+        killed.append(pid)
+    return killed
+
+
 def stop() -> dict:
     current = status()
     if current["state"] in {"stopped", "exited"}:
-        return current
+        killed = stop_orphans()
+        return {**current, "orphans_stopped": killed} if killed else current
     return control("stop")
 
 

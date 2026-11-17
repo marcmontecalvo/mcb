@@ -255,3 +255,31 @@ def test_start_waits_for_a_port_a_stopped_server_still_holds(monkeypatch):
     monkeypatch.setattr(server, "port_free", lambda port: port != 4)
     with pytest.raises(RuntimeError, match="Port 4 is in use"):
         server._start()
+
+
+def test_a_lab_jvm_left_without_its_supervisor_is_stopped(monkeypatch):
+    # Session 20261117T195808-cb0ef232: the supervisor was gone, its java still
+    # held the lab ports, and every start failed with "Port 25575 is in use".
+    monkeypatch.setattr(server, "status", lambda: {"state": "stopped"})
+    monkeypatch.setattr(server, "orphans", lambda: [4242])
+    monkeypatch.setattr(server.os, "kill", lambda *_: None)
+    calls = []
+    monkeypatch.setattr(server.subprocess, "run", lambda args, **_: calls.append(args))
+    assert server.stop()["orphans_stopped"] == [4242]
+    assert calls == [] or calls[0][:3] == ["taskkill", "/PID", "4242"]
+
+
+def test_only_jvms_launched_by_the_lab_count_as_orphans(monkeypatch):
+    class Out:
+        stdout = (
+            "11\tjava.exe -Dmclab.launch_id=abc -jar fabric-server-launch.jar\n"
+            "12\tjavaw.exe -Dmclab.client_bridge_port=8767 minecraft client\n"
+        )
+        if server.os.name != "nt":
+            stdout = stdout.replace("\t", " ")
+
+    monkeypatch.setattr(server.subprocess, "run", lambda *a, **k: Out())
+    assert REAL_ORPHANS() == [11]
+
+
+REAL_ORPHANS = server.orphans  # bound at import, before the autouse stub
