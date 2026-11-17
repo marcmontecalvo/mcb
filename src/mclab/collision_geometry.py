@@ -100,6 +100,12 @@ def clear_body(cells, x, z, bottom, top, *, cell_safe=safe_cell):
                 # break a block right beside it (run 20261111T025206013862Z).
                 if y == feet and wadeable(cell):
                     continue
+                # Vanilla gives scaffolding no collision for a body in or beside it
+                # (only one standing above its top): a body on a ledge with its
+                # hitbox in a scaffolding column had no stance, and every plan was
+                # "unreachable, 0 expanded" (run 20261117T214048223018Z).
+                if cell is not None and cell.get("block") == "minecraft:scaffolding":
+                    continue
                 if not cell_safe(cell) or "collision_boxes" not in cell:
                     return False
                 for box in cell["collision_boxes"]:

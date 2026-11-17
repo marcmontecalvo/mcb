@@ -158,6 +158,16 @@ public final class RoutePlannerTest {
                     new RoutePlanner.Node(3, 1, 2), 0, 3, true).withPolicy(true,true,true,true,true,1).withMoves(false, false).search(100_000);
             check(inside.status().equals("reached"), "a start inside a scaffold column (y=" + sy + ") plans out: " + inside.status());
         }
+        // Run 20261117T214048223018Z: the sensor reports scaffolding with its legs and top plate, the shape a
+        // body above it meets. A body beside or inside it meets nothing, so a floor cell with scaffolding in its
+        // feet is still a stance, and a walk passes through the column.
+        var legs = List.of(List.of(0, 0, 0, .125, 1, .125), List.of(.875, 0, .875, 1, 1, 1), List.of(0, .875, 0, 1, 1, 1));
+        var through = floor(6);
+        for (int y = 1; y <= 2; y++) for (int z = -1; z <= 1; z++)
+            through.put(new Key(3, y, z), Map.of("block", "minecraft:scaffolding", "fluid", "minecraft:empty", "collision_boxes", legs));
+        var walkIn = new RoutePlanner((x, y, z) -> through.get(new Key(x, y, z)), new RoutePlanner.Node(3, 1, 0),
+                new RoutePlanner.Node(5, 1, 0), 0, 3, false).withMoves(false, false).search(100_000);
+        check(walkIn.status().equals("reached"), "a start with scaffolding in its feet cell plans out: " + walkIn.status());
         var interaction = floor(12);
         interaction.put(new Key(4, 4, 0), stone());
         var reachedBlock = new RoutePlanner((x, y, z) -> interaction.get(new Key(x, y, z)),

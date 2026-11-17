@@ -58,3 +58,17 @@ def test_a_top_slab_or_a_stair_high_half_is_a_floor_edits_start_from():
         collision_boxes=[[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]],
     )
     assert edit_stance(cells, (1, 1, 0))
+
+
+def test_scaffolding_in_the_feet_cell_does_not_block_a_stance():
+    # Run 20261117T214048223018Z: the sensor reports scaffolding with the shape a
+    # body above it meets (legs and top plate). In or beside it vanilla gives no
+    # collision, yet the ledge the body stood on read as no stance and every plan
+    # was "unreachable, 0 expanded" until the run ended trapped.
+    cells = floor_map([(x, z) for x in range(3) for z in range(3)])
+    cells[1, 1, 1].update(
+        block="minecraft:scaffolding",
+        collision_boxes=[[0, 0, 0, 0.125, 1, 0.125], [0, 0.875, 0, 1, 1, 1]],
+    )
+    assert standable(cells, (1, 1, 1))
+    assert clear_body(cells, 1.1, 1.0, 1, 2.8)
