@@ -137,6 +137,16 @@ public final class RoutePlannerTest {
         var ordinaryClimb = new RoutePlanner((x, y, z) -> wall.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
                 new RoutePlanner.Node(3, 4, 4), 0, 3, true).withMoves(false, false).search(100_000);
         check(ordinaryClimb.status().equals("reached"), "climbing permission is independent of optional extra moves");
+        // A vine over a pond (run 20261117T013535177027Z): let go, drop in and swim out.
+        var pond = floor(12);
+        for (int x = 0; x <= 5; x++) for (int z = -2; z <= 2; z++) {
+            pond.put(new Key(x, 0, z), water()); pond.put(new Key(x, -1, z), water()); pond.put(new Key(x, -2, z), stone());
+        }
+        var vine = Map.<String, Object>of("block", "minecraft:vine", "fluid", "minecraft:empty", "collision_boxes", List.of());
+        pond.put(new Key(2, 1, 0), vine); pond.put(new Key(2, 2, 0), vine); pond.put(new Key(2, 3, 0), stone());
+        var offVine = new RoutePlanner((x, y, z) -> pond.get(new Key(x, y, z)), new RoutePlanner.Node(2, 1, 0),
+                new RoutePlanner.Node(8, 1, 0), 0, 3, true).withMoves(true, true).search(100_000);
+        check(offVine.status().equals("reached"), "lets go of a vine over water and swims out: " + offVine.status());
         var scaffold = floor(4);
         for (int y = 1; y <= 3; y++) scaffold.put(new Key(2, y, 0), Map.of("block", "minecraft:scaffolding",
                 "fluid", "minecraft:empty", "collision_boxes", List.of(List.of(0, .875, 0, 1, 1, 1))));

@@ -889,6 +889,7 @@ final class RoutePlanner {
             boolean platform = "minecraft:scaffolding".equals(at(x, y, z).get("block")) && standable(up);
             if ((climbable(at(x, y + 1, z)) || platform) && openOrClimb(at(x, y + 2, z))) out.add(new Move(up, ticks ? LADDER_UP : 1.4));
             if (climbable(at(x, y - 1, z))) out.add(new Move(down, ticks ? LADDER_DOWN : 1.4));
+            else letGo(node, out);
             for (var d : DIRECTIONS) for (int dy = 0; dy <= 1; dy++) {
                 var target = new Node(x + d[0], y + dy, z + d[1]);
                 if (blockStandable(target)) out.add(new Move(target, heightCost(dy)));
@@ -900,6 +901,20 @@ final class RoutePlanner {
             if (!climbable(at(target.x, target.y, target.z)) || !openOrClimb(at(target.x, target.y + 1, target.z))
                     || !openOrClimb(at(target.x, y, target.z))) continue;
             out.add(new Move(target, heightCost(dy)));
+        }
+    }
+    /** Off the bottom of a climbable: let go and drop to the first stance or water below.
+     *  Run 20261117T013535177027Z hung on a vine over a pond: with no way down the
+     *  climb, every plan from there was unreachable in 3 nodes. */
+    private void letGo(Node node, List<Move> out) {
+        for (int h = 1; h <= LANDING_MAX; h++) {
+            var target = new Node(node.x, node.y - h, node.z);
+            var c = at(target.x, target.y, target.z);
+            if (c == null || !boxes(c).isEmpty()) return;
+            double cost = ticks ? fallTicks(h) : 1 + .4 * h;
+            if (swim && submerged(target)) { out.add(new Move(target, cost)); return; }
+            if (!dry(c)) return;
+            if (stance(target)) { if (h <= maxDrop) out.add(new Move(target, cost)); return; }
         }
     }
     /** MovementDescend.dynamicFallCost water branch: walk off into still water at any height. */

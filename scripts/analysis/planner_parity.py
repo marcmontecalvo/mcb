@@ -20,12 +20,14 @@ The export is kept (path printed) for reruns: gradlew -q -p mcb-body routePlanne
 "-Pargs=<export.json> <nodeLimit> 1".
 """
 
+import base64
 import json
 import os
 import pathlib
 import subprocess
 import sys
 import tempfile
+import zlib
 from dataclasses import replace
 
 from mclab.awareness import Awareness
@@ -151,12 +153,21 @@ def export(view, start, goal, target):
 
 def recorded_request(path, plan_id):
     """The `plan_route` request payload that carried `plan_id` (PLAN=plan-N)."""
-    needle = f'"{plan_id}"'
+    needle, parts = f'"{plan_id}"', []
     with open(path, encoding="utf-8") as f:
         for line in f:
-            if '"plan_route"' in line and needle in line:
+            if needle not in line:
+                continue
+            if '"planner_request"' in line:  # a large request is sent in parts
+                p = json.loads(line)["payload"]
+                if p.get("plan_id") == plan_id and p.get("kind") == "part":
+                    parts.append((p["offset"], p["data"]))
+            elif '"plan_route"' in line:
                 e = json.loads(line)
                 if e["type"] == "request" and e["payload"].get("plan_id") == plan_id:
+                    if parts:
+                        data = "".join(d for _, d in sorted(parts))
+                        return json.loads(zlib.decompress(base64.b64decode(data)))
                     return e["payload"]
     raise SystemExit(f"no plan_route request {plan_id} in {path}")
 
