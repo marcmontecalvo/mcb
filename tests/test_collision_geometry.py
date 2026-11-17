@@ -72,3 +72,21 @@ def test_scaffolding_in_the_feet_cell_does_not_block_a_stance():
     )
     assert standable(cells, (1, 1, 1))
     assert clear_body(cells, 1.1, 1.0, 1, 2.8)
+
+
+def test_any_real_shape_topped_within_its_cell_is_a_floor_but_a_fence_is_not():
+    # Run 20261117T221236234752Z ended trapped on a lily pad: only cubes, slabs,
+    # stairs and scaffolding were floors, so the body had no stance at all.
+    cells = floor_map([(x, z) for x in range(3) for z in range(3)])
+    cells[1, 1, 1] = {
+        "position": [1, 1, 1],
+        "block": "minecraft:lily_pad",
+        "collision_boxes": [[0, 0, 0, 1, 0.09375, 1]],
+    }
+    assert standable(cells, (1, 1.09375, 1))
+    cells[1, 1, 1] = {
+        "position": [1, 1, 1],
+        "block": "minecraft:oak_fence",
+        "collision_boxes": [[0.375, 0, 0.375, 0.625, 1.5, 0.625]],
+    }
+    assert not standable(cells, (1, 2.5, 1))

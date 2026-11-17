@@ -168,6 +168,20 @@ public final class RoutePlannerTest {
         var walkIn = new RoutePlanner((x, y, z) -> through.get(new Key(x, y, z)), new RoutePlanner.Node(3, 1, 0),
                 new RoutePlanner.Node(5, 1, 0), 0, 3, false).withMoves(false, false).search(100_000);
         check(walkIn.status().equals("reached"), "a start with scaffolding in its feet cell plans out: " + walkIn.status());
+        // Run 20261117T221236234752Z: a lily pad (top at 0.094) is a floor like any real shape; a fence is not.
+        var padPond = floor(6);
+        padPond.put(new Key(2, 0, 0), Map.of("block", "minecraft:water", "fluid", "minecraft:water", "collision_boxes", List.of()));
+        padPond.put(new Key(2, 1, 0), Map.of("block", "minecraft:lily_pad", "fluid", "minecraft:empty",
+                "collision_boxes", List.of(List.of(0, 0, 0, 1, .09375, 1))));
+        var offPad = new RoutePlanner((x, y, z) -> padPond.get(new Key(x, y, z)), new RoutePlanner.Node(2, 1.09375, 0),
+                new RoutePlanner.Node(5, 1, 0), 0, 3, false).withMoves(false, false).search(100_000);
+        check(offPad.status().equals("reached"), "a start on a lily pad plans out: " + offPad.status());
+        padPond.put(new Key(4, 1, 0), Map.of("block", "minecraft:oak_fence", "fluid", "minecraft:empty",
+                "collision_boxes", List.of(List.of(.375, 0, .375, .625, 1.5, .625))));
+        var fenced = new RoutePlanner((x, y, z) -> padPond.get(new Key(x, y, z)), new RoutePlanner.Node(4, 2.5, 0),
+                new RoutePlanner.Node(4, 2.5, 0), 0, 3, false);
+        check(!fenced.standable(new RoutePlanner.Node(4, 2.5, 0)) && !fenced.standable(new RoutePlanner.Node(4, 2, 0)),
+                "a fence top is no floor");
         var interaction = floor(12);
         interaction.put(new Key(4, 4, 0), stone());
         var reachedBlock = new RoutePlanner((x, y, z) -> interaction.get(new Key(x, y, z)),

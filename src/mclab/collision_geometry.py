@@ -126,17 +126,14 @@ def _cell_heights(cells, x, y, z):
     cell = cells.get((x, y, z))
     if not safe_cell(cell):
         return ()
-    block = cell.get("block", "")
-    if not (
-        full_cube(cell)
-        or block.endswith(("_slab", "_stairs"))
-        or block == "minecraft:scaffolding"
-    ):
-        return ()
+    # Any block's real shape, modded ones too (a lily pad, carpet, bed, chest):
+    # a box topped within the cell under the centre is a floor. Fences and walls
+    # (topped at 1.5) cannot be stepped onto. As RoutePlanner.cellHeights.
     heights = []
     for box in cell.get("collision_boxes", []):
         if (
-            box[0] < 0.8 - EPS
+            box[4] <= 1 + EPS
+            and box[0] < 0.8 - EPS
             and box[3] > 0.2 + EPS
             and box[2] < 0.8 - EPS
             and box[5] > 0.2 + EPS

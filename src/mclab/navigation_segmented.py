@@ -773,6 +773,15 @@ class SegmentedController(NavigationController):
         cells = self._known_cells()
         if self._node_supported(cells, node):
             return node
+        # A floor that is not on the half-block lattice (a lily pad at +0.094, a
+        # carpet, a bed): plan from the body's own height. Rounded to the block,
+        # the start had no floor and every plan was refused at once (run
+        # 20261117T221236234752Z, trapped on a lily pad).
+        exact = round(p[1] * 64) / 64
+        if self.movement_policy.allow_shapes and exact != height:
+            on = (node[0], exact, node[2])
+            if self._node_supported(cells, on):
+                return on
         r = collision_geometry.BODY_RADIUS - collision_geometry.EPS
         touched = {
             (math.floor(p[0] + ox), height, math.floor(p[2] + oz))

@@ -1114,13 +1114,14 @@ final class RoutePlanner {
         var cell = cell(x, y, z);
         var found = new ArrayList<Double>();
         if (safe(cell)) {
-            String block = String.valueOf(cell.getOrDefault("block", ""));
-            if (fullCube(cell) || block.endsWith("_slab") || block.endsWith("_stairs") || block.equals("minecraft:scaffolding"))
-                for (var box : scaffolding(cell) && boxes(cell).isEmpty() ? List.of(List.of(0, 0, 0, 1, 1, 1)) : boxes(cell))
-                    if (at(box, 0) < .8 - EPS && at(box, 3) > .2 + EPS && at(box, 2) < .8 - EPS && at(box, 5) > .2 + EPS) {
-                        double h = y + at(box, 4);
-                        if (clearColumn(x, z, h, h + 1.8)) found.add(h);
-                    }
+            // Any block's real shape, modded ones too (a lily pad, carpet, bed, chest): a box topped within
+            // the cell under the centre is a floor. Fences and walls (topped at 1.5) cannot be stepped onto.
+            // Run 20261117T221236234752Z ended trapped on a lily pad: no stance, every plan refused at once.
+            for (var box : scaffolding(cell) && boxes(cell).isEmpty() ? List.of(List.of(0, 0, 0, 1, 1, 1)) : boxes(cell))
+                if (at(box, 4) <= 1 + EPS && at(box, 0) < .8 - EPS && at(box, 3) > .2 + EPS && at(box, 2) < .8 - EPS && at(box, 5) > .2 + EPS) {
+                    double h = y + at(box, 4);
+                    if (clearColumn(x, z, h, h + 1.8)) found.add(h);
+                }
         }
         double[] result = found.stream().mapToDouble(Double::doubleValue).toArray();
         if (overlay == null) heights.put(key, result);
