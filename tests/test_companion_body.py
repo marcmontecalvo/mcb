@@ -468,6 +468,48 @@ def test_goto_stance_skips_candidates_the_planner_cannot_route(monkeypatch):
     assert seen == [((2, 0, 0), True), ((3, 0, 1), True)]
 
 
+def test_a_body_with_no_move_from_its_spot_stops_trying_other_stances(monkeypatch):
+    # Run 20261117T155135309814Z: on an eave slab boxed in by glass and flower pots
+    # every stance was planned again (unreachable after 1 node), 28 s per target.
+    b, _, _ = body()
+    b._obs["body"]["position"] = [20.5, 0.0, 20.5]
+    seen = []
+
+    def navigate(goal, *, reach, radius, probe=False, progress=None):
+        seen.append(goal)
+        b.boxed_in = True
+        return False
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    monkeypatch.setattr(b, "stances", lambda *a, **k: [(2, 0, 0), (3, 0, 1)])
+    assert b.goto_stance((2, 0, 2), 4.5) is False
+    assert seen == [(2, 0, 0)]
+
+
+def test_getting_down_takes_the_shortest_drop_beside_the_body(monkeypatch):
+    b, _, _ = body()
+    b._obs["body"]["position"] = [20.5, 10.0, 20.5]
+    x, y, z = b.position()
+    low, lower = (x + 1, y - 5, z), (x, y - 7, z - 2)
+    monkeypatch.setattr(cb, "standable", lambda cells, n: n in (low, lower))
+    monkeypatch.setattr(b, "health", lambda: 20.0)
+    before = b.movement_policy.max_drop
+    tried = []
+
+    def navigate(goal, *, reach, radius, probe=False, progress=None):
+        tried.append((goal, b.movement_policy.max_drop))
+        return True
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    b.boxed_in = True
+    assert b.get_down() is True and not b.boxed_in
+    assert tried == [(low, 12)]
+    assert b.movement_policy.max_drop == before
+    monkeypatch.setattr(b, "health", lambda: 6.0)  # no health to spare
+    tried.clear()
+    assert b.get_down() is False and not tried
+
+
 def test_roof_support_top_is_not_visible_from_recorded_floor_height():
     b, _, memory = body()
     b._obs["body"]["position"] = [-19.5, 65.0, 59.31]

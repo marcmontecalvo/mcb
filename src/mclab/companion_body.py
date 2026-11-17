@@ -48,6 +48,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, replace
 
 from mclab.awareness import Awareness
+from mclab.body_search import BOXED_IN_NODES
 from mclab.bridge import REJECTIONS
 from mclab.build_runner import Result
 from mclab.collision_geometry import standable
@@ -82,8 +83,10 @@ GOTO_WALL_S = 90.0
 MAIN_SLOTS = 36  # inventory indices 0..35: hotbar and main
 EAT_BELOW = 14  # the food bar a body eats at (gather_runner.EAT_BELOW)
 REGEN_FOOD = 18  # health regenerates only at or above this food level
-KEEP_HEALTH = 6  # HP a hurt drop must leave (of 20): three hearts; the user would
+# HP a hurt drop must leave (of 20): three hearts; the user would
 # rather take a few hearts than crawl, pillar or stand exposed (docs/RISK_AND_DAMAGE.md)
+KEEP_HEALTH = 6
+GET_DOWN_TRIES = 4  # landing spots tried when boxed in on a ledge
 
 # Per-world knowledge that outlives sessions (git-ignored runtime/).
 WORLD_MEMORY = RUNTIME / "world-memory"
@@ -590,6 +593,7 @@ class CompanionBody:
         self.policies: list[dict] = []
         self._navigation_idle = {"anchor": None, "since": time.monotonic()}
         self._failed_stance_probes = {}
+        self.boxed_in = False  # the last search from here found no move at all
         # building: called with the body position while a walk is under way, to
         # place what comes within reach (set by build_runner._sweep)
         self.on_pass: Callable[[Pos], None] | None = None
@@ -730,6 +734,34 @@ class CompanionBody:
             yield drop
         finally:
             self.movement_policy = saved
+
+    def get_down(self) -> bool:
+        """Boxed in on a ledge the house closed around: take the shortest drop to a
+        spot beside the body, at most :meth:`hurt_drop` (KEEP_HEALTH is kept). The
+        way back up is the stairs or a tower like any other climb; a drop is never
+        the planned way down while one of those exists."""
+        x, y, z = self.position()
+        drop = self.hurt_drop()
+        if drop <= 3:
+            return False
+        cells = self._cells_now()
+        spots = sorted(
+            (
+                (x + dx, y - h, z + dz)
+                for h in range(1, drop + 1)
+                for dx in range(-2, 3)
+                for dz in range(-2, 3)
+                if (dx, dz) != (0, 0)
+            ),
+            key=lambda n: (y - n[1], abs(n[0] - x) + abs(n[2] - z)),
+        )
+        spots = [n for n in spots if standable(cells, n)][:GET_DOWN_TRIES]
+        with self.allowing_hurt_drops():
+            for spot in spots:
+                if self._navigate(spot, reach=None, radius=0.6):
+                    self.boxed_in = False
+                    return True
+        return False
 
     def entities(self) -> list[dict]:
         """From the small /state (it carries visible_entities); /policy only when it does not."""
@@ -1287,6 +1319,16 @@ class CompanionBody:
         self.observe()
         last = getattr(controller, "last_result", None)
         walked = controller.last_partial_walk
+        # Unreachable after a node or two: the start itself has no move (a goal
+        # proof expands none). Every other stance from here fails the same way
+        # (run 20261117T155135309814Z: four 28 s stance loops on an eave slab).
+        expanded = getattr(last, "expanded", 0) if last is not None else 0
+        self.boxed_in = (
+            last is not None
+            and last.status == "unreachable"
+            and 1 <= expanded <= BOXED_IN_NODES
+            and math.dist(before, self.position()) < 0.75
+        )
         if (
             walked is not None
             and math.dist(before, walked[1]) <= 1.5
@@ -1714,6 +1756,8 @@ class CompanionBody:
                 hopped = True
             if self._navigate(node, reach=None, radius=radius, probe=True, progress=progress):
                 return True
+            if self.boxed_in:
+                return False
             if getattr(self, "walk_only", False) and self.position() == here:
                 self._failed_stance_probes[key] = time.monotonic() + 10.0
         if (

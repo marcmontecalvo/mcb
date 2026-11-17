@@ -313,13 +313,19 @@ class _Runner:
         start = time.monotonic()
         if self.body.goto_stance(pos, REACH, avoid):
             return True
+        if getattr(self.body, "boxed_in", False):
+            # Nothing leaves the spot the body is on (a ledge the house closed
+            # around): get down first, then climb back by stairs or a tower like
+            # any other climb. Only here is a drop that hurts taken.
+            if not self._get_down():
+                return False
+            if self.body.goto_stance(pos, REACH, avoid):
+                return True
         if self._tower(pos, avoid):
             return True
         if self.short:
             return False
         if self._unwedge() and self.body.goto_stance(pos, REACH, avoid):
-            return True
-        if self._hurt_drop(pos, avoid):
             return True
         # Each further try is seconds of standing still; four in a row were the
         # 30-70 s pauses of run 20261110T223248667856Z. Past the budget the cell is
@@ -332,20 +338,16 @@ class _Runner:
         self.report.escapes += 1
         return self.body.goto_stance(pos, REACH, avoid)
 
-    def _hurt_drop(self, pos: Pos, avoid) -> bool:
-        """Last way down from a ledge the house has closed around: a drop that costs
-        health, if the body has health to spare (an optional body method)."""
-        hurting = getattr(self.body, "allowing_hurt_drops", None)
-        if hurting is None:
+    def _get_down(self) -> bool:
+        """Boxed in on a ledge: the body's optional ``get_down`` takes the shortest
+        drop it has the health for, and the body eats to heal after."""
+        get_down = getattr(self.body, "get_down", None)
+        if get_down is None or not get_down():
             return False
-        with hurting() as drop:
-            if drop <= 3:
-                return False
-            reached = self.body.goto_stance(pos, REACH, avoid)
         heal = getattr(self.body, "eat_when_needed", None)  # optional
         if heal is not None:
             heal()
-        return reached
+        return True
 
     def _unwedge(self) -> bool:
         """Break our own scaffolding touching the body. A column placed against the

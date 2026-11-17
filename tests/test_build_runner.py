@@ -1090,52 +1090,48 @@ def test_without_scaffolding_dirt_or_cobblestone_a_tower_is_of_a_spare_plain_blo
     assert used and set(used) == {"minecraft:oak_log"}, used
 
 
-def test_a_body_shut_out_on_a_ledge_takes_a_drop_that_hurts_to_get_on():
-    # Run 20261117T144843447702Z: on an eave slab 6 above the ground, the house's
-    # glass and flower pots on every side; every plan with a 3-block drop limit was
-    # unreachable and the build stalled at 630 of 1235.
+def test_a_body_boxed_in_on_a_ledge_gets_down_then_builds_on():
+    # Runs 20261117T144843447702Z and 20261117T155135309814Z: on an eave slab 6
+    # above the ground, the house's glass and flower pots on every side; every plan
+    # was unreachable after one node and the build stalled.
     w = flat_world()
     t = bp.Template.from_build(
         make_build({(0, 0, 0): "minecraft:oak_planks"}, (1, 1, 1)), (3, 0, 3)
     )
     inv = {item: 100 for item in {i["item"] for i in BLOCKS.values()}}
     body = FakeBody(w, inv, BLOCKS)
-    body.max_drop = 3
-    reach = body.goto_stance
+    body.boxed_in = True
+    reach, downs = body.goto_stance, []
 
     def goto_stance(pos, reach_, avoid=()):
-        return body.max_drop >= 6 and reach(pos, reach_, avoid)
+        return not body.boxed_in and reach(pos, reach_, avoid)
 
-    @contextlib.contextmanager
-    def allowing_hurt_drops():
-        body.max_drop = 9
-        try:
-            yield 9
-        finally:
-            body.max_drop = 3
+    def get_down():
+        downs.append(1)
+        body.boxed_in = False
+        return True
 
     body.goto_stance = goto_stance
-    body.allowing_hurt_drops = allowing_hurt_drops
+    body.get_down = get_down
     report = br.run_build(t, body, BLOCKS)
     assert report.stop == "done" and (3, 0, 3) in report.placed
-    assert body.max_drop == 3  # only while getting down
+    assert downs == [1]
 
 
-def test_no_hurt_drop_without_health_to_spare():
+def test_a_drop_is_never_the_easy_way_while_the_body_can_move():
     body, t = tall_column_body()
     _no_scaffold_items(body)
-
-    @contextlib.contextmanager
-    def allowing_hurt_drops():
-        yield 3  # low health: no drop past the safe 3
-
-    tried = []
-    body.allowing_hurt_drops = allowing_hurt_drops
+    downs = []
+    body.boxed_in = False
+    body.get_down = lambda: downs.append(1) or True
     runner = br._Runner.__new__(br._Runner)
-    runner.body = body
-    stance = body.goto_stance
-    body.goto_stance = lambda *a, **k: tried.append(a) or stance(*a, **k)
-    assert runner._hurt_drop((3, 6, 3), ()) is False and not tried
+    runner.body, runner.short, runner.scaffolds = body, {}, set()
+    body.goto_stance = lambda *a, **k: False
+    runner._tower = lambda *a, **k: False
+    runner._unwedge = lambda: False
+    body.escape_hole = lambda pos: False
+    assert runner._stance((3, 6, 3), set()) is False
+    assert not downs
 
 
 def test_the_build_starts_holding_spare_footholds():
