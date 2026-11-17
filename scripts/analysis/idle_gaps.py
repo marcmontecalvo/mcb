@@ -34,6 +34,7 @@ PARSE = {
     "server_event",
     "observation",
     "request",
+    "job_finished",
     "controller_error",
     "native_route_edge_rejected",
     "native_route_finished",
@@ -177,6 +178,8 @@ def load(path: Path) -> dict:
                 b["events"].append((w, b["last_tick"], "req:" + op, short(p)))
             continue
         if t != "server_event":
+            if t == "job_finished" and b["end"] is None:
+                b["end"], b["end_wall"] = b["last_tick"], w
             if (
                 t == "gather_note"
                 and p.get("gather") == "drop_wait"

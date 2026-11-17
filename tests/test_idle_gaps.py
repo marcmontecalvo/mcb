@@ -367,3 +367,17 @@ def test_drop_wait_is_work_and_last_op_is_request_in_flight(tmp_path):
     # a later request does not relabel a gap that began before it
     r = run(tmp_path, base + [_req(200, "craft"), _drop_note(20)])[0]
     assert r["last_op"][0] == "req:break_block"
+
+
+def test_job_finished_ends_the_window(tmp_path):
+    # run-build.py's sensor waits after the job returns are not the body standing
+    # still (run 20261117T005024785972Z: 6 s idle after the build was done)
+    moving = [sample(t, t * 0.2) for t in range(0, 40)]
+    done = {
+        "body_id": "b",
+        "monotonic_ns": int((T0 + 40 / 20) * 1e9),
+        "type": "job_finished",
+        "payload": {"job": "build", "stop": "done"},
+    }
+    r = run(tmp_path, [ev("course_started", 0), *moving, done, *still(40, 200, 7.8)])
+    assert r == []

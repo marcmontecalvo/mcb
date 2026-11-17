@@ -448,6 +448,9 @@ def run(args, config, parser):
                 site_margin=args.margin,
             )
             report = job.build
+            # The job is over: the harness waits below are not the body's work, so
+            # idle_gaps.py ends the standstill window here.
+            bridge.record("job_finished", {"job": "build", "stop": job.stop})
             phases = {
                 name: None
                 if g is None
