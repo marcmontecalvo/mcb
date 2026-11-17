@@ -179,7 +179,7 @@ def _run(spec, count, request_limit, *, planner_spec=None, planner_profile=None)
         raise ValueError("Live smoke requires frozen G2 C1 specification")
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = ROOT / "results/model_execution" / stamp
-    client = RecordedBridge(destination / "events.jsonl")
+    client = RecordedBridge(destination / "events.sqlite3")
     client.budget = 12000
     recorder = EpisodeRecorder(ROOT / "results/episodes.sqlite3")
     configuration = {
@@ -228,7 +228,7 @@ def _run(spec, count, request_limit, *, planner_spec=None, planner_profile=None)
         **configuration,
         "run_id": client.run_id,
         "episodes": [],
-        "recording": str(destination / "events.jsonl"),
+        "recording": str(destination / "events.sqlite3"),
         "model_requests": 0,
     }
     recorder.begin_run(client.run_id, configuration)
@@ -254,7 +254,7 @@ def _run(spec, count, request_limit, *, planner_spec=None, planner_profile=None)
                 attempt,
                 active_episode,
                 client.body_id,
-                destination / "events.jsonl",
+                destination / "events.sqlite3",
             )
             request = client.send("course_reset", profile_id=profile["profile_id"])
             client.acknowledge(request, "course_reset_started", timeout=10)

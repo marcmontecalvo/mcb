@@ -113,7 +113,7 @@ def _run(course, seeds):
         "episodes": [],
         "status": "running",
     }
-    client = RecordedBridge(destination / "events.jsonl")
+    client = RecordedBridge(destination / "events.sqlite3")
     client.budget = len(seeds) * 4000 + 500
     recorder = EpisodeRecorder(destination / "episodes.sqlite3")
     recorder.begin_run(client.run_id, summary)
@@ -128,7 +128,7 @@ def _run(course, seeds):
                 attempt,
                 client.episode_id,
                 client.body_id,
-                destination / "events.jsonl",
+                destination / "events.sqlite3",
             )
             outcome = _attempt(client, baritone, player, profile, spec)
             client.flush_recording()

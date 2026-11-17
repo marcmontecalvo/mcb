@@ -7,7 +7,8 @@ in progress). Of the others, inside the run:
 - a run whose id appears in ``docs/`` or the top-level markdown files (the ledger) keeps
   its databases and has ``events.jsonl`` gzipped;
 - any other run has ``events.jsonl`` over ``MIN_BYTES`` gzipped (companion runs:
-  deleted, they are iteration noise; checkpoints and build.json say what happened) and
+  deleted, they are iteration noise, ``events.sqlite3`` too; checkpoints and
+  build.json say what happened; other families keep their ``events.sqlite3``) and
   its ``*.sqlite3`` (+ ``-wal``/``-shm``) deleted (map memory and per-run episode
   ledgers, derived from the same events).
 The shared ``results/episodes.sqlite3`` and anything outside run folders are left
@@ -84,9 +85,14 @@ def plan(root: Path = ROOT, now: float | None = None) -> list[Action]:
                 ):
                     continue
                 events = path.name == "events.jsonl"
+                # events.sqlite3 is the event log and is already compressed: kept
+                # for cited runs, and for families whose logs are not deleted.
+                store = path.name.startswith("events.sqlite3")
                 if run.name in cited:
                     if events:
                         actions.append(Action(path, "gzip", stat.st_size))
+                elif store and family.name not in DELETE_EVENTS:
+                    continue
                 elif events and family.name not in DELETE_EVENTS:
                     actions.append(Action(path, "gzip", stat.st_size))
                 else:

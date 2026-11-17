@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -22,7 +23,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
 
-from mclab import build_stats
+from mclab import build_stats, event_log
 from mclab import dashboard_runs as runs
 from mclab.paths import ROOT, read_json, write_json
 from mclab.recorder import exclusive_run
@@ -202,20 +203,20 @@ def latest_summary(directory, started_at):
 
 def live_events(directory):
     """Read a bounded tail; no extra policy requests or heartbeat interference."""
-    paths = list(directory.glob("events.jsonl")) + list(
-        directory.glob("*/events.jsonl")
-    )
+    paths = [
+        p
+        for pattern in ("events.sqlite3", "events.jsonl")
+        for p in (*directory.glob(pattern), *directory.glob("*/" + pattern))
+    ]
     if not paths:
         return {}
     path = max(paths, key=lambda p: p.stat().st_mtime_ns)
     latest = {}
-    for line in tail(path, 160_000).splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue  # truncated first line or an in-progress append
-        if event.get("type") != "observation":
-            continue
+    try:
+        newest = event_log.tail(path, 1, types=["observation"])
+    except (OSError, ValueError, sqlite3.Error):
+        return {}  # an in-progress append or a store not yet readable
+    for event in newest:
         payload = event["payload"]
         course = (
             payload.get("episode")

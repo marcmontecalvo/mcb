@@ -11,6 +11,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from mclab import event_log
+
 PROGRESS_EPSILON = 1.0  # blocks of goal-distance improvement that count as progress
 
 
@@ -25,19 +27,23 @@ def facts(folder: Path, attempt: dict, route: dict) -> dict:
         None,
     )
     planned = 0
-    for line in (folder / "events.jsonl").open(encoding="utf-8"):
-        if '"navigation_tick"' in line[:400]:
-            p = json.loads(line)["payload"]
+    wanted = [
+        "navigation_tick",
+        "terrain_step_planned",
+        "terrain_step_finished",
+        "policy_observation",
+    ]
+    for event in event_log.records(folder, types=wanted):
+        p, kind = event["payload"], event["type"]
+        if kind == "navigation_tick":
             modes[p["mode"]] += 1
-        elif '"terrain_step_planned"' in line[:400]:
+        elif kind == "terrain_step_planned":
             planned += 1
-        elif '"terrain_step_finished"' in line[:400]:
-            p = json.loads(line)["payload"]
+        elif kind == "terrain_step_finished":
             step_states[
                 f"{p['state']}:{p['reason']}" if p["reason"] else p["state"]
             ] += 1
-        elif '"policy_observation"' in line[:400]:
-            p = json.loads(line)["payload"]
+        elif kind == "policy_observation":
             position = p.get("body", {}).get("position")
             if not position or p.get("state") != "running":
                 continue
@@ -104,7 +110,7 @@ def main(folder: str) -> None:
             f"{attempt['route_id']}-{'mobs' if attempt['mobs'] else 'calm'}-"
             f"segmented_goal-{attempt['repetition']}"
         )
-        if not (root / name / "events.jsonl").is_file():
+        if event_log.locate(root / name) is None:
             print(json.dumps({"route": attempt["route_id"], "missing": name}))
             continue
         print(json.dumps(facts(root / name, attempt, routes[attempt["route_id"]])))

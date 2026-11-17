@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from mclab import bridge, gates
+from mclab import bridge, event_log, gates
 from mclab.paths import write_json
 
 
@@ -15,7 +15,7 @@ def client(tmp_path, monkeypatch):
     state = tmp_path / "supervisor.json"
     write_json(state, {"launch_id": "test-launch", "token": "private-token-1234567890"})
     monkeypatch.setattr(bridge, "STATE", state)
-    value = bridge.Bridge(tmp_path / "recording.jsonl")
+    value = bridge.Bridge(tmp_path / "events.jsonl")
     yield value
     value.close()
 
@@ -165,11 +165,9 @@ def test_request_budget_is_bounded(client):
 def test_recording_contains_no_transport_token(client):
     client.record("check", {"observed": 42})
     client.stream.flush()
-    text = client.stream.name
-    with open(text, encoding="utf-8") as stream:
-        value = stream.read()
-    assert client._token not in value
-    assert json.loads(value)["sequence"] == 1
+    records = list(event_log.records(client.stream.name))
+    assert client._token not in json.dumps(records)
+    assert records[0]["sequence"] == 1
 
 
 def test_event_gap_invalidates_qualification(client, monkeypatch):

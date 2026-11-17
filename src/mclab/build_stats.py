@@ -7,7 +7,7 @@ cached in build_stats.json beside the run and survive the log being pruned).
     python -m mclab.build_stats results/companion/<run> [...]
 """
 
-import gzip
+import heapq
 import json
 import queue
 import re
@@ -17,7 +17,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from mclab import companion_progress
+from mclab import companion_progress, event_log
 
 VERSION = 2
 CACHE = "build_stats.json"
@@ -26,13 +26,8 @@ LIVE_S = 60  # a log written this recently belongs to a running build: do not sc
 # The one place that names a run's event logs. When the log is split, add
 # "timeline.jsonl" (requests/results) and "blocks.jsonl" (blocks placed/broken)
 # here; "seen.jsonl" (world snapshots) holds nothing these stats or the live view
-# read, so it stays out. Each name is also looked up with ".gz".
-LOG_NAMES = ("events.jsonl",)
-# Lines reach 800 KB (terrain samples); the envelope type and time are in the
-# first few hundred bytes, so most lines are skipped without parsing.
-_HEAD = re.compile(rb'"monotonic_ns":(\d+),"type":"(\w+)"')
-_OP = re.compile(rb'"op":"(\w+)"')
-_KIND = re.compile(rb'"phase":"\w+","type":"(\w+)"')
+# read, so it stays out. The first name found is the log.
+LOG_NAMES = ("events.sqlite3", "events.jsonl", "events.jsonl.gz")
 _RESULTS = frozenset(
     "place_block_done place_block_failed break_block_done break_block_failed "
     "block_broken plan_finished container_done craft_done furnace_done".split()
@@ -47,18 +42,11 @@ _NOT_HOUSE += ("chest", "barrel", "shulker_box")
 
 
 def event_logs(folder: Path) -> list[Path]:
-    """The run's event log files that exist, plain or gzipped."""
-    found = []
+    """The run's event log (the store, else plain or gzipped jsonl), if it exists."""
     for name in LOG_NAMES:
-        for path in (folder / name, folder / (name + ".gz")):
-            if path.is_file():
-                found.append(path)
-                break
-    return found
-
-
-def open_log(path: Path):
-    return gzip.open(path, "rb") if path.suffix == ".gz" else open(path, "rb")
+        if (folder / name).is_file():
+            return [folder / name]
+    return []
 
 
 def iter_events(folder: Path):
@@ -67,24 +55,20 @@ def iter_events(folder: Path):
     kind is "request" (payload = op name) or a server event type (payload = data).
     """
     for path in event_logs(folder):
-        with open_log(path) as lines:
-            for line in lines:
-                head = _HEAD.search(line[:400])
-                if not head:
-                    continue
-                at = int(head[1]) / 1e9
-                if head[2] == b"request":
-                    op = _OP.search(line[:800])
-                    if op:
-                        yield at, "request", op[1].decode()
-                elif head[2] == b"server_event":
-                    kind = _KIND.search(line[:900])
-                    if kind and kind[1].decode() in _RESULTS:
-                        try:
-                            data = json.loads(line)["payload"].get("data") or {}
-                        except (ValueError, KeyError, AttributeError):
-                            continue  # a line cut short by a kill
-                        yield at, kind[1].decode(), data
+        requests = event_log.records(path, types=["request"])
+        results = event_log.records(path, types=["server_event"], kinds=_RESULTS)
+        for record in heapq.merge(requests, results, key=_order):
+            payload = record.get("payload")
+            at = record["monotonic_ns"] / 1e9
+            if record["type"] == "request":
+                if isinstance(payload, dict) and isinstance(payload.get("op"), str):
+                    yield at, "request", payload["op"]
+            elif isinstance(payload, dict):
+                yield at, payload["type"], payload.get("data") or {}
+
+
+def _order(record: dict) -> int:
+    return record["monotonic_ns"]
 
 
 def _block(state) -> str:
@@ -186,7 +170,12 @@ def cached(folder: Path) -> dict | None:
 
 def is_live(folder: Path) -> bool:
     try:
-        return any(time.time() - p.stat().st_mtime < LIVE_S for p in event_logs(folder))
+        return any(
+            time.time()
+            - (event_log.mtime(p) if p.suffix == ".sqlite3" else p.stat().st_mtime)
+            < LIVE_S
+            for p in event_logs(folder)
+        )
     except OSError:
         return True
 

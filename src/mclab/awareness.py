@@ -120,7 +120,7 @@ def check():
     )
     summary = {"development_only": True, "mod_provenance": provenance}
     with exclusive_arena():
-        client = Bridge(destination / "events.jsonl")
+        client = Bridge(destination / "events.sqlite3")
         spawned = False
         try:
             client.synchronize()

@@ -11,6 +11,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
+from mclab import event_log
 from mclab.bootstrap import sha256
 from mclab.navigation_metrics import percentiles
 from mclab.paths import ROOT, write_json
@@ -51,26 +52,24 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     batches, seen = [], set()
-    with args.events.open(encoding="utf-8") as stream:
-        for line in stream:
-            event = json.loads(line)
-            if event["type"] != "policy_observation":
-                continue
-            observation = expand_terrain(event["payload"])
-            sample = (
-                event.get("episode_id"),
-                observation.get("awareness", {}).get("revision"),
-                observation.get("awareness", {}).get("coverage", {}).get("sample_tick"),
-            )
-            if sample in seen:
-                continue
-            seen.add(sample)
-            grouped = defaultdict(list)
-            for cell in observation.get("visible_blocks", []):
-                grouped[section_key(cell["position"])].append(cell)
-            batches.append(grouped)
-            if len(batches) == args.samples:
-                break
+    for event in event_log.records(args.events, types=["policy_observation"]):
+        if event["type"] != "policy_observation":
+            continue
+        observation = expand_terrain(event["payload"])
+        sample = (
+            event.get("episode_id"),
+            observation.get("awareness", {}).get("revision"),
+            observation.get("awareness", {}).get("coverage", {}).get("sample_tick"),
+        )
+        if sample in seen:
+            continue
+        seen.add(sample)
+        grouped = defaultdict(list)
+        for cell in observation.get("visible_blocks", []):
+            grouped[section_key(cell["position"])].append(cell)
+        batches.append(grouped)
+        if len(batches) == args.samples:
+            break
     if len(batches) != args.samples:
         raise ValueError("Recording has fewer distinct observations than requested")
     totals = {"rewrite": [], "merge": []}

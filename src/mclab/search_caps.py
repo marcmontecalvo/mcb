@@ -1,6 +1,6 @@
 """Find route plans that stopped at the planner's node cap.
 
-    python -m mclab.search_caps <events.jsonl> [...]
+    python -m mclab.search_caps <run dir | events.sqlite3 | events.jsonl> [...]
 
 A plan_finished event with status "incomplete" and expanded >= the request's
 node_limit is a cap hit. Hitting the cap is only acceptable when the goal is far
@@ -17,6 +17,8 @@ import sys
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
+
+from mclab import event_log
 
 NEAR_MANHATTAN = 64  # blocks; a cap hit at or under this distance is a violation
 EDIT_KEYS = (
@@ -62,32 +64,31 @@ def cap_hits(events: Path) -> list[CapHit]:
     parts: dict[str, list] = {}
     hits: list[CapHit] = []
     t0: int | None = None
-    with Path(events).open(encoding="utf-8", errors="replace") as f:
-        for line in f:
-            if '"planner_request"' in line:  # a large request is sent in parts
-                rec = json.loads(line)
-                p = rec.get("payload", {})
-                if rec.get("type") == "request" and p.get("kind") == "part":
-                    parts.setdefault(p.get("plan_id"), []).append(
-                        (p["offset"], p["data"])
-                    )
-            elif '"plan_route"' in line:
-                rec = json.loads(line)
-                p = rec.get("payload", {})
-                if rec.get("type") == "request" and p.get("op") == "plan_route":
-                    if p.get("plan_id") in parts:
-                        data = "".join(d for _, d in sorted(parts.pop(p["plan_id"])))
-                        p = json.loads(zlib.decompress(base64.b64decode(data)))
-                        p.setdefault("plan_id", rec["payload"]["plan_id"])
-                    if "plan_id" in p:
-                        requests[p["plan_id"]] = p
-                    by_seq[rec["payload"].get("sequence")] = p
-            elif '"plan_accepted"' in line:
-                d = json.loads(line)["payload"].get("data", {})
+    # Only these records matter; the store reads them by index, the rest is skipped.
+    wanted = event_log.records(
+        events,
+        types=["request", "server_event"],
+        kinds=["planner_request", "plan_route", "plan_accepted", "plan_finished"],
+    )
+    for rec in wanted:
+        p = rec.get("payload", {})
+        kind = p.get("type") or p.get("op")
+        if rec.get("type") == "request":
+            if p.get("op") == "planner_request" and p.get("kind") == "part":
+                parts.setdefault(p.get("plan_id"), []).append((p["offset"], p["data"]))
+            elif p.get("op") == "plan_route":
+                if p.get("plan_id") in parts:
+                    data = "".join(d for _, d in sorted(parts.pop(p["plan_id"])))
+                    p = json.loads(zlib.decompress(base64.b64decode(data)))
+                    p.setdefault("plan_id", rec["payload"]["plan_id"])
+                if "plan_id" in p:
+                    requests[p["plan_id"]] = p
+                by_seq[rec["payload"].get("sequence")] = p
+        elif rec.get("type") == "server_event":
+            d = p.get("data", {})
+            if kind == "plan_accepted":
                 accepted[d.get("plan_id")] = d.get("request_sequence")
-            elif '"plan_finished"' in line:
-                rec = json.loads(line)
-                d = rec["payload"].get("data", {})
+            elif kind == "plan_finished":
                 if d.get("status") != "incomplete":
                     continue
                 pid = d.get("plan_id")
@@ -117,8 +118,8 @@ def cap_hits(events: Path) -> list[CapHit]:
 
 
 def _first_ns(events: Path) -> int:
-    with Path(events).open(encoding="utf-8", errors="replace") as f:
-        return json.loads(f.readline()).get("monotonic_ns", 0)
+    first = next(event_log.records(events, limit=1), {})
+    return first.get("monotonic_ns", 0)
 
 
 def verdict(hits: list[CapHit]) -> tuple[str, list[str]]:

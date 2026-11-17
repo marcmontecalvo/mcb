@@ -16,6 +16,7 @@ import urllib.error
 from pathlib import Path
 from uuid import uuid4
 
+from mclab.event_log import EventWriter
 from mclab.paths import ROOT, config, read_json
 from mclab.server import STATE
 from mclab.silence_watch import SilenceWatchdog
@@ -104,7 +105,8 @@ class Bridge:
         self.last_heartbeat = 0.0
         self.budget = read_json(ROOT / "config/qualification.json")["request_budget"]
         output.parent.mkdir(parents=True, exist_ok=True)
-        self.stream = output.open("x", encoding="utf-8")
+        # The log is a SQLite store; callers still pass <run>/events.jsonl.
+        self.stream = EventWriter(output)
         self._record_lock = threading.Lock()  # the silence watchdog writes too
         self.silence = SilenceWatchdog(self.record)
 
@@ -124,8 +126,7 @@ class Bridge:
             "type": kind,
             "payload": payload,
         }
-        self.stream.write(json.dumps(value, allow_nan=False) + "\n")
-        self.stream.flush()
+        self.stream.add(value)
 
     def synchronize(self):
         # Old, already-evicted events from another run do not invalidate a new attempt.

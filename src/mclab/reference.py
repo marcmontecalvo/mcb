@@ -57,7 +57,7 @@ def record_reference(
         )
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = ROOT / "results/references" / stamp
-    client = Bridge(destination / "events.jsonl")
+    client = Bridge(destination / "events.sqlite3")
     result = {
         "schema_version": 1,
         "scored": False,
@@ -68,7 +68,7 @@ def record_reference(
         "combat_wall": combat,
         "reference_guide": guide,
         "alignment": "server-observed buttons, client timestamp/network delay unknown",
-        "recording": str(destination / "events.jsonl"),
+        "recording": str(destination / "events.sqlite3"),
     }
     try:
         client.synchronize()

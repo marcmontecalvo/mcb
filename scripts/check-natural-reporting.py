@@ -33,7 +33,7 @@ def main():
         "runner_sha256": sha256(Path(__file__)),
     }
     with exclusive_arena():
-        client = RecordedBridge(folder / "events.jsonl")
+        client = RecordedBridge(folder / "events.sqlite3")
         active = False
         try:
             client.synchronize()

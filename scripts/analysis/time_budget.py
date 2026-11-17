@@ -1,33 +1,32 @@
 """Per-tick speed class x controller state, plus a position timeline every 40 ticks.
 
-Usage: uv run --locked python scripts/analysis/time_budget.py <attempt>/events.jsonl
+Usage: uv run --locked python scripts/analysis/time_budget.py <attempt>/events.sqlite3
 Classes: stopped <0.05, slow <0.19, walk <0.245, sprint (blocks/tick). State is
 the controller mode, or native:ground/air while the body follows a native route.
 """
 
 """Per tick: speed class x controller mode / native route state; plus height timeline."""
 import collections
-import json
 import math
 import sys
 
+from mclab import event_log
+
 pos, mode, rstate = {}, {}, {}
-for line in open(sys.argv[1]):
-    h = line[:600]
-    if '"policy_sample"' in h:
-        p = json.loads(line)["payload"]["data"]
-        t = p.get("tick")
-        b = p.get("body") or {}
-        if "position" in b:
-            pos[t] = (
-                b["position"],
-                b.get("on_ground"),
-                (b.get("survival") or {}).get("in_water"),
-            )
-            rstate[t] = (p.get("route_follower") or {}).get("state")
-    elif '"navigation_tick"' in h:
-        d = json.loads(line)["payload"]
-        mode[d["tick"]] = d["mode"]
+for row in event_log.records(sys.argv[1], types=["server_event"], kinds=["policy_sample"]):
+    p = row["payload"]["data"]
+    t = p.get("tick")
+    b = p.get("body") or {}
+    if "position" in b:
+        pos[t] = (
+            b["position"],
+            b.get("on_ground"),
+            (b.get("survival") or {}).get("in_water"),
+        )
+        rstate[t] = (p.get("route_follower") or {}).get("state")
+for row in event_log.records(sys.argv[1], types=["navigation_tick"]):
+    d = row["payload"]
+    mode[d["tick"]] = d["mode"]
 ts = sorted(pos)
 m = None
 table = collections.Counter()

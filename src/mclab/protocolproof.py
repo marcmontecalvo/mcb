@@ -43,7 +43,7 @@ def controls(tick: int, action_id: str, **changes) -> dict:
 def qualify_protocol() -> dict:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = ROOT / "results/qualification" / stamp
-    client = Bridge(destination / "events.jsonl")
+    client = Bridge(destination / "events.sqlite3")
     checks = []
     summary = {
         "schema_version": 1,
@@ -235,6 +235,6 @@ def qualify_protocol() -> dict:
             summary["failure_category"] = "infrastructure"
         client.close()
         summary["requests"] = client.submitted
-        summary["recording"] = str(destination / "events.jsonl")
+        summary["recording"] = str(destination / "events.sqlite3")
         write_json(destination / "summary.json", summary)
     return summary

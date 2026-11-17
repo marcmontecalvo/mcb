@@ -1,7 +1,9 @@
+import json
 import sqlite3
 
 import pytest
 
+from mclab import event_log
 from mclab.execution import (
     C1Controller,
     ControllerFailure,
@@ -247,8 +249,9 @@ def test_async_recording_flush_preserves_sequence_identity_and_durable_events(
         "SELECT sequence,episode_id FROM events ORDER BY sequence"
     ).fetchall()
     assert rows == [(n + 1, first) for n in range(20)] + [(21, "next-episode")]
-    assert len((tmp_path / "events.jsonl").read_text().splitlines()) == 21
-    assert "secret-token-not-recorded" not in (tmp_path / "events.jsonl").read_text()
+    stored = list(event_log.records(tmp_path))
+    assert len(stored) == 21
+    assert "secret-token-not-recorded" not in json.dumps(stored)
     assert not client.writer.is_alive()
     ledger.close()
 

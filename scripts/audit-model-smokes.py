@@ -5,6 +5,7 @@ import sqlite3
 from collections import Counter
 from pathlib import Path
 
+from mclab import event_log
 from mclab.bootstrap import sha256
 from mclab.paths import ROOT, read_json, write_json
 
@@ -13,42 +14,40 @@ def audit(path):
     path = Path(path)
     summary = read_json(path)
     # Original provenance keeps its launch path even after moving the checkout.
-    recording = path.parent / "events.jsonl"
+    recording = event_log.locate(path.parent) or path.parent / "events.sqlite3"
     responses, errors, policy_ticks, actions, ages, choices = [], [], set(), {}, [], []
     planner_responses = []
     positions = []
     milestones = {}
     cancelled_on_close = 0
-    with recording.open(encoding="utf-8") as stream:
-        for line in stream:
-            row = json.loads(line)
-            payload, kind = row["payload"], row["type"]
-            if kind.startswith("tactical_response"):
-                responses.append(payload)
-                cancelled_on_close += kind == "tactical_response_discarded_on_close"
-                if "decision" in payload:
-                    choices.append(payload["decision"]["choice"])
-            if kind.startswith("planner_response"):
-                planner_responses.append({"type": kind, **payload})
-            if kind == "controller_error":
-                errors.append(payload)
-            if kind == "request" and payload.get("op") == "controls":
-                actions[payload["sequence"]] = payload["controls"]
-            if kind == "server_event":
-                if payload["type"] == "course_milestone":
-                    milestones.setdefault(payload["episode_id"], []).append(
-                        payload["data"]
+    for row in event_log.records(recording):
+        payload, kind = row["payload"], row["type"]
+        if kind.startswith("tactical_response"):
+            responses.append(payload)
+            cancelled_on_close += kind == "tactical_response_discarded_on_close"
+            if "decision" in payload:
+                choices.append(payload["decision"]["choice"])
+        if kind.startswith("planner_response"):
+            planner_responses.append({"type": kind, **payload})
+        if kind == "controller_error":
+            errors.append(payload)
+        if kind == "request" and payload.get("op") == "controls":
+            actions[payload["sequence"]] = payload["controls"]
+        if kind == "server_event":
+            if payload["type"] == "course_milestone":
+                milestones.setdefault(payload["episode_id"], []).append(
+                    payload["data"]
+                )
+            if payload["type"] == "policy_sample":
+                policy_ticks.add(payload["tick"])
+                positions.append(payload["data"]["body"]["position"])
+            if payload["type"] == "applied":
+                data = payload["data"]
+                action = actions.get(int(data["request_sequence"]))
+                if action is not None:
+                    ages.append(
+                        data["actual_apply_tick"] - action["observation_tick"]
                     )
-                if payload["type"] == "policy_sample":
-                    policy_ticks.add(payload["tick"])
-                    positions.append(payload["data"]["body"]["position"])
-                if payload["type"] == "applied":
-                    data = payload["data"]
-                    action = actions.get(int(data["request_sequence"]))
-                    if action is not None:
-                        ages.append(
-                            data["actual_apply_tick"] - action["observation_tick"]
-                        )
     snapshot = path.parent / "sources/mclab"
     hashes_match = all(
         sha256(snapshot / filename) == summary[key]

@@ -68,14 +68,7 @@ class RecordedBridge(Bridge):
                                 allow_nan=False,
                                 separators=(",", ":"),
                             )
-                            header = json.dumps(
-                                {k: v for k, v in record.items() if k != "payload"},
-                                allow_nan=False,
-                                separators=(",", ":"),
-                            )
-                            self.stream.write(
-                                header[:-1] + ',"payload":' + payload_json + "}\n"
-                            )
+                            self.stream.add(record, payload_json)
                             if database is not None:
                                 database._insert_event(
                                     record["run_id"],
@@ -469,7 +462,7 @@ def _qualify_execution(count: int, *, development: bool) -> dict:
         raise ValueError("G2 course specification changed; requalification required")
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = ROOT / "results/execution" / stamp
-    client = RecordedBridge(destination / "events.jsonl")
+    client = RecordedBridge(destination / "events.sqlite3")
     client.budget = 12000
     recorder = EpisodeRecorder(ROOT / "results/episodes.sqlite3")
     recovered = recorder.recover_interrupted()
@@ -507,7 +500,7 @@ def _qualify_execution(count: int, *, development: bool) -> dict:
         "run_id": client.run_id,
         "launch_id": client.launch_id,
         "episodes": [],
-        "recording": str(destination / "events.jsonl"),
+        "recording": str(destination / "events.sqlite3"),
         "request_budget": client.budget,
     }
     active_episode = None
@@ -531,7 +524,7 @@ def _qualify_execution(count: int, *, development: bool) -> dict:
                 attempt,
                 client.episode_id,
                 client.body_id,
-                destination / "events.jsonl",
+                destination / "events.sqlite3",
             )
             active_episode = client.episode_id
             request = client.send("course_reset", profile_id=profile["profile_id"])

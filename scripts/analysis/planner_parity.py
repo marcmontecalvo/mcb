@@ -12,7 +12,7 @@ rule for attempts before fdc9e533. Exact only for plans whose plan_accepted says
 terrain: uploaded; live plans read the world within their terrain_radius.
 
 Usage: GOAL="[x,y,z]" CAP=8000 uv run --locked python scripts/analysis/planner_parity.py
-       <attempt>/events.jsonl <tick> "[x,y,z]"
+       <attempt>/events.sqlite3 <tick> "[x,y,z]"
 Flags: UNKNOWN=1 (plan through unknown space), SWIM=1 (swimming and Baritone moves),
 PLAN=plan-N replays that recorded plan_route request (edits and all) on the map.
 EDITS=1 (the production terrain profile with the natural kit: everything, edits included).
@@ -30,6 +30,7 @@ import tempfile
 import zlib
 from dataclasses import replace
 
+from mclab import event_log
 from mclab.awareness import Awareness
 from mclab.body_search import edit_payload
 from mclab.memory_policy import MemoryPolicy
@@ -79,20 +80,16 @@ MOVES = MovementPolicy(
 
 def delivered_map(path, upto):
     got, samples = set(), []
-    for line in open(path, encoding="utf-8"):
-        head = line[:600]
-        if '"policy_observation"' in head:
-            p = json.loads(line)["payload"]
-            if p.get("tick", 0) <= upto:
-                st = ((p.get("awareness") or {}).get("coverage") or {}).get(
-                    "sample_tick"
-                )
-                if st is not None:
-                    got.add(st)
-        elif '"policy_sample"' in head:
-            d = json.loads(line)["payload"]["data"]
-            if "terrain_sections" in d and d["tick"] <= upto:
-                samples.append(d)
+    for e in event_log.records(path, types=["policy_observation"]):
+        p = e["payload"]
+        if p.get("tick", 0) <= upto:
+            st = ((p.get("awareness") or {}).get("coverage") or {}).get("sample_tick")
+            if st is not None:
+                got.add(st)
+    for e in event_log.records(path, types=["server_event"], kinds=["policy_sample"]):
+        d = e["payload"]["data"]
+        if "terrain_sections" in d and d["tick"] <= upto:
+            samples.append(d)
     last, mem = max(got, default=-1), None
     old_mod = bool(os.environ.get("OLD_MOD"))
     for d in samples:
@@ -153,22 +150,16 @@ def export(view, start, goal, target):
 
 def recorded_request(path, plan_id):
     """The `plan_route` request payload that carried `plan_id` (PLAN=plan-N)."""
-    needle, parts = f'"{plan_id}"', []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            if needle not in line:
-                continue
-            if '"planner_request"' in line:  # a large request is sent in parts
-                p = json.loads(line)["payload"]
-                if p.get("plan_id") == plan_id and p.get("kind") == "part":
-                    parts.append((p["offset"], p["data"]))
-            elif '"plan_route"' in line:
-                e = json.loads(line)
-                if e["type"] == "request" and e["payload"].get("plan_id") == plan_id:
-                    if parts:
-                        data = "".join(d for _, d in sorted(parts))
-                        return json.loads(zlib.decompress(base64.b64decode(data)))
-                    return e["payload"]
+    parts = []
+    for e in event_log.records(path, plan_ids=[plan_id]):
+        p = e["payload"]
+        if p.get("kind") == "part" and "offset" in p:  # a large request is sent in parts
+            parts.append((p["offset"], p["data"]))
+        elif e["type"] == "request" and p.get("op") == "plan_route":
+            if parts:
+                data = "".join(d for _, d in sorted(parts))
+                return json.loads(zlib.decompress(base64.b64decode(data)))
+            return p
     raise SystemExit(f"no plan_route request {plan_id} in {path}")
 
 

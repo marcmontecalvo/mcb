@@ -221,7 +221,7 @@ def _run(course, seeds, *, reset_only, scored):
         "source_commit": _source_commit(),
         "episode_database": str((destination / "episodes.sqlite3").relative_to(ROOT)),
     }
-    client = RecordedBridge(destination / "events.jsonl")
+    client = RecordedBridge(destination / "events.sqlite3")
     client.budget = request_budget
     try:
         recovered = 0
@@ -252,7 +252,7 @@ def _run(course, seeds, *, reset_only, scored):
         "request_budget": client.budget,
         "episodes": [],
         "resets": [],
-        "recording": str(destination / "events.jsonl"),
+        "recording": str(destination / "events.sqlite3"),
         "status": "running",
     }
     active_episode = None
@@ -281,7 +281,7 @@ def _run(course, seeds, *, reset_only, scored):
                 attempt,
                 client.episode_id,
                 client.body_id,
-                destination / "events.jsonl",
+                destination / "events.sqlite3",
             )
             active_episode = client.episode_id
             reset = _reset(client, profile, spec, profiles_hash)

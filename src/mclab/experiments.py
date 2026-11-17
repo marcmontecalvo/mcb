@@ -5,6 +5,7 @@ import json
 import random
 from pathlib import Path
 
+from mclab import event_log
 from mclab.courses import generate
 from mclab.paths import ROOT, config, digest, read_json
 
@@ -113,43 +114,41 @@ def export_screening(recording: Path, destination: Path, limit: int = 60) -> dic
     rng = random.Random(421)
     states = []
     seen = set()
-    with recording.open(encoding="utf-8") as stream:
-        for line in stream:
-            event = json.loads(line)
-            if event["type"] != "policy_observation":
-                continue
-            observation = event["payload"]
-            # Allowlist prevents evaluator data entering decision backends.
-            permitted = {
-                k: observation[k]
-                for k in (
-                    "schema_version",
-                    "sensor_profile",
-                    "tick",
-                    "body",
-                    "visible_blocks",
-                    "visible_entities",
-                )
-                if k in observation
-            }
-            key = digest(permitted)
-            if key in seen:
-                continue
-            seen.add(key)
-            original = list(PRIMITIVES)
-            shuffled = original.copy()
-            rng.shuffle(shuffled)
-            states.append(
-                {
-                    "state_id": key,
-                    "observation": permitted,
-                    "candidate_orders": [original, list(reversed(original)), shuffled],
-                    "valid_actions": None,
-                    "review_status": "pending_geometry_or_human_review",
-                }
+    for event in event_log.records(recording, types=["policy_observation"]):
+        if event["type"] != "policy_observation":
+            continue
+        observation = event["payload"]
+        # Allowlist prevents evaluator data entering decision backends.
+        permitted = {
+            k: observation[k]
+            for k in (
+                "schema_version",
+                "sensor_profile",
+                "tick",
+                "body",
+                "visible_blocks",
+                "visible_entities",
             )
-            if len(states) == limit:
-                break
+            if k in observation
+        }
+        key = digest(permitted)
+        if key in seen:
+            continue
+        seen.add(key)
+        original = list(PRIMITIVES)
+        shuffled = original.copy()
+        rng.shuffle(shuffled)
+        states.append(
+            {
+                "state_id": key,
+                "observation": permitted,
+                "candidate_orders": [original, list(reversed(original)), shuffled],
+                "valid_actions": None,
+                "review_status": "pending_geometry_or_human_review",
+            }
+        )
+        if len(states) == limit:
+            break
     if not states:
         raise ValueError("Recording has no policy observations")
     value = {

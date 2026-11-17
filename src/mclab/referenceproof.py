@@ -21,7 +21,7 @@ from mclab.run_launch import recorded
 def qualify_reference_fixtures() -> dict:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = ROOT / "results/qualification" / stamp
-    client = Bridge(destination / "events.jsonl")
+    client = Bridge(destination / "events.sqlite3")
     summary = {
         "schema_version": 1,
         "suite": "reference_fixture_v1",
@@ -173,7 +173,7 @@ def qualify_reference_fixtures() -> dict:
         except Exception as error:
             summary["cleanup_error"] = str(error)
             summary["status"] = "invalid"
-        summary["recording"] = str(destination / "events.jsonl")
+        summary["recording"] = str(destination / "events.sqlite3")
         summary["requests"] = client.submitted
         client.close()
         write_json(destination / "summary.json", summary)

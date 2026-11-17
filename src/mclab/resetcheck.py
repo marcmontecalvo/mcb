@@ -78,7 +78,7 @@ def qualify_resets(count: int = 20) -> dict:
         )
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = ROOT / "results/qualification" / stamp
-    client = Bridge(destination / "events.jsonl")
+    client = Bridge(destination / "events.sqlite3")
     client.budget = 1500  # Named reset-check budget; motor timing limits are unchanged.
     recorder = ResetRecorder(ROOT / "results/reset_checks.sqlite3")
     summary = {
@@ -95,7 +95,7 @@ def qualify_resets(count: int = 20) -> dict:
         "request_budget": client.budget,
         "checks": [],
         "resets": [],
-        "recording": str(destination / "events.jsonl"),
+        "recording": str(destination / "events.sqlite3"),
     }
     active_attempt = None
     try:
@@ -118,7 +118,7 @@ def qualify_resets(count: int = 20) -> dict:
                 index,
                 client.episode_id,
                 client.body_id,
-                destination / "events.jsonl",
+                destination / "events.sqlite3",
             )
             active_attempt = index
             request = client.send("course_reset", profile_id=profile["profile_id"])

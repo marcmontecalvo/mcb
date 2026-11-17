@@ -5,7 +5,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from mclab import bridge, execution
+from mclab import bridge, event_log, execution
 from mclab.paths import write_json
 from mclab.recorder import EpisodeRecorder
 
@@ -156,7 +156,6 @@ def test_large_payload_is_encoded_once_and_roundtrips_in_both_artifacts(
     stored = ledger.db.execute(
         "SELECT payload FROM events WHERE kind='roundtrip'"
     ).fetchone()[0]
-    with open(client.stream.name, encoding="utf-8") as stream:
-        records = [json.loads(line) for line in stream]
+    records = list(event_log.records(client.stream.name))
     assert records[-1]["payload"] == json.loads(stored) == payload
     assert encoded == [True]

@@ -7,6 +7,7 @@ import sqlite3
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from mclab import event_log
 from mclab.bootstrap import sha256
 from mclab.experiments import layout_hash
 from mclab.paths import MODS, ROOT, digest, read_json, write_json
@@ -25,7 +26,7 @@ def _native_hash(snapshot):
 def audit(path):
     path = Path(path)
     summary = read_json(path)
-    recording = path.parent / "events.jsonl"
+    recording = event_log.locate(path.parent) or path.parent / "events.sqlite3"
     snapshot = path.parent / "sources"
     episodes = {e["episode_id"]: e for e in summary["episodes"]}
     specs = {s["seed"]: s for s in summary["specs"]}
@@ -47,60 +48,58 @@ def audit(path):
         "cleanup_native_acknowledged": False,
     }
     records = 0
-    with recording.open(encoding="utf-8") as stream:
-        for line in stream:
-            row = json.loads(line)
-            records += 1
-            checks["record_sequences_contiguous"] &= row["sequence"] == records
-            checks["run_and_body_identities_match"] &= (
-                row["run_id"] == summary["run_id"]
-            )
-            kind, payload = row["type"], row["payload"]
-            if kind == "controller_error":
-                errors.append({"episode_id": row["episode_id"], **payload})
-            if kind == "discarded_stale_action":
-                discarded.append({"episode_id": row["episode_id"], **payload})
-            if kind == "request" and payload.get("op") == "controls":
-                actions[payload["sequence"]] = payload["controls"]
-            if kind != "server_event" or payload.get("run_id") != summary["run_id"]:
-                continue
-            event, data = payload["type"], payload["data"]
-            episode_id = payload.get("episode_id")
-            if episode_id == cleanup.get("episode_id"):
-                if event == "course_reset_complete":
-                    checks["cleanup_native_acknowledged"] = (
-                        payload.get("body_id") == cleanup.get("body_id")
-                        and data.get("spec_hash") == cleanup.get("spec_hash")
-                        and cleanup.get("status") == "restored_initial_C1"
-                    )
-                continue
-            if episode_id not in episodes:
-                continue
-            checks["run_and_body_identities_match"] &= (
-                payload.get("body_id") == episodes[episode_id]["body_id"]
-            )
-            if event == "policy_sample":
-                ticks[episode_id].add(payload["tick"])
-            elif event == "course_milestone":
-                milestones[episode_id].append(data)
-            elif event == "course_reset_complete":
-                resets[episode_id] = data
-            elif event == "course_episode_complete":
-                terminals[episode_id] = data
-            elif event == "applied":
-                action = actions.get(int(data["request_sequence"]))
-                if action is None:
-                    checks["applied_controls_match_timing"] = False
-                    continue
-                age = data["actual_apply_tick"] - action["observation_tick"]
-                ages.append(age)
-                applied_counts[episode_id] += 1
-                checks["applied_controls_match_timing"] &= (
-                    age == 3
-                    and action["duration"] == 5
-                    and action["intended_apply_tick"] == data["actual_apply_tick"]
-                    and action["expires_tick"] == action["intended_apply_tick"] + 5
+    for row in event_log.records(recording):
+        records += 1
+        checks["record_sequences_contiguous"] &= row["sequence"] == records
+        checks["run_and_body_identities_match"] &= (
+            row["run_id"] == summary["run_id"]
+        )
+        kind, payload = row["type"], row["payload"]
+        if kind == "controller_error":
+            errors.append({"episode_id": row["episode_id"], **payload})
+        if kind == "discarded_stale_action":
+            discarded.append({"episode_id": row["episode_id"], **payload})
+        if kind == "request" and payload.get("op") == "controls":
+            actions[payload["sequence"]] = payload["controls"]
+        if kind != "server_event" or payload.get("run_id") != summary["run_id"]:
+            continue
+        event, data = payload["type"], payload["data"]
+        episode_id = payload.get("episode_id")
+        if episode_id == cleanup.get("episode_id"):
+            if event == "course_reset_complete":
+                checks["cleanup_native_acknowledged"] = (
+                    payload.get("body_id") == cleanup.get("body_id")
+                    and data.get("spec_hash") == cleanup.get("spec_hash")
+                    and cleanup.get("status") == "restored_initial_C1"
                 )
+            continue
+        if episode_id not in episodes:
+            continue
+        checks["run_and_body_identities_match"] &= (
+            payload.get("body_id") == episodes[episode_id]["body_id"]
+        )
+        if event == "policy_sample":
+            ticks[episode_id].add(payload["tick"])
+        elif event == "course_milestone":
+            milestones[episode_id].append(data)
+        elif event == "course_reset_complete":
+            resets[episode_id] = data
+        elif event == "course_episode_complete":
+            terminals[episode_id] = data
+        elif event == "applied":
+            action = actions.get(int(data["request_sequence"]))
+            if action is None:
+                checks["applied_controls_match_timing"] = False
+                continue
+            age = data["actual_apply_tick"] - action["observation_tick"]
+            ages.append(age)
+            applied_counts[episode_id] += 1
+            checks["applied_controls_match_timing"] &= (
+                age == 3
+                and action["duration"] == 5
+                and action["intended_apply_tick"] == data["actual_apply_tick"]
+                and action["expires_tick"] == action["intended_apply_tick"] + 5
+            )
     episode_audits = []
     for identity, episode in episodes.items():
         spec = specs[episode["seed"]]

@@ -129,7 +129,8 @@ def run_folders() -> set[Path]:
     return {
         p.parent
         for depth in ("*/*", "*/*/*")
-        for p in RESULTS.glob(f"{depth}/events.jsonl")
+        for name in ("events.sqlite3", "events.jsonl")
+        for p in RESULTS.glob(f"{depth}/{name}")
     }
 
 
@@ -227,7 +228,7 @@ def search_cap_verdict(folders: list[Path]) -> tuple[str, list[str]]:
     """Verdict and one line per planner node-cap hit in the runs' events."""
     from mclab.search_caps import cap_hits, verdict
 
-    hits = [h for f in folders for h in cap_hits(f / "events.jsonl")]
+    hits = [h for f in folders for h in cap_hits(f)]
     return verdict(hits)
 
 

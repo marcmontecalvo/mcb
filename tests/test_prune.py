@@ -70,3 +70,16 @@ def test_a_dry_run_changes_nothing(tmp_path):
 
     assert result["files"] == 2 and not result["applied"]
     assert len(list((tmp_path / "results").rglob("events.jsonl"))) == 5
+
+
+def test_companion_sqlite_event_store_is_deleted_like_the_jsonl_log(tmp_path):
+    ids = run_ids(5)
+    for run in ids:
+        make(tmp_path, "companion", run, ["events.sqlite3", "build.json"])
+
+    prune.sweep(tmp_path)
+
+    companion = tmp_path / "results/companion"
+    assert (companion / ids[-1] / "events.sqlite3").exists()
+    assert not (companion / ids[0] / "events.sqlite3").exists()
+    assert (companion / ids[0] / "build.json").exists()

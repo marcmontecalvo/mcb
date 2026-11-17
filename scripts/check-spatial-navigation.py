@@ -38,7 +38,7 @@ def main():
         )
     }
     with exclusive_arena():
-        client = RecordedBridge(destination / "events.jsonl")
+        client = RecordedBridge(destination / "events.sqlite3")
         client.budget = 1000
         active = False
         memory = None

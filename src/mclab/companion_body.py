@@ -1700,7 +1700,7 @@ class CompanionBody:
 
 
 def open_bridge(folder, budget: int = 100000) -> RecordedBridge:
-    bridge = RecordedBridge(folder / "events.jsonl")
+    bridge = RecordedBridge(folder / "events.sqlite3")
     bridge.budget = budget
     bridge.synchronize()
     return bridge

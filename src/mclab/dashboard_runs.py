@@ -11,7 +11,7 @@ from collections import Counter
 from pathlib import Path
 from statistics import median
 
-from mclab import build_stats, companion_progress, companion_status
+from mclab import build_stats, companion_progress, companion_status, event_log
 from mclab.dashboard_metrics import compare_data
 from mclab.paths import ROOT, read_json
 
@@ -980,41 +980,31 @@ def companion_live(folder, events=12):
     return live
 
 
-TAIL_SIZES = (400_000, 4_000_000, 32_000_000)  # widen until `count` actions are found
-_MONO = re.compile(r'"monotonic_ns":\s*(\d+)')
-
-
 def companion_events(path, count):
-    """Last `count` op results (X_done / X_failed / rejected), stable however many
-    policy_sample lines sit between them: the tail window widens until enough are found.
-    Each row gets `at`, the wall time (epoch s) it was logged, from monotonic_ns
-    relative to the newest line and the file's mtime."""
-    from mclab.dashboard import tail
-
-    for size in TAIL_SIZES:
-        lines = tail(path, size).splitlines()
-        rows = []
-        for line in lines:
-            if not any(k in line for k in ('_done"', '_failed"', '"rejected')):
-                continue  # cheap prefilter: skip the bulk of the log unparsed
-            try:
-                event = json.loads(line)
-                row = companion_event(event)
-            except (ValueError, AttributeError, TypeError, KeyError):
-                continue  # truncated first line or an in-progress append
-            if row:
-                row["mono"] = event.get("monotonic_ns")
-                rows.append(row)
+    """Last `count` op results (X_done / X_failed / rejected), however many
+    policy_sample records sit between them. Each row gets `at`, the wall time
+    (epoch s) it was logged, from monotonic_ns relative to the newest record and
+    the log's mtime."""
+    path = Path(path)
+    if not path.exists():  # callers pass <run>/events.jsonl; the store is beside it
+        path = event_log.resolve(path)
+    kinds = ["%_done", "%_failed", "rejected%"]  # companion_event filters exactly
+    rows = []
+    for event in event_log.tail(
+        path, count * 4, types=["server_event"], kind_like=kinds
+    ):
         try:
-            exhausted = path.stat().st_size <= size
-        except OSError:
-            exhausted = True
-        if len(rows) >= count or exhausted:
-            break
+            row = companion_event(event)
+        except (AttributeError, TypeError, KeyError):
+            continue
+        if row:
+            row["mono"] = event.get("monotonic_ns")
+            rows.append(row)
     rows = rows[-count:]
-    last = next((m.group(1) for m in map(_MONO.search, reversed(lines)) if m), None)
+    newest = event_log.tail(path, 1)
+    last = newest[0].get("monotonic_ns") if newest else None
     try:
-        mtime = path.stat().st_mtime
+        mtime = event_log.mtime(path)
     except OSError:
         mtime = None
     for row in rows:

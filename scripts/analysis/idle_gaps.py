@@ -21,14 +21,14 @@ Exit code 1 if any VIOLATION.
 from __future__ import annotations
 
 import argparse
-import gzip
 import json
 import math
-import re
 import sys
 from bisect import bisect_left, bisect_right
 from collections import Counter
 from pathlib import Path
+
+from mclab import event_log
 
 PARSE = {
     "server_event",
@@ -80,16 +80,6 @@ COUNTED = (
 )
 END_EVENTS = ("stopped", "despawned", "course_episode_complete")
 PLACE_PAD, BREAK_CAP, SPARSE_TICKS, SPARSE_WALL = 0.5, 10.0, 5, 1.0
-TYPE_RE = re.compile(r'"type": ?"(\w+)"')
-
-
-def lines(path: Path):
-    with (
-        gzip.open(path, "rt", encoding="utf8")
-        if path.suffix == ".gz"
-        else open(path, encoding="utf8")
-    ) as f:
-        yield from f
 
 
 def short(d: dict) -> str:
@@ -120,14 +110,7 @@ def load(path: Path) -> dict:
     """-> {body_id: dict(samples, events, ready, end, craft, breaks, places)}; wall in seconds."""
     bodies: dict = {}
     launches: dict = {}
-    for ln in lines(path):
-        m = TYPE_RE.search(ln[:500])
-        if not m or m.group(1) not in PARSE:
-            continue
-        try:
-            e = json.loads(ln)
-        except ValueError:
-            continue
+    for e in event_log.records(path, types=sorted(PARSE)):
         identity = (e.get("run_id"), e.get("episode_id"), e.get("body_id"))
         launch = e.get("launch_id") or (e.get("payload") or {}).get("launch_id")
         previous, generation = launches.get(identity, (None, 0))
@@ -521,13 +504,13 @@ def main():
         f = next(
             (
                 run / n
-                for n in ("events.jsonl", "events.jsonl.gz")
+                for n in ("events.sqlite3", "events.jsonl", "events.jsonl.gz")
                 if (run / n).exists()
             ),
             None,
         )
         if f is None:
-            print(f"RUN {run.name}: no events.jsonl[.gz]", file=sys.stderr)
+            print(f"RUN {run.name}: no events.sqlite3/jsonl[.gz]", file=sys.stderr)
             inconclusive = True
             continue
         res = analyse(f, a.min_seconds, a.move)

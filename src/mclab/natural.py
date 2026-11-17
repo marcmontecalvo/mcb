@@ -356,7 +356,7 @@ def attempt(
     awareness = Awareness() if awareness is None else awareness
     _restore(seed)
     player = _relaunch_client() if entrant == "baritone" else None
-    client = _bridge(destination / "events.jsonl")
+    client = _bridge(destination / "events.sqlite3")
     client.show_path = show_markers  # the native driver publishes its planned path
     resources = ExitStack()
     try:

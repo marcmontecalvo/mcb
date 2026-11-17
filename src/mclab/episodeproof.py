@@ -31,7 +31,7 @@ def _qualify_episodes() -> dict:
     destination = (
         ROOT / "results/qualification" / datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     )
-    client = RecordedBridge(destination / "events.jsonl")
+    client = RecordedBridge(destination / "events.sqlite3")
     client.budget = 2500
     recorder = EpisodeRecorder(ROOT / "results/episodes.sqlite3")
     configuration = {
@@ -48,7 +48,7 @@ def _qualify_episodes() -> dict:
         "launch_id": client.launch_id,
         "checks": [],
         "episodes": [],
-        "recording": str(destination / "events.jsonl"),
+        "recording": str(destination / "events.sqlite3"),
         "qualifier_source_sha256": sha256(Path(__file__)),
     }
     active = None
@@ -71,7 +71,7 @@ def _qualify_episodes() -> dict:
             attempt,
             client.episode_id,
             client.body_id,
-            destination / "events.jsonl",
+            destination / "events.sqlite3",
         )
         active = client.episode_id
         request = client.send("course_reset", profile_id=profile["profile_id"])

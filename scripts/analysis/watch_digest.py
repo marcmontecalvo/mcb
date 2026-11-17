@@ -2,7 +2,7 @@
 
     python scripts/analysis/watch_digest.py <run folder> [--seconds 120] [--site x0 x1 z0 z1 ground]
 
-Reads only the tail of events.jsonl (it grows to gigabytes) and prints what the bot
+Reads only the tail of the run event log (events.sqlite3) (it grows to gigabytes) and prints what the bot
 did in the last window: ops requested, results by reason, edits inside/outside the
 site, the longest gap without a successful edit, repeated targets, route plans.
 """
@@ -10,27 +10,14 @@ site, the longest gap without a successful edit, repeated targets, route plans.
 from __future__ import annotations
 
 import argparse
-import json
 from collections import Counter
 from pathlib import Path
 
-TAIL_BYTES = 60_000_000
+from mclab import event_log
+
+TAIL_ROWS = 200_000
 NOISE = {"heartbeat", "planner_map", "route_policy", "planner_request"}
 EDITS = ("break_block", "place_block")
-
-
-def tail(path: Path):
-    with path.open("rb") as f:
-        f.seek(0, 2)
-        f.seek(max(0, f.tell() - TAIL_BYTES))
-        f.readline()
-        for raw in f:
-            if len(raw) > 9000:  # terrain batches and policy samples
-                continue
-            try:
-                yield json.loads(raw)
-            except ValueError:
-                continue
 
 
 def main() -> None:
@@ -40,7 +27,8 @@ def main() -> None:
     ap.add_argument("--site", type=int, nargs=5, default=(-22, 0, 57, 72, 63))
     args = ap.parse_args()
     x0, x1, z0, z1, ground = args.site
-    rows = list(tail(args.run / "events.jsonl"))
+    # terrain batches and policy samples are bulky and skipped
+    rows = event_log.tail(args.run, TAIL_ROWS, max_size=9000)
     if not rows:
         print("no events")
         return

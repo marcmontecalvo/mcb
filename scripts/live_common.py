@@ -22,7 +22,7 @@ def results_folder() -> Path:
 
 
 def open_bridge(folder: Path) -> Bridge:
-    bridge = Bridge(folder / "events.jsonl")
+    bridge = Bridge(folder / "events.sqlite3")
     bridge.budget = 12000
     bridge.synchronize()
     if bridge.http("/state").get("body"):

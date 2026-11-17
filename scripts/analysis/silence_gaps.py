@@ -18,22 +18,24 @@ HOW TO READ THE OUTPUT
 from __future__ import annotations
 
 import argparse
-import gzip
-import json
 from pathlib import Path
+
+from mclab import event_log
 
 
 def events(run: Path):
-    for name in ("events.jsonl", "events.jsonl.gz"):
-        f = run / name
-        if f.exists():
-            with (gzip.open if name.endswith(".gz") else open)(
-                f, "rt", encoding="utf8"
-            ) as h:
-                for line in h:
-                    if '"request"' in line[:400] or '"python_' in line[:400]:
-                        yield json.loads(line)
-            return
+    types = ["request"]
+    path = event_log.resolve(run)
+    if path.suffix == ".sqlite3":
+        db = event_log.connect(path)
+        types += [r[0] for r in db.execute("SELECT DISTINCT type FROM events")
+                  if r[0].startswith("python_")]
+        db.close()
+        yield from event_log.records(path, types=types)
+        return
+    for e in event_log.records(path):
+        if e["type"] == "request" or e["type"].startswith("python_"):
+            yield e
 
 
 def main():
