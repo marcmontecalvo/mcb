@@ -404,4 +404,9 @@ def protect(body, template: bp.Template, site_margin: int | None = None) -> None
     # The planner may break a standing wall cell at a price (CompanionBody._planner_terrain);
     # the build loop re-places it.
     body.build_cells = {p: st for p, st in template.cells.items() if bp.parse_state(st)[0] not in bp.AIR}
+    # Its air cells take footholds (the build loop adopts them as scaffolds and takes
+    # them back): with them protected, no pillar could rise beside a wall under the
+    # eaves, and the upper floor of a house without stairs was out of reach
+    # (run 20261117T075353967859Z).
+    body.build_air = {p for p, st in template.cells.items() if bp.parse_state(st)[0] in bp.AIR}
     body.terrain_policy = replace(policy, protected_positions=tuple(sorted(cells)))

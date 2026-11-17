@@ -840,6 +840,21 @@ def test_dirt_the_planner_placed_to_walk_is_taken_down_at_the_end():
     assert not body.stray_footholds
 
 
+def test_a_foothold_in_one_of_the_houses_air_cells_is_a_scaffold_taken_back():
+    body, t = small_house_body()
+    air = next(p for p, st in t.cells.items() if bp.parse_state(st)[0] in bp.AIR)
+    solid = next(p for p, st in t.cells.items() if bp.parse_state(st)[0] not in bp.AIR)
+    scaffolds = set()
+    body.stray_footholds = {air, solid, (40, 1, 40)}
+    br._adopt_footholds(body, t, scaffolds)
+    assert scaffolds == {air, (40, 1, 40)}  # the house's own cell is the house's
+    body.w[air] = "minecraft:dirt"
+    body.stray_footholds = {air}
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done"
+    assert body.w.get(air) in (None, "minecraft:air")
+
+
 def test_blocks_the_planner_broke_are_put_back_and_template_cells_left_alone():
     body, t = small_house_body()
     dug, template_cell = (7, 0, 7), next(iter(t.cells))

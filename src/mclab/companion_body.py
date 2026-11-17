@@ -1033,14 +1033,21 @@ class CompanionBody:
         own placed full-cube block that drops itself moves to ``costly_positions``:
         breakable at BUILD_BREAK_COST, and the build loop re-places it (without it
         the upper floor of a closed house was unreachable, run 20261117T055944364786Z).
-        Air cells of the template and the site ground stay protected."""
+        The template's air cells (``build_air``) may take footholds: the build loop
+        adopts those as scaffolds and takes them back. The site ground stays protected."""
         policy = self.terrain_policy
-        if not (policy.allow_break and policy.protected_positions):
+        if not policy.protected_positions:
             return policy
         cells = self._cells_now()
         built = getattr(self, "build_cells", None) or {}
+        air = getattr(self, "build_air", None) or ()
         keep, costly = [], []
         for p in policy.protected_positions:
+            if p in air:
+                continue
+            if not policy.allow_break:
+                keep.append(p)
+                continue
             cell = cells.get(p) or {}
             block = cell.get("block") or ""
             if "_leaves" in block:

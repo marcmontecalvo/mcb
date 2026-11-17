@@ -882,6 +882,19 @@ def test_placed_build_blocks_are_costly_not_protected_for_the_planner(monkeypatc
     assert b._planner_terrain().costly_positions == ()
 
 
+def test_the_houses_air_cells_take_footholds_whether_or_not_breaking_is_on(
+    monkeypatch,
+):
+    b, _, _ = body()
+    house = ((0, 2, 0), (1, 2, 0))
+    monkeypatch.setattr(b, "_cells_now", lambda: {})
+    b.build_air = {(1, 2, 0)}
+    b.terrain_policy = replace(cb.DIG_TERRAIN, protected_positions=house)
+    assert b._planner_terrain().protected_positions == ((0, 2, 0),)
+    b.terrain_policy = replace(b.terrain_policy, allow_break=False)
+    assert b._planner_terrain().protected_positions == ((0, 2, 0),)
+
+
 def test_no_placing_turns_placement_off_and_restores_the_policy():
     from mclab.companion_body import DIG_TERRAIN
 

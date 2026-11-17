@@ -625,6 +625,18 @@ def _restore_breaks(runner: _Runner, template: bp.Template) -> None:
             report.unrestored[pos] = "place failed"
 
 
+def _adopt_footholds(body, template: bp.Template, scaffolds: set) -> None:
+    """Blocks the route planner placed to walk become scaffolds: never broken by the
+    build before cleanup (a foothold in one of the house's air cells reads as a block to
+    break), and taken back by it. One in a cell the house fills is the house's."""
+    strays = getattr(body, "stray_footholds", None) or ()
+    scaffolds |= {
+        p
+        for p in strays
+        if p not in template.cells or bp.parse_state(template.cells[p])[0] in bp.AIR
+    }
+
+
 def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
     """Take the scaffolds back: break them (scaffolding: only the blocks on the ground,
     the rest drops with them), then pick up what fell. A few rounds, since the blocks
@@ -632,9 +644,9 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
     body, broken = runner.body, False
     _restore_breaks(runner, template)
     # dirt the planner placed to walk (walking_with_edits) comes down with the rest
+    _adopt_footholds(body, template, scaffolds)
     strays = getattr(body, "stray_footholds", None)
     if strays:
-        scaffolds |= {p for p in strays if p not in template.cells}
         strays.clear()
     for _ in range(CLEANUP_ROUNDS):
         acts = [
@@ -882,6 +894,7 @@ def _run(
             report.stop = "max_steps"
             break
         skipped = report.skipped
+        _adopt_footholds(body, template, scaffolds)
         acts = bp.next_actions(
             template,
             body.world,
