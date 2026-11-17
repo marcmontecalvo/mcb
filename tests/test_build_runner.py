@@ -1172,6 +1172,40 @@ def test_the_build_starts_holding_spare_footholds():
     assert {"minecraft:dirt": br.FOOTHOLD_STOCK} not in asked
 
 
+def test_footholds_spent_mid_build_are_topped_up_and_a_dry_chest_is_not_pestered():
+    # Run 20261117T165351012696Z: the 32 were spent on pillars and the last 300 s
+    # planned every climb with nothing to place (58 searches of 10,000 nodes).
+    class Runner:
+        def __init__(self):
+            self.held = {"minecraft:dirt": 3}
+            self.body = self
+
+        def inventory(self):
+            return dict(self.held)
+
+        def _temporaries(self, scaffolding=True):
+            return ["minecraft:dirt"]
+
+    runner, asks, stock = Runner(), [], {}
+
+    def refill(items):  # the chests hand over what is asked
+        asks.append(dict(items))
+        runner.held["minecraft:dirt"] += items.get("minecraft:dirt", 0)
+
+    br._keep_footholds(runner, refill, lambda _m: None, stock)
+    assert asks == [{"minecraft:dirt": br.FOOTHOLD_STOCK - 3}]
+    br._keep_footholds(runner, refill, lambda _m: None, stock)
+    assert len(asks) == 1  # stocked: nothing more to ask
+
+    runner.held["minecraft:dirt"] = 0  # spent again, and now the chests are dry
+    dry = lambda items: asks.append(dict(items))  # noqa: E731
+    for _ in range(br.FOOTHOLD_RETRY + 1):
+        br._keep_footholds(runner, dry, lambda _m: None, stock)
+    assert len(asks) == 2  # one dry ask, then a wait of FOOTHOLD_RETRY actions
+    br._keep_footholds(runner, dry, lambda _m: None, stock)
+    assert len(asks) == 3
+
+
 def test_a_starving_body_with_no_food_goes_to_the_chests_once():
     class Body:
         def __init__(self):

@@ -64,6 +64,8 @@ SETTLE_TICKS = 60  # wait for the sensor before calling a build blocked
 RETRY_ROUNDS = 2  # fresh tries for skipped cells before stopping blocked
 STANCE_BUDGET_S = 5.0  # a pause longer than this reads as a broken bot
 FOOTHOLD_STOCK = 32  # spare blocks to climb or step down on, held from the start
+FOOTHOLD_LOW = 8  # fewer spare than this mid-build: top the stock back up
+FOOTHOLD_RETRY = 40  # build actions before a refill that brought none is tried again
 FOOTHOLD_ITEM = "minecraft:dirt"
 # entity_in_way: a mob or player on the ray that did not move off within ~1 s
 STANCE_REASONS = frozenset({"out_of_reach", "state_unreachable", "entity_in_way"})
@@ -565,24 +567,40 @@ def _tend_hunger(body, on_need_materials, hunger: dict) -> None:
         on_need_materials({})  # an empty ask: the refill tops up food only
 
 
-def _stock_footholds(runner, on_need_materials, log) -> None:
-    """Start the build holding FOOTHOLD_STOCK spare blocks to pillar, bridge and step
-    down on (dirt first). Site prep spends every dirt it digs on the fill; with none
-    left and the house's own blocks not spare, a body on a ledge had nothing to
-    stand on (run 20261117T144843447702Z)."""
+def _stock_footholds(runner, on_need_materials, log, low=FOOTHOLD_STOCK) -> bool | None:
+    """Hold FOOTHOLD_STOCK spare blocks to pillar, bridge and step down on (dirt
+    first): at the start, and again whenever fewer than ``low`` are left. Site prep
+    spends every dirt it digs on the fill; with none left and the house's own blocks
+    not spare, a body on a ledge had nothing to stand on (run
+    20261117T144843447702Z). Stocked only at the start, the 32 were spent on pillars
+    and the last 300 s of run 20261117T165351012696Z planned every climb with
+    nothing to place: 58 searches of 10,000 nodes to goals a few blocks up.
+    None when no refill was needed, else whether the one asked for brought some."""
     if on_need_materials is None:
-        return
+        return None
     held = runner.body.inventory()
     need = _still_needed(runner.body)
     have = sum(
         max(0, held.get(i, 0) - need.get(i, 0))
         for i in runner._temporaries(scaffolding=False)
     )
-    if have >= FOOTHOLD_STOCK:
-        return
+    if have >= low:
+        return None
     ask = {FOOTHOLD_ITEM: FOOTHOLD_STOCK - have}
     log(f"stocking footholds: {ask} (holding {have} spare)")
+    before = runner.body.inventory().get(FOOTHOLD_ITEM, 0)
     on_need_materials(ask)  # best effort: the build goes on without them
+    return runner.body.inventory().get(FOOTHOLD_ITEM, 0) > before
+
+
+def _keep_footholds(runner, on_need_materials, log, stock: dict) -> None:
+    """Mid-build top-up of the foothold stock; one that brought nothing is not asked
+    again for FOOTHOLD_RETRY actions (each ask is a walk to the chests)."""
+    if stock.get("wait", 0) > 0:
+        stock["wait"] -= 1
+        return
+    got = _stock_footholds(runner, on_need_materials, log, low=FOOTHOLD_LOW)
+    stock["wait"] = FOOTHOLD_RETRY if got is False else 0
 
 
 def _standing(body, cell: Pos) -> bool:
@@ -1033,6 +1051,7 @@ def _run(
     refused: set[frozenset] = set()
     settled = False
     hunger: dict = {}
+    stock: dict = {}
     while True:
         if report.steps >= max_steps:
             report.stop = "max_steps"
@@ -1040,6 +1059,7 @@ def _run(
         skipped = report.skipped
         _adopt_footholds(body, template, scaffolds)
         _tend_hunger(body, on_need_materials, hunger)
+        _keep_footholds(runner, on_need_materials, log, stock)
         acts = bp.next_actions(
             template,
             body.world,
