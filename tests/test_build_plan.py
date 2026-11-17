@@ -594,3 +594,49 @@ def test_a_far_break_waits_for_the_placing_in_reach():
     assert [type(a).__name__ for a in near] == ["Place"]
     far = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10}, near=(30, 1, 0))
     assert [a.pos for a in far] == [(12, 0, 0)]
+
+
+def test_details_wait_until_the_structure_is_up():
+    # A person builds walls, floors and the roof first and puts the glass, lights
+    # and pots in after; placed early they shut the body in on an eave slab
+    # (runs 20261117T144843447702Z, 20261117T155135309814Z).
+    cells = {(0, 0, 0): PANE, (1, 0, 0): PLANKS, (1, 1, 0): PLANKS}
+    t = bp.Template.from_build(make_build(cells, (2, 2, 1)), (0, 0, 0))
+    w = flat_world()
+    inv = {PLANKS: 10, "minecraft:glass_pane": 1}
+    first = bp.next_actions(t, at(w), BLOCKS, inv, near=(0, 0, 1))
+    assert first and all(a.state == PLANKS for a in first)
+    w[(1, 0, 0)] = w[(1, 1, 0)] = PLANKS
+    assert [a.pos for a in bp.next_actions(t, at(w), BLOCKS, inv)] == [(0, 0, 0)]
+
+
+def test_a_window_gap_does_not_hold_up_the_wall_above_it():
+    cells = {(0, 0, 0): PANE, (0, 1, 0): PLANKS}
+    t = bp.Template.from_build(make_build(cells, (1, 2, 1)), (0, 0, 0))
+    w = flat_world()
+    w[(1, 0, 0)] = w[(1, 1, 0)] = PLANKS  # a wall beside it to hang the plank on
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 1, "minecraft:glass_pane": 1})
+    assert [a.pos for a in acts] == [(0, 1, 0)]
+
+
+def test_a_block_that_takes_the_last_way_off_a_ledge_traps_the_body():
+    # an eave slab 6 above the ground: pots either side, the window behind
+    w = flat_world(hi=10)
+    for y in range(0, 5):
+        for x in range(0, 4):
+            for z in range(0, 3):
+                w[(x, y, z)] = AIR
+    ledge = (2, 6, 1)
+    w[(2, 5, 1)] = PLANKS  # the slab it stands on
+    w[(1, 6, 1)] = w[(3, 6, 1)] = PLANKS  # the pots
+    for y in (6, 7, 8):
+        w[(1, y, 1)] = w[(3, y, 1)] = PLANKS
+        w[(2, y, 0)] = PLANKS  # the wall in front
+    w[(2, 8, 1)] = PLANKS  # the eave above
+    w[(2, 5, 2)] = PLANKS  # the upper floor inside
+    window = (2, 6, 2)
+    assert bp.has_exit(at(w), ledge)  # in through the window
+    assert bp.traps(at(w), ledge, window)
+    assert not bp.traps(at(w), ledge, (3, 7, 2))  # a block elsewhere does not
+    w[window] = PLANKS
+    assert not bp.traps(at(w), ledge, (5, 6, 5))  # already shut in: no worse

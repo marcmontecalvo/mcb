@@ -6,6 +6,7 @@ from test_build_plan import (
     BLOCKS,
     HOUSE,
     HOUSE_MATERIALS,
+    PLANKS,
     flat_world,
     make_build,
     real_house,
@@ -1173,3 +1174,28 @@ def test_a_starving_body_with_no_food_goes_to_the_chests_once():
     body.food_held = 0
     br._tend_hunger(body, ask, hunger)
     assert asks == [{}, {}]
+
+
+def test_a_block_that_would_shut_the_body_on_its_ledge_is_placed_from_elsewhere():
+    # Run 20261117T155135309814Z: glass set behind an eave slab between flower pots
+    # left the body no way off but a 6-block fall.
+    w = flat_world(hi=10)
+    for y in range(0, 5):
+        for x in range(0, 4):
+            for z in range(0, 3):
+                w[(x, y, z)] = AIR
+    ledge = (2, 6, 1)
+    w[(2, 5, 1)] = PLANKS
+    for y in (6, 7, 8):
+        w[(1, y, 1)] = w[(3, y, 1)] = w[(2, y, 0)] = PLANKS
+    w[(2, 8, 1)] = PLANKS
+    for x in range(-2, 8):
+        for z in range(2, 8):
+            w[(x, 5, z)] = PLANKS  # the upper floor inside
+    window = (2, 6, 2)
+    body = FakeBody(w, {PLANKS: 5}, BLOCKS, pos=ledge)
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.attempt(bp.Place(window, PLANKS, PLANKS, 1))
+    assert window in runner.report.placed
+    assert body.pos != ledge
+    assert all(ledge in avoid for _, avoid in body.stance_calls)

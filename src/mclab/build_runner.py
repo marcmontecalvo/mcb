@@ -268,6 +268,9 @@ class _Runner:
         direct = not isinstance(act, bp.Place) or can_place is None or can_place(
             pos, REACH, _support(act, self.blocks)
         )
+        if direct and self._traps(act, here):
+            direct = False
+            self.avoid.setdefault(pos, set()).add(here)
         if direct and _dist2(here, pos) <= (REACH - 0.5) ** 2:
             result = _do(self.body, act)
             if result.ok:
@@ -294,6 +297,12 @@ class _Runner:
                     self.fails[pos] = MAX_TRIES
                 return self._fail(pos, "no_stance")
             stance = self.body.position()
+            if self._traps(act, stance):
+                # placed from here it would take the body's last way off this spot
+                # (glass behind an eave slab between flower pots): another stance
+                self.report.failures.append((pos, "would_trap", stance, {}))
+                avoid.add(stance)
+                continue
             result = _do(self.body, act)
             if result.ok:
                 _take_back(self, act)
@@ -306,6 +315,9 @@ class _Runner:
             if result.reason not in STANCE_REASONS:
                 return
             avoid.add(stance)
+
+    def _traps(self, act, stance: Pos) -> bool:
+        return isinstance(act, bp.Place) and bp.traps(self.body.world, stance, act.pos)
 
     def _stance(self, pos: Pos, avoid) -> bool:
         """A stance for pos; if none is reachable, climb or dig out of a hole the body

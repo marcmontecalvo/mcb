@@ -545,6 +545,71 @@ def _place_state(state: str) -> str:
     return state
 
 
+# Details go on once the structure (walls, floors, stairs, roof) is up, the way a
+# person builds: windows, lights, pots and furniture last. Placed early, glass and
+# flower pots closed the body in on an eave slab twice (runs 20261117T144843447702Z,
+# 20261117T155135309814Z). Words in the block name; anything else is structure.
+DETAIL_WORDS = (
+    "glass", "potted_", "flower_pot", "lantern", "torch", "chain", "trapdoor",
+    "_sign", "banner", "carpet", "candle", "button", "pressure_plate", "rail",
+    "_bed", "barrel", "chest", "bookshelf", "furnace", "smoker", "hopper",
+    "crafting_table", "campfire", "anvil", "stonecutter", "lectern", "loom",
+    "composter", "cauldron", "bell", "leaves", "flower", "item_frame",
+)
+
+
+def is_detail(state: str) -> bool:
+    ident = parse_state(state)[0]
+    return any(word in ident for word in DETAIL_WORDS)
+
+
+EXIT_DROP = 3  # the longest drop that is a way off a spot (no damage)
+
+
+def _exit_open(world, p: Pos, filled: Pos | None) -> bool:
+    if p == filled:
+        return False
+    s = world(*p)
+    return s is None or parse_state(s)[0] in REPLACEABLE
+
+
+def has_exit(world, stance: Pos, filled: Pos | None = None) -> bool:
+    """The body standing at ``stance`` can still leave it with ``filled`` solid: a
+    walk to a side cell with ground at most EXIT_DROP below, or a one-block step up,
+    or a climb down the scaffolding it stands on. Unknown cells count as open."""
+    x, y, z = stance
+    under = world(x, y - 1, z)
+    if under is not None and parse_state(under)[0] == sc.BLOCK:
+        return True
+    head = _exit_open(world, (x, y + 2, z), filled)
+    for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        nx, nz = x + dx, z + dz
+        feet = _exit_open(world, (nx, y, nz), filled)
+        if feet and _exit_open(world, (nx, y + 1, nz), filled):
+            for d in range(1, EXIT_DROP + 2):
+                if not _exit_open(world, (nx, y - d, nz), None) or (
+                    (nx, y - d, nz) == filled
+                ):
+                    return True
+                g = world(nx, y - d, nz)
+                if g is not None and parse_state(g)[0] in FLUIDS:
+                    return True
+        elif (
+            not feet
+            and head
+            and _exit_open(world, (nx, y + 1, nz), filled)
+            and _exit_open(world, (nx, y + 2, nz), filled)
+        ):
+            return True
+    return False
+
+
+def traps(world, stance: Pos, pos: Pos) -> bool:
+    """Placing ``pos`` would take the last way off ``stance`` (a spot already shut
+    in is not made worse by it)."""
+    return has_exit(world, stance) and not has_exit(world, stance, pos)
+
+
 def _is_door(state: str) -> bool:
     return parse_state(state)[0].endswith("_door")
 
@@ -663,10 +728,24 @@ def next_actions(
     # a torch on a wall, a lantern under a ceiling; "floating": hung from a block
     # placed later), and cells short of materials (asked for once the rest is
     # placed) do not hold their layer.
+    # Details wait while any structure cell is still to place, and do not hold
+    # the structure's layer.
+    structure_left = any(
+        not is_detail(t[1])
+        and not _is_door(t[1])
+        and parse_state(t[1])[0] not in FLUIDS
+        and (skipped is None or t[0] not in skipped)
+        for t in todo
+    )
+
+    def held_back(state):
+        return structure_left and is_detail(state)
+
     waiting = [
         t[0][1]
         for t in todo
         if parse_state(t[1])[0] not in FLUIDS
+        and not held_back(t[1])
         and all(inventory.get(i, 0) >= c for i, c in t[2].items())
         and not _is_door(t[1])
         and (skipped is None or t[0] not in skipped)
@@ -685,6 +764,8 @@ def next_actions(
     for t in todo:
         if parse_state(t[1])[0] in FLUIDS or (skipped is not None and t[0] in skipped):
             continue
+        if held_back(t[1]):  # a window gap does not hold up the wall above it
+            continue
         col = (t[0][0], t[0][2])
         below_todo[col] = min(below_todo.get(col, t[0][1]), t[0][1])
 
@@ -699,6 +780,7 @@ def next_actions(
         (lowest is None or t[0][1] < lowest)
         and parse_state(t[1])[0] not in FLUIDS
         and not _is_door(t[1])
+        and not held_back(t[1])
         and (skipped is None or t[0] not in skipped)
         and not all(inventory.get(i, 0) >= c for i, c in t[2].items())
         and _gate(t[0], t[1], world, blocks) is None
@@ -715,6 +797,8 @@ def next_actions(
         # still missing shut the body inside (it cannot open doors; run
         # 20261102T225803126737Z: every walk "stuck" once the walls closed).
         if _is_door(state) and others_left:
+            continue
+        if held_back(state):
             continue
         if (
             all(left.get(i, 0) >= c for i, c in cost.items())
