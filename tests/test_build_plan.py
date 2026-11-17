@@ -610,6 +610,15 @@ def test_details_wait_until_the_structure_is_up():
     assert [a.pos for a in bp.next_actions(t, at(w), BLOCKS, inv)] == [(0, 0, 0)]
 
 
+def test_details_held_go_in_while_the_structure_waits_on_blocks_not_held():
+    # run 20261117T184243178083Z: the structure was short of planks and stairs, the
+    # details it carried were held back and filled the inventory, and it stopped
+    cells = {(0, 0, 0): PANE, (1, 0, 0): PLANKS}
+    t = bp.Template.from_build(make_build(cells, (2, 1, 1)), (0, 0, 0))
+    acts = bp.next_actions(t, at(flat_world()), BLOCKS, {"minecraft:glass_pane": 1})
+    assert [a.pos for a in acts] == [(0, 0, 0)]
+
+
 def test_a_window_gap_does_not_hold_up_the_wall_above_it():
     cells = {(0, 0, 0): PANE, (0, 1, 0): PLANKS}
     t = bp.Template.from_build(make_build(cells, (1, 2, 1)), (0, 0, 0))

@@ -728,13 +728,18 @@ def next_actions(
     # a torch on a wall, a lantern under a ceiling; "floating": hung from a block
     # placed later), and cells short of materials (asked for once the rest is
     # placed) do not hold their layer.
-    # Details wait while any structure cell is still to place, and do not hold
-    # the structure's layer.
+    # Details wait while a structure cell is placeable now (blocks held, support in
+    # place), and do not hold the structure's layer. With no structure to place, the
+    # details it carries go in: held back they filled the inventory, so no refill had
+    # room for the planks and stairs, and the build stopped (run
+    # 20261117T184243178083Z: 587 cells left, 27 kinds of detail held).
     structure_left = any(
         not is_detail(t[1])
         and not _is_door(t[1])
         and parse_state(t[1])[0] not in FLUIDS
         and (skipped is None or t[0] not in skipped)
+        and all(inventory.get(i, 0) >= c for i, c in t[2].items())
+        and _gate(t[0], t[1], world, blocks) is None
         for t in todo
     )
 
