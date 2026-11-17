@@ -369,10 +369,22 @@ class _Runner:
         if not self.scaffolds:
             return False
         x, y, z = self.body.position()
+        fx, fz = math.floor(x), math.floor(z)
+
+        def underfoot(c: Pos) -> bool:
+            return c[0] == fx and c[2] == fz and c[1] < y
+
+        # Beside the body, lowest first (the rest of a scaffolding column falls).
+        # The column under the feet is dug straight down, top first: its lower block
+        # is out of sight behind the one stood on (run 20261117T165351012696Z: 20
+        # no_line_of_sight breaks of it, then trapped).
         near = sorted(
-            c
-            for c in self.scaffolds
-            if abs(c[0] - x) <= 1 and abs(c[2] - z) <= 1 and abs(c[1] - y) <= 2
+            (
+                c
+                for c in self.scaffolds
+                if abs(c[0] - x) <= 1 and abs(c[2] - z) <= 1 and abs(c[1] - y) <= 2
+            ),
+            key=lambda c: (underfoot(c), -c[1] if underfoot(c) else c[1]),
         )
         freed = False
         for cell in near:  # lowest first: the rest of the column falls

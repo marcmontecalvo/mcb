@@ -703,6 +703,28 @@ def test_scaffolding_touching_the_body_is_broken_to_free_it():
     assert runner.scaffolds == {far}  # a tower away from the body is left alone
 
 
+def test_the_column_the_body_stands_on_is_dug_down_top_first():
+    # Up on its own two-high dirt foothold, the lower block is out of sight behind
+    # the one stood on: breaking it first failed 20 times and the run ended trapped.
+    body, _t = tall_column_body()
+    x, y, z = body.position()
+    under = [(x, y - 1, z), (x, y - 2, z)]
+    for c in under:
+        body.w[c] = "minecraft:dirt"
+    tried = []
+    real = body.break_block
+
+    def logged(pos, *a, **k):
+        tried.append(pos)
+        return real(pos, *a, **k)
+
+    body.break_block = logged
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.scaffolds = set(under)
+    assert runner._unwedge()
+    assert tried == under  # the block stood on first, then the one below it
+
+
 def test_fetch_first_asks_for_a_lower_layers_item_before_building_above():
     # floor cell (y 1) wants planks that are not held; the wall cell above a placed
     # neighbour is affordable. Without fetch_first the wall goes up over the gap.
