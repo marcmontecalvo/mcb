@@ -122,6 +122,7 @@ TESTS = ("gather", "build", "courses", "natural", "models", "battery", "companio
 
 _TUPLE_TYPES = {
     "material_allowlist": list[str],
+    "scaffold_materials": list[str],
     "protected_blocks": list[str],
     "protected_positions": list[list[int]],
     "costly_positions": list[list[int]],

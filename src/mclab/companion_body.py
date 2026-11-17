@@ -1154,14 +1154,20 @@ class CompanionBody:
 
     def _with_temporaries(self, policy):
         """The planner pillars and bridges with the temporaries in preference order.
-        Scaffolding is not one of them: the planner's edits are solid cubes, and a
-        scaffolding foothold is only solid from above (towers handle it instead)."""
+        The allowlist is the solid fallback; held scaffolding rides separately and the
+        planner picks it per placed cell where it will stay up (docs/SCAFFOLDING.md)."""
         if getattr(self, "temporary_ok", None) is None or not policy.allow_place:
             return policy
         items = tuple(self.temporary_items(scaffolding=False))
-        if not items or items == policy.material_allowlist:
+        scaffold = (SCAFFOLDING,) if SCAFFOLDING in self.temporary_items() else ()
+        if (
+            not items and not scaffold
+        ) or (items, scaffold) == (policy.material_allowlist, policy.scaffold_materials):
             return policy
-        return replace(policy, material_allowlist=items)
+        return replace(
+            policy, material_allowlist=items or policy.material_allowlist,
+            scaffold_materials=scaffold,
+        )
 
     def _goto_controller(self, goal, reach, radius, probe, wall):
         return _GotoController(

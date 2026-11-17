@@ -44,6 +44,9 @@ final class RouteGeometry implements RouteMotor.Geometry {
                     if (cy == feet && cell != null && waterFluid(cell.get("fluid"))
                             && List.of().equals(cell.get("collision_boxes")) && !HAZARDS.contains(cell.get("block"))) continue;
                     if (!admitted(cell)) return false;
+                    // The sensed plate and posts are the stable shape for a body above; beside or inside a column
+                    // vanilla gives scaffolding no collision (ScaffoldingBlock.getCollisionShape).
+                    if (scaffolding(cell)) continue;
                     for (var entry : boxes(cell)) {
                         var box = (List<?>) entry;
                         if (cx + coordinate(box, 0) < x + radius && cx + coordinate(box, 3) > x - radius
@@ -60,7 +63,10 @@ final class RouteGeometry implements RouteMotor.Geometry {
         for (int y = (int)Math.floor(low) - 1; y <= Math.floor(high); y++) {
             var cell = cell(x, y, z);
             if (!admitted(cell)) continue;
-            for (var entry : boxes(cell)) {
+            // Scaffolding senses with no collision, but a body above it (not sneaking) stands on its top.
+            var floor = boxes(cell).isEmpty() && "minecraft:scaffolding".equals(cell.get("block"))
+                    ? List.of(List.<Object>of(0, 0, 0, 1, 1, 1)) : boxes(cell);
+            for (var entry : floor) {
                 var box = (List<?>) entry;
                 double height = y + coordinate(box, 4);
                 if (height < low - 1e-6 || height > high + 1e-6) continue;
@@ -176,6 +182,9 @@ final class RouteGeometry implements RouteMotor.Geometry {
         }
         return false;
     }
+
+    private static boolean scaffolding(Map<String, Object> cell) { return cell != null && "minecraft:scaffolding".equals(cell.get("block")); }
+    @Override public boolean scaffolding(RouteMotor.Point p) { return scaffolding(cell((int) p.x(), (int) p.y(), (int) p.z())); }
 
     /** Body cell is a known ladder/vine and the cell above is known and not a hazard. */
     @Override public boolean climbable(RouteMotor.Point p) {

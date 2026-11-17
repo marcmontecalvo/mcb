@@ -117,6 +117,8 @@ final class StepMotor {
     private final List<Operation> operations;
     private final Set<BlockPos> protectedPositions;
     private final Set<String> protectedBlocks, materials;
+    // Cells the planner chose scaffolding for (it stays up: supported within 6 of the ground); the rest are solid.
+    private final Set<BlockPos> scaffoldCells = new HashSet<>();
     private final Map<String,String> tools;
     private final boolean bridge, downward;
     private final int reserve, tickLimit;
@@ -158,6 +160,8 @@ final class StepMotor {
         materials = strings(policy.getAsJsonArray("material_allowlist"));
         if (materials.isEmpty() || materials.stream().anyMatch(m -> m.indexOf(':') <= 0))
             throw new IllegalArgumentException("native_step_materials");
+        if (plan.has("scaffold") && plan.get("scaffold").isJsonArray())
+            for (var value:plan.getAsJsonArray("scaffold")) scaffoldCells.add(point(value.getAsJsonArray()));
         protectedPositions = new HashSet<>();
         for (var value:policy.getAsJsonArray("protected_positions")) protectedPositions.add(point(value.getAsJsonArray()));
         operations = new ArrayList<>();
@@ -265,6 +269,11 @@ final class StepMotor {
         return (hitPos.equals(expected) && (face==null || hitFace.equals(face)))
                 || (directReplace && hitPos.equals(point));
     }
+    private static final String SCAFFOLDING="minecraft:scaffolding";
+    /** Scaffolding senses as empty collision, yet it is placed on and stood on. */
+    static boolean scaffolding(Map<String,Object> c) { return c!=null && SCAFFOLDING.equals(c.get("block")); }
+    /** Something to click a block onto: a full cube or scaffolding (supported: the planner only counts it so). */
+    static boolean sturdy(Map<String,Object> c) { return cube(c) || scaffolding(c); }
     static boolean cube(Map<String,Object> c) {
         return c!=null && "minecraft:empty".equals(c.getOrDefault("fluid","minecraft:empty"))
                 && c.get("collision_boxes") instanceof List<?> boxes && boxes.size()==1
@@ -387,7 +396,7 @@ final class StepMotor {
             if(tick<settleUntil) return input(tick,0,0,0,false,false,false,false,0);
             settleUntil=-1; settleWatch.remove(op.point);
         } else if(!empty(cell)) settleUntil=-1;
-        boolean complete=op.place?cube(cell):empty(cell);
+        boolean complete=op.place?(scaffoldCells.contains(op.point)?scaffolding(cell):cube(cell)):empty(cell);
         if(complete) {
             if(op.place) {
                 if(!issued || !placedItem.equals(cell.get("block"))) return stopInput(tick,"native_placement_changed");
@@ -440,7 +449,8 @@ final class StepMotor {
             directReplace=replaceableCover(cell);
             if(!empty(cell) && !directReplace) return stopInput(tick,"native_placement_not_empty");
             selected=-1; int stock=0;
-            for(String material:materials) {
+            boolean scaffold=scaffoldCells.contains(op.point);
+            for(String material:scaffold?Set.of(SCAFFOLDING):materials) {
                 for(int n=0;n<36;n++) {  // all of the inventory, hotbar first
                     var stack=p.getInventory().getItem(n);
                     if(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().equals(material)) {
@@ -448,7 +458,7 @@ final class StepMotor {
                     }
                 }
             }
-            if(stock<=reserve) return stopInput(tick,"native_material_reserve");
+            if(stock<=(scaffold?0:reserve)) return stopInput(tick,"native_material_reserve");
             if(selected>=9) selected=BodyActions.toHotbar(p,selected,-1);
             expected=op.point.below(); face="UP";
             int dx=op.point.getX()-source.getX(),dz=op.point.getZ()-source.getZ();
@@ -456,20 +466,29 @@ final class StepMotor {
             aim=directReplace
                     ? new Vec3(op.point.getX()+.5,op.point.getY()+.05,op.point.getZ()+.5)
                     : new Vec3(op.point.getX()+.5,op.point.getY()-.001,op.point.getZ()+.5);
-            boolean below=cube(read(reader,expected));
+            boolean below=sturdy(read(reader,expected)), redirect=false;
+            // ScaffoldingBlockItem sends a click on scaffolding sideways (top face) or up (side face): never the planned cell.
+            if(below && scaffold && scaffolding(read(reader,expected))) return stopInput(tick,"native_scaffold_redirect");
             if(!below) {
                 expected=source.below();
                 if(!bridge || op.point.getY()!=source.getY()-1 || Math.abs(dx)+Math.abs(dz)!=1
                         || !(empty(read(reader,op.point.below())) || replaceable(read(reader,op.point.below())))
-                        || !cube(read(reader,expected)))
+                        || !sturdy(read(reader,expected)))
                     return stopInput(tick,"native_placement_anchor_changed");
                 face=dx==1?"EAST":dx==-1?"WEST":dz==1?"SOUTH":"NORTH";
                 aim=new Vec3(source.getX()+.5+dx*.499,op.point.getY()+.5,source.getZ()+.5+dz*.499);
+                if(scaffold && scaffolding(read(reader,expected))) {
+                    // Off a scaffolding floor: click its top face, not sneaking; the item extends it the way the body faces.
+                    face="UP"; redirect=true;
+                    aim=new Vec3(source.getX()+.5+dx*.3,source.getY()-.001,source.getZ()+.5+dz*.3);
+                }
             }
             // Full input while sneaking: sneak alone already slows to 30% and the
             // vanilla edge clamp keeps the body on the block. 0.3 input on top cost
             // ~30 ticks per placement (Step C run 20261030T023556227338Z: median 39).
-            boolean approach=!pillar && op.point.getY()<source.getY() && Math.abs(dx)+Math.abs(dz)==1;
+            // Sneaking on scaffolding drops the body through it: never sneak on a scaffolding floor.
+            boolean sneakOk=!scaffolding(read(reader,source.below()));
+            boolean approach=!pillar && !redirect && op.point.getY()<source.getY() && Math.abs(dx)+Math.abs(dz)==1;
             if(approach && progress<.6) {
                 // The sneak edge clamp pins the centre at the support's rim, so a
                 // stance whose neighbour is empty below can never cross progress .6:
@@ -481,13 +500,13 @@ final class StepMotor {
                 else if(approachTick<0) approachTick=tick;
                 if(!issued && tick-approachTick>60) return stopInput(tick,"native_placement_no_progress");
                 double turn=wrap(Math.toDegrees(Math.atan2(-dx,dz))-p.getYRot());
-                return input(tick,Math.abs(turn)<8?1:0,Math.max(-45,Math.min(45,turn)),0,false,true,false,false,Math.max(0,selected));
+                return input(tick,Math.abs(turn)<8?1:0,Math.max(-45,Math.min(45,turn)),0,false,sneakOk,false,false,Math.max(0,selected));
             }
             if(!pillar && op.point.getY()>=source.getY() && progress>.1) {
                 double turn=wrap(Math.toDegrees(Math.atan2(-(source.getX()+.5-p.getX()),source.getZ()+.5-p.getZ()))-p.getYRot());
-                return input(tick,Math.abs(turn)<8?1:0,Math.max(-45,Math.min(45,turn)),0,false,true,false,false,Math.max(0,selected));
+                return input(tick,Math.abs(turn)<8?1:0,Math.max(-45,Math.min(45,turn)),0,false,sneakOk,false,false,Math.max(0,selected));
             }
-            sneak=approach;
+            sneak=approach && sneakOk;
         }
         if(selected<0) return stopInput(tick,"native_hotbar_supply_missing");
         Vec3 eye=p.getEyePosition();

@@ -409,7 +409,9 @@ def confirm_step(plan, before, observation, fresh, report):
         return False
     for point, item in placed.items():
         cell = fresh.get(point)
-        if not full_cube(cell):
+        scaffolding = point in plan.scaffold and item == "minecraft:scaffolding"
+        # Scaffolding senses with no collision, so it is confirmed by its block.
+        if not (cell and cell.get("block") == item if scaffolding else full_cube(cell)):
             return False
         if cell.get("block") != item:
             raise ControllerFailure("Native step placement material mismatch")

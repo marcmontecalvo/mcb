@@ -23,7 +23,12 @@ final class RoutePlanner {
     }
     record Result(String status, List<Node> route, int expanded, double cost, List<Edit> steps) { }
     /** One planned edit edge (terrain_steps.StepPlan): blocks to break and to place, in order. */
-    record Edit(Node source, Node target, List<int[]> breaks, List<int[]> places, String kind) { }
+    /** scaffold: {x, y, z, support distance} of the places made of scaffolding; the rest are solid. */
+    record Edit(Node source, Node target, List<int[]> breaks, List<int[]> places, String kind, List<int[]> scaffold) {
+        Edit(Node source, Node target, List<int[]> breaks, List<int[]> places, String kind) {
+            this(source, target, breaks, places, kind, List.of());
+        }
+    }
 
     // Baritone ActionCosts and Settings, reimplemented (Baritone v1.20.0 values).
     static final double WALK = 20 / 4.317, SPRINT = 20 / 5.612, WALK_OFF = WALK * .8,
@@ -882,6 +887,48 @@ final class RoutePlanner {
         return true;
     }
     private static boolean fullDry(Map<String, Object> c) { return c != null && dry(c) && fullCube(c); }
+    private static boolean scaffolding(Map<String, Object> c) { return c != null && "minecraft:scaffolding".equals(c.get("block")); }
+    /** A floor to stand or click on: a full cube, or scaffolding (it senses with no collision boxes, yet a body above it,
+     *  not sneaking, stands on its top). */
+    private static boolean sturdy(Map<String, Object> c) { return fullDry(c) || (c != null && dry(c) && scaffolding(c)); }
+
+    /** ScaffoldingBlock.getDistance for a block placed at (x,y,z): the stored distance of scaffolding below, 0 on a sturdy
+     *  top, else the least neighbour distance + 1 (7 = it falls). own: earlier places of this edit (-1 solid, else distance). */
+    private int scaffoldDistance(int x, int y, int z, Map<Long, Integer> own, int budget) {
+        var below = own.get(key(x, y - 1, z));
+        if (below != null) return below >= 0 ? below : 0;
+        var cellBelow = cell(x, y - 1, z);
+        if (scaffolding(cellBelow)) return existingDistance(x, y - 1, z, own, budget);
+        if (fullDry(cellBelow)) return 0;
+        int best = 7;
+        for (var d : DIRECTIONS) {
+            var n = own.get(key(x + d[0], y, z + d[1]));
+            if (n != null) { if (n >= 0) best = Math.min(best, n + 1); }
+            else if (budget > 0 && scaffolding(cell(x + d[0], y, z + d[1])))
+                best = Math.min(best, existingDistance(x + d[0], y, z + d[1], own, budget - 1) + 1);
+        }
+        return Math.min(best, 7);
+    }
+    private int existingDistance(int x, int y, int z, Map<Long, Integer> own, int budget) {
+        if (cell(x, y, z).get("scaffold_distance") instanceof Integer d) return d;
+        return scaffoldDistance(x, y, z, own, budget);  // the map's own scaffolding stands, so this is at most 6
+    }
+    /** Which places (lowest first) are scaffolding: held, supported within 6, and not clicked on scaffolding (the item
+     *  redirects such a click sideways or up, away from the planned cell). The rest stay solid. */
+    private List<int[]> scaffoldCells(List<int[]> places) {
+        if (edits.scaffoldSupply <= 0) return List.of();
+        var own = new HashMap<Long, Integer>();
+        var out = new ArrayList<int[]>();
+        int left = edits.scaffoldSupply;
+        for (var p : places) {
+            var ob = own.get(key(p[0], p[1] - 1, p[2]));
+            boolean onScaffolding = ob != null ? ob >= 0 : scaffolding(cell(p[0], p[1] - 1, p[2]));
+            int d = scaffoldDistance(p[0], p[1], p[2], own, 6);
+            if (left > 0 && !onScaffolding && d <= 6) { out.add(new int[]{p[0], p[1], p[2], d}); own.put(key(p), d); left--; }
+            else own.put(key(p), -1);
+        }
+        return out;
+    }
 
     // --- Baritone extra moves without edits: ladders, water landings ---
 
@@ -889,7 +936,7 @@ final class RoutePlanner {
     private boolean blockStandable(Node n) {
         if (!integral(n.y)) return false;
         var floor = at(n.x, n.y - 1, n.z);
-        return floor != null && dry(floor) && fullCube(floor) && empty(at(n.x, n.y, n.z)) && empty(at(n.x, n.y + 1, n.z));
+        return floor != null && sturdy(floor) && empty(at(n.x, n.y, n.z)) && empty(at(n.x, n.y + 1, n.z));
     }
     /** collision_geometry.edit_stance: a dry block stance, or one wading in one-deep
      * water on a full block with the head in air. From wet feet the native planner
@@ -1069,7 +1116,7 @@ final class RoutePlanner {
         if (safe(cell)) {
             String block = String.valueOf(cell.getOrDefault("block", ""));
             if (fullCube(cell) || block.endsWith("_slab") || block.endsWith("_stairs") || block.equals("minecraft:scaffolding"))
-                for (var box : boxes(cell))
+                for (var box : scaffolding(cell) && boxes(cell).isEmpty() ? List.of(List.of(0, 0, 0, 1, 1, 1)) : boxes(cell))
                     if (at(box, 0) < .8 - EPS && at(box, 3) > .2 + EPS && at(box, 2) < .8 - EPS && at(box, 5) > .2 + EPS) {
                         double h = y + at(box, 4);
                         if (clearColumn(x, z, h, h + 1.8)) found.add(h);
@@ -1148,20 +1195,27 @@ final class RoutePlanner {
     record EditPolicy(boolean stepEdits, Map<String, Double> breakCosts, Map<String, Double> fallCosts,
                       boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxStack, int breakBudget,
                       int placeBudget, int placeSupply, Set<Long> protectedCells, Set<String> protectedBlocks,
-                      String material, List<String> materials, Map<Long, Double> extraCosts) {
+                      String material, List<String> materials, Map<Long, Double> extraCosts, int scaffoldSupply) {
+        EditPolicy(boolean stepEdits, Map<String, Double> breakCosts, Map<String, Double> fallCosts,
+                   boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxStack, int breakBudget,
+                   int placeBudget, int placeSupply, Set<Long> protectedCells, Set<String> protectedBlocks,
+                   String material, List<String> materials, Map<Long, Double> extraCosts) {
+            this(stepEdits, breakCosts, fallCosts, allowPlace, allowBridge, allowPillar, maxStack, breakBudget,
+                    placeBudget, placeSupply, protectedCells, protectedBlocks, material, materials, extraCosts, 0);
+        }
         EditPolicy(boolean stepEdits, Map<String, Double> breakCosts, Map<String, Double> fallCosts,
                    boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxStack, int breakBudget,
                    int placeBudget, int placeSupply, Set<Long> protectedCells, Set<String> protectedBlocks,
                    String material, List<String> materials) {
             this(stepEdits, breakCosts, fallCosts, allowPlace, allowBridge, allowPillar, maxStack, breakBudget,
-                    placeBudget, placeSupply, protectedCells, protectedBlocks, material, materials, Map.of());
+                    placeBudget, placeSupply, protectedCells, protectedBlocks, material, materials, Map.of(), 0);
         }
         EditPolicy(boolean stepEdits, Map<String, Double> breakCosts, Map<String, Double> fallCosts,
                    boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxStack, int breakBudget,
                    int placeBudget, int placeSupply, Set<Long> protectedCells, Set<String> protectedBlocks,
                    String material) {
             this(stepEdits, breakCosts, fallCosts, allowPlace, allowBridge, allowPillar, maxStack, breakBudget,
-                    placeBudget, placeSupply, protectedCells, protectedBlocks, material, List.of(material), Map.of());
+                    placeBudget, placeSupply, protectedCells, protectedBlocks, material, List.of(material), Map.of(), 0);
         }
         static EditPolicy fromJson(JsonObject o) {
             var breakCosts = costs(o.getAsJsonObject("break_costs"));
@@ -1209,7 +1263,8 @@ final class RoutePlanner {
                 throw new IllegalArgumentException("edit_bounds");
             return new EditPolicy(bool(o, "step"), breakCosts, fallCosts, bool(o, "allow_place"),
                     bool(o, "allow_bridge"), bool(o, "allow_pillar"), maxStack, breakBudget,
-                    placeBudget, placeSupply, cells, blocks, material, List.copyOf(materials), extra);
+                    placeBudget, placeSupply, cells, blocks, material, List.copyOf(materials), extra,
+                    o.has("scaffold_supply") ? Math.max(0, Math.min(4096, integer(o.get("scaffold_supply")))) : 0);
         }
         private static int integer(com.google.gson.JsonElement e) {
             if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) throw new IllegalArgumentException("edit_integer");
@@ -1268,7 +1323,13 @@ final class RoutePlanner {
             out.put(key(p), AIR);
             if (extra) for (var q : fallingStack(p)) out.put(key(q), AIR);
         }
-        for (var p : edit.places) out.put(key(p), placed);
+        var scaffolds = new HashMap<Long, Integer>();
+        for (var s : edit.scaffold) scaffolds.put(key(s[0], s[1], s[2]), s[3]);
+        for (var p : edit.places) {
+            var distance = scaffolds.get(key(p));
+            out.put(key(p), distance == null ? placed : Map.of("block", "minecraft:scaffolding", "fluid", "minecraft:empty",
+                    "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1)), "scaffold_distance", distance));
+        }
         // A shaft dug by consecutive downward edits stays open: with only the last edit seen, the
         // cell above the head reverted to stone and no plan dug deeper than 2 (run 20261112T033141102600Z).
         // ponytail: plans keep one edit per node, so a later cheaper arrival at a source can rewrite the chain.
@@ -1356,7 +1417,7 @@ final class RoutePlanner {
     private Edit planEdit(Node source, Node target) {
         int x = source.x, y = (int) source.y, z = source.z, tx = target.x, ty = (int) target.y, tz = target.z;
         List<int[]> places = List.of();
-        if (!fullDry(cell(tx, ty - 1, tz))) {
+        if (!sturdy(cell(tx, ty - 1, tz))) {
             if (!edits.allowPlace) return null;
             var stack = new ArrayList<int[]>();
             stack.add(new int[]{tx, ty - 1, tz});
@@ -1391,14 +1452,14 @@ final class RoutePlanner {
         if (cuts == null || cuts.size() > Math.min(7, edits.breakBudget) || (cuts.isEmpty() && places.isEmpty())
                 || overHead(source, cuts))
             return null;
-        return new Edit(source, target, cuts, places, "step");
+        return new Edit(source, target, cuts, places, "step", scaffoldCells(places));
     }
 
     /** Support below, or a permitted side anchor one below the source. */
     private boolean anchored(int x, int y, int z, int[] p) {
-        if (fullDry(cell(p[0], p[1] - 1, p[2]))) return true;
+        if (sturdy(cell(p[0], p[1] - 1, p[2]))) return true;
         return edits.allowBridge && p[1] == y - 1 && Math.abs(p[0] - x) + Math.abs(p[2] - z) == 1
-                && empty(cell(p[0], p[1] - 1, p[2])) && fullDry(cell(x, y - 1, z));
+                && empty(cell(p[0], p[1] - 1, p[2])) && sturdy(cell(x, y - 1, z));
     }
 
     /** Cells to cut, plus the callers' "nothing to break" rule. */
@@ -1436,7 +1497,8 @@ final class RoutePlanner {
         if (!edits.allowPillar || !edits.allowPlace || edits.placeBudget < 1 || edits.placeSupply < 1
                 || edits.protectedCells.contains(key(x, y, z)) || !empty(cell(x, y + 2, z)) || !empty(cell(x, y + 3, z)))
             return null;
-        return new Edit(node, new Node(x, node.y + 1, z), List.of(), List.of(new int[]{x, y, z}), "pillar");
+        var places = List.of(new int[]{x, y, z});
+        return new Edit(node, new Node(x, node.y + 1, z), List.of(), places, "pillar", scaffoldCells(places));
     }
 
     private static double sq(double v) { return v * v; }

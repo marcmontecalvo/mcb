@@ -81,13 +81,17 @@ def _clear_log_ray(cells, origin, target):
 def standable(cells, node):
     x, y, z = node
     flags = getattr(cells, "cflags", None)  # memoised cell flags on a Grid
+    # A scaffolding block reports no collision, yet the body stands on its top (a
+    # pillar of scaffolding): it is a floor, though never a wall.
+    below = cells.get((x, y - 1, z))
+    scaffold = (below or {}).get("block") == "minecraft:scaffolding"
     if flags is not None:
         return bool(
-            flags((x, y - 1, z)) & FULL
+            (flags((x, y - 1, z)) & FULL or scaffold)
             and flags((x, y, z)) & EMPTY
             and flags((x, y + 1, z)) & EMPTY
         )
-    return full_cube(cells.get((x, y - 1, z))) and all(
+    return (full_cube(below) or scaffold) and all(
         empty(cells.get((x, cy, z))) for cy in (y, y + 1)
     )
 

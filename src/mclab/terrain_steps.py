@@ -135,6 +135,9 @@ class TerrainPolicy:
     reserve_blocks: int = 0
     interaction_tick_limit: int = 160
     material_allowlist: tuple = BUILDING
+    # Held scaffolding the planner may choose per placed cell (it stays up within 6 of
+    # a sturdy block); the allowlist stays the solid fallback.
+    scaffold_materials: tuple = ()
     protected_blocks: tuple = ()
     protected_positions: tuple = ()
     # Standing cells of the build: the planner may break one at BUILD_BREAK_COST and
@@ -193,6 +196,7 @@ class TerrainPolicy:
         values = dict(value)
         for name in (
             "material_allowlist",
+            "scaffold_materials",
             "protected_blocks",
             "protected_positions",
             "costly_positions",
@@ -258,7 +262,7 @@ class TerrainPolicy:
             or not 20 <= self.interaction_tick_limit <= 400
         ):
             raise ValueError("Invalid terrain interaction deadline")
-        for name in ("material_allowlist", "protected_blocks"):
+        for name in ("material_allowlist", "scaffold_materials", "protected_blocks"):
             values = getattr(self, name)
             if not isinstance(values, tuple) or any(
                 type(v) is not str or not all(v.partition(":")[::2]) for v in values
@@ -306,6 +310,8 @@ class StepPlan:
     places: tuple = ()
     kind: str = "step"
     exit: tuple | None = None
+    # Which of `places` the planner made of scaffolding (the rest are solid blocks).
+    scaffold: tuple = ()
 
     @property
     def cost(self):

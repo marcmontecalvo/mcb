@@ -365,3 +365,16 @@ def test_edit_payload_sends_costly_build_cells():
     )
     assert edits["costly"] == [[1, 1, 0, BUILD_BREAK_COST], [2, 1, 0, BUILD_BREAK_COST]]
     assert body_search.edit_payload(PROD, [], ())["costly"] == []
+
+
+def test_scaffolding_is_a_separate_supply_and_a_scaffold_plan_cell():
+    inv = [{"item": "minecraft:scaffolding", "count": 5}]
+    policy = replace(PROD, scaffold_materials=("minecraft:scaffolding",))
+    sent = body_search.edit_payload(policy, inv, ())
+    assert sent["scaffold_supply"] == 5 and sent["place_supply"] > 0
+    assert "scaffold_supply" not in body_search.edit_payload(PROD, inv, ())
+    plan = body_search.step_plan(
+        {"source": [0, 1, 0], "target": [0, 2, 0], "breaks": [],
+         "places": [[0, 1, 0]], "scaffold": [[0, 1, 0]], "kind": "pillar"}
+    )
+    assert plan.scaffold == ((0, 1, 0),)

@@ -457,7 +457,71 @@ public final class RoutePlannerTest {
             if (mode.equals("protected")) check(!res.status().equals("reached") && !brokeDoor, "protected wall stays whole: " + res.status());
         }
 
+        scaffoldChecks();
         System.out.println("RoutePlanner: " + checks + " planner checks passed");
+    }
+
+    // Scaffolding as the planner's temporary block (docs/SCAFFOLDING.md): per placed cell, where it stays up.
+    private static Map<String, Object> scaffold() {  // as the sensor reports it: no collision boxes
+        return Map.of("block", "minecraft:scaffolding", "collision_boxes", List.of(), "fluid", "minecraft:empty");
+    }
+    private static RoutePlanner.EditPolicy scaffoldPolicy(int scaffoldSupply) {
+        return new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), true, true, true,
+                3, 64, 64, 64, Set.of(), Set.of(), "minecraft:dirt", List.of("minecraft:dirt"), Map.of(), scaffoldSupply);
+    }
+    private static RoutePlanner.Result scaffoldRun(Map<Key, Map<String, Object>> cells, RoutePlanner.Node start,
+            RoutePlanner.Node goal, int scaffoldSupply) {
+        return new RoutePlanner((x, y, z) -> cells.get(new Key(x, y, z)), start, goal, 0, 3, true)
+                .withMoves(false, true).withEdits(scaffoldPolicy(scaffoldSupply)).search(100_000);
+    }
+    private static boolean isScaffold(RoutePlanner.Edit e, int i) {
+        return e.scaffold().stream().anyMatch(s -> s[0] == e.places().get(i)[0] && s[1] == e.places().get(i)[1]
+                && s[2] == e.places().get(i)[2]);
+    }
+    private static void scaffoldChecks() {
+        // Pit: the first pillar block goes on stone (scaffolding); the next would be clicked on scaffolding, which
+        // the item redirects sideways, so it stays solid. With none held everything is solid.
+        var pit = floor(12);
+        var held = scaffoldRun(pit, new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(0, 3, 0), 64);
+        var none = scaffoldRun(pit, new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(0, 3, 0), 0);
+        check(held.status().equals("reached") && none.status().equals("reached"), "pit is left with and without scaffolding");
+        var first = held.steps().get(0);
+        check(!first.places().isEmpty() && isScaffold(first, 0), "the first pillar/step-up block on solid ground is scaffolding");
+        check(none.steps().stream().allMatch(e -> e.scaffold().isEmpty()), "with no scaffolding held everything is solid");
+
+        // Bridge off a scaffolding tower: the walkway is scaffolding while its distance is at most 6, solid beyond.
+        var world = new HashMap<Key, Map<String, Object>>();
+        for (int x = -2; x <= 14; x++) for (int z = -3; z <= 3; z++) for (int y = -1; y <= 6; y++)
+            world.put(new Key(x, y, z), x <= 0 && y <= 0 ? stone() : air());
+        world.put(new Key(1, -1, 0), stone());
+        world.put(new Key(1, 0, 0), scaffold());
+        var near = scaffoldRun(world, new RoutePlanner.Node(1, 1, 0), new RoutePlanner.Node(7, 1, 0), 64);
+        check(near.status().equals("reached") && near.steps().stream().allMatch(e -> e.scaffold().size() == e.places().size()),
+                "a walkway 6 out from the tower is all scaffolding: " + near.status());
+        var far = scaffoldRun(world, new RoutePlanner.Node(1, 1, 0), new RoutePlanner.Node(9, 1, 0), 64);
+        var lastEdit = far.steps().get(far.steps().size() - 1);
+        check(far.status().equals("reached") && lastEdit.scaffold().isEmpty() && !lastEdit.places().isEmpty()
+                && far.steps().get(0).scaffold().size() == 1, "7 out from the tower is solid, nearer cells scaffolding");
+        // A bridge beside a scaffolding pillar on solid ground.
+        var beside = new HashMap<Key, Map<String, Object>>();
+        for (int x = -2; x <= 4; x++) for (int z = -3; z <= 3; z++) for (int y = -1; y <= 6; y++)
+            beside.put(new Key(x, y, z), x <= 0 && y <= 0 ? stone() : air());
+        beside.put(new Key(1, -1, 1), stone());
+        beside.put(new Key(1, 0, 1), scaffold());
+        var next = scaffoldRun(beside, new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(1, 1, 0), 64);
+        check(next.status().equals("reached") && next.steps().get(0).scaffold().size() == 1,
+                "a bridge block beside a scaffolding pillar is scaffolding: " + next.status());
+        var bare = new HashMap<>(beside);
+        bare.remove(new Key(1, 0, 1)); bare.put(new Key(1, 0, 1), air()); bare.put(new Key(1, -1, 1), air());
+        var alone = scaffoldRun(bare, new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(1, 1, 0), 64);
+        check(alone.status().equals("reached") && alone.steps().get(0).scaffold().isEmpty(),
+                "a bridge block with nothing to hang on stays solid");
+        var json = com.google.gson.JsonParser.parseString("""
+                {"step":true,"break_costs":{},"fall_costs":{},"allow_place":true,"allow_bridge":true,"allow_pillar":true,
+                "max_stack":3,"break_budget":64,"place_budget":64,"place_supply":9,"scaffold_supply":5,
+                "protected":[],"protected_blocks":[],"materials":["minecraft:dirt"]}
+                """).getAsJsonObject();
+        check(RoutePlanner.EditPolicy.fromJson(json).scaffoldSupply() == 5, "EditPolicy parses scaffold_supply");
     }
 
     // Break cost of stone: 8 ticks with an iron pickaxe + 2 extra + 6 aim.

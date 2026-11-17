@@ -31,7 +31,8 @@ final class RouteMotor {
             this(diagonals, sprint, shapes, maxDrop, false, false);
         }
     }
-    record Input(double forward, double yaw, boolean jump, boolean sprint) {
+    record Input(double forward, double yaw, boolean jump, boolean sprint, boolean sneak) {
+        Input(double forward, double yaw, boolean jump, boolean sprint) { this(forward, yaw, jump, sprint, false); }
         static final Input STOP = new Input(0, 0, false, false);
     }
     interface Geometry {
@@ -48,6 +49,8 @@ final class RouteMotor {
         default boolean deepWater(Pose pose) { return false; }
         default boolean waterLanding(Point point) { return false; }
         default boolean climbable(Point point) { return false; }
+        /** The body cell is scaffolding (it senses as a plate and posts, but a body inside it is not blocked). */
+        default boolean scaffolding(Point point) { return false; }
         default boolean swimSafe(Pose pose, Point target, double originY, double distance, boolean jumping) { return false; }
         /** Known water or air from the head cell up to the target's cell: the body can rise to the stance here. */
         default boolean openAbove(Pose pose, Point target) { return true; }
@@ -260,7 +263,7 @@ final class RouteMotor {
             stop("route_drop_requires_water"); return Input.STOP;
         }
         if (recentring) return recentre(pose, geometry, source);
-        if (climbEdge) return climb(pose, source, target, moved);
+        if (climbEdge) return climb(pose, geometry, source, target, moved);
         if (swimEdge) return swim(pose, geometry, source, target, flat);
         // Only brake onto a point the route turns, climbs or ends at. Carrying speed
         // straight through a step-down lands on the next (standable) point.
@@ -506,18 +509,21 @@ final class RouteMotor {
     // Derived from Baritone MovementPillar/MovementDescend ladder handling: jump climbs a
     // ladder or vine, releasing jump descends. Side entries and exits just walk, jumping
     // when they rise; the climbable cells themselves are checked by the geometry.
-    private Input climb(Pose pose, Point source, Point target, double moved) {
+    private Input climb(Pose pose, Geometry geometry, Point source, Point target, double moved) {
         boolean vertical = target.x == source.x && target.z == source.z;
         double turn = wrap(yawTo(pose, target) - pose.yaw);
         double yaw = Math.max(-45, Math.min(45, turn));
         boolean up = target.y > source.y;
         if (moved < .01) stalled++; else stalled = 0;
         if (stalled > 30) { stop("route_no_progress"); return Input.STOP; }
+        // Scaffolding: a body above a cell that is not descending stands on its top plate, so going down inside a
+        // column needs sneak held (Baritone has no scaffolding; vanilla ScaffoldingBlock.getCollisionShape).
+        boolean sneak = !up && (geometry.scaffolding(source) || geometry.scaffolding(target));
         if (vertical) {
             boolean off = target.distance(pose) > (index == route.size() - 1 ? arrivalRadius : .35);
-            return new Input(off && Math.abs(turn) <= 45 ? .3 : 0, off ? yaw : 0, up, false);
+            return new Input(off && Math.abs(turn) <= 45 ? .3 : 0, off ? yaw : 0, up, false, sneak);
         }
-        return new Input(Math.abs(turn) > 45 ? 0 : 1, yaw, up, false);
+        return new Input(Math.abs(turn) > 45 ? 0 : 1, yaw, up, false, sneak);
     }
 
     private Input recentre(Pose pose, Geometry geometry, Point source) {

@@ -563,6 +563,7 @@ public final class BodyRuntime implements AutoCloseable {
                     "target", List.<Object>of(e.target().x(), e.target().y(), e.target().z()),
                     "breaks", e.breaks().stream().map(p -> List.of(p[0], p[1], p[2])).toList(),
                     "places", e.places().stream().map(p -> List.of(p[0], p[1], p[2])).toList(),
+                    "scaffold", e.scaffold().stream().map(p -> List.of(p[0], p[1], p[2])).toList(),
                     "kind", e.kind())).toList();
             var report = Map.<String,Object>of("plan_id", entry.getKey(), "state", "done", "status", result.status(),
                     "route", route, "steps", steps, "expanded", result.expanded(), "tick", server.getTickCount());
@@ -760,7 +761,7 @@ public final class BodyRuntime implements AutoCloseable {
             } else {
                 int tick = server.getTickCount();
                 body.controls(new Controls("native-route",tick,tick,tick+2,2,input.forward(),0,input.yaw(),
-                        RouteMotor.levelPitch(p.getXRot()),input.jump(),false,input.sprint(),false,false,false,false,0));
+                        RouteMotor.levelPitch(p.getXRot()),input.jump(),input.sneak(),input.sprint(),false,false,false,false,0));
                 expiryTick = tick + 2;
             }
             if (!prior.get("state").equals(routeMotor.status().get("state"))

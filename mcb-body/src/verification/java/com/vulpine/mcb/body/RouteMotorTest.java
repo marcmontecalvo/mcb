@@ -289,6 +289,11 @@ public final class RouteMotorTest {
         check(realTop.active() && realSteer.forward()>0 && realSteer.jump(),"real seven-box scaffold climb centres");
         realTop.tick(new RouteMotor.Pose(3.5,4,.5,0,0,0,true,20),geometry(real));
         check(realTop.status().get("state").equals("done"),"real seven-box scaffold top is standable");
+        var down=new RouteMotor("down",List.of(new RouteMotor.Point(3,3,0),new RouteMotor.Point(3,2,0),new RouteMotor.Point(3,1,0)),policy);
+        var descent=down.tick(new RouteMotor.Pose(3.5,3,.5,0,0,0,true,20),geometry(real));
+        check(down.active() && descent.sneak() && !descent.jump() && !descent.sprint(),"descending inside a scaffolding column holds sneak");
+        check(!climber.tick(new RouteMotor.Pose(3.5,3.0,.5,0,0,0,false,20),g).sneak(),"a ladder descent does not sneak");
+        check(geometry(real).standable(new RouteMotor.Point(3,1,0)),"a column cell is enterable from the side despite its sensed posts");
     }
     private static final double DIAGONAL_YAW=-45;
     private static void hole(Map<Key,Map<String,Object>> cells,int x,int z) {

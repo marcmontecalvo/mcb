@@ -166,7 +166,14 @@ def edit_payload(policy, inventory, protected, tool_choice="lowest_sufficient"):
         if row.get("item") in policy.material_allowlist:
             held[row["item"]] = held.get(row["item"], 0) + row.get("count", 0)
     materials = [m for m in policy.material_allowlist if held.get(m, 0) > 0]
-    supply = max(0, sum(held.values()) - policy.reserve_blocks)
+    # Scaffolding is chosen per placed cell by the planner (scaffold_supply), never by
+    # order: it needs support from below or a chain of at most 6 from one.
+    scaffold_held = sum(
+        row.get("count", 0)
+        for row in inventory
+        if row.get("item") in policy.scaffold_materials
+    )
+    supply = max(0, sum(held.values()) + scaffold_held - policy.reserve_blocks)
     cells = set(map(tuple, protected)) | set(policy.protected_positions)
     # Zero supply is a price, not a toggle: with nothing to place the planner must not
     # explore place edges it cannot pay for (502 plans ran out at 4,000 nodes, run
@@ -191,6 +198,7 @@ def edit_payload(policy, inventory, protected, tool_choice="lowest_sufficient"):
         "break_budget": policy.break_budget,
         "place_budget": policy.place_budget,
         "place_supply": supply,
+        **({"scaffold_supply": scaffold_held} if scaffold_held else {}),
         "protected": sorted([int(v) for v in p] for p in cells),
         "costly": [[*p, BUILD_BREAK_COST] for p in sorted(policy.costly_positions)],
         "protected_blocks": list(policy.protected_blocks),
@@ -281,6 +289,7 @@ def step_plan(report):
         tuple(_point(p) for p in report["places"]),
         report["kind"],
         _point(report["exit"]) if report.get("exit") is not None else None,
+        tuple(_point(p) for p in report.get("scaffold", ())),
     )
 
 
