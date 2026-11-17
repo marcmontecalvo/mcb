@@ -59,3 +59,54 @@ def test_planner_reached_with_a_failing_arrival_check_ends_the_goto_not_idles(tm
     finally:
         controller.close()
         memory.close()
+
+
+def test_a_body_on_a_pond_rim_plans_from_the_rim_not_the_water_surface(tmp_path):
+    # run 20261117T040459442702Z: the body stood on a pond's dirt rim with its
+    # centre over the water. The swim fallback took the water surface (a block
+    # lower) before the rim's support was checked, so every plan started inside
+    # the rim block and the motor refused each edge for 100 s.
+    from mclab.movement_policy import MovementPolicy
+    from mclab.route_types import RouteResult
+
+    cells = floor_map([(x, z) for x in range(-1, 4) for z in (-1, 0)])
+    for x in range(-1, 4):
+        for y in (-2, -1):
+            water = {"block": "minecraft:water", "fluid": "minecraft:water"}
+            cells[x, y, 1] = {
+                "position": [x, y, 1],
+                **water,
+                "properties": {"level": "0"},
+                "collision_boxes": [],
+            }
+        cells[x, -3, 1] = {
+            "position": [x, -3, 1],
+            "block": "minecraft:stone",
+            "collision_boxes": [[0, 0, 0, 1, 1, 1]],
+        }
+        for y in range(0, 5):
+            cells[x, y, 1] = {
+                "position": [x, y, 1],
+                "block": "minecraft:air",
+                "collision_boxes": [],
+            }
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController(
+        (1, 1, 0), memory, radius=0, movement_policy=MovementPolicy(allow_swim=True)
+    )
+
+    class Search:
+        start = (1, 1, 0)
+
+        def advance(self, **_):
+            return RouteResult("reached", ((1, 1, 0),), 0, 0, "body planner reached")
+
+    try:
+        controller.search = Search()
+        seen = observation(cells, x=1.5)
+        seen["body"]["position"] = [1.5, 1, 1.05]  # hitbox 0.75..1.35 rests on z=0
+        controller.decide(seen, native=True)
+        assert controller.search is not None and controller.search.start == (1, 1, 0)
+    finally:
+        controller.close()
+        memory.close()

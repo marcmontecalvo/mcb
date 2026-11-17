@@ -996,13 +996,18 @@ class SegmentedController(NavigationController):
         height = (
             round(p[1] * 2) / 2 if self.movement_policy.allow_shapes else round(p[1])
         )
+        node = self._stance_node(p, height)
+        # The water surface only when no block holds the body: on a pond's rim
+        # with its centre over the water, the surface (a block lower) put the
+        # start inside the rim block, and every route from it was refused
+        # (run 20261117T040459442702Z, 100 s trapped at (-19, 64, 72)).
         if self.movement_policy.allow_swim and not collision_geometry.standable(
-            self._known_cells(), (math.floor(p[0]), height, math.floor(p[2]))
+            self._known_cells(), node
         ):
             water_height = water_movement.surface_height(self._known_cells(), p)
             if water_height is not None:
                 height = water_height
-        node = self._stance_node(p, height)
+                node = self._stance_node(p, height)
         if self.terrain is not None:
             command = self.terrain.decide(observation, self._fresh(observation["tick"]))
             # An issued placement may succeed before confirmation is complete.
