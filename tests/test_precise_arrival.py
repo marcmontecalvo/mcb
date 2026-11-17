@@ -110,3 +110,41 @@ def test_a_body_on_a_pond_rim_plans_from_the_rim_not_the_water_surface(tmp_path)
     finally:
         controller.close()
         memory.close()
+
+
+def test_a_body_on_a_stair_edge_plans_from_the_step_half_a_block_below(tmp_path):
+    # run 20261117T071227173616Z: the body's feet were on a stair's low step
+    # (y+0.5) with its centre over the next column, whose own stance is the lower
+    # stair's high half, half a block down. Planning from the centre column at
+    # y+0.5 was "unreachable, 0 expanded" for 4 minutes; from y it took 23 nodes.
+    from mclab.movement_policy import MovementPolicy
+    from mclab.route_types import RouteResult
+
+    cells = floor_map([(x, z) for x in range(-1, 4) for z in range(-1, 3)])
+    stair = {
+        "block": "minecraft:birch_stairs",
+        "properties": {"facing": "north", "half": "bottom", "shape": "straight"},
+        "collision_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]],
+    }
+    cells[1, 0, 1] = {"position": [1, 0, 1], **stair}  # stance (1,1,1)
+    cells[1, 1, 0] = {"position": [1, 1, 0], **stair}  # low step top at 1.5
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController(
+        (1, 1, 3), memory, radius=0, movement_policy=MovementPolicy(allow_shapes=True)
+    )
+
+    class Search:
+        start = (1, 1, 1)
+
+        def advance(self, **_):
+            return RouteResult("reached", ((1, 1, 1),), 0, 0, "body planner reached")
+
+    try:
+        controller.search = Search()
+        seen = observation(cells, x=1.5)
+        seen["body"]["position"] = [1.5, 1.5, 1.2]  # hitbox 0.9..1.5 on the step
+        controller.decide(seen, native=True)
+        assert controller.search is not None and controller.search.start == (1, 1, 1)
+    finally:
+        controller.close()
+        memory.close()

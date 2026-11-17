@@ -788,6 +788,13 @@ class SegmentedController(NavigationController):
             top = (node[0], height + 0.5, node[2])
             if self._node_supported(cells, top):
                 return top
+            # Feet on a neighbour's low step, centre over a column whose own stance
+            # is half a block down (a stair's high half): plan from there. From the
+            # step's height every plan was "unreachable, 0 expanded" for 4 minutes
+            # (run 20261117T071227173616Z); from half a block lower, 23 nodes.
+            low = (node[0], height - 0.5, node[2])
+            if self._node_supported(cells, low):
+                return low
         return min(
             supported,
             key=lambda c: (math.hypot(c[0] + 0.5 - p[0], c[2] + 0.5 - p[2]), c),
