@@ -518,7 +518,8 @@ final class RouteMotor {
         if (stalled > 30) { stop("route_no_progress"); return Input.STOP; }
         // Scaffolding: a body above a cell that is not descending stands on its top plate, so going down inside a
         // column needs sneak held (Baritone has no scaffolding; vanilla ScaffoldingBlock.getCollisionShape).
-        boolean sneak = !up && (geometry.scaffolding(source) || geometry.scaffolding(target));
+        // Only straight down: walking through or out of scaffolding level never sneaks (a crouched body crawls).
+        boolean sneak = vertical && target.y < source.y && (geometry.scaffolding(source) || geometry.scaffolding(target));
         if (vertical) {
             boolean off = target.distance(pose) > (index == route.size() - 1 ? arrivalRadius : .35);
             return new Input(off && Math.abs(turn) <= 45 ? .3 : 0, off ? yaw : 0, up, false, sneak);

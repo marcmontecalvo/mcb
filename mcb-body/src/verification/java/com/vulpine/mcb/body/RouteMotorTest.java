@@ -293,6 +293,9 @@ public final class RouteMotorTest {
         var descent=down.tick(new RouteMotor.Pose(3.5,3,.5,0,0,0,true,20),geometry(real));
         check(down.active() && descent.sneak() && !descent.jump() && !descent.sprint(),"descending inside a scaffolding column holds sneak");
         check(!climber.tick(new RouteMotor.Pose(3.5,3.0,.5,0,0,0,false,20),g).sneak(),"a ladder descent does not sneak");
+        var through=new RouteMotor("through",List.of(new RouteMotor.Point(2,1,0),new RouteMotor.Point(3,1,0),new RouteMotor.Point(4,1,0)),policy);
+        var walk=through.tick(new RouteMotor.Pose(2.5,1,.5,0,0,-90,true,20),geometry(real));
+        check(!walk.sneak() && walk.forward()>0,"walking level through a scaffolding cell does not sneak");
         check(geometry(real).standable(new RouteMotor.Point(3,1,0)),"a column cell is enterable from the side despite its sensed posts");
     }
     private static final double DIAGONAL_YAW=-45;
