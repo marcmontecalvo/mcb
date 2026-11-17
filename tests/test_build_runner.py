@@ -1,3 +1,5 @@
+import contextlib
+
 import pytest
 from test_build_plan import (
     AIR,
@@ -306,26 +308,53 @@ def test_scaffold_never_goes_into_template_cells():
     assert bp._scaffold_pos((1, 3, 1), world, BLOCKS, reserved) is None
 
 
-def test_survey_walks_the_perimeter_and_reports_unknown_cells():
+def test_survey_walks_only_toward_cells_the_sensor_has_not_delivered():
     body, t = small_house_body()
+    seen = {"far": False}
+    known = body.world
+    # the far half of the footprint stays unknown until the body walks near it
+    body.world = lambda x, y, z: (
+        None if x >= 5 and not seen["far"] else known(x, y, z)
+    )
+    walked, placing, mode = [], [], {"placing": True}
+
+    @contextlib.contextmanager
+    def no_placing(**_):
+        mode["placing"] = False
+        yield
+        mode["placing"] = True
+
+    body.no_placing = no_placing
+
+    def walk_to(p, radius=1.5):
+        walked.append(p)
+        placing.append(mode["placing"])
+        seen["far"] = seen["far"] or p[0] >= 5
+        return True
+
+    body.walk_to = walk_to
     report = br.run_build(t, body, BLOCKS, survey=True)
-    targets = {target for target, _ in body.stance_calls}
-    corners = {(0, 0, 0), (6, 0, 0), (0, 0, 6), (6, 0, 6)}
-    assert corners <= targets and report.surveyed == len(br.perimeter(t))
+    # perimeter order starts at the near corner, which is within SURVEY_NEAR too;
+    # the walking stops as soon as nothing is unknown
+    assert walked and walked == br.perimeter(t)[: len(walked)]
+    assert any(p[0] >= 5 for p in walked) and report.surveyed == len(walked)
+    assert not any(placing)  # a survey walk never builds its way to a point
     assert report.stop == "done" and report.unknown == []
-    short = FakeBody(flat_world(-2, 4), {k: 9 for k in BLOCKS}, BLOCKS)
-    cut = br.run_build(t, short, BLOCKS)
-    assert cut.unknown and cut.counts["unknown"] == len(cut.unknown)
 
 
-def test_survey_prefers_walk_to_when_the_body_has_it():
+def test_survey_does_not_walk_when_the_footprint_is_already_delivered():
     body, t = small_house_body()
     walked = []
     body.walk_to = lambda p, radius=1.5: walked.append(p) or True
-    br.run_build(t, body, BLOCKS, survey=True)
-    assert walked == br.perimeter(t) and not any(
-        c[0] in walked for c in body.stance_calls
-    )
+    report = br.run_build(t, body, BLOCKS, survey=True)
+    assert walked == [] and report.surveyed == 0 and report.stop == "done"
+
+
+def test_unknown_cells_are_reported_when_the_survey_cannot_see_them():
+    t = small_house_body()[1]
+    short = FakeBody(flat_world(-2, 4), {k: 9 for k in BLOCKS}, BLOCKS)
+    cut = br.run_build(t, short, BLOCKS)
+    assert cut.unknown and cut.counts["unknown"] == len(cut.unknown)
 
 
 def test_small_house_fixture_builds_with_the_kit_of_its_material_list():

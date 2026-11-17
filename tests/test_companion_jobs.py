@@ -46,7 +46,8 @@ def test_empty_inventory_to_a_finished_small_template(tmp_path):
     assert "Craft:minecraft:stone_axe" in report.starter.done
     assert "Craft:minecraft:wooden_axe" not in report.starter.done
     assert report.gather.done[:2] == ["Equip:", "Gather:minecraft:oak_log"]
-    assert report.build.surveyed > 0 and report.build.progress() == 1.0
+    # every footprint cell is delivered already: no survey walk is needed
+    assert report.build.surveyed == 0 and report.build.progress() == 1.0
     assert body.w[(4, 0, 4)] == PLANKS and body.w[(6, 1, 4)] == COBBLE
 
 

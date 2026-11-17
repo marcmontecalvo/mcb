@@ -49,6 +49,7 @@ from mclab.progress_watch import (
     ProgressWatch,
     StallError,
     WatchedBody,
+    no_placing,
     walking_with_edits,
 )
 
@@ -122,6 +123,7 @@ class BuildReport:
 
 SURVEY_STEP = 6
 SURVEY_RADIUS = 3.0
+SURVEY_NEAR = 24  # a perimeter point is walked only with an unseen cell this close
 
 
 def perimeter(template: bp.Template, step: int = SURVEY_STEP) -> list[Pos]:
@@ -148,11 +150,25 @@ def survey_footprint(template: bp.Template, body: BuildBody) -> int:
     before building (B4). Uses ``body.walk_to`` when the body has it, else a
     ``goto_stance`` with a short reach. Failures are ignored: ``unknown`` cells
     simply stay unknown and defer their placements."""
+    # Only cells the sensor has not delivered are worth a walk, and only perimeter
+    # points near them: the live sensor already covers a 64-block radius, and one
+    # point two blocks over a pond (only a bridge reaches it) held run
+    # 20261117T031430547551Z for 100 s of node-limit plans before any building.
+    # A survey walk never builds its way there (no_placing).
+    unknown = bp.diff(template, body.world).unknown
     walk = getattr(body, "walk_to", None)
     done = 0
     for pt in perimeter(template):
-        ok = walk(pt) if walk else body.goto_stance(pt, SURVEY_RADIUS)
+        if not unknown:
+            break
+        if not any(
+            _dist2(pt[::2], u[::2]) <= SURVEY_NEAR * SURVEY_NEAR for u in unknown
+        ):
+            continue
+        with no_placing(body):
+            ok = walk(pt) if walk else body.goto_stance(pt, SURVEY_RADIUS)
         done += bool(ok)
+        unknown = bp.diff(template, body.world).unknown
     return done
 
 
