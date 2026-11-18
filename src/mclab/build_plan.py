@@ -496,8 +496,10 @@ def _scaffold_pos(
     return None
 
 
-# ponytail: built from the ground within reach; taller needs placing from inside
-MAX_TOWER = 8
+# A tower from the ground to one below the cell. 8 left the gable-end lanterns and
+# the gable's top stair of the large house (10-13 up) without a stance (run
+# 20261118T070135016043Z); a scaffolding column may be any height, a stack is 64.
+MAX_TOWER = 16
 
 
 def tower_cells(pos: Pos, world, blocks: dict, reserved=frozenset()) -> list[Pos]:

@@ -670,3 +670,10 @@ def test_a_cell_given_up_on_does_not_keep_the_door_out():
     assert [a.pos for a in held] == [(2, 0, 0)]
     acts = bp.next_actions(t, at(flat_world()), BLOCKS, inv, skipped={(2, 0, 0)})
     assert (0, 0, 0) in [a.pos for a in acts]  # the runner drops the skipped one
+
+
+def test_a_tower_reaches_a_gable_lantern_eleven_up():
+    # run 20261118T070135016043Z: gable-end chains 11 up had no stance (towers <= 8)
+    w = flat_world(hi=16)
+    cells = bp.tower_cells((3, 11, 3), at(w), BLOCKS)
+    assert cells and cells[0][1] == 0 and cells[-1][1] == 10
