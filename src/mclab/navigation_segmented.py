@@ -837,6 +837,12 @@ class SegmentedController(NavigationController):
             low = (node[0], height - 0.5, node[2])
             if self._node_supported(cells, low):
                 return low
+            # Feet on the sliver of a neighbour stair's low step whose high half fills
+            # that column: plan from the stair top, half a block up. From the empty
+            # column every plan was "unreachable, 0 expanded" until the build stalled
+            # on the roof edge (run 20261118T060652726798Z).
+            up = [(c[0], height + 0.5, c[2]) for c in touched]
+            supported = [c for c in up if self._node_supported(cells, c)]
         return min(
             supported,
             key=lambda c: (math.hypot(c[0] + 0.5 - p[0], c[2] + 0.5 - p[2]), c),

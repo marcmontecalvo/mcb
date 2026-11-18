@@ -150,6 +150,45 @@ def test_a_body_on_a_stair_edge_plans_from_the_step_half_a_block_below(tmp_path)
         memory.close()
 
 
+def test_a_body_on_a_stair_sliver_over_a_drop_plans_from_the_stair_top(tmp_path):
+    # run 20261118T060652726798Z: the hitbox rested 0.12 on a roof stair's low step,
+    # centre over open air; the stair's high half fills its own column, so no
+    # stance was found and every plan from the air was "unreachable, 0 expanded".
+    from mclab.movement_policy import MovementPolicy
+    from mclab.route_types import RouteResult
+
+    cells = floor_map([(x, z) for x in range(-1, 4) for z in range(-1, 3)])
+    for x in range(-1, 4):
+        cells[x, 0, 0] = {"position": [x, 0, 0], "block": "minecraft:air"}
+        cells[x, -1, 0] = {"position": [x, -1, 0], "block": "minecraft:air"}
+    stair = {
+        "block": "minecraft:oak_stairs",
+        "properties": {"facing": "south", "half": "bottom", "shape": "straight"},
+        "collision_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0.5, 1, 1, 1]],
+    }
+    cells[1, 1, 1] = {"position": [1, 1, 1], **stair}  # on the floor; top at 2
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController(
+        (1, 2, 2), memory, radius=0, movement_policy=MovementPolicy(allow_shapes=True)
+    )
+
+    class Search:
+        start = (1, 2, 1)
+
+        def advance(self, **_):
+            return RouteResult("reached", ((1, 2, 1),), 0, 0, "body planner reached")
+
+    try:
+        controller.search = Search()
+        seen = observation(cells, x=1.5)
+        seen["body"]["position"] = [1.5, 1.5, 0.82]  # hitbox to z 1.12, the low step
+        controller.decide(seen, native=True)
+        assert controller.search is not None and controller.search.start == (1, 2, 1)
+    finally:
+        controller.close()
+        memory.close()
+
+
 def test_a_body_on_a_lily_pad_plans_from_the_pads_own_height(tmp_path):
     # run 20261117T221236234752Z: feet at y+0.094 on a lily pad were rounded to
     # the block, which had no floor, and every plan was refused for a minute.
