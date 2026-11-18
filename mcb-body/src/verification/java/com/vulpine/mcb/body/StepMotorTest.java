@@ -40,6 +40,10 @@ public final class StepMotorTest {
         pp.add("places",JsonParser.parseString("[[0,1,0]]")); pp.addProperty("kind","pillar");
         pillar.getAsJsonObject("terrain_policy").addProperty("allow_pillar",true);
         if(!new StepMotor(pillar).active()) throw new AssertionError("valid pillar"); checks++;
+        // The exit may be a stair top or slab, half a block up (run 20261118T125548315616Z).
+        var stairExit=pillar.deepCopy(); stairExit.getAsJsonObject("plan").add("exit",JsonParser.parseString("[1,2.5,0]"));
+        if(!new StepMotor(stairExit).active()) throw new AssertionError("a pillar exit on a stair top"); checks++;
+        bad=pillar.deepCopy(); bad.getAsJsonObject("plan").add("exit",JsonParser.parseString("[1.5,2,0]")); reject(bad);
         // Holding only scaffolding: no solid block may be placed, a scaffolding cell may.
         bad=pillar.deepCopy(); bad.getAsJsonObject("terrain_policy").add("material_allowlist",JsonParser.parseString("[]")); reject(bad);
         var scaffoldOnly=bad.deepCopy(); scaffoldOnly.getAsJsonObject("plan").add("scaffold",JsonParser.parseString("[[0,1,0]]"));

@@ -114,6 +114,8 @@ final class StepMotor {
     private record Operation(boolean place, BlockPos point) { }
     private final String id, kind;
     private final BlockPos source, target, exit;
+    /** The exit's feet height: a stair top or slab is a half step (76.5), not a block. */
+    private final double exitY;
     private final List<Operation> operations;
     private final Set<BlockPos> protectedPositions;
     private final Set<String> protectedBlocks, materials;
@@ -148,7 +150,11 @@ final class StepMotor {
         var policy = request.getAsJsonObject("terrain_policy");
         source = point(plan.getAsJsonArray("source")); target = point(plan.getAsJsonArray("target"));
         kind = plan.get("kind").getAsString();
-        exit = plan.has("exit") && !plan.get("exit").isJsonNull() ? point(plan.getAsJsonArray("exit")) : null;
+        // The exit may stand on a stair top or slab (y 76.5): a run stalled on the roof with
+        // every pillar refused "step_point" (run 20261118T125548315616Z).
+        var exitArray = plan.has("exit") && !plan.get("exit").isJsonNull() ? plan.getAsJsonArray("exit") : null;
+        exitY = exitArray == null ? 0 : feetHeight(exitArray);
+        exit = exitArray == null ? null : floorPoint(exitArray);
         bridge = bool(policy,"allow_bridge"); reserve = integer(policy,"reserve_blocks",0,128);
         tickLimit = integer(policy,"interaction_tick_limit",1,1000);
         protectedBlocks = strings(policy.getAsJsonArray("protected_blocks"));
@@ -219,6 +225,21 @@ final class StepMotor {
         if(v==null || !v.isJsonPrimitive() || !v.getAsJsonPrimitive().isNumber() || v.getAsDouble()!=v.getAsInt()
                 || v.getAsInt()<low || v.getAsInt()>high) throw new IllegalArgumentException("step_integer");
         return v.getAsInt();
+    }
+    /** A stance point: whole x and z, feet y on any half or finer step of a block. */
+    static double feetHeight(JsonArray a) {
+        if (a==null || a.size()!=3) throw new IllegalArgumentException("step_point");
+        var v=a.get(1);
+        if(!v.isJsonPrimitive() || !v.getAsJsonPrimitive().isNumber() || !Double.isFinite(v.getAsDouble()))
+            throw new IllegalArgumentException("step_point");
+        double y=v.getAsDouble();
+        if(y<-2048 || y>2048) throw new IllegalArgumentException("step_height");
+        return y;
+    }
+    static BlockPos floorPoint(JsonArray a) {
+        var cell=new JsonArray();
+        cell.add(a.get(0)); cell.add(Math.floor(feetHeight(a))); cell.add(a.get(2));
+        return point(cell);
     }
     static BlockPos point(JsonArray a) {
         if (a==null || a.size()!=3) throw new IllegalArgumentException("step_point");
@@ -392,7 +413,7 @@ final class StepMotor {
                 && (exit.getY()==target.getY()+1 || exit.getY()==target.getY());
         if(pillar && (exit==null || !(climbOn
                 ? geometry.clear(exit.getX()+.5,exit.getZ()+.5,exit.getY(),exit.getY()+1.8)
-                : geometry.standable(new RouteMotor.Point(exit.getX(),exit.getY(),exit.getZ())))))
+                : geometry.standable(new RouteMotor.Point(exit.getX(),exitY,exit.getZ())))))
             return stopInput(tick,"native_pillar_exit_changed");
         if(index>=operations.size()) {
             if(downward) {
