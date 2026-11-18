@@ -155,7 +155,7 @@ final class RoutePlanner {
 
     int expanded() { return expanded; }
     /** The unweighted search estimate from node (parity tool and tests). */
-    double estimate(Node node) { return Math.max(remaining(node), digAware() ? field(node) : 0); }
+    double estimate(Node node) { return heuristic(node) / (heuristicWeight == 0 ? 1 : heuristicWeight); }
 
     private boolean canRecoverStart() {
         return edits != null && edits.stepEdits && !edits.breakCosts.isEmpty()
@@ -503,7 +503,9 @@ final class RoutePlanner {
             return ticks ? unknownPenalty * (WALK * horizontal(node) + vertical(node, false, false)) : unknownPenalty * distance(node);
         double h = remaining(node);
         if (digAware()) h = Math.max(h, field(node));
-        if (riseAware()) h = Math.max(h, riseEstimate(node));
+        boolean gaps = gapReady();
+        if (riseAware() || gaps) h = Math.max(h, riseEstimate(node));
+        if (gaps) h = Math.max(h, gapEstimate(node));
         return (heuristicWeight == 0 ? 1 : heuristicWeight) * h;
     }
 
@@ -527,12 +529,14 @@ final class RoutePlanner {
     }
     private double riseRate() { return baritoneSearch ? COST_HEURISTIC : SPRINT; }
     private double riseEstimate(Node node) {
-        if (riseCols == null) riseInit();
+        if (riseCols == null) { if (gapReady()) gapInit(); else riseInit(); }
         int k = riseGy - (int) Math.floor(node.y + EPS);
         if (k <= 0) return 0;
         double own = riseCost(k, depth.getOrDefault(node, 0)) + riseRate() * horizontal(node);
         int i = node.x - riseX0, j = node.z - riseZ0;
-        double cols = i < 0 || j < 0 || i >= riseW || j >= riseD ? 0 : riseCols[i * riseD + j];
+        double cols = i < 0 || j < 0 || i >= riseW || j >= riseD ? 0
+                : gapLayers > 0 ? riseCols[(i * riseD + j) * gapLayers + Math.min(depth.getOrDefault(node, 0), GAP_DEPTH)]
+                : riseCols[i * riseD + j];
         return JUMP * (goal.y - node.y) + Math.min(own, cols);
     }
     /** Places needed in a column of the base terrain: 0 where it may already reach goal height
@@ -578,6 +582,143 @@ final class RoutePlanner {
                 if (v < riseCols[a * riseD + b]) { riseCols[a * riseD + b] = v; queue.add(new double[]{v, a, b}); }
             }
         }
+    }
+
+    // --- gap bound: open air at the goal's height is crossed only on placed blocks ---
+    // A 4-block bridge off a tower top cost ~274 while the walk bound said ~14: the search flooded the ground
+    // under the tower before bridging (scaffold course run 20261118T011847445077Z, plan-4). A body at goal height
+    // stays there over columns with support at that height (any floor, climbable or water below, or unknown), pays
+    // at least one place for each column without, or leaves the level, after which the rise bound holds.
+    private double[] gapCols;
+    private boolean gapAware() {
+        return ticks && reach == null && edits != null && (edits.allowPlace || edits.allowBridge) && integral(goal.y);
+    }
+    private Boolean gapOn;
+    /** The gap field is worth building: places allowed and a straight walk at goal height would need some, or the
+     *  goal is above the start (the field then also serves as the rise bound, with edit depth). */
+    private boolean gapReady() {
+        if (gapOn == null) gapOn = gapAware() && (riseAware() || linePlaces() > 0);
+        return gapOn;
+    }
+    private boolean levelSupport(int x, int z, int gy) {
+        var below = baseCell(x, gy - 1, z);
+        var feet = baseCell(x, gy, z);
+        if (below == null || feet == null) return true;  // unknown: anything may stand there
+        return !boxes(below).isEmpty() || climbable(below) || !dry(below) || !boxes(feet).isEmpty() || climbable(feet);
+    }
+    private double gapEstimate(Node node) {
+        if (Math.floor(node.y + EPS) != Math.floor(goal.y + EPS)) return 0;
+        if (gapCols == null) gapInit();
+        int i = node.x - riseX0, j = node.z - riseZ0;
+        int d = Math.min(depth.getOrDefault(node, 0), GAP_DEPTH);
+        return i < 0 || j < 0 || i >= riseW || j >= riseD ? 0 : gapCols[(i * riseD + j) * gapLayers + d];
+    }
+    static final int GAP_MARGIN = 24, GAP_MARGIN_MAX = 64, GAP_DEPTH = 6;  // gap field box; edit depths tracked exactly up to 6
+    private int gapLayers;
+    /** Places a straight walk from start to goal at goal height would need: the columns on the line without
+     *  support (the start's own excluded). 0: the field is skipped, its bound being 0 at best on such a line. */
+    private int linePlaces() {
+        int gy = (int) Math.floor(goal.y + EPS), steps = Math.max(Math.abs(goal.x - start.x), Math.abs(goal.z - start.z));
+        int count = 0, lx = start.x, lz = start.z;
+        for (int t = 1; t <= steps; t++) {
+            int x = (int) Math.round(start.x + (goal.x - start.x) * (double) t / steps);
+            int z = (int) Math.round(start.z + (goal.z - start.z) * (double) t / steps);
+            if (x == lx && z == lz) continue;
+            lx = x; lz = z;
+            if (!levelSupport(x, z, gy)) count++;
+        }
+        return count;
+    }
+    private void gapInit() {
+        // The box edge prices a detour out to it and back, so the box must be wide enough that the detour costs
+        // more than placing along the line: a 4-block bridge (~270 ticks) needs ~40 blocks of margin.
+        double rate = riseRate();
+        int onLine = linePlaces(), margin = GAP_MARGIN;
+        if (onLine > 0) {
+            double line = riseCost(onLine, 0) + BRIDGE_PLACE * onLine;
+            margin = Math.max(margin, Math.min(GAP_MARGIN_MAX, (int) Math.ceil(line / (2 * rate)) + 2));
+        }
+        if (riseAware()) margin = Math.max(margin, RISE_MARGIN);
+        riseGy = (int) Math.floor(goal.y + EPS);
+        riseX0 = Math.min(start.x, goal.x) - margin;
+        riseZ0 = Math.min(start.z, goal.z) - margin;
+        riseW = Math.min(Math.max(start.x, goal.x) + margin - riseX0 + 1, 160);
+        riseD = Math.min(Math.max(start.z, goal.z) + margin - riseZ0 + 1, 160);
+        int gy = riseGy, n = riseW * riseD, layers = GAP_DEPTH + 1;
+        gapLayers = layers;
+        // Two levels per column, each at edit depths 0..GAP_DEPTH (edits already on the route: each further edit
+        // pays EDIT_CHAIN per edit before it), searched back from the goal. L: standing at goal height over the
+        // column; B: below it. L to a neighbour's L walks, and places the neighbour's support where it has none
+        // (EDIT_STEP + PLACE, + BRIDGE_PLACE over nothing, + the chain); L drops to B free; B walks to B; B rises
+        // to L in its column by the places its floor is short (riseCost). The box edge costs the walk on to the goal.
+        // Depths past GAP_DEPTH count as GAP_DEPTH, which only lowers the chain: still a lower bound.
+        var place = new double[n];
+        var need = new int[n];
+        var level = new double[n * layers];
+        var below = new double[n * layers];
+        java.util.Arrays.fill(level, Double.POSITIVE_INFINITY);
+        java.util.Arrays.fill(below, Double.POSITIVE_INFINITY);
+        var queue = new PriorityQueue<double[]>((a, b) -> Double.compare(a[0], b[0]));
+        for (int i = 0; i < riseW; i++) for (int j = 0; j < riseD; j++) {
+            int x = riseX0 + i, z = riseZ0 + j, k = i * riseD + j;
+            if (levelSupport(x, z, gy)) place[k] = 0;
+            else {
+                var under = baseCell(x, gy - 2, z);
+                place[k] = EDIT_STEP + PLACE + (under != null && boxes(under).isEmpty() ? BRIDGE_PLACE : 0);
+            }
+            need[k] = riseNeed(x, z);
+            boolean edge = i == 0 || j == 0 || i == riseW - 1 || j == riseD - 1;
+            boolean goalCol = Math.hypot(x - goal.x, z - goal.z) <= radius + EPS;
+            // Beyond the edge anything may hold: from there only the walk on to the goal is certain.
+            double on = goalCol ? 0 : rate * Math.max(0, Math.hypot(x - goal.x, z - goal.z) - radius);
+            for (int d = 0; d < layers; d++) {
+                int s = k * layers + d;
+                if (goalCol || edge) { level[s] = on; queue.add(new double[]{on, s, 0}); }
+                if (edge) { below[s] = on; queue.add(new double[]{on, s, 1}); }
+            }
+        }
+        while (!queue.isEmpty()) {
+            var q = queue.poll();
+            int s = (int) q[1], k = s / layers, d = s % layers; boolean low = q[2] == 1;
+            double v = q[0];
+            if (v > (low ? below[s] : level[s])) continue;
+            if (low) {  // B(k,d): L(k,d) drops into it
+                if (v < level[s]) { level[s] = v; queue.add(new double[]{v, s, 0}); }
+            } else {    // L(k,d): B(k,e) rises into it with e + need = d (or more, once clamped)
+                int up = need[k];
+                for (int e = 0; e < layers; e++) {
+                    if (Math.min(e + up, GAP_DEPTH) != d) continue;
+                    double r = v + riseCost(up, e);
+                    int t = k * layers + e;
+                    if (r < below[t]) { below[t] = r; queue.add(new double[]{r, t, 1}); }
+                }
+            }
+            int i = k / riseD, j = k % riseD;
+            for (int di = -1; di <= 1; di++) for (int dj = -1; dj <= 1; dj++) {
+                int a = i + di, b = j + dj;
+                if ((di == 0 && dj == 0) || a < 0 || b < 0 || a >= riseW || b >= riseD) continue;
+                int c = a * riseD + b;
+                double walk = rate * (di != 0 && dj != 0 ? SQRT2 : 1);
+                if (low || place[k] == 0) {  // same depth: a walk
+                    int t = c * layers + d;
+                    double w = v + walk;
+                    if (low ? w < below[t] : w < level[t]) {
+                        if (low) below[t] = w; else level[t] = w;
+                        queue.add(new double[]{w, t, low ? 1 : 0});
+                    }
+                    continue;
+                }
+                // L(c,e) walks into k placing its support at depth e, reaching depth min(e+1, GAP_DEPTH) = d.
+                for (int e = Math.max(0, d - 1); e <= d; e++) {
+                    if (Math.min(e + 1, GAP_DEPTH) != d) continue;
+                    int t = c * layers + e;
+                    double w = v + walk + place[k] + EDIT_CHAIN * e;
+                    if (w < level[t]) { level[t] = w; queue.add(new double[]{w, t, 0}); }
+                }
+            }
+        }
+        gapCols = level;
+        riseCols = below;
     }
 
     // --- dig-aware heuristic: a relaxed cell graph searched backward from the goal ---

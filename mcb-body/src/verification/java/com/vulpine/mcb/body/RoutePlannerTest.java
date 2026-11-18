@@ -525,6 +525,16 @@ public final class RoutePlannerTest {
         check(up.status().equals("reached") && up.expanded() < 100,
                 "a goal straight up from a wide floor pillars without flooding the floor (" + up.status() + " " + up.expanded() + ")");
 
+        // Across open air at height: each column on the way needs a placed block, so the search bridges at once
+        // instead of flooding the floor below (scaffold course plan-4: 5600 nodes for a 4-block bridge).
+        var tall = floor(60);
+        for (int y = 1; y <= 3; y++) tall.put(new Key(30, y, 30), stone());
+        var across = new RoutePlanner((x, y, z) -> tall.get(new Key(x, y, z)), new RoutePlanner.Node(30, 4, 30),
+                new RoutePlanner.Node(34, 4, 30), 0, 3, true).withPolicy(true, true, true, true, true, 1)
+                .withMoves(false, true).withEdits(scaffoldPolicy(64)).search(100_000);
+        check(across.status().equals("reached") && across.expanded() < 200,
+                "a goal across open air at height bridges without flooding the floor (" + across.status() + " " + across.expanded() + ")");
+
         // Bridge off a scaffolding tower: the walkway is scaffolding while its distance is at most 6, solid beyond.
         var world = new HashMap<Key, Map<String, Object>>();
         for (int x = -2; x <= 14; x++) for (int z = -3; z <= 3; z++) for (int y = -1; y <= 6; y++)
