@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -131,8 +131,10 @@ class _Storage:
         boxes: Iterable[Mapping[str, Any]],
         k: Knowledge,
         targets: Mapping[str, int],
+        keep: Collection[str] = (),
     ) -> None:
         self.targets = targets
+        self.keep = frozenset(keep)
         self.tasks = tasks
         self.k = k
         self.inv: Counter[str] = Counter(held)
@@ -179,6 +181,8 @@ class _Storage:
         return reserve
 
     def is_depositable(self, item: str) -> bool:
+        if item in self.keep:
+            return False
         info = self.k.items.get(item, {})
         return not (info.get("tool") or info.get("durability"))
 
@@ -391,10 +395,12 @@ def add_storage(
     boxes: Iterable[Mapping[str, Any]],
     knowledge: Knowledge,
     targets: Mapping[str, int] | None = None,
+    *,
+    keep: Collection[str] = (),
 ) -> StorageResult:
     """Insert withdrawals, deposits, batch splits and container placement.
 
     Container choice at the first deposit: a shulker box carried, then one stored in
     a known container (withdrawn first), then a known container, then a carried or
     already-crafted chest; else `needs_chest` (the caller adds a chest and re-plans)."""
-    return _Storage(tasks, held, boxes, knowledge, targets or {}).run()
+    return _Storage(tasks, held, boxes, knowledge, targets or {}, keep).run()

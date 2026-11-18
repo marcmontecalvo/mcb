@@ -92,6 +92,26 @@ def _storage_boxes(state: GatherState) -> list[dict]:
 
 GATHER_ENDS = ("stalled", "failed", "died")
 SHULKER = "minecraft:shulker_box"
+
+
+def _scaffold_topup(body, state: GatherState) -> dict[str, int]:
+    """{scaffolding: what brings the carried stack back to SCAFFOLD_STACK}, as far
+    as the chests hold it, or {}; asked only once it is down to half a stack."""
+    held = body.inventory().get(bp.SCAFFOLD_ITEMS[0], 0)
+    stored = sum(c.get(bp.SCAFFOLD_ITEMS[0], 0) for c in state.containers.values())
+    if held >= SCAFFOLD_STACK // 2 or stored <= 0:
+        return {}
+    return {bp.SCAFFOLD_ITEMS[0]: min(SCAFFOLD_STACK - held, stored)}
+
+
+def _keeping(needed, body) -> frozenset[str]:
+    """What a refill mid-build never deposits: the build's blocks, the temporary
+    blocks, food and shulker boxes. Run 20261118T023332974582Z stowed 51 scaffolding
+    in a refill's deposit and pillared dirt from afar for the rest of the build."""
+    keep = {*needed, *bp.SCAFFOLD_ITEMS, SHULKER}
+    return frozenset(keep | set(getattr(body, "foods", None) or {}))
+
+
 SCAFFOLD_STACK = 64
 KNOWLEDGE = ROOT / "knowledge"
 
@@ -378,6 +398,7 @@ def build_job(
         if refills >= MAX_REFILLS:
             return False
         refills += 1
+        keep = _keeping(needed, body)
         stage("refilling materials", refills, MAX_REFILLS)
         wanted = dict(shortfall)
         _stow_junk({**needed, **wanted}, body, knowledge, state, gather_options)
@@ -385,7 +406,7 @@ def build_job(
         # Every trip to the chests tops up the food carried (FOOD_KEEP). Food is
         # taken from the chests only, never hunted mid-build: with none stored the
         # body notes it and builds on (live, a player can hand it some).
-        food = _food_topup(body, state)
+        food = {**_food_topup(body, state), **_scaffold_topup(body, state)}
         if food:
             _take(food, body, knowledge, state, gather_options)
             if not wanted:
@@ -411,6 +432,7 @@ def build_job(
             starter_tools=True,
             storage=_storage_boxes(state),
             kit=gather_options,
+            keep=keep,
         )
         outcome = run_gather(
             fresh,
@@ -422,6 +444,7 @@ def build_job(
             explore_cap=0,  # craft and cut what is in sight; never leave the site
             storage=lambda: _storage_boxes(state),
             opts=gather_options,
+            keep=keep,
         )
         report.refills.append(outcome)
         held_now = body.inventory()

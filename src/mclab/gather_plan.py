@@ -1144,6 +1144,7 @@ def plan(
     spare_chest: bool = False,
     starter_tools: bool = False,
     kit: GatherOptions | None = None,
+    keep: Collection[str] = (),  # items a deposit never puts away
 ) -> PlanResult:
     """Ordered tasks that turn `inventory` into `targets`; unreachable parts are
     reported in `missing` instead of raising.
@@ -1191,11 +1192,11 @@ def plan(
         m.flex = frozenset(extra) - goal.keys()
         goal = {**goal, **{i: max(n, goal.get(i, 0)) for i, n in extra.items()}}
         ex, ordered = _best_expansion(m, goal)
-    done = add_storage(ordered, counts, boxes, knowledge, goal)
+    done = add_storage(ordered, counts, boxes, knowledge, goal, keep=keep)
     if done.needs_chest and with_chest:
         return _chest_first(
             targets, inventory, knowledge, stations, boxes, food_target,
-            executable_stations, known_blocks, prefer, starter_tools, kit,
+            executable_stations, known_blocks, prefer, starter_tools, kit, keep,
         )  # fmt: skip
     missing = (*ex.missing, *([food_gap] if food_gap else ()))
     tasks = _starter_first(done.tasks) if starter_tools else done.tasks
@@ -1256,6 +1257,7 @@ def _chest_first(
     prefer,
     starter_tools=False,
     kit=None,
+    keep=(),
 ) -> PlanResult:
     """No container to deposit into: plan a chest on its own first, replay it to get
     the inventory and stations it leaves behind, and plan the job from there with
@@ -1269,6 +1271,7 @@ def _chest_first(
         "with_chest": False,
         "starter_tools": starter_tools,
         "kit": kit,
+        "keep": keep,
     }
     pre = plan({CHEST: 1}, inventory, knowledge, stations, **{**kw, "kit": None})
     replay = Replay(knowledge, inventory, stations, boxes)

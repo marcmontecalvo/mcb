@@ -237,3 +237,44 @@ def test_a_food_only_refill_takes_food_and_never_gathers(tmp_path):
     assert _food_topup(Hungry({}), stored) == {M + "cooked_beef": 3}
     assert _food_topup(Hungry({M + "bread": FOOD_KEEP}), stored) == {}
     assert _food_topup(Hungry({}), GatherState()) == {}
+
+
+def test_a_refill_gather_never_puts_the_builds_scaffolding_or_blocks_away():
+    # Run 20261118T023332974582Z: a refill's gather deposited the whole inventory,
+    # 51 scaffolding with it, and the build pillared dirt from afar from then on.
+    from mclab import gather_plan as gp
+    from mclab.companion_jobs import _keeping
+    from mclab.gather_tasks import Deposit
+
+    scaffolding = M + "scaffolding"
+    held = {scaffolding: 51, COBBLE: 64 * 20, M + "dirt": 64 * 14}
+    box = [{"kind": "chest", "pos": [2, 0, 2], "contents": {}}]
+
+    class Body:
+        foods = {M + "cooked_beef": {}}
+
+    keep = _keeping({COBBLE: 64}, Body())
+    plan = gp.plan({PLANKS: 64}, held, K, {}, storage=box, keep=keep)
+
+    put_away = {i for t in plan.tasks if isinstance(t, Deposit) for i, _ in t.items}
+    assert put_away and not put_away & {scaffolding, COBBLE}
+    assert {scaffolding, COBBLE, M + "cooked_beef"} <= keep
+
+
+def test_scaffolding_spent_mid_build_is_taken_back_from_the_chests():
+    from mclab.companion_jobs import SCAFFOLD_STACK, _scaffold_topup
+
+    scaffolding = M + "scaffolding"
+
+    class Body:
+        def __init__(self, held):
+            self.held = held
+
+        def inventory(self):
+            return {scaffolding: self.held}
+
+    state = GatherState(containers={(2, 0, 2): {scaffolding: 51}})
+    assert _scaffold_topup(Body(0), state) == {scaffolding: 51}
+    assert _scaffold_topup(Body(20), state) == {scaffolding: SCAFFOLD_STACK - 20}
+    assert _scaffold_topup(Body(SCAFFOLD_STACK // 2), state) == {}
+    assert _scaffold_topup(Body(0), GatherState(containers={})) == {}

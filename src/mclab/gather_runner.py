@@ -1177,11 +1177,13 @@ def run_gather(
     storage: Callable[[], list] | None = None,
     idle_work: Callable[[], None] | None = None,
     opts: GatherOptions | None = None,
+    keep: Collection[str] = (),
 ) -> GatherReport:
     """Run the plan's tasks through ``body``; see the module docstring.
 
     ``storage`` (a callable built fresh at every re-plan) lists the known
     containers, so re-plans withdraw from them instead of mining the item again.
+    ``keep`` lists items the re-plans never deposit (a refill mid-build).
     """
     if state is None:
         state = GatherState()
@@ -1293,6 +1295,7 @@ def run_gather(
                     starter_tools=starter_tools,
                     storage=storage() if storage else None,
                     kit=opts,
+                    keep=keep,
                 )
                 report.replans += 1
                 tasks = [
