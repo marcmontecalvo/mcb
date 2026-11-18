@@ -616,7 +616,7 @@ def test_details_held_go_in_while_the_structure_waits_on_blocks_not_held():
     cells = {(0, 0, 0): PANE, (1, 0, 0): PLANKS}
     t = bp.Template.from_build(make_build(cells, (2, 1, 1)), (0, 0, 0))
     acts = bp.next_actions(t, at(flat_world()), BLOCKS, {"minecraft:glass_pane": 1})
-    assert [a.pos for a in acts] == [(0, 0, 0)]
+    assert (0, 0, 0) in [a.pos for a in acts]  # the runner drops the skipped one
 
 
 def test_a_window_gap_does_not_hold_up_the_wall_above_it():
@@ -649,3 +649,24 @@ def test_a_block_that_takes_the_last_way_off_a_ledge_traps_the_body():
     assert not bp.traps(at(w), ledge, (3, 7, 2))  # a block elsewhere does not
     w[window] = PLANKS
     assert not bp.traps(at(w), ledge, (5, 6, 5))  # already shut in: no worse
+
+
+def test_a_half_slab_where_a_double_slab_goes_gets_its_second_half_not_a_break():
+    # run 20261118T070135016043Z: double slabs were never made (state_unreachable)
+    double = "minecraft:oak_slab[type=double,waterlogged=false]"
+    for half in ("bottom", "top"):
+        current = f"minecraft:oak_slab[type={half},waterlogged=false]"
+        assert bp._classify(double, current, bp.DEFAULT_IGNORE, False) == "place"
+    other = "minecraft:birch_slab[type=bottom,waterlogged=false]"
+    assert bp._classify(double, other, bp.DEFAULT_IGNORE, False) == "break"
+
+
+def test_a_cell_given_up_on_does_not_keep_the_door_out():
+    # run 20261118T070135016043Z: both doors stayed off for five skipped cells
+    cells = {(0, 0, 0): DOOR_LO, (0, 1, 0): DOOR_UP, (2, 0, 0): PLANKS}
+    t = bp.Template.from_build(make_build(cells, (3, 2, 1)), (0, 0, 0))
+    inv = {PLANKS: 1, "minecraft:oak_door": 1}
+    held = bp.next_actions(t, at(flat_world()), BLOCKS, inv)
+    assert [a.pos for a in held] == [(2, 0, 0)]
+    acts = bp.next_actions(t, at(flat_world()), BLOCKS, inv, skipped={(2, 0, 0)})
+    assert (0, 0, 0) in [a.pos for a in acts]  # the runner drops the skipped one

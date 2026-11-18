@@ -11,6 +11,8 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SlabBlock;
+import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.phys.BlockHitResult;
@@ -65,7 +67,12 @@ final class BodyBuild {
         String item = request.has("item") ? request.get("item").getAsString()
                 : BuiltInRegistries.ITEM.getKey(block.asItem()).toString();
         var level = player.level();
-        if (!level.getBlockState(pos).canBeReplaced()) throw new BodyActions.Fail("occupied");
+        // A double slab is two uses: a slab, then a second one clicked onto its open half (the slab's
+        // own canBeReplaced). Only neighbours were ever clicked, so all three double slabs of run
+        // 20261118T070135016043Z were state_unreachable.
+        boolean doubleSlab = block instanceof SlabBlock && "double".equals(target.properties().get("type"));
+        if (doubleSlab && !level.getBlockState(pos).is(block)) placeHalfSlab(player, request, target);
+        if (!doubleSlab && !level.getBlockState(pos).canBeReplaced()) throw new BodyActions.Fail("occupied");
         // Grass, flowers, snow layers: replaceable, but their outline stops the eye rays to the
         // faces behind them, so nothing reads as visible (live run 20261102T215645669803Z: every
         // floor cell on grass). A player punches them out first; they break at once.
@@ -91,7 +98,13 @@ final class BodyBuild {
         Vec3 eye = player.getEyePosition();
         // Blocks to click and the faces to click them on: each neighbour of the cell, on the face toward it.
         var sources = new ArrayList<Source>();
-        for (Direction d : PLACE_ORDER) {
+        if (doubleSlab) {
+            var half = level.getBlockState(pos);
+            if (!half.hasProperty(SlabBlock.TYPE) || half.getValue(SlabBlock.TYPE) == SlabType.DOUBLE)
+                throw new BodyActions.Fail("occupied");
+            sources.add(new Source(pos, List.of(half.getValue(SlabBlock.TYPE) == SlabType.BOTTOM ? Direction.UP : Direction.DOWN)));
+        }
+        for (Direction d : doubleSlab ? List.<Direction>of() : PLACE_ORDER) {
             BlockPos neighbour = pos.relative(d);
             var nstate = level.getBlockState(neighbour);
             // Scaffolding has no collision from the side (it is walked through) yet is clicked
@@ -179,6 +192,22 @@ final class BodyBuild {
     }
 
     private record Source(BlockPos block, List<Direction> faces) {}
+
+    /** The first half of a double slab: bottom if it can go in, else top. */
+    private static void placeHalfSlab(ServerPlayer player, JsonObject request, PlacementLogic.ParsedState target) {
+        BodyActions.Fail first = null;
+        for (String type : List.of("bottom", "top")) {
+            var props = new TreeMap<>(target.properties());
+            props.put("type", type);
+            var half = request.deepCopy();
+            var text = new StringBuilder(target.block()).append('[');
+            props.forEach((k, v) -> text.append(text.charAt(text.length() - 1) == '[' ? "" : ",").append(k).append('=').append(v));
+            half.addProperty("state", text.append(']').toString());
+            try { placeSneaking(player, half); return; }
+            catch (BodyActions.Fail e) { if (first == null) first = e; }
+        }
+        throw first;
+    }
 
     private static final java.lang.reflect.Method PLACEMENT_STATE = placementStateMethod();
 

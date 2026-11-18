@@ -1305,3 +1305,39 @@ def test_scaffolding_already_gone_is_not_broken_again_to_unwedge():
     assert not runner._unwedge()
     assert tried == []
     assert runner.scaffolds == set()
+
+
+class HopperBody(FakeBody):
+    """A hopper faces the block it was clicked against: placed only with a block
+    in the cell its facing points to."""
+
+    def place_block(self, pos, state, item):
+        ident, props = bp.parse_state(state)
+        if ident == "minecraft:hopper":
+            ahead = bp._add(pos, bp._VEC[props["facing"]])
+            if bp.parse_state(self.w.get(ahead) or AIR)[0] in bp.AIR:
+                return br.Result(False, "state_unreachable")
+        return super().place_block(pos, state, item)
+
+    def break_block(self, pos):
+        cur = self.w.get(pos)
+        self.w[pos] = AIR
+        if cur:
+            self.inv[cur] = self.inv.get(cur, 0) + 1
+        return br.Result(True)
+
+
+def test_two_hoppers_facing_each_other_go_in_against_a_temporary_block():
+    # Run 20261118T070135016043Z: each hopper needed the other to click against;
+    # both were skipped state_unreachable.
+    w = flat_world()
+    east = "minecraft:hopper[enabled=true,facing=east]"
+    west = "minecraft:hopper[enabled=true,facing=west]"
+    held = {"minecraft:hopper": 2, "minecraft:dirt": 4}
+    body = HopperBody(w, held, BLOCKS, pos=(1, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.attempt(bp.Place((1, 0, 0), east, "minecraft:hopper", 1))
+    runner.attempt(bp.Place((2, 0, 0), west, "minecraft:hopper", 1))
+    assert w[(1, 0, 0)] == east and w[(2, 0, 0)] == west
+    assert body.inv["minecraft:dirt"] == 4  # the temporary block was taken back
+    assert not runner.report.skipped

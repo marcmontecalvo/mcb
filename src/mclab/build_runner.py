@@ -69,6 +69,14 @@ FOOTHOLD_RETRY = 40  # build actions before a refill that brought none is tried 
 FOOTHOLD_ITEM = "minecraft:dirt"
 # entity_in_way: a mob or player on the ray that did not move off within ~1 s
 STANCE_REASONS = frozenset({"out_of_reach", "state_unreachable", "entity_in_way"})
+FACING_STEP = {
+    "north": (0, 0, -1),
+    "south": (0, 0, 1),
+    "east": (1, 0, 0),
+    "west": (-1, 0, 0),
+    "up": (0, 1, 0),
+    "down": (0, -1, 0),
+}
 
 
 class Result(NamedTuple):
@@ -259,6 +267,7 @@ class _Runner:
         # scaffolding a tower lacked: _run asks for it once, or stops the build
         self.short: dict[str, int] = {}
         self.short_for: Pos | None = None  # the cell the short tower was for
+        self.propped: set[Pos] = set()  # cells a temporary block was put beside
 
     def attempt(self, act) -> None:
         """Stance, act, record. Retries other stances while the failure says so."""
@@ -313,10 +322,42 @@ class _Runner:
             self.report.failures.append(
                 (pos, result.reason or "failed", stance, detail)
             )
+            if result.reason == "state_unreachable" and self._propped(act):
+                _take_back(self, act)
+                return _record(self.report, act)
             self._fail(pos, result.reason or "failed")
             if result.reason not in STANCE_REASONS:
                 return
             avoid.add(stance)
+
+    def _propped(self, act) -> bool:
+        """A block whose facing comes from the face clicked, with nothing on that
+        side to click (two hoppers facing each other, run 20261118T070135016043Z):
+        a temporary block there, the block placed against it, the temporary taken
+        back, the way a player builds it. Once per cell."""
+        if not isinstance(act, bp.Place) or act.pos in self.propped:
+            return False
+        self.propped.add(act.pos)
+        step = FACING_STEP.get(bp.parse_state(act.state)[1].get("facing", ""))
+        held = self.body.inventory()
+        item = next((i for i in self._temporaries(False) if held.get(i, 0) > 0), None)
+        if step is None or item is None:
+            return False
+        x, y, z = act.pos
+        for sign in (1, -1):
+            cell = (x + sign * step[0], y + sign * step[1], z + sign * step[2])
+            if bp.parse_state(self.body.world(*cell) or "")[0] not in bp.AIR:
+                continue
+            if not self.body.place_block(cell, item, item).ok:
+                continue
+            result = _do(self.body, act)
+            if self.body.break_block(cell).ok:
+                collect = getattr(self.body, "collect_drops", None)  # optional
+                if collect:
+                    collect([cell])
+            if result.ok:
+                return True
+        return False
 
     def _traps(self, act, stance: Pos) -> bool:
         return isinstance(act, bp.Place) and bp.traps(self.body.world, stance, act.pos)

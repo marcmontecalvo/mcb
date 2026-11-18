@@ -263,7 +263,19 @@ def _classify(target: str, current: str | None, ignore, keep_existing: bool) -> 
         return "ok"
     if _use_item(target, current, ignore)[0]:
         return "use"
+    if _half_of_double(target, current):
+        return "place"  # the second slab goes on the half already there
     return "place" if cid in REPLACEABLE else "break"
+
+
+def _half_of_double(target: str, current: str) -> bool:
+    (tid, tp), (cid, cp) = parse_state(target), parse_state(current)
+    return (
+        tid == cid
+        and tp.get("type") == "double"
+        and cp.get("type") in ("bottom", "top")
+        and cp.get("waterlogged", "false") == "false"
+    )
 
 
 @dataclass(frozen=True)
@@ -758,7 +770,11 @@ def next_actions(
         not in ("support", "below", "floating", "unknown", "unfilled")
     ]
     lowest = min(waiting, default=None)
-    others_left = any(not _is_door(t[1]) for t in todo)
+    # A cell given up on (skipped) does not keep the doors out: run
+    # 20261118T070135016043Z left both doors off for five unplaceable cells.
+    others_left = any(
+        not _is_door(t[1]) and (skipped is None or t[0] not in skipped) for t in todo
+    )
     # Work from where the body stands: a cell above the lowest layer that is in reach
     # now and has nothing left to place under it in its own column is offered too, so
     # a body that climbed to the roof finishes the roof there instead of being sent
