@@ -520,6 +520,13 @@ final class RouteMotor {
         // column needs sneak held (Baritone has no scaffolding; vanilla ScaffoldingBlock.getCollisionShape).
         // Only straight down: walking through or out of scaffolding level never sneaks (a crouched body crawls).
         boolean sneak = vertical && target.y < source.y && (geometry.scaffolding(source) || geometry.scaffolding(target));
+        // Off a bridge or floor and down into a scaffolding column (scaffold course leg 4): the top
+        // plate holds a body that walks on, so walk over the column first, then sneak to sink in.
+        if (!vertical && target.y < source.y && geometry.scaffolding(target) && pose.y > target.y + .5) {
+            boolean over = target.distance(pose) <= .3;
+            if (over) return new Input(0, 0, false, false, true);
+            return new Input(Math.abs(turn) > 45 ? 0 : Math.min(1, Math.max(.3, target.distance(pose))), yaw, false, false, false);
+        }
         if (vertical) {
             boolean off = target.distance(pose) > (index == route.size() - 1 ? arrivalRadius : .35);
             return new Input(off && Math.abs(turn) <= 45 ? .3 : 0, off ? yaw : 0, up, false, sneak);

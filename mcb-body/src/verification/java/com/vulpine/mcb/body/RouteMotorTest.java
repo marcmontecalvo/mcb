@@ -297,6 +297,12 @@ public final class RouteMotorTest {
         var walk=through.tick(new RouteMotor.Pose(2.5,1,.5,0,0,-90,true,20),geometry(real));
         check(!walk.sneak() && walk.forward()>0,"walking level through a scaffolding cell does not sneak");
         check(geometry(real).standable(new RouteMotor.Point(3,1,0)),"a column cell is enterable from the side despite its sensed posts");
+        // Off a bridge into the column's top cell: walk over it on the plate, then sneak to sink in.
+        var sink=new RouteMotor("sink",List.of(new RouteMotor.Point(2,4,0),new RouteMotor.Point(3,3,0),new RouteMotor.Point(3,2,0)),policy);
+        var walkOver=sink.tick(new RouteMotor.Pose(2.6,4,.5,0,0,-90,true,20),geometry(real));
+        check(sink.active() && walkOver.forward()>0 && !walkOver.sneak(),"stepping onto a scaffolding top walks without sneak");
+        var sinkIn=sink.tick(new RouteMotor.Pose(3.5,4,.5,0,0,-90,true,20),geometry(real));
+        check(sink.active() && sinkIn.sneak() && sinkIn.forward()==0,"over the column top the body sneaks to sink in");
     }
     private static final double DIAGONAL_YAW=-45;
     private static void hole(Map<Key,Map<String,Object>> cells,int x,int z) {
