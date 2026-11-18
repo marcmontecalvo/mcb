@@ -47,6 +47,7 @@ CHECKS: dict[str, tuple[list[str], int]] = {
     "wading": (["scripts/check-companion-wading.py"], 300),
     "wading-trapped": (["scripts/check-companion-wading.py", "--trapped"], 300),
     "scaffold": (["scripts/check-companion-scaffold.py"], 300),
+    "scaffold-course": (["scripts/check-companion-scaffold-course.py"], 900),
     "hill-default": (["scripts/check-hill-navigation.py", "--variants", "2"], 600),
     "hill-water": (
         [

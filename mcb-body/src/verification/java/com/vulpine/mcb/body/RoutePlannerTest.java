@@ -482,6 +482,7 @@ public final class RoutePlannerTest {
         }
 
         scaffoldChecks();
+        courseChecks();
         System.out.println("RoutePlanner: " + checks + " planner checks passed");
     }
 
@@ -548,6 +549,92 @@ public final class RoutePlannerTest {
                 "protected":[],"protected_blocks":[],"materials":["minecraft:dirt"]}
                 """).getAsJsonObject();
         check(RoutePlanner.EditPolicy.fromJson(json).scaffoldSupply() == 5, "EditPolicy parses scaffold_supply");
+    }
+
+    // The live scaffolding course (scripts/check-companion-scaffold-course.py): a hole in flat ground, the air of it
+    // protected, scaffolding the only thing held. Ground top y=0, so a stance is y=1; the hole is x 3..hi.
+    private static Map<Key, Map<String, Object>> hole(int hi, boolean ravine, int[] towers, int[] bridgeSpan) {
+        var w = new HashMap<Key, Map<String, Object>>();
+        for (int x = -4; x <= hi + 5; x++) for (int z = -6; z <= 6; z++) for (int y = -5; y <= 12; y++) {
+            boolean in = x >= 3 && x <= hi && (ravine || Math.abs(z) <= 1) && y >= -3 && y <= 0;
+            w.put(new Key(x, y, z), y <= 0 && !in ? stone() : air());
+        }
+        for (int tx : towers) for (int y = 1; y <= 5; y++) w.put(new Key(tx, y, 0), scaffold());
+        for (int x = bridgeSpan[0]; x <= bridgeSpan[1]; x++) w.put(new Key(x, 5, 0), scaffold());
+        return w;
+    }
+    private static Set<Long> holeAir(Map<Key, Map<String, Object>> w) {
+        var out = new java.util.HashSet<Long>();
+        for (var e : w.entrySet()) if (e.getKey().y() <= 0 && e.getKey().y() >= -3 && "minecraft:air".equals(e.getValue().get("block")))
+            out.add(RoutePlanner.key(e.getKey().x(), e.getKey().y(), e.getKey().z()));
+        return out;
+    }
+    private static RoutePlanner.Result courseRun(Map<Key, Map<String, Object>> w, RoutePlanner.Node start, RoutePlanner.Node goal) {
+        var pol = new RoutePlanner.EditPolicy(true, Map.of(), Map.of(), true, true, true, 3, 64, 64, 64, holeAir(w), Set.of(),
+                "minecraft:cobblestone", List.of("minecraft:cobblestone"), Map.of(), 64);
+        return new RoutePlanner((x, y, z) -> w.get(new Key(x, y, z)), start, goal, 0, 3, true)
+                .withMoves(false, true).withEdits(pol).search(200_000);
+    }
+    private static String allScaffold(RoutePlanner.Result r) {
+        for (var e : r.steps()) {
+            if (e.scaffold().size() != e.places().size()) return " (a placement is solid: " + e.kind() + ")";
+            for (var s : e.scaffold()) if (s[3] > 6) return " (distance " + s[3] + ")";
+        }
+        return "";
+    }
+    private static boolean placesAll(RoutePlanner.Result r, java.util.function.Predicate<int[]> where) {
+        return r.steps().stream().flatMap(e -> e.places().stream()).allMatch(where);
+    }
+    private static boolean staysUp(RoutePlanner.Result r, double minY) {
+        return r.route().stream().allMatch(n -> n.y() >= minY - 1e-9);
+    }
+    private static void courseChecks() {
+        var none = new int[0];
+        var noSpan = new int[]{1, 0};
+        // 1. Up: a tower of scaffolding, every block, from the ground to 5 above it.
+        var ground = hole(13, false, none, noSpan);
+        var up = courseRun(ground, new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(2, 6, 0));
+        check(up.status().equals("reached") && !up.steps().isEmpty(), "course 1: tower up reached: " + up.status());
+        check(allScaffold(up).isEmpty(), "course 1: every tower block is scaffolding" + allScaffold(up));
+        check(placesAll(up, p -> p[1] >= 1 && p[1] <= 5), "course 1: nothing placed above the stance floor");
+        // 2. Out: from the tower top, a bridge over the hole at the same height.
+        var tower = hole(13, false, new int[]{2}, noSpan);
+        var out = courseRun(tower, new RoutePlanner.Node(2, 6, 0), new RoutePlanner.Node(5, 6, 0));
+        check(out.status().equals("reached") && allScaffold(out).isEmpty(), "course 2: bridge out: " + out.status() + allScaffold(out));
+        check(placesAll(out, p -> p[1] == 5 && p[0] >= 3 && p[0] <= 5), "course 2: bridge cells at floor height over the hole");
+        // 3. Up again: scaffolding on top of the bridge (distance of the cell below, not 7).
+        var bridge = hole(13, false, new int[]{2}, new int[]{3, 5});
+        var again = courseRun(bridge, new RoutePlanner.Node(5, 6, 0), new RoutePlanner.Node(5, 8, 0));
+        check(again.status().equals("reached") && allScaffold(again).isEmpty(), "course 3: up on the bridge: " + again.status() + allScaffold(again));
+        check(placesAll(again, p -> p[0] == 5 && p[1] >= 6 && p[1] <= 7), "course 3: a column on the bridge end");
+        // 4. Down a column (sneak), then tower B on the east rim.
+        var down = courseRun(tower, new RoutePlanner.Node(2, 6, 0), new RoutePlanner.Node(0, 1, 0));
+check(down.status().equals("reached") && down.steps().isEmpty()
+                && down.route().stream().anyMatch(n -> n.x() == 2 && n.y() == 5), "course 4: down the tower, sinking into the column, no edits: " + down.status());
+        var b = courseRun(ground, new RoutePlanner.Node(16, 1, 0), new RoutePlanner.Node(14, 6, 0));
+        check(b.status().equals("reached") && allScaffold(b).isEmpty(), "course 4: tower B: " + b.status() + allScaffold(b));
+        // 5. Bridge across: A's bridge reaches x 8 (6 out); the rest hangs off B (x 9..13 is 5..1 out).
+        var span = hole(13, true, new int[]{2, 14}, new int[]{3, 8});
+        var across = courseRun(span, new RoutePlanner.Node(14, 6, 0), new RoutePlanner.Node(2, 6, 0));
+        check(across.status().equals("reached") && allScaffold(across).isEmpty(), "course 5: bridge across: " + across.status() + allScaffold(across));
+        check(!across.steps().isEmpty() && placesAll(across, p -> p[1] == 5 && p[0] >= 9 && p[0] <= 13), "course 5: the gap cells are placed");
+        check(staysUp(across, 6), "course 5: the route stays on the bridge");
+        // 6. Walk the finished bridge: no edits, never down.
+        var full = hole(13, false, new int[]{2, 14}, new int[]{3, 13});
+        var walk = courseRun(full, new RoutePlanner.Node(14, 6, 0), new RoutePlanner.Node(2, 6, 0));
+        check(walk.status().equals("reached") && walk.steps().isEmpty() && staysUp(walk, 6), "course 6: walks the bridge: " + walk.status());
+        // Reach: a hole 13 wide leaves one cell 7 from both towers: it is solid, never scaffolding.
+        var wide = hole(15, true, new int[]{2, 16}, new int[]{3, 8});
+        for (int x = 10; x <= 15; x++) wide.put(new Key(x, 5, 0), scaffold());
+        var seven = courseRun(wide, new RoutePlanner.Node(16, 6, 0), new RoutePlanner.Node(2, 6, 0));
+        var sevenCells = seven.steps().stream().flatMap(e -> e.places().stream()).toList();
+        check(seven.status().equals("reached") && sevenCells.size() == 1 && sevenCells.get(0)[0] == 9
+                && seven.steps().get(0).scaffold().isEmpty(), "course: the cell 7 from both towers is solid: " + seven.status());
+        var six = hole(14, true, new int[]{2, 15}, new int[]{3, 8});
+        for (int x = 10; x <= 14; x++) six.put(new Key(x, 5, 0), scaffold());
+        var join = courseRun(six, new RoutePlanner.Node(15, 6, 0), new RoutePlanner.Node(2, 6, 0));
+        check(join.status().equals("reached") && allScaffold(join).isEmpty() && placesAll(join, p -> p[0] == 9),
+                "course: the cell 6 from one tower is scaffolding: " + join.status());
     }
 
     // Break cost of stone: 8 ticks with an iron pickaxe + 2 extra + 6 aim.

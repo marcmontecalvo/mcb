@@ -42,3 +42,33 @@ cobblestone, spare plain blocks; see `temporary_blocks.py`) are the fallback, ne
   only, not yet seen in a live run.
 - The planner does not yet choose a tower base to reach a set of cells, as a person does for a
   roof or a row of windows ("one tower, work all around it").
+
+## The live obstacle course
+
+`scripts/check-companion-scaffold-course.py [--origin X Y Z]` (battery check `scaffold-course`).
+A hole 11 wide (x), 3 long (z), 4 deep is cut 3 cells east of a flat spawn spot (default
+990,80,988); its air cells are `protected_positions`, so the bot can neither pillar in it nor
+climb out. A stone stair on the hole's z+1 row lets it walk down to pick up drops. The bot holds
+64 scaffolding and three tools, no dirt or cobblestone and `material_allowlist=()`, so any solid
+temporary block is a failure. Every placed cell's block id is read back; the course fails on
+any that is not `minecraft:scaffolding`. The towers stand on the rims 12 apart, so every span
+cell is within distance 6 of one tower. Each leg has its own pass/fail in `summary.json`; a
+failed leg skips the rest, but the take-down and restore still run.
+
+| Leg | Goal | Asserted |
+|---|---|---|
+| 0 walk through | level through 3 ground scaffolding cells between stone walls | no `CROUCHING` pose in any sampled state; at least 3 samples inside the cells |
+| 1 up | stance 5 above the ground at tower A | on ground there; all 5 tower cells scaffolding |
+| 2 out | stance 4 out over the hole at the top | standing on a scaffolding cell over the hole |
+| 3 up again | stance 2 higher at the bridge end | the 3 cells above the bridge are scaffolding (inherits distance) |
+| 4 second tower | top of tower B on the east rim | bot reached the ground (sneak-descended: a `CROUCHING` sample), all 5 B cells scaffolding |
+| 5 bridge across | stances over the hole from B until the span closes | all 11 span cells scaffolding; rim distance 12 |
+| 6 walk the bridge | B top to A top | the sampled y never drops below stance-1 (it did not go round on the ground) |
+| 7 take down | descend, `build_runner._clean_up` with an empty template, collect | no scaffolding left among the placed cells, inventory back to 64 exactly, at most 6 breaks (roots only, the rest falls with them) |
+
+Pose and height are sampled from `/state` (the body observation exposes `pose`), not per tick;
+the motor's own controls are not recorded. The inventory count has no tolerance: the bot can
+reach every drop, so a shortfall is a real failure. The pure parts (geometry, verdict, pose and
+height checks) are `src/mclab/scaffold_course.py`, tested in `tests/test_scaffold_course.py`;
+`RoutePlannerTest` mirrors legs 1-5 and the sneak-down move on synthetic maps. Not yet seen
+live as of this writing.

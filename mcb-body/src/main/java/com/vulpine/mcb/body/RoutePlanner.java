@@ -980,6 +980,10 @@ final class RoutePlanner {
             }
         }
         if (!blockStandable(node)) return;
+        // On top of a scaffolding column: sink straight down into it (RouteMotor holds sneak for it). Without this move
+        // the only way off a tower top was to place a block beside it.
+        if (scaffolding(at(node.x, node.y - 1, node.z)) && climbable(at(node.x, node.y - 1, node.z)))
+            out.add(new Move(new Node(x, y - 1, z), ticks ? LADDER_DOWN : 1.4));
         for (var d : DIRECTIONS) for (int dy = 0; dy >= -1; dy--) {
             var target = new Node(x + d[0], y + dy, z + d[1]);
             if (!climbable(at(target.x, target.y, target.z)) || !openOrClimb(at(target.x, target.y + 1, target.z))
