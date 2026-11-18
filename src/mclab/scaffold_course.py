@@ -11,7 +11,7 @@ from __future__ import annotations
 SCAFFOLDING = "minecraft:scaffolding"
 HOLE_X = range(3, 14)  # dx of the hole's cells (11 wide)
 HOLE_Z = range(-1, 2)
-DEPTH = 4  # hole cells dy -DEPTH..-1; the floor below them is left alone
+DEPTH = 4  # hole cells dy -DEPTH..-1; the floor below them is laid as stone
 TOWER_A, TOWER_B = 2, 14  # dx of the towers on the rims (dz 0)
 TOWER_H = 5  # stance above the ground: five scaffolding cells
 STAIRS = {3: -1, 4: -2, 5: -3, 6: -4}  # dz=+1 row: stone top dy (way down to drops)
@@ -33,6 +33,8 @@ def hole_cells(origin: Pos) -> dict[Pos, str]:
                 out[at(origin, dx, dy, dz)] = (
                     "minecraft:stone" if stone else "minecraft:air"
                 )
+            # The lab platform may be a slab with nothing under it: lay the floor too.
+            out[at(origin, dx, -DEPTH - 1, dz)] = "minecraft:stone"
     return out
 
 

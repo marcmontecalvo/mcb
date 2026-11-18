@@ -503,7 +503,81 @@ final class RoutePlanner {
             return ticks ? unknownPenalty * (WALK * horizontal(node) + vertical(node, false, false)) : unknownPenalty * distance(node);
         double h = remaining(node);
         if (digAware()) h = Math.max(h, field(node));
+        if (riseAware()) h = Math.max(h, riseEstimate(node));
         return (heuristicWeight == 0 ? 1 : heuristicWeight) * h;
+    }
+
+    // --- rise bound: a goal above every floor near it is reached only by placing ---
+    // Without it a goal 5 straight up was priced at the jump rate (~5 ticks a block) while each pillar block costs
+    // EDIT_STEP + PLACE + the edit chain (~55): the search flooded 8000 flat nodes before pillaring (scaffold course,
+    // plan-5). Each block of height above a column's own floor needs at least one placed block, so the bound is
+    // min over columns c of (walk to c + placing up from its floor + walk on to the goal), or placing up from the
+    // node itself and walking on: a route gains height only from a terrain top it stands on, or a block it places.
+    static final int RISE_MARGIN = 48, RISE_SCAN = 8;  // the box edge bounds h: 48 blocks walk ~ 170 ticks
+    private double[] riseCols;  // per column of the box: least walk + place cost to stand at goal height
+    private int riseX0, riseZ0, riseW, riseD, riseGy;
+
+    private boolean riseAware() {
+        return ticks && reach == null && edits != null && (edits.allowPlace || edits.allowPillar)
+                && goal.y > start.y + 1;
+    }
+    /** Least cost of placing k blocks of height, k edits on from an edit depth d. */
+    private static double riseCost(int k, int d) {
+        return k <= 0 ? 0 : k * (EDIT_STEP + PLACE) + EDIT_CHAIN * (k * (double) d + k * (k - 1) / 2.0);
+    }
+    private double riseRate() { return baritoneSearch ? COST_HEURISTIC : SPRINT; }
+    private double riseEstimate(Node node) {
+        if (riseCols == null) riseInit();
+        int k = riseGy - (int) Math.floor(node.y + EPS);
+        if (k <= 0) return 0;
+        double own = riseCost(k, depth.getOrDefault(node, 0)) + riseRate() * horizontal(node);
+        int i = node.x - riseX0, j = node.z - riseZ0;
+        double cols = i < 0 || j < 0 || i >= riseW || j >= riseD ? 0 : riseCols[i * riseD + j];
+        return JUMP * (goal.y - node.y) + Math.min(own, cols);
+    }
+    /** Places needed in a column of the base terrain: 0 where it may already reach goal height
+     *  (unknown cells), else goal height less the top of its highest floor, climbable or water below it. */
+    private int riseNeed(int x, int z) {
+        int top = riseGy - 1, bottom = (int) Math.floor(Math.min(start.y, goal.y)) - RISE_SCAN;
+        for (int y = top; y > bottom; y--) {
+            var c = baseCell(x, y, z);
+            if (c == null) return 0;  // unknown: anything may stand there
+            // the top of a floor, a climbable (scaffolding, ladder) or water: as high as it reaches unaided
+            if (!boxes(c).isEmpty() || climbable(c) || !dry(c)) return Math.max(0, riseGy - (y + 1));
+        }
+        return Math.max(0, riseGy - bottom);
+    }
+    private void riseInit() {
+        riseGy = (int) Math.floor(goal.y + EPS);
+        riseX0 = Math.min(start.x, goal.x) - RISE_MARGIN;
+        riseZ0 = Math.min(start.z, goal.z) - RISE_MARGIN;
+        riseW = Math.min(Math.max(start.x, goal.x) + RISE_MARGIN - riseX0 + 1, 256);
+        riseD = Math.min(Math.max(start.z, goal.z) + RISE_MARGIN - riseZ0 + 1, 256);
+        riseCols = new double[riseW * riseD];
+        // Multi-source Dijkstra: each column starts at its place cost plus the walk on to the goal, a column on the
+        // box edge at the walk alone (beyond it nothing is scanned), and walking between columns at the walk rate.
+        double rate = riseRate();
+        var queue = new PriorityQueue<double[]>((a, b) -> Double.compare(a[0], b[0]));
+        for (int i = 0; i < riseW; i++) for (int j = 0; j < riseD; j++) {
+            boolean edge = i == 0 || j == 0 || i == riseW - 1 || j == riseD - 1;
+            int x = riseX0 + i, z = riseZ0 + j;
+            double ax = Math.abs(x - goal.x), az = Math.abs(z - goal.z);
+            double on = rate * Math.max(0, (baritoneSearch ? Math.abs(ax - az) + Math.min(ax, az) * SQRT2 : Math.hypot(ax, az)) - radius);
+            double v = on + (edge ? 0 : riseCost(riseNeed(x, z), 0));
+            riseCols[i * riseD + j] = v;
+            queue.add(new double[]{v, i, j});
+        }
+        while (!queue.isEmpty()) {
+            var q = queue.poll();
+            int i = (int) q[1], j = (int) q[2];
+            if (q[0] > riseCols[i * riseD + j]) continue;
+            for (int di = -1; di <= 1; di++) for (int dj = -1; dj <= 1; dj++) {
+                int a = i + di, b = j + dj;
+                if ((di == 0 && dj == 0) || a < 0 || b < 0 || a >= riseW || b >= riseD) continue;
+                double v = q[0] + rate * (di != 0 && dj != 0 ? SQRT2 : 1);
+                if (v < riseCols[a * riseD + b]) { riseCols[a * riseD + b] = v; queue.add(new double[]{v, a, b}); }
+            }
+        }
     }
 
     // --- dig-aware heuristic: a relaxed cell graph searched backward from the goal ---

@@ -516,6 +516,15 @@ public final class RoutePlannerTest {
                 "every pillar block is scaffolding, the ones on scaffolding too");
         check(none.steps().stream().allMatch(e -> e.scaffold().isEmpty()), "with no scaffolding held everything is solid");
 
+        // Straight up from a wide flat floor: height above every floor is only had by placing, so the search pillars
+        // at once instead of flooding the floor (scaffold course plan-5: 8000 nodes for 5 blocks up).
+        var plain = floor(60);
+        var up = new RoutePlanner((x, y, z) -> plain.get(new Key(x, y, z)), new RoutePlanner.Node(30, 1, 30),
+                new RoutePlanner.Node(30, 4, 30), 0, 3, true).withPolicy(true, true, true, true, true, 1)
+                .withMoves(false, true).withEdits(scaffoldPolicy(64)).search(100_000);
+        check(up.status().equals("reached") && up.expanded() < 100,
+                "a goal straight up from a wide floor pillars without flooding the floor (" + up.status() + " " + up.expanded() + ")");
+
         // Bridge off a scaffolding tower: the walkway is scaffolding while its distance is at most 6, solid beyond.
         var world = new HashMap<Key, Map<String, Object>>();
         for (int x = -2; x <= 14; x++) for (int z = -3; z <= 3; z++) for (int y = -1; y <= 6; y++)

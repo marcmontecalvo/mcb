@@ -64,10 +64,6 @@ def pre_check(body, o):
     for p in sc.hole_cells(o):
         if body.world(*p) is None:
             bad.append(("unknown", p))
-    for dx in sc.HOLE_X:
-        for dz in sc.HOLE_Z:
-            if block(body, sc.at(o, dx, -sc.DEPTH - 1, dz)) in (None, *AIR):
-                bad.append(("no floor", dx, dz))
     if bad:
         raise RuntimeError(f"Course spot is not flat and empty: {bad[:8]} ...")
 
@@ -94,7 +90,8 @@ class Course:
     def stand(self, dx, up, radius=0.3):
         """Walk to the stance dx east of the spawn, ``up`` above it, placing allowed."""
         goal = sc.stance(self.o, dx, up)
-        ok = self.body.walk_to(goal, radius=radius)
+        # walk_to snaps a goal to the nearest standable height (the ground): aim exactly.
+        ok = self.body._navigate(goal, reach=None, radius=radius)
         pos = self.body.observe()["body"]
         self.record_placed()
         near = (
@@ -244,7 +241,7 @@ def main_inner(folder, origin, summary):
     try:
         body, memory = start_session(
             bridge, folder, origin,
-            terrain_policy=replace(WALK_TERRAIN, baritone_moves=False), world_memory=False,
+            terrain_policy=WALK_TERRAIN, world_memory=False,  # builds keep the extra moves (pillar)
         )
         body.observe()
         o = tuple(math.floor(v) for v in body.position())
@@ -271,8 +268,10 @@ def main_inner(folder, origin, summary):
         body.temporary_ok = temporary_blocks.eligible(load_vanilla_pack())
         body.terrain_policy = replace(
             body.terrain_policy, allow_place=True, allow_bridge=True, allow_pillar=True,
-            place_budget=300, material_allowlist=(), scaffold_materials=(sc.SCAFFOLDING,),
-            protected_positions=body.terrain_policy.protected_positions | sc.protected_air(o),
+            place_budget=64, material_allowlist=(), scaffold_materials=(sc.SCAFFOLDING,),
+            protected_positions=tuple(
+                sorted({*body.terrain_policy.protected_positions, *sc.protected_air(o)})
+            ),
         )
         course = Course(bridge, body, o)
         for name, run in (

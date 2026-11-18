@@ -5,7 +5,7 @@ ORIGIN = (990, 80, 988)
 
 def test_fixture_geometry():
     cells = sc.hole_cells(ORIGIN)
-    assert len(cells) == 11 * 3 * 4
+    assert len(cells) == 11 * 3 * 5  # four deep plus the floor laid under it
     assert sc.TOWER_B - sc.TOWER_A <= 12  # every span cell within distance 6 of a tower
     assert max(min(dx - sc.TOWER_A, sc.TOWER_B - dx) for dx in sc.HOLE_X) <= 6
     air = sc.protected_air(ORIGIN)
