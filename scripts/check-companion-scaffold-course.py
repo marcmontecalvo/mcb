@@ -247,6 +247,11 @@ def main_inner(folder, origin, summary):
         o = tuple(math.floor(v) for v in body.position())
         if o != tuple(origin):
             raise RuntimeError(f"Spawned at {o}, not {origin}")
+        # Clear what an earlier run left (it may have stopped before its restore):
+        # air over the course, stone under it, then let the sensor see it.
+        kit(bridge, clear=[16, 10, 5])
+        body.wait_ticks(40)
+        body.observe()
         pre_check(body, o)
         holes = sc.hole_cells(o)
         leg0_cells = {sc.at(o, dx, 0, 0): sc.SCAFFOLDING for dx in (-2, -3, -4)}

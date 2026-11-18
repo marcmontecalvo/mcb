@@ -158,7 +158,7 @@ final class StepMotor {
             for (var e:request.getAsJsonObject("tools").entrySet())
                 if (e.getValue().isJsonPrimitive()) tools.put(e.getKey(),e.getValue().getAsString());
         materials = strings(policy.getAsJsonArray("material_allowlist"));
-        if (materials.isEmpty() || materials.stream().anyMatch(m -> m.indexOf(':') <= 0))
+        if (materials.stream().anyMatch(m -> m.indexOf(':') <= 0))
             throw new IllegalArgumentException("native_step_materials");
         if (plan.has("scaffold") && plan.get("scaffold").isJsonArray())
             for (var value:plan.getAsJsonArray("scaffold")) scaffoldCells.add(point(value.getAsJsonArray()));
@@ -196,6 +196,10 @@ final class StepMotor {
         for (var value:breaks) addOperation(false,point(value.getAsJsonArray()),unique);
         for (var value:places) addOperation(true,point(value.getAsJsonArray()),unique);
         if (operations.isEmpty()) throw new IllegalArgumentException("native_step_requires_edits");
+        // No solid block allowed: every placed cell must be one the planner made scaffolding
+        // (a body holding only scaffolding builds its whole tower of it).
+        if (materials.isEmpty() && operations.stream().anyMatch(o -> o.place && !scaffoldCells.contains(o.point)))
+            throw new IllegalArgumentException("native_step_materials");
         // Highest cell first so each cut exposes the next and nothing is mined through.
         if (kind.equals("descend")) operations.sort(java.util.Comparator.comparingInt((Operation o)->o.point.getY()).reversed());
     }
