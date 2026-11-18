@@ -39,6 +39,7 @@ def is_wet(state: str | None) -> bool:
         ident in FLUIDS or ident in WATER_PLANTS or props.get("waterlogged") == "true"
     )
 
+
 REPLACEABLE = (
     AIR
     | FLUIDS
@@ -502,6 +503,25 @@ def _scaffold_pos(
 MAX_TOWER = 16
 
 
+def _given_up(todo, skipped, blocks: dict) -> set:
+    """Skipped cells, and the cells that hang on them, transitively."""
+    dead = set(skipped or ())
+    hangs = {}
+    for t in todo:
+        ident, props = parse_state(t[1])
+        kind = _support_kind(ident, props, blocks.get(ident, {}))
+        if kind:
+            hangs[t[0]] = _support_cell(kind, props, t[0])
+    grew = True
+    while grew:
+        grew = False
+        for cell, support in hangs.items():
+            if cell not in dead and support in dead:
+                dead.add(cell)
+                grew = True
+    return dead
+
+
 def tower_cells(pos: Pos, world, blocks: dict, reserved=frozenset()) -> list[Pos]:
     """Scaffolding column, bottom up, to stand on beside ``pos``: in a horizontal
     neighbour's column, from the ground to one below pos's height (the eye is then
@@ -564,11 +584,39 @@ def _place_state(state: str) -> str:
 # flower pots closed the body in on an eave slab twice (runs 20261117T144843447702Z,
 # 20261117T155135309814Z). Words in the block name; anything else is structure.
 DETAIL_WORDS = (
-    "glass", "potted_", "flower_pot", "lantern", "torch", "chain", "trapdoor",
-    "_sign", "banner", "carpet", "candle", "button", "pressure_plate", "rail",
-    "_bed", "barrel", "chest", "bookshelf", "furnace", "smoker", "hopper",
-    "crafting_table", "campfire", "anvil", "stonecutter", "lectern", "loom",
-    "composter", "cauldron", "bell", "leaves", "flower", "item_frame",
+    "glass",
+    "potted_",
+    "flower_pot",
+    "lantern",
+    "torch",
+    "chain",
+    "trapdoor",
+    "_sign",
+    "banner",
+    "carpet",
+    "candle",
+    "button",
+    "pressure_plate",
+    "rail",
+    "_bed",
+    "barrel",
+    "chest",
+    "bookshelf",
+    "furnace",
+    "smoker",
+    "hopper",
+    "crafting_table",
+    "campfire",
+    "anvil",
+    "stonecutter",
+    "lectern",
+    "loom",
+    "composter",
+    "cauldron",
+    "bell",
+    "leaves",
+    "flower",
+    "item_frame",
 )
 
 
@@ -671,6 +719,7 @@ def next_actions(
     """
     scaffolds = set() if scaffolds is None else scaffolds
     d = diff(template, world, ignore_props)
+
     def far(p):  # squared distance to the body; 0 (template order) without ``near``
         if near is None:
             return 0
@@ -773,10 +822,11 @@ def next_actions(
     ]
     lowest = min(waiting, default=None)
     # A cell given up on (skipped) does not keep the doors out: run
-    # 20261118T070135016043Z left both doors off for five unplaceable cells.
-    others_left = any(
-        not _is_door(t[1]) and (skipped is None or t[0] not in skipped) for t in todo
-    )
+    # 20261118T070135016043Z left both doors off for five unplaceable cells. Nor
+    # does one hanging from it (a lantern under a skipped chain, run
+    # 20261118T094938114426Z): it can never go in either.
+    given_up = _given_up(todo, skipped, blocks)
+    others_left = any(not _is_door(t[1]) and t[0] not in given_up for t in todo)
     # Work from where the body stands: a cell above the lowest layer that is in reach
     # now and has nothing left to place under it in its own column is offered too, so
     # a body that climbed to the roof finishes the roof there instead of being sent
@@ -812,8 +862,10 @@ def next_actions(
     for pos, state, cost, (item, n) in () if starved else todo:
         if len(out) >= limit:
             break
-        if lowest is not None and pos[1] > lowest and not (
-            _in_reach(pos) and not _pending_below(pos)
+        if (
+            lowest is not None
+            and pos[1] > lowest
+            and not (_in_reach(pos) and not _pending_below(pos))
         ):
             continue
         # The doorway is the body's way in and out: a door placed while other cells are

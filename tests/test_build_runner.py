@@ -41,10 +41,7 @@ class FakeBody:
     def position(self):
         return self.pos
 
-    def goto_stance(self, target_pos, reach, avoid=()):
-        self.stance_calls.append((target_pos, frozenset(avoid)))
-        if self.pos not in avoid and self._stance_ok(self.pos, target_pos, reach):
-            return True
+    def stances(self, target_pos, reach, avoid=()):
         tx, ty, tz = target_pos
         spots = [
             (tx + dx, ty + dy, tz + dz)
@@ -53,7 +50,13 @@ class FakeBody:
             for dz in range(-4, 5)
         ]
         spots = [s for s in spots if s not in avoid]
-        spots = [s for s in spots if self._stance_ok(s, target_pos, reach)]
+        return [s for s in spots if self._stance_ok(s, target_pos, reach)]
+
+    def goto_stance(self, target_pos, reach, avoid=()):
+        self.stance_calls.append((target_pos, frozenset(avoid)))
+        if self.pos not in avoid and self._stance_ok(self.pos, target_pos, reach):
+            return True
+        spots = self.stances(target_pos, reach, avoid)
         if not spots:
             return False
         self.pos = min(spots, key=lambda s: (_d2(s, self.pos), s))
@@ -603,7 +606,6 @@ def test_a_tower_is_built_of_dirt_when_no_scaffolding_is_held_and_taken_down():
     assert not [p for p, s in body.w.items() if s == "minecraft:dirt" and p[1] >= 0]
 
 
-
 def test_a_dirt_tower_is_walked_to_before_pillaring_up_it():
     # Run 20261118T023332974582Z asked the pillar search from 18 blocks off: with no
     # bridging and 6 blocks to place, 140 searches ran into the node limit.
@@ -877,6 +879,7 @@ def test_stages_are_published_through_site_prep_and_placing():
     body, t = small_house_body()
     body.w[(2, 1, 2)] = "minecraft:dirt"
     seen = []
+
     def stage(name, **kw):
         seen.append((name, kw.get("detail")))
 
@@ -1341,3 +1344,30 @@ def test_two_hoppers_facing_each_other_go_in_against_a_temporary_block():
     assert w[(1, 0, 0)] == east and w[(2, 0, 0)] == west
     assert body.inv["minecraft:dirt"] == 4  # the temporary block was taken back
     assert not runner.report.skipped
+
+
+class BlindBody(TowerBody):
+    """A cell whose faces are all hidden from below (a chain under the roof behind
+    stairs): placing it from more than two below fails state_unreachable with
+    nothing visible, as the server diagnoses it."""
+
+    hidden = (3, 5, 3)
+
+    def place_block(self, pos, state, item):
+        if pos == self.hidden and self.pos[1] < pos[1] - 2:
+            source = {"points_in_reach": 9, "points_visible": 0}
+            return br.Result(
+                False, "state_unreachable", {"diagnosis": {"sources": [source]}}
+            )
+        return super().place_block(pos, state, item)
+
+
+def test_a_cell_hidden_from_every_floor_stance_is_placed_from_a_tower_beside_it():
+    # run 20261118T094938114426Z: a gable chain was tried three times from the
+    # floor five below, through the roof stairs, then given up.
+    body, t = tall_column_body(top=5)
+    body.__class__ = BlindBody
+    report = br.run_build(t, body, BLOCKS)
+    assert (3, 5, 3) in report.placed and (3, 5, 3) not in report.skipped
+    assert body.placed_from[(3, 5, 3)][1] >= 3
+    assert report.stop == "done"

@@ -523,7 +523,7 @@ def test_axis_logs_gated_by_neighbor_along_axis():
     # if it lacks a solid neighbor along Z.
     w = flat_world()  # Y=0 is solid grass
     w[(0, 0, 1)] = "minecraft:grass_block"
-    
+
     # Target state has axis=z
     z_log = "minecraft:stripped_birch_log[axis=z]"
     assert bp._gate((0, 1, 1), z_log, at(w), BLOCKS) == "floating"
@@ -531,8 +531,6 @@ def test_axis_logs_gated_by_neighbor_along_axis():
     # Once a neighbor along Z is placed at (0, 1, 0), it is placeable
     w[(0, 1, 0)] = "minecraft:stone_bricks"
     assert bp._gate((0, 1, 1), z_log, at(w), BLOCKS) is None
-
-
 
 
 def test_floor_over_water_is_filled_with_dirt_before_it_is_placed():
@@ -677,3 +675,20 @@ def test_a_tower_reaches_a_gable_lantern_eleven_up():
     w = flat_world(hi=16)
     cells = bp.tower_cells((3, 11, 3), at(w), BLOCKS)
     assert cells and cells[0][1] == 0 and cells[-1][1] == 10
+
+
+def test_a_lantern_hanging_from_a_cell_given_up_on_does_not_keep_the_door_out():
+    # run 20261118T094938114426Z: the gable chain was skipped, the lantern under it
+    # waited on it for ever, and both doors stayed off
+    lantern = "minecraft:lantern[hanging=true,waterlogged=false]"
+    cells = {
+        (0, 0, 0): DOOR_LO,
+        (0, 1, 0): DOOR_UP,
+        (2, 1, 0): PLANKS,
+        (2, 0, 0): lantern,
+    }
+    t = bp.Template.from_build(make_build(cells, (3, 2, 1)), (0, 0, 0))
+    inv = {PLANKS: 1, "minecraft:oak_door": 1, "minecraft:lantern": 1}
+    blocks = {**BLOCKS, "minecraft:lantern": {"item": "minecraft:lantern"}}
+    acts = bp.next_actions(t, at(flat_world()), blocks, inv, skipped={(2, 1, 0)})
+    assert (0, 0, 0) in [a.pos for a in acts]

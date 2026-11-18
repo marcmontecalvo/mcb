@@ -276,8 +276,10 @@ class _Runner:
         pos = act.pos
         here = self.body.position()
         can_place = getattr(self.body, "can_place_here", None)
-        direct = not isinstance(act, bp.Place) or can_place is None or can_place(
-            pos, REACH, _support(act, self.blocks)
+        direct = (
+            not isinstance(act, bp.Place)
+            or can_place is None
+            or can_place(pos, REACH, _support(act, self.blocks))
         )
         if direct and self._traps(act, here):
             direct = False
@@ -325,6 +327,15 @@ class _Runner:
             if result.reason == "state_unreachable" and self._propped(act):
                 _take_back(self, act)
                 return _record(self.report, act)
+            if _blind(detail) and self._tower(pos, avoid):
+                # Every face in reach hidden (a chain under the roof tried from the
+                # floor five below, through the stairs and the tower's own column:
+                # run 20261118T094938114426Z): from the top of a tower beside the
+                # cell the eye is level with it.
+                result = _do(self.body, act)
+                if result.ok:
+                    _take_back(self, act)
+                    return _record(self.report, act)
             self._fail(pos, result.reason or "failed")
             if result.reason not in STANCE_REASONS:
                 return
@@ -425,7 +436,9 @@ class _Runner:
             (
                 c
                 for c in self.scaffolds
-                if abs(c[0] - x) <= 1 and abs(c[2] - z) <= 1 and abs(c[1] - y) <= 2
+                if abs(c[0] - x) <= 1
+                and abs(c[2] - z) <= 1
+                and abs(c[1] - y) <= 2
                 # one already gone is no wedge: breaking it again only failed
                 # nothing_to_break (run 20261117T200337044791Z)
                 and _standing(self.body, c)
@@ -494,6 +507,9 @@ class _Runner:
         self._towering = True
         try:
             for cell in cells:
+                if bp.parse_state(self.body.world(*cell) or "")[0] == sc.BLOCK:
+                    self.scaffolds.add(cell)  # the column is up to here already
+                    continue
                 n = len(self.report.scaffolded)
                 self.attempt(bp.Scaffold(cell, item))
                 if len(self.report.scaffolded) == n:
@@ -501,7 +517,12 @@ class _Runner:
                 self.scaffolds.add(cell)
         finally:
             self._towering = False
-        if self.body.goto_stance(pos, REACH, avoid):
+        # The tower's top, not a floor stance nearer by: walkable stances come first,
+        # and the floor is what failed (run 20261118T094938114426Z).
+        tops = {(cx, cells[-1][1] + 1, cz), cells[-1]}  # on, or in, the top cell
+        listed = getattr(self.body, "stances", None)  # optional
+        others = set(listed(pos, REACH, avoid)) - tops if listed else set()
+        if self.body.goto_stance(pos, REACH, set(avoid) | others):
             return True
         # Not climbed: a tower nobody stands on is only in the way.
         self.body.break_block(cells[0])
@@ -655,6 +676,16 @@ def _keep_footholds(runner, on_need_materials, log, stock: dict) -> None:
         return
     got = _stock_footholds(runner, on_need_materials, log, low=FOOTHOLD_LOW)
     stock["wait"] = FOOTHOLD_RETRY if got is False else 0
+
+
+def _blind(detail: dict) -> bool:
+    """A place diagnosis where faces were in reach but none could be seen."""
+    sources = detail.get("sources") or ()
+    return (
+        bool(sources)
+        and any(s.get("points_in_reach", 0) > 0 for s in sources)
+        and all(s.get("points_visible", 0) == 0 for s in sources)
+    )
 
 
 def _standing(body, cell: Pos) -> bool:
@@ -816,7 +847,7 @@ def _restore_breaks(runner: _Runner, template: bp.Template) -> None:
     pending = dict(lost)
     lost.clear()
     held = dict(body.inventory())
-    for pos, state in sorted(pending.items(), key=lambda kv: (kv[0][1], kv[0]) ):
+    for pos, state in sorted(pending.items(), key=lambda kv: (kv[0][1], kv[0])):
         if pos in template.cells:
             continue  # the build owns it
         current = body.world(*pos)
