@@ -7,7 +7,11 @@ and eight legs (0-7) in docs/SCAFFOLDING.md. Run: python scripts/check-companion
 Every touched cell is restored afterwards."""
 
 import argparse
+import json
 import math
+import subprocess
+import sys
+import time
 import traceback
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -74,6 +78,8 @@ class Course:
         self.placed: dict = {}  # cell -> block id, every temporary block recorded
         self.seen: set = set()
         self.legs: dict = {}
+        self.windows: dict = {}  # leg -> (start, end) monotonic seconds
+        self.ticks: dict = {}  # leg -> (first, last) tick
 
     def record_placed(self):
         """Read the block id of every cell the planner placed since last time."""
@@ -107,10 +113,24 @@ class Course:
             self.legs[name] = {"passed": False, "skipped": "an earlier leg failed"}
             return
         start = len(self.bridge.samples)
+        self.bridge.state()
+        t0, tick0 = time.monotonic_ns() / 1e9, self.bridge.last_tick
+        edits0 = (self.body.edits_placed, self.body.edits_broken)
         try:
             result = run(start)
         except Exception:
             result = {"passed": False, "error": traceback.format_exc()}
+        self.bridge.state()
+        t1, tick1 = time.monotonic_ns() / 1e9, self.bridge.last_tick
+        placed = self.body.edits_placed - edits0[0]
+        broken = self.body.edits_broken - edits0[1]
+        problems = sc.edit_problems(name.split()[0], placed, broken)
+        self.windows[name], self.ticks[name] = (t0, t1), (tick0, tick1)
+        result.update(
+            wall_s=round(t1 - t0, 1), ticks=tick1 - tick0,
+            scaffolding_placed=placed, scaffolding_broken=broken, edit_problems=problems,
+        )
+        result["passed"] = bool(result["passed"]) and not problems
         result["foreign"] = {str(p): b for p, b in sc.foreign(self.placed).items()}
         result["passed"] = bool(result["passed"]) and not result["foreign"]
         self.legs[name] = result
@@ -263,7 +283,7 @@ def main_inner(folder, origin, summary):
         ):
             course.leg(name, run)
         course.record_placed()
-        summary.update(legs=course.legs, **sc.verdict(course.legs, course.placed))
+        summary.update(legs=course.legs, windows=course.windows, ticks=course.ticks)
         summary["placed"] = {str(p): b for p, b in course.placed.items()}
     finally:
         try:
@@ -279,6 +299,34 @@ def main_inner(folder, origin, summary):
                 bridge.close()
 
 
+def analyse(folder, summary):
+    """Run-wide checks on the closed event log: planner cap hits, standstills, plan stats."""
+    from mclab.build_stats import iter_events
+    from mclab.search_caps import cap_hits, verdict
+
+    caps = verdict(cap_hits(folder / "events.sqlite3"))
+    done = subprocess.run(
+        [sys.executable, "scripts/analysis/idle_gaps.py", "--json", "--min-seconds",
+         str(sc.STANDSTILL_S), str(folder)],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        check=False,
+    )
+    try:
+        rows = [r for rs in json.loads(done.stdout).values() for r in rs]
+    except json.JSONDecodeError:
+        rows = []
+    # exit 0: clean, 1: a standstill, 2: the recording cannot prove either way
+    (folder / "idle.txt").write_text(done.stderr + done.stdout, encoding="utf-8")
+    placed = summary["placed"]
+    summary.update(
+        sc.finish(
+            summary["legs"], placed, caps, rows, done.returncode in (0, 1),
+            summary["ticks"],
+            sc.event_stats(iter_events(folder), summary["windows"]),
+        )
+    )
+
+
 @script_run("companion-scaffold-course")
 def main():
     parser = argparse.ArgumentParser()
@@ -290,6 +338,7 @@ def main():
     try:
         with exclusive_arena():
             main_inner(folder, tuple(args.origin), summary)
+        analyse(folder, summary)
     except Exception as error:
         summary.update(passed=False, error=str(error))
         raise

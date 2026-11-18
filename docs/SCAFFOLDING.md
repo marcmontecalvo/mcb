@@ -72,3 +72,18 @@ reach every drop, so a shortfall is a real failure. The pure parts (geometry, ve
 height checks) are `src/mclab/scaffold_course.py`, tested in `tests/test_scaffold_course.py`;
 `RoutePlannerTest` mirrors legs 1-5 and the sneak-down move on synthetic maps. Not yet seen
 live as of this writing.
+
+### Pass bar: no delays, caps or loops
+
+After the legs the script closes the bridge and analyses `events.sqlite3`; `summary.json`
+holds the results.
+
+- **Search caps:** `mclab.search_caps.cap_hits`/`verdict`; any near hit fails the course.
+- **Standstills:** `scripts/analysis/idle_gaps.py --min-seconds 3`; an unexplained stand over
+  about 3 s fails the leg whose tick range it overlaps (a stall in no leg fails the course;
+  a recording that cannot prove it, exit 2, also fails).
+- **Timing:** each leg records `wall_s`, `ticks`, `plans` and `max_expanded`.
+- **Ground-layer loop:** each leg counts planner placements and breaks
+  (`CompanionBody.edits_placed`/`edits_broken`, every placement, including a cell placed again).
+  A leg fails if it places more than twice its minimum (0, 5, 4, 2, 5, 7, 0, 0 for legs 0-7)
+  or breaks anything before leg 7.

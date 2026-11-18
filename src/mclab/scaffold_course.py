@@ -79,3 +79,78 @@ def verdict(legs: dict[str, dict], placed: dict[Pos, str]) -> dict:
         "foreign_blocks": {str(p): b for p, b in bad.items()},
         "placed_count": len(placed),
     }
+
+
+# Fewest scaffolding cells a leg needs; a leg may place twice that (a ground layer
+# laid, broken and laid again would blow it) and breaks nothing before leg 7.
+MIN_CELLS = {"0": 0, "1": 5, "2": 4, "3": 2, "4": 5, "5": 7, "6": 0, "7": 0}
+OVERPLACE = 2
+STANDSTILL_S = 3.0
+
+
+def edit_problems(index: str, placed: int, broken: int) -> list[str]:
+    """Why a leg's edits are wrong: too many placed, or any break before 7."""
+    out = []
+    if placed > MIN_CELLS[index] * OVERPLACE:
+        out.append(
+            f"placed {placed} scaffolding, minimum {MIN_CELLS[index]} "
+            f"(limit {MIN_CELLS[index] * OVERPLACE})"
+        )
+    if broken and index != "7":
+        out.append(f"broke {broken} blocks before the take-down")
+    return out
+
+
+def event_stats(events, windows: dict[str, tuple[float, float]]) -> dict[str, dict]:
+    """Per leg: plans finished and the most nodes one expanded, from
+    build_stats.iter_events (seconds, kind, data); windows are (start, end) seconds."""
+    out = {n: {"plans": 0, "max_expanded": 0} for n in windows}
+    for at, kind, data in events:
+        if kind != "plan_finished":
+            continue
+        for name, (a, z) in windows.items():
+            if a <= at <= z:
+                out[name]["plans"] += 1
+                out[name]["max_expanded"] = max(
+                    out[name]["max_expanded"], data.get("expanded") or 0
+                )
+    return out
+
+
+def standstills(rows, tick_ranges: dict[str, tuple[int, int]]):
+    """idle_gaps VIOLATION rows -> ({leg: [rows]}, rows in no leg)."""
+    by_leg: dict[str, list] = {}
+    outside = []
+    for r in rows:
+        if r.get("kind") != "VIOLATION":
+            continue
+        a, z = r["ticks"]
+        hit = next(
+            (n for n, (t0, t1) in tick_ranges.items() if a <= t1 and z >= t0), None
+        )
+        (by_leg.setdefault(hit, []) if hit else outside).append(r)
+    return by_leg, outside
+
+
+def finish(legs, placed, caps, idle_rows, idle_ok, tick_ranges, stats) -> dict:
+    """Fold the run-wide analyses into the legs and return the course verdict:
+    a near planner cap hit fails the course, a standstill over STANDSTILL_S fails
+    the leg it fell in, unprovable standstills (idle_ok False) fail the course."""
+    by_leg, outside = standstills(idle_rows, tick_ranges)
+    for name, leg in legs.items():
+        leg.update(stats.get(name, {}))
+        if name in by_leg:
+            worst = max(r["unjustified_s"] for r in by_leg[name])
+            leg["standstill_s"] = worst
+            leg["passed"] = False
+    result = verdict(legs, placed)
+    cap_text, cap_lines = caps
+    near = cap_text.startswith("VIOLATION")
+    result.update(
+        search_caps=cap_text,
+        cap_hits=cap_lines,
+        standstill_outside_legs=len(outside),
+        standstill_provable=idle_ok,
+    )
+    result["passed"] = result["passed"] and not near and not outside and idle_ok
+    return result

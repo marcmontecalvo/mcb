@@ -585,6 +585,7 @@ class CompanionBody:
         self.precise_stance = False
         self.stray_footholds: set[Pos] = set()  # blocks the planner placed to walk
         self.stray_breaks: dict[Pos, str] = {}  # blocks it broke to walk -> original state
+        self.edits_placed = self.edits_broken = 0  # planner edits, every placement counted
         self.build_cells: dict[Pos, str] = {}  # the template's non-air cells (see protect)
         # set per placement by build_runner: the one face the block hangs on
         self.required_support: Pos | None = None
@@ -1330,6 +1331,8 @@ class CompanionBody:
             self.bridge.state()  # heartbeat: close() joins the worker threads
             controller.close()
             self.stray_footholds |= set(getattr(controller, "own_footholds", ()))
+            self.edits_placed += getattr(controller, "edits_placed", 0)
+            self.edits_broken += getattr(controller, "edits_broken", 0)
             for pos, state in getattr(controller, "own_breaks", {}).items():
                 self.stray_breaks.setdefault(pos, state)
         self.observe()
