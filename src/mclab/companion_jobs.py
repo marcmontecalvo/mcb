@@ -40,7 +40,7 @@ from mclab.gather_runner import (
     hydrate_containers,
     run_gather,
 )
-from mclab.gather_tasks import Deposit, PlanResult, Withdraw, slots_used
+from mclab.gather_tasks import Deposit, PlanResult, Withdraw, item_stack, slots_used
 from mclab.knowledge import Knowledge, load_pack
 from mclab.paths import ROOT
 from mclab.schematic import from_build_json, material_list
@@ -107,42 +107,79 @@ def _scaffold_topup(body, state: GatherState) -> dict[str, int]:
 INVENTORY_SLOTS = 36
 
 
+def _stored(state: GatherState) -> Counter[str]:
+    stored: Counter[str] = Counter()
+    for contents in state.containers.values():
+        stored.update({i: n for i, n in contents.items() if n > 0})
+    return stored
+
+
+def _essential(item: str, body) -> bool:
+    """Held through every refill: tools, temporaries, shulker boxes, food."""
+    return (
+        any(w in item for w in TOOL_WORDS)
+        or item in bp.SCAFFOLD_ITEMS
+        or item == SHULKER
+        or item in (getattr(body, "foods", None) or {})
+    )
+
+
+def _load(wanted: dict[str, int], body, knowledge, state: GatherState) -> dict[str, int]:
+    """What of ``wanted`` one trip to the chests carries: structure blocks before
+    details (bp.is_detail), as much as the slots left beside the essentials hold.
+    Run 20261118T050156629666Z asked for the whole remaining bill at once: planks,
+    lanterns, barrels and anvils filled the 36 slots and the 119 oak stairs the
+    walls waited on stayed in the chest for the rest of the build."""
+    items = getattr(knowledge, "items", None) or {}
+    stored, held = _stored(state), body.inventory()
+    room = INVENTORY_SLOTS - slots_used(
+        {i: n for i, n in held.items() if _essential(i, body)}, items
+    )
+    load: dict[str, int] = {}
+    for i in sorted(wanted, key=bp.is_detail):  # stable: the caller's order within
+        has, take = held.get(i, 0), min(wanted[i], stored[i])
+        if take <= 0 and has <= 0:
+            continue
+        stack = item_stack(items, i)
+        fits = max(0, room * stack - has)
+        take = min(take, fits)
+        cost = slots_used({i: has + take}, items)
+        if cost > room:
+            continue  # what is held already of it may go back
+        if take > 0:
+            load[i] = take
+        room -= cost
+    return load
+
+
 def _make_room(
-    wanted: dict[str, int],
+    load: dict[str, int],
     keep: frozenset[str],
     body,
     knowledge,
     state: GatherState,
     gather_options: GatherOptions | None = None,
 ) -> None:
-    """Before withdrawing ``wanted``, put back into the emptiest chest held blocks
-    the refill did not come for (largest first), until what the chests can give
-    fits. Run 20261118T042119862404Z held 34 of 36 slots of house details waiting
-    on the structure; the refill withdrew 4 of the 223 planks it was short."""
-    if not state.containers:
+    """Before withdrawing ``load``, put back into the emptiest chest held blocks the
+    refill did not come for (largest first), until the load fits. Run
+    20261118T042119862404Z held 34 of 36 slots of house details waiting on the
+    structure; the refill withdrew 4 of the 223 planks it was short."""
+    if not state.containers or not load:
         return
-    items = knowledge.items
-    stored: Counter[str] = Counter()
-    for contents in state.containers.values():
-        stored.update({i: n for i, n in contents.items() if n > 0})
-    held = body.inventory()
-    coming = {i: min(n, stored[i]) for i, n in wanted.items() if stored[i] > 0}
-    need = slots_used(coming, items)
-    free = INVENTORY_SLOTS - slots_used(held, items)
-    if free >= need:
-        return
+    items = getattr(knowledge, "items", None) or {}
+    after = Counter(body.inventory())
+    after.update(load)
     spare = [
         i
-        for i, n in held.items()
-        if n > 0 and i not in keep and not any(w in i for w in TOOL_WORDS)
+        for i, n in body.inventory().items()
+        if n > 0 and i not in keep and not _essential(i, body)
     ]
-    spare.sort(key=lambda i: (-slots_used({i: held[i]}, items), i))
+    spare.sort(key=lambda i: (-slots_used({i: after[i]}, items), i))
     out: dict[str, int] = {}
     for i in spare:
-        if free >= need:
+        if slots_used(after, items) <= INVENTORY_SLOTS:
             break
-        out[i] = held[i]
-        free += slots_used({i: held[i]}, items)
+        out[i] = after.pop(i)
     if not out:
         return
     pos = min(state.containers, key=lambda c: sum(state.containers[c].values()))
@@ -468,8 +505,9 @@ def build_job(
         # Chests first, and back to building on any gain. Run 20261110T170929838024Z
         # was short one detector rail with the rest of the house in the chests: the
         # full plan put the ore hunt first and walked the explore ring over a swamp.
-        _make_room(wanted, keep, body, knowledge, state, gather_options)
-        _take(wanted, body, knowledge, state, gather_options)
+        load = _load(wanted, body, knowledge, state)
+        _make_room(load, frozenset(load), body, knowledge, state, gather_options)
+        _take(load, body, knowledge, state, gather_options)
         if any(body.inventory().get(i, 0) > before.get(i, 0) for i in wanted):
             report.refills.append(GatherReport(stop="done"))
             _note_refill(body, wanted, before, "chests", True)

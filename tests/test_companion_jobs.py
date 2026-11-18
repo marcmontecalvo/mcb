@@ -283,7 +283,7 @@ def test_scaffolding_spent_mid_build_is_taken_back_from_the_chests():
 def test_a_full_refill_puts_waiting_blocks_back_to_take_what_it_needs():
     # Run 20261118T042119862404Z: 34 of 36 slots held details waiting on the
     # structure, and the refill withdrew 4 of the 223 planks it was short.
-    from mclab.companion_jobs import _keeping, _make_room, _take
+    from mclab.companion_jobs import _load, _make_room, _take
 
     scaffolding, lantern = M + "scaffolding", M + "lantern"
     w = world()
@@ -293,11 +293,33 @@ def test_a_full_refill_puts_waiting_blocks_back_to_take_what_it_needs():
     body.boxes[(2, 0, 2)] = {PLANKS: 223}
     state = GatherState(containers={(2, 0, 2): {PLANKS: 223}})
     wanted = {PLANKS: 223}
-    keep = _keeping(wanted, body)
+    load = _load(wanted, body, K, state)
 
-    _make_room(wanted, keep, body, K, state)
-    _take(wanted, body, K, state)
+    _make_room(load, frozenset(load), body, K, state)
+    _take(load, body, K, state)
 
     assert body.inv.get(PLANKS) == 223
     assert body.inv.get(scaffolding) == 53 and body.inv.get(M + "iron_axe") == 1
     assert body.boxes[(2, 0, 2)].get(lantern, 0) > 0  # what waits went back
+
+
+def test_a_refill_of_the_whole_bill_carries_the_structure_first():
+    # Run 20261118T050156629666Z: the whole remaining bill was asked for at once;
+    # details filled the slots and the 119 oak stairs never left the chest.
+    from mclab.companion_jobs import _load, _make_room, _take
+
+    stairs, lantern, barrel = M + "oak_stairs", M + "lantern", M + "barrel"
+    w = world()
+    w[(2, 0, 2)] = M + "chest"
+    held = {M + "scaffolding": 53, M + "iron_axe": 1, lantern: 64 * 24, barrel: 64 * 9}
+    body = FakeGatherBody(K, w, held, slots=36)
+    body.boxes[(2, 0, 2)] = {lantern: 64 * 2, PLANKS: 223, stairs: 119}
+    state = GatherState(containers={(2, 0, 2): dict(body.boxes[(2, 0, 2)])})
+    wanted = {lantern: 64 * 2, barrel: 64, PLANKS: 223, stairs: 119}
+
+    load = _load(wanted, body, K, state)
+    _make_room(load, frozenset(load), body, K, state)
+    _take(load, body, K, state)
+
+    assert body.inv.get(stairs) == 119 and body.inv.get(PLANKS) == 223
+    assert body.inv.get(M + "scaffolding") == 53
