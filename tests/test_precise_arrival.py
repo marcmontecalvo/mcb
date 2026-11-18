@@ -222,3 +222,48 @@ def test_a_body_on_a_lily_pad_plans_from_the_pads_own_height(tmp_path):
     finally:
         controller.close()
         memory.close()
+
+
+def test_a_body_inside_a_scaffolding_bridge_cell_plans_from_that_cell(tmp_path):
+    # run 20261118T080749937951Z: feet at y+0.125 on the bottom plate of a
+    # scaffolding bridge cell over a pond; the water surface a block lower was
+    # taken as the start and every plan was unreachable until the run stopped.
+    from mclab.movement_policy import MovementPolicy
+    from mclab.route_types import RouteResult
+
+    cells = floor_map([(x, z) for x in range(-1, 4) for z in range(-1, 3)])
+    cells[1, 0, 1] = {
+        "position": [1, 0, 1],
+        "block": "minecraft:water",
+        "fluid": "minecraft:water",
+        "collision_boxes": [],
+    }
+    plate = [[0, 0.875, 0, 1, 1, 1], [0, 0, 0, 0.125, 1, 0.125]]
+    cells[1, 2, 1] = {
+        "position": [1, 2, 1],
+        "block": "minecraft:scaffolding",
+        "properties": {"bottom": "true", "distance": "2"},
+        "collision_boxes": plate,
+    }
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    policy = MovementPolicy(allow_shapes=True, allow_swim=True)
+    controller = SegmentedController(
+        (1, 1, 3), memory, radius=0, movement_policy=policy
+    )
+
+    class Search:
+        start = (1, 2.0, 1)
+
+        def advance(self, **_):
+            return RouteResult("reached", ((1, 2.0, 1),), 0, 0, "reached")
+
+    try:
+        controller.search = Search()
+        seen = observation(cells, x=1.5)
+        seen["body"]["position"] = [1.5, 2.125, 1.5]
+        controller.decide(seen, native=True)
+        assert controller.search is not None
+        assert controller.search.start == (1, 2.0, 1)
+    finally:
+        controller.close()
+        memory.close()

@@ -12,6 +12,7 @@ from dataclasses import replace
 from mclab import body_search, collision_geometry, water_movement
 from mclab.building_view import BuildingView
 from mclab.gap_jump import GapJumpExecutor, prepare_gap
+from mclab.grid_cache import CLIMBABLE
 from mclab.interaction_goal import interacts, interacts_at_position
 from mclab.movement_policy import MovementPolicy
 from mclab.navigation import NavigationController, empty, standable
@@ -1064,7 +1065,17 @@ class SegmentedController(NavigationController):
         # with its centre over the water, the surface (a block lower) put the
         # start inside the rim block, and every route from it was refused
         # (run 20261117T040459442702Z, 100 s trapped at (-19, 64, 72)).
-        if self.movement_policy.allow_swim and not collision_geometry.standable(
+        # Inside a climbable (a scaffolding bridge cell, standing on its bottom
+        # plate at +0.125): the planner climbs from the feet cell. The water
+        # surface under it put the start a block low and every plan was
+        # unreachable (run 20261118T080749937951Z, trapped at (-23, 64, 68)).
+        feet = tuple(math.floor(v) for v in p)
+        held = self._known_cells().get(feet) or {}
+        if held.get("block") in CLIMBABLE and not collision_geometry.standable(
+            self._known_cells(), node
+        ):
+            node = (feet[0], float(feet[1]), feet[2])
+        elif self.movement_policy.allow_swim and not collision_geometry.standable(
             self._known_cells(), node
         ):
             water_height = water_movement.surface_height(self._known_cells(), p)
