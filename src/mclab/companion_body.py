@@ -1182,7 +1182,7 @@ class CompanionBody:
         )
 
     def _goto_controller(self, goal, reach, radius, probe, wall):
-        return _GotoController(
+        controller = _GotoController(
             goal,
             self.memory,
             radius=radius,
@@ -1196,6 +1196,12 @@ class CompanionBody:
             walk_wall=self.goto_wall_s,
             walk_partial=not getattr(self, "walk_only", False),
         )
+        # What the body holds as of its last observation: a search started before the
+        # controller's first decide (plan_ahead's prefetch) otherwise priced edits
+        # with an empty inventory, so placing was off while the body held 31 dirt and
+        # 40 scaffolding and the walk ran to 10,000 nodes (run 20261118T111231396410Z).
+        controller.inventory = tuple(dict(r) for r in getattr(self, "_rows", ()))
+        return controller
 
     def plan_ahead(self, target: Pos, reach: float) -> None:
         """Start planning the walk to the stance of ``target`` from where the body

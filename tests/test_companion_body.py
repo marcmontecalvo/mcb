@@ -1559,3 +1559,37 @@ def test_a_drop_resting_on_a_rim_edge_is_picked_up_from_beside_it(monkeypatch):
     monkeypatch.setattr(b, "walk_to", walk)
     b.collect_drops([(0, 0, 0)], radius=8.0)
     assert walked and walked[-1][0] == 4 and walked[-1][1] == 0
+
+
+def test_a_walk_planned_ahead_is_priced_with_what_the_body_holds(monkeypatch):
+    """plan_ahead searches before the controller's first decide; with an empty
+    inventory the planner got place_supply 0 and placing was off while the body
+    held dirt and scaffolding (run 20261118T111231396410Z, 10,000-node walks)."""
+    from mclab import body_search
+
+    b, _, _ = body()
+    b._set_inventory(
+        [
+            {"slot": 2, "item": "minecraft:scaffolding", "count": 40},
+            {"slot": 7, "item": "minecraft:dirt", "count": 31},
+        ]
+    )
+    b.terrain_policy = replace(
+        b.terrain_policy,
+        allow_place=True,
+        allow_pillar=True,
+        place_budget=64,
+        material_allowlist=("minecraft:dirt",),
+        scaffold_materials=("minecraft:scaffolding",),
+    )
+    class Bare:  # the controller as plan_ahead has it: never decided yet
+        def __init__(self, goal, memory, *, terrain_policy, **_):
+            self.terrain_policy, self.inventory = terrain_policy, ()
+
+    monkeypatch.setattr(cb, "_GotoController", Bare)
+    controller = b._goto_controller((5, 64, 5), None, 0.6, True, 5.0)
+    edits = body_search.edit_payload(
+        controller.terrain_policy, controller.inventory, ()
+    )
+    assert edits["allow_place"] and edits["materials"] == ["minecraft:dirt"]
+    assert edits["scaffold_supply"] == 40
