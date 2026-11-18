@@ -1507,3 +1507,32 @@ def test_drops_seen_in_an_earlier_collect_are_still_collected(monkeypatch):
     assert walked == [(6, 0, 0), (6, 0, 0)]
     b.collect_drops([(0, 0, 0)], radius=8.0)
     assert len(walked) == 2  # reached and not seen there: gone
+
+
+def test_a_remembered_drop_last_seen_falling_is_forgotten_not_waited_on(monkeypatch):
+    # Scaffold course 20261118T014508840305Z: a stack remembered mid-fall (or merged into
+    # another) used up every pickup of each round, and 17 of 64 were left behind.
+    b, _, _ = body()
+    pos = [0.5, 0.0, 0.5]
+    monkeypatch.setattr(b, "position", lambda: tuple(pos))
+    waits = []
+    monkeypatch.setattr(b, "wait_ticks", lambda n: waits.append(n))
+    ghost = {"uuid": "g", "item": "minecraft:scaffolding", "position": [3.5, 3.0, 0.5]}
+    real = {"uuid": "r", "item": "minecraft:scaffolding", "position": [5.5, 0.0, 0.5]}
+    views = iter([[ghost]])
+    monkeypatch.setattr(
+        b, "entities", lambda: next(views, [] if pos[0] == 5.5 else [real])
+    )
+    walked = []
+
+    def walk(cell, radius):
+        if cell == (3, 3, 0):
+            return None  # above its ground: "still falling"
+        walked.append(cell)
+        pos[:] = [cell[0] + 0.5, cell[1], cell[2] + 0.5]
+        return True
+
+    monkeypatch.setattr(b, "walk_to_drop", walk)
+    b.collect_drops([(0, 0, 0)], radius=8.0)
+    assert walked == [(5, 0, 0)]
+    assert len(waits) <= 3  # the drop wait, at most a couple of looks: not 16

@@ -1489,7 +1489,12 @@ class CompanionBody:
             e = min(drops, key=lambda e: math.dist(e["position"], here))
             x, y, z = (math.floor(v) for v in e["position"])
             reached = self.walk_to_drop((x, y, z), 0.8)
-            if reached is None:  # still falling: look again shortly
+            if not reached and e["uuid"] not in seen:
+                # Remembered, not in view, and not walkable to as remembered: it merged into
+                # another stack or was last seen mid-fall. Waiting on it spent every pickup of
+                # each round (scaffold course 20261118T014508840305Z: 47 of 64 collected).
+                del known[e["uuid"]]
+            elif reached is None:  # still falling: look again shortly
                 self.wait_ticks(5)
             elif not reached:
                 skipped.add(e["uuid"])
