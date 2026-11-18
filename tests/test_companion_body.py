@@ -1510,7 +1510,8 @@ def test_drops_seen_in_an_earlier_collect_are_still_collected(monkeypatch):
 
 
 def test_a_remembered_drop_last_seen_falling_is_forgotten_not_waited_on(monkeypatch):
-    # Scaffold course 20261118T014508840305Z: a stack remembered mid-fall (or merged into
+    # Scaffold course 20261118T014508840305Z: a stack remembered mid-fall (or merged
+    # into
     # another) used up every pickup of each round, and 17 of 64 were left behind.
     b, _, _ = body()
     pos = [0.5, 0.0, 0.5]

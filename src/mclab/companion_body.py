@@ -1444,10 +1444,16 @@ class CompanionBody:
         None: the item is still above its ground (falling); try again after a wait."""
         x, y, z = pos
         standing_y = self._stand_y(x, y, z)
+        refused = None
         if y - standing_y > 2:
-            return None
-        if standing_y - self.position()[1] > DROP_RISE or standing_y - y > 2:
-            return False
+            refused = "falling"
+        elif standing_y - self.position()[1] > DROP_RISE or standing_y - y > 2:
+            refused = "out_of_reach"
+        if refused is not None:
+            if (record := getattr(self.bridge, "record", None)) is not None:
+                record("gather_note", {"gather": "drop_" + refused, "item_cell": list(pos),
+                                       "stand_y": standing_y, "feet": self.position()[1]})
+            return None if refused == "falling" else False
         return self.walk_to((x, standing_y, z), radius)
 
     def collect_drops(self, near: Collection[Pos], radius: float = DROP_RADIUS) -> None:
