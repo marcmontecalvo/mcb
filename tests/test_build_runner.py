@@ -603,6 +603,34 @@ def test_a_tower_is_built_of_dirt_when_no_scaffolding_is_held_and_taken_down():
     assert not [p for p, s in body.w.items() if s == "minecraft:dirt" and p[1] >= 0]
 
 
+
+def test_a_dirt_tower_is_walked_to_before_pillaring_up_it():
+    # Run 20261118T023332974582Z asked the pillar search from 18 blocks off: with no
+    # bridging and 6 blocks to place, 140 searches ran into the node limit.
+    body, t = tall_column_body()
+    _no_scaffold_items(body)
+    body.inv["minecraft:dirt"] = 20
+    order = []
+
+    def walk_to(cell, radius=1.5):
+        order.append(("walk", tuple(cell)))
+        body.pos = tuple(cell)
+        return True
+
+    pillar = body.pillar_to
+
+    def pillar_to(feet, item, n):
+        order.append(("pillar", (feet[0], feet[2]), body.pos[::2]))
+        return pillar(feet, item, n)
+
+    body.walk_to, body.pillar_to = walk_to, pillar_to
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done"
+    [(_, column, stood)] = [o for o in order if o[0] == "pillar"]
+    assert stood == column  # pillared from the column's own foot
+    assert order.index(("walk", (column[0], 0, column[1]))) < len(order) - 1
+
+
 def test_the_retry_round_towers_a_cell_whose_first_tower_was_short():
     body, t = tall_column_body()
     _no_scaffold_items(body)

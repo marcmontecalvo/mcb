@@ -510,6 +510,14 @@ class _Runner:
         if pillar is None:
             return False
         cx, _, cz = cells[0]
+        # Walk to the column's foot first: pillar_to's search is only for going up.
+        # Run 20261118T023332974582Z asked it from 18 blocks off with 6 blocks to
+        # place and no bridging, and 140 searches ran into the node limit.
+        walk = getattr(self.body, "walk_to", None)
+        here = self.body.position()
+        if walk is not None and math.dist((here[0], here[2]), (cx + 0.5, cz + 0.5)) > 1:
+            if not walk(cells[0], 0.6):
+                return False
         pillar((cx, cells[-1][1] + 1, cz), item, len(cells))
         for cell in cells:  # what stands is cleaned up with the rest
             if _standing(self.body, cell):
