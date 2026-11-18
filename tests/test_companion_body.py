@@ -1537,3 +1537,25 @@ def test_a_remembered_drop_last_seen_falling_is_forgotten_not_waited_on(monkeypa
     b.collect_drops([(0, 0, 0)], radius=8.0)
     assert walked == [(5, 0, 0)]
     assert len(waits) <= 3  # the drop wait, at most a couple of looks: not 16
+
+
+def test_a_drop_resting_on_a_rim_edge_is_picked_up_from_beside_it(monkeypatch):
+    # Scaffold course 20261118T015734978753Z: an item at a pit's rim rested on the next
+    # block's edge; its own cell is over the pit, so it read as falling all leg.
+    b, _, _ = body()
+    pos = [0.5, 0.0, 0.5]
+    monkeypatch.setattr(b, "position", lambda: tuple(pos))
+    monkeypatch.setattr(b, "wait_ticks", lambda n: None)
+    rim = {"uuid": "r", "item": "minecraft:scaffolding", "position": [3.9, 0.0, 0.5]}
+    monkeypatch.setattr(b, "entities", lambda: [] if pos[0] == 4.5 else [rim])
+    monkeypatch.setattr(b, "_stand_y", lambda x, y, z: -4 if x == 3 else 0)
+    walked = []
+
+    def walk(cell, radius):
+        walked.append(cell)
+        pos[:] = [cell[0] + 0.5, cell[1], cell[2] + 0.5]
+        return True
+
+    monkeypatch.setattr(b, "walk_to", walk)
+    b.collect_drops([(0, 0, 0)], radius=8.0)
+    assert walked and walked[-1][0] == 4 and walked[-1][1] == 0

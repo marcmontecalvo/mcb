@@ -1456,6 +1456,26 @@ class CompanionBody:
             return None if refused == "falling" else False
         return self.walk_to((x, standing_y, z), radius)
 
+    def _walk_beside_drop(self, pos: Pos, at) -> bool:
+        """An item resting over an empty cell lies on a neighbour's edge: stand beside it
+        at its height (pickup reaches a block past the body's box)."""
+        x, y, z = pos
+        here = self.position()
+        spots = []
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                if dx or dz:
+                    sy = self._stand_y(x + dx, y, z + dz)
+                    if abs(sy - y) <= 1 and sy - here[1] <= DROP_RISE:
+                        spots.append((x + dx, sy, z + dz))
+        def gap(c):
+            return math.hypot(c[0] + 0.5 - at[0], c[2] + 0.5 - at[2])
+
+        for spot in sorted(spots, key=gap):
+            if self.walk_to(spot, 0.8):
+                return True
+        return False
+
     def collect_drops(self, near: Collection[Pos], radius: float = DROP_RADIUS) -> None:
         """Wait for what fell (a scaffolding tower drops block by block), then walk onto
         the dropped items within ``radius`` of the cells ``near``."""
@@ -1472,8 +1492,16 @@ class CompanionBody:
         known: dict = getattr(self, "_known_drops", None)
         if known is None:
             known = self._known_drops = {}
+        last_y: dict = {}
+
+        def resting(e) -> bool:
+            before = last_y.get(e["uuid"])
+            return before is not None and abs(before - e["position"][1]) < 0.01
+
         for _ in range(MAX_PICKUPS):
             here = self.position()
+            for u, e in known.items():
+                last_y[u] = e["position"][1]
             seen = {
                 e["uuid"]: e
                 for e in self.entities()
@@ -1495,6 +1523,10 @@ class CompanionBody:
             e = min(drops, key=lambda e: math.dist(e["position"], here))
             x, y, z = (math.floor(v) for v in e["position"])
             reached = self.walk_to_drop((x, y, z), 0.8)
+            if reached is None and e["uuid"] in seen and resting(e):
+                # Not falling: it rests on the edge of a neighbour's block, over an empty cell
+                # (scaffold course 20261118T015734978753Z waited on one at a pit rim all leg).
+                reached = self._walk_beside_drop((x, y, z), e["position"])
             if not reached and e["uuid"] not in seen:
                 # Remembered, not in view, and not walkable to as remembered: it merged into
                 # another stack or was last seen mid-fall. Waiting on it spent every pickup of
