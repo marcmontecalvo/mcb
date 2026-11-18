@@ -1450,3 +1450,33 @@ def test_a_hurt_body_eats_its_most_filling_food(monkeypatch):
     assert b.eat_when_needed() and eaten == ["minecraft:cooked_beef"]  # hungry
     monkeypatch.setattr(b, "food", lambda: 20)
     assert not b.eat_when_needed()  # full: cannot eat
+
+
+def test_drops_seen_once_are_collected_even_when_out_of_sight_from_the_pit(monkeypatch):
+    # Scaffold course 20261118T013316689139Z: from the pit floor a stack on its
+    # steps, three up, was neither in sight nor within two blocks of height;
+    # 3 of 64 scaffolding were left behind.
+    b, _, _ = body()
+    pos = [0.5, 0.0, 0.5]
+    monkeypatch.setattr(b, "position", lambda: tuple(pos))
+    monkeypatch.setattr(b, "wait_ticks", lambda n: None)
+    floor = {"uuid": "a", "item": "minecraft:scaffolding", "position": [2.5, 0.0, 0.5]}
+    step = {"uuid": "b", "item": "minecraft:scaffolding", "position": [4.5, 3.0, 0.5]}
+    held = {"a", "b"}
+    # The step stack is seen only from the rim, before the body goes down.
+    views = iter([[floor, step]])
+    monkeypatch.setattr(
+        b, "entities",
+        lambda: [e for e in next(views, [floor]) if e["uuid"] in held],
+    )
+    walked = []
+
+    def walk(cell, radius):
+        walked.append(cell)
+        pos[:] = [cell[0] + 0.5, cell[1], cell[2] + 0.5]
+        held.discard("a" if cell[0] == 2 else "b")
+        return True
+
+    monkeypatch.setattr(b, "walk_to_drop", walk)
+    b.collect_drops([(0, 0, 0)], radius=8.0)
+    assert walked == [(2, 0, 0), (4, 3, 0)]

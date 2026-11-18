@@ -34,6 +34,7 @@ PARSE = {
     "server_event",
     "observation",
     "request",
+    "job_started",
     "job_finished",
     "controller_error",
     "native_route_edge_rejected",
@@ -161,6 +162,9 @@ def load(path: Path) -> dict:
                 b["events"].append((w, b["last_tick"], "req:" + op, short(p)))
             continue
         if t != "server_event":
+            if t == "job_started":
+                # the harness finished setting the world up: the body's window starts here
+                b["ready"], b["ready_wall"] = b["last_tick"], w
             if t == "job_finished" and b["end"] is None:
                 b["end"], b["end_wall"] = b["last_tick"], w
             if (

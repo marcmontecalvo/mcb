@@ -287,6 +287,8 @@ def main_inner(folder, origin, summary):
             ),
         )
         course = Course(bridge, body, o)
+        # The course is built: the body's own time starts here (idle_gaps.py starts its window at it).
+        bridge.record("job_started", {"job": "scaffold-course"})
         for name, run in (
             ("0 walk through", course.leg0), ("1 up", course.leg1), ("2 out", course.leg2),
             ("3 up again", course.leg3), ("4 second tower", course.leg4),

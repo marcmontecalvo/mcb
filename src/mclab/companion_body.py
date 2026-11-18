@@ -130,6 +130,7 @@ PROBE_WALL_S = (
 DROP_RADIUS = 8.0  # collect_drops: items this close to the broken cells are picked up
 DROP_WAIT_TICKS = 40  # a tower of scaffolding drops a layer per few ticks
 MAX_PICKUPS = 16
+DROP_RISE = 4  # collect_drops: items resting up to this far above the feet (a step, a ledge) are walked to
 BODY_HALF_WIDTH = 0.3
 BODY_HEIGHT = 1.8
 PRECISE_RADIUS = (
@@ -1445,7 +1446,7 @@ class CompanionBody:
         standing_y = self._stand_y(x, y, z)
         if y - standing_y > 2:
             return None
-        if standing_y - self.position()[1] > 2 or standing_y - y > 2:
+        if standing_y - self.position()[1] > DROP_RISE or standing_y - y > 2:
             return False
         return self.walk_to((x, standing_y, z), radius)
 
@@ -1458,22 +1459,36 @@ class CompanionBody:
         self.wait_ticks(DROP_WAIT_TICKS)
         centres = [(x + 0.5, y + 0.5, z + 0.5) for x, y, z in near]
         skipped: set = set()
+        # Items are remembered once seen: from the bottom of a pit a stack on its steps is out of
+        # sight (scaffold course 20261118T013316689139Z left 3 there). One no longer seen where
+        # the body stands was picked up or is gone.
+        known: dict = {}
         for _ in range(MAX_PICKUPS):
             here = self.position()
+            seen = {
+                e["uuid"]: e
+                for e in self.entities()
+                if e.get("item") and e.get("uuid")
+                and any(math.dist(e["position"], c) <= radius for c in centres)
+            }
+            known.update(seen)
+            for uuid in [u for u, e in known.items() if u not in seen]:
+                if math.dist(known[uuid]["position"], here) <= 2.0:
+                    del known[uuid]
             drops = [
                 e
-                for e in self.entities()
-                if e.get("item")
-                and e.get("uuid") not in skipped
-                and e["position"][1] - here[1] <= 2
-                and any(math.dist(e["position"], c) <= radius for c in centres)
+                for u, e in known.items()
+                if u not in skipped and e["position"][1] - here[1] <= DROP_RISE
             ]
             if not drops:
                 return
             e = min(drops, key=lambda e: math.dist(e["position"], here))
             x, y, z = (math.floor(v) for v in e["position"])
-            if not self.walk_to_drop((x, y, z), 0.8):
-                skipped.add(e.get("uuid"))
+            reached = self.walk_to_drop((x, y, z), 0.8)
+            if reached is None:  # still falling: look again shortly
+                self.wait_ticks(5)
+            elif not reached:
+                skipped.add(e["uuid"])
 
     def find_all(
         self, block: str, within: list[tuple[Pos, float]] | None = None

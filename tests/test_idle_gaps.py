@@ -381,3 +381,17 @@ def test_job_finished_ends_the_window(tmp_path):
     }
     r = run(tmp_path, [ev("course_started", 0), *moving, done, *still(40, 200, 7.8)])
     assert r == []
+
+
+def test_job_started_opens_the_window_after_the_harness_setup(tmp_path):
+    # The scaffold course clears and builds its area before the body moves (run
+    # 20261118T013316689139Z: 3.1 s counted against leg 0 for the kit's own work)
+    started = {
+        "body_id": "b",
+        "monotonic_ns": int((T0 + 140 / 20) * 1e9),
+        "type": "job_started",
+        "payload": {"job": "scaffold-course"},
+    }
+    moving = [sample(t, (t - 140) * 0.2) for t in range(140, 180)]
+    r = run(tmp_path, [ev("course_started", 0), *still(0, 140), started, *moving])
+    assert r == []
