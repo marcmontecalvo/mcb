@@ -1480,3 +1480,30 @@ def test_drops_seen_once_are_collected_even_when_out_of_sight_from_the_pit(monke
     monkeypatch.setattr(b, "walk_to_drop", walk)
     b.collect_drops([(0, 0, 0)], radius=8.0)
     assert walked == [(2, 0, 0), (4, 3, 0)]
+
+
+def test_drops_seen_in_an_earlier_collect_are_still_collected(monkeypatch):
+    # Scaffold course 20261118T014026041814Z: the take-down calls collect_drops once per
+    # round; standing on the pit's steps the floor was out of sight and 4 were left.
+    b, _, _ = body()
+    pos = [0.5, 0.0, 0.5]
+    monkeypatch.setattr(b, "position", lambda: tuple(pos))
+    monkeypatch.setattr(b, "wait_ticks", lambda n: None)
+    far = {"uuid": "f", "item": "minecraft:scaffolding", "position": [6.5, 0.0, 0.5]}
+    views = iter([[far]])
+    monkeypatch.setattr(b, "entities", lambda: next(views, []))
+    walked = []
+
+    def walk(cell, radius):
+        walked.append(cell)
+        if len(walked) == 1:
+            return False  # the first try is cut short
+        pos[:] = [cell[0] + 0.5, cell[1], cell[2] + 0.5]
+        return True
+
+    monkeypatch.setattr(b, "walk_to_drop", walk)
+    b.collect_drops([(0, 0, 0)], radius=8.0)
+    b.collect_drops([(0, 0, 0)], radius=8.0)
+    assert walked == [(6, 0, 0), (6, 0, 0)]
+    b.collect_drops([(0, 0, 0)], radius=8.0)
+    assert len(walked) == 2  # reached and not seen there: gone

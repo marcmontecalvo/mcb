@@ -1459,10 +1459,13 @@ class CompanionBody:
         self.wait_ticks(DROP_WAIT_TICKS)
         centres = [(x + 0.5, y + 0.5, z + 0.5) for x, y, z in near]
         skipped: set = set()
-        # Items are remembered once seen: from the bottom of a pit a stack on its steps is out of
-        # sight (scaffold course 20261118T013316689139Z left 3 there). One no longer seen where
+        # Items are remembered once seen, across calls: from the bottom of a pit a stack on its
+        # steps is out of sight (scaffold course 20261118T013316689139Z left 3 there), and from
+        # its steps the pit floor is (20261118T014026041814Z left 4). One no longer seen where
         # the body stands was picked up or is gone.
-        known: dict = {}
+        known: dict = getattr(self, "_known_drops", None)
+        if known is None:
+            known = self._known_drops = {}
         for _ in range(MAX_PICKUPS):
             here = self.position()
             seen = {
@@ -1479,6 +1482,7 @@ class CompanionBody:
                 e
                 for u, e in known.items()
                 if u not in skipped and e["position"][1] - here[1] <= DROP_RISE
+                and any(math.dist(e["position"], c) <= radius for c in centres)
             ]
             if not drops:
                 return
