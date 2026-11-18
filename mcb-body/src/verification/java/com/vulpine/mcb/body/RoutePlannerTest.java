@@ -535,6 +535,19 @@ public final class RoutePlannerTest {
         check(across.status().equals("reached") && across.expanded() < 200,
                 "a goal across open air at height bridges without flooding the floor (" + across.status() + " " + across.expanded() + ")");
 
+        // In a hanging scaffolding cell (its bottom plate) beside a wall: the body places a block against the wall and
+        // steps onto it. With only climb moves from the cell it searched 10000 nodes for a goal 1 block off (large
+        // house run 20261118T080749937951Z, plan-4815).
+        var hang = floor(12);
+        var hanging = new HashMap<String, Object>(scaffold());
+        hanging.put("properties", Map.of("bottom", "true", "distance", "4"));
+        hang.put(new Key(2, 5, 2), hanging);
+        hang.put(new Key(3, 4, 1), stone());
+        var off = new RoutePlanner((x, y, z) -> hang.get(new Key(x, y, z)), new RoutePlanner.Node(2, 5, 2),
+                new RoutePlanner.Node(3, 5, 2), 0, 3, true).withMoves(false, true).withEdits(scaffoldPolicy(0)).search(10_000);
+        check(off.status().equals("reached") && off.expanded() < 50,
+                "from a hanging scaffolding cell a block goes against the wall beside it (" + off.status() + " " + off.expanded() + ")");
+
         // Bridge off a scaffolding tower: the walkway is scaffolding while its distance is at most 6, solid beyond.
         var world = new HashMap<Key, Map<String, Object>>();
         for (int x = -2; x <= 14; x++) for (int z = -3; z <= 3; z++) for (int y = -1; y <= 6; y++)

@@ -90,3 +90,39 @@ def test_any_real_shape_topped_within_its_cell_is_a_floor_but_a_fence_is_not():
         "collision_boxes": [[0.375, 0, 0.375, 0.625, 1.5, 0.625]],
     }
     assert not standable(cells, (1, 2.5, 1))
+
+
+def _scaffolding(bottom):
+    plate = [[0, 0.875, 0, 1, 1, 1]]
+    return {
+        "block": "minecraft:scaffolding",
+        "fluid": "minecraft:empty",
+        "properties": {"bottom": "true" if bottom else "false", "distance": "4"},
+        "collision_boxes": plate,
+    }
+
+
+def test_a_hanging_scaffolding_cell_is_a_stance_edits_start_from():
+    # run 20261118T080749937951Z plan-4815: a body on a bridge cell's bottom plate
+    # had no edit move and searched 10000 nodes for a goal one block off.
+    from mclab.collision_geometry import edit_stance
+
+    cells = floor_map([(x, z) for x in range(-1, 3) for z in range(-1, 3)])
+    cells[0, 3, 0] = _scaffolding(bottom=True)
+    assert edit_stance(cells, (0, 3, 0))
+    cells[0, 3, 0] = _scaffolding(bottom=False)  # over air, not hanging: falls
+    assert not edit_stance(cells, (0, 3, 0))
+
+
+def test_a_block_is_placed_against_any_wall_beside_it():
+    from mclab.terrain_placement import placement_target
+
+    cells = floor_map([(x, z) for x in range(-1, 4) for z in range(-1, 3)])
+    cells[2, 2, 0] = {
+        "block": "minecraft:stone",
+        "collision_boxes": [[0, 0, 0, 1, 1, 1]],
+    }
+    # Source over air (a hanging scaffolding cell): its floor is no anchor.
+    target = placement_target(cells, (1, 3, 1), (2, 2, 1), allow_bridge=True)
+    assert target is not None and target.support == (2, 2, 0) and target.face == "SOUTH"
+    assert placement_target(cells, (1, 3, 1), (2, 2, 1), allow_bridge=False) is None

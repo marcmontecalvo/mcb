@@ -1165,6 +1165,13 @@ final class RoutePlanner {
         if (integral(n.y) && flatFloor(floor) && empty(at(n.x, n.y, n.z)) && empty(at(n.x, n.y + 1, n.z))) return true;
         return floor != null && fullCube(floor) && wadeable(at(n.x, n.y, n.z)) && empty(at(n.x, n.y + 1, n.z));
     }
+    /** A scaffolding cell the body stands in: a hanging one (bottom plate) or one over a floor. */
+    private boolean scaffoldFloor(Node n) {
+        var c = at(n.x, n.y, n.z);
+        if (!integral(n.y) || !scaffolding(c) || !dry(c)) return false;
+        return (c.get("properties") instanceof Map<?, ?> m && "true".equals(m.get("bottom")))
+                || sturdy(at(n.x, n.y - 1, n.z));
+    }
     private boolean climbOnly(Node n) { return climbable(at(n.x, n.y, n.z)) && !blockStandable(n); }
     private boolean openOrClimb(Map<String, Object> c) { return empty(c) || climbable(c); }
 
@@ -1192,6 +1199,11 @@ final class RoutePlanner {
             for (var d : DIRECTIONS) for (int dy = 0; dy <= 1; dy++) {
                 var target = new Node(x + d[0], y + dy, z + d[1]);
                 if (blockStandable(target)) out.add(new Move(target, heightCost(dy)));
+                // Standing in scaffolding (a hanging cell's bottom plate, or a column's lower top): the body may
+                // place and step from it like any floor. Without this a body in a bridge cell beside the wall had
+                // only climb moves and searched 10000 nodes for a goal 1 block off (run 20261118T080749937951Z).
+                else if (edits != null && edits.stepEdits && scaffoldFloor(node))
+                    addEdit(planEdit(node, target), heightCost(dy), node, out);
             }
         }
         if (!blockStandable(node)) return;
@@ -1654,7 +1666,7 @@ final class RoutePlanner {
             }
             places = stack;
         }
-        boolean recover = source.equals(start) && !stance(source);
+        boolean recover = source.equals(start) && !stance(source) && !scaffoldFloor(source);
         var cuts = recover
                 ? (ty == y
                         ? cuts(new int[]{x, y + 1, z}, new int[]{x, y, z}, new int[]{tx, ty, tz}, new int[]{tx, ty + 1, tz})
@@ -1674,11 +1686,16 @@ final class RoutePlanner {
         return new Edit(source, target, cuts, places, "step", scaffoldCells(places));
     }
 
-    /** Support below, or a permitted side anchor one below the source. */
+    /** Support below, the source's floor beside it, or any full cube beside it to click (a wall, a log):
+     *  StepMotor and terrain_placement pick the same anchor. */
     private boolean anchored(int x, int y, int z, int[] p) {
         if (sturdy(cell(p[0], p[1] - 1, p[2]))) return true;
-        return edits.allowBridge && p[1] == y - 1 && Math.abs(p[0] - x) + Math.abs(p[2] - z) == 1
-                && empty(cell(p[0], p[1] - 1, p[2])) && sturdy(cell(x, y - 1, z));
+        if (!edits.allowBridge) return false;
+        if (p[1] == y - 1 && Math.abs(p[0] - x) + Math.abs(p[2] - z) == 1
+                && empty(cell(p[0], p[1] - 1, p[2])) && sturdy(cell(x, y - 1, z))) return true;
+        if (cell(p[0], p[1] - 1, p[2]) == null) return false; // unknown under it, as terrain_placement
+        for (var d : DIRECTIONS) if (fullDry(cell(p[0] + d[0], p[1], p[2] + d[1]))) return true;
+        return false;
     }
 
     /** Cells to cut, plus the callers' "nothing to break" rule. */

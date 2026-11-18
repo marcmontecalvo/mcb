@@ -51,12 +51,30 @@ def flat_floor(cell):
     )
 
 
+def scaffold_floor(cells, node):
+    """A scaffolding cell the body stands in: a hanging one (its bottom plate) or
+    one over a floor or more scaffolding, as RoutePlanner.scaffoldFloor."""
+    x, y, z = node
+    cell = cells.get(node) or {}
+    if cell.get("block") != "minecraft:scaffolding" or cell.get("fluid") not in (
+        None,
+        "minecraft:empty",
+    ):
+        return False
+    if (cell.get("properties") or {}).get("bottom") == "true":
+        return True
+    below = cells.get((x, y - 1, z)) or {}
+    return below.get("block") == "minecraft:scaffolding" or full_cube(below)
+
+
 def edit_stance(cells, node):
     """A stance a terrain edit may start from: a dry block stance, or one wading in
     one-deep water on a full block with the head in air. The body dug itself into a
     wet pocket and, with no edit allowed from wet feet, had no move out of it for
     130 s (iron run 20261112T205117541135Z)."""
     if block_standable(cells, node):
+        return True
+    if scaffold_floor(cells, node):
         return True
     x, y, z = node
     if (

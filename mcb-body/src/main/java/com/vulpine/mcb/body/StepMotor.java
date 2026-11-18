@@ -278,6 +278,19 @@ final class StepMotor {
     static boolean scaffolding(Map<String,Object> c) { return c!=null && SCAFFOLDING.equals(c.get("block")); }
     /** Something to click a block onto: a full cube or scaffolding (supported: the planner only counts it so). */
     static boolean sturdy(Map<String,Object> c) { return cube(c) || scaffolding(c); }
+    /** Sneaking in or on scaffolding drops the body through it. */
+    private boolean inScaffold(RouteGeometry.Reader reader) {
+        return scaffolding(read(reader,source)) || scaffolding(read(reader,source.below()));
+    }
+    /** A full cube beside the cell to click its face, north/south/east/west. */
+    private BlockPos sideAnchor(RouteGeometry.Reader reader, BlockPos point) {
+        for(var d:List.of(net.minecraft.core.Direction.NORTH,net.minecraft.core.Direction.SOUTH,
+                net.minecraft.core.Direction.EAST,net.minecraft.core.Direction.WEST)) {
+            var n=point.relative(d);
+            if(cube(read(reader,n))) return n;
+        }
+        return null;
+    }
     static boolean cube(Map<String,Object> c) {
         return c!=null && "minecraft:empty".equals(c.getOrDefault("fluid","minecraft:empty"))
                 && c.get("collision_boxes") instanceof List<?> boxes && boxes.size()==1
@@ -418,9 +431,11 @@ final class StepMotor {
         }
         if(issued && op.place) {
             if(tick-issueTick>15) return stopInput(tick,"native_placement_not_observed");
-            return input(tick,0,0,0,false,!pillar,false,false,0);
+            return input(tick,0,0,0,false,!pillar && !inScaffold(reader),false,false,0);
         }
+        // In a scaffolding cell (a hanging one's bottom plate, or a column's lower top) the body stands as on a floor.
         boolean sourceOk=geometry.standable(new RouteMotor.Point(source.getX(),source.getY(),source.getZ()))
+                || scaffolding(read(reader,source))
                 || (!op.place && cube(read(reader,source.below())) && (op.point.equals(source) || op.point.equals(source.above())));
         if(!pillar && (!p.onGround() || !sourceOk))
             return stopInput(tick,"native_edit_stance_changed");
@@ -484,12 +499,22 @@ final class StepMotor {
             stackOnScaffold=below && scaffold && scaffolding(read(reader,expected));
             if(stackOnScaffold && !pillar && scaffolding(read(reader,source.below())))
                 return stopInput(tick,"native_scaffold_redirect");
+            BlockPos side=null;
             if(!below) {
                 expected=source.below();
-                if(!bridge || op.point.getY()!=source.getY()-1 || Math.abs(dx)+Math.abs(dz)!=1
-                        || !(empty(read(reader,op.point.below())) || replaceable(read(reader,op.point.below())))
-                        || !sturdy(read(reader,expected)))
-                    return stopInput(tick,"native_placement_anchor_changed");
+                boolean fromSource=bridge && op.point.getY()==source.getY()-1 && Math.abs(dx)+Math.abs(dz)==1
+                        && (empty(read(reader,op.point.below())) || replaceable(read(reader,op.point.below())))
+                        && sturdy(read(reader,expected));
+                // Else any full cube beside the cell (a wall, a log): RoutePlanner.anchored, terrain_placement.
+                if(!fromSource && bridge) side=sideAnchor(reader,op.point);
+                if(!fromSource && side==null) return stopInput(tick,"native_placement_anchor_changed");
+            }
+            if(side!=null) {
+                int sx=op.point.getX()-side.getX(),sz=op.point.getZ()-side.getZ();
+                expected=side;
+                face=sx==1?"EAST":sx==-1?"WEST":sz==1?"SOUTH":"NORTH";
+                aim=new Vec3(side.getX()+.5+sx*.499,side.getY()+.5,side.getZ()+.5+sz*.499);
+            } else if(!below) {
                 face=dx==1?"EAST":dx==-1?"WEST":dz==1?"SOUTH":"NORTH";
                 aim=new Vec3(source.getX()+.5+dx*.499,op.point.getY()+.5,source.getZ()+.5+dz*.499);
                 if(scaffold && scaffolding(read(reader,expected))) {
@@ -502,8 +527,8 @@ final class StepMotor {
             // vanilla edge clamp keeps the body on the block. 0.3 input on top cost
             // ~30 ticks per placement (Step C run 20261030T023556227338Z: median 39).
             // Sneaking on scaffolding drops the body through it: never sneak on a scaffolding floor.
-            boolean sneakOk=!scaffolding(read(reader,source.below()));
-            boolean approach=!pillar && !redirect && op.point.getY()<source.getY() && Math.abs(dx)+Math.abs(dz)==1;
+            boolean sneakOk=!inScaffold(reader);
+            boolean approach=!pillar && !redirect && side==null && op.point.getY()<source.getY() && Math.abs(dx)+Math.abs(dz)==1;
             if(approach && progress<.6) {
                 // The sneak edge clamp pins the centre at the support's rim, so a
                 // stance whose neighbour is empty below can never cross progress .6:
