@@ -372,7 +372,14 @@ final class StepMotor {
         for(var cut:issuedBreaks) if(empty(read(reader,cut))) broken.add(cut);
         if(pillar && !geometry.clear(p.getX(),p.getZ(),p.getY(),p.getY()+1.8+(launched?0:1.3)))
             return stopInput(tick,"native_pillar_headroom_changed");
-        if(pillar && (exit==null || !geometry.standable(new RouteMotor.Point(exit.getX(),exit.getY(),exit.getZ()))))
+        // A pillar whose next move is another pillar (a tower going on up) exits straight above:
+        // that cell is only standable once the next block is under it, so it need only be clear.
+        // A tower's top block stays on its own top: the exit is the target itself.
+        boolean climbOn=pillar && exit!=null && exit.getX()==target.getX() && exit.getZ()==target.getZ()
+                && (exit.getY()==target.getY()+1 || exit.getY()==target.getY());
+        if(pillar && (exit==null || !(climbOn
+                ? geometry.clear(exit.getX()+.5,exit.getZ()+.5,exit.getY(),exit.getY()+1.8)
+                : geometry.standable(new RouteMotor.Point(exit.getX(),exit.getY(),exit.getZ())))))
             return stopInput(tick,"native_pillar_exit_changed");
         if(index>=operations.size()) {
             if(downward) {

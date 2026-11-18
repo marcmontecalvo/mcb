@@ -700,13 +700,14 @@ class SegmentedController(NavigationController):
             )
             if plan is None:
                 break
-            if (
-                plan.kind == "pillar"
-                and plan.exit is None
-                and index + 2 < len(self.route)
-            ):
+            if plan.kind == "pillar" and plan.exit is None:
                 # Planner pillars omit the exit; the body and PillarExecutor need it.
-                plan = replace(plan, exit=tuple(self.route[index + 2]))
+                # A pillar that ends the route (a tower's top block) stays where it
+                # rose to (scaffold course run 20261118T010842289714Z).
+                after = index + 2 < len(self.route)
+                plan = replace(
+                    plan, exit=tuple(self.route[index + 2] if after else plan.target)
+                )
             queue.append(plan)
         plan = queue[0]
         self.terrain_queue = queue

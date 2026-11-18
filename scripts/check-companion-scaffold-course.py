@@ -43,10 +43,15 @@ def block(body, p):
 def put(bridge, body, cells):
     """Set cells (world pos -> state) in batches, offsets from the body's feet cell."""
     feet = [math.floor(v) for v in body.position()]
+    body_cells = {tuple(feet), (feet[0], feet[1] + 1, feet[2])}
     items = [
         {"state": s, "offset": [p[i] - feet[i] for i in range(3)]}
         for p, s in cells.items()
+        if tuple(p) not in body_cells  # the kit never sets a cell the body is in
     ]
+    for p in body_cells:  # what the body stands in it takes out itself
+        if tuple(p) in cells and cells[tuple(p)] in (None, *AIR) and block(body, p) not in AIR:
+            body.break_block(p)
     for i in range(0, len(items), KIT_BATCH):
         kit(bridge, place=items[i : i + KIT_BATCH])
 
@@ -250,6 +255,9 @@ def main_inner(folder, origin, summary):
         # Clear what an earlier run left (it may have stopped before its restore):
         # air over the course, stone under it, then let the sensor see it.
         kit(bridge, clear=[16, 10, 5])
+        for dy in (0, 1):  # the clear skips the body's own cells
+            if block(body, sc.at(o, 0, dy, 0)) not in AIR:
+                body.break_block(sc.at(o, 0, dy, 0))
         body.wait_ticks(40)
         body.observe()
         pre_check(body, o)
