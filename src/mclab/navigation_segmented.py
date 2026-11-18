@@ -71,6 +71,38 @@ def native_edit_matches(plan, cells, supported):
     )
 
 
+def scaffold_step_matches(plan, cells, policy, inventory, protected=()):
+    """Fresh check of a planner step that places scaffolding.
+
+    The Python step rules know solid footholds only (a face to click, a full cube
+    under the feet), so a scaffolding step the planner chose by support distance
+    was always "changed" and replanned: the scaffold course's first tower never
+    went up (results/scaffolding/20261118T004443521255Z). What can have changed is
+    checked instead: the cells to fill are still known, empty and not protected,
+    the cells to cut still hold something, and the blocks are still held.
+    """
+    guarded = set(protected) | set(policy.protected_positions)
+    for point in plan.places:
+        cell = cells.get(point)
+        if cell is None or not empty(cell) or point in guarded:
+            return False
+        if cell.get("block") in policy.protected_blocks:
+            return False
+    for point in plan.breaks:
+        cell = cells.get(point)
+        if cell is None or point in policy.protected_positions:
+            return False
+    held = {}
+    for row in inventory:
+        held[row.get("item")] = held.get(row.get("item"), 0) + row.get("count", 0)
+    scaffold = [p for p in plan.places if p in set(plan.scaffold)]
+    solid = len(plan.places) - len(scaffold)
+    have_scaffold = sum(held.get(i, 0) for i in policy.scaffold_materials)
+    have_solid = sum(held.get(i, 0) for i in policy.material_allowlist)
+    spare = have_solid - policy.reserve_blocks
+    return have_scaffold >= len(scaffold) and spare >= solid
+
+
 class SegmentedController(NavigationController):
     requires_body_planner = True
     route_steps = {}  # Replaced, never mutated; instances set their own.
@@ -858,6 +890,14 @@ class SegmentedController(NavigationController):
         valid = node == plan.source
         if valid and plan.kind in NATIVE_EDIT_KINDS:
             valid = native_edit_matches(plan, fresh, self._node_supported)
+        elif valid and plan.scaffold:
+            valid = scaffold_step_matches(
+                plan,
+                fresh,
+                self.terrain_queue_policy,
+                observation["body"].get("inventory", []),
+                protected=self.own_footholds,
+            )
         elif valid and (plan.breaks or plan.places):
             actual = (prepare_pillar if plan.kind == "pillar" else prepare_step)(
                 fresh,
