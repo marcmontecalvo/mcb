@@ -278,3 +278,26 @@ def test_scaffolding_spent_mid_build_is_taken_back_from_the_chests():
     assert _scaffold_topup(Body(20), state) == {scaffolding: SCAFFOLD_STACK - 20}
     assert _scaffold_topup(Body(SCAFFOLD_STACK // 2), state) == {}
     assert _scaffold_topup(Body(0), GatherState(containers={})) == {}
+
+
+def test_a_full_refill_puts_waiting_blocks_back_to_take_what_it_needs():
+    # Run 20261118T042119862404Z: 34 of 36 slots held details waiting on the
+    # structure, and the refill withdrew 4 of the 223 planks it was short.
+    from mclab.companion_jobs import _keeping, _make_room, _take
+
+    scaffolding, lantern = M + "scaffolding", M + "lantern"
+    w = world()
+    w[(2, 0, 2)] = M + "chest"
+    held = {scaffolding: 53, lantern: 64 * 20, COBBLE: 64 * 14, M + "iron_axe": 1}
+    body = FakeGatherBody(K, w, held, slots=36)
+    body.boxes[(2, 0, 2)] = {PLANKS: 223}
+    state = GatherState(containers={(2, 0, 2): {PLANKS: 223}})
+    wanted = {PLANKS: 223}
+    keep = _keeping(wanted, body)
+
+    _make_room(wanted, keep, body, K, state)
+    _take(wanted, body, K, state)
+
+    assert body.inv.get(PLANKS) == 223
+    assert body.inv.get(scaffolding) == 53 and body.inv.get(M + "iron_axe") == 1
+    assert body.boxes[(2, 0, 2)].get(lantern, 0) > 0  # what waits went back

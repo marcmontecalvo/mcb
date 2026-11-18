@@ -40,7 +40,7 @@ from mclab.gather_runner import (
     hydrate_containers,
     run_gather,
 )
-from mclab.gather_tasks import Deposit, PlanResult, Withdraw
+from mclab.gather_tasks import Deposit, PlanResult, Withdraw, slots_used
 from mclab.knowledge import Knowledge, load_pack
 from mclab.paths import ROOT
 from mclab.schematic import from_build_json, material_list
@@ -104,11 +104,60 @@ def _scaffold_topup(body, state: GatherState) -> dict[str, int]:
     return {bp.SCAFFOLD_ITEMS[0]: min(SCAFFOLD_STACK - held, stored)}
 
 
-def _keeping(needed, body) -> frozenset[str]:
-    """What a refill mid-build never deposits: the build's blocks, the temporary
+INVENTORY_SLOTS = 36
+
+
+def _make_room(
+    wanted: dict[str, int],
+    keep: frozenset[str],
+    body,
+    knowledge,
+    state: GatherState,
+    gather_options: GatherOptions | None = None,
+) -> None:
+    """Before withdrawing ``wanted``, put back into the emptiest chest held blocks
+    the refill did not come for (largest first), until what the chests can give
+    fits. Run 20261118T042119862404Z held 34 of 36 slots of house details waiting
+    on the structure; the refill withdrew 4 of the 223 planks it was short."""
+    if not state.containers:
+        return
+    items = knowledge.items
+    stored: Counter[str] = Counter()
+    for contents in state.containers.values():
+        stored.update({i: n for i, n in contents.items() if n > 0})
+    held = body.inventory()
+    coming = {i: min(n, stored[i]) for i, n in wanted.items() if stored[i] > 0}
+    need = slots_used(coming, items)
+    free = INVENTORY_SLOTS - slots_used(held, items)
+    if free >= need:
+        return
+    spare = [
+        i
+        for i, n in held.items()
+        if n > 0 and i not in keep and not any(w in i for w in TOOL_WORDS)
+    ]
+    spare.sort(key=lambda i: (-slots_used({i: held[i]}, items), i))
+    out: dict[str, int] = {}
+    for i in spare:
+        if free >= need:
+            break
+        out[i] = held[i]
+        free += slots_used({i: held[i]}, items)
+    if not out:
+        return
+    pos = min(state.containers, key=lambda c: sum(state.containers[c].values()))
+    plan = PlanResult((Deposit(tuple(sorted(out.items())), pos),), (), 0.0)
+    run_gather(plan, body, knowledge, state=state, opts=gather_options)
+
+
+def _keeping(wanted, body) -> frozenset[str]:
+    """What a refill mid-build never deposits: what it came for, the temporary
     blocks, food and shulker boxes. Run 20261118T023332974582Z stowed 51 scaffolding
-    in a refill's deposit and pillared dirt from afar for the rest of the build."""
-    keep = {*needed, *bp.SCAFFOLD_ITEMS, SHULKER}
+    in a refill's deposit and pillared dirt from afar for the rest of the build. The
+    rest of the house's blocks may go back to make room: keeping the whole bill
+    filled 34 of 36 slots with details waiting on the structure, and the refill
+    withdrew 4 items (run 20261118T042119862404Z)."""
+    keep = {*wanted, *bp.SCAFFOLD_ITEMS, SHULKER}
     return frozenset(keep | set(getattr(body, "foods", None) or {}))
 
 
@@ -398,9 +447,9 @@ def build_job(
         if refills >= MAX_REFILLS:
             return False
         refills += 1
-        keep = _keeping(needed, body)
         stage("refilling materials", refills, MAX_REFILLS)
         wanted = dict(shortfall)
+        keep = _keeping(wanted, body)
         _stow_junk({**needed, **wanted}, body, knowledge, state, gather_options)
         before = body.inventory()
         # Every trip to the chests tops up the food carried (FOOD_KEEP). Food is
@@ -419,6 +468,7 @@ def build_job(
         # Chests first, and back to building on any gain. Run 20261110T170929838024Z
         # was short one detector rail with the rest of the house in the chests: the
         # full plan put the ore hunt first and walked the explore ring over a swamp.
+        _make_room(wanted, keep, body, knowledge, state, gather_options)
         _take(wanted, body, knowledge, state, gather_options)
         if any(body.inventory().get(i, 0) > before.get(i, 0) for i in wanted):
             report.refills.append(GatherReport(stop="done"))

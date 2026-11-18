@@ -432,6 +432,15 @@ class FakeGatherBody:
             src, dst = (self.inv, box) if action == "deposit" else (box, self.inv)
             if src.get(i, 0) < n:
                 return Result(False, "missing_item")
+            if action == "withdraw":  # what fits moves; the rest fails (BodyContainer)
+                moved = 0
+                while moved < n and self.can_hold(i):
+                    src[i] -= 1
+                    dst[i] = dst.get(i, 0) + 1
+                    moved += 1
+                if moved < n:
+                    return Result(False, "inventory_full")
+                continue
             src[i] -= n
             dst[i] = dst.get(i, 0) + n
         contents = [
