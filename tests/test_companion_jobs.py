@@ -323,3 +323,202 @@ def test_a_refill_of_the_whole_bill_carries_the_structure_first():
 
     assert body.inv.get(stairs) == 119 and body.inv.get(PLANKS) == 223
     assert body.inv.get(M + "scaffolding") == 53
+
+
+def test_refill_load_and_delta_withdraw_top_up_instead_of_reusing_total_target():
+    # Body already holds 167 planks and chest holds 49 (wanted=216): _load must
+    # request the 49 delta and _take(..., delta=True) must withdraw all 49.
+    from mclab.companion_jobs import _load, _take, junk
+
+    w = world()
+    w[(2, 0, 2)] = M + "chest"
+    bread = M + "bread"
+    held = {PLANKS: 167, bread: 5}
+    body = FakeGatherBody(K, w, held, slots=36)
+    body.foods = {bread: {"nutrition": 5}}
+    body.boxes[(2, 0, 2)] = {PLANKS: 49, bread: 20}
+    state = GatherState(containers={(2, 0, 2): dict(body.boxes[(2, 0, 2)])})
+
+    assert junk(body.inventory(), {PLANKS: 216}, body.foods) == {}
+
+    load = _load({PLANKS: 216}, body, K, state)
+    assert load == {PLANKS: 49}
+    _take(load, body, K, state, delta=True)
+    assert body.inv.get(PLANKS) == 216
+    assert body.boxes[(2, 0, 2)].get(PLANKS, 0) == 0
+
+    food_delta = _food_topup(body, state)
+    assert food_delta == {bread: FOOD_KEEP - 5}
+    _take(food_delta, body, K, state, delta=True)
+    assert body.inv.get(bread) == FOOD_KEEP
+
+
+def test_load_and_make_room_count_fragmented_slots_and_prioritize_missing_structure():
+    from mclab.companion_jobs import _load, _make_room, _take
+
+    w = world()
+    w[(2, 0, 2)] = M + "chest"
+    # 62 birch logs in 2 slots (44+18), 245 oak planks in 5 slots (instead of 4),
+    # 27 slots of spruce planks, 1 scaffolding, 1 lantern = 36 real slots occupied
+    # (slots_used({item: count}) alone would undercount 34 slots).
+    birch = M + "stripped_birch_log"
+    spruce = M + "spruce_planks"
+    stairs = M + "oak_stairs"
+    lantern = M + "lantern"
+    held = {
+        M + "scaffolding": 50,
+        birch: 62,
+        PLANKS: 245,
+        spruce: 64 * 27,
+        lantern: 4,
+    }
+    body = FakeGatherBody(K, w, held, slots=36)
+    rows = [{"slot": 0, "item": M + "scaffolding", "count": 50}]
+    rows.extend(
+        [
+            {"slot": 1, "item": birch, "count": 44},
+            {"slot": 2, "item": birch, "count": 18},
+            {"slot": 3, "item": PLANKS, "count": 48},
+            {"slot": 4, "item": PLANKS, "count": 59},
+            {"slot": 5, "item": PLANKS, "count": 64},
+            {"slot": 6, "item": PLANKS, "count": 13},
+            {"slot": 7, "item": PLANKS, "count": 61},
+            {"slot": 8, "item": lantern, "count": 4},
+        ]
+    )
+    for idx in range(27):
+        rows.append({"slot": 9 + idx, "item": spruce, "count": 64})
+    body._obs = {"body": {"inventory": rows}}
+
+    body.boxes[(2, 0, 2)] = {stairs: 9}
+    state = GatherState(containers={(2, 0, 2): {stairs: 9}})
+    # Already-held oak_planks / birch / spruce come before oak_stairs in wanted,
+    # yet missing structure (oak_stairs) must still be loaded and lantern evicted.
+    wanted = {PLANKS: 245, birch: 62, spruce: 64 * 27, lantern: 4, stairs: 9}
+
+    load = _load(wanted, body, K, state)
+    assert load == {stairs: 9}
+    _make_room(load, frozenset(load), body, K, state, wanted=wanted)
+    assert body.boxes[(2, 0, 2)].get(lantern, 0) == 4
+    _take(load, body, K, state, delta=True)
+    assert body.inv.get(stairs) == 9
+
+
+def test_load_does_not_evict_already_held_wanted_details_for_other_details():
+    from mclab.companion_jobs import _load
+
+    w = world()
+    w[(2, 0, 2)] = M + "chest"
+    anvil, barrel = M + "anvil", M + "barrel"
+    spruce = M + "spruce_planks"
+    held = {M + "scaffolding": 50, spruce: 64 * 34, anvil: 1}
+    body = FakeGatherBody(K, w, held, slots=36)
+    body.boxes[(2, 0, 2)] = {barrel: 1}
+    state = GatherState(containers={(2, 0, 2): {barrel: 1}})
+    wanted = {spruce: 64 * 34, anvil: 1, barrel: 1}
+
+    # Inventory is 36/36 with wanted structure + anvil: barrel (also a detail)
+    # must NOT load and evict anvil into a ping-pong loop.
+    assert _load(wanted, body, K, state) == {}
+
+
+def test_refill_skips_gather_when_chests_cover_wanted_and_only_gathers_missing(
+    tmp_path, monkeypatch
+):
+    from mclab import gather_plan as gp
+    from mclab.companion_jobs import MAX_REFILLS
+
+    anvil = M + "anvil"
+    spruce = M + "spruce_planks"
+    # Use a 2-block template that triggers a refill without failing build_job
+    cells = {(0, 0, 0): PLANKS, (1, 0, 0): COBBLE}
+    path = tmp_path / "mini.build.json"
+    path.write_text(json.dumps(make_build(cells, (2, 1, 1))), encoding="utf-8")
+
+    # Test build_job's refill hook directly via a hooked on_need_materials
+    seen_targets = []
+    real_plan = gp.plan
+
+    def spy_plan(targets, *args, **kwargs):
+        seen_targets.append(dict(targets))
+        return real_plan(targets, *args, **kwargs)
+
+    monkeypatch.setattr(gp, "plan", spy_plan)
+
+    # Case 1: inventory already full of wanted structure + lantern in chest
+    # -> missing == {}, gp.plan is not called, and refill returns False.
+    w2 = world()
+    w2[(2, 0, 2)] = M + "chest"
+    body1 = FakeGatherBody(K, w2, {PLANKS: 1, COBBLE: 1, spruce: 64 * 33, anvil: 1})
+    body1.boxes[(2, 0, 2)] = {M + "lantern": 4}
+    state1 = GatherState(containers={(2, 0, 2): {M + "lantern": 4}})
+    # Wrap run_build to capture on_need_materials without needing real house-large
+    captured = {}
+    from mclab import companion_jobs
+
+    def fake_run_build(template, b, blocks, *, on_need_materials, **kw):
+        captured["refill"] = on_need_materials
+        return companion_jobs.BuildReport(stop="done")
+
+    monkeypatch.setattr(companion_jobs, "run_build", fake_run_build)
+    build_job(path, (4, 0, 4), 0, body1, K, state=state1, build_only=True)
+    seen_targets.clear()
+    # Full 36 slots (1 scaffolding + 34 structure + 1 anvil), lantern in chest
+    body1.inv = {
+        M + "scaffolding": 50,
+        spruce: 64 * 34,
+        anvil: 1,
+    }
+    state1.containers[(2, 0, 2)] = {M + "lantern": 4}
+    ok = captured["refill"]({spruce: 64 * 34, anvil: 1, M + "lantern": 4})
+    assert ok is False
+    assert seen_targets == []
+
+    # Case 2: cobblestone: 3 is missing from held+stored, while lantern is stocked:
+    # refill frees 3 slots and calls gp.plan only with {COBBLE: 3}.
+    assert MAX_REFILLS >= 2
+    state1.containers[(2, 0, 2)] = {M + "lantern": 4}
+    body1.boxes[(2, 0, 2)] = {M + "lantern": 4}
+    body1.inv = {
+        M + "scaffolding": 50,
+        M + "iron_pickaxe": 1,
+        spruce: 64 * 33,
+        anvil: 1,
+    }
+    ok2 = captured["refill"]({spruce: 64 * 33, anvil: 1, M + "lantern": 4, COBBLE: 3})
+    assert ok2 is True
+    assert seen_targets and all(t == {COBBLE: 3} for t in seen_targets)
+    assert body1.inv.get(COBBLE, 0) >= 3
+
+
+def test_phase_clock_tracks_phases_and_stages():
+    from mclab.companion_jobs import PhaseClock
+
+    now = [10.0]
+    clk = PhaseClock(lambda: now[0])
+    clk.enter("reading chests")
+    now[0] += 2.0
+    clk.enter("gathering materials")
+    now[0] += 5.0
+    prev = clk.enter("site prep (gathering)")
+    now[0] += 3.0
+    clk.enter(prev)
+    now[0] += 4.0
+    clk.enter("placing")
+    now[0] += 6.0
+    clk.enter("placing details")
+    now[0] += 1.5
+    clk.enter("cleanup")
+    now[0] += 0.5
+    total, phases, stages = clk.finish()
+    assert total == 22.0
+    assert phases == {
+        "chests_setup": 2.0,
+        "gathering": 9.0,
+        "clearing_and_site_prep": 3.0,
+        "building_structure": 6.0,
+        "placing_details": 1.5,
+        "cleanup": 0.5,
+    }
+    assert stages["gathering materials"] == 9.0
+    assert stages["site prep (gathering)"] == 3.0

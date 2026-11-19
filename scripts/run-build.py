@@ -231,9 +231,113 @@ def main() -> int:
         return result
 
 
+def _gather_failure_counts(job) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for g in (job.starter, job.gather, *job.refills):
+        if g is None:
+            continue
+        for _, why in g.failures:
+            counts[str(why)] += 1
+    return dict(counts.most_common())
+
+
+def summarize_run(
+    job,
+    *,
+    setup_s: float = 0.0,
+    audit_s: float = 0.0,
+) -> dict:
+    """Summarize total wall time, per-phase timings, failures, and long stops."""
+    report = job.build
+    phases = {"setup_arena": round(setup_s, 2)}
+    phases.update(job.phases_s)
+    phases["audit"] = round(audit_s, 2)
+    total_s = round(setup_s + job.duration_s + audit_s, 2)
+
+    build_failures: Counter[str] = Counter()
+    if report is not None:
+        for _, why, _, _ in report.failures:
+            build_failures[str(why)] += 1
+    gather_failures = _gather_failure_counts(job)
+    build_total = sum(build_failures.values())
+    gather_total = sum(gather_failures.values())
+
+    long_stops = list(report.long_stops) if report is not None else []
+    stalls_n = len(report.stalls) if report is not None else 0
+    slow_n = sum(1 for s in long_stops if s.get("kind") == "slow_op")
+    max_stop_s = max((float(s.get("duration_s", 0.0)) for s in long_stops), default=0.0)
+    total_stop_s = round(sum(float(s.get("duration_s", 0.0)) for s in long_stops), 1)
+
+    return {
+        "duration_s": total_s,
+        "job_duration_s": round(job.duration_s, 2),
+        "phases_s": phases,
+        "stages_s": dict(job.stages_s),
+        "failure_summary": {
+            "total": build_total + gather_total,
+            "build": build_total,
+            "build_by_reason": dict(build_failures.most_common()),
+            "gather": gather_total,
+            "gather_by_reason": gather_failures,
+        },
+        "long_stops_summary": {
+            "count": len(long_stops),
+            "stalls": stalls_n,
+            "slow_ops": slow_n,
+            "total_s": total_stop_s,
+            "max_s": round(max_stop_s, 1),
+            "items": long_stops,
+        },
+    }
+
+
+def format_run_summary(summary: dict) -> str:
+    """Human-readable end-of-run timing, failure, and long-stop report."""
+    lines = [
+        "=== Build Run Summary ===",
+        f"Total time: {summary['duration_s']:.1f}s (job {summary['job_duration_s']:.1f}s)",
+    ]
+    for name, sec in summary["phases_s"].items():
+        if sec > 0 or name in (
+            "gathering",
+            "clearing_and_site_prep",
+            "building_structure",
+            "placing_details",
+            "refills",
+            "cleanup",
+        ):
+            lines.append(f"  {name}: {sec:.1f}s")
+    fs = summary["failure_summary"]
+    lines.append(
+        f"Failures: {fs['total']} total "
+        f"(build={fs['build']} {fs['build_by_reason']}, "
+        f"gather={fs['gather']} {fs['gather_by_reason']})"
+    )
+    ls = summary["long_stops_summary"]
+    lines.append(
+        f"Long stops (>5.0s): {ls['count']} total "
+        f"(stalls={ls['stalls']}, slow_ops={ls['slow_ops']}, "
+        f"total={ls['total_s']:.1f}s, max={ls['max_s']:.1f}s)"
+    )
+    for item in ls["items"]:
+        kind = item.get("kind", "stop")
+        op = item.get("op")
+        target = item.get("target")
+        at = item.get("at")
+        dur = item.get("duration_s", 0.0)
+        extra = (
+            f"recovery={item.get('recovery')}"
+            if "recovery" in item
+            else f"ok={item.get('ok')}"
+        )
+        lines.append(f"  - [{kind}] {op} {target} at {at} ({dur}s, {extra})")
+    return "\n".join(lines)
+
+
 def run(args, config, parser):
     # the mode decides the job: a run without --supply has no scaffolding
     print(f"run-build: arguments {' '.join(sys.argv[1:])}", flush=True)
+    run_started = time.monotonic()
     if args.margin < 0:
         parser.error("--margin must be >= 0")
 
@@ -411,7 +515,11 @@ def run(args, config, parser):
                 every=5,
             )
 
+            current_stage = "starting"
+
             def stage(name, done=None, total=None, detail=None):
+                nonlocal current_stage
+                current_stage = name
                 write_progress(
                     folder, job="build", stage=name, done=done, total=total, detail=detail
                 )
@@ -419,12 +527,15 @@ def run(args, config, parser):
             def recorder(report, final):
                 checkpoint(report, final)
                 site = report.site or {}
+                live_stage = (
+                    current_stage
+                    if current_stage not in ("starting", "clearing trees", "site prep")
+                    else ("placing" if report.site else "site prep")
+                )
                 write_progress(
                     folder,
                     job="build",
-                    stage="done"
-                    if final
-                    else ("placing" if report.site else "site prep"),
+                    stage="done" if final else live_stage,
                     done=len(report.placed),
                     total=sum(
                         bp.parse_state(c)[0] not in bp.AIR
@@ -435,6 +546,7 @@ def run(args, config, parser):
                     f"steps={report.steps} stalls={len(report.stalls)} stop={report.stop}",
                 )
 
+            setup_s = time.monotonic() - run_started
             job = build_job(
                 args.build,
                 origin,
@@ -449,6 +561,7 @@ def run(args, config, parser):
                 on_stage=stage,
                 site_margin=args.margin,
             )
+            audit_started = time.monotonic()
             report = job.build
             # The job is over: the harness waits below are not the body's work, so
             # idle_gaps.py ends the standstill window here.
@@ -488,6 +601,7 @@ def run(args, config, parser):
                     "stop": report.stop,
                     "site": report.site,
                     "stalls": report.stalls,
+                    "long_stops": report.long_stops,
                     "stall_reason": report.stall_reason,
                     "steps": report.steps,
                     "counts": report.counts,
@@ -533,11 +647,15 @@ def run(args, config, parser):
                         "detail": f"{left} of {args.scaffolding} held; placed {len(out.get('scaffolded', []))}",
                     }
                 )
+            audit_s = time.monotonic() - audit_started
+            run_summary = summarize_run(job, setup_s=setup_s, audit_s=audit_s)
+            out |= run_summary
             out["ops"] = body.log
             out["policies"] = body.policies
             (folder / "build.json").write_text(
                 json.dumps(out, indent=1), encoding="utf-8"
             )
+            print(format_run_summary(run_summary), flush=True)
             # Place only after the job: a reference house must not supply gather
             # materials or change the routes used by the attempted construction.
             if preview is not None:

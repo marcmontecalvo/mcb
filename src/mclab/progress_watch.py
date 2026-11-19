@@ -33,6 +33,14 @@ class BodyDied(RuntimeError):
     """The body is dead: its observation carries no position."""
 
 
+def _json_pos(pos):
+    if pos is None:
+        return None
+    if isinstance(pos, (list, tuple)):
+        return [round(v, 2) if isinstance(v, float) else v for v in pos]
+    return pos
+
+
 @dataclass
 class ProgressWatch:
     limit: float = STALL_SECONDS
@@ -40,6 +48,7 @@ class ProgressWatch:
     clock: Callable[[], float] = time.monotonic
     log: Callable[[str], None] = lambda m: print(m, flush=True)
     events: list[dict] = field(default_factory=list)  # every stall and its recovery
+    long_stops: list[dict] = field(default_factory=list)  # stalls and >limit ops
     _last: float | None = None
     _at: tuple | None = None
     _streak: int = 0
@@ -55,7 +64,16 @@ class ProgressWatch:
         """Forget the streak (the caller gave up on the stalled operation)."""
         self._streak, self._key, self._last = 0, None, self.clock()
 
-    def check(self, body, op: str, target, ok: bool) -> None:
+    def check(
+        self,
+        body,
+        op: str,
+        target,
+        ok: bool,
+        *,
+        elapsed: float | None = None,
+        start_pos: tuple | None = None,
+    ) -> None:
         """Called after each working op: record progress or handle a stall."""
         now, here = self.clock(), tuple(body.position())
         if self._last is None:
@@ -64,6 +82,18 @@ class ProgressWatch:
             abs(a - b) >= MOVE_BLOCKS for a, b in zip(here, self._at, strict=True)
         )
         if ok or moved:
+            if elapsed is not None and elapsed > self.limit:
+                self.long_stops.append(
+                    {
+                        "kind": "slow_op",
+                        "op": op,
+                        "target": _json_pos(target),
+                        "at": _json_pos(start_pos if start_pos is not None else here),
+                        "end": _json_pos(here),
+                        "duration_s": round(elapsed, 1),
+                        "ok": ok,
+                    }
+                )
             return self.progress(here)
         idle = now - self._last
         if idle <= self.limit:
@@ -94,6 +124,16 @@ class ProgressWatch:
             recovered = bool(escape(tuple(target)))
             event["recovery"] = "succeeded" if recovered else "failed"
         self.events.append(event)
+        self.long_stops.append(
+            {
+                "kind": "stall",
+                "op": op,
+                "target": _json_pos(target),
+                "at": _json_pos(here),
+                "duration_s": round(idle, 1),
+                "recovery": event["recovery"],
+            }
+        )
         self.log(f"STALL {idle:.1f}s no progress: {event}")
         self._last = self.clock()
         if recovered:
@@ -132,9 +172,12 @@ class WatchedBody:
         watch, body = self._watch, self._body
 
         def run(target, *args, **kw):
+            started = watch.clock()
+            start_pos = tuple(body.position())
             result = attr(target, *args, **kw)
+            elapsed = watch.clock() - started
             ok = bool(getattr(result, "ok", result))
-            watch.check(body, name, target, ok)
+            watch.check(body, name, target, ok, elapsed=elapsed, start_pos=start_pos)
             return result
 
         return run

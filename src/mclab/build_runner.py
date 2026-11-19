@@ -123,6 +123,7 @@ class BuildReport:
     trees_cleared: int = 0  # trees felled by Tree Removal skill
     site: dict = field(default_factory=dict)  # site_prep.SiteReport.summary()
     stalls: list[dict] = field(default_factory=list)  # progress_watch events
+    long_stops: list[dict] = field(default_factory=list)  # stalls and >5s ops
     stall_reason: str = ""  # why a "stalled" or "site_not_ready" stop happened
     # (cell, reason, stance, body diagnosis) of every failed attempt, to diagnose from
     failures: list[tuple[Pos, str, Pos, dict]] = field(default_factory=list)
@@ -250,6 +251,24 @@ def _support(act, blocks: dict) -> Pos | set[Pos] | None:
     return None
 
 
+def _support_for(act, world, blocks: dict) -> Pos | set[Pos] | None:
+    sup = _support(act, blocks)
+    if sup is not None or not isinstance(act, bp.Place):
+        return sup
+    ident, props = bp.parse_state(act.state)
+    if ident == "minecraft:hopper" and world is not None:
+        step = FACING_STEP.get(props.get("facing", ""))
+        if step:
+            cell = (
+                act.pos[0] + step[0],
+                act.pos[1] + step[1],
+                act.pos[2] + step[2],
+            )
+            if bp._is_solid(world(*cell), blocks):
+                return cell
+    return None
+
+
 class _Runner:
     def __init__(
         self, body: BuildBody, report: BuildReport, max_steps: int, blocks: dict
@@ -276,15 +295,28 @@ class _Runner:
         pos = act.pos
         here = self.body.position()
         can_place = getattr(self.body, "can_place_here", None)
+        if hasattr(self.body, "placing_scaffold"):
+            self.body.placing_scaffold = getattr(act, "item", None) == sc.BLOCK
         direct = (
             not isinstance(act, bp.Place)
             or can_place is None
-            or can_place(pos, REACH, _support(act, self.blocks))
+            or can_place(
+                pos,
+                REACH,
+                _support_for(act, getattr(self.body, "world", None), self.blocks),
+            )
         )
         if direct and self._traps(act, here):
             direct = False
             self.avoid.setdefault(pos, set()).add(here)
-        if direct and _dist2(here, pos) <= (REACH - 0.5) ** 2:
+        if direct and (
+            _dist2(here, pos) <= (REACH - 0.5) ** 2
+            or (
+                can_place is not None
+                and isinstance(act, bp.Scaffold)
+                and getattr(self.body, "placing_scaffold", False)
+            )
+        ):
             result = _do(self.body, act)
             if result.ok:
                 self.report.steps += 1
@@ -297,7 +329,11 @@ class _Runner:
             # A block that hangs on one face (a wall torch) needs a stance that sees
             # that face; an optional body attribute, like walk_to.
             if hasattr(self.body, "required_support"):
-                self.body.required_support = _support(act, self.blocks)
+                self.body.required_support = _support_for(
+                    act, getattr(self.body, "world", None), self.blocks
+                )
+            if hasattr(self.body, "placing_scaffold"):
+                self.body.placing_scaffold = getattr(act, "item", None) == sc.BLOCK
             if not self._stance(pos, avoid):
                 self.report.failures.append(
                     (pos, "no_stance", self.body.position(), {})
@@ -349,23 +385,50 @@ class _Runner:
         if not isinstance(act, bp.Place) or act.pos in self.propped:
             return False
         self.propped.add(act.pos)
-        step = FACING_STEP.get(bp.parse_state(act.state)[1].get("facing", ""))
+        ident, props = bp.parse_state(act.state)
+        step = FACING_STEP.get(props.get("facing", ""))
         held = self.body.inventory()
         item = next((i for i in self._temporaries(False) if held.get(i, 0) > 0), None)
         if step is None or item is None:
             return False
         x, y, z = act.pos
-        for sign in (1, -1):
+        signs = (1,) if ident == "minecraft:hopper" else (1, -1)
+        can_place = getattr(self.body, "can_place_here", None)
+        saved_scaffold = getattr(self.body, "placing_scaffold", False)
+        for sign in signs:
             cell = (x + sign * step[0], y + sign * step[1], z + sign * step[2])
             if bp.parse_state(self.body.world(*cell) or "")[0] not in bp.AIR:
                 continue
-            if not self.body.place_block(cell, item, item).ok:
-                continue
-            result = _do(self.body, act)
-            if self.body.break_block(cell).ok:
+            saved_req = getattr(self.body, "required_support", None)
+            try:
+                if hasattr(self.body, "placing_scaffold"):
+                    self.body.placing_scaffold = False
+                if can_place is not None and not can_place(cell, REACH, None):
+                    if hasattr(self.body, "required_support"):
+                        self.body.required_support = None
+                    self.body.goto_stance(cell, REACH)
+                if not self.body.place_block(cell, item, item).ok:
+                    continue
+                if can_place is not None and not can_place(act.pos, REACH, cell):
+                    if hasattr(self.body, "required_support"):
+                        self.body.required_support = cell
+                    self.body.goto_stance(act.pos, REACH)
+                result = _do(self.body, act)
+            finally:
+                if hasattr(self.body, "required_support"):
+                    self.body.required_support = saved_req
+                if hasattr(self.body, "placing_scaffold"):
+                    self.body.placing_scaffold = saved_scaffold
+            broke = self.body.break_block(cell)
+            if not broke.ok and getattr(self.body, "goto_stance", None):
+                self.body.goto_stance(cell, REACH)
+                broke = self.body.break_block(cell)
+            if broke.ok:
                 collect = getattr(self.body, "collect_drops", None)  # optional
                 if collect:
                     collect([cell])
+            elif self.scaffolds is not None and _standing(self.body, cell):
+                self.scaffolds.add(cell)
             if result.ok:
                 return True
         return False
@@ -463,7 +526,25 @@ class _Runner:
         if self.scaffolds is None or self._towering or pos in self.towered:
             return False
         self.towered.add(pos)
-        cells = bp.tower_cells(pos, self.body.world, self.blocks, self.reserved)
+        cells = bp.tower_cells(
+            pos,
+            self.body.world,
+            self.blocks,
+            self.reserved,
+            roof=True,
+            scaffolding=True,
+        )
+        dirt_only = False
+        if not cells:
+            cells = bp.tower_cells(
+                pos,
+                self.body.world,
+                self.blocks,
+                self.reserved,
+                roof=True,
+                scaffolding=False,
+            )
+            dirt_only = bool(cells)
         if cells:
             self._reclaim(pos, cells[0], avoid)
         if not cells:
@@ -479,6 +560,23 @@ class _Runner:
                 self.short_for = pos
                 self.towered.discard(pos)
             return False
+        if dirt_only:
+            held = self.body.inventory()
+            item = next(
+                (
+                    i
+                    for i in self._temporaries(scaffolding=False)
+                    if held.get(i, 0) >= len(cells)
+                ),
+                None,
+            )
+            if item is None:
+                have = sum(held.get(i, 0) for i in self._temporaries(scaffolding=False))
+                self.short = {"minecraft:dirt": max(1, len(cells) - have)}
+                self.short_for = pos
+                self.towered.discard(pos)
+                return False
+            return self._pillar(pos, cells, item, avoid)
         item = self._scaffold_item(len(cells))
         if item is None:
             # standing towers are taken back first; the whole stack is only 64
@@ -504,6 +602,7 @@ class _Runner:
             for h in range(by - 3, by + 4)
         }
         self.body.goto_stance(cells[0], REACH, set(avoid) | beside)
+        saved_scaffold = getattr(self.body, "placing_scaffold", False)
         self._towering = True
         try:
             for cell in cells:
@@ -511,17 +610,29 @@ class _Runner:
                     self.scaffolds.add(cell)  # the column is up to here already
                     continue
                 n = len(self.report.scaffolded)
+                was_skipped = self.report.skipped.get(cell)
                 self.attempt(bp.Scaffold(cell, item))
                 if len(self.report.scaffolded) == n:
+                    if was_skipped is None:
+                        self.report.skipped.pop(cell, None)
+                    self.fails.pop(cell, None)
+                    self.avoid.pop(cell, None)
                     return False  # what stands is cleaned up with the rest
                 self.scaffolds.add(cell)
         finally:
             self._towering = False
+            if hasattr(self.body, "placing_scaffold"):
+                self.body.placing_scaffold = saved_scaffold
         # The tower's top, not a floor stance nearer by: walkable stances come first,
         # and the floor is what failed (run 20261118T094938114426Z).
         tops = {(cx, cells[-1][1] + 1, cz), cells[-1]}  # on, or in, the top cell
         listed = getattr(self.body, "stances", None)  # optional
-        others = set(listed(pos, REACH, avoid)) - tops if listed else set()
+        if listed and cells[-1][1] >= pos[1]:
+            others = {
+                n for n in listed(pos, REACH, avoid) if n not in tops and n[1] <= pos[1]
+            }
+        else:
+            others = set(listed(pos, REACH, avoid)) - tops if listed else set()
         if self.body.goto_stance(pos, REACH, set(avoid) | others):
             return True
         # Not climbed: a tower nobody stands on is only in the way.
@@ -549,6 +660,9 @@ class _Runner:
             for c in done
             if max(abs(c[0] - math.floor(bx)), abs(c[2] - math.floor(bz))) > 1
         }
+        prev_skips = {
+            c: self.report.skipped[c] for c in done if c in self.report.skipped
+        }
         collect = getattr(self.body, "collect_drops", None)  # optional
         for _ in range(CLEANUP_ROUNDS):
             acts = [
@@ -563,6 +677,12 @@ class _Runner:
             if collect:
                 collect([a.pos for a in acts])
         self.scaffolds -= {c for c in done if not _standing(self.body, c)}
+        for c in done:
+            if c not in prev_skips:
+                self.report.skipped.pop(c, None)
+            self.fails.pop(c, None)
+            self.avoid.pop(c, None)
+            self.towered.discard(c)
 
     def _pillar(self, pos: Pos, cells: list, item: str, avoid) -> bool:
         """A column of anything but scaffolding is solid: nothing walks or climbs onto
@@ -763,9 +883,13 @@ def _passing(runner: _Runner, pool: list, corners: set):
         if observe := getattr(body, "observe", None):
             observe()  # the position the checks below read is the body's own
         can_place = getattr(body, "can_place_here", None)
+        if hasattr(body, "placing_scaffold"):
+            body.placing_scaffold = False
         for act in sorted(near, key=lambda a: (a.pos[1], _dist2(a.pos, position))):
             if can_place is not None and not can_place(
-                act.pos, REACH, _support(act, runner.blocks)
+                act.pos,
+                REACH,
+                _support_for(act, getattr(body, "world", None), runner.blocks),
             ):
                 continue
             refused.add(act.pos)
@@ -809,7 +933,11 @@ def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:
                 key=lambda b: _dist2(b.pos, here),
             )
             if lead is not act and hasattr(runner.body, "required_support"):
-                runner.body.required_support = _support(lead, runner.blocks)
+                runner.body.required_support = _support_for(
+                    lead, getattr(runner.body, "world", None), runner.blocks
+                )
+            if lead is not act and hasattr(runner.body, "placing_scaffold"):
+                runner.body.placing_scaffold = getattr(lead, "item", None) == sc.BLOCK
             if lead is not act:
                 runner.body.goto_stance(lead.pos, REACH)
         if act not in pool:
@@ -1009,7 +1137,9 @@ def run_build(
         record_build(knowledge, template, "build")
     watch = None
     if stall_seconds is not None:
-        watch = ProgressWatch(limit=stall_seconds, events=report.stalls)
+        watch = ProgressWatch(
+            limit=stall_seconds, events=report.stalls, long_stops=report.long_stops
+        )
         if clock:
             watch.clock = clock
         if log:
@@ -1096,6 +1226,7 @@ def _run(
             if on_progress:  # each round refreshes the run's progress/status
                 on_progress(report, False)
 
+        on_stage("site prep", detail="")
         sr = site_prep.prepare_site(
             template,
             body,
@@ -1120,6 +1251,7 @@ def _run(
         report.trees_cleared = clear_trees_in_footprint(
             body, template.cells, template=template
         )
+        on_stage("placing")
     runner.scaffolds, runner.template = scaffolds, template
     runner.reserved = frozenset(
         p for p, s in template.cells.items() if bp.parse_state(s)[0] not in bp.AIR
@@ -1127,8 +1259,8 @@ def _run(
     _stock_footholds(runner, on_need_materials, log)
 
     def calm():
-        # The route planner places no dirt while building: the body stands on
-        # scaffolding towers (climbing on) instead of dirt stairs it never takes down.
+        # Scaffolding is strongly preferred over solid temporaries so towers and
+        # bridges use climbable columns; solid blocks stay as a costly fallback.
         return walking_with_edits(body, wall=BUILD_WALL)
 
     recoveries = retries = 0
@@ -1137,6 +1269,8 @@ def _run(
     settled = False
     hunger: dict = {}
     stock: dict = {}
+    build_stage = "placing"
+    on_stage(build_stage)
     while True:
         if report.steps >= max_steps:
             report.stop = "max_steps"
@@ -1226,6 +1360,25 @@ def _run(
                     "uses": list(d.uses),
                 }
             break
+        has_structure = any(
+            isinstance(a, bp.Place)
+            and not bp.is_detail(a.state)
+            and not bp._is_door(a.state)
+            for a in acts
+        )
+        has_details = any(
+            (
+                isinstance(a, bp.Place)
+                and (bp.is_detail(a.state) or bp._is_door(a.state))
+            )
+            or isinstance(a, bp.Use)
+            for a in acts
+        )
+        if has_structure:
+            build_stage = "placing"
+        elif has_details:
+            build_stage = "placing details"
+        on_stage(build_stage)
         with calm():
             _sweep(runner, template, acts)
         if runner.short:
@@ -1253,6 +1406,25 @@ def _run(
             runner.towered.clear()
         if on_progress:
             on_progress(report, False)
+    has_cleanup = bool(
+        (
+            report.stop != "need_materials"
+            and (
+                scaffolds
+                or getattr(body, "stray_breaks", None)
+                or getattr(body, "stray_footholds", None)
+            )
+        )
+        or (
+            report.stop in ("done", "blocked")
+            and (
+                getattr(body, "wait_ticks", None) is not None
+                or bp.diff(template, body.world).uses
+            )
+        )
+    )
+    if has_cleanup:
+        on_stage("cleanup")
     no_doors = getattr(body, "no_opening_doors", nullcontext)
     if report.stop != "need_materials":
         with calm():

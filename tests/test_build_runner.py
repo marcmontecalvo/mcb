@@ -885,7 +885,8 @@ def test_stages_are_published_through_site_prep_and_placing():
 
     br.run_build(t, body, BLOCKS, on_stage=stage)
     names = [n for n, _ in seen]
-    assert names[0] == "clearing trees" and names[-1] == "placing"
+    assert names[0] == "clearing trees" and "placing" in names
+    assert names[-1] in ("placing", "placing details")
     assert any(n == "site prep" and d.startswith("site round") for n, d in seen)
 
 
@@ -1371,3 +1372,201 @@ def test_a_cell_hidden_from_every_floor_stance_is_placed_from_a_tower_beside_it(
     assert (3, 5, 3) in report.placed and (3, 5, 3) not in report.skipped
     assert body.placed_from[(3, 5, 3)][1] >= 3
     assert report.stop == "done"
+
+
+def test_roof_level_tower_allows_roof_stances_and_restores_placing_scaffold():
+    # Interior ceiling at (4, 4, 4) surrounded at y=3: tower goes to y=4 at an adjacent
+    # column, roof stance (4, 5, 2) or tower top (col_x, 5, col_z) is above pos[1], and
+    # placing_scaffold is restored to False for placing the target plank.
+    w = flat_world(hi=10)
+    target = (4, 4, 4)
+    reserved = {
+        (4, 3, 4),
+        (5, 3, 4),
+        (3, 3, 4),
+        (4, 3, 5),
+        (4, 3, 3),
+        (5, 4, 4),
+        (3, 4, 4),
+        (4, 4, 5),
+        (4, 4, 3),
+    }
+
+    class RoofStanceBody(TowerBody):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.placing_scaffold = False
+            self.seen_placing_scaffold = None
+            self.avoided_on_target = None
+
+        def stances(self, pos, reach, avoid=()):
+            if pos == target:
+                return [(4, 1, 4), (4, 5, 3), (2, 5, 4)]
+            return super().stances(pos, reach, avoid)
+
+        def goto_stance(self, target_pos, reach, avoid=()):
+            if target_pos == target and self.scaffolds_built:
+                self.seen_placing_scaffold = self.placing_scaffold
+                self.avoided_on_target = set(avoid)
+            return super().goto_stance(target_pos, reach, avoid)
+
+    cells = {p: PLANKS for p in reserved}
+    cells[target] = PLANKS
+    t = bp.Template.from_build(make_build(cells, (8, 8, 8)), (0, 0, 0))
+    body = RoofStanceBody(w, {PLANKS: 20, "minecraft:scaffolding": 64}, BLOCKS)
+    body.scaffolds_built = False
+    orig_attempt = br._Runner.attempt
+
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.scaffolds = set()
+    runner.template = t
+    runner.reserved = reserved | {target}
+
+    def wrapped_attempt(act):
+        if isinstance(act, bp.Scaffold):
+            body.scaffolds_built = True
+        return orig_attempt(runner, act)
+
+    runner.attempt = wrapped_attempt
+    body.placing_scaffold = False
+    assert runner._tower(target, set())
+    assert body.seen_placing_scaffold is False
+    assert (4, 1, 4) in body.avoided_on_target
+    assert (4, 5, 3) not in body.avoided_on_target
+
+
+def test_tall_scaffolding_placed_directly_when_can_place_here_reaches_column():
+    w = flat_world(hi=14)
+    for y in range(0, 10):
+        w[(0, y, 0)] = "minecraft:scaffolding"
+
+    class ColumnBody(FakeBody):
+        placing_scaffold = False
+
+        def can_place_here(self, pos, reach, required=None):
+            return pos == (0, 10, 0) and self.placing_scaffold and self.pos == (2, 0, 0)
+
+        def place_block(self, pos, state, item):
+            if self.can_place_here(pos, br.REACH):
+                self.w[pos] = state
+                self.inv[item] -= 1
+                return br.Result(True, data={"placed": state})
+            return super().place_block(pos, state, item)
+
+    body = ColumnBody(w, {"minecraft:scaffolding": 64}, BLOCKS, pos=(2, 0, 0))
+    runner = br._Runner(body, br.BuildReport(), 20, BLOCKS)
+    runner.scaffolds = {(0, y, 0) for y in range(0, 10)}
+    runner.attempt(bp.Scaffold((0, 10, 0), "minecraft:scaffolding"))
+    assert (0, 10, 0) in runner.report.scaffolded
+    assert not body.stance_calls
+
+
+def test_mutual_hoppers_move_stance_to_see_temporary_face_and_reclaim_dirt():
+    w = flat_world()
+    east = "minecraft:hopper[enabled=true,facing=east]"
+    west = "minecraft:hopper[enabled=true,facing=west]"
+    held = {"minecraft:hopper": 2, "minecraft:dirt": 4}
+
+    class SightHopperBody(HopperBody):
+        required_support = None
+        placing_scaffold = False
+
+        def can_place_here(self, pos, reach, required=None):
+            if required is None:
+                return True
+            sup = tuple(required)
+            # Only see the west face of sup when standing west of pos, etc.
+            if sup[0] > pos[0]:
+                return self.pos[0] <= pos[0]
+            if sup[0] < pos[0]:
+                return self.pos[0] >= pos[0]
+            return True
+
+        def goto_stance(self, target_pos, reach, avoid=()):
+            super().goto_stance(target_pos, reach, avoid)
+            req = self.required_support
+            if req is not None:
+                sup = tuple(req)
+                if sup[0] > target_pos[0]:
+                    self.pos = (target_pos[0] - 1, target_pos[1], target_pos[2])
+                elif sup[0] < target_pos[0]:
+                    self.pos = (target_pos[0] + 1, target_pos[1], target_pos[2])
+            else:
+                self.pos = (target_pos[0], target_pos[1], target_pos[2] + 1)
+            return True
+
+        def place_block(self, pos, state, item):
+            ident, props = bp.parse_state(state)
+            if ident == "minecraft:hopper":
+                ahead = bp._add(pos, bp._VEC[props["facing"]])
+                if not self.can_place_here(pos, br.REACH, ahead):
+                    return br.Result(False, "state_unreachable")
+            return super().place_block(pos, state, item)
+
+    body = SightHopperBody(w, held, BLOCKS, pos=(0, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.scaffolds = set()
+    runner.attempt(bp.Place((1, 0, 0), east, "minecraft:hopper", 1))
+    runner.attempt(bp.Place((2, 0, 0), west, "minecraft:hopper", 1))
+    assert w[(1, 0, 0)] == east and w[(2, 0, 0)] == west
+    assert body.inv["minecraft:dirt"] == 4
+    assert not runner.report.skipped
+
+
+def test_reclaim_does_not_poison_skipped_for_unreachable_scaffolds():
+    w = flat_world()
+    w[(5, 0, 5)] = "minecraft:dirt"
+    t = bp.Template.from_build(make_build({(0, 0, 0): PLANKS}, (6, 4, 6)), (0, 0, 0))
+
+    class ReclaimBody(FakeBody):
+        def goto_stance(self, target_pos, reach, avoid=()):
+            if target_pos == (5, 0, 5):
+                return False
+            return super().goto_stance(target_pos, reach, avoid)
+
+    body = ReclaimBody(w, {PLANKS: 4}, BLOCKS, pos=(0, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.template = t
+    runner.scaffolds = {(5, 0, 5)}
+    runner._reclaim((0, 2, 0), (0, 0, 0), set())
+    assert (5, 0, 5) not in runner.report.skipped
+    assert (5, 0, 5) in runner.scaffolds
+
+
+def test_run_build_emits_detail_and_cleanup_stages_and_long_stops():
+    w = flat_world()
+    cells = {
+        (0, 0, 0): PLANKS,
+        (1, 0, 0): "minecraft:oak_door[facing=north,half=lower,hinge=left,open=false]",
+        (1, 1, 0): "minecraft:oak_door[facing=north,half=upper,hinge=left,open=false]",
+    }
+    t = bp.Template.from_build(make_build(cells, (4, 4, 4)), (0, 0, 0))
+    held = {PLANKS: 4, "minecraft:oak_door": 1}
+    tick = [0.0]
+
+    class SlowFakeBody(FakeBody):
+        def place_block(self, pos, state, item):
+            tick[0] += 6.5 if pos == (0, 0, 0) else 0.1
+            return super().place_block(pos, state, item)
+
+    body = SlowFakeBody(w, held, BLOCKS)
+    w[(3, 0, 3)] = "minecraft:dirt"
+    body.stray_footholds = {(3, 0, 3)}
+    stages = []
+    report = br.run_build(
+        t,
+        body,
+        BLOCKS,
+        site_margin=None,
+        stall_seconds=5.0,
+        clock=lambda: tick[0],
+        on_stage=lambda name, *a, **k: stages.append(name),
+    )
+    assert report.stop == "done"
+    assert "placing" in stages
+    assert "placing details" in stages
+    assert "cleanup" in stages
+    assert len(report.long_stops) == 1
+    assert report.long_stops[0]["kind"] == "slow_op"
+    assert report.long_stops[0]["duration_s"] == 6.5
+

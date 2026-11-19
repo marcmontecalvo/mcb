@@ -22,6 +22,7 @@ inside the build, before or during it.
 from __future__ import annotations
 
 import json
+import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -124,31 +125,100 @@ def _essential(item: str, body) -> bool:
     )
 
 
+def _real_slot_counts(body) -> dict[str, int]:
+    """Per-item count of main-inventory slots (0..35) currently occupied on ``body``,
+    or {} when the body has no per-slot rows (e.g. fakes in unit tests)."""
+    rows = getattr(body, "_rows", None)
+    if not rows:
+        rows = (getattr(body, "_obs", None) or {}).get("body", {}).get("inventory")
+    counts: dict[str, int] = {}
+    for row in rows or ():
+        slot = row.get("slot")
+        if slot is not None and not (0 <= int(slot) < INVENTORY_SLOTS):
+            continue
+        if int(row.get("count", 0)) > 0:
+            item = row["item"]
+            counts[item] = counts.get(item, 0) + 1
+    return counts
+
+
+def _slots_used_real(counts, items, real: dict[str, int]) -> int:
+    return sum(
+        max(real.get(i, 0), slots_used({i: n}, items))
+        for i, n in counts.items()
+        if n > 0
+    )
+
+
 def _load(wanted: dict[str, int], body, knowledge, state: GatherState) -> dict[str, int]:
-    """What of ``wanted`` one trip to the chests carries: structure blocks before
-    details (bp.is_detail), as much as the slots left beside the essentials hold.
+    """What of ``wanted`` one trip to the chests carries: missing structure blocks
+    before held structure before details (bp.is_detail), as much as the slots left
+    beside the essentials hold. Uses real occupied slots so fragmented stacks do not
+    overbook the 36-slot inventory, and prevents details from evicting already-held
+    ``wanted`` details.
     Run 20261118T050156629666Z asked for the whole remaining bill at once: planks,
     lanterns, barrels and anvils filled the 36 slots and the 119 oak stairs the
     walls waited on stayed in the chest for the rest of the build."""
     items = getattr(knowledge, "items", None) or {}
     stored, held = _stored(state), body.inventory()
-    room = INVENTORY_SLOTS - slots_used(
-        {i: n for i, n in held.items() if _essential(i, body)}, items
+    real = _real_slot_counts(body)
+    room = INVENTORY_SLOTS - _slots_used_real(
+        {i: n for i, n in held.items() if _essential(i, body)}, items, real
     )
     load: dict[str, int] = {}
-    for i in sorted(wanted, key=bp.is_detail):  # stable: the caller's order within
-        has, take = held.get(i, 0), min(wanted[i], stored[i])
+    structure = [i for i in wanted if not bp.is_detail(i)]
+    structure.sort(
+        key=lambda i: (
+            2
+            if (held.get(i, 0) >= wanted[i] or stored[i] <= 0)
+            else (1 if held.get(i, 0) > 0 else 0)
+        )
+    )
+    for i in structure:
+        has = held.get(i, 0)
+        take = min(max(0, wanted[i] - has), stored[i])
         if take <= 0 and has <= 0:
             continue
         stack = item_stack(items, i)
         fits = max(0, room * stack - has)
         take = min(take, fits)
-        cost = slots_used({i: has + take}, items)
+        cost = _slots_used_real({i: has + take}, items, real)
         if cost > room:
+            if has > 0:
+                room = 0  # held structure already fills remaining room; block details
             continue  # what is held already of it may go back
         if take > 0:
             load[i] = take
         room -= cost
+
+    details = [i for i in wanted if bp.is_detail(i)]
+    reserved_detail: dict[str, int] = {}
+    for i in details:
+        has = held.get(i, 0)
+        if has <= 0:
+            continue
+        cost = _slots_used_real({i: has}, items, real)
+        if cost <= room:
+            room -= cost
+            reserved_detail[i] = cost
+        else:
+            room = 0
+
+    for i in details:
+        has = held.get(i, 0)
+        take = min(max(0, wanted[i] - has), stored[i])
+        if take <= 0:
+            continue
+        already = reserved_detail.get(i, 0)
+        stack = item_stack(items, i)
+        fits = max(0, (room + already) * stack - has)
+        take = min(take, fits)
+        cost = _slots_used_real({i: has + take}, items, real)
+        extra = cost - already
+        if extra > room or take <= 0:
+            continue
+        load[i] = take
+        room -= extra
     return load
 
 
@@ -159,25 +229,39 @@ def _make_room(
     knowledge,
     state: GatherState,
     gather_options: GatherOptions | None = None,
+    *,
+    wanted=(),
+    free: int = 0,
 ) -> None:
-    """Before withdrawing ``load``, put back into the emptiest chest held blocks the
-    refill did not come for (largest first), until the load fits. Run
+    """Before withdrawing ``load`` (or mining with a full inventory), put back into
+    the emptiest chest held blocks the refill did not come for (non-wanted first,
+    then details, then largest), until the load fits with ``free`` spare slots. Run
     20261118T042119862404Z held 34 of 36 slots of house details waiting on the
     structure; the refill withdrew 4 of the 223 planks it was short."""
-    if not state.containers or not load:
+    if not state.containers or (not load and free <= 0):
         return
     items = getattr(knowledge, "items", None) or {}
-    after = Counter(body.inventory())
+    held = body.inventory()
+    real = _real_slot_counts(body)
+    after = Counter(held)
     after.update(load)
     spare = [
         i
-        for i, n in body.inventory().items()
+        for i, n in held.items()
         if n > 0 and i not in keep and not _essential(i, body)
     ]
-    spare.sort(key=lambda i: (-slots_used({i: after[i]}, items), i))
+    spare.sort(
+        key=lambda i: (
+            i in wanted,
+            not bp.is_detail(i),
+            -_slots_used_real({i: after[i]}, items, real),
+            i,
+        )
+    )
     out: dict[str, int] = {}
+    limit = INVENTORY_SLOTS - free
     for i in spare:
-        if slots_used(after, items) <= INVENTORY_SLOTS:
+        if _slots_used_real(after, items, real) <= limit:
             break
         out[i] = after.pop(i)
     if not out:
@@ -212,6 +296,60 @@ def load_vanilla_pack() -> Knowledge:
     )
 
 
+PHASE_FOR_STAGE = {
+    "reading chests": "chests_setup",
+    "scaffolding": "chests_setup",
+    "gathering starter tools": "gathering",
+    "gathering materials": "gathering",
+    "clearing trees": "clearing_and_site_prep",
+    "site prep": "clearing_and_site_prep",
+    "site prep (gathering)": "clearing_and_site_prep",
+    "placing": "building_structure",
+    "placing details": "placing_details",
+    "refilling materials": "refills",
+    "cleanup": "cleanup",
+}
+
+
+class PhaseClock:
+    """Accumulates wall-clock seconds across stage transitions."""
+
+    def __init__(self, wall_clock: Callable[[], float] = time.monotonic):
+        self.clock = wall_clock
+        self.started = wall_clock()
+        self._last = self.started
+        self.current: str | None = None
+        self.stages: dict[str, float] = {}
+        self.phases: dict[str, float] = {}
+
+    def enter(self, name: str) -> str | None:
+        now = self.clock()
+        prev = self.current
+        if prev is not None and now > self._last:
+            dt = now - self._last
+            self.stages[prev] = self.stages.get(prev, 0.0) + dt
+            phase = PHASE_FOR_STAGE.get(prev, prev)
+            self.phases[phase] = self.phases.get(phase, 0.0) + dt
+        self._last = now
+        self.current = name
+        return prev
+
+    def finish(self) -> tuple[float, dict[str, float], dict[str, float]]:
+        now = self.clock()
+        if self.current is not None and now > self._last:
+            dt = now - self._last
+            self.stages[self.current] = self.stages.get(self.current, 0.0) + dt
+            phase = PHASE_FOR_STAGE.get(self.current, self.current)
+            self.phases[phase] = self.phases.get(phase, 0.0) + dt
+        self._last = now
+        total = round(max(0.0, now - self.started), 2)
+        return (
+            total,
+            {k: round(v, 2) for k, v in self.phases.items()},
+            {k: round(v, 2) for k, v in self.stages.items()},
+        )
+
+
 @dataclass
 class JobReport:
     needed: dict[str, int] = field(default_factory=dict)  # material list + tools
@@ -222,6 +360,9 @@ class JobReport:
     build: BuildReport | None = None
     stop: str = ""  # built | not_built | gather_failed
     ticks: dict[str, int] = field(default_factory=dict)  # per phase, when clocked
+    duration_s: float = 0.0
+    phases_s: dict[str, float] = field(default_factory=dict)
+    stages_s: dict[str, float] = field(default_factory=dict)
 
 
 def materials_of(build: dict, knowledge: Knowledge) -> dict[str, int]:
@@ -238,14 +379,17 @@ def _held(body, state: GatherState) -> Counter:
     return total
 
 
-def _withdraw_plan(needed: dict[str, int], body, state: GatherState) -> PlanResult:
+def _withdraw_plan(
+    needed: dict[str, int], body, state: GatherState, *, delta: bool = False
+) -> PlanResult:
     tasks = []
     have = Counter(body.inventory())
+    target = {i: have.get(i, 0) + n for i, n in needed.items()} if delta else needed
     for pos, contents in state.containers.items():
         take = tuple(
-            (item, min(n, needed[item] - have[item]))
+            (item, min(n, target[item] - have[item]))
             for item, n in contents.items()
-            if item in needed and needed[item] > have[item] and n > 0
+            if item in target and target[item] > have[item] and n > 0
         )
         if take:
             tasks.append(Withdraw(take, pos))
@@ -274,8 +418,10 @@ def read_chests(chests, body, state: GatherState) -> None:
 TOOL_WORDS = ("_axe", "_pickaxe", "_shovel", "_hoe", "_sword", "shears", "bucket")
 
 
-def junk(inventory: dict[str, int], wanted: dict[str, int]) -> dict[str, int]:
-    """What a refill may put away: nothing the build wants, no tools, no scaffolding."""
+def junk(
+    inventory: dict[str, int], wanted: dict[str, int], foods=()
+) -> dict[str, int]:
+    """What a refill may put away: nothing the build wants, no tools, no scaffolding, no food."""
     return {
         i: n
         for i, n in inventory.items()
@@ -283,6 +429,7 @@ def junk(inventory: dict[str, int], wanted: dict[str, int]) -> dict[str, int]:
         and i not in wanted
         and i not in bp.SCAFFOLD_ITEMS
         and i != SHULKER
+        and i not in foods
         and not any(w in i for w in TOOL_WORDS)
     }
 
@@ -297,7 +444,7 @@ def _stow_junk(
     # ponytail: the emptiest known chest takes the site-clearing leftovers (dirt,
     # flowers, saplings). Run 20261110T124208809624Z stopped need_materials at 294
     # blocks: the inventory was full of them, so the refill withdrew nothing.
-    spare = junk(body.inventory(), wanted)
+    spare = junk(body.inventory(), wanted, getattr(body, "foods", None) or ())
     if not spare or not state.containers:
         return
     pos = min(state.containers, key=lambda c: sum(state.containers[c].values()))
@@ -336,9 +483,11 @@ def _take(
     knowledge,
     state: GatherState,
     gather_options: GatherOptions | None = None,
+    *,
+    delta: bool = False,
 ) -> None:
     """Withdraw `items` from the remembered containers, as far as they hold them."""
-    plan = _withdraw_plan(items, body, state)
+    plan = _withdraw_plan(items, body, state, delta=delta)
     if plan.tasks:
         run_gather(plan, body, knowledge, state=state, opts=gather_options)
 
@@ -369,211 +518,269 @@ def build_job(
     ``on_progress(report, final)`` is passed to ``run_build``. ``site_margin``: blocks
     of levelled ground prepared around the footprint before building (>= 0, default
     1; None skips site preparation)."""
-    stage = on_stage or (lambda *a, **k: None)  # publishes the dashboard's live stage
-    build = json.loads(Path(build_json_path).read_text(encoding="utf-8"))
-    template = bp.Template.from_build(build, tuple(origin), rotation, mirror)
-    protect(body, template, site_margin)
-    # What the body may put down to climb and take back: scaffolding, dirt,
-    # cobblestone, then spare plain blocks that drop themselves (mclab.temporary_blocks).
-    body.temporary_ok = temporary_blocks.eligible(knowledge)
-    body.foods = dict(getattr(knowledge, "foods", None) or {})  # eat_when_needed
-    if state is None:
-        state = GatherState()
-        hydrate_containers(body, state)
+    publish_stage = on_stage or (lambda *a, **k: None)  # publishes the dashboard's live stage
+    phase_clock = PhaseClock()
+
+    def stage(name: str, done=None, total=None, detail=None):
+        phase_clock.enter(name)
+        publish_stage(name, done, total, detail)
+
     report = JobReport()
-    started = clock() if clock else 0
-    if not build_only:
-        stage("reading chests")
-        read_chests(chests, body, state)
-        _take({SHULKER: 2}, body, knowledge, state, gather_options)
-    needed = materials_of(build, knowledge)
-    needed.update(bp.tool_needs(template, body.inventory()))
-    report.needed = dict(needed)
+    try:
+        build = json.loads(Path(build_json_path).read_text(encoding="utf-8"))
+        template = bp.Template.from_build(build, tuple(origin), rotation, mirror)
+        protect(body, template, site_margin)
+        # What the body may put down to climb and take back: scaffolding, dirt,
+        # cobblestone, then spare plain blocks that drop themselves (mclab.temporary_blocks).
+        body.temporary_ok = temporary_blocks.eligible(knowledge)
+        body.foods = dict(getattr(knowledge, "foods", None) or {})  # eat_when_needed
+        if state is None:
+            state = GatherState()
+            hydrate_containers(body, state)
+        started = clock() if clock else 0
+        if not build_only:
+            stage("reading chests")
+            read_chests(chests, body, state)
+            _take({SHULKER: 2}, body, knowledge, state, gather_options)
+        needed = materials_of(build, knowledge)
+        needed.update(bp.tool_needs(template, body.inventory()))
+        report.needed = dict(needed)
 
-    held = Counter(body.inventory())
-    stored = Counter()
-    for contents in state.containers.values():
-        stored.update(contents)
-    # Remembered containers count before the world: the plan withdraws from them
-    # behind Withdraw tasks (``hand_over``) instead of mining the item again.
-    gap = {i: n - held[i] for i, n in needed.items() if n > held[i]}
-    report.shortfall = (
-        {}
-        if build_only
-        else {i: n - stored.get(i, 0) for i, n in gap.items() if n > stored.get(i, 0)}
-    )
-
-    if gap and report.shortfall and not any(held[p] for p in PICKAXES):
-        wanted = {PICKAXES[0]: 1}
-        starter = gp.plan(
-            wanted,
-            body.inventory(),
-            knowledge,
-            state.stations,
-            starter_tools=True,
-            storage=_storage_boxes(state),
-            kit=gather_options,
+        held = Counter(body.inventory())
+        stored = Counter()
+        for contents in state.containers.values():
+            stored.update(contents)
+        # Remembered containers count before the world: the plan withdraws from them
+        # behind Withdraw tasks (``hand_over``) instead of mining the item again.
+        gap = {i: n - held[i] for i, n in needed.items() if n > held[i]}
+        report.shortfall = (
+            {}
+            if build_only
+            else {
+                i: n - stored.get(i, 0) for i, n in gap.items() if n > stored.get(i, 0)
+            }
         )
-        stage("gathering starter tools")
-        report.starter = run_gather(
-            starter,
+
+        if gap and report.shortfall and not any(held[p] for p in PICKAXES):
+            wanted = {PICKAXES[0]: 1}
+            starter = gp.plan(
+                wanted,
+                body.inventory(),
+                knowledge,
+                state.stations,
+                starter_tools=True,
+                storage=_storage_boxes(state),
+                kit=gather_options,
+            )
+            stage("gathering starter tools")
+            report.starter = run_gather(
+                starter,
+                body,
+                knowledge,
+                wanted,
+                state=state,
+                max_failures=max_failures,
+                storage=lambda: _storage_boxes(state),
+                opts=gather_options,
+            )
+            if report.starter.stop in GATHER_ENDS:
+                report.stop = "gather_failed"
+                return report
+        if gap and not build_only:
+            cutter = (
+                SiteCutter(
+                    template,
+                    body,
+                    knowledge.blocks,
+                    site_margin,
+                    protected=tuple(tuple(c) for c in chests),
+                    log=lambda m: (
+                        print(m, flush=True),
+                        stage("site prep (gathering)", detail=m),
+                    ),
+                )
+                if site_margin is not None
+                else None
+            )
+
+            def _clear_area():
+                """One slice of useful work while a furnace smelts."""
+                stage("site prep (gathering)")
+                try:
+                    if cutter is not None:
+                        return cutter.slice()
+                    from mclab.tree_removal import clear_trees_in_footprint
+
+                    clear_trees_in_footprint(body, template.cells, template=template)
+                    return False
+                finally:
+                    stage("gathering materials")
+
+            first = gp.plan(
+                needed,
+                body.inventory(),
+                knowledge,
+                state.stations,
+                starter_tools=True,
+                storage=_storage_boxes(state),
+                kit=gather_options,
+            )
+            stage("gathering materials")
+            report.gather = run_gather(
+                first,
+                body,
+                knowledge,
+                needed,
+                state=state,
+                max_failures=max_failures,
+                storage=lambda: _storage_boxes(state),
+                idle_work=_clear_area,
+                opts=gather_options,
+            )
+            if report.gather.stop in GATHER_ENDS:
+                report.stop = "gather_failed"
+                return report
+        gathered = clock() if clock else 0
+
+        refills = 0
+
+        def refill(shortfall: dict[str, int]) -> bool:
+            nonlocal refills
+            if refills >= MAX_REFILLS:
+                return False
+            refills += 1
+            prev_stage = phase_clock.current
+            stage("refilling materials", refills, MAX_REFILLS)
+            try:
+                wanted = dict(shortfall)
+                _stow_junk({**needed, **wanted}, body, knowledge, state, gather_options)
+                before = body.inventory()
+                # Every trip to the chests tops up the food carried (FOOD_KEEP). Food is
+                # taken from the chests only, never hunted mid-build: with none stored the
+                # body notes it and builds on (live, a player can hand it some).
+                food = {**_food_topup(body, state), **_scaffold_topup(body, state)}
+                if food:
+                    _take(food, body, knowledge, state, gather_options, delta=True)
+                    if not wanted:
+                        fed = _ate_more(body, before)
+                        _note_refill(body, food, before, "chests", fed)
+                        return fed
+                elif not wanted:
+                    _note_refill(
+                        body, {"food": FOOD_KEEP}, before, "no_food_stored", False
+                    )
+                    return False
+                # Chests first, and back to building on any gain. Run 20261110T170929838024Z
+                # was short one detector rail with the rest of the house in the chests: the
+                # full plan put the ore hunt first and walked the explore ring over a swamp.
+                load = _load(wanted, body, knowledge, state)
+                _make_room(
+                    load,
+                    frozenset(load),
+                    body,
+                    knowledge,
+                    state,
+                    gather_options,
+                    wanted=wanted,
+                )
+                _take(load, body, knowledge, state, gather_options, delta=True)
+                if any(body.inventory().get(i, 0) > before.get(i, 0) for i in wanted):
+                    report.refills.append(GatherReport(stop="done"))
+                    _note_refill(body, wanted, before, "chests", True)
+                    return True
+                held_now = body.inventory()
+                stored = _stored(state)
+                missing = {
+                    i: n for i, n in wanted.items() if held_now.get(i, 0) + stored[i] < n
+                }
+                if not missing:
+                    _note_refill(body, wanted, before, "chests", False)
+                    return False
+                keep = _keeping(missing, body)
+                _make_room(
+                    {},
+                    keep,
+                    body,
+                    knowledge,
+                    state,
+                    gather_options,
+                    wanted=wanted,
+                    free=3,
+                )
+                fresh = gp.plan(
+                    missing,
+                    body.inventory(),
+                    knowledge,
+                    state.stations,
+                    starter_tools=True,
+                    storage=_storage_boxes(state),
+                    kit=gather_options,
+                    keep=keep,
+                )
+                outcome = run_gather(
+                    fresh,
+                    body,
+                    knowledge,
+                    missing,
+                    state=state,
+                    max_failures=max_failures,
+                    explore_cap=0,  # craft and cut what is in sight; never leave the site
+                    storage=lambda: _storage_boxes(state),
+                    opts=gather_options,
+                    keep=keep,
+                )
+                report.refills.append(outcome)
+                held_now = body.inventory()
+                # ponytail: any gain counts. The whole remaining house does not fit in one
+                # inventory, and demanding all of it stopped run 20261110T063137807602Z at
+                # 280 of 1227 blocks with the stock sitting in the chests.
+                ok = any(
+                    held_now.get(i, 0) > before.get(i, 0) for i in missing
+                ) or all(held_now.get(i, 0) >= n for i, n in missing.items())
+                _note_refill(body, missing, before, f"gather:{outcome.stop}", ok)
+                return ok
+            finally:
+                if prev_stage is not None:
+                    stage(prev_stage)
+
+        stage("scaffolding")
+        held_now = body.inventory()
+        _take(
+            {
+                bp.SCAFFOLD_ITEMS[0]: SCAFFOLD_STACK,
+                **{
+                    i: held_now.get(i, 0) + n
+                    for i, n in _food_topup(body, state).items()
+                },
+            },
             body,
             knowledge,
-            wanted,
-            state=state,
-            max_failures=max_failures,
-            storage=lambda: _storage_boxes(state),
-            opts=gather_options,
+            state,
+            gather_options,
         )
-        if report.starter.stop in GATHER_ENDS:
-            report.stop = "gather_failed"
-            return report
-    if gap and not build_only:
-        cutter = (
-            SiteCutter(
+        body.precise_stance = True  # placing needs the body centred and out of the cell
+        try:
+            report.build = run_build(
                 template,
                 body,
                 knowledge.blocks,
-                site_margin,
+                on_need_materials=refill,
+                survey=survey,
+                on_progress=on_progress,
+                on_stage=stage,
+                site_margin=site_margin,
+                log=lambda m: print(m, flush=True),
                 protected=tuple(tuple(c) for c in chests),
-                log=lambda m: (print(m, flush=True), stage("site prep (gathering)", detail=m)),
             )
-            if site_margin is not None
-            else None
-        )
-
-        def _clear_area():
-            """One slice of useful work while a furnace smelts."""
-            if cutter is not None:
-                return cutter.slice()
-            from mclab.tree_removal import clear_trees_in_footprint
-
-            clear_trees_in_footprint(body, template.cells, template=template)
-            return False
-
-        first = gp.plan(
-            needed,
-            body.inventory(),
-            knowledge,
-            state.stations,
-            starter_tools=True,
-            storage=_storage_boxes(state),
-            kit=gather_options,
-        )
-        stage("gathering materials")
-        report.gather = run_gather(
-            first,
-            body,
-            knowledge,
-            needed,
-            state=state,
-            max_failures=max_failures,
-            storage=lambda: _storage_boxes(state),
-            idle_work=_clear_area,
-            opts=gather_options,
-        )
-        if report.gather.stop in GATHER_ENDS:
-            report.stop = "gather_failed"
-            return report
-    gathered = clock() if clock else 0
-
-    refills = 0
-
-    def refill(shortfall: dict[str, int]) -> bool:
-        nonlocal refills
-        if refills >= MAX_REFILLS:
-            return False
-        refills += 1
-        stage("refilling materials", refills, MAX_REFILLS)
-        wanted = dict(shortfall)
-        keep = _keeping(wanted, body)
-        _stow_junk({**needed, **wanted}, body, knowledge, state, gather_options)
-        before = body.inventory()
-        # Every trip to the chests tops up the food carried (FOOD_KEEP). Food is
-        # taken from the chests only, never hunted mid-build: with none stored the
-        # body notes it and builds on (live, a player can hand it some).
-        food = {**_food_topup(body, state), **_scaffold_topup(body, state)}
-        if food:
-            _take(food, body, knowledge, state, gather_options)
-            if not wanted:
-                fed = _ate_more(body, before)
-                _note_refill(body, food, before, "chests", fed)
-                return fed
-        elif not wanted:
-            _note_refill(body, {"food": FOOD_KEEP}, before, "no_food_stored", False)
-            return False
-        # Chests first, and back to building on any gain. Run 20261110T170929838024Z
-        # was short one detector rail with the rest of the house in the chests: the
-        # full plan put the ore hunt first and walked the explore ring over a swamp.
-        load = _load(wanted, body, knowledge, state)
-        _make_room(load, frozenset(load), body, knowledge, state, gather_options)
-        _take(load, body, knowledge, state, gather_options)
-        if any(body.inventory().get(i, 0) > before.get(i, 0) for i in wanted):
-            report.refills.append(GatherReport(stop="done"))
-            _note_refill(body, wanted, before, "chests", True)
-            return True
-        fresh = gp.plan(
-            wanted,
-            body.inventory(),
-            knowledge,
-            state.stations,
-            starter_tools=True,
-            storage=_storage_boxes(state),
-            kit=gather_options,
-            keep=keep,
-        )
-        outcome = run_gather(
-            fresh,
-            body,
-            knowledge,
-            wanted,
-            state=state,
-            max_failures=max_failures,
-            explore_cap=0,  # craft and cut what is in sight; never leave the site
-            storage=lambda: _storage_boxes(state),
-            opts=gather_options,
-            keep=keep,
-        )
-        report.refills.append(outcome)
-        held_now = body.inventory()
-        # ponytail: any gain counts. The whole remaining house does not fit in one
-        # inventory, and demanding all of it stopped run 20261110T063137807602Z at
-        # 280 of 1227 blocks with the stock sitting in the chests.
-        ok = any(held_now.get(i, 0) > before.get(i, 0) for i in wanted) or all(
-            held_now.get(i, 0) >= n for i, n in wanted.items()
-        )
-        _note_refill(body, wanted, before, f"gather:{outcome.stop}", ok)
-        return ok
-
-    _take(
-        {bp.SCAFFOLD_ITEMS[0]: SCAFFOLD_STACK, **_food_topup(body, state)},
-        body,
-        knowledge,
-        state,
-        gather_options,
-    )
-    stage("scaffolding")
-    body.precise_stance = True  # placing needs the body centred and out of the cell
-    try:
-        report.build = run_build(
-            template,
-            body,
-            knowledge.blocks,
-            on_need_materials=refill,
-            survey=survey,
-            on_progress=on_progress,
-            on_stage=stage,
-            site_margin=site_margin,
-            log=lambda m: print(m, flush=True),
-            protected=tuple(tuple(c) for c in chests),
-        )
+        finally:
+            body.precise_stance = False
+        report.stop = "built" if report.build.stop == "done" else "not_built"
+        if clock:
+            # build includes refills; crafting happens inside the gather phase
+            report.ticks = {"gather": gathered - started, "build": clock() - gathered}
+        return report
     finally:
-        body.precise_stance = False
-    report.stop = "built" if report.build.stop == "done" else "not_built"
-    if clock:
-        # build includes refills; crafting happens inside the gather phase
-        report.ticks = {"gather": gathered - started, "build": clock() - gathered}
-    return report
+        report.duration_s, report.phases_s, report.stages_s = phase_clock.finish()
 
 
 def protect(body, template: bp.Template, site_margin: int | None = None) -> None:
