@@ -38,40 +38,48 @@ def events(run: Path):
             yield e
 
 
+def scan(run: Path, min_seconds: float = 1.5, show=print) -> dict:
+    """Silences of ``min_seconds`` or more and GC pauses in one run; ``show`` gets
+    the per-silence report lines (mclab.run_digest passes a no-op)."""
+    t0 = prev = None
+    looks: list[tuple[float, list[str]]] = []
+    watched, found, pauses = False, [], []
+    for e in events(run):
+        w, t, p = e["monotonic_ns"] / 1e9, e["type"], e["payload"]
+        if t == "python_silence":
+            watched = True
+            looks.append((p["idle_s"], p["stack"]))
+        elif t == "python_silence_end":
+            if p["duration_s"] >= min_seconds:
+                found.append(p["duration_s"])
+                start = w - p["duration_s"] - (t0 or w)
+                show(f"  SILENCE {p['duration_s']:.1f} s, starting {start:.1f} s into the run")
+                for idle, stack in looks:
+                    show(f"      after {idle:.1f} s: " + " <- ".join(stack[:8]))
+            looks = []
+        elif t == "python_gc":
+            pauses.append(p["pause_s"])
+        elif t == "request":
+            t0 = t0 or w
+            if prev and not watched and w - prev[0] >= min_seconds:
+                found.append(w - prev[0])
+                show(
+                    f"  GAP {w - prev[0]:.1f} s, starting {prev[0] - t0:.1f} s into the run,"
+                    f" between requests {prev[1]} and {p['op']}"
+                )
+            prev = (w, p["op"])
+    return {"silences": found, "gc_pauses": pauses, "watchdog": watched}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", nargs="+", type=Path)
     ap.add_argument("--min-seconds", type=float, default=1.5)
     a = ap.parse_args()
     for run in a.runs:
-        t0 = prev = None
-        looks: list[tuple[float, list[str]]] = []
-        watched, found, pauses = False, [], []
         print(f"RUN {run.name}")
-        for e in events(run):
-            w, t, p = e["monotonic_ns"] / 1e9, e["type"], e["payload"]
-            if t == "python_silence":
-                watched = True
-                looks.append((p["idle_s"], p["stack"]))
-            elif t == "python_silence_end":
-                if p["duration_s"] >= a.min_seconds:
-                    found.append(p["duration_s"])
-                    start = w - p["duration_s"] - (t0 or w)
-                    print(f"  SILENCE {p['duration_s']:.1f} s, starting {start:.1f} s into the run")
-                    for idle, stack in looks:
-                        print(f"      after {idle:.1f} s: " + " <- ".join(stack[:8]))
-                looks = []
-            elif t == "python_gc":
-                pauses.append(p["pause_s"])
-            elif t == "request":
-                t0 = t0 or w
-                if prev and not watched and w - prev[0] >= a.min_seconds:
-                    found.append(w - prev[0])
-                    print(
-                        f"  GAP {w - prev[0]:.1f} s, starting {prev[0] - t0:.1f} s into the run,"
-                        f" between requests {prev[1]} and {p['op']}"
-                    )
-                prev = (w, p["op"])
+        result = scan(run, a.min_seconds)
+        found, pauses = result["silences"], result["gc_pauses"]
         print(
             f"SILENCES: {len(found)} of {a.min_seconds:g} s or more"
             + (f", longest {max(found):.1f} s" if found else "")

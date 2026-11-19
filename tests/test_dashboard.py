@@ -312,6 +312,11 @@ def test_dead_worker_is_visible_as_interrupted(workspace):
 def test_second_launcher_reopens_existing_ui(workspace, monkeypatch, record_port):
     opened = []
     monkeypatch.setattr(ui.webbrowser, "open", opened.append)
+    # a fresh checkout has no built ui/dist; "/" would answer 503
+    dist = workspace / "ui/dist"
+    dist.mkdir(parents=True)
+    (dist / "index.html").write_text("<title>MCB Lab</title>", encoding="utf-8")
+    monkeypatch.setattr(ui, "UI_DIST", dist)
     with ThreadingHTTPServer(("127.0.0.1", 0), ui.handler(ui.Dashboard())) as http:
         thread = threading.Thread(target=http.serve_forever, daemon=True)
         thread.start()
@@ -362,6 +367,10 @@ def test_launch_uses_existing_python_and_blocks_second_session(workspace, monkey
             return None
 
     monkeypatch.setattr(ui.subprocess, "Popen", Process)
+    # not the real lab: a stopped server would prepend a lab-start job
+    from mclab import server
+
+    monkeypatch.setattr(server, "status", lambda: {"state": "running"})
     dashboard = ui.Dashboard()
     request = {
         "kind": "courses",

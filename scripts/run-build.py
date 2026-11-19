@@ -29,7 +29,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from live_common import finish, kit, record_crash, results_folder
+from live_common import digest_on_exit, finish, kit, record_crash, results_folder
 
 from mclab import build_checkpoint as ck
 from mclab import build_plan as bp
@@ -225,7 +225,7 @@ def main() -> int:
         "--seed", type=int, help="run in a fresh copy of this natural seed's world"
     )
     args, config = parse_run(parser, "build")
-    with launch_record(config):
+    with digest_on_exit(), launch_record(config):
         result = run(args, config, parser)
         record_outcome(result)
         return result
