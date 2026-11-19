@@ -128,6 +128,6 @@ Raw event logs (≈200–250 MB per MCB attempt) and map archives stay local und
 
 ```powershell
 $d='docs/evidence/2026-10-28-phase0'
-rtk proxy uv run --locked python -m mclab.cli natural run --seed 1337 --routes results/natural/routes-1337.json --entrant comparison --condition both --repetitions 1 --view-distance 4 --awareness-profile $d/awareness-chunk-64.json --movement-profile $d/movement-passing-families.json --terrain-profile $d/terrain-passing-families.json
-rtk proxy uv run --locked python scripts/classify-natural-attempts.py results/natural/<stamp>
+uv run --locked python -m mclab.cli natural run --seed 1337 --routes results/natural/routes-1337.json --entrant comparison --condition both --repetitions 1 --view-distance 4 --awareness-profile $d/awareness-chunk-64.json --movement-profile $d/movement-passing-families.json --terrain-profile $d/terrain-passing-families.json
+uv run --locked python scripts/classify-natural-attempts.py results/natural/<stamp>
 ```

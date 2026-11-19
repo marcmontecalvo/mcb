@@ -7,7 +7,7 @@ Existing V8 controllers and scored profiles retain their original behavior.
 Run the flat-lab integration with the installed awareness mod and an idle server:
 
 ```powershell
-rtk proxy uv run --locked python scripts/check-spatial-navigation.py
+uv run --locked python scripts/check-spatial-navigation.py
 ```
 
 The probe uses ordinary Survival movement in the lab, writes raw events and a

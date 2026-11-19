@@ -2,8 +2,8 @@
 """Live build run (companion track: M2 with materials given, M5 with --empty).
 
 Usage (lab server up, idle lab; start = a feet cell on open ground):
-    rtk proxy uv run --locked python scripts/run-build.py --start X Y Z [--build FILE] [--dx 3 --dz 2]
-    rtk proxy uv run --locked python scripts/run-build.py --start X Y Z --empty --seed 42424242
+    uv run --locked python scripts/run-build.py --start X Y Z [--build FILE] [--dx 3 --dz 2]
+    uv run --locked python scripts/run-build.py --start X Y Z --empty --seed 42424242
     uv run --locked python scripts/run-build.py --build tests/fixtures/schematics/house-large.build.json --supply --coal item --start -24 64 56 --seed 31415926
 
 A run writes checkpoints/NNN.json (every 10 actions) and final.json; ``--resume`` sets

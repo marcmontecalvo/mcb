@@ -29,7 +29,7 @@ corruption invalidates it. No automatic retries or additional time are granted.
 Reproduction:
 
 ```powershell
-rtk proxy uv run --env-file .env --locked mclab models live-smoke --backend atom-qwen-chat --count 1 --request-limit 40
+uv run --env-file .env --locked mclab models live-smoke --backend atom-qwen-chat --count 1 --request-limit 40
 ```
 
 The CLI limits experiments to one to five attempts and at most 100 requests across
@@ -70,7 +70,7 @@ three ticks. The first two deadline failures retain their original diagnostics;
 the second and later configurations additionally retain sanitized error reasons.
 The committed runner additionally classifies provider deadline errors as timing
 failures; historical records keep their original broad decision category.
-Run `rtk proxy uv run --locked python scripts/audit-model-smokes.py` to regenerate
+Run `uv run --locked python scripts/audit-model-smokes.py` to regenerate
 the compact audit from local raw evidence. `mclab report` includes live request
 counts and keeps readiness probes distinct from gameplay calls.
 
@@ -105,8 +105,8 @@ the live run reference. Cost accounting retains unknown when any response lacks
 valid usage; it does not assume a zero charge after failures.
 
 ```powershell
-rtk proxy uv run --env-file .env --locked mclab models probe --backend openrouter-jev
-rtk proxy uv run --env-file .env --locked mclab models live-smoke --backend openrouter-jev --count 1 --request-limit 40
+uv run --env-file .env --locked mclab models probe --backend openrouter-jev
+uv run --env-file .env --locked mclab models live-smoke --backend openrouter-jev --count 1 --request-limit 40
 ```
 
 These commands make new billable calls; they do not replay stored evidence.

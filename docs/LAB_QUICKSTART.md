@@ -9,13 +9,13 @@ Use the existing two entry points: **mclab.ps1** controls Minecraft and
 If Minecraft is stopped:
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server start
+powershell -NoProfile -File scripts/mclab.ps1 server start
 ```
 
 Check readiness; repeat until the state is **running**:
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server status
+powershell -NoProfile -File scripts/mclab.ps1 server status
 ```
 
 Do not issue start again if status is already running. A **starting** response
@@ -25,7 +25,7 @@ not another launch. Startup commonly needs tens of seconds.
 Open the dashboard in a second PowerShell terminal:
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/lab-ui.ps1
+powershell -NoProfile -File scripts/lab-ui.ps1
 ```
 
 The launcher opens **http://127.0.0.1:8770/** and reuses an existing dashboard.
@@ -46,9 +46,9 @@ The dashboard launcher does not itself start Minecraft.
 - **CLI:** use the wrapper's help to find the supported operations:
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 --help
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server status
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 doctor
+powershell -NoProfile -File scripts/mclab.ps1 --help
+powershell -NoProfile -File scripts/mclab.ps1 server status
+powershell -NoProfile -File scripts/mclab.ps1 doctor
 ```
 
 For build/gather commands, checkpoints and inspection, see
@@ -63,8 +63,8 @@ Use **Stop after batch** to finish the current batch and skip queued work, or
 to finish before stopping Minecraft:
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server stop
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server status
+powershell -NoProfile -File scripts/mclab.ps1 server stop
+powershell -NoProfile -File scripts/mclab.ps1 server status
 ```
 
 **Shut down dashboard** stops the dashboard only. Closing its browser tab does
@@ -72,7 +72,7 @@ not cancel the durable worker or stop Minecraft. To reload changed dashboard
 code, use its shutdown action and relaunch, or:
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/lab-ui.ps1 -Restart
+powershell -NoProfile -File scripts/lab-ui.ps1 -Restart
 ```
 
 Restart affects only the verified dashboard process; workers and Minecraft
@@ -87,9 +87,9 @@ toolchains/dependencies; it does not install a model service.
 Only with the lab stopped, run initial setup:
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/setup.ps1
-rtk proxy npm --prefix ui ci
-rtk proxy npm --prefix ui run build
+powershell -NoProfile -File scripts/setup.ps1
+npm --prefix ui ci
+npm --prefix ui run build
 ```
 
 Setup generates C1 and builds/installs mods. It is not daily startup: do not

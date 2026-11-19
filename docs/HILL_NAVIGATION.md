@@ -59,7 +59,7 @@ geometry is required before resuming movement.
 With the current mod installed, the flat lab world active and no subject running:
 
 ```powershell
-rtk proxy uv run --locked python scripts/check-hill-navigation.py --variants 10
+uv run --locked python scripts/check-hill-navigation.py --variants 10
 ```
 
 Run this cohort on a fresh server: it uses 30 development bodies and one final

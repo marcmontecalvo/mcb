@@ -131,9 +131,9 @@ conservative cost ceiling. Invalid probability responses were still charged and
 included. Local infrastructure cost remains unknown.
 
 ```powershell
-rtk proxy uv run --locked mclab experiments screen-build
-rtk proxy uv run --env-file .env --locked mclab experiments screen-run --backend openrouter-jev --offset 0 --limit 36
-rtk proxy uv run --locked mclab experiments screen-report
+uv run --locked mclab experiments screen-build
+uv run --env-file .env --locked mclab experiments screen-run --backend openrouter-jev --offset 0 --limit 36
+uv run --locked mclab experiments screen-report
 ```
 
 The run command makes new billable calls. Batches used offsets 0, 36, 72 and 108.
