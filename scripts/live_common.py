@@ -3,10 +3,13 @@
 
 import json
 import math
+import sys
 import traceback
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from mclab import run_digest
 from mclab.bridge import Bridge
 from mclab.paths import ROOT
 
@@ -16,9 +19,41 @@ IGNORED = {
 }  # fmt: skip
 
 
+_FOLDERS: list[Path] = []  # this process's run folders, for digest_on_exit
+
+
 def results_folder() -> Path:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-    return ROOT / "results/companion" / stamp
+    folder = ROOT / "results/companion" / stamp
+    _FOLDERS.append(folder)
+    return folder
+
+
+@contextmanager
+def digest_on_exit():
+    """Write <run>/digest.json for every run folder this process opened, however
+    the run ends (pass, fail, crash, Ctrl-C). Outside launch_record, so the digest
+    sees the final launch_status.json. A Ctrl-C skips the event-log pass (it takes
+    up to a minute); `mclab runs backfill` fills it in later."""
+    interrupted = False
+    try:
+        yield
+    except KeyboardInterrupt:
+        interrupted = True
+        raise
+    finally:
+        for folder in _FOLDERS:
+            if not folder.is_dir():
+                continue
+            try:
+                value = run_digest.write(folder, deep=not interrupted, ended=True)
+                print(
+                    f"digest: {folder / run_digest.NAME} ({value['outcome']}, "
+                    f"key {value['build_key']})",
+                    flush=True,
+                )
+            except Exception as error:  # noqa: BLE001 - a digest must not mask the run's own result
+                print(f"digest failed for {folder}: {error!r}", file=sys.stderr, flush=True)
 
 
 def open_bridge(folder: Path) -> Bridge:

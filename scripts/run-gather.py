@@ -12,7 +12,7 @@ import argparse
 import json
 import sys
 
-from live_common import finish, kit, record_crash, results_folder
+from live_common import digest_on_exit, finish, kit, record_crash, results_folder
 
 from mclab.companion_body import (
     companion_world,
@@ -75,7 +75,7 @@ def main() -> int:
         "--raw-iron", type=int, metavar="N", help="mine N raw iron, no smelting"
     )
     args, config = parse_run(parser, "gather")
-    with launch_record(config):
+    with digest_on_exit(), launch_record(config):
         result = run(args, config)
         record_outcome(result)
         return result

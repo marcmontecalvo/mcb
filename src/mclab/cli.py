@@ -141,9 +141,14 @@ def main() -> int:
         from mclab.run_launch import main as launch_main
 
         return launch_main(sys.argv[2:])
+    if sys.argv[1:2] == ["runs"]:
+        from mclab.run_history import main as runs_main
+
+        return runs_main(sys.argv[2:])
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("run", help="launch a shared run config (run --help)")
+    sub.add_parser("runs", help="build/gather attempts per build key (runs --help)")
     sub.add_parser("companion-service", help="run the in-game /mcb command listener")
     sub.add_parser("bootstrap")
     sub.add_parser("doctor")
