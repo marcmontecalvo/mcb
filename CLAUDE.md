@@ -27,8 +27,10 @@
 
 ## Working rules carried forward
 
-- Commands run from the repo root in PowerShell, using the `rtk proxy uv run --locked ...`
-  forms shown in the docs.
+- Commands run from the repo root in PowerShell as `uv run --locked ...`. Don't type `rtk proxy`:
+  the Claude Code rtk hook already filters output, and `rtk proxy` disables that filtering.
+  Tests: `rtk test uv run --locked pytest -q <path>` (failures + summary only). Lint:
+  `rtk err uv run --locked ruff check <path>`. Use raw output only when a filter hid something.
 - Unknown cells are never treated as support or air by the **motor**. (The planner may
   plan through unknown space at a penalty; see the direction document, D3.)
 - Git is the record of how the code was. `results/` is working data, not an archive:

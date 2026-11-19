@@ -176,12 +176,12 @@ existing work and do not reconfigure shared inference providers.
 Useful commands, after checking that no other runner owns the arena:
 
 ```powershell
-rtk proxy uv run --locked python -m mclab.cli server status
-rtk proxy uv run --locked ruff check src tests scripts
-rtk proxy uv run --locked pytest -q
-rtk proxy uv run --locked python scripts/check-hill-navigation.py --kind mixed --variants 10 --background-planning
-rtk proxy uv run --locked python scripts/check-hill-navigation.py --kind prefetch --variants 10 --background-planning
-rtk proxy uv run --locked python scripts/summarize-navigation-performance.py results/hills/<timestamp>/summary.json
+uv run --locked python -m mclab.cli server status
+uv run --locked ruff check src tests scripts
+uv run --locked pytest -q
+uv run --locked python scripts/check-hill-navigation.py --kind mixed --variants 10 --background-planning
+uv run --locked python scripts/check-hill-navigation.py --kind prefetch --variants 10 --background-planning
+uv run --locked python scripts/summarize-navigation-performance.py results/hills/<timestamp>/summary.json
 ```
 
 Use `--terrain-encoding cells` for a transport comparison; default is

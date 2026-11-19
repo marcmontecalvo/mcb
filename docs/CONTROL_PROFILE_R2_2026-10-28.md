@@ -63,7 +63,7 @@ the manual runs above used `runtime/routes-cli-R2.json`. From the repo root:
 
 ```powershell
 $profileDirectory = 'docs/evidence/2026-10-28-phase0'
-rtk proxy uv run --locked python -m mclab.cli natural run --seed 1337 --routes runtime/routes-cli-R2.json --entrant segmented_goal --condition calm --repetitions 1 --view-distance 4 --awareness-profile "$profileDirectory/awareness-chunk-64.json" --movement-profile "$profileDirectory/movement-passing-families.json" --terrain-profile "$profileDirectory/terrain-passing-families.json" --control-profile lockstep-three-tick-v1
+uv run --locked python -m mclab.cli natural run --seed 1337 --routes runtime/routes-cli-R2.json --entrant segmented_goal --condition calm --repetitions 1 --view-distance 4 --awareness-profile "$profileDirectory/awareness-chunk-64.json" --movement-profile "$profileDirectory/movement-passing-families.json" --terrain-profile "$profileDirectory/terrain-passing-families.json" --control-profile lockstep-three-tick-v1
 ```
 
 For the other control profile, change only the last value to `dev-pipelined-v1`.

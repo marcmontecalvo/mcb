@@ -30,11 +30,11 @@ not change block interaction reach, movement physics, or control expiry.
 Commands run from the repository in PowerShell:
 
 ```powershell
-rtk proxy uv run --locked mclab awareness show --preset legacy
-rtk proxy uv run --locked mclab awareness show --preset visible --horizontal-radius-blocks 24 --vertical-radius-blocks 12 --output runtime/visible-24.json
-rtk proxy uv run --locked mclab awareness show --preset chunk --output runtime/chunk-32.json
-rtk proxy uv run --locked mclab awareness status
-rtk proxy uv run --locked mclab awareness check
+uv run --locked mclab awareness show --preset legacy
+uv run --locked mclab awareness show --preset visible --horizontal-radius-blocks 24 --vertical-radius-blocks 12 --output runtime/visible-24.json
+uv run --locked mclab awareness show --preset chunk --output runtime/chunk-32.json
+uv run --locked mclab awareness status
+uv run --locked mclab awareness check
 ```
 
 `show` resolves and validates configuration without changing the server. An
@@ -63,7 +63,7 @@ or unknown fields are rejected before admitting a natural run.
 ## Use in a natural-terrain run
 
 ```powershell
-rtk proxy uv run --locked mclab natural run --seed 1337 --routes results/natural/routes-1337.json --entrant v8_goal --condition calm --awareness-profile runtime/chunk-32.json
+uv run --locked mclab natural run --seed 1337 --routes results/natural/routes-1337.json --entrant v8_goal --condition calm --awareness-profile runtime/chunk-32.json
 ```
 
 This command restores the selected existing natural-world snapshot between

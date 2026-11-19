@@ -33,10 +33,10 @@ interaction, stopping and troubleshooting. The daily entry points are:
 
 ```powershell
 # If stopped, start Minecraft; wait for status to report running.
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server start
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server status
+powershell -NoProfile -File scripts/mclab.ps1 server start
+powershell -NoProfile -File scripts/mclab.ps1 server status
 # Open/reuse the dashboard in another terminal.
-rtk proxy powershell -NoProfile -File scripts/lab-ui.ps1
+powershell -NoProfile -File scripts/lab-ui.ps1
 ```
 
 Dashboard: **http://127.0.0.1:8770/**. Minecraft Java 26.3:
@@ -54,13 +54,13 @@ the 84-block small house passes 4/4, and the 1,228-block large house is next.
 
 ```powershell
 # Gather from empty to an iron pickaxe on a natural seed
-rtk proxy uv run --locked python scripts/run-gather.py --start X Y Z --iron --seed 42424242
+uv run --locked python scripts/run-gather.py --start X Y Z --iron --seed 42424242
 # Build from empty (M5); omit --empty to kit the materials instead
-rtk proxy uv run --locked python scripts/run-build.py --start X Y Z --empty --seed 31415926 [--build FILE]
+uv run --locked python scripts/run-build.py --start X Y Z --empty --seed 31415926 [--build FILE]
 # Build only, from a checkpoint of an earlier run
-rtk proxy uv run --locked python scripts/run-build.py --resume results/companion/<run>/checkpoints/NNNN.json
+uv run --locked python scripts/run-build.py --resume results/companion/<run>/checkpoints/NNNN.json
 # Find a site with every needed material nearby
-rtk proxy uv run --locked python scripts/analysis/site_scan.py WORLD_DIR
+uv run --locked python scripts/analysis/site_scan.py WORLD_DIR
 ```
 
 Each run writes `results/companion/<run>/summary.json`; if the driver crashes, the
@@ -107,12 +107,12 @@ review and source-bound requalification before scored use.
 Run from this directory in PowerShell with Git and uv installed:
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/setup.ps1
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server start
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server status
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 course verify-bootstrap
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 report
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server stop
+powershell -NoProfile -File scripts/setup.ps1
+powershell -NoProfile -File scripts/mclab.ps1 server start
+powershell -NoProfile -File scripts/mclab.ps1 server status
+powershell -NoProfile -File scripts/mclab.ps1 course verify-bootstrap
+powershell -NoProfile -File scripts/mclab.ps1 report
+powershell -NoProfile -File scripts/mclab.ps1 server stop
 ```
 
 The initial start requires accepting Minecraft's EULA. After reading
@@ -136,7 +136,7 @@ startup; `server status` reports `running` only after a Minecraft protocol respo
 ## Local run launcher and results browser
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/lab-ui.ps1
+powershell -NoProfile -File scripts/lab-ui.ps1
 ```
 
 Build the React interface first (`cd ui`, `npm ci`, `npm run build`, then return to
@@ -160,11 +160,11 @@ preserved; startup rejects host/port drift. To change those fields, edit both fi
 with the lab stopped. No existing public server configuration is touched.
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server stop
+powershell -NoProfile -File scripts/mclab.ps1 server stop
 # Wait for server status to say stopped before replacing files.
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 course build --course C3 --seed 4
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 course verify-generated
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 server start
+powershell -NoProfile -File scripts/mclab.ps1 course build --course C3 --seed 4
+powershell -NoProfile -File scripts/mclab.ps1 course verify-generated
+powershell -NoProfile -File scripts/mclab.ps1 server start
 ```
 
 All C0–C5 functions are generated. Only the selected course occupies the active
@@ -187,11 +187,11 @@ cohort; repeated seeds alone do not establish distinct layouts.
 ## Builds and verification
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/build-mod.ps1
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 mod-install
-rtk proxy uv run --locked pytest -q
-rtk proxy uv run --locked ruff check src tests scripts
-rtk proxy uv run --locked ruff format --check src tests scripts
+powershell -NoProfile -File scripts/build-mod.ps1
+powershell -NoProfile -File scripts/mclab.ps1 mod-install
+uv run --locked pytest -q
+uv run --locked ruff check src tests scripts
+uv run --locked ruff format --check src tests scripts
 ```
 
 The preserved direct-scoring container wrapper under
@@ -237,9 +237,9 @@ pause simulation; the bounded transport detects event gaps and stale actions.
 ## Body qualification and human reference
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 body qualify
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 body protocol-check
-rtk proxy powershell -NoProfile -File scripts/mclab.ps1 body reference --player Osadar932 --seconds 60
+powershell -NoProfile -File scripts/mclab.ps1 body qualify
+powershell -NoProfile -File scripts/mclab.ps1 body protocol-check
+powershell -NoProfile -File scripts/mclab.ps1 body reference --player Osadar932 --seconds 60
 ```
 
 These are bounded development checks, not scored task episodes. Qualification
@@ -268,9 +268,9 @@ to reconnect and get ready before starting.
 Completed terrain references have separate, prepared G1 fixtures:
 
 ```powershell
-rtk proxy uv run --locked mclab body reference-plan --mechanic collision
-rtk proxy uv run --locked mclab body reference --player Osadar932 --seconds 30 --mechanic collision
-rtk proxy uv run --locked mclab body reference-fixture-check
+uv run --locked mclab body reference-plan --mechanic collision
+uv run --locked mclab body reference --player Osadar932 --seconds 30 --mechanic collision
+uv run --locked mclab body reference-fixture-check
 ```
 
 Named mechanics are `collision`, `step`, `ledge`, and `fall`. Review the plan and
@@ -291,7 +291,7 @@ it complements the recorded real-player comparisons.
 ## Reset foundation
 
 ```powershell
-rtk proxy uv run --locked mclab course reset-check --count 20
+uv run --locked mclab course reset-check --count 20
 ```
 
 Keep human players disconnected or outside the arena. This bounded G2 development
@@ -319,8 +319,8 @@ failures invalidate attempts without retrying potentially admitted commands.
 With the server reporting `running`, run one development batch at a time:
 
 ```powershell
-rtk proxy uv run --locked python -c "from mclab.navigation_runner import execute; r=execute('C2',list(range(5,25)),scored=True); print(r['status'],r['successes'],r['attempted_episodes'],r['recording'])"
-rtk proxy uv run --locked python -m mclab.navigationproof --help
+uv run --locked python -c "from mclab.navigation_runner import execute; r=execute('C2',list(range(5,25)),scored=True); print(r['status'],r['successes'],r['attempted_episodes'],r['recording'])"
+uv run --locked python -m mclab.navigationproof --help
 ```
 
 Use C2, C3, C4 or C5. Seeds 5–24 are the paired development set, not holdouts.
@@ -335,10 +335,10 @@ No audit command changes the gate ledger automatically.
 ## C1 execution and later experiments
 
 ```powershell
-rtk proxy uv run --locked mclab course episode-check
-rtk proxy uv run --locked mclab course execution-check --count 10
-rtk proxy uv run --locked mclab models probe
-rtk proxy uv run --locked mclab experiments plan --output results/experiments/development_plan_navigation_v2.json
+uv run --locked mclab course episode-check
+uv run --locked mclab course execution-check --count 10
+uv run --locked mclab models probe
+uv run --locked mclab experiments plan --output results/experiments/development_plan_navigation_v2.json
 ```
 
 `episode-check` deliberately attempts forbidden actions, planted items, altered
@@ -363,7 +363,7 @@ Atom is configured as the first private-LAN chat route. Its bearer token belongs
 in the Git-ignored `.env` as `ATOM_API_KEY` (see `.env.example`). Load it explicitly:
 
 ```powershell
-rtk proxy uv run --env-file .env --locked mclab models probe
+uv run --env-file .env --locked mclab models probe
 ```
 
 The configured private address was resolved from `atom`; recheck discovery before
@@ -380,7 +380,7 @@ Live local tactical integration is available as a separately recorded developmen
 experiment:
 
 ```powershell
-rtk proxy uv run --env-file .env --locked mclab models live-smoke --backend atom-qwen-chat --count 1 --request-limit 40
+uv run --env-file .env --locked mclab models live-smoke --backend atom-qwen-chat --count 1 --request-limit 40
 ```
 
 The final compact-JSON configuration completed three consecutive C1 seed0 runs;
@@ -440,7 +440,7 @@ and tandem gameplay remain unqualified. Preserve the earlier frozen plan and
 reproduce the development inventory with:
 
 ```powershell
-rtk proxy uv run --locked mclab experiments plan --output results/experiments/development_plan_navigation_v2.json
+uv run --locked mclab experiments plan --output results/experiments/development_plan_navigation_v2.json
 ```
 
 The reference recorder reads the actual latest client button state received by
@@ -479,9 +479,9 @@ and source-bound C1 readiness checks:
 
 ```powershell
 # Single model, retaining the existing motor/action profile.
-rtk proxy uv run --env-file .env --locked mclab models live-smoke --backend TACTICAL_BACKEND --count 1 --request-limit 30
+uv run --env-file .env --locked mclab models live-smoke --backend TACTICAL_BACKEND --count 1 --request-limit 30
 # Optional second model, with independently bounded requests.
-rtk proxy uv run --env-file .env --locked mclab models live-smoke --backend TACTICAL_BACKEND --planner-backend PLANNER_BACKEND --planner-profile results/experiments/c1_planner_profile.json --planner-request-limit 4 --count 1 --request-limit 30
+uv run --env-file .env --locked mclab models live-smoke --backend TACTICAL_BACKEND --planner-backend PLANNER_BACKEND --planner-profile results/experiments/c1_planner_profile.json --planner-request-limit 4 --count 1 --request-limit 30
 ```
 
 The two asynchronous lanes have separate backend instances, deadlines and budgets;

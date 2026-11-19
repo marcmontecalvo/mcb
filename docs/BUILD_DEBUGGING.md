@@ -12,7 +12,7 @@ Interrupting the script also unwinds its normal cleanup.
 For an existing failed run, use its saved checkpoint to skip gathering:
 
 ```powershell
-rtk proxy uv run --locked python scripts/run-build.py --resume results/companion/<run>/checkpoints/final.json --stage --preview
+uv run --locked python scripts/run-build.py --resume results/companion/<run>/checkpoints/final.json --stage --preview
 ```
 
 `--stage` restores the attempt and waits for `STOP` without running construction.
@@ -57,7 +57,7 @@ low spots, holes and water at or below it are filled with dirt until a solid col
 supports it (at most 8 deep). Edits go through the normal body actions.
 
 ```
-rtk proxy uv run --locked python scripts/run-build.py --build <build.json> --margin 2 ...
+uv run --locked python scripts/run-build.py --build <build.json> --margin 2 ...
 ```
 
 `build_job(..., site_margin=N)` takes the same value (`None` skips preparation).
@@ -77,7 +77,7 @@ than immediately retried with the old preferred route.
 
 Shallow water with solid support and dry headroom uses the actual feet height
 and does not enable swimming. Deeper water may use swimming and a surface start.
-Run `rtk proxy uv run --locked python scripts/check-companion-wading.py` on the
+Run `uv run --locked python scripts/check-companion-wading.py` on the
 idle lab for the unscored natural-pond wading and bank-exit regression. Its
 evidence goes under `results/wading`; normal cleanup restores the lab world.
 The separate `check-hill-navigation.py --kind water --variants 2 --swim
@@ -129,7 +129,7 @@ the world, and four approaches without a placement stop the sweep. Newly filled
 ground is included in stand-height selection and refreshed before route planning.
 Fill columns are strictly bottom-up: a refused lower cell cannot be capped by
 a successful placement above it. Otherwise the lower hole becomes inaccessible.
-Run `rtk proxy uv run --locked python scripts/check-site-fill.py` on the idle lab
+Run `uv run --locked python scripts/check-site-fill.py` on the idle lab
 to exercise this sweep in the original natural pond. Evidence is retained under
 `results/site-fill`, including failed attempts; cleanup restores the lab. This
 development fixture clears the volume above ground before filling, to isolate

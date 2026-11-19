@@ -1,7 +1,7 @@
 # ruff: noqa: E501
 """Live check: the kit op and every body action op inside a running natural_start session.
 
-Usage: rtk proxy uv run --locked python scripts/check-natural-ops.py [--start X Y Z]
+Usage: uv run --locked python scripts/check-natural-ops.py [--start X Y Z]
 (idle lab; start = a feet cell on open ground). A follow_route first, so a finished route must not block the ops.
 """
 

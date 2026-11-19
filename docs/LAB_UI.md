@@ -21,7 +21,7 @@ uv run --locked python -m mclab.dashboard
 The dashboard launcher remains available from the repository root:
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/lab-ui.ps1
+powershell -NoProfile -File scripts/lab-ui.ps1
 ```
 
 The launcher loads the ignored `.env` when present and opens
@@ -85,7 +85,7 @@ To restart an older dashboard that does not have the shutdown button, or replace
 an unresponsive dashboard, run:
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/lab-ui.ps1 -Restart
+powershell -NoProfile -File scripts/lab-ui.ps1 -Restart
 ```
 
 The restart option stops only the verified dashboard Python process listening on

@@ -2,7 +2,7 @@
 """Live gather run (companion track, M4 on the real body). Written, not yet run.
 
 Usage (lab server up, idle lab; start = a feet cell next to trees and stone):
-    rtk proxy uv run --locked python scripts/run-gather.py --start X Y Z [--iron]
+    uv run --locked python scripts/run-gather.py --start X Y Z [--iron]
 
 Kits an empty inventory, then targets a stone pickaxe and (with --iron) an iron pickaxe,
 through companion_body.CompanionBody + gather_runner.run_gather. Results folder: results/companion/<stamp>/.

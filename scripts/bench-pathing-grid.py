@@ -3,7 +3,7 @@
 Synthetic rolling terrain, sent as native-sized samples (8192 cells). Reports
 admission ms per sample, retained cells, section memory and persistence backlog.
 
-    rtk proxy uv run --locked python scripts/bench-pathing-grid.py [--memory-module P]
+    uv run --locked python scripts/bench-pathing-grid.py [--memory-module P]
 
 `--memory-module` loads another spatial_memory.py (e.g. the pre-grid version from
 git) for comparison; it must expose the same SpatialMemory constructor.

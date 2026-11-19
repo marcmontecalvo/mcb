@@ -38,7 +38,7 @@
     "Qualified navigation motor needs jumping/elevation support",
     "No G5 trial or holdout performed"
   ],
-  "reproduction": "rtk proxy uv run --locked mclab experiments plan --output results/experiments/development_plan_navigation_v2.json",
+  "reproduction": "uv run --locked mclab experiments plan --output results/experiments/development_plan_navigation_v2.json",
   "review": "Independent Python reviewer verified25distinct physical geometries eachC3/C4/C5, preservedC0/C1/C2 outputs, supportedbounds andnoaliasmutation",
   "schema_version": 1,
   "status": "generator_preparation_not_qualified"

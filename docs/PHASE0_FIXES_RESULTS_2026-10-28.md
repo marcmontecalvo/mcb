@@ -158,7 +158,7 @@ earlier today.
 
 ```powershell
 $d='docs/evidence/2026-10-28-phase0'
-rtk proxy uv run --locked python scripts/bench-pathing-grid.py [--trace-memory]
-rtk proxy uv run --locked python -m mclab.cli natural run --seed 1337 --routes results/natural/routes-1337.json --entrant segmented_goal --condition calm --repetitions 1 --view-distance 4 --awareness-profile $d/awareness-chunk-64.json --movement-profile $d/movement-passing-families.json --terrain-profile $d/terrain-passing-families.json --control-profile dev-pipelined-v1
-rtk proxy uv run --locked python scripts/check-hill-navigation.py --kind prefetch --variants 10 --background-planning --diagonals --sprint --collision-shapes --max-drop 3 --max-gap 2 --control-profile dev-pipelined-v1
+uv run --locked python scripts/bench-pathing-grid.py [--trace-memory]
+uv run --locked python -m mclab.cli natural run --seed 1337 --routes results/natural/routes-1337.json --entrant segmented_goal --condition calm --repetitions 1 --view-distance 4 --awareness-profile $d/awareness-chunk-64.json --movement-profile $d/movement-passing-families.json --terrain-profile $d/terrain-passing-families.json --control-profile dev-pipelined-v1
+uv run --locked python scripts/check-hill-navigation.py --kind prefetch --variants 10 --background-planning --diagonals --sprint --collision-shapes --max-drop 3 --max-gap 2 --control-profile dev-pipelined-v1
 ```
