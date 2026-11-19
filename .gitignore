@@ -9,3 +9,7 @@ results/
 **/build/
 .env
 /build_inspect.log
+.coverage
+/prune-apply.log*
+.claude/worktrees/
+.claude/settings.local.json

@@ -25,6 +25,8 @@ For script ownership and cleanup candidates, see
 | [RUN_CONFIG.md](RUN_CONFIG.md) | Shared typed configuration for all seven launch families, canonical fields, resolution, provenance, CLI/dashboard behavior, and verification limits |
 | [PHASE1_SETTINGS_INVENTORY.md](PHASE1_SETTINGS_INVENTORY.md) | Phase 1 field/consumer inventory, bridge payloads, and prompt construction references |
 | [LAB_UI.md](LAB_UI.md) | Current React UI, catalog/forms, queue/SSE, lifecycle and security behavior; legacy page and evidence are retained below |
+| [LAB_OPERATIONS.md](LAB_OPERATIONS.md) | Agent lab operation: keep-world `--inspect`, action catalog and durations, Q0–Q4 qualifier ladder and path map, waiting/watching, launch records |
+| [DATA_RETENTION.md](DATA_RETENTION.md) | What `mclab.prune` keeps and deletes, the automatic prune at session end, opt-outs, and the 2026-11-19 cleanup numbers |
 | [ui/README.md](../ui/README.md) | Frontend build/test commands, package provenance, static serving and component extension guide |
 | [BRIDGE_PROTOCOL.md](BRIDGE_PROTOCOL.md) | Body/lab protocol and terrain delivery contract |
 | [BODY_ACTION_OPS.md](BODY_ACTION_OPS.md) | Native action operations, inputs, and constraints |
