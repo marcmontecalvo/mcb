@@ -1,7 +1,7 @@
 # ruff: noqa: E501
 """Live scaffolding obstacle course: the bot uses scaffolding the way a player does.
 
-A hole (11 x 3 x 4) with ground all round, a bot holding only scaffolding and tools,
+A hole (11 x 3 x 4) with ground all round, a bot holding scaffolding, dirt, and tools,
 and eight legs (0-7) in docs/SCAFFOLDING.md. Run: python scripts/check-companion-scaffold-course.py
 [--origin X Y Z] (the spawn feet cell of a flat, empty lab spot; default 990 80 988).
 Every touched cell is restored afterwards."""
@@ -30,6 +30,7 @@ from mclab.run_launch import script_run
 from mclab.schematic import parse_state
 
 AIR = ("minecraft:air", "minecraft:cave_air", "minecraft:void_air")
+DIRT = "minecraft:dirt"
 START = 64
 KIT_BATCH = 60  # the lab's place cap is 64 blocks per kit
 STONE = "minecraft:stone"
@@ -231,11 +232,12 @@ class Course:
         body.observe()
         left = [p for p in scaffolds if block(body, p) == sc.SCAFFOLDING]
         held = body.inventory().get(sc.SCAFFOLDING, 0)
+        dirt_held = body.inventory().get(DIRT, 0)
         # No tolerance: every block dropped to an item and the body can walk to all of them
         # (the hole's stairs). A shortfall means items despawned or were left, a real failure.
         return {
-            "passed": down and not left and held == START and len(report.broken) <= 6,
-            "left": [list(p) for p in left], "held": held, "start": START,
+            "passed": down and not left and held == START and dirt_held == START and len(report.broken) <= 6,
+            "left": [list(p) for p in left], "held": held, "dirt_held": dirt_held, "start": START,
             "base_breaks": len(report.broken), "placed_cells": len(scaffolds),
         }
 
@@ -273,6 +275,7 @@ def main_inner(folder, origin, summary):
         put(bridge, body, leg0_cells)
         kit(bridge, inventory=[
             {"item": sc.SCAFFOLDING, "count": START},
+            {"item": DIRT, "count": START},
             {"item": "minecraft:iron_pickaxe", "count": 1},
             {"item": "minecraft:iron_axe", "count": 1},
             {"item": "minecraft:iron_shovel", "count": 1},
@@ -281,7 +284,7 @@ def main_inner(folder, origin, summary):
         body.temporary_ok = temporary_blocks.eligible(load_vanilla_pack())
         body.terrain_policy = replace(
             body.terrain_policy, allow_place=True, allow_bridge=True, allow_pillar=True,
-            place_budget=64, material_allowlist=(), scaffold_materials=(sc.SCAFFOLDING,),
+            place_budget=64, material_allowlist=(DIRT,), scaffold_materials=(sc.SCAFFOLDING,),
             protected_positions=tuple(
                 sorted({*body.terrain_policy.protected_positions, *sc.protected_air(o)})
             ),

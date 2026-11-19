@@ -378,3 +378,25 @@ def test_scaffolding_is_a_separate_supply_and_a_scaffold_plan_cell():
          "places": [[0, 1, 0]], "scaffold": [[0, 1, 0]], "kind": "pillar"}
     )
     assert plan.scaffold == ((0, 1, 0),)
+
+
+def test_predicted_cells_marks_scaffold_cells_as_scaffolding():
+    from mclab.body_search import predicted_cells
+    from mclab.pathing_grid import PathingGrid
+    from mclab.terrain_steps import StepPlan
+
+    step = StepPlan(
+        (0, 1, 0),
+        (1, 2, 0),
+        places=((1, 0, 0), (1, 1, 0)),
+        kind="step",
+        scaffold=((1, 1, 0),),
+    )
+    cells = predicted_cells({}, [step])
+    assert cells[(1, 0, 0)]["block"] == "minecraft:cobblestone"
+    assert cells[(1, 1, 0)]["block"] == "minecraft:scaffolding"
+    assert cells[(1, 1, 0)]["collision_boxes"] == []
+    grid = PathingGrid()
+    grid_cells = predicted_cells(grid.snapshot(), [step])
+    assert grid_cells[(1, 0, 0)]["block"] == "minecraft:cobblestone"
+    assert grid_cells[(1, 1, 0)]["block"] == "minecraft:scaffolding"

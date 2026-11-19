@@ -77,16 +77,24 @@ _SOLID = {
     "fluid": "minecraft:empty",
     "collision_boxes": [[0, 0, 0, 1, 1, 1]],
 }
+_SCAFFOLD = {
+    "block": "minecraft:scaffolding",
+    "fluid": "minecraft:empty",
+    "collision_boxes": [],
+}
 
 
 def predicted_cells(cells, steps):
-    """``cells`` with the steps' breaks made air and their places made solid.
+    """``cells`` with steps' breaks made air and places made solid or scaffolding.
 
     A GridView stays one: only the touched sections are copied, so the map encoder
     resends just those and the next real snapshot restores the true cells. Other
     maps become a layered lookup (read-only, like the original)."""
     edits = [(p, _AIR) for s in steps for p in s.breaks]
-    edits += [(p, _SOLID) for s in steps for p in s.places]
+    for s in steps:
+        scaffolds = set(getattr(s, "scaffold", ()))
+        for p in s.places:
+            edits.append((p, _SCAFFOLD if p in scaffolds else _SOLID))
     if not isinstance(cells, GridView):
         return ChainMap({tuple(p): dict(f) for p, f in edits}, cells)
     grid, sections, copied = cells.grid, dict(cells.sections), set()

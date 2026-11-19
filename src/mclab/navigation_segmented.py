@@ -703,11 +703,18 @@ class SegmentedController(NavigationController):
                 break
             if plan.kind == "pillar" and plan.exit is None:
                 # Planner pillars omit the exit; the body and PillarExecutor need it.
-                # A pillar that ends the route (a tower's top block) stays where it
-                # rose to (scaffold course run 20261118T010842289714Z).
+                # A pillar that ends the route (a tower's top block) or precedes a
+                # non-pillar edit (e.g. a bridge off the top) stays on its own target
+                # so StepMotor does not wait for an unplaced exit ledge.
                 after = index + 2 < len(self.route)
+                nxt = tuple(self.route[index + 2]) if after else None
+                next_edit = (
+                    nxt is not None
+                    and (plan.target, nxt) in self.route_steps
+                    and self.route_steps[(plan.target, nxt)].kind != "pillar"
+                )
                 plan = replace(
-                    plan, exit=tuple(self.route[index + 2] if after else plan.target)
+                    plan, exit=plan.target if not after or next_edit else nxt
                 )
             queue.append(plan)
         plan = queue[0]

@@ -55,7 +55,7 @@ from mclab.collision_geometry import standable
 from mclab.control_loop import NATIVE, drive
 from mclab.execution import RecordedBridge, policy_state
 from mclab.gather_tasks import item_stack
-from mclab.interaction_goal import interacts
+from mclab.interaction_goal import _segment_hits_box, interacts
 from mclab.memory_policy import MemoryPolicy
 from mclab.movement_policy import HURT_DROP_MAX, MovementPolicy
 from mclab.navigation_runner import _new_identity
@@ -213,6 +213,24 @@ def _tower_top(cells, node: Pos) -> bool:
     )
 
 
+def _scaffold_stance(cells, node: Pos) -> bool:
+    """Top of a scaffolding column, or a climbed standable cell inside one."""
+    if _tower_top(cells, node):
+        return True
+    cell = cells.get(node)
+    return bool(
+        cell and cell.get("block") == "minecraft:scaffolding" and standable(cells, node)
+    )
+
+
+def _clean_feet(cells, node: Pos) -> bool:
+    """True when the feet cell holds no non-scaffolding collision box."""
+    cell = cells.get(node)
+    if not cell or cell.get("block") == "minecraft:scaffolding":
+        return True
+    return not cell.get("collision_boxes")
+
+
 # neighbour direction -> is the eye of a body at stance cell `node` (1.62 above its feet)
 # on the target side of that neighbour's face toward `target`
 _FACE_SEEN = {
@@ -227,6 +245,53 @@ _FACE_SEEN = {
 
 EYE_HEIGHT = 1.62
 FACE_SAMPLES = ((0, 0), (0.4, 0.4), (-0.4, 0.4), (0.4, -0.4), (-0.4, -0.4))
+_HIT_SAMPLES = ((0, 0), (0.25, 0.25), (-0.25, 0.25), (0.25, -0.25), (-0.25, -0.25))
+
+
+def _reaches_scaffold_column(cells, node: Pos, target: Pos, reach: float) -> bool:
+    """True when every eye offset around ``node`` reaches a side face of a scaffolding
+    block below ``target`` (vanilla ScaffoldingBlockItem extends columns upward with no
+    vertical cap on a side click)."""
+    tx, ty, tz = target
+    if (node[0], node[2]) == (tx, tz):
+        return False
+    col: list[Pos] = []
+    cy = ty - 1
+    while (cells.get((tx, cy, tz)) or {}).get("block") == "minecraft:scaffolding":
+        col.append((tx, cy, tz))
+        cy -= 1
+    if not col:
+        return False
+    eyes = [
+        (node[0] + 0.5 + dx, node[1] + EYE_HEIGHT, node[2] + 0.5 + dz)
+        for dx, dz in ((0, 0), (0.2, 0.2), (-0.2, 0.2), (0.2, -0.2), (-0.2, -0.2))
+    ]
+    sides = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1))
+    for eye in eyes:
+        hit = False
+        for c in col:
+            for d in sides:
+                if (node[0] - c[0]) * d[0] + (node[2] - c[2]) * d[2] <= 0:
+                    continue
+                axis = 0 if d[0] else 2
+                other = 2 if axis == 0 else 0
+                for u, v in _HIT_SAMPLES:
+                    point = [c[0] + 0.5, c[1] + 0.5, c[2] + 0.5]
+                    point[axis] += d[axis] * 0.5
+                    point[other] += u
+                    point[1] += v
+                    if math.dist(eye, point) <= reach and _ray_clear(
+                        cells, eye, point, c
+                    ):
+                        hit = True
+                        break
+                if hit:
+                    break
+            if hit:
+                break
+        if not hit:
+            return False
+    return True
 
 
 def _face_visible(cells, eye, block: Pos, d) -> bool:
@@ -250,7 +315,8 @@ def _ray_clear(cells, eye, point, block: Pos) -> bool:
     """Every cell the segment eye->point passes through, exactly (grid traversal, as the
     game's clip does), is clear except ``block``. Sampling the segment let a diagonal
     ray slip between two walls meeting at an edge."""
-    cell = [math.floor(v) for v in eye]
+    eye_cell = tuple(math.floor(v) for v in eye)
+    cell = list(eye_cell)
     end = tuple(math.floor(v) for v in point)
     d = [point[i] - eye[i] for i in range(3)]
     step = [1 if v > 0 else -1 for v in d]
@@ -267,7 +333,18 @@ def _ray_clear(cells, eye, point, block: Pos) -> bool:
         c = tuple(cell)
         if c == end or c == block:
             return True
-        if c != tuple(math.floor(v) for v in eye) and _clickable(cells.get(c)):
+        if c == eye_cell:
+            ec = cells.get(c)
+            if (
+                ec is not None
+                and ec.get("block") == "minecraft:scaffolding"
+                and any(
+                    _segment_hits_box(eye, point, c, box)
+                    for box in (ec.get("collision_boxes") or ())
+                )
+            ):
+                return False
+        elif _clickable(cells.get(c)):
             return False
         i = t_max.index(min(t_max))
         if t_max[i] > 1:
@@ -278,7 +355,12 @@ def _ray_clear(cells, eye, point, block: Pos) -> bool:
 
 
 def sees_support(
-    cells, node: Pos, target: Pos, required: Pos | Collection[Pos] | None = None
+    cells,
+    node: Pos,
+    target: Pos,
+    required: Pos | Collection[Pos] | None = None,
+    *,
+    scaffold: bool = True,
 ) -> bool:
     """Does some solid neighbour of `target` have its face toward `target` turned to
     the eye of a body standing at `node`? Live run: the second plank of a pair was
@@ -312,7 +394,7 @@ def sees_support(
         ):
             return True
         # a column of scaffolding is extended by clicking its side, from anywhere beside it
-        if d == (0, -1, 0) and cell and cell.get("block") == "minecraft:scaffolding":
+        if scaffold and d == (0, -1, 0) and cell and cell.get("block") == "minecraft:scaffolding":
             return True
     return False
 
@@ -590,6 +672,7 @@ class CompanionBody:
         self.build_cells: dict[Pos, str] = {}  # the template's non-air cells (see protect)
         # set per placement by build_runner: the one face the block hangs on
         self.required_support: Pos | None = None
+        self.placing_scaffold: bool = False
         self._obs: dict = {}
         self._inv: dict[str, int] = {}
         self._rows: list[dict] = []  # the per-slot rows behind _inv
@@ -1677,22 +1760,48 @@ class CompanionBody:
         tx, ty, tz = target
         r = math.ceil(reach)
         placing = self._placing(target)
+        col_low = ty
+        if (
+            placing
+            and self.placing_scaffold
+            and (cells.get((tx, ty - 1, tz)) or {}).get("block")
+            == "minecraft:scaffolding"
+        ):
+            while (cells.get((tx, col_low - 1, tz)) or {}).get(
+                "block"
+            ) == "minecraft:scaffolding":
+                col_low -= 1
+        min_dy = min(-r, col_low - ty - r)
         found = [
             node
             for node in (
                 (tx + dx, ty + dy, tz + dz)
                 for dx in range(-r, r + 1)
                 for dz in range(-r, r + 1)
-                for dy in range(-r, 2)
+                for dy in range(min_dy, 2)
             )
             if node not in avoid
             # never inside the target: the feet cell, or the one below (head in it);
             # live run: scaffolding has no collision, so the body stood in the tower
             and node not in ((tx, ty, tz), (tx, ty - 1, tz))
             and (standable(cells, node) or _tower_top(cells, node))
-            and interacts(cells, node, target, reach)
             and (
-                not placing or sees_support(cells, node, target, self.required_support)
+                interacts(cells, node, target, reach)
+                or (
+                    placing
+                    and self.placing_scaffold
+                    and _reaches_scaffold_column(cells, node, target, reach)
+                )
+            )
+            and (
+                not placing
+                or sees_support(
+                    cells,
+                    node,
+                    target,
+                    self.required_support,
+                    scaffold=self.placing_scaffold,
+                )
             )
         ]
         # ponytail: stances the body can walk to come first. Sorted by distance
@@ -1700,7 +1809,10 @@ class CompanionBody:
         # away; each cost a failed 4000-node plan (run 20261110T095528994372Z: 284
         # unreachable probes, a dirt tower per wall). Upgrade path: plan cost.
         walk = self._walkable(cells, here) if found else ()
-        return sorted(found, key=lambda n: (n not in walk, math.dist(n, here), n))
+        return sorted(
+            found,
+            key=lambda n: (n not in walk, not _clean_feet(cells, n), math.dist(n, here), n),
+        )
 
     def _walkable(self, cells, here: Pos) -> set[Pos]:
         """Cells reachable from ``here`` on foot with no edits: 4 directions, one
@@ -1772,9 +1884,17 @@ class CompanionBody:
         """Check the current placement stance before an optimistic direct action."""
         cells, here = self._cells_now(), self.position()
         return (
-            interacts(cells, here, target, reach)
+            (
+                interacts(cells, here, target, reach)
+                or (
+                    self.placing_scaffold
+                    and _reaches_scaffold_column(cells, here, target, reach)
+                )
+            )
             and not self._overlaps(target)
-            and sees_support(cells, here, target, required)
+            and sees_support(
+                cells, here, target, required, scaffold=self.placing_scaffold
+            )
         )
 
     @_fresh_idle
@@ -1790,40 +1910,56 @@ class CompanionBody:
         # block cannot be placed into a cell the body overlaps, and the 0.6 arrival
         # radius lets it stand 0.4 into a neighbour (live run: 21 state_unreachable).
         crowded = self.precise_stance and self._overlaps(target)
-        sees = not self._placing(target) or sees_support(
-            cells, here, target, self.required_support
+        placing = self._placing(target)
+        sees = not placing or sees_support(
+            cells,
+            here,
+            target,
+            self.required_support,
+            scaffold=self.placing_scaffold,
         )
-        if (
-            here not in avoid
-            and interacts(cells, here, target, reach)
-            and not crowded
-            and sees
-        ):
+        reach_ok = interacts(cells, here, target, reach) or (
+            placing
+            and self.placing_scaffold
+            and _reaches_scaffold_column(cells, here, target, reach)
+        )
+        if here not in avoid and reach_ok and not crowded and sees:
             return True
         # Known stances first, walked with the body planner; the interaction-goal
         # search only for a target whose stance is not yet on the map.
         stances = self.stances(target, reach, avoid)
+        probe_budget_s = None
         if getattr(self, "walk_only", False):
             # ponytail: with planner placing off an unwalkable stance cannot be
             # reached, and each probe of one floods the search to its cap (2043 of
-            # 3350 plans in run 20261110T150634125260Z). One is kept in case the
-            # walk flood missed a jump.
+            # 3350 plans in run 20261110T150634125260Z). When the walk flood finds
+            # nothing (e.g. across a drop/trapdoor), try up to MAX_CANDIDATES fast
+            # probes bounded by the WALK_ONLY_CANDIDATES * PROBE_WALL_S wall budget.
             # A scaffolding tower's top is climbed, not walked: the flood does not
             # see it, so the tower built for a target was never the stance tried and
             # the body stopped inside the column (run 20261110T223248667856Z).
             walk = self._walkable(cells, here)
-            stances = [
-                n for n in stances if n in walk or _tower_top(cells, n)
-            ] or stances[:1]
-            # each probe is up to PROBE_WALL_S of standing still
-            stances = stances[:WALK_ONLY_CANDIDATES]
+            matched = [
+                n for n in stances if n in walk or _scaffold_stance(cells, n)
+            ]
+            if matched:
+                stances = matched[:WALK_ONLY_CANDIDATES]
+            else:
+                stances = stances[:MAX_CANDIDATES]
+                probe_budget_s = WALK_ONLY_CANDIDATES * PROBE_WALL_S
         stances = stances[:MAX_CANDIDATES]
         radius = PRECISE_RADIUS if self.precise_stance else 0.6
         hopped = False
         # One no-progress clock for the whole stance loop: each probe resets the
         # drive's own timer, so 6 stances could burn 6 x 150 s on one goal.
         progress = {"distance": math.dist(here, target), "tick": None}
+        probe_started = time.monotonic()
         for node in stances:
+            if (
+                probe_budget_s is not None
+                and time.monotonic() - probe_started >= probe_budget_s
+            ):
+                break
             # Ask the planner before walking (roadmap item 1): a candidate across
             # known water is unroutable, and testing that by walking it costs the
             # 200-tick StuckGuard timer - 12 of those ended a job at 0 tasks

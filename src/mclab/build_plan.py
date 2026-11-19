@@ -458,7 +458,26 @@ def _gate(pos: Pos, state: str, world, blocks: dict) -> str | None:
     return None
 
 
-def _column_scaffold(x: int, z: int, top: int, world, blocks: dict, reserved):
+def _sturdy_up(state: str | None, blocks: dict) -> bool:
+    """True if scaffolding can stand on the top face of ``state``."""
+    if not _is_solid(state, blocks):
+        return False
+    ident, props = parse_state(state)
+    if ident == sc.BLOCK:
+        return True
+    facts = blocks.get(ident, {})
+    if facts.get("full_cube", True):
+        return True
+    if ident.endswith("_slab") and props.get("type") in ("top", "double"):
+        return True
+    if ident.endswith("_stairs") and props.get("half") == "top":
+        return True
+    return False
+
+
+def _column_scaffold(
+    x: int, z: int, top: int, world, blocks: dict, reserved, *, scaffolding: bool = True
+):
     """Lowest empty cell of the column up to ``top`` that rests on solid ground;
     None if the column up to ``top`` touches a reserved (template) cell (B3)."""
     cur = top
@@ -467,6 +486,8 @@ def _column_scaffold(x: int, z: int, top: int, world, blocks: dict, reserved):
         if cell is None:
             return None
         if _is_solid(cell, blocks):
+            if scaffolding and not _sturdy_up(cell, blocks):
+                return None
             low = cur + 1
             if low > top or any((x, y, z) in reserved for y in range(low, top + 1)):
                 return None
@@ -482,16 +503,25 @@ def _scaffold_pos(
     reserved=frozenset(),
     sideways: bool = False,
     level: bool = False,
+    scaffolding: bool = True,
 ) -> Pos | None:
     """Scaffold cell for pos: its own column, or (sideways, for a floating cell) a
     horizontal neighbour's column, never inside ``reserved`` template cells. ``level``:
     only a neighbour's column, built up to pos's own height."""
     x, y, z = pos
-    found = None if level else _column_scaffold(x, z, y - 1, world, blocks, reserved)
+    found = (
+        None
+        if level
+        else _column_scaffold(
+            x, z, y - 1, world, blocks, reserved, scaffolding=scaffolding
+        )
+    )
     if found or not sideways:
         return found
     for dx, _, dz in (_VEC[d] for d in _CW):
-        found = _column_scaffold(x + dx, z + dz, y, world, blocks, reserved)
+        found = _column_scaffold(
+            x + dx, z + dz, y, world, blocks, reserved, scaffolding=scaffolding
+        )
         if found:
             return found
     return None
@@ -503,33 +533,79 @@ def _scaffold_pos(
 MAX_TOWER = 16
 
 
-def _given_up(todo, skipped, blocks: dict) -> set:
-    """Skipped cells, and the cells that hang on them, transitively."""
+_AXIS_VEC = {"x": (1, 0, 0), "y": (0, 1, 0), "z": (0, 0, 1)}
+
+
+def _given_up(todo, skipped, blocks: dict, world=None) -> set:
+    """Skipped cells, and the cells that hang or depend on them, transitively."""
     dead = set(skipped or ())
+    todo_pos = {t[0] for t in todo}
     hangs = {}
+    axis_deps = {}
     for t in todo:
+        pos = t[0]
         ident, props = parse_state(t[1])
         kind = _support_kind(ident, props, blocks.get(ident, {}))
         if kind:
-            hangs[t[0]] = _support_cell(kind, props, t[0])
+            sup = _support_cell(kind, props, pos)
+            if sup is not None:
+                hangs[pos] = sup
+                continue
+        axis = props.get("axis")
+        if axis in _AXIS_VEC:
+            dx, dy, dz = _AXIS_VEC[axis]
+            axis_deps[pos] = (
+                (pos[0] - dx, pos[1] - dy, pos[2] - dz),
+                (pos[0] + dx, pos[1] + dy, pos[2] + dz),
+            )
+
+    def _anchored(n: Pos) -> bool:
+        if n in todo_pos or n in dead:
+            return False
+        return world is None or _is_solid(world(*n), blocks)
+
+    live: set[Pos] = set()
+    candidates = todo_pos - dead
     grew = True
     while grew:
         grew = False
-        for cell, support in hangs.items():
-            if cell not in dead and support in dead:
-                dead.add(cell)
+        for pos in candidates:
+            if pos in live:
+                continue
+            if pos in hangs:
+                sup = hangs[pos]
+                ok = sup in live or (sup not in todo_pos and sup not in dead)
+            elif pos in axis_deps:
+                ok = any(n in live or _anchored(n) for n in axis_deps[pos])
+            else:
+                ok = True
+            if ok:
+                live.add(pos)
                 grew = True
-    return dead
+    return dead | (candidates - live)
 
 
-def tower_cells(pos: Pos, world, blocks: dict, reserved=frozenset()) -> list[Pos]:
+def tower_cells(
+    pos: Pos,
+    world,
+    blocks: dict,
+    reserved=frozenset(),
+    *,
+    roof: bool = False,
+    scaffolding: bool = True,
+) -> list[Pos]:
     """Scaffolding column, bottom up, to stand on beside ``pos``: in a horizontal
     neighbour's column, from the ground to one below pos's height (the eye is then
     level with pos), headroom above it free. Template cells (``reserved``) are never
-    used; the margin and still-empty cells of the house are fine. [] if none fits."""
+    used; the margin and still-empty cells of the house are fine. With ``roof=True``,
+    when all four immediate neighbours are blocked (an interior ceiling cell), raises a
+    tower up to ``pos[1]`` in a nearby open column so the body can step onto roof level.
+    [] if none fits."""
     x, y, z = pos
     for dx, _, dz in (_VEC[d] for d in _CW):
-        low = _column_scaffold(x + dx, z + dz, y - 1, world, blocks, reserved)
+        low = _column_scaffold(
+            x + dx, z + dz, y - 1, world, blocks, reserved, scaffolding=scaffolding
+        )
         head = (x + dx, y, z + dz)
         if low is None or head in reserved or y - low[1] > MAX_TOWER:
             continue
@@ -537,8 +613,55 @@ def tower_cells(pos: Pos, world, blocks: dict, reserved=frozenset()) -> list[Pos
         states = [world(*c) for c in (*cells, head)]
         if any(s is None or parse_state(s)[0] in FLUIDS for s in states):
             continue
-        if not _is_solid(world(x + dx, low[1] - 1, z + dz), blocks) or _is_solid(
-            states[-1], blocks
+        base_state = world(x + dx, low[1] - 1, z + dz)
+        base_ok = (
+            _sturdy_up(base_state, blocks)
+            if scaffolding
+            else _is_solid(base_state, blocks)
+        )
+        if not base_ok or _is_solid(states[-1], blocks):
+            continue
+        return cells
+    if not roof:
+        return []
+    # Every immediate horizontal neighbour is reserved/blocked (e.g. an interior ceiling
+    # cell): raise a tower up to y in a nearby open column to reach roof level.
+    candidates = sorted(
+        (
+            (dx, dz)
+            for dx in range(-3, 4)
+            for dz in range(-3, 4)
+            if (dx or dz) and dx * dx + dz * dz <= 9
+        ),
+        key=lambda d: (abs(d[0]) + abs(d[1]), d[0] * d[0] + d[1] * d[1], d[0], d[1]),
+    )
+    for dx, dz in candidates:
+        nx, nz = x + dx, z + dz
+        low = _column_scaffold(
+            nx, nz, y, world, blocks, reserved, scaffolding=scaffolding
+        )
+        foot, head = (nx, y + 1, nz), (nx, y + 2, nz)
+        if (
+            low is None
+            or foot in reserved
+            or head in reserved
+            or y + 1 - low[1] > MAX_TOWER
+        ):
+            continue
+        cells = [(nx, h, nz) for h in range(low[1], y + 1)]
+        states = [world(*c) for c in (*cells, foot, head)]
+        if any(s is None or parse_state(s)[0] in FLUIDS for s in states):
+            continue
+        base_state = world(nx, low[1] - 1, nz)
+        base_ok = (
+            _sturdy_up(base_state, blocks)
+            if scaffolding
+            else _is_solid(base_state, blocks)
+        )
+        if (
+            not base_ok
+            or _is_solid(states[-2], blocks)
+            or _is_solid(states[-1], blocks)
         ):
             continue
         return cells
@@ -735,18 +858,30 @@ def next_actions(
             and template.cells.get(p, "minecraft:air") in AIR
         )
 
+    place_positions = {pos for pos, _ in d.places}
+    sealed_footholds = {
+        p
+        for p in d.breaks
+        if p in scaffolds
+        and (skipped is None or p not in skipped)
+        and parse_state(world(*p) or "")[0] != sc.BLOCK
+        and _is_solid(world(p[0], p[1] + 1, p[2]), blocks)
+        and (p[0], p[1] - 1, p[2]) in place_positions
+    }
     breaks = sorted(
         (
             p
             for p in d.breaks
-            if p not in scaffolds and (skipped is None or p not in skipped)
+            if (p not in scaffolds or p in sealed_footholds)
+            and (skipped is None or p not in skipped)
         ),
         key=lambda p: (is_canopy_leaf(p), p[1], far(p), p[0], p[2]),
     )
     if breaks and (near is None or any(_in_reach(p) for p in breaks)):
         return [Break(p) for p in breaks[:limit]]
-    if d.uses and not breaks:
-        uses = sorted(d.uses, key=lambda u: (u[0][1], far(u[0]), u[0][0], u[0][2]))
+    uses = [u for u in d.uses if skipped is None or u[0] not in skipped]
+    if uses and not breaks:
+        uses = sorted(uses, key=lambda u: (u[0][1], far(u[0]), u[0][0], u[0][2]))
         acts: list = []
         missing: dict[str, int] = {}
         for p, item in uses[:limit]:
@@ -825,7 +960,7 @@ def next_actions(
     # 20261118T070135016043Z left both doors off for five unplaceable cells. Nor
     # does one hanging from it (a lantern under a skipped chain, run
     # 20261118T094938114426Z): it can never go in either.
-    given_up = _given_up(todo, skipped, blocks)
+    given_up = _given_up(todo, skipped, blocks, world)
     others_left = any(not _is_door(t[1]) and t[0] not in given_up for t in todo)
     # Work from where the body stands: a cell above the lowest layer that is in reach
     # now and has nothing left to place under it in its own column is offered too, so
@@ -862,6 +997,8 @@ def next_actions(
     for pos, state, cost, (item, n) in () if starved else todo:
         if len(out) >= limit:
             break
+        if skipped is not None and pos in skipped:
+            continue
         if (
             lowest is not None
             and pos[1] > lowest
@@ -874,6 +1011,8 @@ def next_actions(
         if _is_door(state) and others_left:
             continue
         if held_back(state):
+            continue
+        if (pos[0], pos[1] + 1, pos[2]) in sealed_footholds:
             continue
         if (
             all(left.get(i, 0) >= c for i, c in cost.items())
@@ -889,9 +1028,12 @@ def next_actions(
         return out
 
     remaining = Counter()
-    for _, _, cost, _ in todo:
-        remaining.update(cost)
-    for _, state in d.places:
+    for pos, _, cost, _ in todo:
+        if pos not in given_up:
+            remaining.update(cost)
+    for pos, state in d.places:
+        if pos in given_up:
+            continue
         tool = TOOL_USES.get(parse_state(state)[0])
         if tool and not _held_tool(inventory, tool[1:]):
             remaining[f"minecraft:wooden_{tool[1:]}"] = 1
@@ -903,6 +1045,8 @@ def next_actions(
 
     pending = {t[0] for t in todo}
     for pos, state, _, _ in todo:
+        if pos in given_up:
+            continue
         reason = _gate(pos, state, world, blocks)
         if reason == "below" and _add(pos, _VEC["down"]) in pending:
             continue
@@ -911,7 +1055,7 @@ def next_actions(
             # so it is never added to the scaffolds that cleanup takes back.
             if inventory.get(FILL_ITEM, 0) <= remaining[FILL_ITEM]:
                 return [NeedMaterials({FILL_ITEM: 1})]
-            cell = _scaffold_pos(pos, world, blocks, reserved)
+            cell = _scaffold_pos(pos, world, blocks, reserved, scaffolding=False)
             if cell is None:
                 continue
             return [Scaffold(cell, FILL_ITEM)]
@@ -933,6 +1077,7 @@ def next_actions(
                 reserved,
                 reason == "floating",
                 level=item == sc.BLOCK and reason == "floating",
+                scaffolding=item == sc.BLOCK,
             )
             if cell is None:
                 continue

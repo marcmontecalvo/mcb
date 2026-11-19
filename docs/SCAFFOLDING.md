@@ -24,11 +24,14 @@ cobblestone, spare plain blocks; see `temporary_blocks.py`) are the fallback, ne
 ## What the code does (commit `3954dac`)
 
 - **Planner** (`RoutePlanner.scaffoldCells`): an edit's placed cells are scaffolding when the
-  body holds it, the cell's distance would be 6 or less, and it is not clicked onto scaffolding
-  (the redirect would put it elsewhere). The rest are solid. The edit carries
+  body holds it and the cell's distance would be 6 or less; an edit that would need a
+  non-pillar step-up from a scaffolding floor onto scaffolding-over-scaffolding is rejected.
+  The rest are solid, priced with `SOLID_PLACE = 200` so dirt/stone stays a last resort rather
+  than creating floating dirt floors or `[dirt, scaffolding]` stacks. The edit carries
   `scaffold: [x,y,z,distance]` for the motor.
-- **Step motor:** places scaffolding for those cells, takes a scaffolding floor as support, and
-  never sneaks while on scaffolding.
+- **Step motor:** places scaffolding for those cells, takes a scaffolding floor as support,
+  extends horizontal bridges off scaffolding with aligned plain clicks (`redirectAim`), stacks
+  pillars on scaffolding with sneaking clicks, and never sneaks while on scaffolding.
 - **Route motor:** holds sneak to go down inside a scaffolding column.
 - **Build runner:** towers are scaffolding first (`_tower`), and the standing towers are taken
   down and re-used for the next one (`_reclaim`).
@@ -49,11 +52,13 @@ cobblestone, spare plain blocks; see `temporary_blocks.py`) are the fallback, ne
 A hole 11 wide (x), 3 long (z), 4 deep is cut 3 cells east of a flat spawn spot (default
 990,80,988); its air cells are `protected_positions`, so the bot can neither pillar in it nor
 climb out. A stone stair on the hole's z+1 row lets it walk down to pick up drops. The bot holds
-64 scaffolding and three tools, no dirt or cobblestone and `material_allowlist=()`, so any solid
-temporary block is a failure. Every placed cell's block id is read back; the course fails on
-any that is not `minecraft:scaffolding`. The towers stand on the rims 12 apart, so every span
-cell is within distance 6 of one tower. Each leg has its own pass/fail in `summary.json`; a
-failed leg skips the rest, but the take-down and restore still run.
+64 scaffolding, 64 dirt, and three tools, with `material_allowlist=("minecraft:dirt",)` so dirt is
+permitted as solid fallback, while `foreign(placed)` still fails on any placed block that is not
+`minecraft:scaffolding`. Every placed cell's block id is read back; the course fails on any
+dirt or other non-scaffolding block (and leg 7 checks both scaffolding and dirt remain at 64).
+The towers stand on the rims 12 apart, so every span cell is within distance 6 of one tower.
+Each leg has its own pass/fail in `summary.json`; a failed leg skips the rest, but the take-down
+and restore still run.
 
 | Leg | Goal | Asserted |
 |---|---|---|

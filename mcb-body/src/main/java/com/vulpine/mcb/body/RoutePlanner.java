@@ -460,18 +460,47 @@ final class RoutePlanner {
         return Math.max(Math.max(0, Math.hypot(node.x - goal.x, node.z - goal.z) - radius), Math.abs(node.y - goal.y));
     }
 
+    private static boolean segmentHitsBox(double sx, double sy, double sz, double dx, double dy, double dz,
+                                          int cx, int cy, int cz, Object box) {
+        double tmin = 0, tmax = 1;
+        double[] lo = {cx + at(box, 0), cy + at(box, 1), cz + at(box, 2)};
+        double[] hi = {cx + at(box, 3), cy + at(box, 4), cz + at(box, 5)};
+        double[] s = {sx, sy, sz}, d = {dx, dy, dz};
+        for (int i = 0; i < 3; i++) {
+            if (Math.abs(d[i]) < 1e-12) {
+                if (s[i] < lo[i] || s[i] > hi[i]) return false;
+            } else {
+                double t1 = (lo[i] - s[i]) / d[i], t2 = (hi[i] - s[i]) / d[i];
+                if (t1 > t2) { double tmp = t1; t1 = t2; t2 = tmp; }
+                tmin = Math.max(tmin, t1);
+                tmax = Math.min(tmax, t2);
+                if (tmin > tmax) return false;
+            }
+        }
+        return true;
+    }
+
     private boolean interacts(Node node) {
         double ex = node.x + .5, ey = node.y + 1.62, ez = node.z + .5;
         double dx = goal.x + .5 - ex, dy = goal.y + .5 - ey, dz = goal.z + .5 - ez;
         double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (distance > reach) return false;
         int steps = Math.max(1, (int)Math.ceil(distance / .1));
+        int exCell = (int)Math.floor(ex), eyCell = (int)Math.floor(ey), ezCell = (int)Math.floor(ez);
         for (int i = 0; i < steps; i++) {
             int x = (int)Math.floor(ex + dx * i / steps), y = (int)Math.floor(ey + dy * i / steps);
             int z = (int)Math.floor(ez + dz * i / steps);
             if (x == goal.x && y == goal.y && z == goal.z) return true;
             var c = cell(x, y, z);
-            if (c == null || !boxes(c).isEmpty()) return false;
+            if (c == null) return false;
+            var bs = boxes(c);
+            if (x == exCell && y == eyCell && z == ezCell && scaffolding(c) && !bs.isEmpty()) {
+                boolean hit = false;
+                for (var box : bs) if (segmentHitsBox(ex, ey, ez, dx, dy, dz, x, y, z, box)) { hit = true; break; }
+                if (hit) return false;
+                continue;
+            }
+            if (!bs.isEmpty()) return false;
         }
         return true;
     }
@@ -524,8 +553,10 @@ final class RoutePlanner {
                 && goal.y > start.y + 1;
     }
     /** Least cost of placing k blocks of height, k edits on from an edit depth d. */
-    private static double riseCost(int k, int d) {
-        return k <= 0 ? 0 : k * (EDIT_STEP + PLACE) + EDIT_CHAIN * (k * (double) d + k * (k - 1) / 2.0);
+    private double riseCost(int k, int d) {
+        if (k <= 0) return 0;
+        int solid = edits != null ? Math.max(0, k - edits.scaffoldSupply) : k;
+        return k * (EDIT_STEP + PLACE) + SOLID_PLACE * solid + EDIT_CHAIN * (k * (double) d + k * (k - 1) / 2.0);
     }
     private double riseRate() { return baritoneSearch ? COST_HEURISTIC : SPRINT; }
     private double riseEstimate(Node node) {
@@ -652,6 +683,7 @@ final class RoutePlanner {
         // (EDIT_STEP + PLACE, + BRIDGE_PLACE over nothing, + the chain); L drops to B free; B walks to B; B rises
         // to L in its column by the places its floor is short (riseCost). The box edge costs the walk on to the goal.
         // Depths past GAP_DEPTH count as GAP_DEPTH, which only lowers the chain: still a lower bound.
+        double minPlace = PLACE + (edits != null && edits.scaffoldSupply == 0 ? SOLID_PLACE : 0);
         var place = new double[n];
         var need = new int[n];
         var level = new double[n * layers];
@@ -664,7 +696,7 @@ final class RoutePlanner {
             if (levelSupport(x, z, gy)) place[k] = 0;
             else {
                 var under = baseCell(x, gy - 2, z);
-                place[k] = EDIT_STEP + PLACE + (under != null && boxes(under).isEmpty() ? BRIDGE_PLACE : 0);
+                place[k] = EDIT_STEP + minPlace + (under != null && !sturdy(under) ? BRIDGE_PLACE : 0);
             }
             need[k] = riseNeed(x, z);
             boolean edge = i == 0 || j == 0 || i == riseW - 1 || j == riseD - 1;
@@ -940,7 +972,11 @@ final class RoutePlanner {
     private List<Move> moves(Node node) {
         var out = new ArrayList<Move>(8);
         int x = node.x, z = node.z; double y = node.y;
-        if (submerged(node) && !stance(node)) { swimOut(node, out); return out; }
+        if (submerged(node)) {
+            boolean stand = stance(node);
+            if (!stand || swim) swimOut(node, out);
+            if (!stand) return out;
+        }
         if (node.equals(start) && !stance(start) && !(climb && climbOnly(node))) {
             if (canRecoverStart()) for (var d : DIRECTIONS) for (int dy = 0; dy <= 1; dy++)
                 addEdit(planEdit(node, new Node(x + d[0], y + dy, z + d[1])), heightCost(dy), node, out);
@@ -989,10 +1025,14 @@ final class RoutePlanner {
             }
             int a = side(x + d[0], y, z), b = side(x, y, z + d[1]);
             if (a < 0 || b < 0 || (a == 0 && b == 0)) continue;
-            if (plannerSwim) {  // MovementDiagonal: water at either end swims, no sprint
+            if (plannerSwim) {  // MovementDiagonal: water at either end swims, no sprint (motor has no bend on swim)
                 var wet = surfaceWater(target);
                 if (wet == null) wet = surfaceWater(node);
-                if (wet != null) { out.add(new Move(target, (ticks ? SWIM : 1.8) * multiplier(wet) * SQRT2)); continue; }
+                if (wet != null) {
+                    if (a == 1 && b == 1 && ((!surfaceNode(node) && !surfaceNode(target)) || swimSwept(node, target)))
+                        out.add(new Move(target, (ticks ? SWIM : 1.8) * multiplier(wet) * SQRT2));
+                    continue;
+                }
             }
             if (!swept(node, target)) continue;  // thin panel on a column edge: the motor would refuse the cut
             // Edging past one blocked side: walk pace, no sprint (MovementDiagonal).
@@ -1062,13 +1102,22 @@ final class RoutePlanner {
     private void swimOut(Node node, List<Move> out) {
         double cost = ticks ? SWIM : 1.8;
         var up = at(node.x, node.y + 1, node.z);
-        if (wadeable(up) || (empty(up) && surfaceNode(new Node(node.x, node.y + 1, node.z)))) {
-            out.add(new Move(new Node(node.x, node.y + 1, node.z), cost));
+        var upNode = new Node(node.x, node.y + 1, node.z);
+        boolean toSurface = empty(up) && surfaceNode(upNode);
+        if (wadeable(up) || toSurface) {
+            out.add(new Move(upNode, cost));
         }
+        if (toSurface) return;
         for (var d : DIRECTIONS) {
             var target = new Node(node.x + d[0], node.y, node.z + d[1]);
-            if (submerged(target)) out.add(new Move(target, cost));
+            if (submerged(target) && (!stance(node) || !stance(target))) out.add(new Move(target, cost));
         }
+    }
+    private boolean swimSwept(Node source, Node target) {
+        var geometry = new RouteGeometry(this::cell);
+        double yaw = Math.toDegrees(Math.atan2(-(target.x - source.x), target.z - source.z));
+        var pose = new RouteMotor.Pose(source.x + .5, source.y, source.z + .5, 0, 0, yaw, false, 20, true);
+        return geometry.swimSafe(pose, new RouteMotor.Point(target.x, target.y, target.z), source.y, SQRT2, true);
     }
     /** Swim cost under planner_swim; 0 when there is no swim edge. */
     private double swimCost(Node source, Node target) {
@@ -1125,7 +1174,12 @@ final class RoutePlanner {
         return Math.min(best, 7);
     }
     private int existingDistance(int x, int y, int z, Map<Long, Integer> own, int budget) {
-        if (cell(x, y, z).get("scaffold_distance") instanceof Integer d) return d;
+        var c = cell(x, y, z);
+        if (c.get("scaffold_distance") instanceof Integer d) return d;
+        if (c.get("properties") instanceof Map<?, ?> m && m.get("distance") != null) {
+            try { return Integer.parseInt(String.valueOf(m.get("distance"))); }
+            catch (NumberFormatException ignored) { }
+        }
         return scaffoldDistance(x, y, z, own, budget);  // the map's own scaffolding stands, so this is at most 6
     }
     /** Which places (lowest first) are scaffolding: held and supported within 6. One on scaffolding is stacked with a
@@ -1521,7 +1575,7 @@ final class RoutePlanner {
     }
 
     // MCB-measured edit overheads (terrain_steps constants of the same names).
-    static final double EDIT_STEP = 15, PLACE = 20, STACK_PLACE = 20, BRIDGE_PLACE = 15, EDIT_CHAIN = 10;
+    static final double EDIT_STEP = 15, PLACE = 20, STACK_PLACE = 20, BRIDGE_PLACE = 15, SOLID_PLACE = 200, EDIT_CHAIN = 10;
     private static final int[][] CUT_SIDES = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
     private static final Set<String> FALLING = Set.of("minecraft:sand", "minecraft:red_sand", "minecraft:gravel",
             "minecraft:suspicious_sand", "minecraft:suspicious_gravel");
@@ -1592,11 +1646,16 @@ final class RoutePlanner {
             breaking += falling;
         }
         int n = edit.places.size(), bridged = 0;
+        var inEdit = n > 1 ? new HashSet<Long>(n) : null;
         for (var p : edit.places) {
-            var below = cell(p[0], p[1] - 1, p[2]);
-            if (below == null || boxes(below).isEmpty()) bridged++;
+            boolean stackedOnEdit = inEdit != null && inEdit.contains(key(p[0], p[1] - 1, p[2]));
+            var below = stackedOnEdit ? null : cell(p[0], p[1] - 1, p[2]);
+            if (!stackedOnEdit && (below == null || !sturdy(below))) bridged++;
+            if (inEdit != null) inEdit.add(key(p));
         }
-        return base + EDIT_STEP + breaking + PLACE * n + STACK_PLACE * Math.max(0, n - 1) + BRIDGE_PLACE * bridged
+        int solid = n - edit.scaffold.size();
+        return base + EDIT_STEP + breaking + PLACE * n + SOLID_PLACE * solid
+                + STACK_PLACE * Math.max(0, n - 1) + BRIDGE_PLACE * bridged
                 + EDIT_CHAIN * depth.getOrDefault(from, 0);
     }
 
@@ -1683,7 +1742,18 @@ final class RoutePlanner {
         if (cuts == null || cuts.size() > Math.min(7, edits.breakBudget) || (cuts.isEmpty() && places.isEmpty())
                 || overHead(source, cuts))
             return null;
-        return new Edit(source, target, cuts, places, "step", scaffoldCells(places));
+        var scaffold = scaffoldCells(places);
+        if (!scaffold.isEmpty() && scaffolding(cell(x, y - 1, z))) {
+            var placedScaffold = new HashSet<Long>(scaffold.size());
+            for (var s : scaffold) placedScaffold.add(key(s[0], s[1], s[2]));
+            for (var s : scaffold) {
+                if (ty == y && places.size() == 1 && s[1] == y - 1) continue;
+                if (scaffolding(cell(s[0], s[1] - 1, s[2]))
+                        || placedScaffold.contains(key(s[0], s[1] - 1, s[2])))
+                    return null;
+            }
+        }
+        return new Edit(source, target, cuts, places, "step", scaffold);
     }
 
     /** Support below, the source's floor beside it, or any full cube beside it to click (a wall, a log):

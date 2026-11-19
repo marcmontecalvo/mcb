@@ -921,7 +921,15 @@ public final class BodyRuntime implements AutoCloseable {
             case "craft" -> bodyAction("craft", sequence, player -> BodyActions.craft(server, player, request));
             case "furnace" -> bodyAction("furnace", sequence, player -> BodyActions.furnace(server, player, request));
             case "equip" -> bodyAction("equip", sequence, player -> BodyActions.equip(player, request));
-            case "place_block" -> bodyAction("place_block", sequence, player -> { requireFree(); return BodyBuild.place(player, request); });
+            case "place_block" -> bodyAction("place_block", sequence, player -> {
+                requirePlaceFree();
+                if (routeMotor != null && routeMotor.active()) {
+                    float yaw0 = player.getYRot(), pitch0 = player.getXRot();
+                    try { return BodyBuild.place(player, request); }
+                    finally { BodyBuild.aim(player, yaw0, pitch0); }
+                }
+                return BodyBuild.place(player, request);
+            });
             case "use_block" -> bodyAction("use_block", sequence, player -> { requireFree(); return BodyBuild.use(player, request); });
             case "break_block" -> startBreak(request, sequence);
             case "attack_entity" -> startAction("attack_entity", sequence, player -> BodyEntity.AttackTask.start(player, request, sequence));
@@ -1016,6 +1024,13 @@ public final class BodyRuntime implements AutoCloseable {
 
     private void requireFree() {
         if (routeActive()) throw new BodyActions.Fail("route_active");
+        if (breakTask != null || actionTask != null) throw new BodyActions.Fail("busy");
+    }
+
+    /** place_block may fire in motion during routeMotor (on_pass), never during edits, gaps, or flee. */
+    private void requirePlaceFree() {
+        if ((stepMotor != null && stepMotor.active()) || (gapMotor != null && gapMotor.active())
+                || (reflexMotor != null && reflexMotor.active())) throw new BodyActions.Fail("route_active");
         if (breakTask != null || actionTask != null) throw new BodyActions.Fail("busy");
     }
 

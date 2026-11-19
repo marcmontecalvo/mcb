@@ -379,6 +379,17 @@ final class StepMotor {
         }
         return centre;
     }
+    /** Aim on the scaffolding block below source so a plain click extends into (dx, dz).
+     *  Returns null when the eye is too close to the front edge or too far off-axis for
+     *  Direction.fromYRot to face (dx, dz). */
+    static Vec3 redirectAim(BlockPos source,Vec3 eye,int dx,int dz) {
+        double ax=dx!=0?source.getX()+.5+dx*.45:Math.max(source.getX()+.1,Math.min(source.getX()+.9,eye.x));
+        double az=dz!=0?source.getZ()+.5+dz*.45:Math.max(source.getZ()+.1,Math.min(source.getZ()+.9,eye.z));
+        double forward=(ax-eye.x)*dx+(az-eye.z)*dz;
+        double perp=dx!=0?Math.abs(az-eye.z):Math.abs(ax-eye.x);
+        if(forward<.15 || perp>.5*forward) return null;
+        return new Vec3(ax,source.getY()-.001,az);
+    }
     private static double wrap(double x) { return ((x+180)%360+360)%360-180; }
 
     BodyRuntime.Controls tick(ServerPlayer p,int tick,RouteGeometry.Reader reader) {
@@ -411,9 +422,10 @@ final class StepMotor {
         // A tower's top block stays on its own top: the exit is the target itself.
         boolean climbOn=pillar && exit!=null && exit.getX()==target.getX() && exit.getZ()==target.getZ()
                 && (exit.getY()==target.getY()+1 || exit.getY()==target.getY());
+        var exitPoint=exit==null?null:new RouteMotor.Point(exit.getX(),exitY,exit.getZ());
         if(pillar && (exit==null || !(climbOn
                 ? geometry.clear(exit.getX()+.5,exit.getZ()+.5,exit.getY(),exit.getY()+1.8)
-                : geometry.standable(new RouteMotor.Point(exit.getX(),exitY,exit.getZ())))))
+                : (geometry.standable(exitPoint) || geometry.climbable(exitPoint)))))
             return stopInput(tick,"native_pillar_exit_changed");
         if(index>=operations.size()) {
             if(downward) {
@@ -514,34 +526,44 @@ final class StepMotor {
                     ? new Vec3(op.point.getX()+.5,op.point.getY()+.05,op.point.getZ()+.5)
                     : new Vec3(op.point.getX()+.5,op.point.getY()-.001,op.point.getZ()+.5);
             boolean below=sturdy(read(reader,expected)), redirect=false;
+            int hor=Math.abs(dx)+Math.abs(dz);
+            boolean sourceScaffold=scaffolding(read(reader,source.below()));
+            boolean bridgeOnScaffold=!pillar && bridge && scaffold && sourceScaffold
+                    && op.point.getY()==source.getY()-1 && hor==1
+                    && (!below || scaffolding(read(reader,expected)));
             // ScaffoldingBlockItem sends a plain click on scaffolding sideways (top face) or up (side face). A sneaking
             // click places right on the clicked face, so a column is stacked with the use sneaking (vanilla: the
             // secondary use). Not while standing on a scaffolding floor: sneaking there drops the body through it.
-            stackOnScaffold=below && scaffold && scaffolding(read(reader,expected));
-            if(stackOnScaffold && !pillar && scaffolding(read(reader,source.below())))
+            stackOnScaffold=below && !bridgeOnScaffold && scaffold && scaffolding(read(reader,expected));
+            if(stackOnScaffold && !pillar && sourceScaffold)
                 return stopInput(tick,"native_scaffold_redirect");
             BlockPos side=null;
-            if(!below) {
+            if(bridgeOnScaffold) {
+                // Off a scaffolding floor: click its top face, not sneaking; the item extends sideways the way the body faces.
+                expected=source.below(); face="UP"; redirect=true;
+                var directed=redirectAim(source,p.getEyePosition(),dx,dz);
+                if(directed==null) {
+                    double gx=source.getX()+.5-dx*.15, gz=source.getZ()+.5-dz*.15;
+                    double turn=wrap(Math.toDegrees(Math.atan2(-(gx-p.getX()),gz-p.getZ()))-p.getYRot());
+                    return input(tick,Math.abs(turn)<8?.5:0,Math.max(-45,Math.min(45,turn)),0,false,false,false,false,Math.max(0,selected));
+                }
+                aim=directed;
+            } else if(!below) {
                 expected=source.below();
-                boolean fromSource=bridge && op.point.getY()==source.getY()-1 && Math.abs(dx)+Math.abs(dz)==1
+                boolean fromSource=bridge && op.point.getY()==source.getY()-1 && hor==1
                         && (empty(read(reader,op.point.below())) || replaceable(read(reader,op.point.below())))
                         && sturdy(read(reader,expected));
                 // Else any full cube beside the cell (a wall, a log): RoutePlanner.anchored, terrain_placement.
                 if(!fromSource && bridge) side=sideAnchor(reader,op.point);
                 if(!fromSource && side==null) return stopInput(tick,"native_placement_anchor_changed");
-            }
-            if(side!=null) {
-                int sx=op.point.getX()-side.getX(),sz=op.point.getZ()-side.getZ();
-                expected=side;
-                face=sx==1?"EAST":sx==-1?"WEST":sz==1?"SOUTH":"NORTH";
-                aim=new Vec3(side.getX()+.5+sx*.499,side.getY()+.5,side.getZ()+.5+sz*.499);
-            } else if(!below) {
-                face=dx==1?"EAST":dx==-1?"WEST":dz==1?"SOUTH":"NORTH";
-                aim=new Vec3(source.getX()+.5+dx*.499,op.point.getY()+.5,source.getZ()+.5+dz*.499);
-                if(scaffold && scaffolding(read(reader,expected))) {
-                    // Off a scaffolding floor: click its top face, not sneaking; the item extends it the way the body faces.
-                    face="UP"; redirect=true;
-                    aim=new Vec3(source.getX()+.5+dx*.3,source.getY()-.001,source.getZ()+.5+dz*.3);
+                if(side!=null) {
+                    int sx=op.point.getX()-side.getX(),sz=op.point.getZ()-side.getZ();
+                    expected=side;
+                    face=sx==1?"EAST":sx==-1?"WEST":sz==1?"SOUTH":"NORTH";
+                    aim=new Vec3(side.getX()+.5+sx*.499,side.getY()+.5,side.getZ()+.5+sz*.499);
+                } else {
+                    face=dx==1?"EAST":dx==-1?"WEST":dz==1?"SOUTH":"NORTH";
+                    aim=new Vec3(source.getX()+.5+dx*.499,op.point.getY()+.5,source.getZ()+.5+dz*.499);
                 }
             }
             // Full input while sneaking: sneak alone already slows to 30% and the
@@ -549,7 +571,7 @@ final class StepMotor {
             // ~30 ticks per placement (Step C run 20261030T023556227338Z: median 39).
             // Sneaking on scaffolding drops the body through it: never sneak on a scaffolding floor.
             boolean sneakOk=!inScaffold(reader);
-            boolean approach=!pillar && !redirect && side==null && op.point.getY()<source.getY() && Math.abs(dx)+Math.abs(dz)==1;
+            boolean approach=!pillar && !redirect && side==null && op.point.getY()<source.getY() && hor==1;
             if(approach && progress<.6) {
                 // The sneak edge clamp pins the centre at the support's rim, so a
                 // stance whose neighbour is empty below can never cross progress .6:

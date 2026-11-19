@@ -108,6 +108,27 @@ public final class StepMotorTest {
         var gravelSource=request.deepCopy();
         gravelSource.getAsJsonObject("plan").add("breaks",JsonParser.parseString("[[0,2,0],[0,1,0],[1,1,0]]"));
         if(!new StepMotor(gravelSource).active()) throw new AssertionError("source-clearing cuts admitted"); checks++;
+        // Scaffolding bridge redirect aim: aligns perpendicular axis to the eye and aims near the far edge;
+        // returns null when too close to the front edge or too far off-center so the body repositions without sneaking.
+        var sPos=new net.minecraft.core.BlockPos(10,5,20);
+        var aimPosX=StepMotor.redirectAim(sPos,new net.minecraft.world.phys.Vec3(10.5,6.62,20.5),1,0);
+        if(aimPosX==null || Math.abs(aimPosX.x-10.95)>1e-6 || Math.abs(aimPosX.y-4.999)>1e-6 || Math.abs(aimPosX.z-20.5)>1e-6)
+            throw new AssertionError("centered redirectAim along +X: "+aimPosX); checks++;
+        var aimOffCenter=StepMotor.redirectAim(sPos,new net.minecraft.world.phys.Vec3(10.5,6.62,20.15),1,0);
+        if(aimOffCenter==null || Math.abs(aimOffCenter.z-20.15)>1e-6)
+            throw new AssertionError("off-center redirectAim tracks eye perp coordinate: "+aimOffCenter); checks++;
+        if(StepMotor.redirectAim(sPos,new net.minecraft.world.phys.Vec3(10.85,6.62,20.5),1,0)!=null)
+            throw new AssertionError("redirectAim too close to +X edge must return null"); checks++;
+        if(StepMotor.redirectAim(sPos,new net.minecraft.world.phys.Vec3(10.5,6.62,19.70),1,0)!=null)
+            throw new AssertionError("redirectAim far off-axis must return null"); checks++;
+        var aimNegZ=StepMotor.redirectAim(sPos,new net.minecraft.world.phys.Vec3(10.5,6.62,20.5),0,-1);
+        if(aimNegZ==null || Math.abs(aimNegZ.z-20.05)>1e-6 || Math.abs(aimNegZ.x-10.5)>1e-6)
+            throw new AssertionError("centered redirectAim along -Z: "+aimNegZ); checks++;
+        if(StepMotor.redirectAim(sPos,new net.minecraft.world.phys.Vec3(10.5,6.62,20.15),0,-1)!=null)
+            throw new AssertionError("redirectAim too close to -Z edge must return null"); checks++;
+        // Tower-top pillar exit ([0,2,0] = target itself) is admitted cleanly.
+        var topExit=pillar.deepCopy(); topExit.getAsJsonObject("plan").add("exit",JsonParser.parseString("[0,2,0]"));
+        if(!new StepMotor(topExit).active()) throw new AssertionError("tower-top pillar self-exit admitted"); checks++;
         System.out.println("StepMotor: "+checks+" admission checks passed");
     }
 }

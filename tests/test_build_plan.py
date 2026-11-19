@@ -692,3 +692,103 @@ def test_a_lantern_hanging_from_a_cell_given_up_on_does_not_keep_the_door_out():
     blocks = {**BLOCKS, "minecraft:lantern": {"item": "minecraft:lantern"}}
     acts = bp.next_actions(t, at(flat_world()), blocks, inv, skipped={(2, 1, 0)})
     assert (0, 0, 0) in [a.pos for a in acts]
+
+
+def test_skipped_cells_are_neither_placed_nor_asked_for():
+    # Skipped cells must never be offered by next_actions even if held inventory covers
+    # them, and must not trigger NeedMaterials when non-skipped cells are finished.
+    cells = {(0, 0, 0): PLANKS, (2, 0, 0): PLANKS, (4, 0, 0): COBBLE}
+    t = bp.Template.from_build(make_build(cells, (5, 1, 1)), (0, 0, 0))
+    w = flat_world()
+
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10}, skipped={(0, 0, 0)})
+    assert [a.pos for a in acts] == [(2, 0, 0)]
+
+    w[(2, 0, 0)] = PLANKS
+    acts = bp.next_actions(
+        t, at(w), BLOCKS, {PLANKS: 1}, skipped={(0, 0, 0), (4, 0, 0)}
+    )
+    assert acts == []
+
+
+def test_tower_cells_finds_nearby_roof_column_when_immediate_neighbors_are_reserved():
+    # Interior ceiling cell at y=4 whose 4 immediate horizontal neighbors at y=3 are
+    # reserved: tower_cells climbs an adjacent open column up to y=4 (roof level).
+    w = flat_world(hi=10)
+    pos = (4, 4, 4)
+    reserved = {
+        (4, 3, 4),
+        (5, 3, 4),
+        (3, 3, 4),
+        (4, 3, 5),
+        (4, 3, 3),
+        (5, 4, 4),
+        (3, 4, 4),
+        (4, 4, 5),
+        (4, 4, 3),
+    }
+    assert bp.tower_cells(pos, at(w), BLOCKS, reserved) == []
+    cells = bp.tower_cells(pos, at(w), BLOCKS, reserved, roof=True)
+    assert cells
+    col = (cells[0][0], cells[0][2])
+    assert cells == [(col[0], h, col[1]) for h in range(0, 5)]
+    assert (col[0], 5, col[1]) not in reserved and (col[0], 6, col[1]) not in reserved
+
+
+def test_axis_y_chain_and_lantern_under_skipped_chain_do_not_keep_doors_out():
+    chain = "minecraft:iron_chain[axis=y,waterlogged=false]"
+    lantern = "minecraft:lantern[hanging=true,waterlogged=false]"
+    cells = {
+        (0, 0, 0): DOOR_LO,
+        (0, 1, 0): DOOR_UP,
+        (2, 3, 0): PLANKS,
+        (2, 2, 0): chain,
+        (2, 1, 0): chain,
+        (2, 0, 0): lantern,
+    }
+    w = flat_world()
+    w[(2, 3, 0)] = PLANKS
+    t = bp.Template.from_build(make_build(cells, (3, 4, 1)), (0, 0, 0))
+    inv = {"minecraft:oak_door": 1, "minecraft:iron_chain": 2, "minecraft:lantern": 1}
+    blocks = {
+        **BLOCKS,
+        "minecraft:iron_chain": {"item": "minecraft:iron_chain", "solid": True},
+        "minecraft:lantern": {"item": "minecraft:lantern"},
+    }
+    held = bp.next_actions(t, at(w), blocks, inv)
+    assert [a.pos for a in held] == [(2, 2, 0)]
+    acts = bp.next_actions(t, at(w), blocks, inv, skipped={(2, 2, 0)})
+    assert (0, 0, 0) in [a.pos for a in acts]
+
+
+def test_tower_cells_rejects_non_sturdy_stairs_for_scaffolding():
+    w = flat_world(hi=6)
+    blocks = {
+        **BLOCKS,
+        "minecraft:oak_stairs": {"item": "minecraft:oak_stairs", "full_cube": False},
+        "minecraft:oak_slab": {"item": "minecraft:oak_slab", "full_cube": False},
+    }
+    pos = (3, 4, 3)
+    # Surround (3, 4, 3) with bottom oak stairs at y=1..2 on all horizontal neighbors
+    for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        w[(3 + dx, 1, 3 + dz)] = "minecraft:oak_stairs[facing=north,half=bottom]"
+    assert bp.tower_cells(pos, at(w), blocks, frozenset(), scaffolding=True) == []
+    assert bp.tower_cells(pos, at(w), blocks, frozenset(), scaffolding=False)
+    # Top slab on one side provides a sturdy up-face for scaffolding
+    w[(4, 1, 3)] = "minecraft:oak_slab[type=top]"
+    cells = bp.tower_cells(pos, at(w), blocks, frozenset(), scaffolding=True)
+    assert cells == [(4, 2, 3), (4, 3, 3)]
+
+
+def test_next_actions_breaks_trapped_foothold_before_placing_underneath():
+    cells = {(1, 0, 1): PLANKS, (1, 2, 1): PLANKS}
+    w = flat_world(hi=5)
+    w[(1, 2, 1)] = PLANKS
+    w[(1, 1, 1)] = "minecraft:dirt"
+    t = bp.Template.from_build(make_build(cells, (4, 4, 4)), (0, 0, 0))
+    scaffolds = {(1, 1, 1)}
+    acts = bp.next_actions(
+        t, at(w), BLOCKS, {PLANKS: 4}, scaffolds=scaffolds, near=(50, 0, 50)
+    )
+    assert [type(a) for a in acts] == [bp.Break]
+    assert acts[0].pos == (1, 1, 1)

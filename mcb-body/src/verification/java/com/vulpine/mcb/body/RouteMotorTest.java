@@ -303,6 +303,12 @@ public final class RouteMotorTest {
         check(sink.active() && walkOver.forward()>0 && !walkOver.sneak(),"stepping onto a scaffolding top walks without sneak");
         var sinkIn=sink.tick(new RouteMotor.Pose(3.5,4,.5,0,0,-90,true,20),geometry(real));
         check(sink.active() && sinkIn.sneak() && sinkIn.forward()==0,"over the column top the body sneaks to sink in");
+        // Climbing inside scaffolding must not finish below the plate (target.y - 0.5 drops back down).
+        var inCol=new RouteMotor("incol",List.of(new RouteMotor.Point(3,1,0),new RouteMotor.Point(3,2,0),new RouteMotor.Point(3,3,0)),policy);
+        var half=inCol.tick(new RouteMotor.Pose(3.5,2.5,.5,0,0,0,false,20),geometry(real));
+        check(inCol.active() && (int)inCol.status().get("next_index")==2 && half.jump(),"scaffolding climb does not stop below target.y");
+        inCol.tick(new RouteMotor.Pose(3.5,3.04,.5,0,0,0,false,20),geometry(real));
+        check(inCol.status().get("state").equals("done"),"scaffolding climb finishes once feet clear target.y");
     }
     private static final double DIAGONAL_YAW=-45;
     private static void hole(Map<Key,Map<String,Object>> cells,int x,int z) {
@@ -519,6 +525,27 @@ public final class RouteMotorTest {
         var dry=new RouteMotor("d",route.subList(1,4),SWIM);
         dry.tick(new RouteMotor.Pose(2.5,-2,.5,0,0,-90,true,20,false),geometry(deep));
         check(!dry.active(),"far below the start out of water is still displaced");
+        // Vertical +1 rise from 1-deep wading to its water surface is valid under swim policy even without climb,
+        // and swimming past an inside wall corner recenters in the water column rather than aborting swept geometry.
+        var riseAndTurn=floor();
+        riseAndTurn.put(new Key(0,1,0),water("0"));
+        riseAndTurn.put(new Key(1,0,0),water("0")); riseAndTurn.put(new Key(1,1,0),water("0"));
+        riseAndTurn.put(new Key(2,0,0),water("0")); riseAndTurn.put(new Key(2,1,0),water("0"));
+        riseAndTurn.put(new Key(2,0,1),water("0")); riseAndTurn.put(new Key(2,1,1),water("0"));
+        riseAndTurn.put(new Key(1,2,1),stone());
+        var rg=geometry(riseAndTurn);
+        var swimCorner=new RouteMotor("swimCorner",List.of(
+                new RouteMotor.Point(0,1,0), new RouteMotor.Point(0,2,0),
+                new RouteMotor.Point(1,2,0), new RouteMotor.Point(2,2,0), new RouteMotor.Point(2,2,1)),SWIM);
+        var firstRise=swimCorner.tick(wet(.5,1.0,.5),rg);
+        check(swimCorner.active() && firstRise.jump(),"vertical surface rise accepted under swim policy");
+        swimCorner.tick(wet(1.5,1.7,.5),rg);
+        var clipTurn=swimCorner.tick(wet(2.06,1.7,.5),rg);
+        check(swimCorner.active() && clipTurn.forward()>0 && clipTurn.jump() && Math.abs(clipTurn.yaw())<1,
+                "off-center swim corner recenters instead of aborting route_swept_geometry_unknown_or_unsafe");
+        swimCorner.tick(wet(2.45,1.7,.5),rg);
+        var finishTurn=swimCorner.tick(wet(2.45,1.7,.5),rg);
+        check(swimCorner.active() && finishTurn.forward()>0 && finishTurn.jump(),"resumes swim around corner after recentring");
         lakeDropChecks();
         roofedUnderStanceChecks();
     }

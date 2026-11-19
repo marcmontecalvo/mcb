@@ -811,6 +811,9 @@ def test_a_stance_must_see_a_face_of_a_solid_neighbour():
     assert sees_support({(5, 69, 4): lattice}, (5, 66, 6), target)  # scaffolding counts
     # the top of a scaffolding column is reached from the ground beside it
     assert sees_support({(5, 68, 5): lattice}, (7, 66, 5), target)
+    # only when placing scaffolding itself; a plank cannot extend scaffolding sideways
+    assert not sees_support({(5, 68, 5): lattice}, (7, 66, 5), target, scaffold=False)
+
 
 
 def test_a_face_hidden_behind_a_wall_does_not_make_a_stance():
@@ -1593,3 +1596,119 @@ def test_a_walk_planned_ahead_is_priced_with_what_the_body_holds(monkeypatch):
     )
     assert edits["allow_place"] and edits["materials"] == ["minecraft:dirt"]
     assert edits["scaffold_supply"] == 40
+
+
+def test_tall_scaffolding_column_is_reachable_from_ground_stances():
+    b, _, _ = body()
+    scaff = {
+        "block": "minecraft:scaffolding",
+        "fluid": "minecraft:empty",
+        "collision_boxes": [[0, 0.875, 0, 1, 1, 1]],
+    }
+    air = {"block": "minecraft:air", "fluid": "minecraft:empty", "collision_boxes": []}
+    stone = {
+        "block": "minecraft:stone",
+        "fluid": "minecraft:empty",
+        "collision_boxes": [[0, 0, 0, 1, 1, 1]],
+    }
+    cells = {}
+    for x in range(-4, 5):
+        for z in range(-4, 5):
+            cells[(x, -1, z)] = stone
+            for y in range(0, 13):
+                cells[(x, y, z)] = air
+    for y in range(0, 10):
+        cells[(0, y, 0)] = scaff
+    b._cells_now = lambda: cells
+    b.precise_stance = True
+    b.placing_scaffold = True
+    b._obs["body"]["position"] = [2.5, 0.0, 0.5]
+    assert b.can_place_here((0, 10, 0), 4.5)
+    found = b.stances((0, 10, 0), 4.5)
+    assert (2, 0, 0) in found
+
+
+def test_walk_only_keeps_climbed_scaffolding_stance_and_eye_cell_sees_past_rim(
+    monkeypatch,
+):
+    b, _, _ = body()
+    scaff = {
+        "block": "minecraft:scaffolding",
+        "fluid": "minecraft:empty",
+        "collision_boxes": [[0, 0.875, 0, 1, 1, 1]],
+    }
+    air = {"block": "minecraft:air", "fluid": "minecraft:empty", "collision_boxes": []}
+    stone = {
+        "block": "minecraft:stone",
+        "fluid": "minecraft:empty",
+        "collision_boxes": [[0, 0, 0, 1, 1, 1]],
+    }
+    cells = {}
+    for x in range(-2, 4):
+        for z in range(-2, 3):
+            cells[(x, -1, z)] = stone
+            for y in range(0, 11):
+                cells[(x, y, z)] = air
+    for y in range(0, 9):
+        cells[(0, y, 0)] = scaff
+    # Target (1, 7, 0) hanging under chain at (1, 8, 0): out of reach from ground y=0;
+    # stance inside (0, 6, 0) has its eye inside (0, 7, 0), below the y=0.875 rim.
+    cells[(1, 8, 0)] = stone
+    monkeypatch.setattr(b, "_cells_now", lambda: cells)
+    b._obs["body"]["position"] = [2.5, 0.0, 0.5]
+    b.precise_stance = True
+    b.walk_only = True
+    b.required_support = (1, 8, 0)
+    assert cb.interacts(cells, (0, 6, 0), (1, 7, 0), 4.5)
+    walked = []
+    monkeypatch.setattr(b, "_navigate", lambda goal, **k: walked.append(goal) or True)
+    assert b.goto_stance((1, 7, 0), 4.5)
+    assert walked == [(0, 6, 0)]
+
+
+def test_stances_prefer_clean_feet_over_occupied_trapdoor(monkeypatch):
+    b, _, _ = body()
+    air = {"block": "minecraft:air", "fluid": "minecraft:empty", "collision_boxes": []}
+    planks = {
+        "block": "minecraft:birch_planks",
+        "fluid": "minecraft:empty",
+        "collision_boxes": [[0, 0, 0, 1, 1, 1]],
+    }
+    trapdoor = {
+        "block": "minecraft:oak_trapdoor",
+        "fluid": "minecraft:empty",
+        "collision_boxes": [[0.8125, 0, 0, 1, 1, 1]],
+    }
+    cells = {}
+    for x in range(-2, 4):
+        for z in range(-2, 4):
+            cells[(x, -1, z)] = planks
+            for y in range(0, 4):
+                cells[(x, y, z)] = air
+    # Both (1, 0, 0) (open trapdoor) and (0, 0, 0) (clean air) reach (2, 1, 0),
+    # and neither is in walkable set when starting from roof y=5.
+    cells[(1, 0, 0)] = trapdoor
+    cells[(2, 2, 0)] = planks
+    monkeypatch.setattr(b, "_cells_now", lambda: cells)
+    monkeypatch.setattr(b, "_walkable", lambda *a: set())
+    b._obs["body"]["position"] = [1.5, 5.0, 0.5]
+    b.precise_stance = True
+    ranked = b.stances((2, 1, 0), 4.5)
+    assert (1, 0, 0) in ranked and (0, 0, 0) in ranked
+    assert ranked.index((0, 0, 0)) < ranked.index((1, 0, 0))
+
+
+def test_walk_only_fallback_tries_multiple_candidates_when_walk_empty(monkeypatch):
+    b, _, _ = body()
+    b.walk_only = True
+    b._obs["body"]["position"] = [10.5, 5.0, 10.5]
+    goals = [(1, 0, 0), (0, 0, 0), (0, 0, 1)]
+    monkeypatch.setattr(b, "stances", lambda *a, **k: goals)
+    monkeypatch.setattr(b, "_walkable", lambda *a: set())
+    seen = []
+    monkeypatch.setattr(
+        b, "_navigate", lambda goal, **k: seen.append(goal) or goal == goals[1]
+    )
+    assert b.goto_stance((2, 1, 0), 4.5)
+    assert seen == goals[:2]
+

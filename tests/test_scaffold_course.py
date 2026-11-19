@@ -77,3 +77,69 @@ def test_finish_folds_in_caps_and_standstills():
     stall = [{"kind": "VIOLATION", "ticks": [310, 400], "unjustified_s": 4.0}]
     res = sc.finish(legs, {}, ("NONE", []), stall, True, ranges, {})
     assert res["failed_legs"] == ["3 x"] and legs["3 x"]["standstill_s"] == 4.0
+
+
+def test_pillar_followed_by_bridge_keeps_pillar_target_as_exit():
+    from mclab.navigation_segmented import SegmentedController
+    from mclab.terrain_steps import StepPlan
+
+    def make_nav(route, steps):
+        nav = SegmentedController.__new__(SegmentedController)
+        nav.route = list(route)
+        nav.route_steps = {(s.source, s.target): s for s in steps}
+        nav.terrain_queue = []
+        nav.terrain_forecast = ()
+        nav.terrain_queue_policy = None
+        nav.breaks_reserved = 0
+        nav.places_reserved = 0
+        nav.terrain = object()
+        nav.failed_edges = set()
+        nav.search = object()
+        nav._remaining_policy = lambda: None
+        nav._begin_queued_step = lambda node, obs: None
+        nav._begin_route_edit((0, 1, 0), {"body": {}})
+        return nav
+
+    pillar = StepPlan(
+        (0, 1, 0),
+        (0, 2, 0),
+        places=((0, 1, 0),),
+        kind="pillar",
+        scaffold=((0, 1, 0),),
+    )
+    bridge = StepPlan(
+        (0, 2, 0),
+        (1, 2, 0),
+        places=((1, 1, 0),),
+        kind="step",
+        scaffold=((1, 1, 0),),
+    )
+    nav_bridge = make_nav([(0, 1, 0), (0, 2, 0), (1, 2, 0)], [pillar, bridge])
+    assert nav_bridge.terrain_queue[0].exit == (0, 2, 0)
+
+    pillar_up = StepPlan(
+        (0, 2, 0),
+        (0, 3, 0),
+        places=((0, 2, 0),),
+        kind="pillar",
+        scaffold=((0, 2, 0),),
+    )
+    nav_tower = make_nav([(0, 1, 0), (0, 2, 0), (0, 3, 0)], [pillar, pillar_up])
+    assert nav_tower.terrain_queue[0].exit == (0, 3, 0)
+
+    nav_walk = make_nav([(0, 1, 0), (0, 2, 0), (1, 2, 0)], [pillar])
+    assert nav_walk.terrain_queue[0].exit == (1, 2, 0)
+
+
+def test_live_scaffold_course_holds_and_allows_dirt():
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "check-companion-scaffold-course.py"
+    ).read_text(encoding="utf-8")
+    assert 'DIRT = "minecraft:dirt"' in source
+    assert '{"item": DIRT, "count": START}' in source
+    assert "material_allowlist=(DIRT,)" in source
+    assert "dirt_held == START" in source

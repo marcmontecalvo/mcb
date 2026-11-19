@@ -481,6 +481,51 @@ public final class RoutePlannerTest {
             if (mode.equals("protected")) check(!res.status().equals("reached") && !brokeDoor, "protected wall stays whole: " + res.status());
         }
 
+        // Large-house run 20261119T105747626310Z: wading in 1-deep water beside a +2 high bank and a 2-deep
+        // channel rises to the surface to swim out (without diagonal corner-cutting past solid walls).
+        var wadeTrap = new HashMap<Key, Map<String, Object>>();
+        for (int x = -2; x <= 4; x++) for (int z = -2; z <= 3; z++) for (int y = -1; y <= 6; y++) {
+            var c = air();
+            if (y <= 0) c = stone();
+            else if (y == 1) {
+                if (x >= 1 && z >= 1) c = water();
+                else if (x == 2 && z == 0) c = water();
+                else c = stone();
+            } else if (y == 2) {
+                if (x <= 1 && z <= 0) c = stone();
+                else if (z >= 1 || (x == 2 && z == 0)) c = water();
+                else c = air();
+            } else if (y == 3 && x <= 1 && z <= 0) {
+                c = stone();
+            }
+            wadeTrap.put(new Key(x, y, z), c);
+        }
+        // Start at (0,2,2): 1-deep water on stone (y=1 stone, y=2 water); north/west/northwest at z<=0 has +2 bank
+        // (stone y=2..3, feet y=4); (1,1..2,2) & (2,1..2,0..2) are 2-deep water; (1,3,0) is wall at corner;
+        // (2,1,-1) is stone so (2,2,-1) -> (2,3,-1) -> (1,4,-1) is a walk-up shore.
+        wadeTrap.put(new Key(0, 1, 2), stone()); wadeTrap.put(new Key(0, 2, 2), water());
+        wadeTrap.put(new Key(0, 1, 1), stone()); wadeTrap.put(new Key(0, 2, 1), water());
+        wadeTrap.put(new Key(1, 2, 1), stone()); wadeTrap.put(new Key(1, 3, 1), stone());
+        wadeTrap.put(new Key(2, 1, -1), stone()); wadeTrap.put(new Key(2, 2, -1), stone());
+        var trapPolicy = new RoutePlanner.EditPolicy(true, Map.of(), Map.of(),
+                false, false, false, 3, 64, 0, 0, Set.of(), Set.of("minecraft:stone"), "minecraft:cobblestone");
+        var trapGoal = new RoutePlanner.Node(1, 4, -1);
+        var trapEscaped = new RoutePlanner((x, y, z) -> wadeTrap.get(new Key(x, y, z)),
+                new RoutePlanner.Node(0, 2, 2), trapGoal, 0.4, 3, true, 2.0)
+                .withPolicy(true, true, true, true, true, 4.0)
+                .withMoves(true, true).withEdits(trapPolicy).search(10_000);
+        check(trapEscaped.status().equals("reached"),
+                "wading stance rises to water surface and escapes past +2 bank: " + trapEscaped.status());
+        check(trapEscaped.route().contains(new RoutePlanner.Node(0, 3, 2))
+                        && trapEscaped.route().stream().noneMatch(n -> n.x() == 2 && n.z() == 1 && n.y() == 2),
+                "wading escape surfaces at start instead of swimming submerged: " + trapEscaped.route());
+        boolean cutsSolidCorner = false;
+        for (int i = 1; i < trapEscaped.route().size(); i++) {
+            var a = trapEscaped.route().get(i - 1); var b = trapEscaped.route().get(i);
+            if (a.x() == 1 && a.z() == 2 && b.x() == 2 && b.z() == 1) cutsSolidCorner = true;
+        }
+        check(!cutsSolidCorner, "swim route never takes diagonal clipping solid corner (1,3,1): " + trapEscaped.route());
+
         scaffoldChecks();
         courseChecks();
         System.out.println("RoutePlanner: " + checks + " planner checks passed");
@@ -557,10 +602,13 @@ public final class RoutePlannerTest {
         var near = scaffoldRun(world, new RoutePlanner.Node(1, 1, 0), new RoutePlanner.Node(7, 1, 0), 64);
         check(near.status().equals("reached") && near.steps().stream().allMatch(e -> e.scaffold().size() == e.places().size()),
                 "a walkway 6 out from the tower is all scaffolding: " + near.status());
-        var far = scaffoldRun(world, new RoutePlanner.Node(1, 1, 0), new RoutePlanner.Node(9, 1, 0), 64);
-        var lastEdit = far.steps().get(far.steps().size() - 1);
-        check(far.status().equals("reached") && lastEdit.scaffold().isEmpty() && !lastEdit.places().isEmpty()
-                && far.steps().get(0).scaffold().size() == 1, "7 out from the tower is solid, nearer cells scaffolding");
+        var far = scaffoldRun(world, new RoutePlanner.Node(1, 1, 0), new RoutePlanner.Node(8, 1, 0), 64);
+        var lastEdit = far.steps().isEmpty() ? null : far.steps().get(far.steps().size() - 1);
+        check(far.status().equals("reached") && lastEdit != null && lastEdit.scaffold().isEmpty() && !lastEdit.places().isEmpty()
+                && far.steps().get(0).scaffold().size() == 1,
+                "7 out from the tower is solid, nearer cells scaffolding: status=" + far.status() + " expanded=" + far.expanded()
+                        + " steps=" + far.steps().size() + " first=" + (far.steps().isEmpty() ? "none" : far.steps().get(0))
+                        + " last=" + lastEdit);
         // A bridge beside a scaffolding pillar on solid ground.
         var beside = new HashMap<Key, Map<String, Object>>();
         for (int x = -2; x <= 4; x++) for (int z = -3; z <= 3; z++) for (int y = -1; y <= 6; y++)
@@ -572,6 +620,8 @@ public final class RoutePlannerTest {
                 "a bridge block beside a scaffolding pillar is scaffolding: " + next.status());
         var bare = new HashMap<>(beside);
         bare.remove(new Key(1, 0, 1)); bare.put(new Key(1, 0, 1), air()); bare.put(new Key(1, -1, 1), air());
+        var bedrock = Map.<String, Object>of("block", "minecraft:bedrock", "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1)), "fluid", "minecraft:empty");
+        for (int x = -2; x <= 4; x++) for (int z = -3; z <= 3; z++) bare.put(new Key(x, 3, z), bedrock);
         var alone = scaffoldRun(bare, new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(1, 1, 0), 64);
         check(alone.status().equals("reached") && alone.steps().get(0).scaffold().isEmpty(),
                 "a bridge block with nothing to hang on stays solid");
@@ -581,6 +631,52 @@ public final class RoutePlannerTest {
                 "protected":[],"protected_blocks":[],"materials":["minecraft:dirt"]}
                 """).getAsJsonObject();
         check(RoutePlanner.EditPolicy.fromJson(json).scaffoldSupply() == 5, "EditPolicy parses scaffold_supply");
+
+        // No floating dirt floor off an upper wall: when dirt and scaffolding are both held, reaching across open
+        // air from a 3-high wall top drops/walks and uses scaffolding rather than bridging a floating dirt floor.
+        var upperWall = floor(12);
+        for (int y = 1; y <= 3; y++) upperWall.put(new Key(0, y, 0), stone());
+        var noDirtFloor = scaffoldRun(upperWall, new RoutePlanner.Node(0, 4, 0), new RoutePlanner.Node(3, 4, 0), 64);
+        check(noDirtFloor.status().equals("reached")
+                && noDirtFloor.steps().stream().allMatch(e -> e.scaffold().size() == e.places().size()),
+                "wall top with ground below uses scaffolding, not a floating dirt floor: " + noDirtFloor.status());
+
+        // No [dirt, scaffolding] stack off a wall beside a ground-backed gap: pure scaffolding tower from ground.
+        var gapWall = floor(12);
+        for (int y = 1; y <= 4; y++) gapWall.put(new Key(2, y, 0), stone());
+        gapWall.put(new Key(1, 0, 0), air());
+        var noDirtStack = scaffoldRun(gapWall, new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(2, 5, 0), 64);
+        check(noDirtStack.status().equals("reached")
+                && noDirtStack.steps().stream().allMatch(e -> e.scaffold().size() == e.places().size()),
+                "wall top beside air gap builds pure scaffolding, not dirt+scaffolding: " + noDirtStack.status());
+
+        // PolicySensor properties.distance is read from existing scaffolding: distance 4 extends 5 & 6 as scaffolding,
+        // and falls back to solid dirt at distance 7.
+        var propWorld = new HashMap<Key, Map<String, Object>>();
+        for (int x = -2; x <= 6; x++) for (int z = -2; z <= 2; z++) for (int y = -1; y <= 4; y++)
+            propWorld.put(new Key(x, y, z), x <= 0 && y <= 0 ? stone() : air());
+        var d4 = new HashMap<String, Object>(scaffold());
+        d4.put("properties", Map.of("distance", "4", "bottom", "true"));
+        propWorld.put(new Key(1, 0, 0), d4);
+        var propExt = scaffoldRun(propWorld, new RoutePlanner.Node(1, 1, 0), new RoutePlanner.Node(4, 1, 0), 64);
+        check(propExt.status().equals("reached") && propExt.steps().size() == 3
+                && propExt.steps().get(0).scaffold().size() == 1
+                && propExt.steps().get(1).scaffold().size() == 1
+                && propExt.steps().get(2).scaffold().isEmpty(),
+                "properties.distance=4 allows scaffolding at 5 & 6 and falls back to dirt at 7: " + propExt.status());
+
+        // No unexecutable non-pillar step-up from a scaffolding floor onto scaffolding-over-scaffolding
+        // (native_scaffold_redirect).
+        var onScaff = floor(8);
+        onScaff.put(new Key(1, 1, 0), scaffold());
+        onScaff.put(new Key(2, 1, 0), scaffold());
+        var noRedirect = scaffoldRun(onScaff, new RoutePlanner.Node(1, 2, 0), new RoutePlanner.Node(2, 3, 0), 64);
+        check(noRedirect.status().equals("reached")
+                && noRedirect.steps().stream().allMatch(e -> e.scaffold().size() == e.places().size())
+                && noRedirect.steps().stream().noneMatch(e -> !e.kind().equals("pillar")
+                        && e.target().y() > e.source().y() && "minecraft:scaffolding".equals(
+                                onScaff.get(new Key(e.source().x(), (int) e.source().y() - 1, e.source().z())).get("block"))),
+                "standing on scaffolding never emits a non-pillar step-up onto scaffolding-over-scaffolding: " + noRedirect.status());
     }
 
     // The live scaffolding course (scripts/check-companion-scaffold-course.py): a hole in flat ground, the air of it
