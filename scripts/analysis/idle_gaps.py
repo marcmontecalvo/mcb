@@ -372,8 +372,10 @@ def classify(b, w0, w1):
     return longest, sum(z - a for a, z in cov), Counter(k for *_, k in ev), start
 
 
-def analyse(path: Path, min_s, move):
-    bodies, res = load(path), []
+def analyse(path: Path, min_s, move, bodies=None):
+    """``bodies``: an earlier ``load(path)``, so a caller that also reads the
+    samples (mclab.run_digest) parses the log once."""
+    bodies, res = (load(path) if bodies is None else bodies), []
     for bid, b in bodies.items():
         s = [
             x
