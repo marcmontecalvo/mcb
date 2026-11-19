@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -10,6 +11,21 @@ from functools import wraps
 from pathlib import Path
 
 from mclab.paths import ROOT
+
+# The run's own event log (events.sqlite3) holds every payload in full. The ledger
+# keeps small ones (requests, milestones, outcomes) and a stub for the rest, the
+# per-tick samples and maps that made ledgers gigabytes. MCLAB_LEDGER_FULL=1
+# keeps everything.
+LEDGER_PAYLOAD_MAX = 2048
+_TYPE = re.compile(r'^\{"type":("[^"\\]{1,64}")')
+
+
+def _ledger_payload(payload_json: str) -> str:
+    if len(payload_json) <= LEDGER_PAYLOAD_MAX or os.environ.get("MCLAB_LEDGER_FULL"):
+        return payload_json
+    found = _TYPE.match(payload_json)
+    kind = f'"type":{found.group(1)},' if found else ""
+    return f'{{{kind}"elided_bytes":{len(payload_json)}}}'
 
 
 @contextmanager
@@ -66,7 +82,7 @@ def _prune() -> None:
         from mclab import prune
 
         started = time.perf_counter()
-        print("prune:", prune.sweep(), f"({time.perf_counter() - started:.2f}s)")
+        print("prune:", prune.auto(), f"({time.perf_counter() - started:.2f}s)")
     except Exception as error:  # noqa: BLE001 - housekeeping only
         print("prune skipped:", error)
 
@@ -166,7 +182,7 @@ class EpisodeRecorder:
                 episode_id,
                 kind,
                 monotonic_ns,
-                payload_json,
+                _ledger_payload(payload_json),
             ),
         )
         if not self.batching:

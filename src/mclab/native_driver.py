@@ -1,4 +1,7 @@
-"""Development route handoff: Python plans, mcb-body executes every server tick."""
+"""Development route handoff: Python requests a plan from the Java planner
+(mcb-body RoutePlanner) and hands the route over; mcb-body executes every server
+tick. Python-side search here is a fallback/oracle, not the production planner
+(docs/JAVA_MIGRATION_STATUS_2026-11-03.md)."""
 
 import math
 import time

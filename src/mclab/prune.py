@@ -10,46 +10,59 @@ gather target, start cell, seed). Per key, the newest ``keep`` ended runs (defau
 digest.json, summary.json, walkthrough.md, final checkpoint and other small files;
 its event log (``events.*``), map and other ``*.sqlite3`` files and intermediate
 checkpoints go. Its digest is written first (deep, from the event log) if missing;
-a run whose digest cannot be made keeps its files. Never touched: a run that may
-still be going (``run_digest.may_be_running``), a run without a build key, a run
-whose id is cited in the docs.
+a run whose digest cannot be made keeps its files. A run without a build key
+(``unknown``) loses the same heavy files, without a digest. Never touched: a run
+that may still be going (``run_digest.may_be_running``), a run whose id is cited
+in the docs.
 
-Every other family: left alone are the newest ``KEEP_LATEST`` runs and anything
-younger than ``MIN_AGE_HOURS`` (a run in progress). Of the others, inside the run:
-- a run whose id appears in ``docs/`` or the top-level markdown files (the ledger) keeps
-  its databases and has ``events.jsonl`` gzipped;
-- any other run has ``events.jsonl`` over ``MIN_BYTES`` gzipped (``events.sqlite3``
-  is kept: already compressed) and its other ``*.sqlite3`` (+ ``-wal``/``-shm``)
-  deleted (map memory and per-run episode ledgers, derived from the same events).
-The shared ``results/episodes.sqlite3`` and anything outside run folders are left
-alone.
+Every other family (navigation, natural, hills, ...): left alone are the newest
+``KEEP_LATEST`` runs and anything younger than ``MIN_AGE_HOURS`` (a run in
+progress). Of the others, anywhere inside the run folder:
+- a run whose id appears in ``docs/`` or the top-level markdown files (the ledger)
+  keeps its event log (``events.jsonl`` is gzipped) and its episode ledger; its
+  other ``*.sqlite3`` (map memory, derived from the same events) is deleted;
+- any other run loses every raw file: ``events.*`` and ``*.sqlite3`` (+ sidecars).
+Small result files (summary.json, ...) always stay.
 
-Dry run unless ``--apply``: ``python -m mclab.prune [--keep N] [--root DIR]`` prints
-the plan and what it would free. When an arena session ends
-(``recorder.exclusive_arena``) ``sweep`` runs the per-family rule only: superseded
-companion runs are pruned only by an explicit ``--apply``.
+Episode ledgers (``results/episodes.sqlite3`` and ``results/navigation/<run>/
+episodes.sqlite3``, ``trim_ledgers``) keep every run, episode and event row, but
+event payloads over ``recorder.LEDGER_PAYLOAD_MAX`` of runs older than
+``LEDGER_DAYS`` become ``{"type", "elided_bytes"}`` stubs (the run's own event log
+holds the full record), then the file is vacuumed.
+
+Dry run unless ``--apply``: ``python -m mclab.prune [--keep N] [--ledger-days D]
+[--root DIR]`` prints the plan and what it would free. When an arena session ends
+(``recorder.exclusive_arena``: every run-build, run-gather, navigation and natural
+session) ``auto`` applies all of it, capped at ``AUTO_MAX_RUNS`` superseded runs
+(each may need a digest pass over its log); the rest waits for the next session or
+an explicit ``--apply``. ``MCLAB_NO_PRUNE=1`` turns the automatic prune off.
 """
 
 from __future__ import annotations
 
 import argparse
 import gzip
+import os
 import re
 import shutil
+import sqlite3
 import sys
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
-from mclab import run_digest
+from mclab import recorder, run_digest
 from mclab.paths import ROOT
 
 KEEP_LATEST = 3
 MIN_AGE_HOURS = 24
 MIN_BYTES = 1_000_000
+LEDGER_DAYS = 7  # episode-ledger payloads older than this become stubs
+AUTO_MAX_RUNS = 3  # superseded runs digested and pruned per automatic prune
 RUN_ID = re.compile(r"\d{8}T\d{12}Z")
-DELETE_EVENTS: set[str] = set()  # families whose old logs are not worth compressing
+SIDECARS = ("-wal", "-shm", "-journal")
 LEDGER = ("docs", "README.md", "CLAUDE.md")
 SUPERSEDE = ("companion",)  # families kept per build key (plan_superseded)
 
@@ -90,7 +103,41 @@ def cited_runs(root: Path = ROOT) -> set[str]:
 
 def _is_raw(path: Path) -> bool:
     name = path.name
-    return name == "events.jsonl" or ".sqlite3" in name
+    return name.startswith("events.") or ".sqlite3" in name
+
+
+def _cited_kind(name: str) -> str | None:
+    """What a cited run does with one raw file: gzip, keep (None) or delete."""
+    if name == "events.jsonl":
+        return "gzip"
+    if name.startswith(("events.", "episodes.sqlite3")):
+        return None  # the event log and the episode ledger (trimmed separately)
+    return "delete"  # map memory and other databases derived from the events
+
+
+def _sidecars(path: Path) -> list[Path]:
+    return [
+        side
+        for suffix in SIDECARS
+        if (side := path.with_name(path.name + suffix)).is_file()
+    ]
+
+
+def _run_actions(run: Path, cited: bool, now: float) -> list[Action]:
+    actions: list[Action] = []
+    for path in sorted(run.rglob("*")):
+        if not (path.is_file() and _is_raw(path)) or path.name.endswith(SIDECARS):
+            continue
+        stat = path.stat()
+        if stat.st_size < MIN_BYTES or now - stat.st_mtime < MIN_AGE_HOURS * 3600:
+            continue
+        kind = _cited_kind(path.name) if cited else "delete"
+        if kind is None:
+            continue
+        actions.append(Action(path, kind, stat.st_size))
+        if kind == "delete":
+            actions += [Action(s, "delete", s.stat().st_size) for s in _sidecars(path)]
+    return actions
 
 
 def plan(root: Path = ROOT, now: float | None = None) -> list[Action]:
@@ -105,32 +152,8 @@ def plan(root: Path = ROOT, now: float | None = None) -> list[Action]:
         runs = sorted(
             p for p in family.iterdir() if p.is_dir() and RUN_ID.fullmatch(p.name)
         )
-        latest = {p.name for p in runs[-KEEP_LATEST:]}
-        for run in runs:
-            if run.name in latest:
-                continue
-            for path in sorted(run.rglob("*")):
-                if not (path.is_file() and _is_raw(path)):
-                    continue
-                stat = path.stat()
-                if (
-                    stat.st_size < MIN_BYTES
-                    or now - stat.st_mtime < MIN_AGE_HOURS * 3600
-                ):
-                    continue
-                events = path.name == "events.jsonl"
-                # events.sqlite3 is the event log and is already compressed: kept
-                # for cited runs, and for families whose logs are not deleted.
-                store = path.name.startswith("events.sqlite3")
-                if run.name in cited:
-                    if events:
-                        actions.append(Action(path, "gzip", stat.st_size))
-                elif store and family.name not in DELETE_EVENTS:
-                    continue
-                elif events and family.name not in DELETE_EVENTS:
-                    actions.append(Action(path, "gzip", stat.st_size))
-                else:
-                    actions.append(Action(path, "delete", stat.st_size))
+        for run in runs[:-KEEP_LATEST]:
+            actions += _run_actions(run, run.name in cited, now)
     return actions
 
 
@@ -195,10 +218,12 @@ def plan_superseded(
             )
             if run_digest.may_be_running(run, now):
                 verdicts.append(Verdict(run, key, "active", has_digest=bool(digest)))
-            elif key is None:
-                verdicts.append(Verdict(run, None, "unknown", has_digest=bool(digest)))
             elif run.name in cited:
                 verdicts.append(Verdict(run, key, "cited", has_digest=bool(digest)))
+            elif key is None:  # nothing supersedes it, nothing cites it
+                verdicts.append(
+                    Verdict(run, None, "unknown", _actions(run), bool(digest))
+                )
             else:
                 groups[key].append((run, _passing(run, digest), bool(digest)))
     for key, members in groups.items():
@@ -217,14 +242,17 @@ def plan_superseded(
 
 
 def apply_superseded(verdicts: list[Verdict]) -> tuple[int, list[tuple[str, str]]]:
-    """Delete superseded runs' heavy files, each run's digest written first.
-    Returns (bytes freed, [(run, why kept)])."""
+    """Delete superseded runs' heavy files, each run's digest written first, and
+    keyless runs' heavy files. Returns (bytes freed, [(run, why kept)])."""
     freed, kept = 0, []
     for v in verdicts:
-        if v.verdict != "superseded" or not v.actions:
+        if v.verdict not in ("superseded", "unknown") or not v.actions:
             continue
         if run_digest.may_be_running(v.run):  # it changed since the plan
             kept.append((v.run.name, "written to since the plan"))
+            continue
+        if v.verdict == "unknown":  # no build key: no digest to keep
+            freed += _delete(v.actions)
             continue
         try:
             digest = run_digest.ensure(v.run)
@@ -236,13 +264,19 @@ def apply_superseded(verdicts: list[Verdict]) -> tuple[int, list[tuple[str, str]
                 (v.run.name, f"digest incomplete: {digest.get('analysis_error')}")
             )
             continue
-        for action in v.actions:
-            try:
-                action.path.unlink()
-            except FileNotFoundError:
-                continue
-            freed += action.size
+        freed += _delete(v.actions)
     return freed, kept
+
+
+def _delete(actions) -> int:
+    freed = 0
+    for action in actions:
+        try:
+            action.path.unlink()
+        except FileNotFoundError:
+            continue
+        freed += action.size
+    return freed
 
 
 def _kind(path: Path) -> str:
@@ -280,7 +314,115 @@ def summarize_superseded(verdicts: list[Verdict]) -> dict:
         "gigabytes": round(sum(a.size for a in gone) / 1e9, 2),
         "gigabytes_by_kind": {k: round(n / 1e9, 2) for k, n in by_kind.items()},
         "keys": {k: tuple(v) for k, v in sorted(keys.items())},
+        "keyless_gigabytes": round(
+            sum(a.size for v in verdicts if v.verdict == "unknown" for a in v.actions)
+            / 1e9,
+            2,
+        ),
     }
+
+
+# ---- episode ledgers ---------------------------------------------------------
+
+
+def _started(value: str) -> float | None:
+    try:
+        return datetime.fromisoformat(value).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+_STUB = (
+    "CASE WHEN json_valid(payload) AND json_type(payload, '$.type') = 'text' "
+    "THEN json_object('type', json_extract(payload, '$.type'), "
+    "'elided_bytes', length(payload)) "
+    "ELSE json_object('elided_bytes', length(payload)) END"
+)
+
+
+def _trim_one(path: Path, cutoff: float, run: bool) -> int:
+    """Stub the big payloads of runs started before ``cutoff``; rows stay."""
+    db = sqlite3.connect(path, timeout=2)
+    try:
+        old = [
+            run_id
+            for run_id, started in db.execute("SELECT run_id, started_at FROM runs")
+            if (at := _started(started)) is not None and at < cutoff
+        ]
+        if not old:
+            return 0
+        where = f"run_id IN ({','.join('?' * len(old))}) AND length(payload) > ?"
+        params = (*old, recorder.LEDGER_PAYLOAD_MAX)
+        count = db.execute(f"SELECT count(*) FROM events WHERE {where}", params)
+        rows = count.fetchone()[0]
+        if run and rows:
+            with db:
+                db.execute(f"UPDATE events SET payload = {_STUB} WHERE {where}", params)
+            db.execute("VACUUM")
+            db.execute("PRAGMA wal_checkpoint(TRUNCATE)")  # WAL mode: shrink now
+        return rows
+    finally:
+        db.close()
+
+
+def trim_ledgers(
+    root: Path = ROOT,
+    *,
+    days: float = LEDGER_DAYS,
+    now: float | None = None,
+    run: bool = True,
+) -> dict:
+    """Elide old event payloads in every episode ledger (see the module doc)."""
+    cutoff = (time.time() if now is None else now) - days * 86400
+    rows, databases, skipped, before, after = 0, 0, [], 0, 0
+    for path in recorder.episode_databases(root):
+        size = path.stat().st_size
+        try:
+            rows += _trim_one(path, cutoff, run)
+        except sqlite3.Error:  # locked by a live run, or not a ledger
+            skipped.append(str(path))
+            continue
+        databases += 1
+        before += size
+        after += path.stat().st_size
+    return {
+        "applied": run,
+        "databases": databases,
+        "rows": rows,
+        "gigabytes_before": round(before / 1e9, 2),
+        "gigabytes_after": round(after / 1e9, 2),
+        "skipped": skipped,
+    }
+
+
+# ---- automatic prune -------------------------------------------------------
+
+
+def auto(
+    root: Path = ROOT,
+    *,
+    max_runs: int = AUTO_MAX_RUNS,
+    ledger_days: float = LEDGER_DAYS,
+) -> dict:
+    """Everything above, applied, with the digest work capped at ``max_runs``
+    superseded runs (oldest first). Run at the end of every arena session."""
+    if os.environ.get("MCLAB_NO_PRUNE"):
+        return {"skipped": "MCLAB_NO_PRUNE"}
+    result: dict = {"sweep": sweep(root)}
+    verdicts = plan_superseded(root)
+    superseded = [v for v in verdicts if v.verdict == "superseded" and v.actions]
+    keyless = [v for v in verdicts if v.verdict == "unknown" and v.actions]
+    chosen = superseded[:max_runs]
+    freed, kept = apply_superseded(chosen + keyless)
+    result |= {
+        "superseded_runs": len(chosen),
+        "deferred": len(superseded) - len(chosen),
+        "keyless_runs": len(keyless),
+        "gigabytes": round(freed / 1e9, 2),
+        "kept": len(kept),
+        "ledger": trim_ledgers(root, days=ledger_days),
+    }
+    return result
 
 
 # ---- the per-family rule's mechanics ---------------------------------------
@@ -333,7 +475,8 @@ def _print_superseded(summary: dict, keep: int) -> None:
         f"{k} {n} GB" for k, n in sorted(summary["gigabytes_by_kind"].items())
     )
     print(
-        f"  superseded would free {summary['files']} files, {summary['gigabytes']} GB"
+        f"  superseded and keyless runs would free {summary['files']} files, "
+        f"{summary['gigabytes']} GB (keyless {summary['keyless_gigabytes']} GB)"
         + (f" ({kinds})" if kinds else "")
         + f"; {summary['superseded_already_small']} superseded runs already small"
     )
@@ -364,6 +507,13 @@ def main(argv: list[str] | None = None) -> int:
         help="build/gather runs: keep the N newest ended runs per build key whole",
     )
     parser.add_argument(
+        "--ledger-days",
+        type=float,
+        default=LEDGER_DAYS,
+        metavar="D",
+        help="episode ledgers: stub the big event payloads of runs older than D days",
+    )
+    parser.add_argument(
         "--root", type=Path, default=ROOT, help="repo root holding results/"
     )
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
@@ -377,7 +527,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  freed {freed / 1e9:.2f} GB")
         for name, why in kept:
             print(f"  kept {name}: {why}")
-    elif result["files"] or summary["files"]:
+    ledgers = trim_ledgers(args.root, days=args.ledger_days, run=args.apply)
+    print("episode ledgers:", ledgers)
+    if not args.apply and (result["files"] or summary["files"] or ledgers["rows"]):
         print("dry run; pass --apply to do it")
     return 0
 
