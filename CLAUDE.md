@@ -38,6 +38,15 @@
   gzipped; any other old run loses its raw logs and databases. Small results
   (`summary.json`, `build.json`, `checkpoints/`) always stay. To keep a run, cite its
   id in `docs/IMPLEMENTED.md` or the relevant proof document. `MCLAB_NO_PRUNE=1` turns the sweep off for a session.
+- Build and gather runs (`results/companion/`) instead go by build key (job, build file
+  or gather target, start, seed), and only with `python -m mclab.prune --apply
+  [--keep N]` (the arena-end sweep leaves them alone): per key the newest ended run
+  and every passing run stay whole; an older attempt keeps `digest.json`,
+  `summary.json`, `walkthrough.md`, its final checkpoint and small files, and loses
+  `events.*`, `map.sqlite3` and the other checkpoints. Runs that may still be going,
+  have no key, or are cited stay whole. Every run writes `digest.json` when it ends;
+  compare attempts with `mclab runs [KEY]` instead of opening logs
+  (`mclab runs backfill` digests older folders).
 - Do not pool earlier configurations into a new denominator when comparing results.
   Native changes require source-bound requalification before legacy scored admission.
 - To test a build from a known point, do not rerun gathering: each build run writes
