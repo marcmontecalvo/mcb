@@ -20,6 +20,7 @@ from pathlib import Path
 from mclab.paths import ROOT, write_json
 
 _CURRENT = ContextVar("mclab_launch", default=None)
+LAUNCHES = ROOT / "results/launches"  # tests point this at their tmp_path
 CHECKS = {
     "animals",
     "companion-scaffold",
@@ -56,7 +57,7 @@ def launch_record(config, *, folder=None, invocation=None, input_references=None
         return
     if folder is None:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-        folder = ROOT / "results/launches" / stamp
+        folder = LAUNCHES / stamp
     folder = Path(folder)
     inherited = os.environ.get("MCB_LAUNCH_RECORD")
     if inherited and current is None:

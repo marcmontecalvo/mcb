@@ -158,6 +158,7 @@ def test_build_initialization_failure_records_effective_checkpoint_and_inputs(
     workspace.mkdir()
     monkeypatch.setattr(config_cli, "ROOT", workspace)
     monkeypatch.setattr(launch, "ROOT", workspace)
+    monkeypatch.setattr(launch, "LAUNCHES", workspace / "results/launches")
     monkeypatch.syspath_prepend(str(ROOT / "scripts"))
     program = runpy.run_path(str(ROOT / "scripts/run-build.py"))
     globals_ = program["main"].__globals__
