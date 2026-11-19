@@ -289,7 +289,13 @@ def _jsonl_records(path, types, kinds, plan_ids, since_seq, until_seq, max_size=
                 continue
             if any(not any(n in line for n in group) for group in needles):
                 continue
-            record = json.loads(line)
+            # a live log can end mid-write, and old logs can hold stray lines
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(record, dict):
+                continue
             if types is not None and record.get("type") not in types:
                 continue
             payload = record.get("payload")
