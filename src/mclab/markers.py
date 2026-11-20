@@ -52,10 +52,11 @@ class Markers:
             self.on = on
             self.client.show_path = on
             self.client.send("natural_markers", show=on)
-            self._sent = {}
         if not on:
             return
-        # What the lab shows: absent from _sent = nothing yet (the lab's own default).
+        # What the lab holds: absent from _sent = nothing yet (the lab's own default).
+        # Hidden markers keep their goal and target in the lab, so _sent outlives a
+        # switch off and on: what changed meanwhile, a clear included, goes now.
         changed = {
             key: value
             for key, value in (("goal", self.goal), ("target", self.target))

@@ -39,32 +39,38 @@ from mclab.schematic import parse_state
 EAST = -90.0  # yaw facing +x, where every course runs
 
 
+PROBE_BATCH = 2048  # the lab kit reads at most this many cells a request
+
+
 def lay(bridge, c, origin, **who):
-    """Clear the spot, then set the course's cells, bottom up."""
-    kit(bridge, at=list(origin), clear=c.clear_extent(), **who)
+    """Clear the spot, then set the course's cells, bottom up. The subject is moved to
+    the start first (``home``), so no cell is left out for standing in it."""
+    kit(bridge, at=list(origin), home=True, clear=c.clear_extent(), **who)
     for batch in c.place_batches():
         kit(bridge, at=list(origin), place=batch, **who)
 
 
 def restore(bridge, c, origin, **who):
-    """Back to the flat spot: the clear empties everything from the ground top up
+    """Back to the flat spot: the subject back at the start (out of the shaft or
+    pit it ended in), the clear empties everything from the ground top up
     (scaffolding left standing included); the pits are filled with stone again."""
-    kit(bridge, at=list(origin), clear=c.clear_extent(), **who)
+    kit(bridge, at=list(origin), home=True, clear=c.clear_extent(), **who)
     below = {p: s for p, s in c.restore_cells().items() if p[1] < 0}
     entries = [{"offset": list(p), "state": s} for p, s in sorted(below.items())]
     for i in range(0, len(entries), sch.KIT_BATCH):
         kit(bridge, at=list(origin), place=entries[i : i + sch.KIT_BATCH], **who)
 
 
-def built_changed(c, origin, world) -> int:
-    """Course cells (not air) whose block is no longer the one laid."""
+def built_changed(bridge, c, origin, **who) -> int:
+    """Course cells (not air) whose block is no longer the one laid, read from the
+    world (a person's own scaffolding, placed or broken, does not count)."""
+    cells = c.built()
     changed = 0
-    for p, state in c.cells.items():
-        if state == sch.AIR:
-            continue
-        now = world(*c.at(origin, p))
-        if now is None or parse_state(now)[0] != parse_state(state)[0]:
-            changed += 1
+    for i in range(0, len(cells), PROBE_BATCH):
+        batch = cells[i : i + PROBE_BATCH]
+        got = kit(bridge, at=list(origin), probe=[list(p) for p in batch], **who)
+        for p, now in zip(batch, got["probed"], strict=True):
+            changed += now != parse_state(c.cells[p])[0]
     return changed
 
 
@@ -85,7 +91,7 @@ def run_bot(folder, c, origin, show_markers):
         kit(bridge, inventory=sch.kit(c))
         body.wait_ticks(40)
         body.observe()
-        built = tuple(c.at(origin, p) for p, s in c.cells.items() if s != sch.AIR)
+        built = tuple(c.at(origin, p) for p in c.built())
         body.temporary_ok = temporary_blocks.eligible(load_vanilla_pack())
         body.terrain_policy = replace(
             body.terrain_policy,
@@ -95,14 +101,9 @@ def run_bot(folder, c, origin, show_markers):
             place_budget=c.scaffolding,
             material_allowlist=(),
             scaffold_materials=(sch.SCAFFOLDING,),
-            # a house is not the bot's to edit (the stairs challenge)
+            # the course is not the bot's to edit (a changed cell fails it)
             protected_positions=tuple(
-                sorted(
-                    {
-                        *body.terrain_policy.protected_positions,
-                        *(built if c.keep_built else ()),
-                    }
-                )
+                sorted({*body.terrain_policy.protected_positions, *built})
             ),
         )
         bridge.record("job_started", {"job": f"scaffold-challenge:{c.name}"})
@@ -128,7 +129,7 @@ def run_bot(folder, c, origin, show_markers):
             reached=reached,
             damage=damage,
             scaffolding_used=body.edits_placed - placed0,
-            built_changed=built_changed(c, origin, body.world) if c.keep_built else 0,
+            built_changed=built_changed(bridge, c, origin),
         )
         outcome.update(wall_s=round(time.monotonic() - t0, 1), position=[x, y, z])
         return outcome
@@ -145,13 +146,19 @@ def run_bot(folder, c, origin, show_markers):
 
 
 def run_human(folder, c, origin, player, minutes):
+    """Lay, hand over (natural_start with the kit), wait for the goal or the time,
+    then stop and score. Whatever fails on the way, the attempt is stopped and the
+    spot restored: a natural run left in place keeps the lab busy and every later
+    challenge would be refused (review of 5bb4812)."""
     folder.mkdir(parents=True, exist_ok=True)
     bridge = open_bridge(folder)
+    started = False
     try:
         _new_identity(bridge, "challenge-lay")
         lay(bridge, c, origin, player=player)
         _new_identity(bridge, "challenge")
         goal = c.at(origin, c.goal)
+        started = True  # from the send on: its admission may be ambiguous
         request = bridge.send(
             "natural_start",
             subject="human",
@@ -174,24 +181,39 @@ def run_human(folder, c, origin, player, minutes):
         )
         terminal = _wait_terminal(bridge, minutes * 60 + 120)
         data = dict(terminal["data"]) if terminal else {"status": "invalid"}
-        stop = bridge.send("natural_stop")
-        bridge.acknowledge(stop, "stopped")
+        _stop(bridge)
+        started = False
+        _new_identity(bridge, "challenge-check")
         left = (data.get("kit_left") or {}).get(sch.SCAFFOLDING, 0)
         outcome = sch.verdict(
             c,
             reached=data.get("status") == "success",
             damage=float(data.get("damage_taken", 0)),
             scaffolding_used=max(0, c.scaffolding - left),
-            built_changed=int(data.get("blocks_broken", 0)) if c.keep_built else 0,
+            built_changed=built_changed(bridge, c, origin, player=player),
         )
         outcome.update(
             ticks=data.get("ticks"), reason=data.get("reason"), scaffolding_left=left
         )
-        _new_identity(bridge, "challenge-restore")
-        restore(bridge, c, origin, player=player)
         return outcome
     finally:
-        bridge.close()
+        try:
+            if started:
+                try:
+                    _stop(bridge)
+                except Exception as error:  # never admitted, or already over
+                    bridge.record("challenge_stop_failed", {"error": repr(error)})
+        finally:
+            try:
+                _new_identity(bridge, "challenge-restore")
+                restore(bridge, c, origin, player=player)
+            finally:
+                bridge.close()
+
+
+def _stop(bridge):
+    stop = bridge.send("natural_stop")
+    bridge.acknowledge(stop, "stopped")
 
 
 @script_run("scaffold-challenges")

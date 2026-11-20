@@ -63,6 +63,9 @@ CLEANUP_ROUNDS = 3
 MAX_RECOVERIES = 3
 BUILD_WALL = 30.0  # seconds a build walk may take before the route is given up
 SETTLE_TICKS = 60  # wait for the sensor before calling a build blocked
+# A broken bridge root: scaffolding past distance 6 falls a tick a cell, and the
+# items then drop to the ground (a run of 6 and a few blocks of fall).
+COLLAPSE_TICKS = 12
 RETRY_ROUNDS = 2  # fresh tries for skipped cells before stopping blocked
 STANCE_BUDGET_S = 5.0  # a pause longer than this reads as a broken bot
 FOOTHOLD_STOCK = 32  # spare blocks to climb or step down on, held from the start
@@ -770,9 +773,14 @@ class _Runner:
 
     def _drop(self, cells: list[Pos]) -> None:
         """A bridge nobody stands on is only in the way: break the block next to
-        the tower and the rest falls with it."""
-        if _standing(self.body, cells[0]):
-            self.body.break_block(cells[0])
+        the tower and the rest falls with it; once it has fallen, pick the
+        scaffolding up as a tower teardown does (left lying, 2-3 of them were on the
+        ground after run 20261120T141244368734Z)."""
+        if _standing(self.body, cells[0]) and self.body.break_block(cells[0]).ok:
+            if settle := getattr(self.body, "wait_ticks", None):  # optional
+                settle(COLLAPSE_TICKS)
+            if collect := getattr(self.body, "collect_drops", None):  # optional
+                collect(list(cells))
         for cell in cells:
             if not _standing(self.body, cell):
                 self.scaffolds.discard(cell)

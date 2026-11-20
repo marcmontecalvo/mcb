@@ -45,17 +45,34 @@ def test_an_unchanged_aim_is_not_sent_again_and_a_cleared_one_is_null():
     ]
 
 
-def test_switching_back_on_resends_where_they_point():
+def test_switching_back_on_sends_what_changed_while_off():
+    # the lab keeps the goal and target while the markers are hidden
     client, on = Client(), [True]
     markers = Markers(client, lambda: on[0])
-    markers.aim(goal=(1, 2, 3))
+    markers.aim(goal=(1, 2, 3), target=(4, 5, 6))
     on[0] = False
-    markers.aim(goal=(1, 2, 3))
+    markers.aim(goal=(7, 8, 9))
     on[0] = True
-    markers.aim(goal=(1, 2, 3))
+    markers.aim()
     assert client.sent[-2:] == [
         ("natural_markers", {"show": True}),
-        ("natural_markers", {"goal": [1, 2, 3]}),
+        ("natural_markers", {"goal": [7, 8, 9]}),
+    ]
+
+
+def test_a_mark_cleared_while_off_is_cleared_when_back_on():
+    # review of 5bb4812: forgetting what was sent on the switch made a cleared
+    # target look like "nothing yet", so the lab kept showing the old one
+    client, on = Client(), [True]
+    markers = Markers(client, lambda: on[0])
+    markers.aim(goal=(1, 2, 3), target=(4, 5, 6))
+    on[0] = False
+    markers.aim(goal=None, target=None)
+    on[0] = True
+    markers.aim()
+    assert client.sent[-2:] == [
+        ("natural_markers", {"show": True}),
+        ("natural_markers", {"goal": None, "target": None}),
     ]
 
 

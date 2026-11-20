@@ -2146,6 +2146,31 @@ def test_a_bridge_short_of_scaffolding_takes_an_idle_tower_down_never_its_own_ro
     assert _new_scaffolding(body) == {(4, 6, 3)}
 
 
+def test_a_dropped_bridge_waits_for_the_fall_and_picks_its_scaffolding_up():
+    # review of 5bb4812: a bridge nobody could stand on was broken at its root and
+    # left where it fell (2-3 scaffolding lay on the ground after run
+    # 20261120T141244368734Z); tower teardowns pick theirs up
+    body, runner = _eave((5, 7, 5), {(4, 7, 5)})
+    calls = []
+    body.wait_ticks = lambda n: calls.append(("wait", n))
+    body.collect_drops = lambda cells: calls.append(("collect", sorted(cells)))
+    cells = [(4, 6, 3), (4, 6, 4)]
+    for c in cells:
+        body.w[c] = SCAFF
+    runner.scaffolds |= set(cells)
+    runner._drop(cells)
+    assert calls == [("wait", br.COLLAPSE_TICKS), ("collect", sorted(cells))]
+    assert (4, 6, 3) not in runner.scaffolds
+
+
+def test_a_bridge_root_that_is_gone_is_not_collected_for():
+    body, runner = _eave((5, 7, 5), {(4, 7, 5)})
+    calls = []
+    body.collect_drops = lambda cells: calls.append(cells)
+    runner._drop([(4, 6, 3)])  # never placed
+    assert calls == []
+
+
 def test_a_tower_is_built_when_no_bridge_reaches_the_stance():
     pos = (5, 7, 12)  # nine blocks off the root: farther than scaffolding hangs
     body, runner = _eave(pos, {(5, 7, 11)})

@@ -6,14 +6,21 @@ Offsets are from the start feet cell on a flat lab spot: the ground top is dy=-1
 everything below it is stone and everything from dy=0 up is air, except ``cells``.
 Every challenge needs scaffolding the way a player uses it (docs/SCAFFOLDING.md):
 climb, come down a drop too deep to fall, stand out over a pit, bridge straight, round
-one corner (L) and round a wall (U) within scaffold distance 6, span 13 with a middle
-tower, and, the last one, take the stairs to an upper floor rather than tower into a
-solid ceiling (run 20261120T141244368734Z)."""
+one corner (L) and round a wall (U) within scaffold distance 6, and, the last one, take
+the stairs to an upper floor rather than tower into a solid ceiling (run
+20261120T141244368734Z).
+
+A course must force what it claims (review of 5bb4812): the bridge courses are closed
+under a glass roof, so no tower reaches the top of a fence to walk along it, and their
+pit is deeper than the scaffolding handed out, so no column down to the pit floor and up
+again at the island stands in for the bridge. The kit is scaffolding alone (no pickaxe
+to dig out of a pit), and a changed course cell fails the attempt."""
 
 from __future__ import annotations
 
+import heapq
 from collections import deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
 AIR = "minecraft:air"
@@ -21,11 +28,12 @@ STONE = "minecraft:stone"
 GLASS = "minecraft:glass"
 SCAFFOLDING = "minecraft:scaffolding"
 STAIR = "minecraft:stone_stairs[facing=east]"
-PICKAXE = "minecraft:iron_pickaxe"
 SCAFFOLD_DISTANCE = 6  # a seventh cell out from support falls
 MAX_DROP = 3  # a fall of more hurts
 KIT_BATCH = 60  # the lab kit places at most 64 cells a request
 LEVELS = ("basic", "advanced")
+MOAT_DEPTH = 10  # deeper than any bridge course's scaffolding
+ROOF_Y = 3  # the bridge courses' glass roof, on the fences
 
 Offset = tuple[int, int, int]
 Pos = tuple[int, int, int]
@@ -42,7 +50,7 @@ class Challenge:
     goal_radius: float = 1.0
     scaffolding: int = 32
     no_damage: bool = True  # a fall or a drop into the pit is not a scaffold solution
-    keep_built: bool = False  # the subject must not change the built cells (a house)
+    scaffold_free: bool = False  # the way is there already (stairs): place nothing
 
     def state(self, p: Offset) -> str:
         return self.cells.get(p, STONE if p[1] < 0 else AIR)
@@ -73,6 +81,10 @@ class Challenge:
         """Back to the flat spot: stone below the ground top, air above."""
         return {p: STONE if p[1] < 0 else AIR for p in self.cells}
 
+    def built(self) -> list[Offset]:
+        """The laid cells that are not air: the subject must leave them as they are."""
+        return sorted(p for p, s in self.cells.items() if s != AIR)
+
 
 def _box(xs: Iterable[int], ys: Iterable[int], zs: Iterable[int], state: str) -> dict:
     ys, zs = list(ys), list(zs)
@@ -80,45 +92,40 @@ def _box(xs: Iterable[int], ys: Iterable[int], zs: Iterable[int], state: str) ->
 
 
 def _pit(xs: Iterable[int], zs: Iterable[int], depth: int, *, keep=()) -> dict:
-    """Air ``depth`` deep under the ground top, on a laid stone floor (the lab platform
-    may be a slab with nothing under it). ``keep``: (x, z) columns left standing."""
+    """Air ``depth`` deep under the ground top in laid stone: a floor under it and a
+    wall round it (the lab platform may be a slab with nothing under it, and the course
+    must not open into whatever is there). ``keep``: (x, z) columns left standing,
+    laid in stone too."""
+    xs, zs = list(xs), list(zs)
+    holes = {(x, z) for x in xs for z in zs} - set(keep)
     out = {}
-    for x in xs:
-        for z in zs:
-            if (x, z) in keep:
-                continue
-            out |= {(x, y, z): AIR for y in range(-depth, 0)}
-            out[(x, -depth - 1, z)] = STONE
+    for x, z in holes:
+        out |= {(x, y, z): AIR for y in range(-depth, 0)}
+        out[(x, -depth - 1, z)] = STONE
+    ring = {
+        (x + sx, z + sz) for x, z in holes for sx in (-1, 0, 1) for sz in (-1, 0, 1)
+    } - holes
+    for x, z in ring:
+        out |= {(x, y, z): STONE for y in range(-depth - 1, 0)}
     return out
 
 
 def _moat(island: tuple[int, int], walls=()) -> dict:
     """The bridge courses: a 3x3 start pad (x -1..1) closed by glass on three sides,
-    a pit 6 deep east of it (x 2..9, z -4..4) fenced in glass so its far rims cannot
-    be reached, and a one-cell stone island to stand on. ``walls``: glass (x, z)
-    columns rising from the pit floor."""
-    cells = _pit(range(2, 10), range(-4, 5), 6, keep={island, *walls})
+    a pit MOAT_DEPTH deep east of it (x 2..9, z -4..4) fenced in glass so its far rims
+    cannot be reached, a one-cell stone island to stand on, and a glass roof over it
+    all at ROOF_Y. ``walls``: glass (x, z) columns rising from the pit floor."""
+    cells = _pit(range(2, 10), range(-4, 5), MOAT_DEPTH, keep={island, *walls})
     for x, z in walls:
-        cells |= _box([x], range(-6, 4), [z], GLASS)
+        cells |= _box([x], range(-MOAT_DEPTH, ROOF_Y), [z], GLASS)
     fence = {(x, z) for x in range(1, 11) for z in (-5, 5)}
     fence |= {(10, z) for z in range(-5, 6)}
     fence |= {(1, z) for z in (*range(-5, -1), *range(2, 6))}
     fence |= {(x, z) for x in range(-2, 2) for z in (-2, 2)}
     fence |= {(-2, z) for z in range(-2, 3)}
     for x, z in fence:
-        cells |= _box([x], range(0, 3), [z], GLASS)
-    return cells
-
-
-def _corridor() -> dict:
-    """The span: a corridor 5 wide closed in glass, a pit 13 long and 4 deep across it,
-    so a bridge from one side reaches 6 and a tower on the pit floor carries the
-    rest."""
-    cells = _pit(range(2, 15), range(-2, 3), 4)
-    for x in range(-2, 19):
-        cells |= _box([x], range(0, 3), [-3, 3], GLASS)
-    for x in (-2, 18):
-        cells |= _box([x], range(0, 3), range(-2, 3), GLASS)
+        cells |= _box([x], range(0, ROOF_Y), [z], GLASS)
+    cells |= _box(range(-2, 11), [ROOF_Y], range(-5, 6), GLASS)
     return cells
 
 
@@ -160,12 +167,15 @@ CHALLENGES: tuple[Challenge, ...] = (
         goal=(5, 2, 0),
         scaffolding=16,
     ),
+    # The bridge courses hand out the bridge's scaffolding and two spare: never enough
+    # for a column down to the pit floor (MOAT_DEPTH) and up again.
     Challenge(
         "bridge",
         "advanced",
         "Bridge straight across the pit to the island, without falling in.",
         _moat((7, 0)),
         goal=(7, 0, 0),
+        scaffolding=8,
     ),
     Challenge(
         "bridge-l",
@@ -173,6 +183,7 @@ CHALLENGES: tuple[Challenge, ...] = (
         "Bridge to the island round one corner (it is off your lines), no falling in.",
         _moat((4, -3)),
         goal=(4, 0, -3),
+        scaffolding=7,
     ),
     Challenge(
         "bridge-u",
@@ -180,14 +191,7 @@ CHALLENGES: tuple[Challenge, ...] = (
         "Bridge round the glass wall to the island behind it, without falling in.",
         _moat((4, 0), walls=[(3, -1), (3, 0), (3, 1)]),
         goal=(4, 0, 0),
-    ),
-    Challenge(
-        "span",
-        "advanced",
-        "Cross the 13-wide pit: a bridge reaches 6, so build a tower in the middle.",
-        _corridor(),
-        goal=(16, 0, 0),
-        scaffolding=48,
+        scaffolding=8,
     ),
     Challenge(
         "stairs",
@@ -196,7 +200,7 @@ CHALLENGES: tuple[Challenge, ...] = (
         _house(),
         goal=(7, 4, -2),
         scaffolding=16,
-        keep_built=True,
+        scaffold_free=True,
     ),
 )
 
@@ -218,11 +222,36 @@ def select(
 
 
 def kit(c: Challenge) -> list[dict]:
-    """The subject's inventory: scaffolding, and a pickaxe to take it down again."""
-    return [
-        {"item": SCAFFOLDING, "count": c.scaffolding},
-        {"item": PICKAXE, "count": 1},
-    ]
+    """The subject's inventory: scaffolding only (it breaks by hand; a pickaxe would
+    dig a way out of a pit or a supply of stone to pillar with)."""
+    return [{"item": SCAFFOLDING, "count": c.scaffolding}]
+
+
+def open_space(c: Challenge) -> tuple[set[Offset], bool]:
+    """The air the start is in (6-neighbour flood through non-solid cells), and
+    whether it leaves the course box: True means the course is open to the world
+    round it, so a subject could go round it."""
+    dx, dy, dz = c.clear_extent()
+    floor = min([p[1] for p in c.cells] + [0]) - 1
+    seen, todo, leaks = {(0, 0, 0)}, deque([(0, 0, 0)]), False
+    while todo:
+        x, y, z = todo.popleft()
+        for n in (
+            (x + 1, y, z),
+            (x - 1, y, z),
+            (x, y + 1, z),
+            (x, y - 1, z),
+            (x, y, z + 1),
+            (x, y, z - 1),
+        ):
+            if n in seen or c.state(n) != AIR:
+                continue
+            if abs(n[0]) >= dx or abs(n[2]) >= dz or n[1] >= dy or n[1] <= floor:
+                leaks = True
+                continue
+            seen.add(n)
+            todo.append(n)
+    return seen, leaks
 
 
 def _solid(c: Challenge, p: Offset, extra: Mapping[Offset, str]) -> bool:
@@ -269,18 +298,20 @@ def walkable(c: Challenge, target: Offset) -> bool:
     return False
 
 
-def bridge_turns(
+def _bridge(
     c: Challenge,
-    *,
-    limit: int = SCAFFOLD_DISTANCE,
-    extra: Mapping[Offset, str] | None = None,
-) -> int | None:
-    """Fewest turns of a scaffold bridge at the ground's height (dy=0) from the start to
-    the goal column, or None when no bridge within scaffold distance ``limit`` gets
-    there. A cell over ground has distance 0 (walk on, turns start again); each cell out
-    over air is one more than the cell before it. A turn is a change of direction
-    between two bridge cells; stepping off onto ground is free. ``extra``: cells that
-    are built (a tower on the pit floor)."""
+    limit: int,
+    extra: Mapping[Offset, str] | None,
+    rank: Callable[[int, int], tuple[int, int]],
+) -> tuple[int, int] | None:
+    """The best scaffold bridge at the ground's height (dy=0) from the start to the
+    goal column by ``rank(turns, cells)``, as that rank, or None when no bridge within
+    scaffold distance ``limit`` gets there. A cell over ground has distance 0 (walk
+    on); each cell out over air is one more than the cell before it. A run out costs
+    its air cells and the grounded cell it stands on (scaffolding over air falls
+    unless a column on the ground holds it). A turn is a change of direction between
+    two cells out; stepping off onto ground is free. ``extra``: cells that are
+    built."""
     extra = extra or {}
     dx, _dy, dz = c.clear_extent()
 
@@ -293,31 +324,55 @@ def bridge_turns(
 
     goal = (c.goal[0], c.goal[2])
     start = (0, 0, None, 0)  # x, z, last bridge direction, distance
-    best = {start: 0}
-    todo: deque = deque([(0, start)])
+    best = {start: rank(0, 0)}
+    todo = [(rank(0, 0), 0, 0, start)]
     while todo:
-        turns, state = todo.popleft()
-        if best.get(state, turns) < turns:
+        key, turns, cells, state = heapq.heappop(todo)
+        if best.get(state, key) < key:
             continue
         x, z, heading, dist = state
         if (x, z) == goal and grounded(x, z):
-            return turns
+            return key
         for step in STEPS:
             nx, nz = x + step[0], z + step[1]
             if not open_(nx, nz):
                 continue
             if grounded(nx, nz):
-                nxt, cost = (nx, nz, None, 0), 0
+                nxt, turn, more = (nx, nz, None, 0), 0, 0
             elif dist + 1 > limit:
                 continue
-            elif dist == 0:  # the first cell out: the next one sets the line
-                nxt, cost = (nx, nz, None, 1), 0
+            elif dist == 0:  # the first cell out (and its root); the next sets the line
+                nxt, turn, more = (nx, nz, None, 1), 0, 2
             else:
-                nxt, cost = (nx, nz, step, dist + 1), int(heading not in (None, step))
-            if turns + cost < best.get(nxt, 1 << 30):
-                best[nxt] = turns + cost
-                (todo.appendleft if cost == 0 else todo.append)((turns + cost, nxt))
+                nxt = (nx, nz, step, dist + 1)
+                turn, more = int(heading not in (None, step)), 1
+            new = rank(turns + turn, cells + more)
+            if new < best.get(nxt, (1 << 30, 1 << 30)):
+                best[nxt] = new
+                heapq.heappush(todo, (new, turns + turn, cells + more, nxt))
     return None
+
+
+def bridge_turns(
+    c: Challenge,
+    *,
+    limit: int = SCAFFOLD_DISTANCE,
+    extra: Mapping[Offset, str] | None = None,
+) -> int | None:
+    """Fewest turns of a scaffold bridge to the goal (``_bridge``), or None."""
+    best = _bridge(c, limit, extra, lambda turns, cells: (turns, cells))
+    return None if best is None else best[0]
+
+
+def bridge_length(
+    c: Challenge,
+    *,
+    limit: int = SCAFFOLD_DISTANCE,
+    extra: Mapping[Offset, str] | None = None,
+) -> int | None:
+    """Fewest scaffolding a bridge to the goal places (``_bridge``), or None."""
+    best = _bridge(c, limit, extra, lambda turns, cells: (cells, turns))
+    return None if best is None else best[0]
 
 
 def verdict(
@@ -333,9 +388,9 @@ def verdict(
         problems.append("goal not reached")
     if c.no_damage and damage > 0:
         problems.append(f"took {damage} damage")
-    if c.keep_built and built_changed:
-        problems.append(f"changed {built_changed} house cells")
-    if c.keep_built and scaffolding_used:
+    if built_changed:
+        problems.append(f"changed {built_changed} course cells")
+    if c.scaffold_free and scaffolding_used:
         problems.append(f"placed {scaffolding_used} scaffolding (stairs were there)")
     return {
         "passed": not problems,

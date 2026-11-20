@@ -105,22 +105,34 @@ pick by name or `--level basic|advanced|all`.
 | basic | `climb` | onto a stone ledge five up |
 | basic | `descend` | to the floor of a shaft ten deep, no damage (drop scaffolding down, stack it up, climb down) |
 | basic | `reach-out` | stand two up and four out over a pit (tower, then extend sideways) |
-| advanced | `bridge` | straight bridge (5) to an island in a fenced pit, no falling in |
-| advanced | `bridge-l` | the island is off every line from the pad: one turn |
-| advanced | `bridge-u` | a glass wall stands in front of the island: two turns round it |
-| advanced | `span` | a pit 13 wide and 4 deep: a bridge reaches 6, so a tower on the pit floor carries the middle |
-| advanced | `stairs` | upstairs in a two-storey house with a solid ceiling: take the stairs; scaffolding or edits to the house fail it |
+| advanced | `bridge` | straight bridge (root + 5, 8 scaffolding) to an island in a fenced, roofed pit 10 deep, no falling in |
+| advanced | `bridge-l` | the island is off every line from the pad: one turn (root + 4, 7 scaffolding) |
+| advanced | `bridge-u` | a glass wall stands in front of the island: two turns round it (root + 5, 8 scaffolding) |
+| advanced | `stairs` | upstairs in a two-storey house with a solid ceiling: take the stairs; any scaffolding fails it |
 
-The geometry is pure (`src/mclab/scaffold_challenges.py`): tests check that each course
-needs scaffolding (walking alone cannot reach the goal; the stairs course is walkable) and
-that the bridges need 0, 1 and 2 turns within scaffold distance 6.
+The geometry is pure (`src/mclab/scaffold_challenges.py`). Tests check:
+- each course needs scaffolding (walking alone cannot reach the goal; the stairs course is
+  walkable);
+- the bridges need 0, 1 and 2 turns within scaffold distance 6;
+- every pit is walled and floored in laid stone;
+- the bridge courses are closed under a glass roof at y=3 (no tower onto a fence to walk
+  along it), and their pit is deeper than the scaffolding handed out (no column down to
+  the floor and up again at the island).
 
-- **Bot:** `--subject bot` (default). The bot spawns at the start with scaffolding and a
-  pickaxe and navigates to the goal with placing allowed (the house is protected). Add
+The kit is scaffolding alone (it breaks by hand; a pickaxe would dig out of a pit or quarry
+stone to pillar with). Any changed course cell fails an attempt. The lab kit reads the cells
+back (`probe`), so a person's own scaffolding, placed or broken, does not count. A pit
+13 wide crossed by dropping scaffolding onto its floor to stack a middle tower is not a
+course yet: the walk down and up again cannot be ruled out, and the planner does not drop
+columns (ROADMAP).
+
+- **Bot:** `--subject bot` (default). The bot spawns at the start with the scaffolding and
+  navigates to the goal with placing allowed (every course cell is protected). Add
   `--show-markers` to see its red planned path, green goal and yellow block; create or
   delete `<run folder>/<challenge>/MARKERS` to flip them while it runs.
 - **Person:** join the lab server with a normal client, then
   `--subject human --player <name> [--minutes 10]`. You are moved to the start with only
-  scaffolding and a pickaxe; the green ring and beam mark the goal and the attempt ends when
-  you stand on it. Results: `results/scaffolding/<stamp>/summary.json` (reached, damage,
-  scaffolding used).
+  the scaffolding; the green ring and beam mark the goal and the attempt ends when you stand
+  on it. It is stopped and the spot restored even if the script fails part way. Results:
+  `results/scaffolding/<stamp>/summary.json` (reached, damage, scaffolding used, course
+  cells changed).

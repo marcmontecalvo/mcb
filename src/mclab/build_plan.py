@@ -613,8 +613,13 @@ def tower_cells(
         # The body stands on the top with its feet in ``head``'s cell and its head
         # one over: a tower under a ceiling it cannot get its head into is never
         # climbed (run 20261120T141244368734Z, a hopper under the first floor).
+        # A dirt column is pillared by jumping (pillar_to): the last jump starts a
+        # cell lower and the planner's pillar edge wants feet+2 and feet+3 empty
+        # (RoutePlanner.pillar), one more cell over the crown. Scaffolding is
+        # climbed, not jumped.
         crown = (x + dx, y + 1, z + dz)
-        states = [world(*c) for c in (*cells, head, crown)]
+        over = () if scaffolding else ((x + dx, y + 2, z + dz),)
+        states = [world(*c) for c in (*cells, head, *over, crown)]
         if any(s is None or parse_state(s)[0] in FLUIDS for s in states):
             continue
         base_state = world(x + dx, low[1] - 1, z + dz)
@@ -623,7 +628,7 @@ def tower_cells(
             if scaffolding
             else _is_solid(base_state, blocks)
         )
-        if not base_ok or any(_is_solid(s, blocks) for s in states[-2:]):
+        if not base_ok or any(_is_solid(s, blocks) for s in states[len(cells) :]):
             continue
         return cells
     if not roof:
@@ -653,7 +658,8 @@ def tower_cells(
         ):
             continue
         cells = [(nx, h, nz) for h in range(low[1], y + 1)]
-        states = [world(*c) for c in (*cells, foot, head)]
+        over = () if scaffolding else ((nx, y + 3, nz),)  # the last jump (above)
+        states = [world(*c) for c in (*cells, foot, head, *over)]
         if any(s is None or parse_state(s)[0] in FLUIDS for s in states):
             continue
         base_state = world(nx, low[1] - 1, nz)
@@ -662,11 +668,7 @@ def tower_cells(
             if scaffolding
             else _is_solid(base_state, blocks)
         )
-        if (
-            not base_ok
-            or _is_solid(states[-2], blocks)
-            or _is_solid(states[-1], blocks)
-        ):
+        if not base_ok or any(_is_solid(s, blocks) for s in states[len(cells) :]):
             continue
         return cells
     return []
@@ -1067,14 +1069,40 @@ def next_actions(
     # details it carries go in: held back they filled the inventory, so no refill had
     # room for the planks and stairs, and the build stopped (run
     # 20261117T184243178083Z: 587 cells left, 27 kinds of detail held).
-    structure_left = any(
-        not is_detail(t[1])
-        and not _is_door(t[1])
-        and parse_state(t[1])[0] not in FLUIDS
-        and (skipped is None or t[0] not in skipped)
-        and all(inventory.get(i, 0) >= c for i, c in t[2].items())
-        and _gate(t[0], t[1], world, blocks) is None
+    def ready_now(t) -> bool:  # placeable this tick, the layer and reach rules aside
+        pos, state, cost = t[0], t[1], t[2]
+        return (
+            (skipped is None or pos not in skipped)
+            and parse_state(state)[0] not in FLUIDS
+            and (pos[0], pos[1] + 1, pos[2]) not in sealed_footholds
+            and all(inventory.get(i, 0) >= c for i, c in cost.items())
+            and _gate(pos, state, world, blocks) is None
+        )
+
+    # Glazing goes in after the details round it, the way a person finishes a
+    # window: the balcony's low panes went in first and its flower pots, out of
+    # sight from the room, were then reached by way of a tree (run
+    # 20261120T141244368734Z). Only details placeable now hold a pane (one skipped,
+    # short or waiting on another never keeps the window open), and a held pane
+    # holds no layer, column or structure rule: the details it waits for may be a
+    # layer up, and would otherwise wait on the pane's layer in turn.
+    decor = [
+        t[0]
         for t in todo
+        if is_detail(t[1])
+        and not _glazing(t[1])
+        and not _is_door(t[1])
+        and ready_now(t)
+    ]
+    glazing_held = {
+        t[0]
+        for t in todo
+        if _glazing(t[1]) and any(_near_glazing(t[0], q) for q in decor)
+    }
+    todo_open = [t for t in todo if t[0] not in glazing_held]
+
+    structure_left = any(
+        not is_detail(t[1]) and not _is_door(t[1]) and ready_now(t) for t in todo_open
     )
 
     def held_back(state):
@@ -1082,7 +1110,7 @@ def next_actions(
 
     waiting = [
         t[0]
-        for t in todo
+        for t in todo_open
         if parse_state(t[1])[0] not in FLUIDS
         and not held_back(t[1])
         and all(inventory.get(i, 0) >= c for i, c in t[2].items())
@@ -1112,7 +1140,7 @@ def next_actions(
     # The column rule keeps what the layer rule was for: nothing is built over a
     # missing cell (a wall over a missed floor corner, run 20261102T212736219778Z).
     below_todo: dict = {}
-    for t in todo:
+    for t in todo_open:
         if parse_state(t[1])[0] in FLUIDS or (skipped is not None and t[0] in skipped):
             continue
         if held_back(t[1]):  # a window gap does not hold up the wall above it
@@ -1139,17 +1167,7 @@ def next_actions(
     )
 
     def offerable(pos, state, cost, held) -> bool:
-        if not _offerable(pos, state, cost, held):
-            return False
-        # Glazing goes in after the details round it, the way a person finishes a
-        # window: the balcony's low panes went in first and its flower pots, out of
-        # sight from the room, were then reached by way of a tree (run
-        # 20261120T141244368734Z). Only cells offerable now hold a pane: one skipped,
-        # short or waiting on another never keeps the window open.
-        return not (_glazing(state) and any(_near_glazing(pos, q) for q in decor))
-
-    def _offerable(pos, state, cost, held) -> bool:
-        if skipped is not None and pos in skipped:
+        if pos in glazing_held or (skipped is not None and pos in skipped):
             return False
         low = lowest if near is None else zone_lowest.get(zone(pos))
         if (
@@ -1172,14 +1190,6 @@ def next_actions(
             and _gate(pos, state, world, blocks) is None
         )
 
-    decor = [
-        t[0]
-        for t in todo
-        if is_detail(t[1])
-        and not _glazing(t[1])
-        and parse_state(t[1])[0] not in FLUIDS
-        and _offerable(t[0], t[1], t[2], inventory)
-    ]
     active = None  # the work zone, with a body position
     if near is not None and not starved:
         ready = [t[0] for t in todo if offerable(t[0], t[1], t[2], inventory)]

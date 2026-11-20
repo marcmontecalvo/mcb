@@ -17,6 +17,16 @@ public final class LabKitTest {
         var at = JsonParser.parseString("{\"at\":[990,80,988]}").getAsJsonObject();
         check(java.util.Arrays.equals(LabKit.origin(at, 1, 2, 3), new int[]{990, 80, 988}), "at: a fixed origin");
         rejects(() -> LabKit.origin(JsonParser.parseString("{\"at\":[1,2]}").getAsJsonObject(), 0, 0, 0), "invalid_at");
+        check(!LabKit.home(plain) && !LabKit.home(at), "no home: the subject stays where it is");
+        check(LabKit.home(JsonParser.parseString("{\"at\":[1,2,3],\"home\":true}").getAsJsonObject()), "home with at");
+        rejects(() -> LabKit.home(JsonParser.parseString("{\"home\":true}").getAsJsonObject()), "home_needs_at");
+        var probes = LabKit.probeOffsets(JsonParser.parseString("[[1,-10,2],[0,3,-5]]").getAsJsonArray());
+        check(probes.size() == 2 && probes.get(0)[1] == -10 && probes.get(1)[2] == -5, "probe offsets in order");
+        rejects(() -> LabKit.probeOffsets(JsonParser.parseString("[[1,2]]").getAsJsonArray()), "invalid_probe");
+        rejects(() -> LabKit.probeOffsets(JsonParser.parseString("[[99,0,0]]").getAsJsonArray()), "invalid_probe");
+        var probesOver = new com.google.gson.JsonArray();
+        for (int i = 0; i < 2049; i++) probesOver.add(JsonParser.parseString("[0,0,0]"));
+        rejects(() -> LabKit.probeOffsets(probesOver), "too_many_probes");
 
         var stacks = LabKit.stackSpecs(JsonParser.parseString(
                 "[{\"item\":\"minecraft:scaffolding\",\"count\":32},{\"item\":\"minecraft:iron_pickaxe\",\"count\":1}]").getAsJsonArray());

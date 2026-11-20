@@ -541,9 +541,11 @@ public final class RoutePlannerTest {
     private static Map<String, Object> scaffold() {  // as the sensor reports it: no collision boxes
         return Map.of("block", "minecraft:scaffolding", "collision_boxes", List.of(), "fluid", "minecraft:empty");
     }
+    // 64 dirt and the scaffolding: place_supply counts both, as body_search.edit_payload sends it.
     private static RoutePlanner.EditPolicy scaffoldPolicy(int scaffoldSupply) {
         return new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), true, true, true,
-                3, 64, 64, 64, Set.of(), Set.of(), "minecraft:dirt", List.of("minecraft:dirt"), Map.of(), scaffoldSupply);
+                3, 64, 64, 64 + scaffoldSupply, Set.of(), Set.of(), "minecraft:dirt", List.of("minecraft:dirt"), Map.of(),
+                scaffoldSupply);
     }
     private static RoutePlanner.Result scaffoldRun(Map<Key, Map<String, Object>> cells, RoutePlanner.Node start,
             RoutePlanner.Node goal, int scaffoldSupply) {
@@ -630,6 +632,20 @@ public final class RoutePlannerTest {
                 "7 out from the tower is solid, nearer cells scaffolding: status=" + far.status() + " expanded=" + far.expanded()
                         + " steps=" + far.steps().size() + " first=" + (far.steps().isEmpty() ? "none" : far.steps().get(0))
                         + " last=" + lastEdit);
+        // Scaffolding and nothing else held (a scaffold challenge, materials []): a cell 7 out would be solid, and
+        // there is no solid block to place, so it is no step at all (review of 5bb4812: it was planned as cobblestone,
+        // the fallback material, and the motor could only fail it). The walkway 6 out stays.
+        var only = new RoutePlanner.EditPolicy(true, Map.of(), Map.of(), true, true, true,
+                3, 64, 64, 64, Set.of(), Set.of(), "minecraft:cobblestone", List.of(), Map.of(), 64);
+        check(only.solidSupply() == 0 && scaffoldPolicy(5).solidSupply() == 64, "solid supply: held blocks that are not scaffolding");
+        var sixOnly = new RoutePlanner((x, y, z) -> world.get(new Key(x, y, z)), new RoutePlanner.Node(1, 1, 0),
+                new RoutePlanner.Node(7, 1, 0), 0, 3, true).withMoves(false, true).withEdits(only).search(100_000);
+        check(sixOnly.status().equals("reached"), "scaffolding only: the walkway 6 out is planned: " + sixOnly.status());
+        var sevenOnly = new RoutePlanner((x, y, z) -> world.get(new Key(x, y, z)), new RoutePlanner.Node(1, 1, 0),
+                new RoutePlanner.Node(8, 1, 0), 0, 3, true).withMoves(false, true).withEdits(only).search(100_000);
+        check(!sevenOnly.status().equals("reached")
+                        && sevenOnly.steps().stream().allMatch(e -> e.scaffold().size() == e.places().size()),
+                "scaffolding only: no solid place 7 out: " + sevenOnly.status() + " " + sevenOnly.steps());
         // A bridge beside a scaffolding pillar on solid ground.
         var beside = new HashMap<Key, Map<String, Object>>();
         for (int x = -2; x <= 4; x++) for (int z = -3; z <= 3; z++) for (int y = -1; y <= 6; y++)
@@ -719,7 +735,7 @@ public final class RoutePlannerTest {
         return out;
     }
     private static RoutePlanner.Result courseRun(Map<Key, Map<String, Object>> w, RoutePlanner.Node start, RoutePlanner.Node goal) {
-        var pol = new RoutePlanner.EditPolicy(true, Map.of(), Map.of(), true, true, true, 3, 64, 64, 64, holeAir(w), Set.of(),
+        var pol = new RoutePlanner.EditPolicy(true, Map.of(), Map.of(), true, true, true, 3, 64, 64, 128, holeAir(w), Set.of(),
                 "minecraft:cobblestone", List.of("minecraft:cobblestone"), Map.of(), 64);
         return new RoutePlanner((x, y, z) -> w.get(new Key(x, y, z)), start, goal, 0, 3, true)
                 .withMoves(false, true).withEdits(pol).search(200_000);

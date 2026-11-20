@@ -1488,6 +1488,10 @@ final class RoutePlanner {
                       boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxStack, int breakBudget,
                       int placeBudget, int placeSupply, Set<Long> protectedCells, Set<String> protectedBlocks,
                       String material, List<String> materials, Map<Long, Double> extraCosts, int scaffoldSupply) {
+        /** Blocks placeable as solid: the supply that is not scaffolding, none when no material is held. */
+        int solidSupply() {
+            return materials.isEmpty() ? 0 : Math.max(0, placeSupply - scaffoldSupply);
+        }
         EditPolicy(boolean stepEdits, Map<String, Double> breakCosts, Map<String, Double> fallCosts,
                    boolean allowPlace, boolean allowBridge, boolean allowPillar, int maxStack, int breakBudget,
                    int placeBudget, int placeSupply, Set<Long> protectedCells, Set<String> protectedBlocks,
@@ -1632,6 +1636,9 @@ final class RoutePlanner {
 
     private void addEdit(Edit edit, double base, Node from, List<Move> out) {
         if (edit == null) return;
+        // A place that is not scaffolding needs a held block: SOLID_PLACE prices it, it does not conjure one
+        // (scaffolding only, a scaffold challenge, was planned cobblestone 7 out of a tower: review of 5bb4812).
+        if (edit.places.size() - edit.scaffold.size() > edits.solidSupply()) return;
         double cost = editCost(edit, base, from);
         if (cost < Double.POSITIVE_INFINITY) out.add(new Move(edit.target, cost, edit));
     }

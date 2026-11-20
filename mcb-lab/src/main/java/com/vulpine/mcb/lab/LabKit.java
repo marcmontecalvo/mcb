@@ -23,7 +23,7 @@ import java.util.Map;
 final class LabKit {
     private LabKit() {}
 
-    private static final int MAX_RADIUS = 24, MAX_HEIGHT = 16, MAX_PLACE = 64, MAX_STACKS = 64;
+    private static final int MAX_RADIUS = 24, MAX_HEIGHT = 16, MAX_PLACE = 64, MAX_STACKS = 64, MAX_PROBE = 2048;
 
     /**
      * The cell kit offsets count from: the body's feet, or a fixed {@code at} cell (a course laid
@@ -35,6 +35,30 @@ final class LabKit {
         if (!at.isJsonArray() || at.getAsJsonArray().size() != 3) throw new IllegalArgumentException("invalid_at");
         var a = at.getAsJsonArray();
         return new int[]{a.get(0).getAsInt(), a.get(1).getAsInt(), a.get(2).getAsInt()};
+    }
+
+    /**
+     * {@code probe}: offsets whose block ids the kit reports (after its other work), so a
+     * course can be checked as laid without a body's sensing (a person attempts it).
+     */
+    static List<int[]> probeOffsets(JsonArray list) {
+        if (list.size() > MAX_PROBE) throw new IllegalArgumentException("too_many_probes");
+        var out = new java.util.ArrayList<int[]>();
+        for (var element : list) {
+            if (!element.isJsonArray() || element.getAsJsonArray().size() != 3) throw new IllegalArgumentException("invalid_probe");
+            var a = element.getAsJsonArray();
+            int[] p = {a.get(0).getAsInt(), a.get(1).getAsInt(), a.get(2).getAsInt()};
+            if (Math.abs(p[0]) > MAX_RADIUS || Math.abs(p[2]) > MAX_RADIUS || Math.abs(p[1]) > 64) throw new IllegalArgumentException("invalid_probe");
+            out.add(p);
+        }
+        return out;
+    }
+
+    /** {@code home: true} moves the subject to the {@code at} cell first; it needs {@code at}. */
+    static boolean home(JsonObject request) {
+        if (!request.has("home") || !request.get("home").getAsBoolean()) return false;
+        if (!request.has("at")) throw new IllegalArgumentException("home_needs_at");
+        return true;
     }
 
     /** Item stacks as asked, shape and counts checked; the item ids are checked when given. */
@@ -75,11 +99,20 @@ final class LabKit {
 
     static Map<String, Object> apply(MinecraftServer server, ServerPlayer player, JsonObject request) {
         var level = server.overworld();
-        BlockPos body = player.blockPosition();
-        int[] o = origin(request, body.getX(), body.getY(), body.getZ());
+        BlockPos here = player.blockPosition();
+        int[] o = origin(request, here.getX(), here.getY(), here.getZ());
         BlockPos feet = new BlockPos(o[0], o[1], o[2]);
         boolean fixed = request.has("at");
         if (fixed && !level.isLoaded(feet)) throw new IllegalArgumentException("at_not_loaded");
+        if (home(request)) {
+            // A course laid or restored round a fixed origin: the subject goes back to
+            // its start first, so no cell of the course is left out for standing in it
+            // (the bottom of a shaft stayed open after a restore).
+            player.teleportTo(level, feet.getX() + 0.5, feet.getY(), feet.getZ() + 0.5, java.util.Set.of(), player.getYRot(), player.getXRot(), true);
+            player.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
+            player.fallDistance = 0;
+        }
+        BlockPos body = player.blockPosition();
         int cleared = 0, placed = 0, stacks = 0, skipped = 0;
         if (request.has("clear")) {
             var c = request.getAsJsonArray("clear");
@@ -140,6 +173,12 @@ final class LabKit {
         out.put("skipped", skipped);
         out.put("stacks", stacks);
         out.put("feet", List.of(body.getX(), body.getY(), body.getZ()));
+        if (request.has("probe")) {
+            var ids = new java.util.ArrayList<String>();
+            for (int[] p : probeOffsets(request.getAsJsonArray("probe")))
+                ids.add(BuiltInRegistries.BLOCK.getKey(level.getBlockState(feet.offset(p[0], p[1], p[2])).getBlock()).toString());
+            out.put("probed", ids);
+        }
         return out;
     }
 

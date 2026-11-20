@@ -765,15 +765,16 @@ def test_axis_y_chain_and_lantern_under_skipped_chain_do_not_keep_doors_out():
 POT = "minecraft:flower_pot"
 
 
-def _balcony():
+def _balcony(rise=0):
     """A wall at z=1 with a two-high window gap at x=2, a balcony floor at z=2 with
-    a flower pot on it: the pot is reached only through the window."""
+    a flower pot on it: the pot is reached only through the window. ``rise`` lifts
+    the balcony floor (and the pot) that many layers."""
     cells = {}
     for x in range(5):
-        cells[(x, 0, 2)] = PLANKS  # the balcony floor
+        cells[(x, rise, 2)] = PLANKS  # the balcony floor
         for y in (1, 2):
             cells[(x, y, 1)] = PANE if x == 2 else PLANKS
-    cells[(1, 1, 2)] = POT
+    cells[(1, rise + 1, 2)] = POT
     world = flat_world(hi=6)
     for p, s in cells.items():
         if s == PLANKS:
@@ -794,6 +795,40 @@ def test_a_window_is_glazed_after_the_details_it_is_the_way_to():
     world[(1, 1, 2)] = POT
     acts = bp.next_actions(template, at(world), blocks, held, near=(2, 1, 0))
     assert {a.pos for a in acts} == {(2, 1, 1)}
+
+
+def test_a_window_waits_for_a_detail_a_layer_up_with_the_body_away():
+    # review of 5bb4812: the pot one layer above the low pane was held by the layer
+    # rule (the pane's layer was the lowest), so it did not hold the pane, and the
+    # pane went in first with the body out of reach. The held panes must not hold
+    # the layer either, or neither ever goes in.
+    template, world, blocks = _balcony(rise=1)
+    held = {"minecraft:glass_pane": 2, POT: 1}
+    away = (2, 1, -5)
+    acts = bp.next_actions(template, at(world), blocks, held, near=away)
+    assert [a.pos for a in acts] == [(1, 2, 2)]
+    world[(1, 2, 2)] = POT  # then the window closes, bottom up
+    acts = bp.next_actions(template, at(world), blocks, held, near=away)
+    assert [a.pos for a in acts] == [(2, 1, 1)]
+    world[(2, 1, 1)] = PANE
+    acts = bp.next_actions(template, at(world), blocks, held, near=away)
+    assert [a.pos for a in acts] == [(2, 2, 1)]
+
+
+def test_held_bars_do_not_count_as_structure_left():
+    # iron bars are glazing but not a detail: held for the pot, they must not keep
+    # the details back as structure still to place (each would wait on the other)
+    template, world, blocks = _balcony(rise=1)
+    bars = "minecraft:iron_bars"
+    cells = {p: s for p, s in template.cells.items()}
+    for p, s in cells.items():
+        if s == PANE:
+            cells[p] = bars
+    template = bp.Template.from_build(make_build(cells, (5, 3, 3)), (0, 0, 0))
+    blocks = {**blocks, bars: {"item": bars}}
+    held = {bars: 2, POT: 1}
+    acts = bp.next_actions(template, at(world), blocks, held, near=(2, 1, -5))
+    assert [a.pos for a in acts] == [(1, 2, 2)]
 
 
 def test_a_detail_that_cannot_go_in_does_not_keep_the_window_open():
@@ -827,8 +862,23 @@ def test_a_tower_top_needs_room_for_the_head():
     assert bp.tower_cells((3, 2, 3), at(w), BLOCKS) == [(4, 0, 3), (4, 1, 3)]
 
 
-def test_tower_cells_rejects_non_sturdy_stairs_for_scaffolding():
+def test_a_dirt_tower_top_needs_room_for_the_last_jump():
+    # review of 5bb4812: a dirt column is pillared by jumping (pillar_to); the
+    # planner's pillar edge wants feet+2 and feet+3 empty (RoutePlanner.pillar), so
+    # the cell over the crown must be clear too, or pillar_to searches to its cap.
+    # A scaffolding tower is climbed, not jumped: the crown is enough.
     w = flat_world(hi=6)
+    for x in range(-2, 6):
+        for z in range(-2, 6):
+            w[(x, 3, z)] = PLANKS  # a ceiling two over the crown's floor
+    assert bp.tower_cells((3, 1, 3), at(w), BLOCKS) == [(3, 0, 2)]
+    assert bp.tower_cells((3, 1, 3), at(w), BLOCKS, scaffolding=False) == []
+    w[(4, 3, 3)] = AIR
+    assert bp.tower_cells((3, 1, 3), at(w), BLOCKS, scaffolding=False) == [(4, 0, 3)]
+
+
+def test_tower_cells_rejects_non_sturdy_stairs_for_scaffolding():
+    w = flat_world(hi=8)  # known up to the dirt tower's last jump
     blocks = {
         **BLOCKS,
         "minecraft:oak_stairs": {"item": "minecraft:oak_stairs", "full_cube": False},

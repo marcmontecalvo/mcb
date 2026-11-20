@@ -15,7 +15,6 @@ def test_the_set_runs_basic_to_advanced():
         "bridge",
         "bridge-l",
         "bridge-u",
-        "span",
         "stairs",
     ]
     levels = [c.level for c in sch.CHALLENGES]
@@ -23,8 +22,8 @@ def test_the_set_runs_basic_to_advanced():
     assert sch.select(level="basic") == [
         sch.by_name(n) for n in ("climb", "descend", "reach-out")
     ]
-    assert sch.select(names=["span", "climb"]) == [
-        sch.by_name("span"),
+    assert sch.select(names=["stairs", "climb"]) == [
+        sch.by_name("stairs"),
         sch.by_name("climb"),
     ]
     with pytest.raises(KeyError):
@@ -91,24 +90,57 @@ def test_reach_out_hovers_four_from_every_rim():
         assert k - 1 == 3  # three pit cells, then the rim: four out
 
 
-@pytest.mark.parametrize(
-    ("name", "turns"), [("bridge", 0), ("bridge-l", 1), ("bridge-u", 2)]
-)
-def test_bridges_need_their_turns_within_scaffold_distance(name, turns):
+BRIDGES = [("bridge", 0, 6), ("bridge-l", 1, 5), ("bridge-u", 2, 6)]
+
+
+@pytest.mark.parametrize(("name", "turns", "length"), BRIDGES)
+def test_bridges_need_their_turns_within_scaffold_distance(name, turns, length):
     c = sch.by_name(name)
     assert sch.bridge_turns(c) == turns
-    assert c.no_damage  # dropping into the pit and climbing out is not a bridge
+    assert sch.bridge_length(c) == length  # the root on the pad and the cells out
+    assert c.no_damage
 
 
-def test_the_span_cannot_be_bridged_from_one_side_but_a_middle_tower_can():
-    c = sch.by_name("span")
-    assert sch.bridge_turns(c) is None
-    pit = [x for x in range(-24, 25) if c.state((x, -1, 0)) == sch.AIR]
-    assert len(pit) == 13  # the full span: six each side of a middle tower
-    floor = min(y for (x, y, z), s in c.cells.items() if s == sch.AIR)
-    middle = pit[len(pit) // 2]
-    tower = {(middle, y, 0): sch.SCAFFOLDING for y in range(floor, 1)}
-    assert sch.bridge_turns(c, extra=tower) == 0
+@pytest.mark.parametrize(("name", "turns", "length"), BRIDGES)
+def test_a_bridge_course_is_closed_and_the_bridge_is_the_only_way(name, turns, length):
+    # review of 5bb4812: a short tower put the subject on a 3-high fence to walk
+    # along it, and a column down to the 6-deep pit floor and another up at the
+    # island stood in for the bridge
+    c = sch.by_name(name)
+    space, leaks = sch.open_space(c)
+    assert not leaks  # no way round the course
+    assert max(y for _, y, _ in space) == sch.ROOF_Y - 1  # nothing over the fences
+    # a column to the floor (MOAT_DEPTH cells, the same again up at the island, or
+    # the one taken down and built again) is more than the kit holds
+    assert length < c.scaffolding < sch.MOAT_DEPTH
+    island = (c.goal[0], c.goal[2])
+    below = [
+        y for y in range(-1, -20, -1) if c.state((island[0], y, island[1])) != sch.AIR
+    ]
+    assert below[:1] == [-1]  # the island stands on the pit floor
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_pits_are_walled_and_floored_in_laid_stone(name):
+    # the lab spot may be a slab over nothing: the course never relies on what is
+    # under it
+    c = sch.by_name(name)
+    for (x, y, z), s in c.cells.items():
+        if s != sch.AIR or y >= 0:
+            continue
+        for n in (
+            (x + 1, y, z),
+            (x - 1, y, z),
+            (x, y - 1, z),
+            (x, y, z + 1),
+            (x, y, z - 1),
+        ):
+            assert n in c.cells, (name, n)
+
+
+def test_open_space_finds_a_leak():
+    c = sch.by_name("climb")
+    assert sch.open_space(c)[1]  # an open course: the flood reaches its edge
 
 
 def test_stairs_reach_the_upper_floor_and_the_ceiling_is_solid_under_the_goal():
@@ -117,7 +149,7 @@ def test_stairs_reach_the_upper_floor_and_the_ceiling_is_solid_under_the_goal():
     assert c.state((gx, gy - 1, gz)) == sch.STONE
     ceiling = [y for y in range(0, gy) if c.state((gx, y, gz)) != sch.AIR]
     assert ceiling == [gy - 1]  # one solid floor between the storeys, open below it
-    assert c.keep_built  # the house is not the subject's to edit
+    assert c.scaffold_free
 
 
 def test_bridge_turns_reads_blocking_glass_and_ground():
@@ -132,6 +164,8 @@ def test_bridge_turns_reads_blocking_glass_and_ground():
     w = sch.Challenge("t", "basic", "t", walled, goal=(6, 0, 0), no_damage=True)
     assert sch.bridge_turns(w) is None
     assert sch.bridge_turns(c, limit=2) is None  # three pit cells need distance 3
+    assert sch.bridge_length(c) == 4  # a root on the rim and three out
+    assert sch.bridge_length(w) is None
 
 
 def test_absolute_positions_follow_the_origin():
@@ -143,12 +177,15 @@ def test_absolute_positions_follow_the_origin():
     )
 
 
-def test_the_kit_is_scaffolding_and_a_pickaxe():
-    c = sch.by_name("span")
-    assert sch.kit(c) == [
-        {"item": sch.SCAFFOLDING, "count": c.scaffolding},
-        {"item": "minecraft:iron_pickaxe", "count": 1},
-    ]
+def test_the_kit_is_scaffolding_alone():
+    c = sch.by_name("bridge")
+    assert sch.kit(c) == [{"item": sch.SCAFFOLDING, "count": c.scaffolding}]
+
+
+def test_built_cells_are_the_laid_cells_that_are_not_air():
+    c = sch.by_name("descend")
+    assert c.built() and all(c.cells[p] != sch.AIR for p in c.built())
+    assert len(c.built()) == sum(s != sch.AIR for s in c.cells.values())
 
 
 def test_the_verdict_needs_the_goal_and_no_damage_where_asked():
@@ -161,13 +198,15 @@ def test_the_verdict_needs_the_goal_and_no_damage_where_asked():
         c, reached=False, damage=0.0, scaffolding_used=6, built_changed=0
     )
     assert miss["problems"] == ["goal not reached"]
+    dug = sch.verdict(c, reached=True, damage=0.0, scaffolding_used=6, built_changed=2)
+    assert dug["problems"] == ["changed 2 course cells"]  # every course, not the house
 
 
 def test_the_stairs_verdict_rejects_edits_to_the_house_and_scaffolding():
     c = sch.by_name("stairs")
     bad = sch.verdict(c, reached=True, damage=0.0, scaffolding_used=2, built_changed=1)
     assert bad["problems"] == [
-        "changed 1 house cells",
+        "changed 1 course cells",
         "placed 2 scaffolding (stairs were there)",
     ]
     good = sch.verdict(c, reached=True, damage=0.0, scaffolding_used=0, built_changed=0)
