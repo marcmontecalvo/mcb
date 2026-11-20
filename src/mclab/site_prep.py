@@ -822,8 +822,12 @@ STANCE_MARGIN = 0.25  # reach kept back for the walk's arrival radius
 def _fill_stance(body, sight, open_: list[Pos], ring, here: Pos, ground: int, skip):
     """The stance that shows the server a support face of the most cells, perimeter
     first: columns are taken by (ring, distance), and the first column with any
-    seeing stance around it decides."""
+    seeing stance around it decides. A pond plant in a cell counts as seen from
+    where it can be broken: no face shows through it, and broken it is filled by
+    the leak plug (``_whack_plants``; run 20261120T081707320639Z stopped "blocked"
+    on seagrass at the bottom of a one-block pit no stance saw)."""
     lo = min(p[1] for p in open_) - 1
+    plants = {p for p in open_ if _ident(body.world(*p)) in POND_PLANTS}
     tried: set[Pos] = set()
     reach = PLACE_REACH - STANCE_MARGIN
     columns = sorted(
@@ -847,8 +851,11 @@ def _fill_stance(body, sight, open_: list[Pos], ring, here: Pos, ground: int, sk
                     p
                     for p in open_
                     if _may_fill_from(node, p, ground)
-                    and _in_place_reach(eye, p)
-                    and sight(p, eye, reach)
+                    and (
+                        _eye_dist(eye, p) <= REACH_BREAK
+                        if p in plants
+                        else _in_place_reach(eye, p) and sight(p, eye, reach)
+                    )
                 ]
                 if not seen:
                     continue
