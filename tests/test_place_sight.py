@@ -140,6 +140,88 @@ def test_takes_block(cell, takes):
     assert ps.takes_block(cell) is takes
 
 
+BOTTOM_HALF = [[0, 0, 0, 1, 0.5, 1]]
+TARGET = (0, 64, 0)
+WEST = (-1, 64, 0)  # its face toward the target is the plane x = 0
+
+
+def _upper_half_in_view(source_boxes):
+    """A source west of the target and an eye east of it at y 64.62, a bottom slab
+    between them: of the source's face only the upper half shows."""
+    return {
+        WEST: {"block": "minecraft:oak_planks", "collision_boxes": source_boxes},
+        (1, 64, 0): {"block": "minecraft:oak_slab", "collision_boxes": BOTTOM_HALF},
+    }, eye_at(3, 63, 0)
+
+
+def test_a_point_off_a_partial_source_is_no_click():
+    # The server's ray ends 0.05 past the point: beside a bottom slab, in the air
+    # over it, it meets nothing (run 20261120T083111010944Z: "visible" slab sides
+    # the server never hit)
+    cells, eye = _upper_half_in_view(BOTTOM_HALF)
+    assert not ps.clickable_from(cells, eye, TARGET)
+    cells, eye = _upper_half_in_view(FULL)
+    assert ps.clickable_from(cells, eye, TARGET)
+
+
+@pytest.mark.parametrize(
+    ("state", "clickable"),
+    [
+        (None, True),
+        ("minecraft:oak_slab[type=top,waterlogged=false]", True),
+        # the upper half of a side face makes a top slab or stair: 20 of 28
+        # wrong_state failures in run 20261120T083111010944Z
+        ("minecraft:oak_slab[type=bottom,waterlogged=false]", False),
+        ("minecraft:oak_stairs[facing=north,half=bottom,shape=straight]", False),
+        ("minecraft:stripped_oak_log[axis=x]", True),
+        ("minecraft:stripped_oak_log[axis=y]", False),
+    ],
+)
+def test_only_points_that_give_the_state_count(state, clickable):
+    cells, eye = _upper_half_in_view(FULL)
+    assert ps.clickable_from(cells, eye, TARGET, state=state) is clickable
+
+
+STABLE = [
+    [0, 0.875, 0, 1, 1, 1],
+    [0, 0, 0, 0.125, 1, 0.125],
+    [0.875, 0, 0, 1, 1, 0.125],
+    [0, 0, 0.875, 0.125, 1, 1],
+    [0.875, 0, 0.875, 1, 1, 1],
+]
+
+
+@pytest.mark.parametrize("sensed", [STABLE, []])
+def test_scaffolding_hides_what_is_behind_it_only_while_scaffolding_is_held(sensed):
+    # ScaffoldingBlock.getShape: a full cube to a player holding scaffolding, else
+    # the top and four legs, whatever collision the sensor reported (run
+    # 20261120T083111010944Z: three scaffolding clicks through a column, 0 visible)
+    cells = {
+        (0, 63, 0): solid(),
+        (1, 65, 0): {"block": "minecraft:scaffolding", "collision_boxes": sensed},
+    }
+    eye = eye_at(2, 64, 0)
+    assert ps.clickable_from(cells, eye, TARGET, state="minecraft:stone")
+    assert not ps.clickable_from(cells, eye, TARGET, state="minecraft:scaffolding")
+
+
+@pytest.mark.parametrize(
+    "cell",
+    [
+        {
+            "block": "minecraft:scaffolding",
+            "state": "minecraft:scaffolding[bottom=true]",
+        },
+        # as the sensor delivers it: properties, no state string
+        {"block": "minecraft:scaffolding", "properties": {"bottom": "true"}},
+    ],
+)
+def test_an_unstable_scaffolding_has_a_bottom_plate(cell):
+    assert ps._SCAFFOLD_PLATE in ps.outline(cell)
+    cell = {**cell, "state": None, "properties": {"bottom": "false"}}
+    assert ps._SCAFFOLD_PLATE not in ps.outline(cell)
+
+
 def test_water_and_unknown_cells_are_no_support_and_no_obstacle():
     cells = pond(depth=1)
     del cells[1, 61, 0]  # the floor under the target is unknown

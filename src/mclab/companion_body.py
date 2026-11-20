@@ -355,10 +355,12 @@ def places_from(
     required=None,
     *,
     scaffold: bool = False,
+    state: str | None = None,
 ) -> bool:
     """Would place_block put a block into the empty ``target`` from ``eye`` (a body
     standing in ``node``)? The server clicks any of 19 points of a support face in
-    reach that the eye sees (place_sight). A ray to the target's centre is not that
+    reach that the eye sees (place_sight) and that gives ``state`` (place_state: a
+    slab's half, a log's axis). A ray to the target's centre is not that
     test: the block placed a moment before beside it hides the centre while the floor
     face past it shows, and the body walked after nearly every block of a wall (run
     20261119T225430670386Z: 119 walks, 195 s, to cells it could place from where it
@@ -369,8 +371,15 @@ def places_from(
             cells, node, target, reach
         )
     return place_sight.clickable_from(
-        cells, eye, target, reach, sources=_support_cells(required)
+        cells, eye, target, reach, sources=_support_cells(required), state=state
     )
+
+
+# The body stops within PRECISE_RADIUS of a stance's centre. An eye this far off the
+# centre on each side still placing is a sound stance; one that places only from the
+# exact centre misses as often as not (run 20261120T083111010944Z).
+SOUND_OFFSET = 0.15
+SOUND_RANKED = 8  # the head of the stance list checked for soundness (4 eyes each)
 
 
 def stance_eye(node: Pos) -> tuple[float, float, float]:
@@ -651,10 +660,13 @@ class CompanionBody:
         self.build_cells: dict[Pos, str] = {}  # the template's non-air cells (see protect)
         # set per placement by build_runner: the one face the block hangs on
         self.required_support: Pos | None = None
+        # set with it: the block state placed, whose half, axis or facing the click
+        # decides (place_state); None for any click
+        self.placing_state: str | None = None
         self.placing_scaffold: bool = False
-        # set per sweep step by build_runner: the next cells (-> required support) a
-        # stance should also place, so one walk serves several blocks
-        self.stance_cover: dict[Pos, Pos | set[Pos] | None] = {}
+        # set per sweep step by build_runner: the next cells (-> required support and
+        # state) a stance should also place, so one walk serves several blocks
+        self.stance_cover: dict[Pos, tuple[Pos | set[Pos] | None, str | None]] = {}
         self._obs: dict = {}
         self._inv: dict[str, int] = {}
         self._rows: list[dict] = []  # the per-slot rows behind _inv
@@ -1802,15 +1814,7 @@ class CompanionBody:
             and node not in ((tx, ty, tz), (tx, ty - 1, tz))
             and (standable(cells, node) or _tower_top(cells, node))
             and (
-                places_from(
-                    cells,
-                    stance_eye(node),
-                    node,
-                    target,
-                    reach,
-                    self.required_support,
-                    scaffold=self.placing_scaffold,
-                )
+                self._places_from(cells, stance_eye(node), node, target, reach)
                 if placing
                 else interacts(cells, node, target, reach)
             )
@@ -1823,7 +1827,7 @@ class CompanionBody:
         # Among those, the one that also places the most of the sweep's next cells
         # (``stance_cover``): nearest-first stood at the edge of reach and the next
         # cell along the wall needed a walk of its own (run 20261119T225430670386Z).
-        return sorted(
+        ranked = sorted(
             found,
             key=lambda n: (
                 n not in walk,
@@ -1833,19 +1837,59 @@ class CompanionBody:
                 n,
             ),
         )
+        if not placing:
+            return ranked
+        # Within the head of the list, a stance that still places from an eye off
+        # its centre goes before one that places only from the exact centre.
+        head = ranked[:SOUND_RANKED]
+        head.sort(key=lambda n: not self._sound(cells, n, target, reach))
+        return head + ranked[SOUND_RANKED:]
+
+    def _places_from(self, cells, eye, node: Pos, target: Pos, reach: float) -> bool:
+        """``places_from`` with this placement's support, state and scaffold rule."""
+        return places_from(
+            cells,
+            eye,
+            node,
+            target,
+            reach,
+            self.required_support,
+            scaffold=self.placing_scaffold,
+            state=self.placing_state,
+        )
+
+    def _sound(self, cells, node: Pos, target: Pos, reach: float) -> bool:
+        """Does ``target`` place from every eye SOUND_OFFSET off ``node``'s centre?"""
+        x, y, z = stance_eye(node)
+        return all(
+            self._places_from(cells, (x + dx, y, z + dz), node, target, reach)
+            for dx, dz in (
+                (SOUND_OFFSET, 0),
+                (-SOUND_OFFSET, 0),
+                (0, SOUND_OFFSET),
+                (0, -SOUND_OFFSET),
+            )
+        )
 
     def _stance_covers(self, cells, node: Pos, reach: float) -> int:
-        """How many of ``stance_cover`` (cell -> required support) a body standing on
-        ``node`` places. A cell the body would stand in is not one of them."""
+        """How many of ``stance_cover`` (cell -> required support and state) a body
+        standing on ``node`` places. A cell the body would stand in is not one."""
         if not self.stance_cover:
             return 0
         eye, body_cells = stance_eye(node), (node, (node[0], node[1] + 1, node[2]))
         return sum(
             pos not in body_cells
             and places_from(
-                cells, eye, node, pos, reach, required, scaffold=self.placing_scaffold
+                cells,
+                eye,
+                node,
+                pos,
+                reach,
+                required,
+                scaffold=self.placing_scaffold,
+                state=state,
             )
-            for pos, required in self.stance_cover.items()
+            for pos, (required, state) in self.stance_cover.items()
         )
 
     def _walkable(self, cells, here: Pos) -> set[Pos]:
@@ -1930,14 +1974,19 @@ class CompanionBody:
             eye = place_sight.eye_of(self._obs["body"]["position"])
         return place_sight.clickable_from(self._cells_now(), eye, target, reach)
 
-    def can_place_here(self, target: Pos, reach: float, required=None) -> bool:
-        """Would place_block succeed from where the body stands, its real eye as the
-        server uses (``places_from``)? Checked before an optimistic direct action."""
+    def can_place_here(
+        self, target: Pos, reach: float, required=None, state: str | None = None
+    ) -> bool:
+        """Would place_block put ``state`` (None: any block) into ``target`` from where
+        the body stands, its real eye as the server uses (``places_from``)? Checked
+        before an optimistic direct action."""
         if self._overlaps(target):
             return False
-        return self._places_from_here(target, reach, required)
+        return self._places_from_here(target, reach, required, state)
 
-    def _places_from_here(self, target: Pos, reach: float, required) -> bool:
+    def _places_from_here(
+        self, target: Pos, reach: float, required, state: str | None = None
+    ) -> bool:
         cells = self._cells_now()
         return places_from(
             cells,
@@ -1947,6 +1996,7 @@ class CompanionBody:
             reach,
             required,
             scaffold=self.placing_scaffold,
+            state=state,
         )
 
     @_fresh_idle
@@ -1961,7 +2011,11 @@ class CompanionBody:
             self._goto_edges = None
 
     def _goto_stance(
-        self, target_pos: Pos, reach: float, avoid: Collection[Pos] = ()
+        self,
+        target_pos: Pos,
+        reach: float,
+        avoid: Collection[Pos] = (),
+        recheck: bool = True,
     ) -> bool:
         target, avoid = tuple(target_pos), set(avoid)
         if not self._obs:
@@ -1972,9 +2026,12 @@ class CompanionBody:
         # block cannot be placed into a cell the body overlaps, and the 0.6 arrival
         # radius lets it stand 0.4 into a neighbour (live run: 21 state_unreachable).
         crowded = self.precise_stance and self._overlaps(target)
+        placing = self._placing(target)
         reach_ok = (
-            self._places_from_here(target, reach, self.required_support)
-            if self._placing(target)
+            self._places_from_here(
+                target, reach, self.required_support, self.placing_state
+            )
+            if placing
             else interacts(cells, here, target, reach)
         )
         if here not in avoid and reach_ok and not crowded:
@@ -2044,7 +2101,11 @@ class CompanionBody:
             if distant and self._hop_toward(node) is not None:
                 hopped = True
             if self._navigate(node, reach=None, radius=radius, probe=True, progress=progress):
-                return True
+                if not (placing and recheck) or self._places_from_here(
+                    target, reach, self.required_support, self.placing_state
+                ):
+                    return True
+                return self._chosen_again(target, reach, avoid, node)
             self._failed_stances[(target, node)] = time.monotonic() + STANCE_RETRY_S
             if self.boxed_in:
                 return False
@@ -2066,6 +2127,17 @@ class CompanionBody:
                 if self.position() not in avoid:
                     return True
         return False
+
+    def _chosen_again(self, target: Pos, reach: float, avoid: set, node: Pos) -> bool:
+        """Arrived at ``node``, the eye there shows no face that gives the state: a
+        block placed while passing hid it (run 20261120T083111010944Z: a log placed
+        on the way beside [-7, 66, 67]), or the arrival is off a narrow view's
+        centre. Choose once more on the map as it is now; with nothing better, the
+        server decides from here, as it did before this check."""
+        self._failed_stances[(target, node)] = time.monotonic() + STANCE_RETRY_S
+        if self._goto_stance(target, reach, avoid | {node}, recheck=False):
+            return True
+        return self.position() == node
 
     @_fresh_idle
     def escape_hole(self, target: Pos) -> bool:

@@ -36,7 +36,7 @@ import functools
 import math
 import time
 from collections.abc import Callable, Collection
-from contextlib import nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from typing import NamedTuple, Protocol
 
@@ -271,6 +271,42 @@ def _support_for(act, world, blocks: dict) -> Pos | set[Pos] | None:
     return None
 
 
+def _state_of(act) -> str | None:
+    """The block state ``act`` puts down: a slab's half, a log's axis or a hopper's
+    facing decides which faces a click can make it from (place_state)."""
+    if isinstance(act, bp.Place):
+        return act.state
+    if isinstance(act, bp.Scaffold):
+        return act.item
+    return None
+
+
+# The optional attributes a body chooses its stance by (CompanionBody): set per
+# placement, kept by a nested one (a tower, a temporary block) for its caller.
+AIM = ("required_support", "placing_scaffold", "placing_state")
+
+
+@contextmanager
+def _aim_kept(body):
+    saved = {name: getattr(body, name) for name in AIM if hasattr(body, name)}
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            setattr(body, name, value)
+
+
+def _aim(body, act, support=None) -> None:
+    """Tell a body that picks stances what the next click must make: the support
+    face it hangs on, scaffolding held, and the state."""
+    if hasattr(body, "required_support"):
+        body.required_support = support
+    if hasattr(body, "placing_scaffold"):
+        body.placing_scaffold = getattr(act, "item", None) == sc.BLOCK
+    if hasattr(body, "placing_state"):
+        body.placing_state = _state_of(act)
+
+
 class _Runner:
     def __init__(
         self, body: BuildBody, report: BuildReport, max_steps: int, blocks: dict
@@ -297,16 +333,12 @@ class _Runner:
         pos = act.pos
         here = self.body.position()
         can_place = getattr(self.body, "can_place_here", None)
-        if hasattr(self.body, "placing_scaffold"):
-            self.body.placing_scaffold = getattr(act, "item", None) == sc.BLOCK
+        support = _support_for(act, getattr(self.body, "world", None), self.blocks)
+        _aim(self.body, act, support)
         direct = (
             not isinstance(act, bp.Place)
             or can_place is None
-            or can_place(
-                pos,
-                REACH,
-                _support_for(act, getattr(self.body, "world", None), self.blocks),
-            )
+            or can_place(pos, REACH, support, act.state)
         )
         if direct and self._traps(act, here):
             direct = False
@@ -333,13 +365,14 @@ class _Runner:
             self.report.steps += 1
             avoid = self.avoid.setdefault(pos, set())
             # A block that hangs on one face (a wall torch) needs a stance that sees
-            # that face; an optional body attribute, like walk_to.
-            if hasattr(self.body, "required_support"):
-                self.body.required_support = _support_for(
-                    act, getattr(self.body, "world", None), self.blocks
-                )
-            if hasattr(self.body, "placing_scaffold"):
-                self.body.placing_scaffold = getattr(act, "item", None) == sc.BLOCK
+            # that face, a top slab one that sees the upper half of a side face;
+            # optional body attributes, like walk_to. Set again each try: a tower or
+            # a temporary block in between aims at other cells.
+            _aim(
+                self.body,
+                act,
+                _support_for(act, getattr(self.body, "world", None), self.blocks),
+            )
             if not self._stance(pos, avoid):
                 self.report.failures.append(
                     (pos, "no_stance", self.body.position(), {})
@@ -400,31 +433,23 @@ class _Runner:
         x, y, z = act.pos
         signs = (1,) if ident == "minecraft:hopper" else (1, -1)
         can_place = getattr(self.body, "can_place_here", None)
-        saved_scaffold = getattr(self.body, "placing_scaffold", False)
         for sign in signs:
             cell = (x + sign * step[0], y + sign * step[1], z + sign * step[2])
             if bp.parse_state(self.body.world(*cell) or "")[0] not in bp.AIR:
                 continue
-            saved_req = getattr(self.body, "required_support", None)
-            try:
-                if hasattr(self.body, "placing_scaffold"):
-                    self.body.placing_scaffold = False
-                if can_place is not None and not can_place(cell, REACH, None):
-                    if hasattr(self.body, "required_support"):
-                        self.body.required_support = None
+            with _aim_kept(self.body):
+                temp = bp.Place(cell, item, item)
+                _aim(self.body, temp)
+                if can_place is not None and not can_place(cell, REACH, None, item):
                     self.body.goto_stance(cell, REACH)
                 if not self.body.place_block(cell, item, item).ok:
                     continue
-                if can_place is not None and not can_place(act.pos, REACH, cell):
-                    if hasattr(self.body, "required_support"):
-                        self.body.required_support = cell
+                _aim(self.body, act, cell)
+                if can_place is not None and not can_place(
+                    act.pos, REACH, cell, act.state
+                ):
                     self.body.goto_stance(act.pos, REACH)
                 result = _do(self.body, act)
-            finally:
-                if hasattr(self.body, "required_support"):
-                    self.body.required_support = saved_req
-                if hasattr(self.body, "placing_scaffold"):
-                    self.body.placing_scaffold = saved_scaffold
             broke = self.body.break_block(cell)
             if not broke.ok and getattr(self.body, "goto_stance", None):
                 self.body.goto_stance(cell, REACH)
@@ -613,10 +638,13 @@ class _Runner:
             for dz in (-1, 0, 1)
             for h in range(by - 3, by + 4)
         }
-        self.body.goto_stance(cells[0], REACH, set(avoid) | beside)
-        saved_scaffold = getattr(self.body, "placing_scaffold", False)
-        self._towering = True
-        try:
+        # The column's own clicks, not the cell it is for (a top slab's half or a
+        # torch's wall), choose the stances while it goes up.
+        with _aim_kept(self.body), ExitStack() as done:
+            _aim(self.body, bp.Scaffold(cells[0], item))
+            self.body.goto_stance(cells[0], REACH, set(avoid) | beside)
+            self._towering = True
+            done.callback(setattr, self, "_towering", False)
             for cell in cells:
                 if bp.parse_state(self.body.world(*cell) or "")[0] == sc.BLOCK:
                     self.scaffolds.add(cell)  # the column is up to here already
@@ -631,10 +659,6 @@ class _Runner:
                     self.avoid.pop(cell, None)
                     return False  # what stands is cleaned up with the rest
                 self.scaffolds.add(cell)
-        finally:
-            self._towering = False
-            if hasattr(self.body, "placing_scaffold"):
-                self.body.placing_scaffold = saved_scaffold
         # The tower's top, not a floor stance nearer by: walkable stances come first,
         # and the floor is what failed (run 20261118T094938114426Z).
         tops = {(cx, cells[-1][1] + 1, cz), cells[-1]}  # on, or in, the top cell
@@ -1010,26 +1034,31 @@ def _passing(runner: _Runner, pool: list, corners: set):
             return
         if observe := getattr(body, "observe", None):
             observe()  # the position the checks below read is the body's own
-        can_place = getattr(body, "can_place_here", None)
-        if hasattr(body, "placing_scaffold"):
-            body.placing_scaffold = False
-        for act in sorted(near, key=lambda a: (a.pos[1], _dist2(a.pos, position))):
-            if can_place is not None and not can_place(
-                act.pos,
-                REACH,
-                _support_for(act, getattr(body, "world", None), runner.blocks),
-            ):
-                continue
-            refused.add(act.pos)
-            if _do(body, act).ok:
-                pool.remove(act)
-                corners.discard(act.pos)
-                runner.report.steps += 1
-                _take_back(runner, act)
-                _record(runner.report, act)
-            return
+        # Called from inside a walk: the stance that walk is for keeps its aim (the
+        # arrival check reads it).
+        with _aim_kept(body):
+            _pass_one(runner, pool, corners, near, position, refused)
 
     return on_pass
+
+
+def _pass_one(runner: _Runner, pool, corners, near, position, refused) -> None:
+    body = runner.body
+    can_place = getattr(body, "can_place_here", None)
+    world = getattr(body, "world", None)
+    for act in sorted(near, key=lambda a: (a.pos[1], _dist2(a.pos, position))):
+        support = _support_for(act, world, runner.blocks)
+        _aim(body, act, support)
+        if can_place is not None and not can_place(act.pos, REACH, support, act.state):
+            continue
+        refused.add(act.pos)
+        if _do(body, act).ok:
+            pool.remove(act)
+            corners.discard(act.pos)
+            runner.report.steps += 1
+            _take_back(runner, act)
+            _record(runner.report, act)
+        return
 
 
 def _in_reach(runner: _Runner, act, here: Pos) -> bool:
@@ -1046,15 +1075,16 @@ def _in_reach(runner: _Runner, act, here: Pos) -> bool:
         return d2 <= (REACH - 0.5) ** 2
     if d2 > (REACH + 2) ** 2:
         return False  # beyond any eye's reach: not worth the sight test
-    if hasattr(runner.body, "placing_scaffold"):
-        runner.body.placing_scaffold = False
-    world = getattr(runner.body, "world", None)
-    return can_place(act.pos, REACH, _support_for(act, world, runner.blocks))
+    support = _support_for(act, getattr(runner.body, "world", None), runner.blocks)
+    with _aim_kept(runner.body):
+        _aim(runner.body, act, support)
+        return can_place(act.pos, REACH, support, act.state)
 
 
 def _cover(runner: _Runner, act, ready: list) -> dict:
     """The sweep's next cells after ``act`` (same layer, nearest to it first) with
-    their required support: the stance for ``act`` should place them too."""
+    their required support and state: the stance for ``act`` should place them
+    too (CompanionBody.stance_cover)."""
     scaffold = getattr(act, "item", None) == sc.BLOCK
     world = getattr(runner.body, "world", None)
     near = sorted(
@@ -1069,7 +1099,7 @@ def _cover(runner: _Runner, act, ready: list) -> dict:
         ),
         key=lambda b: (_dist2(b.pos, act.pos), b.pos),
     )[:COVER_CELLS]
-    return {b.pos: _support_for(b, world, runner.blocks) for b in near}
+    return {b.pos: (_support_for(b, world, runner.blocks), b.state) for b in near}
 
 
 def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:

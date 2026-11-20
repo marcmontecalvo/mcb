@@ -15,6 +15,7 @@ from test_build_plan import (
 
 from mclab import build_plan as bp
 from mclab import build_runner as br
+from mclab import scaffolding as sc
 
 EYE_HEIGHT = 1.62
 
@@ -456,7 +457,7 @@ def test_runner_does_not_direct_place_from_an_invisible_roof_stance():
             super().__init__(can_escape=False)
             self.placements = []
 
-        def can_place_here(self, pos, reach, required):
+        def can_place_here(self, pos, reach, required, state=None):
             return False
 
         def place_block(self, pos, state, item):
@@ -484,7 +485,7 @@ def test_runner_places_from_here_when_the_body_says_the_server_would_accept_it()
             super().__init__(can_escape=False)
             self.placements, self.gotos = [], []
 
-        def can_place_here(self, pos, reach, required):
+        def can_place_here(self, pos, reach, required, state=None):
             return True
 
         def goto_stance(self, pos, reach, avoid=()):
@@ -513,7 +514,7 @@ def test_runner_still_walks_to_break_a_cell_beyond_reach():
             super().__init__(can_escape=False)
             self.breaks, self.gotos = [], []
 
-        def can_place_here(self, pos, reach, required):
+        def can_place_here(self, pos, reach, required, state=None):
             return True
 
         def goto_stance(self, pos, reach, avoid=()):
@@ -1613,7 +1614,7 @@ def test_tall_scaffolding_placed_directly_when_can_place_here_reaches_column():
     class ColumnBody(FakeBody):
         placing_scaffold = False
 
-        def can_place_here(self, pos, reach, required=None):
+        def can_place_here(self, pos, reach, required=None, state=None):
             return pos == (0, 10, 0) and self.placing_scaffold and self.pos == (2, 0, 0)
 
         def place_block(self, pos, state, item):
@@ -1641,7 +1642,7 @@ def test_mutual_hoppers_move_stance_to_see_temporary_face_and_reclaim_dirt():
         required_support = None
         placing_scaffold = False
 
-        def can_place_here(self, pos, reach, required=None):
+        def can_place_here(self, pos, reach, required=None, state=None):
             if required is None:
                 return True
             sup = tuple(required)
@@ -1807,7 +1808,7 @@ class _CoverBody(FakeBody):
         super().__init__(*a, **kw)
         self.ranked = ranked
 
-    def can_place_here(self, pos, reach, required=None):
+    def can_place_here(self, pos, reach, required=None, state=None):
         x, y, z = self.pos
         return self._in_reach(pos) and pos not in (self.pos, (x, y + 1, z))
 
@@ -1852,6 +1853,103 @@ def test_the_sweep_places_what_the_server_would_accept_without_walking():
     br._sweep_pool(runner, [act], set(), None, False)
     assert runner.report.placed == [act.pos]
     assert body.stance_calls == []
+
+
+SLAB = "minecraft:oak_slab"
+TOP_SLAB = SLAB + "[type=top,waterlogged=false]"
+BOTTOM_SLAB = SLAB + "[type=bottom,waterlogged=false]"
+EAST_HOPPER = "minecraft:hopper[enabled=true,facing=east]"
+
+
+class _StateBody(_CoverBody):
+    """Records the block state each sight check and each stance search was for:
+    a slab's half, a log's axis or a hopper's facing decides which faces can make
+    it (place_state; run 20261120T083111010944Z, 28 wrong_state failures)."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.required_support = None
+        self.placing_scaffold = False
+        self.placing_state = None
+        self.asked: list = []
+        self.aimed: list = []
+
+    def can_place_here(self, pos, reach, required=None, state=None):
+        self.asked.append((pos, state))
+        return super().can_place_here(pos, reach, required, state)
+
+    def goto_stance(self, target_pos, reach, avoid=()):
+        self.aimed.append(self.placing_state)
+        return super().goto_stance(target_pos, reach, avoid)
+
+
+def test_the_runner_asks_for_a_stance_that_makes_the_state_it_places():
+    body = _StateBody(flat_world(-2, 12), {SLAB: 4}, BLOCKS, pos=(0, 0, 8))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.attempt(bp.Place((0, 0, 0), TOP_SLAB, SLAB))
+    assert ((0, 0, 0), TOP_SLAB) in body.asked  # the direct check
+    assert body.aimed == [TOP_SLAB]  # the walk
+    assert runner.report.placed == [(0, 0, 0)]
+
+
+def test_a_scaffold_stance_is_asked_for_scaffolding():
+    body = _StateBody(flat_world(-2, 12), {sc.BLOCK: 4}, BLOCKS, pos=(0, 0, 8))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.attempt(bp.Scaffold((0, 1, 0), sc.BLOCK))
+    assert body.aimed[:1] == [sc.BLOCK]
+
+
+def test_the_sweep_covers_each_next_cell_with_the_state_it_needs():
+    body = _StateBody(flat_world(-2, 12), {SLAB: 4}, BLOCKS)
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    acts = [
+        bp.Place((0, 1, 0), TOP_SLAB, SLAB),
+        bp.Place((1, 1, 0), BOTTOM_SLAB, SLAB),
+        bp.Place((2, 1, 0), TOP_SLAB, SLAB),
+    ]
+    assert br._cover(runner, acts[0], acts) == {
+        (1, 1, 0): (None, BOTTOM_SLAB),
+        (2, 1, 0): (None, TOP_SLAB),
+    }
+
+
+def test_reach_checks_while_sweeping_and_passing_name_the_state():
+    body = _StateBody(flat_world(-2, 12), {SLAB: 4}, BLOCKS, pos=(0, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    act = bp.Place((1, 1, 0), BOTTOM_SLAB, SLAB)
+    assert br._in_reach(runner, act, body.pos)
+    assert body.asked == [((1, 1, 0), BOTTOM_SLAB)]
+    body.asked.clear()
+    br._passing(runner, [act], set())((0.5, 0, 2.5), route=[])
+    assert body.asked == [((1, 1, 0), BOTTOM_SLAB)]
+
+
+def test_a_propped_hopper_aims_the_temporary_block_then_the_hopper():
+    w = flat_world(-2, 12)
+
+    class PropBody(HopperBody, _StateBody):
+        pass
+
+    body = PropBody(w, {"minecraft:hopper": 1, "minecraft:dirt": 2}, BLOCKS)
+    body.pos = (1, 0, 2)
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.scaffolds = set()
+    runner.attempt(bp.Place((1, 0, 0), EAST_HOPPER, "minecraft:hopper", 1))
+    assert w[(1, 0, 0)] == EAST_HOPPER
+    asked = [s for p, s in body.asked]
+    first_dirt = asked.index("minecraft:dirt")
+    assert body.asked[first_dirt] == ((2, 0, 0), "minecraft:dirt")
+    assert EAST_HOPPER in asked[first_dirt:]  # then the hopper against it
+    assert body.placing_state == EAST_HOPPER  # restored for the caller
+
+
+def test_a_tower_leaves_the_aim_of_the_cell_it_was_built_for():
+    body = _StateBody(flat_world(-2, 14), {sc.BLOCK: 16}, BLOCKS, pos=(0, 0, 4))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.scaffolds = set()
+    body.placing_state, body.required_support = TOP_SLAB, (0, 6, 1)
+    runner._tower((0, 6, 0), set())
+    assert (body.placing_state, body.required_support) == (TOP_SLAB, (0, 6, 1))
 
 
 def _zone(p):

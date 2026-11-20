@@ -20,6 +20,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping
 
+from mclab import place_state
 from mclab.interaction_goal import _segment_hits_box
 
 Pos = tuple[int, int, int]
@@ -58,6 +59,20 @@ SWEPT = frozenset(
     for n in ("short_grass", "grass", "tall_grass", "fern", "large_fern", "dead_bush")
 )
 _CELL = (0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
+SCAFFOLDING = "minecraft:scaffolding"
+# ScaffoldingBlock.getShape for a player not holding scaffolding: the top and four
+# legs (STABLE_SHAPE), with a bottom plate when bottom=true (UNSTABLE_SHAPE). Held
+# scaffolding makes every scaffolding block a full cube, to clicks and to rays.
+_SCAFFOLD_TOP_AND_LEGS = (
+    (0.0, 0.875, 0.0, 1.0, 1.0, 1.0),
+    (0.0, 0.0, 0.0, 0.125, 1.0, 0.125),
+    (0.875, 0.0, 0.0, 1.0, 1.0, 0.125),
+    (0.0, 0.0, 0.875, 0.125, 1.0, 1.0),
+    (0.875, 0.0, 0.875, 1.0, 1.0, 1.0),
+)
+_SCAFFOLD_PLATE = (0.0, 0.0, 0.0, 1.0, 0.125, 1.0)
+# a sample point this close to the edge of its face may meet the next face first
+_EDGE = 1e-6
 
 
 def takes_block(cell) -> bool:
@@ -81,12 +96,21 @@ def _boxes(cell) -> list:
     return list((cell or {}).get("collision_boxes") or ())
 
 
-def outline(cell) -> list:
+def outline(cell, holding_scaffold: bool = False) -> list:
     """The boxes a clip ray stops at: the collision boxes, or the whole cell for a
     block with none (a plant's outline; the exact shape is smaller, so this errs
-    toward hidden). Air, bare fluid and unknown cells stop nothing."""
+    toward hidden). Air, bare fluid and unknown cells stop nothing. Scaffolding has
+    its own outline, which the held item decides (ScaffoldingBlock.getShape); its
+    sensed collision is empty or the top alone, depending on where the body stood."""
     if not cell or cell.get("block") in _CLEAR:
         return []
+    if cell.get("block") == SCAFFOLDING:
+        if holding_scaffold:
+            return [_CELL]
+        bottom = (cell.get("properties") or {}).get("bottom") == "true" or (
+            "bottom=true" in (cell.get("state") or "")
+        )
+        return [*_SCAFFOLD_TOP_AND_LEGS, *((_SCAFFOLD_PLATE,) if bottom else ())]
     return _boxes(cell) or [_CELL]
 
 
@@ -103,7 +127,12 @@ def eye_of(feet) -> tuple[float, float, float]:
 
 
 def _ray_clear(
-    cells: Mapping, eye, point, block: Pos, swept: Pos | None = None
+    cells: Mapping,
+    eye,
+    point,
+    block: Pos,
+    swept: Pos | None = None,
+    holding_scaffold: bool = False,
 ) -> bool:
     """No outline between ``eye`` and ``point`` (on ``block``'s face) in any cell the
     segment passes through, by exact grid traversal, ``block`` itself and the
@@ -125,7 +154,8 @@ def _ray_clear(
         if c == block:
             return True
         if c != swept and any(
-            _segment_hits_box(eye, point, c, b) for b in outline(cells.get(c))
+            _segment_hits_box(eye, point, c, b)
+            for b in outline(cells.get(c), holding_scaffold)
         ):
             return False
         i = t_max.index(min(t_max))
@@ -163,18 +193,40 @@ def _face_points(n: Pos, d, boxes):
         yield tuple(p), n[axis] + plane, toward, axis
 
 
+_FACES = (("west", "east"), ("down", "up"), ("north", "south"))
+
+
+def _on_face(n: Pos, point, axis: int, plane: float, toward: int, boxes) -> bool:
+    """Is ``point`` on the shape's face in ``plane``, inside some box's face there?
+    Off it the server's ray, ending 0.05 past the point, meets nothing or another
+    face (the air over a bottom slab's side)."""
+    local = [point[i] - n[i] for i in range(3)]
+    flat = plane - n[axis]
+    others = [i for i in range(3) if i != axis]
+    for box in boxes:
+        if abs(box[axis + 3 if toward > 0 else axis] - flat) > _EDGE:
+            continue
+        if all(box[i] + _EDGE < local[i] < box[i + 3] - _EDGE for i in others):
+            return True
+    return False
+
+
 def clickable_from(
     cells: Mapping,
     eye,
     target: Pos,
     reach: float = PLACE_REACH,
     sources: Iterable[Pos] | None = None,
+    state: str | None = None,
 ) -> bool:
-    """True when some source face of ``target`` shows a sample point to ``eye`` within
-    ``reach``. ``sources`` limits the neighbours tried."""
+    """True when some source face of ``target`` shows ``eye`` a sample point within
+    ``reach`` whose click gives ``state`` (place_state; None: any block). ``sources``
+    limits the neighbours tried. The point must lie on the source's own outline,
+    and rays clip held-scaffolding outlines as the server's do."""
     allowed = None if sources is None else {tuple(s) for s in sources}
     occupant = cells.get(tuple(target)) or {}
     swept = tuple(target) if occupant.get("block") in SWEPT and _dry(occupant) else None
+    holding = bool(state) and place_state.parse(state)[0] == SCAFFOLDING
     for dx, dy, dz in NEIGHBOURS:
         n = (target[0] + dx, target[1] + dy, target[2] + dz)
         if allowed is not None and n not in allowed:
@@ -182,13 +234,19 @@ def clickable_from(
         cell = cells.get(n)
         if not source(cell):
             continue
-        for point, plane, toward, axis in _face_points(n, (dx, dy, dz), _boxes(cell)):
+        boxes = outline(cell, holding)
+        for point, plane, toward, axis in _face_points(n, (dx, dy, dz), boxes):
             if (eye[axis] - plane) * toward <= 0:
                 break  # the eye is behind this face: no point of it shows
             if math.dist(eye, point) > reach:
                 continue
+            if not _on_face(n, point, axis, plane, toward, boxes):
+                continue
+            face = _FACES[axis][toward > 0]
+            if not place_state.click_gives(state, face, point[1] - target[1]):
+                continue
             beyond = _beyond(eye, point)
-            if _ray_clear(cells, eye, beyond, n, swept):
+            if _ray_clear(cells, eye, beyond, n, swept, holding):
                 return True
     return False
 

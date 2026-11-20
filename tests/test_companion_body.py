@@ -1005,7 +1005,7 @@ def test_stances_prefer_one_that_also_places_the_next_cells_of_the_sweep():
     b.precise_stance = True
     target = (3, 0, 4)
     nearest = b.stances(target, 4.5)[0]
-    b.stance_cover = dict.fromkeys(_ROW)
+    b.stance_cover = dict.fromkeys(_ROW, (None, None))
     best = b.stances(target, 4.5)[0]
     assert cb.places_from(b._cells_now(), cb.stance_eye(best), best, target, 4.5)
     assert _covers(b, best, _ROW) > _covers(b, nearest, _ROW)
@@ -1015,7 +1015,7 @@ def test_stances_prefer_one_that_also_places_the_next_cells_of_the_sweep():
 def test_a_stance_inside_a_cell_of_the_sweep_does_not_count_it_covered():
     b, _, _ = body()
     b.precise_stance = True
-    b.stance_cover = {(4, 0, 4): None}
+    b.stance_cover = {(4, 0, 4): (None, None)}
     assert b._stance_covers(b._cells_now(), (4, 0, 4), 4.5) == 0
     assert b._stance_covers(b._cells_now(), (4, 0, 3), 4.5) == 1
 
@@ -1053,10 +1053,124 @@ def test_stance_cover_does_not_outrank_a_walkable_stance(monkeypatch):
     b, _, _ = body()
     b.precise_stance = True
     target = (3, 0, 4)
-    b.stance_cover = dict.fromkeys(_ROW)
+    b.stance_cover = dict.fromkeys(_ROW, (None, None))
     walk = {(0, 0, 1)}
     monkeypatch.setattr(b, "_walkable", lambda *a: walk)
     assert b.stances(target, 4.5)[0] == (0, 0, 1)
+
+
+TOP_SLAB = "minecraft:oak_slab[type=top,waterlogged=false]"
+BOTTOM_SLAB = "minecraft:oak_slab[type=bottom,waterlogged=false]"
+ON_FLOOR = (3, 0, 3)  # its one support is the floor: a click there is a bottom half
+
+
+def test_stances_need_a_click_that_gives_the_requested_state():
+    """Sight alone sent the body where only the wrong half of a face showed: 20 of
+    28 wrong_state failures in run 20261120T083111010944Z were stairs and slabs."""
+    b, _, _ = body()
+    b.precise_stance = True
+    assert b.stances(ON_FLOOR, 4.5)
+    b.placing_state = BOTTOM_SLAB
+    assert b.stances(ON_FLOOR, 4.5)
+    assert b.can_place_here(ON_FLOOR, 4.5, None, BOTTOM_SLAB)
+    b.placing_state = TOP_SLAB
+    assert b.stances(ON_FLOOR, 4.5) == []
+    assert not b.can_place_here(ON_FLOOR, 4.5, None, TOP_SLAB)
+
+
+def test_stance_cover_counts_a_cell_only_where_its_state_can_be_made():
+    b, _, _ = body()
+    b.precise_stance = True
+    b.stance_cover = {ON_FLOOR: (None, BOTTOM_SLAB)}
+    assert b._stance_covers(b._cells_now(), (1, 0, 3), 4.5) == 1
+    b.stance_cover = {ON_FLOOR: (None, TOP_SLAB)}
+    assert b._stance_covers(b._cells_now(), (1, 0, 3), 4.5) == 0
+
+
+def _two_stances(monkeypatch, b, sound, shaky):
+    """``sound`` places from anywhere in its cell, ``shaky`` only from the exact
+    centre; ``shaky`` is the nearer one."""
+    monkeypatch.setattr(b, "position", lambda: (0, 0, 0))
+
+    def places(cells, eye, node, target, reach, required=None, **kw):
+        return node == sound or (node == shaky and eye == cb.stance_eye(shaky))
+
+    monkeypatch.setattr(cb, "places_from", places)
+    monkeypatch.setattr(b, "_walkable", lambda *a: {sound, shaky})
+
+
+def test_a_stance_that_places_only_from_its_exact_centre_ranks_after_a_sound_one(
+    monkeypatch,
+):
+    """The body stops within PRECISE_RADIUS of a stance's centre: where the face
+    shows through a gap that narrow, the eye it arrives with misses it (run
+    20261120T083111010944Z, [-17, 68, 59] from [-15, 69, 61]: in view from the
+    centre, hidden 0.1 off it)."""
+    b, _, _ = body()
+    b.precise_stance = True
+    sound, shaky = (5, 0, 3), (1, 0, 2)
+    _two_stances(monkeypatch, b, sound, shaky)
+    found = b.stances(ON_FLOOR, 4.5)
+    assert set(found) == {sound, shaky}
+    assert found == [sound, shaky]
+
+
+def test_goto_stance_rechecks_on_arrival_and_walks_on_when_the_face_is_hidden(
+    monkeypatch,
+):
+    """A block placed while passing can hide the face the stance was chosen for
+    (run 20261120T083111010944Z: a log placed on the way beside [-7, 66, 67], then
+    the click from the stance found no face). The body checks from where it
+    arrived and chooses again on the fresh map, without a doomed click."""
+    b, _, memory = body()
+    b.precise_stance = True
+    first, second = (1, 0, 3), (5, 0, 3)
+    at = {"pos": (0, 0, 0)}
+    monkeypatch.setattr(b, "position", lambda: at["pos"])
+    hidden = set()
+
+    def can(target, reach, required=None, state=None, **kw):
+        return at["pos"] != (0, 0, 0) and at["pos"] not in hidden
+
+    monkeypatch.setattr(b, "_places_from_here", can)
+    picks = [[first, second], [second]]
+    monkeypatch.setattr(b, "stances", lambda *a, **k: picks.pop(0))
+    monkeypatch.setattr(b, "_walkable", lambda *a: {first, second})
+    walked = []
+
+    def navigate(node, **kw):
+        walked.append(node)
+        at["pos"] = node
+        if node == first:
+            hidden.add(first)  # placed on the way: the face is gone from here
+        return True
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    assert b.goto_stance(ON_FLOOR, 4.5) is True
+    assert walked == [first, second]
+    assert picks == []  # chosen again on the map after the walk
+
+
+def test_goto_stance_keeps_the_arrival_when_no_other_stance_is_found(monkeypatch):
+    # nothing better on the fresh map: the server decides from where the body stands
+    b, _, _ = body()
+    b.precise_stance = True
+    first = (1, 0, 3)
+    at = {"pos": (0, 0, 0)}
+    monkeypatch.setattr(b, "position", lambda: at["pos"])
+    monkeypatch.setattr(b, "_places_from_here", lambda *a, **k: False)
+    picks = [[first], []]
+    monkeypatch.setattr(b, "stances", lambda *a, **k: picks.pop(0))
+    monkeypatch.setattr(b, "_walkable", lambda *a: {first})
+    monkeypatch.setattr(b, "_worth_searching", lambda t: False)
+
+    def navigate(node, **kw):
+        at["pos"] = node
+        return True
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    assert b.goto_stance(ON_FLOOR, 4.5) is True
+    assert at["pos"] == first
 
 
 def test_stances_rank_walkable_cells_before_nearer_unreachable_ones(monkeypatch):
@@ -1781,7 +1895,13 @@ def test_walk_only_keeps_climbed_scaffolding_stance_and_eye_cell_sees_past_rim(
     b.required_support = (1, 8, 0)
     assert cb.interacts(cells, (0, 6, 0), (1, 7, 0), 4.5)
     walked = []
-    monkeypatch.setattr(b, "_navigate", lambda goal, **k: walked.append(goal) or True)
+
+    def arrive(goal, **k):  # an arrival puts the body (and its eye) on the stance
+        walked.append(goal)
+        b._obs["body"]["position"] = [goal[0] + 0.5, goal[1], goal[2] + 0.5]
+        return True
+
+    monkeypatch.setattr(b, "_navigate", arrive)
     assert b.goto_stance((1, 7, 0), 4.5)
     assert walked == [(0, 6, 0)]
 
