@@ -965,6 +965,23 @@ class SegmentedController(NavigationController):
                 fresh, plan.source, plan.target, max_drop=self.movement_policy.max_drop
             )
         if not valid:
+            # Recorded: a silent refusal hid 733 of them and ~13 min of replans
+            # in house-large run 20261120T113050800552Z.
+            self.events.append(
+                (
+                    "terrain_step_refused",
+                    {
+                        "source": plan.source,
+                        "target": plan.target,
+                        "kind": plan.kind,
+                        "breaks": plan.breaks,
+                        "places": plan.places,
+                        "scaffold": plan.scaffold,
+                        "exit": plan.exit,
+                        "node": tuple(node),
+                    },
+                )
+            )
             self._clear_terrain_forecast()
             self._discard_prefetch()  # planned on the forecast that no longer holds
             self.reason = "forecast preconditions changed; replanning"

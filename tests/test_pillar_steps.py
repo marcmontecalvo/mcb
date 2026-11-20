@@ -4,7 +4,7 @@ import pytest
 from test_staircase_steps import staircase_map, stock
 
 from mclab.pillar_steps import PillarExecutor, prepare_pillar
-from mclab.terrain_steps import TerrainPolicy
+from mclab.terrain_steps import StepPlan, TerrainPolicy
 
 
 def policy():
@@ -135,6 +135,116 @@ def test_pillar_executor_rejects_unconfirmed_geometry_and_displacement():
     body["position"][0] = 1.1
     assert executor.decide({"tick": 1, "body": body}, cells) == {}
     assert executor.state == "failed"
+
+
+def test_pillar_going_on_up_exits_straight_above_onto_the_next_block():
+    # StepMotor's contract: a pillar whose next move is another pillar exits
+    # straight above, a cell that stands only once the next block is under it.
+    # Requiring a standable side exit refused every dirt tower of two or more
+    # (house-large run 20261120T113050800552Z: 733 refused edits, ~13 min).
+    cells = staircase_map(1)
+    plan = prepare_pillar(cells, (0, 0, 0), (0, 2, 0), policy(), stock(3))
+    assert plan is not None and plan.exit == (0, 2, 0) and plan.target == (0, 1, 0)
+
+
+def test_tower_top_pillar_exits_onto_its_own_target():
+    cells = staircase_map(1)
+    plan = prepare_pillar(cells, (0, 0, 0), (0, 1, 0), policy(), stock(3))
+    assert plan is not None and plan.exit == (0, 1, 0)
+
+
+@pytest.mark.parametrize("exit_node", [(0, 3, 0), (0, 0, 0)])
+def test_straight_up_exit_is_the_target_or_the_cell_above_it(exit_node):
+    cells = staircase_map(1)
+    assert prepare_pillar(cells, (0, 0, 0), exit_node, policy(), stock(3)) is None
+
+
+def test_straight_up_exit_needs_a_clear_body_column():
+    cells = staircase_map(1)
+    cells[0, 3, 0].update(
+        block="minecraft:cobblestone", collision_boxes=[[0, 0, 0, 1, 1, 1]]
+    )
+    assert prepare_pillar(cells, (0, 0, 0), (0, 2, 0), policy(), stock(3)) is None
+
+
+def test_pillar_exit_may_stand_on_a_stair_top():
+    # The roof's stairs are the way off a tower (StepMotor: "the exit may stand on
+    # a stair top or slab"); a full-cube-only exit refused them.
+    cells = staircase_map(1)
+    cells[0, 3, 1].update(
+        block="minecraft:oak_stairs",
+        collision_boxes=[[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0.5, 1, 1, 1]],
+    )
+    plan = prepare_pillar(cells, (0, 0, 0), (0, 4, 1), policy(), stock(3))
+    assert plan is not None and plan.exit == (0, 4, 1)
+
+
+def test_dirt_pillar_from_a_scaffolding_top_is_accepted():
+    # The live case: the body on top of a 4-high scaffolding column, out of
+    # scaffolding, pillaring up with dirt toward the roof.
+    cells = staircase_map(1)
+    for y in range(0, 4):
+        cells[0, y, 0].update(block="minecraft:scaffolding", collision_boxes=[])
+    plan = prepare_pillar(cells, (0, 4, 0), (0, 6, 0), policy(), stock(3))
+    assert plan is not None and plan.places == ((0, 4, 0),)
+
+
+def _route_edit_nav(cells, route, steps, tick=100):
+    from mclab.navigation_segmented import SegmentedController
+
+    fresh = {p: dict(c, observed_tick=tick) for p, c in cells.items()}
+    nav = SegmentedController.__new__(SegmentedController)
+    nav.route = list(route)
+    nav.route_steps = {(s.source, s.target): s for s in steps}
+    nav.terrain_queue, nav.terrain_forecast = [], ()
+    nav.breaks_reserved = nav.places_reserved = 0
+    nav.terrain = nav.terrain_search = nav.prefetch = None
+    nav.failed_edges, nav.own_footholds, nav.own_breaks = set(), set(), {}
+    nav.events, nav.search = [], object()
+    nav.memory = type("Memory", (), {"cells": fresh})()
+    nav._remaining_policy = lambda: replace(
+        policy(), material_allowlist=("minecraft:cobblestone",)
+    )
+    nav._fresh = lambda now: fresh
+    nav._begin_route_edit(route[0], {"tick": tick, "body": {"inventory": stock(3)}})
+    return nav
+
+
+def test_a_solid_pillar_tower_starts_instead_of_replanning():
+    # Out of scaffolding, the planner pillars with dirt; each plan was refused at
+    # its first block and replanned from wherever the body had got to (the
+    # 311 s up-and-down on a scaffolding column of run 20261120T113050800552Z).
+    cells = staircase_map(1)
+    up = [
+        StepPlan((0, y, 0), (0, y + 1, 0), places=((0, y, 0),), kind="pillar")
+        for y in (0, 1)
+    ]
+    nav = _route_edit_nav(cells, [(0, 0, 0), (0, 1, 0), (0, 2, 0)], up)
+    assert nav.terrain is not None and nav.terrain.plan.exit == (0, 2, 0)
+    assert (up[0].source, up[0].target) not in nav.failed_edges
+
+
+def test_a_refused_route_edit_is_recorded_with_its_plan():
+    cells = staircase_map(1)
+    cells[0, 3, 0].update(
+        block="minecraft:cobblestone", collision_boxes=[[0, 0, 0, 1, 1, 1]]
+    )
+    up = StepPlan((0, 0, 0), (0, 1, 0), places=((0, 0, 0),), kind="pillar")
+    nav = _route_edit_nav(cells, [(0, 0, 0), (0, 1, 0)], [up])
+    assert nav.terrain is None and ((0, 0, 0), (0, 1, 0)) in nav.failed_edges
+    refused = [data for kind, data in nav.events if kind == "terrain_step_refused"]
+    assert refused == [
+        {
+            "source": (0, 0, 0),
+            "target": (0, 1, 0),
+            "kind": "pillar",
+            "breaks": (),
+            "places": ((0, 0, 0),),
+            "scaffold": (),
+            "exit": (0, 1, 0),
+            "node": (0, 0, 0),
+        }
+    ]
 
 
 @pytest.mark.parametrize("value", [0, 4, True, 1.5])
