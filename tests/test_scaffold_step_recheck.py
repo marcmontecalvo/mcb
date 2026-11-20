@@ -38,3 +38,17 @@ def test_a_scaffolding_step_is_refused_without_scaffolding_or_onto_protected_cel
     assert not scaffold_step_matches(STEP, cells(), POLICY, [])
     guarded = TerrainPolicy(**{**POLICY.__dict__, "protected_positions": ((1, 1, 0),)})
     assert not scaffold_step_matches(STEP, cells(), guarded, SCAFFOLD)
+
+
+def test_the_reserve_holds_back_solid_blocks_not_scaffolding():
+    # review of e029b74: a reserve above the solid blocks held went negative and
+    # refused a step that places scaffolding alone
+    from dataclasses import replace
+
+    reserved = replace(POLICY, reserve_blocks=4)
+    assert scaffold_step_matches(STEP, cells(), reserved, SCAFFOLD)
+    dirt = StepPlan((0, 1, 0), (1, 2, 0), places=((1, 1, 0),), kind="step")
+    held = [*SCAFFOLD, {"slot": 1, "item": "minecraft:dirt", "count": 4}]
+    assert not scaffold_step_matches(dirt, cells(), reserved, held)  # all reserved
+    held[1]["count"] = 5
+    assert scaffold_step_matches(dirt, cells(), reserved, held)

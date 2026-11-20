@@ -1163,7 +1163,7 @@ def next_actions(
         and (skipped is None or t[0] not in skipped)
         and not all(inventory.get(i, 0) >= c for i, c in t[2].items())
         and _gate(t[0], t[1], world, blocks) is None
-        for t in todo
+        for t in todo_open  # a held pane short in hand is fetched once it is due
     )
 
     def offerable(pos, state, cost, held) -> bool:

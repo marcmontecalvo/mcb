@@ -33,7 +33,10 @@ MAX_DROP = 3  # a fall of more hurts
 KIT_BATCH = 60  # the lab kit places at most 64 cells a request
 LEVELS = ("basic", "advanced")
 MOAT_DEPTH = 10  # deeper than any bridge course's scaffolding
-ROOF_Y = 3  # the bridge courses' glass roof, on the fences
+# The bridge courses' glass roof, on the fences (y 0..ROOF_Y-1, so nothing walks over
+# them). Not 3: a rise needs the launch cell clear to feet+3, and the step up from the
+# pad onto the bridge root is one (live run 20261120T173256582204Z never left the pad).
+ROOF_Y = 4
 
 Offset = tuple[int, int, int]
 Pos = tuple[int, int, int]
@@ -51,6 +54,7 @@ class Challenge:
     scaffolding: int = 32
     no_damage: bool = True  # a fall or a drop into the pit is not a scaffold solution
     scaffold_free: bool = False  # the way is there already (stairs): place nothing
+    bridge: bool = False  # passed only with a scaffold bridge standing to the goal
 
     def state(self, p: Offset) -> str:
         return self.cells.get(p, STONE if p[1] < 0 else AIR)
@@ -172,26 +176,32 @@ CHALLENGES: tuple[Challenge, ...] = (
     Challenge(
         "bridge",
         "advanced",
-        "Bridge straight across the pit to the island, without falling in.",
+        "Bridge straight across the pit to the island, without falling in. Leave the"
+        " bridge standing.",
         _moat((7, 0)),
         goal=(7, 0, 0),
         scaffolding=8,
+        bridge=True,
     ),
     Challenge(
         "bridge-l",
         "advanced",
-        "Bridge to the island round one corner (it is off your lines), no falling in.",
+        "Bridge to the island round one corner (it is off your lines), no falling in."
+        " Leave the bridge standing.",
         _moat((4, -3)),
         goal=(4, 0, -3),
         scaffolding=7,
+        bridge=True,
     ),
     Challenge(
         "bridge-u",
         "advanced",
-        "Bridge round the glass wall to the island behind it, without falling in.",
+        "Bridge round the glass wall to the island behind it, without falling in."
+        " Leave the bridge standing.",
         _moat((4, 0), walls=[(3, -1), (3, 0), (3, 1)]),
         goal=(4, 0, 0),
         scaffolding=8,
+        bridge=True,
     ),
     Challenge(
         "stairs",
@@ -375,6 +385,46 @@ def bridge_length(
     return None if best is None else best[0]
 
 
+def bridge_area(c: Challenge) -> list[Offset]:
+    """The open cells a bridge can stand in (the start's air from the ground top up),
+    read back after an attempt (one lab kit probe)."""
+    space, _ = open_space(c)
+    return sorted(p for p in space if p[1] >= 0)
+
+
+def bridge_stands(c: Challenge, scaffolding: set[Offset]) -> bool:
+    """Does scaffolding stand, joined face to face, from a root on ground the start
+    walks to as far as the goal column or a cell beside it? A jump across the pit
+    leaves none, or a bridge with a gap (review of e029b74: a sprint jump from the
+    pad's corner reached the bridge-l island with no scaffolding)."""
+    gx, gz = c.goal[0], c.goal[2]
+    roots = [
+        p
+        for p in scaffolding
+        if p[1] == 0
+        and _solid(c, (p[0], -1, p[2]), {})
+        and abs(p[0] - gx) + abs(p[2] - gz) > 1
+        and walkable(c, p)
+    ]
+    seen, todo = set(roots), deque(roots)
+    while todo:
+        x, y, z = todo.popleft()
+        if abs(x - gx) + abs(z - gz) <= 1:
+            return True
+        for n in (
+            (x + 1, y, z),
+            (x - 1, y, z),
+            (x, y + 1, z),
+            (x, y - 1, z),
+            (x, y, z + 1),
+            (x, y, z - 1),
+        ):
+            if n in scaffolding and n not in seen:
+                seen.add(n)
+                todo.append(n)
+    return False
+
+
 def verdict(
     c: Challenge,
     *,
@@ -382,6 +432,7 @@ def verdict(
     damage: float,
     scaffolding_used: int,
     built_changed: int,
+    bridge_stands: bool | None = None,
 ) -> dict:
     problems = []
     if not reached:
@@ -392,6 +443,8 @@ def verdict(
         problems.append(f"changed {built_changed} course cells")
     if c.scaffold_free and scaffolding_used:
         problems.append(f"placed {scaffolding_used} scaffolding (stairs were there)")
+    if c.bridge and not bridge_stands:
+        problems.append("no scaffolding bridge stands from the pad to the island")
     return {
         "passed": not problems,
         "problems": problems,
@@ -399,4 +452,5 @@ def verdict(
         "damage": damage,
         "scaffolding_used": scaffolding_used,
         "built_changed": built_changed,
+        **({"bridge_stands": bridge_stands} if c.bridge else {}),
     }

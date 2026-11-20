@@ -346,10 +346,14 @@ class _Runner:
         can_place = getattr(self.body, "can_place_here", None)
         support = _support_for(act, getattr(self.body, "world", None), self.blocks)
         _aim(self.body, act, support)
+        # Scaffolding too: can_place_here answers for it by the column and run rules
+        # (placing_scaffold, set by _aim), so a far column top is still clicked from
+        # here and a cell out of every reach is walked to, not sent to the server to
+        # fail (review of e029b74: a Scaffold act clicked from 71 blocks away).
         direct = (
-            not isinstance(act, bp.Place)
+            not isinstance(act, (bp.Place, bp.Scaffold))
             or can_place is None
-            or can_place(pos, REACH, support, act.state)
+            or can_place(pos, REACH, support, _state_of(act))
         )
         if direct and self._traps(act, here):
             direct = False

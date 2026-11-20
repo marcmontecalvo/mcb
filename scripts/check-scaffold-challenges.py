@@ -9,7 +9,7 @@ bot or for a person with a normal Minecraft client.
 Each challenge is laid out at ``--origin`` (the feet cell of a flat, empty lab spot;
 default 990 80 988, the lab fixture), attempted, scored and then cleared back to the
 flat spot. ``--subject human``: the named player (joined to the lab server) is moved to
-the start with only scaffolding and a pickaxe; the green ring and beam mark the goal
+the start with only scaffolding; the green ring and beam mark the goal
 and the run ends when they stand on it (or after ``--minutes``). The bot always shows
 its markers (red planned path, green goal, yellow block) with ``--show-markers``;
 create or delete <run folder>/MARKERS to flip them while it runs. Results:
@@ -74,6 +74,22 @@ def built_changed(bridge, c, origin, **who) -> int:
     return changed
 
 
+def bridge_standing(bridge, c, origin, **who) -> bool | None:
+    """For a bridge course, does a scaffolding bridge stand from the pad to the
+    island (read from the world; a jump across leaves none)? None elsewhere."""
+    if not c.bridge:
+        return None
+    area = sch.bridge_area(c)
+    scaffolding = set()
+    for i in range(0, len(area), PROBE_BATCH):
+        batch = area[i : i + PROBE_BATCH]
+        got = kit(bridge, at=list(origin), probe=[list(p) for p in batch], **who)
+        scaffolding |= {
+            p for p, now in zip(batch, got["probed"], strict=True) if now == sch.SCAFFOLDING
+        }
+    return sch.bridge_stands(c, scaffolding)
+
+
 def run_bot(folder, c, origin, show_markers):
     folder.mkdir(parents=True, exist_ok=True)
     bridge = open_bridge(folder)
@@ -130,6 +146,7 @@ def run_bot(folder, c, origin, show_markers):
             damage=damage,
             scaffolding_used=body.edits_placed - placed0,
             built_changed=built_changed(bridge, c, origin),
+            bridge_stands=bridge_standing(bridge, c, origin),
         )
         outcome.update(wall_s=round(time.monotonic() - t0, 1), position=[x, y, z])
         return outcome
@@ -191,6 +208,7 @@ def run_human(folder, c, origin, player, minutes):
             damage=float(data.get("damage_taken", 0)),
             scaffolding_used=max(0, c.scaffolding - left),
             built_changed=built_changed(bridge, c, origin, player=player),
+            bridge_stands=bridge_standing(bridge, c, origin, player=player),
         )
         outcome.update(
             ticks=data.get("ticks"), reason=data.get("reason"), scaffolding_left=left

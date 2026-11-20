@@ -120,6 +120,78 @@ def test_a_bridge_course_is_closed_and_the_bridge_is_the_only_way(name, turns, l
     assert below[:1] == [-1]  # the island stands on the pit floor
 
 
+@pytest.mark.parametrize(("name", "turns", "length"), BRIDGES)
+def test_the_roof_leaves_room_to_step_up_onto_the_bridge_root(name, turns, length):
+    # Live run 20261120T173256582204Z: with the roof at feet+3 of the pad the bot never
+    # left it (9 nodes, unreachable). A rise needs the launch cell clear to feet+3 and
+    # the landing to feet+2 (RoutePlanner.planEdit and pillar, StepMotor's jump).
+    c = sch.by_name(name)
+    for y in range(1, 4):
+        assert c.state((0, y, 0)) == sch.AIR  # over the start
+        assert c.state((1, y, 0)) == sch.AIR  # over the root on the pad's edge
+
+
+SC = sch.SCAFFOLDING
+# the shortest bridge of each course (root on the pad's edge first)
+SHORTEST = {
+    "bridge": [(1, 0, 0), *((x, 0, 0) for x in range(2, 7))],
+    "bridge-l": [(1, 0, -1), (2, 0, -1), (3, 0, -1), (4, 0, -1), (4, 0, -2)],
+    "bridge-u": [(1, 0, 1), (2, 0, 1), (2, 0, 2), (3, 0, 2), (4, 0, 2), (4, 0, 1)],
+}
+
+
+@pytest.mark.parametrize(("name", "turns", "length"), BRIDGES)
+def test_a_bridge_that_stands_to_the_island_is_the_bridge(name, turns, length):
+    c = sch.by_name(name)
+    cells = SHORTEST[name]
+    assert len(cells) == length
+    assert c.bridge
+    assert sch.bridge_turns(c, extra=dict.fromkeys(cells, SC)) is not None
+    assert sch.bridge_stands(c, set(cells))
+    assert set(cells) <= set(sch.bridge_area(c))
+    assert len(sch.bridge_area(c)) <= 2048  # one lab kit probe
+
+
+@pytest.mark.parametrize(("name", "turns", "length"), BRIDGES)
+def test_a_jump_is_not_a_bridge(name, turns, length):
+    # review of e029b74: a person can sprint-jump from the pad's corner to the
+    # bridge-l island (no scaffolding), or bridge-u's one-turn L and jump the last
+    # gap; the verdict reads back the bridge itself
+    c = sch.by_name(name)
+    cells = SHORTEST[name]
+    assert not sch.bridge_stands(c, set())
+    assert not sch.bridge_stands(c, set(cells[:-1]))  # one short: the last gap jumped
+    assert not sch.bridge_stands(c, set(cells[1:]))  # no root: it fell
+    island_side = {cells[-1]}  # a cell by the island alone, set from the island
+    assert not sch.bridge_stands(c, island_side)
+
+
+def test_the_bridge_verdict_needs_the_bridge_standing():
+    c = sch.by_name("bridge-l")
+    ok = sch.verdict(
+        c,
+        reached=True,
+        damage=0.0,
+        scaffolding_used=5,
+        built_changed=0,
+        bridge_stands=True,
+    )
+    assert ok["passed"]
+    jumped = sch.verdict(
+        c,
+        reached=True,
+        damage=0.0,
+        scaffolding_used=0,
+        built_changed=0,
+        bridge_stands=False,
+    )
+    assert not jumped["passed"]
+    assert jumped["problems"] == [
+        "no scaffolding bridge stands from the pad to the island"
+    ]
+    assert not sch.by_name("climb").bridge
+
+
 @pytest.mark.parametrize("name", NAMES)
 def test_pits_are_walled_and_floored_in_laid_stone(name):
     # the lab spot may be a slab over nothing: the course never relies on what is

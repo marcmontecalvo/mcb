@@ -123,8 +123,10 @@ final class LabKit {
                 var floor = feet.offset(x, -1, z);
                 if (level.getBlockState(floor).canBeReplaced()) level.setBlock(floor, Blocks.STONE.defaultBlockState(), 2);
                 for (int y = 0; y <= dy; y++) {
+                    // The body's own cells too: air never harms it, and with home the body stands on
+                    // the start, where scaffolding left by the attempt would outlive the restore
+                    // (review of e029b74). Only place keeps out of them.
                     var pos = feet.offset(x, y, z);
-                    if (pos.equals(body) || pos.equals(body.above())) continue; // the body stands here
                     if (!level.getBlockState(pos).isAir()) { level.setBlock(pos, air, 2); cleared++; }
                 }
             }

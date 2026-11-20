@@ -106,7 +106,7 @@ def scaffold_step_matches(plan, cells, policy, inventory, protected=()):
     solid = len(plan.places) - len(scaffold)
     have_scaffold = sum(held.get(i, 0) for i in policy.scaffold_materials)
     have_solid = sum(held.get(i, 0) for i in policy.material_allowlist)
-    spare = have_solid - policy.reserve_blocks
+    spare = max(0, have_solid - policy.reserve_blocks)  # the reserve is solid blocks
     return have_scaffold >= len(scaffold) and spare >= solid
 
 

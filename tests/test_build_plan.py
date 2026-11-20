@@ -831,6 +831,23 @@ def test_held_bars_do_not_count_as_structure_left():
     assert [a.pos for a in acts] == [(1, 2, 2)]
 
 
+@pytest.mark.parametrize("glazing", ["minecraft:glass_pane", "minecraft:iron_bars"])
+def test_a_held_pane_not_in_hand_does_not_send_the_body_to_fetch(glazing):
+    # second review of the glazing fix: the fetch-first rule still read every cell,
+    # so a held pane that was not in the inventory sent the body to the chests while
+    # the pot it waits for was in hand and placeable
+    template, world, blocks = _balcony(rise=1)
+    if glazing != PANE:
+        cells = {p: (glazing if s == PANE else s) for p, s in template.cells.items()}
+        template = bp.Template.from_build(make_build(cells, (5, 3, 3)), (0, 0, 0))
+        blocks = {**blocks, glazing: {"item": glazing}}
+    acts = bp.next_actions(
+        template, at(world), blocks, {POT: 1}, near=(2, 1, -5), fetch_first=True
+    )
+    assert [a.pos for a in acts if isinstance(a, bp.Place)] == [(1, 2, 2)]
+    assert not any(isinstance(a, bp.NeedMaterials) for a in acts)
+
+
 def test_a_detail_that_cannot_go_in_does_not_keep_the_window_open():
     template, world, blocks = _balcony()
     skipped = bp.next_actions(

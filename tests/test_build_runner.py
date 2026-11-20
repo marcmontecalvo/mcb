@@ -1633,6 +1633,43 @@ def test_tall_scaffolding_placed_directly_when_can_place_here_reaches_column():
     assert not body.stance_calls
 
 
+def test_scaffolding_out_of_reach_is_not_clicked_before_the_walk():
+    # review of e029b74: a Scaffold act went to place_block from wherever the body
+    # stood (71 blocks away in the repro); can_place_here answers for scaffolding by
+    # the column and run rules, so it decides here as it does for a Place
+    w = flat_world(hi=14)
+
+    class FarBody(FakeBody):
+        placing_scaffold = False
+
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.asked: list = []
+            self.placed_from: list = []
+
+        def can_place_here(self, pos, reach, required=None, state=None):
+            self.asked.append((pos, self.placing_scaffold, state))
+            return self.pos == (1, 0, 0)
+
+        def place_block(self, pos, state, item):
+            self.placed_from.append(self.pos)
+            return super().place_block(pos, state, item)
+
+        def goto_stance(self, target_pos, reach, avoid=()):
+            super().goto_stance(target_pos, reach, avoid)
+            self.pos = (1, 0, 0)
+            return True
+
+    body = FarBody(w, {"minecraft:scaffolding": 8}, BLOCKS, pos=(50, 0, 50))
+    runner = br._Runner(body, br.BuildReport(), 20, BLOCKS)
+    runner.scaffolds = set()
+    runner.attempt(bp.Scaffold((0, 0, 0), "minecraft:scaffolding"))
+    assert body.asked[0] == ((0, 0, 0), True, "minecraft:scaffolding")
+    assert (50, 0, 50) not in body.placed_from
+    assert body.stance_calls
+    assert (0, 0, 0) in runner.report.scaffolded
+
+
 def test_mutual_hoppers_move_stance_to_see_temporary_face_and_reclaim_dirt():
     w = flat_world()
     east = "minecraft:hopper[enabled=true,facing=east]"

@@ -32,7 +32,8 @@ POLL_SECONDS = 0.25
 def _wait_terminal(client, wall_timeout):
     deadline = time.monotonic() + wall_timeout
     while time.monotonic() < deadline:
-        client.state(heartbeat=True)
+        # No body is spawned (a lab-only reset of the client): heartbeat is a body op.
+        client.state(heartbeat=False)
         terminal = terminal_event(client)
         if terminal is not None:
             return terminal

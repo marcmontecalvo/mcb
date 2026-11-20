@@ -115,12 +115,24 @@ The geometry is pure (`src/mclab/scaffold_challenges.py`). Tests check:
   walkable);
 - the bridges need 0, 1 and 2 turns within scaffold distance 6;
 - every pit is walled and floored in laid stone;
-- the bridge courses are closed under a glass roof at y=3 (no tower onto a fence to walk
-  along it), and their pit is deeper than the scaffolding handed out (no column down to
-  the floor and up again at the island).
+- the bridge courses are closed under a glass roof at y=4 on fences three high (no tower
+  onto a fence to walk along it), and their pit is deeper than the scaffolding handed out
+  (no column down to the floor and up again at the island);
+- the roof leaves the step from the pad onto the bridge root its jump room (launch cell
+  clear to feet+3, as `RoutePlanner.planEdit` and StepMotor need). A roof at y=3 kept the
+  bot on the pad in the first live run (20261120T173256582204Z).
+
+`descend` asks for what the planner cannot do yet: scaffolding placed over a shaft falls and
+stacks up from the floor, and the bot has no edit for that (it hangs a bridge out and stops;
+first live run: 3 placed, search cap toward the floor). It stays a course: it is the test for
+that work (ROADMAP B2a).
 
 The kit is scaffolding alone (it breaks by hand; a pickaxe would dig out of a pit or quarry
-stone to pillar with). Any changed course cell fails an attempt. The lab kit reads the cells
+stone to pillar with). Any changed course cell fails an attempt. A bridge course also needs
+the bridge left standing: the open cells are read back and scaffolding must join, face to
+face, a root on the pad to the island's side (`bridge_stands`). A sprint jump from the pad's
+corner reaches the bridge-l island with no scaffolding, and bridge-u's one-turn L leaves a
+gap a person can jump (review of e029b74); a jump leaves no bridge, or one with a gap. The lab kit reads the cells
 back (`probe`), so a person's own scaffolding, placed or broken, does not count. A pit
 13 wide crossed by dropping scaffolding onto its floor to stack a middle tower is not a
 course yet: the walk down and up again cannot be ruled out, and the planner does not drop
