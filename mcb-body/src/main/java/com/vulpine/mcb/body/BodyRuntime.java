@@ -330,6 +330,7 @@ public final class BodyRuntime implements AutoCloseable {
     private final Map<String,TerrainPlanner> terrainPlans = new LinkedHashMap<>();
     private PlannerMap plannerMap = new PlannerMap();
     private PlanData planData = new PlanData();
+    private PlanSets planSets = new PlanSets();
     private final Map<String,Integer> planLimits = new HashMap<>();
     private final Map<String,Map<String,Object>> planResults = new LinkedHashMap<>();
 
@@ -349,7 +350,8 @@ public final class BodyRuntime implements AutoCloseable {
         if (!Double.isFinite(radius) || radius < 0 || maxDrop < 0 || maxDrop > RouteMotor.HURT_DROP_MAX || maxGap < 0 || maxGap > 2
                 || limit < 1 || limit > 100_000 || !(penalty == 0 || (penalty >= 1 && penalty <= 10)))
             throw new IllegalArgumentException("plan_bounds");
-        var requestedEdits = request.has("edits") ? request.getAsJsonObject("edits") : null;
+        // edits.protected_set / costly_set name uploaded sets (PlanSets); unknown ids are refused.
+        var requestedEdits = request.has("edits") ? planSets.resolve(request.getAsJsonObject("edits")) : null;
         var planPermissions = RoutePermissions.edits(requestedEdits);
         var selected = mapReader(request);
         RouteGeometry.Reader reader = planPermissions.reader(selected);
@@ -397,8 +399,8 @@ public final class BodyRuntime implements AutoCloseable {
             }
             planner.withSurvival(hazard, coefficient, mobRadius, threats);
         }
-        if (request.has("edits")) {
-            var edits = request.getAsJsonObject("edits");
+        if (requestedEdits != null) {
+            var edits = requestedEdits;
             planner.withEdits(RoutePlanner.EditPolicy.fromJson(edits));
             if (edits.has("falling_neighbours")) planner.withFallingNeighbours(strictBoolean(edits, "falling_neighbours"));
         }
@@ -429,6 +431,9 @@ public final class BodyRuntime implements AutoCloseable {
     }
 
     private void startTerrainPlan(String id, JsonObject request) {
+        // Top-level protected and policy.protected_positions may name uploaded sets (PlanSets).
+        request = planSets.resolve(request);
+        request.add("policy", planSets.resolve(request.getAsJsonObject("policy")));
         var selected = mapReader(request);
         var start = node(request.get("start")); var goal = node(request.get("goal"));
         double radius = request.get("radius").getAsDouble();
@@ -534,7 +539,7 @@ public final class BodyRuntime implements AutoCloseable {
                 || y < -2048 || y > 2048) throw new IllegalArgumentException("plan_node");
         return new RoutePlanner.Node(x, y, z);
     }
-    private static Set<RoutePlanner.Node> nodes(JsonObject request, String key) {
+    static Set<RoutePlanner.Node> nodes(JsonObject request, String key) {
         var out = new HashSet<RoutePlanner.Node>();
         if (request.has(key)) for (var e : request.getAsJsonArray(key)) out.add(node(e));
         if (out.size() > 4_000_000) throw new IllegalArgumentException("plan_history_bounds");
@@ -904,6 +909,20 @@ public final class BodyRuntime implements AutoCloseable {
                 else throw new IllegalArgumentException("plan_data_kind");
                 emit("planner_request_accepted", "fabric_start", Map.of("request_sequence", sequence));
             }
+            case "planner_set" -> {
+                if (!readyState.equals("ready") || courseLimits || !extendedObservation)
+                    throw new IllegalStateException("planner_set_requires_development_body");
+                String kind = request.get("kind").getAsString();
+                if (kind.equals("begin")) planSets.begin(request.get("set_id").getAsString(),
+                        exactInt(request.get("encoded_length"), "encoded_length"), exactInt(request.get("raw_length"), "raw_length"),
+                        request.get("sha256").getAsString());
+                else if (kind.equals("part")) planSets.append(request.get("set_id").getAsString(),
+                        exactInt(request.get("offset"), "offset"), request.get("data").getAsString());
+                else if (kind.equals("commit")) planSets.commit(request.get("set_id").getAsString());
+                else if (kind.equals("abort")) planSets.abort();
+                else throw new IllegalArgumentException("plan_set_kind");
+                emit("planner_set_accepted", "fabric_start", Map.of("request_sequence", sequence));
+            }
             case "planner_map" -> {
                 if (!readyState.equals("ready") || courseLimits || !extendedObservation)
                     throw new IllegalStateException("planner_map_requires_development_body");
@@ -1222,6 +1241,7 @@ public final class BodyRuntime implements AutoCloseable {
         plannerMap = new PlannerMap();
         leakWatch.clear();
         planData = new PlanData();
+        planSets = new PlanSets();
         routePermissions = RoutePermissions.defaults(); flee = RouteReflex.Flee.DEFAULT;
         legacyMoving = false;
         plans.clear(); terrainPlans.clear(); planLimits.clear(); planResults.clear();

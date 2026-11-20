@@ -7,6 +7,8 @@ import time
 import urllib.error
 import zlib
 
+from mclab import plan_sets
+from mclab.plan_sets import PlanSetStore
 from mclab.planner_map_transport import PlannerMapCoordinator
 
 
@@ -32,7 +34,53 @@ def _send_and_ack(client, op, expected_kind, max_attempts=4, **fields):
             raise
 
 
+def _plan_sets(client):
+    """This client's upload record for the body it drives now (a new body has none)."""
+    identity = (
+        getattr(client, "run_id", None),
+        getattr(client, "episode_id", None),
+        getattr(client, "body_id", None),
+        getattr(client, "planner_map_epoch", 0),
+    )
+    store = getattr(client, "plan_set_store", None)
+    if store is None or store.identity != identity:
+        store = client.plan_set_store = PlanSetStore(identity)
+    return store
+
+
+def _upload_set(client, set_id, raw):
+    try:
+        for frame in plan_sets.frames(set_id, raw):
+            _send_and_ack(client, "planner_set", "planner_set_accepted", **frame)
+    except Exception as error:
+        try:
+            _send_and_ack(client, "planner_set", "planner_set_accepted", kind="abort")
+        except Exception as cleanup_error:
+            error.add_note(f"Plan set cleanup failed: {cleanup_error}")
+        raise
+
+
 def submit_plan(client, payload):
+    """Send one plan request; large edit sets go by reference (mclab.plan_sets).
+
+    A body that does not hold a referenced set refuses the plan (plan_set_unknown,
+    e.g. after a respawn): the sets are uploaded again and the plan resent once.
+    """
+    store = _plan_sets(client)
+    for attempt in range(2):
+        request = store.hoist(
+            payload, lambda set_id, raw: _upload_set(client, set_id, raw)
+        )
+        try:
+            _submit(client, request)
+            return
+        except RuntimeError as error:
+            if "plan_set_unknown" not in str(error) or attempt:
+                raise
+            store.forget()
+
+
+def _submit(client, payload):
     raw = json.dumps(payload, separators=(",", ":"), allow_nan=False).encode("utf-8")
     if len(raw) <= 12_000:
         try:

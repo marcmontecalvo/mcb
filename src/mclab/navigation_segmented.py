@@ -9,7 +9,7 @@ import time
 from collections import deque
 from dataclasses import replace
 
-from mclab import body_search, collision_geometry, water_movement
+from mclab import body_search, collision_geometry, map_change, water_movement
 from mclab.building_view import BuildingView
 from mclab.gap_jump import GapJumpExecutor, prepare_gap
 from mclab.grid_cache import CLIMBABLE
@@ -29,6 +29,12 @@ NATIVE_EDIT_KINDS = frozenset({"downward", "descend"})
 # A confirmed terrain step that has not moved the body 0.05 in 1.5 s has failed;
 # failure plus replan must stay under the 5 s standstill rule.
 COMMIT_STALL_TICKS = 30
+# RouteMotor.tick: a centre-only route needs the feet within this of its height.
+CENTER_LEVEL = 0.2
+# A dry terrain verdict (no route, no edit) stands until geometry changes within
+# this margin of the box spanning the start and the goal (blocks; sideways, up/down).
+DRY_MARGIN_XZ = 8
+DRY_MARGIN_Y = 4
 
 
 class NativeEdit:
@@ -112,7 +118,8 @@ class SegmentedController(NavigationController):
     # refreshes plan_reports (plan_id -> report) from each observation.
     submit_plan = None
     plan_reports = {}
-    _terrain_dry = None  # (node, map revision): plan and terrain step found nothing
+    # (node, map revision, cells): plan and terrain step found nothing from node.
+    _terrain_dry = None
 
     def __init__(
         self,
@@ -159,6 +166,8 @@ class SegmentedController(NavigationController):
         self.breaks_reserved = self.places_reserved = 0
         self.failed_edges = set()
         self.avoid_goal_stances = set()
+        # Stances RouteMotor refused to centre on (route_center_not_grounded).
+        self.uncentered = set()
         self.events = []
         self.committed_step = None
         self.committed_source = None
@@ -868,10 +877,32 @@ class SegmentedController(NavigationController):
     def _revision_now(self):
         return self.map_view.revision if self.map_view else self.memory.revision
 
+    def _mark_terrain_dry(self, node):
+        self._terrain_dry = (tuple(node), *self._planning_snapshot())
+
+    def _terrain_dry_holds(self, node):
+        """The dry verdict from ``node`` still stands: same map, or nothing changed
+        between the body and the goal. Every revision (a block placed beside the
+        body, cells re-observed) used to start both searches again; house-large
+        run 20261119T133618892664Z spent 45 s in terrain_planning that way."""
+        dry = self._terrain_dry
+        if dry is None or dry[0] != tuple(node):
+            return False
+        revision, cells = self._planning_snapshot()
+        if dry[1] == revision:
+            return True
+        region = map_change.box_cells(
+            node, self.goal, margin_xz=DRY_MARGIN_XZ, margin_y=DRY_MARGIN_Y
+        )
+        if map_change.changed(dry[2], cells, region):
+            return False
+        self._terrain_dry = (dry[0], revision, cells)
+        return True
+
     def _plan_terrain_step(self, node, observation):
         plan, policy = self._next_step(node, observation)
         if plan is None and self.mode == "terrain_incomplete":
-            self._terrain_dry = (node, self._revision_now())
+            self._mark_terrain_dry(node)
         if plan is not None:
             self._note_breaks(plan)
             self.terrain = executor_for(plan, policy)
@@ -1217,10 +1248,20 @@ class SegmentedController(NavigationController):
             node, self._planning_snapshot()[1]
         )
         center_distance = math.hypot(p[0] - node[0] - 0.5, p[2] - node[2] - 0.5)
-        if center_for_interaction and center_distance <= 0.05:
+        # RouteMotor centres only with the feet within CENTER_LEVEL of the stance;
+        # on a stair's low step under a stance planned from its top it refused the
+        # same centring 64 times (house-large run 20261119T133618892664Z).
+        centrable = (
+            abs(p[1] - node[1]) <= CENTER_LEVEL and tuple(node) not in self.uncentered
+        )
+        if center_for_interaction and (center_distance <= 0.05 or not centrable):
+            # Centred (or unable to centre) and still out of reach: interact from
+            # another stance.
             self.avoid_goal_stances.add(tuple(node))
             center_for_interaction = False
             self.search = None
+        if not centrable:
+            center_for_position = False
         if (
             (center_for_position or center_for_interaction)
             and body.get("on_ground", True)
@@ -1307,9 +1348,10 @@ class SegmentedController(NavigationController):
                 self.last_result is not None
                 and (
                     self.last_result.status == "incomplete"
-                    or (  # dry on the old map: ask again on the new one
+                    or (  # dry on the old map: ask again once the way changed
                         self.last_result.status == "unreachable"
                         and self._terrain_dry is not None
+                        and not self._terrain_dry_holds(node)
                     )
                 )
                 and self.last_result.map_revision != revision
@@ -1367,8 +1409,8 @@ class SegmentedController(NavigationController):
                     self.mode = "arrived"
                     return {}
                 if self.mode == "unreachable":
-                    if self._terrain_dry == (node, self._revision_now()):
-                        return {}  # same node and map: the same answer, not a replan
+                    if self._terrain_dry_holds(node):
+                        return {}  # nothing changed on the way: the same answer
                     if self.terrain_policy is not None:
                         self._plan_terrain_step(node, observation)
                         if self.mode == "terrain_incomplete":

@@ -145,9 +145,14 @@ def main() -> int:
         from mclab.run_history import main as runs_main
 
         return runs_main(sys.argv[2:])
+    if sys.argv[1:2] == ["qual"]:
+        from mclab import qualification_battery
+
+        return qualification_battery.qual(sys.argv[2:])
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("run", help="launch a shared run config (run --help)")
+    sub.add_parser("qual", help="every live check, then a table (qual --help)")
     sub.add_parser("runs", help="build/gather attempts per build key (runs --help)")
     sub.add_parser("companion-service", help="run the in-game /mcb command listener")
     sub.add_parser("bootstrap")

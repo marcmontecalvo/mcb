@@ -757,7 +757,9 @@ def _no_progress_rows(entities, ticks):
     return rows
 
 
-def _drive_no_progress(monkeypatch, rows, clear_mob=None):
+def _drive_no_progress(
+    monkeypatch, rows, clear_mob=None, edge_failures=None, after_first=None
+):
     rows = iter([*rows, {"terminal": {"status": "success"}}])
     records, routes = [], iter(range(1, 100))
     current = {}
@@ -789,10 +791,14 @@ def _drive_no_progress(monkeypatch, rows, clear_mob=None):
     )
     if clear_mob is not None:
         controller.clear_mob = clear_mob
+    if edge_failures is not None:
+        controller.edge_failures = edge_failures
     seen = []
 
     def decide(observation, *, native=False):
         seen.append(set(controller.failed_edges))
+        if after_first is not None and len(seen) == 1:
+            after_first()
         controller.route = [] if controller.failed_edges else [(0, 1, 0), (1, 1, 0)]
 
     controller.decide = decide
@@ -820,6 +826,124 @@ def test_no_progress_without_mob_bans_edge_only_until_expiry(monkeypatch):
     assert notes[0]["ban_until"] == 6 + native_driver.NO_PROGRESS_BAN_TICKS
     assert edge in seen[1]  # banned right after
     assert edge not in controller.failed_edges  # expired
+
+
+def test_an_edge_that_keeps_failing_is_banned_longer_each_time(monkeypatch):
+    # Run 20261119T202232979013Z: one vine rise failed 25 times across separate
+    # walks, each ban 200 ticks and each walk planning the same rise again.
+    memory = native_driver.EdgeFailures()
+    base = native_driver.NO_PROGRESS_BAN_TICKS
+    _, first, _ = _drive_no_progress(
+        monkeypatch, _no_progress_rows([], [5]), edge_failures=memory
+    )
+    start = 10 + base
+    _, second, _ = _drive_no_progress(
+        monkeypatch, _no_progress_rows([], [start]), edge_failures=memory
+    )
+    assert first[0]["ban_until"] == 6 + base
+    assert second[0]["ban_until"] == start + 1 + 2 * base
+    assert second[0]["failures"] == 2
+
+
+def test_a_new_walk_starts_with_the_edges_still_banned(monkeypatch):
+    edge = ((0, 1, 0), (1, 1, 0))
+    memory = native_driver.EdgeFailures()
+    memory.fail(edge, 0)
+    _, notes, seen = _drive_no_progress(
+        monkeypatch,
+        [{"tick": 50, "route_follower": {"state": "idle"}}],
+        edge_failures=memory,
+    )
+    assert edge in seen[0]
+    assert notes == []
+
+
+def test_edge_bans_stop_growing_at_the_cap():
+    memory = native_driver.EdgeFailures()
+    edge = ((0, 1, 0), (0, 2, 0))
+    for _ in range(20):
+        until = memory.fail(edge, 1000)
+    assert until == 1000 + native_driver.MAX_EDGE_BAN_TICKS
+    assert memory.active(1000 + native_driver.MAX_EDGE_BAN_TICKS) == {}
+
+
+def _world(**cells):
+    """A mutable block map and the lookup EdgeFailures reads it through."""
+    world = {(0, 0, 0): {"block": "minecraft:stone"}}
+    world.update(cells)
+    return world, lambda: world
+
+
+def test_a_failed_edge_stays_banned_while_its_blocks_are_unchanged():
+    world, cells = _world()
+    memory = native_driver.EdgeFailures(cells)
+    edge = ((0, 1, 0), (1, 1, 0))
+    memory.fail(edge, 0)
+    world[(10, 1, 10)] = {"block": "minecraft:dirt"}  # far away: not this move
+    assert edge in memory.active(5)
+    assert not memory.stale(edge)
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        (1, 0, 0),  # the floor under the target
+        (0, 2, 0),  # head room over the source
+        (1, 3, 0),  # one above the target's head (a jump's clearance)
+        (2, 1, 1),  # the next column beside the target (leaves at head height)
+    ],
+)
+def test_a_changed_block_around_the_move_lifts_its_ban(changed):
+    # The body placed or broke something, or the world changed: the move that
+    # failed may work now, and an escalated ban must not keep it off the plan.
+    world, cells = _world()
+    memory = native_driver.EdgeFailures(cells)
+    edge = ((0, 1, 0), (1, 1, 0))
+    memory.fail(edge, 0)
+    memory.fail(edge, 0)
+    world[changed] = {"block": "minecraft:cobblestone"}
+    assert memory.stale(edge)
+    assert memory.active(5) == {}
+    assert memory.failures(edge) == 0  # escalation starts over in the new world
+    assert memory.fail(edge, 10) == 10 + native_driver.NO_PROGRESS_BAN_TICKS
+
+
+def test_a_block_broken_around_the_move_lifts_its_ban():
+    world, cells = _world()
+    memory = native_driver.EdgeFailures(cells)
+    edge = ((0, 1, 0), (0, 2, 0))  # a rise
+    memory.fail(edge, 0)
+    world[(0, 0, 0)] = {"block": "minecraft:air"}
+    assert memory.active(5) == {}
+
+
+def test_a_cell_out_of_sight_does_not_lift_a_ban():
+    # Unknown is not a change: the map unloading a cell proves nothing.
+    world, cells = _world()
+    memory = native_driver.EdgeFailures(cells)
+    edge = ((0, 1, 0), (1, 1, 0))
+    memory.fail(edge, 0)
+    del world[(0, 0, 0)]
+    assert edge in memory.active(5)
+
+
+def test_a_ban_lifts_mid_walk_when_the_body_changes_its_blocks(monkeypatch):
+    world, cells = _world()
+    memory = native_driver.EdgeFailures(cells)
+    edge = ((0, 1, 0), (1, 1, 0))
+    memory.fail(edge, 0)
+    rows = [{"tick": 50, "route_follower": {"state": "idle"}}]
+
+    def place(*_):  # the body places a block at the target's feet mid-walk
+        world[(1, 1, 0)] = {"block": "minecraft:dirt"}
+        return []
+
+    rows.append({"tick": 51, "route_follower": {"state": "idle"}})
+    _, _, seen = _drive_no_progress(
+        monkeypatch, rows, edge_failures=memory, after_first=place
+    )
+    assert edge in seen[0]
+    assert edge not in seen[1]
 
 
 def test_companion_retries_through_sheep_then_kills_it(monkeypatch):
@@ -1190,7 +1314,7 @@ def test_drive_calls_on_pass_only_while_a_route_is_followed(monkeypatch):
     )
     controller = SimpleNamespace(
         route=[],
-        on_pass=seen.append,
+        on_pass=lambda position, route=None: seen.append(position),
         gap_jump=None,
         failed_edges=set(),
         movement_policy=MovementPolicy(),
@@ -1214,3 +1338,220 @@ def test_drive_calls_on_pass_only_while_a_route_is_followed(monkeypatch):
     except Exception:  # the fake route state is not driven further than the hook
         pass
     assert seen == [[1.5, 5, 0.5]]
+
+
+def test_the_route_ahead_is_what_the_motor_still_has_to_drive():
+    route = [[0, 5, 0], [1, 5, 0], [2, 5, 0], [3, 6, 0]]
+    follower = {"route_id": "native-1", "state": "following", "next_index": 2}
+    # from the source of the edge being driven on
+    assert native_driver.route_ahead(route, follower, "native-1") == route[1:]
+    # another route's status says nothing about this one: all of it is ahead
+    assert native_driver.route_ahead(route, follower, "native-2") == route
+    assert native_driver.route_ahead([], follower, None) == []
+
+
+def test_replan_on_a_new_map_revision_waits_for_a_change_along_the_route():
+    # House-large run 20261119T133618892664Z: every map revision (most of them a
+    # block placed beside the body) restarted the re-plan ahead; 78% of plans were
+    # cancelled. A revision that changes nothing along the route ahead is no news.
+    from mclab.native_driver import REFRESH_AHEAD, prefetch_while_following
+
+    route = [(x, 1, 0) for x in range(30)]
+    air = {"block": "minecraft:air", "collision_boxes": []}
+    stone = {"block": "minecraft:stone", "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
+    floor = {
+        (x, y, z): dict(air)
+        for x in range(-2, 32)
+        for y in range(0, 4)
+        for z in range(-3, 3)
+    }
+    c = _refresh_controller(None, ())
+    c.route = list(route)
+    c.prefetch = None
+    c.goal = (99, 1, 0)
+    c.prefetch_started = 0
+    started = []
+    snapshot = {"value": (7, floor)}
+    c._planning_snapshot = lambda: snapshot["value"]
+    c._new_search = lambda cells, start, revision: started.append(start) or object()
+    prefetch_while_following(c, route, {"next_index": 3})
+    assert started == [route[3 + REFRESH_AHEAD - 1]]
+    # A block placed off the route: same start, newer map, no re-plan.
+    far = {**floor, (5, 1, -3): stone}
+    snapshot["value"] = (8, far)
+    c.prefetch = None
+    prefetch_while_following(c, route, {"next_index": 3})
+    assert len(started) == 1
+    # Re-observed cells (new records, same geometry) are no change either.
+    again = {p: dict(cell, observed_tick=99) for p, cell in far.items()}
+    snapshot["value"] = (9, again)
+    prefetch_while_following(c, route, {"next_index": 3})
+    assert len(started) == 1
+    # A block placed on the route ahead: re-plan.
+    snapshot["value"] = (10, {**again, (20, 1, 0): stone})
+    prefetch_while_following(c, route, {"next_index": 3})
+    assert len(started) == 2
+
+
+def _single_route_client(sent, records, current, reject=lambda n: None):
+    count = {"n": 0}
+
+    def send(op, **kw):
+        if op == "follow_route":
+            count["n"] += 1
+            current["id"] = kw["route_id"]
+        sent.append((op, kw))
+        return {"sequence": len(sent), "op": op, "n": count["n"]}
+
+    def acknowledge(request, kind):
+        reason = reject(request["n"]) if kind == "route_accepted" else None
+        if reason:
+            raise RuntimeError(
+                f"Bridge rejected request {request['sequence']}: {reason}"
+            )
+
+    return SimpleNamespace(
+        send=send,
+        acknowledge=acknowledge,
+        wait=lambda predicate, **kw: predicate(
+            {"route_follower": {"route_id": current.get("id")}}
+        ),
+        record=lambda *args: records.append(args),
+    )
+
+
+def _plain_controller(**fields):
+    return SimpleNamespace(
+        **{
+            "route": [],
+            "mode": "following",
+            "terrain": None,
+            "gap_jump": None,
+            "failed_edges": set(),
+            "movement_policy": MovementPolicy(allow_shapes=True),
+            "committed_step": None,
+            "own_footholds": set(),
+            "search": None,
+            "_admit": lambda _: None,
+            "_discard_prefetch": lambda: None,
+            "_clear_terrain_forecast": lambda: None,
+            "drain_events": lambda: [],
+            **fields,
+        }
+    )
+
+
+def _rows(monkeypatch, rows, position=(0.5, 1, 0.5)):
+    rows = iter(rows)
+    monkeypatch.setattr(
+        native_driver,
+        "policy_state",
+        lambda _c: {"body": {"position": list(position)}, **next(rows)},
+    )
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda _c, row: row.get("terminal"))
+
+
+def test_a_route_the_body_refuses_is_replanned_around_not_resubmitted(monkeypatch):
+    # House-large run 20261119T133618892664Z: a route over a closed trapdoor
+    # (y 69.1875) was refused "route_point" 35 times in a row. The refusal ended the
+    # goto with no memory, and the next goto planned the same route again.
+    sent, records, current = [], [], {}
+    client = _single_route_client(
+        sent, records, current, reject=lambda n: "route_point" if n == 1 else None
+    )
+    over = [(0, 1, 0), (1, 1.1875, 0), (2, 1, 0)]
+    around = [(0, 1, 0), (0, 1, 1)]
+    controller = _plain_controller()
+    plans = []
+
+    def decide(observation, *, native=False):
+        if not controller.route and len(plans) < 2:
+            controller.route = list(over if not plans else around)
+            plans.append(list(controller.route))
+
+    controller.decide = decide
+    _rows(
+        monkeypatch,
+        [
+            {"tick": 1, "route_follower": {"state": "idle"}},
+            {"tick": 2, "route_follower": {"state": "idle"}},
+            {"tick": 5, "route_follower": {"route_id": "native-2", "state": "done"}},
+            {"terminal": {"status": "success"}},
+        ],
+    )
+    assert native_driver.drive_native(client, controller, 10) == {"status": "success"}
+    assert plans == [over, around]
+    assert ((0, 1, 0), (1, 1.1875, 0)) in controller.failed_edges
+    assert ((1, 1.1875, 0), (2, 1, 0)) in controller.failed_edges
+    refused = [d for kind, d in records if kind == "native_route_refused"]
+    assert refused and refused[0]["reason"] == "route_point"
+    assert refused[0]["route"] == over
+
+
+def test_repeated_route_refusals_end_the_goto_as_stuck(monkeypatch):
+    sent, records, current = [], [], {}
+    client = _single_route_client(
+        sent, records, current, reject=lambda n: "route_edge_permission"
+    )
+    controller = _plain_controller(stop_reason=lambda _o: None)
+    targets = iter((dx, 1, dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1) if dx or dz)
+
+    def decide(observation, *, native=False):
+        if not controller.route:
+            controller.route = [(0, 1, 0), next(targets)]
+
+    controller.decide = decide
+    _rows(
+        monkeypatch,
+        [{"tick": t, "route_follower": {"state": "idle"}} for t in range(1, 50)],
+    )
+    end = native_driver.drive_native(client, controller, 10)
+    assert end == {"type": "navigation_stopped", "data": {"reason": "stuck"}}
+    submitted = [op for op, _ in sent if op == "follow_route"]
+    assert len(submitted) == native_driver.GEOMETRY_STORM_REPLANS
+
+
+def test_a_centring_the_motor_refuses_is_not_requested_again(monkeypatch):
+    # House-large run 20261119T133618892664Z: feet on a stair's low step (y 70.5),
+    # stance planned from the stair top (71.0). RouteMotor refuses a centre-only
+    # route more than 0.2 off the feet ("route_center_not_grounded") and Python
+    # resubmitted the same centring 64 times in 16.8 s.
+    sent, records, current = [], [], {}
+    client = _single_route_client(sent, records, current)
+    controller = _plain_controller(
+        mode="centering", center_radius=0.05, uncentered=set()
+    )
+    node = (0, 71.0, 0)
+
+    def decide(observation, *, native=False):
+        if node in controller.uncentered:
+            controller.route = []
+            controller.mode = "arrived"
+            return
+        controller.mode = "centering"
+        controller.route = [node, node]
+
+    controller.decide = decide
+    _rows(
+        monkeypatch,
+        [
+            {"tick": 1, "route_follower": {"state": "idle"}},
+            {
+                "tick": 3,
+                "route_follower": {
+                    "route_id": "native-1",
+                    "state": "needs_replan",
+                    "reason": "route_center_not_grounded",
+                    "next_index": 1,
+                },
+            },
+            {"tick": 4, "route_follower": {"state": "idle"}},
+            {"terminal": {"status": "success"}},
+        ],
+        position=(0.8, 70.5, 0.5),
+    )
+    native_driver.drive_native(client, controller, 10)
+    assert node in controller.uncentered
+    assert [op for op, _ in sent].count("follow_route") == 1
+    assert any(kind == "native_center_refused" for kind, _ in records)

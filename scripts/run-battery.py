@@ -1,8 +1,13 @@
 """Run the live regression checks one at a time and write one verdict per check.
 
-    uv run --locked python scripts/run-battery.py --out results/<battery>/<round>
+    uv run --locked mclab qual [--fast] [--only NAME ...] [--keep-all]  (one command)
+    uv run --locked python scripts/run-battery.py [--out results/battery/<stamp>]
     uv run --locked python scripts/run-battery.py --out <dir> --only iron-xray iron-mine
     uv run --locked python scripts/run-battery.py --list
+
+Clean passes (no standstill, no search-cap finding, under 75 % of the timeout) have
+their log and run folder deleted; everything else is kept. ``--keep-all`` keeps all.
+``<out>/summary.json`` has verdict, seconds and kept/discarded per check.
 
 HOW TO READ THE OUTPUT. Each check prints exactly one line starting with RESULT:
 
@@ -35,6 +40,8 @@ import sys
 import time
 from pathlib import Path
 
+from mclab import qualification_battery as qb
+
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "results"
 HILL = ["--collision-shapes", "--control-profile", "dev-native-route-v1"]
@@ -46,6 +53,7 @@ IRON += ["--seed", "42424242"]
 CHECKS: dict[str, tuple[list[str], int]] = {
     "wading": (["scripts/check-companion-wading.py"], 300),
     "wading-trapped": (["scripts/check-companion-wading.py", "--trapped"], 300),
+    "vine-escape": (["scripts/check-companion-vine-escape.py"], 300),
     "scaffold": (["scripts/check-companion-scaffold.py"], 300),
     "scaffold-course": (["scripts/check-companion-scaffold-course.py"], 900),
     "hill-default": (["scripts/check-hill-navigation.py", "--variants", "2"], 600),
@@ -235,9 +243,23 @@ def search_cap_verdict(folders: list[Path]) -> tuple[str, list[str]]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--out", type=Path, help="folder for logs and SUMMARY.md")
+    ap.add_argument(
+        "--out",
+        type=Path,
+        help="folder for logs and SUMMARY.md (default results/battery/<UTC stamp>)",
+    )
     ap.add_argument("--only", nargs="+", choices=list(CHECKS), metavar="NAME")
     ap.add_argument("--list", action="store_true", help="print the checks and stop")
+    ap.add_argument(
+        "--keep-all",
+        action="store_true",
+        help="keep the logs and run folders of passing checks too",
+    )
+    ap.add_argument(
+        "--fast",
+        action="store_true",
+        help="all checks except " + ", ".join(qb.FAST_EXCLUDE),
+    )
     ap.add_argument(
         "--no-restart",
         action="store_true",
@@ -251,8 +273,7 @@ def main() -> int:
         for name, (cmd, timeout) in CHECKS.items():
             print(f"{name:15} timeout {timeout:4} s  python {' '.join(cmd)}")
         return 0
-    if a.out is None:
-        ap.error("--out is required")
+    a.only = qb.select_checks(list(CHECKS), a.only, a.fast)
     out = a.out if a.out.is_absolute() else ROOT / a.out
     out.mkdir(parents=True, exist_ok=True)
     from mclab.run_launch import launch_record, record_outcome
@@ -288,14 +309,17 @@ def run_battery(a, out):
         "recording has holes, so a standstill cannot be ruled out.",
         "",
     ]
-    tally = {"PASS": 0, "FAIL": 0, "UNSURE": 0}
+    records: list[dict] = []
     for name in a.only or CHECKS:
         cmd, timeout = CHECKS[name]
         timeout = a.timeout if a.timeout is not None else timeout
+        log = out / f"{name}.log"
         before = run_folders()
-        code = run([*UV, "python", *cmd], out / f"{name}.log", timeout)
+        started = time.monotonic()
+        code = run([*UV, "python", *cmd], log, timeout)
+        duration = time.monotonic() - started
         folders = sorted(run_folders() - before)
-        check, why = check_verdict(code, out / f"{name}.log", timeout)
+        check, why = check_verdict(code, log, timeout)
         still, gaps = standstill_verdict(folders, out / f"{name}.idle.txt")
         cap, cap_lines = search_cap_verdict(folders)
         overall = (
@@ -307,7 +331,6 @@ def run_battery(a, out):
             if still == "NONE"
             else "UNSURE"
         )
-        tally[overall] += 1
         where = ", ".join(f.relative_to(ROOT).as_posix() for f in folders) or "no run"
         block = [
             f"RESULT {name}: {overall} | check: {check} | "
@@ -316,35 +339,42 @@ def run_battery(a, out):
             *(f"    {ln}" for ln in gaps),
             *(f"    cap hit {ln}" for ln in cap_lines),
         ]
-        print("\n".join(block), flush=True)
-        summary += block
-        (out / "SUMMARY.md").write_text("\n".join(summary) + "\n", encoding="utf-8")
+        reasons = qb.keep_reasons(
+            verdict=overall,
+            standstill=still,
+            search_cap=cap,
+            duration_s=duration,
+            timeout_s=timeout,
+        )
+        keep = bool(reasons) or a.keep_all
+        if not keep:
+            qb.discard_outputs(ROOT, log, folders)
+        records.append(
+            {
+                "name": name,
+                "verdict": overall,
+                "check": check,
+                "standstill": still,
+                "search_cap": cap,
+                "duration_s": round(duration, 1),
+                "timeout_s": timeout,
+                "kept": keep,
+                "why": reasons,
+                "log": log.relative_to(ROOT).as_posix()
+                if keep and log.is_relative_to(ROOT)
+                else str(log)
+                if keep
+                else None,
+                "folders": [f.relative_to(ROOT).as_posix() for f in folders],
+                "block": block,
+            }
+        )
+        print("\n".join([*block, qb.retention_line(records[-1])]), flush=True)
+        qb.write_summary(out, records, keep_all=a.keep_all, header=summary)
         if code is None:  # a killed check leaves its body in the world
             restart_server()
-    last = (
-        f"BATTERY: {tally['PASS']} PASS, {tally['FAIL']} FAIL, {tally['UNSURE']} UNSURE"
-    )
-    print(last)
-    (out / "SUMMARY.md").write_text(
-        "\n".join([*summary, "", last]) + "\n", encoding="utf-8"
-    )
-    code = 0 if tally["FAIL"] == tally["UNSURE"] == 0 else 1
-    (out / "summary.json").write_text(
-        json.dumps(
-            {
-                "run_id": out.name,
-                "status": "completed_battery" if code == 0 else "failed",
-                "returncode": code,
-                "checks": list(a.only or CHECKS),
-                "tally": tally,
-            },
-            indent=2,
-            allow_nan=False,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return code
+    print(qb.battery_line(records))
+    return qb.exit_code(records)
 
 
 if __name__ == "__main__":

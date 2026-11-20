@@ -37,9 +37,11 @@ class Client:
         }
 
 
-def test_large_request_is_framed_without_losing_protected_cells():
+def test_large_request_is_framed_without_losing_cells():
     client = Client()
-    payload = {"plan_id": "p1", "protected": [[i, i % 7, -i] for i in range(4000)]}
+    # Build-wide protected sets go by reference (test_plan_sets); other large
+    # lists (a long favoured route) still fall back to the framed request.
+    payload = {"plan_id": "p1", "favored": [[i, i % 7, -i] for i in range(4000)]}
     submit_plan(client, payload)
     assert client.calls[0][1]["kind"] == "begin"
     parts = [f for _, f in client.calls if f.get("kind") == "part"]
@@ -55,7 +57,7 @@ def test_failed_frame_aborts_and_propagates_error():
     client = Client(fail_part=True)
     with pytest.raises(TimeoutError, match="part"):
         submit_plan(
-            client, {"plan_id": "p2", "protected": [[i, 0, 0] for i in range(4000)]}
+            client, {"plan_id": "p2", "favored": [[i, 0, 0] for i in range(4000)]}
         )
     assert client.calls[-2][1]["kind"] == "abort"
     assert client.calls[-1] == ("cancel_plan", {"plan_id": "p2"})

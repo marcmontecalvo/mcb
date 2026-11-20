@@ -310,6 +310,83 @@ public final class RouteMotorTest {
         inCol.tick(new RouteMotor.Pose(3.5,3.04,.5,0,0,0,false,20),geometry(real));
         check(inCol.status().get("state").equals("done"),"scaffolding climb finishes once feet clear target.y");
     }
+    /**
+     * RoutePlanner admits any collision-box top as a floor (closed trapdoor 3/16, carpet 1/16, lily pad).
+     * House-large run 20261119T133618892664Z: a route over a closed trapdoor at y 69.1875 was refused
+     * "route_point" 35 times and the bot stalled in a bedroom with the stairwell open beside it.
+     */
+    private static void shapeHeightChecks() {
+        var cells=floor();
+        cells.put(new Key(1,1,0),Map.of("block","minecraft:oak_trapdoor","fluid","minecraft:empty",
+                "properties",Map.of("half","bottom","open","false"),"collision_boxes",List.of(List.of(0,0,0,1,.1875,1))));
+        var over=List.of(new RouteMotor.Point(0,1,0),new RouteMotor.Point(1,1.1875,0),new RouteMotor.Point(2,1,0));
+        var shaped=motor(over);
+        check(geometry(cells).standable(over.get(1)),"a closed trapdoor top is a stance");
+        var step=shaped.tick(pose(.5,1,.5,-90),geometry(cells));
+        check(shaped.active() && step.forward()>0,"a route across a closed trapdoor is followed");
+        shaped.tick(pose(1.5,1.1875,.5,-90),geometry(cells));
+        check((int)shaped.status().get("next_index")==2,"arrival on the trapdoor top advances");
+        reject(()->new RouteMotor("flat",over,new RouteMotor.Policy(true,true,false,3)),"fractional heights still need allow_shapes");
+        reject(()->motor(List.of(over.get(0),new RouteMotor.Point(1,Double.POSITIVE_INFINITY,0))),"nonfinite height");
+    }
+    /**
+     * A centre-only request onto scaffolding must honour its arrival radius: the climbable arrival rule
+     * accepted .45 and ended every 0.05 centring in one tick (80+ resubmitted routes per drive).
+     */
+    private static void centerOnlyClimbableChecks() {
+        var cells=floor();
+        // Standing on a plate inside a scaffolding column: the body cell (3,2,0) is scaffolding too.
+        for(int y=1;y<=3;y++) cells.put(new Key(3,y,0),Map.of("block","minecraft:scaffolding","fluid","minecraft:empty",
+                "collision_boxes",List.of(List.of(0,.875,0,1,1,1))));
+        var policy=new RouteMotor.Policy(true,true,true,3,false,true);
+        check(geometry(cells).climbable(new RouteMotor.Point(3,2,0)),"the centring cell is climbable scaffolding");
+        var spot=new RouteMotor.Point(3,2,0);
+        var centring=new RouteMotor("centre",List.of(spot,spot),policy,true,.05);
+        var input=centring.tick(new RouteMotor.Pose(3.8,2,.5,0,0,90,true,20),geometry(cells));
+        check(centring.active() && input.forward()>0,"centre-only on scaffolding walks toward the centre instead of finishing");
+        centring.tick(new RouteMotor.Pose(3.52,2,.5,0,0,90,true,20),geometry(cells));
+        check(centring.status().get("state").equals("done"),"centre-only on scaffolding finishes inside its radius");
+    }
+    /**
+     * A body 0.6 wide climbing a 1-wide vine column must keep its box inside the column: house-large run
+     * 20261119T202232979013Z hung 0.22 off centre, its box 0.02 into the next column, head under oak leaves
+     * there, and stalled 25 times at the same rise ("route_no_progress", 200 s).
+     */
+    private static void climbStaysInColumnChecks() {
+        var cells=floor();
+        var vine=Map.<String,Object>of("block","minecraft:vine","fluid","minecraft:empty","collision_boxes",List.of(),
+                "properties",Map.of("west","true"));
+        for(int y=1;y<=4;y++) cells.put(new Key(3,y,0),vine);
+        var leaves=Map.<String,Object>of("block","minecraft:oak_leaves","fluid","minecraft:empty",
+                "collision_boxes",List.of(List.of(0,0,0,1,1,1)));
+        cells.put(new Key(2,3,0),leaves); cells.put(new Key(2,4,0),leaves);
+        var policy=new RouteMotor.Policy(true,true,true,3,false,true);
+        var up=new RouteMotor("vine",List.of(new RouteMotor.Point(3,1,0),new RouteMotor.Point(3,2,0),
+                new RouteMotor.Point(3,3,0),new RouteMotor.Point(3,4,0),new RouteMotor.Point(3,5,0)),policy);
+        var input=up.tick(new RouteMotor.Pose(3.28,1.2,.5,0,0,-90,false,20),geometry(cells));
+        check(up.active() && input.jump() && input.forward()>0,
+                "a climber whose box reaches into the next column steers back to the centre: "+input);
+        var centred=up.tick(new RouteMotor.Pose(3.5,1.3,.5,0,0,-90,false,20),geometry(cells));
+        check(up.active() && centred.jump() && centred.forward()==0,"a centred climber just climbs: "+centred);
+    }
+    /** Battery vine-escape (run 20261119T212820324510Z): the edge from the swim stance into the vine column is a
+     *  level climb edge, so it held no jump; the body sank 2 blocks under the vine and circled there 10 s. */
+    private static void wetClimbEdgeSwimsUpChecks() {
+        var cells=box();
+        for(int x=0;x<=1;x++) for(int y=1;y<=2;y++) cells.put(new Key(x,y,0),water("0"));
+        cells.put(new Key(0,3,0),AIR); cells.put(new Key(0,4,0),AIR); cells.put(new Key(1,6,0),AIR);
+        var vine=Map.<String,Object>of("block","minecraft:vine","fluid","minecraft:empty","collision_boxes",List.of(),
+                "properties",Map.of("east","true"));
+        for(int y=3;y<=5;y++) cells.put(new Key(1,y,0),vine);
+        var policy=new RouteMotor.Policy(true,true,true,3,true,true);
+        var m=new RouteMotor("vine-escape",List.of(new RouteMotor.Point(0,3,0),new RouteMotor.Point(1,3,0),
+                new RouteMotor.Point(1,4,0),new RouteMotor.Point(1,5,0)),policy);
+        var g=geometry(cells);
+        var afloat=m.tick(new RouteMotor.Pose(.6,2.9,.5,0,0,-90,false,20,true),g);
+        check(m.active() && afloat.jump(),"afloat toward a vine at the surface, the swimmer keeps its height: "+afloat);
+        var sunk=m.tick(new RouteMotor.Pose(1.5,1.0,.5,0,0,-90,true,20,true),g);
+        check(m.active() && sunk.jump(),"sunk under the vine it heads for, the body swims up: "+sunk);
+    }
     private static final double DIAGONAL_YAW=-45;
     private static void hole(Map<Key,Map<String,Object>> cells,int x,int z) {
         for(int y=-3;y<=0;y++) cells.put(new Key(x,y,z),Map.of("block","minecraft:air","collision_boxes",List.of(),"fluid","minecraft:empty"));
@@ -721,6 +798,7 @@ public final class RouteMotorTest {
         check(!motor(List.of(new RouteMotor.Point(0,1,0),new RouteMotor.Point(1,1,0),new RouteMotor.Point(2,1,1)))
                 .tick(new RouteMotor.Pose(.9,1,.5,.2,0,-90,true,20),geometry(walledCorner)).sprint(),"no sprint when the post-corner sweep clips");
         surfaceChecks(); swimAndLandingChecks(); nativeSpeedChecks(); sprintAscentChecks(); climbChecks(); diagonalChecks(); resyncAndSwimChecks();
+        shapeHeightChecks(); centerOnlyClimbableChecks(); climbStaysInColumnChecks(); wetClimbEdgeSwimsUpChecks();
         System.out.println("RouteMotor: "+checks+" safety/state checks passed");
     }
 }

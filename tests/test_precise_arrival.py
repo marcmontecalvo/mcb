@@ -35,6 +35,84 @@ def test_interaction_checks_actual_eye_position_before_arrival(tmp_path):
         memory.close()
 
 
+def _planner(controller, status, start):
+    from mclab.route_types import RouteResult
+
+    class Search:
+        def __init__(self):
+            self.start = start
+
+        def advance(self, **_):
+            return RouteResult(status, (start,), 0, 0, "stub")
+
+    controller._new_search = lambda *_a, **_k: Search()
+
+
+def _half_low(cells, *, x, tick=1):
+    """Feet half a block under the stance (a stair's low step under its top)."""
+    obs = observation(cells, x=x, tick=tick)
+    obs["body"]["position"][1] = 0.5
+    return obs
+
+
+def test_a_stance_the_feet_are_not_level_with_is_not_centred_on(tmp_path):
+    # House-large run 20261119T133618892664Z: feet on a stair's low step (70.5),
+    # stance planned from the stair top (71.0). RouteMotor refuses a centre-only
+    # route 0.2 off the feet, and the same centring was sent 64 times in 16.8 s.
+    cells = floor_map([(x, z) for x in range(-1, 6) for z in (-1, 0, 1)])
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController((4, 1, 0), memory, radius=0, interact_reach=4.3)
+    controller._stance_node = lambda p, height: (0, 1, 0)
+    _planner(controller, "unreachable", (0, 1, 0))
+    try:
+        controller.decide(_half_low(cells, x=0.01), native=True)
+        assert controller.mode != "centering"
+        assert (0, 1, 0) in controller.avoid_goal_stances  # interact from elsewhere
+    finally:
+        controller.close()
+        memory.close()
+
+
+def test_a_position_goal_is_not_centred_on_when_the_motor_refused_it(tmp_path):
+    cells = floor_map([(x, z) for x in range(-1, 3) for z in (-1, 0, 1)])
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController((0, 1, 0), memory, radius=0.1)
+    _planner(controller, "reached", (0, 1, 0))
+    try:
+        controller.uncentered.add((0, 1, 0))  # native_driver: route_center_not_grounded
+        controller.decide(observation(cells, x=0.95), native=True)
+        assert controller.mode == "arrived"
+    finally:
+        controller.close()
+        memory.close()
+
+
+def test_a_dry_terrain_verdict_holds_until_the_way_to_the_goal_changes(tmp_path):
+    # House-large run 20261119T133618892664Z: an unreachable goal was searched
+    # again (walking, then terrain) on every map revision, 45 s in terrain_planning.
+    air = {"block": "minecraft:air", "collision_boxes": []}
+    stone = {"block": "minecraft:stone", "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
+    cells = {(x, y, z): air for x in range(-20, 40) for y in range(0, 5) for z in (0,)}
+    memory = SpatialMemory(MapArchive(tmp_path / "map.db", identity()), "session")
+    controller = SegmentedController((10, 1, 0), memory, radius=0)
+    snapshot = {"value": (3, cells)}
+    controller._planning_snapshot = lambda: snapshot["value"]
+    controller._revision_now = lambda: snapshot["value"][0]
+    try:
+        controller._mark_terrain_dry((0, 1, 0))
+        assert controller._terrain_dry_holds((0, 1, 0))
+        assert not controller._terrain_dry_holds((1, 1, 0))  # another start
+        # Re-observed, and a block placed far behind the body: same verdict.
+        snapshot["value"] = (4, {**cells, (-20, 1, 0): stone})
+        assert controller._terrain_dry_holds((0, 1, 0))
+        # A block placed between the body and the goal: search again.
+        snapshot["value"] = (5, {**cells, (-20, 1, 0): stone, (5, 1, 0): stone})
+        assert not controller._terrain_dry_holds((0, 1, 0))
+    finally:
+        controller.close()
+        memory.close()
+
+
 def test_planner_reached_with_a_failing_arrival_check_ends_the_goto_not_idles(tmp_path):
     # iron-mine run 20261116T145041448719Z: the body planner said "reached" but the
     # controller's snapshot ray check failed (a just-broken cell still solid), so it

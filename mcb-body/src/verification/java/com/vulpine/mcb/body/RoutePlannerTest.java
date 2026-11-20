@@ -299,6 +299,12 @@ public final class RoutePlannerTest {
         var shore = new RoutePlanner((x, y, z) -> pondEdge.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
                 new RoutePlanner.Node(3, 1, 6), 1.3, 3, true).withMoves(false, true).withEdits(keepSurface).search(10_000);
         check(shore.status().equals("reached"), "a goal disk touching the shore is reached: " + shore.status());
+        // A swimmer's stance is the cell over still water (surfaceNode), so with swimming on the same goal over the
+        // pond is a real stance (wading-trapped plant_water goal, run 20261119T201738668398Z: unreachable, 0 nodes).
+        var swimOver = new RoutePlanner((x, y, z) -> pondEdge.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(6, 1, 6), 0.25, 3, true).withMoves(true, true).withEdits(keepSurface).search(10_000);
+        check(swimOver.status().equals("reached"), "a swimmer reaches a goal on the pond surface: "
+                + swimOver.status() + " " + swimOver.expanded());
         // Protected cells are never broken.
         var guarded = new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), false, false, false,
                 1, 64, 64, 3, java.util.Set.of(RoutePlanner.key(5, 1, 0), RoutePlanner.key(5, 2, 0)), java.util.Set.of(),

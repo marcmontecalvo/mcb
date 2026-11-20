@@ -219,7 +219,7 @@ final class RoutePlanner {
      * distance; searching it expands the whole node limit (run 20261117T015107803188Z: 64 capped plans at a
      * pond edge over protected air). Possible: unknown cells, fluid or a climbable at goal height, a support
      * top at goal height now, or with place/pillar/bridge an unprotected support cell that is empty or
-     * breakable. Water under the goal is no support: a swimmer floats a block lower. Headroom as headroomOk.
+     * breakable. Water under the goal is a stance only with swimming on (surfaceNode). Headroom as headroomOk.
      */
     private boolean noGoalStance() {
         if (reach != null || !integral(goal.y)) return false;
@@ -233,6 +233,10 @@ final class RoutePlanner {
             var below = cell(x, gy - 1, z);
             // Swimming or wading at goal height, or a climbable to hang in: possible.
             if (!dry(cell(x, gy, z)) || !dry(cell(x, gy + 1, z)) || climbable(cell(x, gy, z))) return false;
+            // A swimmer's stance is the cell over the water (surfaceNode), so with swimming on, water under the
+            // goal is a stance (wading-trapped plant_water goal, run 20261119T201738668398Z: unreachable, 0 nodes).
+            var node = new Node(x, goal.y, z);
+            if (swim && (surfaceNode(node) || (plannerSwim && flowingSurface(node)))) return false;
             for (int cy = gy - 2; cy <= gy - 1; cy++)
                 for (var box : boxes(cell(x, cy, z)))
                     if (Math.abs(cy + at(box, 4) - goal.y) < EPS && at(box, 0) < .8 - EPS && at(box, 3) > .2 + EPS

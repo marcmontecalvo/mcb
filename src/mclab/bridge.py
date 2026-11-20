@@ -36,6 +36,7 @@ BODY_OPS = frozenset(
         "cancel_plan",
         "planner_map",
         "planner_request",
+        "planner_set",
         "route_policy",
         "cancel_route",
         "sensor_check",

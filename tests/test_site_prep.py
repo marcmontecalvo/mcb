@@ -306,7 +306,8 @@ def test_seagrass_under_a_pond_is_filled_through_not_built_on():
         "minecraft:seagrass",
     )
     by_name = sp.plan_site(s, t, lambda *q: w.get(q)).fills
-    assert [p for p in by_name if p[::2] == (x, z)] == [(x, g - 1, z), (x, g, z)]
+    column = [(x, g - 2, z), (x, g - 1, z), (x, g, z)]
+    assert [p for p in by_name if p[::2] == (x, z)] == column  # a pond plant, no floor
 
     def face(*q):
         state = w.get(q) or ""
@@ -1006,3 +1007,220 @@ def test_a_stall_after_the_lab_episode_ended_says_so_at_once():
     now[0] += 10
     with pytest.raises(StallError, match="episode ended"):
         watch.check(Ended(), "goto_stance", (3, 73, 0), False)
+
+
+class _VisiblePond:
+    """A pond row at y=63. ``can_place_here`` says what the real body's sight check
+    says: a cell is clickable only when a solid neighbour's face shows, here a cell
+    in ``hidden_until`` shows none until the named fill is placed. ``place_block``
+    refuses the rest, as the server did 432 times in run 20261119T133618892664Z."""
+
+    def __init__(self, hidden_until=()):
+        self.pos, self.placed, self.failed, self.checked = (0, 64, 0), [], [], []
+        self.hidden_until = dict(hidden_until)  # cell -> fill that exposes it
+
+    def position(self):
+        return self.pos
+
+    def world(self, x, y, z):
+        return STONE if (x, y, z) == (1, 63, 0) or (x, y, z) in self.placed else AIR
+
+    def _sees(self, pos):
+        need = self.hidden_until.get(pos)
+        return need is None or need in self.placed
+
+    def sees_placement(self, target, eye=None, reach=None):
+        self.checked.append(target)
+        return self._sees(target)
+
+    def place_block(self, pos, state, item):
+        if not self._sees(pos):
+            self.failed.append(pos)
+            return br.Result(False, "state_unreachable")
+        self.placed.append(pos)
+        return br.Result(True, None)
+
+    def walk_to(self, goal, radius=0.5):
+        return True
+
+
+class _Runner:
+    def __init__(self):
+        self.report, self.max_steps = br.BuildReport(), 10_000
+
+
+def test_a_fill_without_a_visible_support_face_waits_for_its_neighbour():
+    # the cell nearest the body shows no face until its neighbour is filled: it is
+    # deferred, not attempted blindly (432 state_unreachable in run
+    # 20261119T133618892664Z)
+    hidden, shore = (2, 63, 0), (3, 63, 0)  # hidden is nearer the body's eye
+    body = _VisiblePond(hidden_until={hidden: shore})
+    assert sp._fill_sweep(body, _Runner(), [hidden, shore], 64, 63) == 2
+    assert body.failed == []
+    assert body.placed == [shore, hidden]
+
+
+def test_fills_with_no_visible_face_from_any_stance_are_not_attempted_blindly():
+    body = _VisiblePond(hidden_until={(2, 63, 0): (9, 9, 9)})
+    assert sp._fill_sweep(body, _Runner(), [(2, 63, 0)], 64, 63) == 0
+    assert body.failed == [] and body.placed == []
+
+
+# ---- pond fill: server-equivalent sight, pond plants, lower layers before the top
+
+from mclab import place_sight as ps  # noqa: E402
+
+_FULL = [[0, 0, 0, 1, 1, 1]]
+_LILY = [[0.0625, 0, 0.0625, 0.9375, 0.09375, 0.9375]]
+
+
+class _Pond:
+    """Land with its top at y=63 (stand at 64), a pond in ``floors`` ({(x, z): floor
+    y}) with water up to y=62 and air at 63. ``place_block`` is the server's own face
+    search (place_sight), so a click it refuses is a click the server refuses."""
+
+    def __init__(self, floors, plants=None, pos=(0, 64, 0)):
+        self.cells, self.pos = {}, pos
+        self.placed, self.failed, self.broken, self.walks = [], [], [], []
+        for x in range(-4, 9):
+            for z in range(-5, 6):
+                floor = floors.get((x, z), 63)
+                for y in range(56, 70):
+                    if y <= floor:
+                        cell = {"block": STONE, "collision_boxes": _FULL}
+                    elif y < 63:
+                        cell = {"block": "minecraft:water", "fluid": "minecraft:water"}
+                    else:
+                        cell = {"block": "minecraft:air"}
+                    self.cells[x, y, z] = cell
+        for p, block in (plants or {}).items():
+            cell = {"block": block}
+            if block == "minecraft:lily_pad":
+                cell["collision_boxes"] = _LILY
+            else:
+                cell["fluid"] = "minecraft:water"
+            self.cells[p] = cell
+
+    def position(self):
+        return self.pos
+
+    def _eye(self):
+        return (self.pos[0] + 0.5, self.pos[1] + 1.62, self.pos[2] + 0.5)
+
+    def world(self, x, y, z):
+        cell = self.cells.get((x, y, z))
+        if cell is None:
+            return None
+        return WATER if cell["block"] == "minecraft:water" else cell["block"]
+
+    def has_face(self, x, y, z):
+        return bool((self.cells.get((x, y, z)) or {}).get("collision_boxes"))
+
+    def sees_placement(self, target, eye=None, reach=ps.PLACE_REACH):
+        return ps.clickable_from(self.cells, eye or self._eye(), target, reach)
+
+    def break_block(self, pos):
+        self.broken.append(pos)
+        cell = self.cells[pos]
+        if cell.get("fluid"):  # seagrass: the body's leak plug fills the cell
+            self.cells[pos] = {"block": DIRT, "collision_boxes": _FULL}
+            return br.Result(False, "water", {"plugged": DIRT})
+        self.cells[pos] = {"block": "minecraft:air"}
+        return br.Result(True, None)
+
+    def place_block(self, pos, state, item):
+        occupant = self.cells[pos]["block"]
+        assert occupant in ("minecraft:air", "minecraft:water"), (pos, occupant)
+        assert pos[::2] != self.pos[::2] or pos[1] < self.pos[1]
+        if not ps.clickable_from(self.cells, self._eye(), pos):
+            self.failed.append((pos, self.pos))
+            return br.Result(False, "state_unreachable")
+        self.cells[pos] = {"block": DIRT, "collision_boxes": _FULL}
+        self.placed.append(pos)
+        return br.Result(True, None)
+
+    def walk_to(self, goal, radius=0.5):
+        x, y, z = goal
+        below, feet, head = (self.cells[x, y + d, z] for d in (-1, 0, 1))
+        assert below.get("collision_boxes") and below["block"] != "minecraft:lily_pad"
+        assert head["block"] == "minecraft:air", ("never under water", goal)
+        assert not feet.get("collision_boxes"), goal
+        self.walks.append(goal)
+        self.pos = tuple(goal)
+        return True
+
+
+def _pond_fills(body, columns, ground=63):
+    out = []
+    for x, z in columns:
+        y = ground
+        while not body.has_face(x, y - 1, z) or body.cells[x, y - 1, z]["block"] == (
+            "minecraft:lily_pad"
+        ):
+            y -= 1
+        out += [(x, h, z) for h in range(y, ground + 1)]
+    return sorted(out, key=lambda p: (p[1], p))
+
+
+def test_a_two_deep_pond_is_filled_lower_layers_first_without_a_refused_click():
+    # x=1 is a one-deep shelf (floor 61), x=2..4 two deep (floor 60); land around.
+    # From the bank no face of a two-deep bottom is in reach (4.62 under the eye):
+    # the shelf fills first, the body steps down onto it and works one level down,
+    # then the tops close last, perimeter first.
+    floors = {(1, z): 61 for z in (-1, 0, 1)}
+    floors.update({(x, z): 60 for x in (2, 3, 4) for z in (-1, 0, 1)})
+    body = _Pond(floors)
+    fills = _pond_fills(body, floors)
+    assert sp._fill_sweep(body, _Runner(), fills, 64, 63) == len(fills)
+    assert body.failed == []
+    order = {p: i for i, p in enumerate(body.placed)}
+    for top in (p for p in body.placed if p[1] == 63):  # after every cell under it
+        below = [q for q in body.placed if q[1] < 63 and _dist2_xz(q, top) <= 2]
+        assert all(order[q] < order[top] for q in below), top
+    assert any(w[1] < 64 for w in body.walks)  # it worked from the lower layer
+    assert all(w[1] >= 62 for w in body.walks)  # head always above the water
+
+
+def _dist2_xz(a, b):
+    return (a[0] - b[0]) ** 2 + (a[2] - b[2]) ** 2
+
+
+def test_pond_plants_in_reach_are_broken_before_any_fill():
+    floors = {(x, 0): 61 for x in (1, 2)}
+    lily, grass = (2, 63, 0), (1, 62, 0)
+    body = _Pond(
+        floors, plants={lily: "minecraft:lily_pad", grass: "minecraft:seagrass"}
+    )
+    sp._fill_sweep(body, _Runner(), [(1, 62, 0), (2, 62, 0), (1, 63, 0), (2, 63, 0)],
+                   64, 63)  # fmt: skip
+    assert set(body.broken[:2]) == {lily, grass}
+    assert body.cells[lily]["block"] == DIRT and body.cells[grass]["block"] == DIRT
+
+
+def test_the_perimeter_is_placed_before_the_inside():
+    # a one-deep pond, all of it in reach from the middle of one bank: ring 1 first
+    floors = {(x, z): 62 for x in (1, 2, 3) for z in (1, 2, 3)}
+    body = _Pond(floors, pos=(2, 64, 0))
+    fills = _pond_fills(body, floors)
+    assert sp._fill_sweep(body, _Runner(), fills, 64, 63) == 9
+    assert body.placed.index((2, 63, 2)) == 8
+
+
+def test_a_lily_pad_on_a_pond_is_no_support_for_the_house():
+    t = template()
+    s, w = mixed_world(t)
+    x, g, z = s.x0, s.ground_y, s.z0
+    w[(x, g, z)], w[(x, g - 1, z)], w[(x, g - 2, z)] = (
+        "minecraft:lily_pad",
+        WATER,
+        WATER,
+    )
+
+    def face(*q):  # a lily pad has a (thin) collision box
+        state = w.get(q) or ""
+        return not any(n in state for n in ("air", "water"))
+
+    for f in (None, face):
+        column = [p for p in sp.plan_site(s, t, lambda *q: w.get(q), face=f).fills
+                  if p[::2] == (x, z)]  # fmt: skip
+        assert column == [(x, g - 2, z), (x, g - 1, z), (x, g, z)]

@@ -615,6 +615,10 @@ def parse_battery_args(parser):
         config = resolve_config(
             "battery", preset=supplied.get("preset"), base=base, overrides=overrides
         )
+        if not config["run"]["output"]:
+            from mclab.qualification_battery import default_out
+
+            config["run"]["output"] = default_out().as_posix()
         validate_launch(config)
         if supplied.get("print_config"):
             print(json.dumps(config, indent=2))
@@ -627,6 +631,8 @@ def parse_battery_args(parser):
             no_restart=run["no_restart"],
             timeout=run["timeout"],
             run_config=config,
+            keep_all=bool(supplied.get("keep_all")),
+            fast=bool(supplied.get("fast")),
         )
     except (OSError, ValueError, TypeError, KeyError) as error:
         parser.error(str(error))

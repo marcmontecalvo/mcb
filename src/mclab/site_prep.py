@@ -176,6 +176,11 @@ FLOWERS = frozenset(
         "sugar_cane",
     )
 )
+# Pond plants are never support, and every one in a column to fill is broken before the
+# fill: the server clips its sight rays by outline, so seagrass and lily pads hide the
+# faces behind them, and a lily pad's thin collision box read as solid ground at the
+# ground level, with the pond still under it.
+POND_PLANTS = bp.WATER_PLANTS | {"minecraft:lily_pad", "minecraft:sea_pickle"}
 HIGH = 6  # blocks above the ground a standing body cannot reach
 REACH_BREAK = 4.2  # eye to cell centre, inside the body's 4.5 reach
 
@@ -261,7 +266,7 @@ def plan_site(
                 plan.unknown.append((x, y, z))
                 run = []
                 break
-            if (
+            if ident not in POND_PLANTS and (
                 face(x, y, z)
                 if face
                 else ident not in bp.REPLACEABLE and ident not in FLOWERS
@@ -720,39 +725,204 @@ def _hill_dirt(site: Site, body, protected, here, need: int) -> list[Pos]:
     return out[:want]
 
 
+_D4 = ((1, 0), (-1, 0), (0, 1), (0, -1))
+
+
+def _rings(columns: set[tuple[int, int]]) -> dict[tuple[int, int], int]:
+    """Each fill column's distance from the nearest column that is not filled: 1 is the
+    perimeter (it walls the rest off from the open water), then inward."""
+    ring = {
+        c: 1
+        for c in columns
+        if any((c[0] + dx, c[1] + dz) not in columns for dx, dz in _D4)
+    }
+    frontier = sorted(ring)
+    while frontier:
+        nxt = []
+        for c in frontier:
+            for dx, dz in _D4:
+                n = (c[0] + dx, c[1] + dz)
+                if n in columns and n not in ring:
+                    ring[n] = ring[c] + 1
+                    nxt.append(n)
+        frontier = nxt
+    return ring
+
+
+def _workable(todo: set[Pos], ground: int) -> list[Pos]:
+    """The cell each column fills next (its lowest). The top cell of a column waits
+    while a column around it still has cells below the ground: the user's way with a
+    pond, the bottom layers first, then the top, so the body can work from the lower
+    layer it made (from the bank, the bottom of a two-deep pond is 4.62 under the
+    eye, past the 4.5 reach)."""
+    lowest: dict[tuple[int, int], int] = {}
+    for x, y, z in todo:
+        lowest[x, z] = min(y, lowest.get((x, z), y))
+    deep = {c for c, y in lowest.items() if y < ground}
+    out = []
+    for (x, z), y in lowest.items():
+        if y >= ground and any(
+            (x + dx, z + dz) in deep for dx in (-1, 0, 1) for dz in (-1, 0, 1)
+        ):
+            continue
+        out.append((x, y, z))
+    return out
+
+
+def _may_fill_from(here: Pos, p: Pos, ground: int) -> bool:
+    """Standing on the working surface, any cell; standing lower (on the pond's lower
+    layer), only cells below the feet: never wall in the body's own level."""
+    return p[::2] != here[::2] and (here[1] > ground or p[1] < here[1])
+
+
+def _whack_plants(body, report, todo: set[Pos], ground: int, eye, here: Pos, whacked):
+    """Break every pond plant in reach in the columns to fill, top first. Returns the
+    cells the body's leak plug filled when a broken plant let the water in."""
+    plugged: list[tuple[Pos, str]] = []
+    if not todo:
+        return plugged
+    lo = min(p[1] for p in todo)
+    for x, z in sorted({p[::2] for p in todo}):
+        for y in range(ground, lo - 1, -1):
+            p = (x, y, z)
+            if (p, here) in whacked or _eye_dist(eye, p) > REACH_BREAK:
+                continue
+            if _ident(body.world(*p)) not in POND_PLANTS:
+                continue
+            whacked.add((p, here))
+            report.steps += 1
+            broke = body.break_block(p)
+            plug = (broke.data or {}).get("plugged") if not broke.ok else None
+            if plug:
+                plugged.append((p, plug))
+    return plugged
+
+
+def _stance_in(body, x: int, z: int, ground: int, lo: int) -> Pos | None:
+    """Where the body stands in column (x, z): the first support from the working
+    surface down, with the head out of the water."""
+    for y in range(ground + 1, lo, -1):
+        if not _ground(body, x, y - 1, z):
+            continue
+        feet = _ident(body.world(x, y, z))
+        head = _ident(body.world(x, y + 1, z))
+        ok = feet in bp.AIR | FLOWERS or feet == "minecraft:water"
+        return (x, y, z) if ok and head in bp.AIR | FLOWERS else None
+    return None
+
+
+STANCE_RADIUS = 3  # stances tried around each column still to fill
+STANCE_MARGIN = 0.25  # reach kept back for the walk's arrival radius
+
+
+def _fill_stance(body, sight, open_: list[Pos], ring, here: Pos, ground: int, skip):
+    """The stance that shows the server a support face of the most cells, perimeter
+    first: columns are taken by (ring, distance), and the first column with any
+    seeing stance around it decides."""
+    lo = min(p[1] for p in open_) - 1
+    tried: set[Pos] = set()
+    reach = PLACE_REACH - STANCE_MARGIN
+    columns = sorted(
+        {p[::2] for p in open_},
+        key=lambda c: (
+            ring.get(c, 0),
+            _dist2((c[0], 0, c[1]), (here[0], 0, here[2])),
+            c,
+        ),
+    )
+    for cx, cz in columns:
+        best = None
+        for dx in range(-STANCE_RADIUS, STANCE_RADIUS + 1):
+            for dz in range(-STANCE_RADIUS, STANCE_RADIUS + 1):
+                node = _stance_in(body, cx + dx, cz + dz, ground, lo)
+                if node is None or node == here or node in tried or node in skip:
+                    continue
+                tried.add(node)
+                eye = (node[0] + 0.5, node[1] + 1.62, node[2] + 0.5)
+                seen = [
+                    p
+                    for p in open_
+                    if _may_fill_from(node, p, ground)
+                    and _in_place_reach(eye, p)
+                    and sight(p, eye, reach)
+                ]
+                if not seen:
+                    continue
+                key = (
+                    min(ring.get(p[::2], 0) for p in seen),
+                    -len(seen),
+                    _dist2(node, here),
+                    node,
+                )
+                if best is None or key < best[0]:
+                    best = (key, node)
+        if best is not None:
+            return best[1]
+    return None
+
+
 def _fill_sweep(
     body, runner, fills: list[Pos], have: int, ground: int, stock=None
 ) -> int:
-    """Place every fill cell in reach back to back (lowest first), then one walk to
-    the nearest cells left. One stance search per block took so long the first dirt
-    grew grass before the next landed (run 20261110T014910705271Z: 9 placed, 9
-    state_unreachable in 150 s)."""
+    """Place every fill cell in reach back to back, then one walk to the next stance.
+    One stance search per block took so long the first dirt grew grass before the next
+    landed (run 20261110T014910705271Z: 9 placed, 9 state_unreachable in 150 s).
+
+    The order is the user's for a pond: pond plants out of the way first, the
+    perimeter before the inside, the lower layers before the top (``_workable``),
+    with the body standing on the layer it made. A body that can predict the
+    server's face search (``sees_placement``) clicks only cells it sees and walks to
+    the stance that sees the most; without it, the dry rim is walked."""
     report, todo, placed = runner.report, set(fills), 0
     stock = dict(stock or {FILL: have})
     refused: set[Pos] = set()
     walked: set[Pos] = set()
     failed_stances: dict[tuple[Pos, Pos], int] = {}
     approached: set[tuple[Pos, int]] = set()
+    whacked: set[tuple[Pos, Pos]] = set()
     walks_without_edit = 0
     walk = getattr(body, "walk_to", None)
+    sight = getattr(body, "sees_placement", None)
+    ring = _rings({p[::2] for p in todo})
+
+    def filled(pos: Pos, item: str | None) -> None:
+        nonlocal placed, walks_without_edit
+        if item is not None and stock.get(item, 0) > 0:
+            stock[item] -= 1
+        report.placed.append(pos)
+        todo.discard(pos)
+        # a cell under a fill is buried: no face of it shows again
+        todo.difference_update(
+            {q for q in todo if q[::2] == pos[::2] and q[1] < pos[1]}
+        )
+        placed += 1
+        walks_without_edit = 0
+        walked.clear()  # an edit can open a previously unreachable frontier
+        # the new block is a face to click for the cells touching it
+        refused.difference_update({q for q in refused if _dist2(q, pos) == 1})
+
     while todo and placed < have and report.steps < runner.max_steps:
         here = body.position()
         eye = (here[0] + 0.5, here[1] + 1.62, here[2] + 0.5)
-        lowest: dict[tuple[int, int], int] = {}
-        for x, y, z in todo:
-            lowest[x, z] = min(y, lowest.get((x, z), y))
+        for pos, plug in _whack_plants(body, report, todo, ground, eye, here, whacked):
+            if pos in todo:
+                # seagrass under water: the leak-plug reflex filled the cell itself;
+                # dirt on it was refused "occupied" (run 20261117T033515924527Z)
+                filled(pos, bp.parse_state(plug)[0])
+        if not todo:
+            break
+        open_ = _workable(todo, ground)
         near = [
             p
-            for p in todo
+            for p in open_
             if p not in refused
-            and p[1] == lowest[p[0], p[2]]
             and failed_stances.get((p, here)) != placed
-            and here[1] > ground  # never fill the walls around our own trapped feet
-            and p[::2] != here[::2]  # never the column the body stands in
+            and _may_fill_from(here, p, ground)
             and _in_place_reach(eye, p)
+            and (sight is None or sight(p))
         ]
         if near:
-            pos = min(near, key=lambda p: (p[1], _eye_dist(eye, p)))
+            pos = min(near, key=lambda p: (ring[p[::2]], p[1], _eye_dist(eye, p)))
             report.steps += 1
             ident = _ident(body.world(*pos))
             if ident and ident not in bp.AIR and ident not in bp.FLUIDS:
@@ -761,62 +931,27 @@ def _fill_sweep(
                 broke = body.break_block(pos)
                 plug = (broke.data or {}).get("plugged") if not broke.ok else None
                 if plug:
-                    # seagrass under water: the leak-plug reflex filled the cell
-                    # itself; dirt on it was refused "occupied" until the run
-                    # stalled (run 20261117T033515924527Z)
-                    item = bp.parse_state(plug)[0]
-                    if stock.get(item, 0) > 0:
-                        stock[item] -= 1
-                    report.placed.append(pos)
-                    todo.discard(pos)
-                    placed += 1
-                    walks_without_edit = 0
-                    walked.clear()
-                    refused -= {q for q in refused if _dist2(q, pos) == 1}
+                    filled(pos, bp.parse_state(plug)[0])
                     continue
             item = next(i for i, n in stock.items() if n > 0)
             if body.place_block(pos, item, item).ok:
-                stock[item] -= 1
-                report.placed.append(pos)
-                todo.discard(pos)
-                placed += 1
-                walks_without_edit = 0
-                walked.clear()  # an edit can open a previously unreachable frontier
-                # the new block is a face to click for the cells touching it
-                refused -= {q for q in refused if _dist2(q, pos) == 1}
+                filled(pos, item)
             else:
                 refused.add(pos)
                 failed_stances[pos, here] = placed
             continue
-        if walks_without_edit >= 4:
-            # nothing left in reach of a dry rim: hand the rest to the per-cell
-            # stance search, which may stand lower (run 20261117T035331768325Z: a
-            # pond cell two below the ground, 4.36 from every rim eye, ended the run)
+        if walks_without_edit >= 4 or not walk:
+            # nothing left in reach: hand the rest to the per-cell stance search,
+            # which may stand lower (run 20261117T035331768325Z: a pond cell two
+            # below the ground, 4.36 from every rim eye, ended the run)
             break
-        rest = [p for p in todo if p not in walked]
-        if not rest or not walk:
-            break
-        pos = min(rest, key=lambda p: (_dist2(p[::2], here[::2]), p[1]))
-        walked |= {q for q in rest if _dist2(q, pos) <= 2}
-        # ponytail: stand on whole ground beside the hole, never in a hole: the
-        # body jumped into one hole to fill its neighbours (run 32, user report)
-        holes = {q[::2] for q in todo}
-        rim = {
-            (pos[0] + dx, ground + 1, pos[2] + dz)
-            for pos in rest
-            for dx in range(-1, 2)
-            for dz in range(-1, 2)
-            if (pos[0] + dx, pos[2] + dz) not in holes
-            and _ground(body, pos[0] + dx, ground, pos[2] + dz)
-            and all(
-                _ident(body.world(pos[0] + dx, y, pos[2] + dz)) in bp.AIR | FLOWERS
-                for y in (ground + 1, ground + 2)
-            )
-        }
-        rim = {q for q in rim if q != here and (q, placed) not in approached}
-        if not rim:
-            break  # let the bounded stance search handle cells without a dry rim
-        goal = min(rim, key=lambda q: (_dist2(q, here), q))
+        if sight is not None:
+            skip = {g for g, n in approached if n == placed}
+            goal = _fill_stance(body, sight, open_, ring, here, ground, skip)
+        else:
+            goal = _rim_stance(body, todo, walked, here, ground, approached, placed)
+        if goal is None:
+            break  # let the bounded stance search handle cells nothing here shows
         approached.add((goal, placed))
         # Let the delivered terrain scanner see newly filled ground before the
         # native planner is asked to stand on it (the local overlay sees it first).
@@ -824,20 +959,51 @@ def _fill_sweep(
             wait(5)
             if observe := getattr(body, "observe", None):
                 observe()
-        # Once on the working surface, stay there. Above it, allow the normal
-        # descent back from a dirt-borrowing hill before locking out pond drops.
-        with walking_with_edits(body, max_drop=0 if here[1] == ground + 1 else None):
+        # Once on the working surface, stay there, except a step down onto the pond's
+        # lower layer. Above it, allow the normal descent back from a borrow hill.
+        drop = None if here[1] > ground + 1 else max(0, here[1] - goal[1])
+        with walking_with_edits(body, max_drop=drop):
             walk(goal, 0.45)
         walks_without_edit += 1
         refused.clear()  # stance history survives walks; only edits permit a retry
     return placed
 
 
+def _rim_stance(body, todo, walked, here: Pos, ground: int, approached, placed):
+    """Without a sight check: whole ground beside the nearest cells, never in a hole
+    (the body jumped into one hole to fill its neighbours, run 32, user report)."""
+    rest = [p for p in todo if p not in walked]
+    if not rest:
+        return None
+    pos = min(rest, key=lambda p: (_dist2(p[::2], here[::2]), p[1]))
+    walked |= {q for q in rest if _dist2(q, pos) <= 2}
+    holes = {q[::2] for q in todo}
+    rim = {
+        (p[0] + dx, ground + 1, p[2] + dz)
+        for p in rest
+        for dx in range(-1, 2)
+        for dz in range(-1, 2)
+        if (p[0] + dx, p[2] + dz) not in holes
+        and _ground(body, p[0] + dx, ground, p[2] + dz)
+        and all(
+            _ident(body.world(p[0] + dx, y, p[2] + dz)) in bp.AIR | FLOWERS
+            for y in (ground + 1, ground + 2)
+        )
+    }
+    rim = {q for q in rim if q != here and (q, placed) not in approached}
+    if not rim:
+        return None
+    return min(rim, key=lambda q: (_dist2(q, here), q))
+
+
+
 def _ground(body, x: int, y: int, z: int) -> bool:
     """A face to stand on or click, by the cell's real collision boxes when the body
     knows them (modded blocks included), else by name."""
     has_face = getattr(body, "has_face", None)
-    return has_face(x, y, z) if has_face else _solid(body.world(x, y, z))
+    if not has_face:
+        return _solid(body.world(x, y, z))
+    return has_face(x, y, z) and _ident(body.world(x, y, z)) not in POND_PLANTS
 
 
 def _solid(state) -> bool:
@@ -846,6 +1012,7 @@ def _solid(state) -> bool:
         bool(ident)
         and ident not in bp.AIR
         and ident not in bp.FLUIDS
+        and ident not in POND_PLANTS
         and (ident not in bp.REPLACEABLE and ident not in FLOWERS)
     )
 

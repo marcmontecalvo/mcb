@@ -47,6 +47,7 @@ from collections.abc import Callable, Collection
 from contextlib import contextmanager
 from dataclasses import asdict, replace
 
+from mclab import place_sight
 from mclab.awareness import Awareness
 from mclab.body_search import BOXED_IN_NODES
 from mclab.bridge import REJECTIONS
@@ -58,6 +59,7 @@ from mclab.gather_tasks import item_stack
 from mclab.interaction_goal import _segment_hits_box, interacts
 from mclab.memory_policy import MemoryPolicy
 from mclab.movement_policy import HURT_DROP_MAX, MovementPolicy
+from mclab.native_driver import EdgeFailures
 from mclab.navigation_runner import _new_identity
 from mclab.navigation_segmented import SegmentedController
 from mclab.paths import ROOT, RUNTIME, SERVER, read_json
@@ -129,7 +131,12 @@ PROBE_WALL_S = (
 )
 DROP_RADIUS = 8.0  # collect_drops: items this close to the broken cells are picked up
 DROP_WAIT_TICKS = 40  # a tower of scaffolding drops a layer per few ticks
+DROP_POLL_TICKS = 5  # collect_drops: look again this often while items are falling
 MAX_PICKUPS = 16
+# goto_stance: a candidate stance that gets the body no nearer its goal for this long is
+# dropped for the next one (a long walk that keeps closing in is never cut by it).
+CANDIDATE_PROGRESS_TICKS = 180  # 9 s
+STANCE_RETRY_S = 30.0  # a stance that failed is not walked to again for this long
 DROP_RISE = 4  # collect_drops: items resting up to this far above the feet (a step, a ledge) are walked to
 BODY_HALF_WIDTH = 0.3
 BODY_HEIGHT = 1.8
@@ -682,10 +689,15 @@ class CompanionBody:
         self.policies: list[dict] = []
         self._navigation_idle = {"anchor": None, "since": time.monotonic()}
         self._failed_stance_probes = {}
+        self._failed_stances: dict = {}  # (target, stance) -> retry-after (monotonic)
+        self._goto_edges: set | None = None  # failed route edges shared by one goto
+        # failed edges of the session, each kept while the blocks around it are unchanged
+        self.edge_failures = EdgeFailures(cells=self._cells_now)
         self.boxed_in = False  # the last search from here found no move at all
         # building: called with the body position while a walk is under way, to
         # place what comes within reach (set by build_runner._sweep)
-        self.on_pass: Callable[[Pos], None] | None = None
+        # (position, route=points the motor has still to drive) -> None
+        self.on_pass: Callable[..., None] | None = None
         self._ahead = None  # plan_ahead: (controller, goal, radius, position)
 
     def policy_id(self) -> int:
@@ -1013,6 +1025,7 @@ class CompanionBody:
         """``boxes``: the cell's real collision boxes from the body's edit result."""
         if state:
             self._failed_stance_probes.clear()
+            self._failed_stances.clear()
             self._navigation_idle.update(
                 anchor=tuple(
                     self._obs.get("body", {}).get("position", self.position())
@@ -1402,6 +1415,14 @@ class CompanionBody:
             controller = self._goto_controller(goal, reach, radius, probe, wall)
         controller.on_pass = self.on_pass
         controller.progress_state = progress
+        # edges any earlier walk failed on, banned longer each repeat (native_driver.EdgeFailures)
+        controller.edge_failures = self.edge_failures
+        if progress and progress.get("limit_ticks"):
+            # this candidate's own no-progress window, in place of the whole goto's
+            controller.goal_progress_ticks = progress["limit_ticks"]
+        shared_edges = getattr(self, "_goto_edges", None)
+        if shared_edges:  # what earlier candidates of this goto learned cannot be walked
+            controller.failed_edges |= shared_edges
         controller.last_partial_walk = self._partial_walks.get(tuple(goal))
         controller.dead_ends = dead = self._dead_ends.setdefault(
             tuple(goal), {"revision": None, "ends": []}
@@ -1419,6 +1440,8 @@ class CompanionBody:
             )
         finally:
             self.bridge.state()  # heartbeat: close() joins the worker threads
+            if shared_edges is not None:
+                shared_edges |= controller.failed_edges
             controller.close()
             self.stray_footholds |= set(getattr(controller, "own_footholds", ()))
             self.edits_placed += getattr(controller, "edits_placed", 0)
@@ -1568,10 +1591,6 @@ class CompanionBody:
     def collect_drops(self, near: Collection[Pos], radius: float = DROP_RADIUS) -> None:
         """Wait for what fell (a scaffolding tower drops block by block), then walk onto
         the dropped items within ``radius`` of the cells ``near``."""
-        # The wait leaves no event of its own; idle_gaps.py counts this note as work.
-        if (record := getattr(self.bridge, "record", None)) is not None:
-            record("gather_note", {"gather": "drop_wait", "ticks": DROP_WAIT_TICKS})
-        self.wait_ticks(DROP_WAIT_TICKS)
         centres = [(x + 0.5, y + 0.5, z + 0.5) for x, y, z in near]
         skipped: set = set()
         # Items are remembered once seen, across calls: from the bottom of a pit a stack on its
@@ -1581,7 +1600,34 @@ class CompanionBody:
         known: dict = getattr(self, "_known_drops", None)
         if known is None:
             known = self._known_drops = {}
+
+        def sight() -> dict:
+            found = {
+                e["uuid"]: e
+                for e in self.entities()
+                if e.get("item") and e.get("uuid")
+                and any(math.dist(e["position"], c) <= radius for c in centres)
+            }
+            known.update(found)
+            return found
+
+        # Wait only for items that are there: none in range, none to wait for; otherwise
+        # look every few ticks and go as soon as they rest (or were picked up). A blind
+        # 40-tick wait per break was 62 s of a house build (run 20261119T133618892664Z).
+        seen = sight()
+        waited = 0
+        while seen and waited < DROP_WAIT_TICKS:
+            before = {u: e["position"][1] for u, e in seen.items()}
+            self.wait_ticks(DROP_POLL_TICKS)
+            waited += DROP_POLL_TICKS
+            seen = sight()
+            if all(abs(before.get(u, math.inf) - e["position"][1]) < 0.01 for u, e in seen.items()):
+                break  # every item in view rests (an empty view: all picked up)
+        if waited and (record := getattr(self.bridge, "record", None)) is not None:
+            # The wait leaves no event of its own; idle_gaps.py counts this note as work.
+            record("gather_note", {"gather": "drop_wait", "ticks": waited})
         last_y: dict = {}
+        view = seen
 
         def resting(e) -> bool:
             before = last_y.get(e["uuid"])
@@ -1591,13 +1637,8 @@ class CompanionBody:
             here = self.position()
             for u, e in known.items():
                 last_y[u] = e["position"][1]
-            seen = {
-                e["uuid"]: e
-                for e in self.entities()
-                if e.get("item") and e.get("uuid")
-                and any(math.dist(e["position"], c) <= radius for c in centres)
-            }
-            known.update(seen)
+            # the first look is the last one the wait took
+            seen, view = (view if view is not None else sight()), None
             for uuid in [u for u, e in known.items() if u not in seen]:
                 if math.dist(known[uuid]["position"], here) <= 2.0:
                     del known[uuid]
@@ -1880,6 +1921,16 @@ class CompanionBody:
             and ty - BODY_HEIGHT < y < ty + 1
         )
 
+    def sees_placement(
+        self, target: Pos, eye=None, reach: float = place_sight.PLACE_REACH
+    ) -> bool:
+        """Would the server's place_block find a support face of ``target`` to click
+        from ``eye`` (default: the body's real eye, as the server uses)? See
+        place_sight; the server's answer stays final."""
+        if eye is None:
+            eye = place_sight.eye_of(self._obs["body"]["position"])
+        return place_sight.clickable_from(self._cells_now(), eye, target, reach)
+
     def can_place_here(self, target: Pos, reach: float, required=None) -> bool:
         """Check the current placement stance before an optimistic direct action."""
         cells, here = self._cells_now(), self.position()
@@ -1899,6 +1950,16 @@ class CompanionBody:
 
     @_fresh_idle
     def goto_stance(
+        self, target_pos: Pos, reach: float, avoid: Collection[Pos] = ()
+    ) -> bool:
+        # Route edges that failed under one candidate stay failed for the next one.
+        self._goto_edges = set()
+        try:
+            return self._goto_stance(target_pos, reach, avoid)
+        finally:
+            self._goto_edges = None
+
+    def _goto_stance(
         self, target_pos: Pos, reach: float, avoid: Collection[Pos] = ()
     ) -> bool:
         target, avoid = tuple(target_pos), set(avoid)
@@ -1947,14 +2008,26 @@ class CompanionBody:
             else:
                 stances = stances[:MAX_CANDIDATES]
                 probe_budget_s = WALK_ONLY_CANDIDATES * PROBE_WALL_S
-        stances = stances[:MAX_CANDIDATES]
+        # A stance that already failed for this target is not walked to again for a
+        # while, wherever the body now stands (run 20261119T133618892664Z: 30 s calls
+        # re-testing the same yard stances).
+        now = time.monotonic()
+        untried = [
+            n for n in stances if self._failed_stances.get((target, n), 0) <= now
+        ]
+        stances = untried[:MAX_CANDIDATES]
         radius = PRECISE_RADIUS if self.precise_stance else 0.6
         hopped = False
-        # One no-progress clock for the whole stance loop: each probe resets the
-        # drive's own timer, so 6 stances could burn 6 x 150 s on one goal.
-        progress = {"distance": math.dist(here, target), "tick": None}
         probe_started = time.monotonic()
         for node in stances:
+            # Each candidate has its own no-progress window (a candidate walk that keeps
+            # closing in is never cut, one that does not gives way to the next). A shared
+            # clock let the first dead-end walk spend the whole goto (31 s x 2 in the run).
+            progress = {
+                "distance": math.inf,
+                "tick": None,
+                "limit_ticks": CANDIDATE_PROGRESS_TICKS,
+            }
             if (
                 probe_budget_s is not None
                 and time.monotonic() - probe_started >= probe_budget_s
@@ -1979,6 +2052,7 @@ class CompanionBody:
                 hopped = True
             if self._navigate(node, reach=None, radius=radius, probe=True, progress=progress):
                 return True
+            self._failed_stances[(target, node)] = time.monotonic() + STANCE_RETRY_S
             if self.boxed_in:
                 return False
             if getattr(self, "walk_only", False) and self.position() == here:
@@ -1994,7 +2068,8 @@ class CompanionBody:
             # (iron run 20261112T233253015689Z: 15 unreachable probes, then three
             # furnace crafts died on no_stance and the job with them). The
             # interaction search may edit, so it can dig its own way out.
-            if self._navigate(target, reach=reach, radius=2, progress=progress):
+            search = {"distance": math.inf, "tick": None}  # the whole-goto bound
+            if self._navigate(target, reach=reach, radius=2, progress=search):
                 if self.position() not in avoid:
                     return True
         return False
