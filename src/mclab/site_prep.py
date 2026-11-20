@@ -776,8 +776,11 @@ def _may_fill_from(here: Pos, p: Pos, ground: int) -> bool:
 
 
 def _whack_plants(body, report, todo: set[Pos], ground: int, eye, here: Pos, whacked):
-    """Break every pond plant in reach in the columns to fill, top first. Returns the
-    cells the body's leak plug filled when a broken plant let the water in."""
+    """Break every pond plant in reach in the columns to fill, top first, and every
+    flower in a cell to fill: a flower hides the faces under it until it is gone, so
+    the sweep passed it by and each went to the per-cell stance search (16 tulips in
+    run 20261120T075123420431Z). Returns the cells the body's leak plug filled when
+    a broken plant let the water in."""
     plugged: list[tuple[Pos, str]] = []
     if not todo:
         return plugged
@@ -787,7 +790,8 @@ def _whack_plants(body, report, todo: set[Pos], ground: int, eye, here: Pos, wha
             p = (x, y, z)
             if (p, here) in whacked or _eye_dist(eye, p) > REACH_BREAK:
                 continue
-            if _ident(body.world(*p)) not in POND_PLANTS:
+            ident = _ident(body.world(*p))
+            if ident not in POND_PLANTS and not (ident in FLOWERS and p in todo):
                 continue
             whacked.add((p, here))
             report.steps += 1

@@ -50,7 +50,31 @@ _REPLACEABLE = frozenset(
     for n in ("short_grass", "grass", "tall_grass", "snow", "fern", "large_fern",
               "dead_bush", "vine", "seagrass", "tall_seagrass")
 )  # fmt: skip
+# BodyBuild.place destroys an occupant of the target that is replaceable, dry and
+# broken at once (destroy speed 0) before its face search, so it hides nothing.
+# Seagrass is waterlogged and snow and vines take time: those stay in the way.
+SWEPT = frozenset(
+    "minecraft:" + n
+    for n in ("short_grass", "grass", "tall_grass", "fern", "large_fern", "dead_bush")
+)
 _CELL = (0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
+
+
+def takes_block(cell) -> bool:
+    """Can place_block put a block into this cell (no "occupied")? Air, fluid, a
+    replaceable plant, or unknown (the server decides). A flower, torch or any
+    other block must be broken first."""
+    if not cell:
+        return True
+    if "replaceable" in cell:  # the sensor's BlockState.canBeReplaced
+        return bool(cell["replaceable"])
+    block = cell.get("block")
+    # deep snow has a collision box and is no longer replaceable
+    return block in _CLEAR or (block in _REPLACEABLE and not _boxes(cell))
+
+
+def _dry(cell) -> bool:
+    return cell.get("fluid", "minecraft:empty") == "minecraft:empty"
 
 
 def _boxes(cell) -> list:
@@ -78,9 +102,12 @@ def eye_of(feet) -> tuple[float, float, float]:
     return (feet[0], feet[1] + EYE_HEIGHT, feet[2])
 
 
-def _ray_clear(cells: Mapping, eye, point, block: Pos) -> bool:
+def _ray_clear(
+    cells: Mapping, eye, point, block: Pos, swept: Pos | None = None
+) -> bool:
     """No outline between ``eye`` and ``point`` (on ``block``'s face) in any cell the
-    segment passes through, by exact grid traversal, ``block`` itself excepted."""
+    segment passes through, by exact grid traversal, ``block`` itself and the
+    ``swept`` cell (cleared before the click) excepted."""
     cell = [math.floor(v) for v in eye]
     d = [point[i] - eye[i] for i in range(3)]
     step = [1 if v > 0 else -1 for v in d]
@@ -97,7 +124,9 @@ def _ray_clear(cells: Mapping, eye, point, block: Pos) -> bool:
         c = (cell[0], cell[1], cell[2])
         if c == block:
             return True
-        if any(_segment_hits_box(eye, point, c, b) for b in outline(cells.get(c))):
+        if c != swept and any(
+            _segment_hits_box(eye, point, c, b) for b in outline(cells.get(c))
+        ):
             return False
         i = t_max.index(min(t_max))
         if t_max[i] > 1:
@@ -144,6 +173,8 @@ def clickable_from(
     """True when some source face of ``target`` shows a sample point to ``eye`` within
     ``reach``. ``sources`` limits the neighbours tried."""
     allowed = None if sources is None else {tuple(s) for s in sources}
+    occupant = cells.get(tuple(target)) or {}
+    swept = tuple(target) if occupant.get("block") in SWEPT and _dry(occupant) else None
     for dx, dy, dz in NEIGHBOURS:
         n = (target[0] + dx, target[1] + dy, target[2] + dz)
         if allowed is not None and n not in allowed:
@@ -157,7 +188,7 @@ def clickable_from(
             if math.dist(eye, point) > reach:
                 continue
             beyond = _beyond(eye, point)
-            if _ray_clear(cells, eye, beyond, n):
+            if _ray_clear(cells, eye, beyond, n, swept):
                 return True
     return False
 

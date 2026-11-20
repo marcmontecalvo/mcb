@@ -55,6 +55,32 @@ def main():
                     )
                 body.wait_ticks(10)
                 body.observe()
+                # Flowers in ground-level cells: they hide the faces under them, so
+                # the sweep must break them, not pass them by (run
+                # 20261120T075123420431Z left 16 tulips to the per-cell search, and
+                # site prep stopped "blocked" on them).
+                flowers = [
+                    (x, 63, z)
+                    for x in range(-21, -15)
+                    for z in range(60, 66)
+                    if bp.parse_state(body.world(x, 63, z) or "")[0]
+                    in ("minecraft:grass_block", "minecraft:dirt")
+                ][:2]
+                if len(flowers) < 2:
+                    raise RuntimeError("No bank cells for the flower fixture")
+                summary["fixture_flowers"] = flowers
+                kit(
+                    bridge,
+                    place=[
+                        {
+                            "offset": [x + 16, y - 62, z - 70],
+                            "state": "minecraft:orange_tulip",
+                        }
+                        for x, y, z in flowers
+                    ],
+                )
+                body.wait_ticks(10)
+                body.observe()
                 fills = []
                 for x in range(-21, -15):
                     for z in range(60, 66):

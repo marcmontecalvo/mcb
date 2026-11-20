@@ -1020,6 +1020,35 @@ def test_a_stance_inside_a_cell_of_the_sweep_does_not_count_it_covered():
     assert b._stance_covers(b._cells_now(), (4, 0, 3), 4.5) == 1
 
 
+def test_a_flower_cell_is_broken_not_placed_into(monkeypatch):
+    """A flower is no cell to place into (the server refuses "occupied"), so its
+    stance is a break's: the line to the flower, not a support face behind it. The
+    flower hid every face, no break stance was found, and site prep stopped
+    "blocked" on 16 tulips (run 20261120T075123420431Z)."""
+    b, _, memory = body()
+    b.precise_stance = True
+    target = (3, 0, 0)
+    memory.cells[target] = {"block": "minecraft:orange_tulip", "collision_boxes": []}
+    assert not b._placing(target)
+    assert b.stances(target, 4.5)
+
+
+@pytest.mark.parametrize(
+    "occupant", [None, "minecraft:air", "minecraft:water", "minecraft:short_grass"]
+)
+def test_an_empty_or_replaceable_cell_is_placed_into(occupant):
+    b, _, memory = body()
+    b.precise_stance = True
+    target = (3, 0, 0)
+    if occupant is None:
+        memory.cells.pop(target)  # unknown
+    else:
+        memory.cells[target] = {"block": occupant, "collision_boxes": []}
+    assert b._placing(target)
+    # the server breaks grass before its clicks: it hides no support face
+    assert b.stances(target, 4.5)
+
+
 def test_stance_cover_does_not_outrank_a_walkable_stance(monkeypatch):
     b, _, _ = body()
     b.precise_stance = True

@@ -1097,6 +1097,8 @@ class _Pond:
             cell = {"block": block}
             if block == "minecraft:lily_pad":
                 cell["collision_boxes"] = _LILY
+            elif block in sp.FLOWERS:
+                cell["replaceable"] = False  # dry: broken to air
             else:
                 cell["fluid"] = "minecraft:water"
             self.cells[p] = cell
@@ -1195,6 +1197,26 @@ def test_pond_plants_in_reach_are_broken_before_any_fill():
                    64, 63)  # fmt: skip
     assert set(body.broken[:2]) == {lily, grass}
     assert body.cells[lily]["block"] == DIRT and body.cells[grass]["block"] == DIRT
+
+
+def test_flowers_in_fill_cells_in_reach_are_broken_by_the_sweep_then_filled():
+    """A tulip in a ground-level hole hides the faces under it, so the sweep passed
+    it by and each one went to the per-cell stance search, a break and then a place
+    (16 tulips in run 20261120T075123420431Z)."""
+    floors = {(x, 0): 62 for x in (1, 2)}
+    fills = [(1, 63, 0), (2, 63, 0)]
+    body = _Pond(floors, plants=dict.fromkeys(fills, "minecraft:orange_tulip"))
+    assert sp._fill_sweep(body, _Runner(), fills, 64, 63) == 2
+    assert set(body.broken) == set(fills) and body.failed == []
+    assert body.walks == []  # both from where it stood
+
+
+def test_a_flower_beside_the_fill_is_left_standing():
+    floors = {(1, 0): 62}
+    beside = (0, 64, 1)  # on the bank, not a cell to fill
+    body = _Pond(floors, plants={beside: "minecraft:poppy"})
+    assert sp._fill_sweep(body, _Runner(), [(1, 63, 0)], 64, 63) == 1
+    assert beside not in body.broken
 
 
 def test_the_perimeter_is_placed_before_the_inside():

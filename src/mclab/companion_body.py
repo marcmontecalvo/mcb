@@ -1893,8 +1893,14 @@ class CompanionBody:
         return ChainMap(recent, self.memory.cells) if recent else self.memory.cells
 
     def _placing(self, target: Pos) -> bool:
-        """Building into an empty cell: the stance must see a face to click."""
-        return self.precise_stance and not _clickable(self._cells_now().get(target))
+        """Building into a cell that takes a block (air, fluid, unknown or grass): the
+        stance must show the server a support face. A flower is broken first, and its
+        stance is a break's: while the flower counted as a cell to place into, it hid
+        every face and site prep found no stance to break 16 tulips (run
+        20261120T075123420431Z, stopped "blocked")."""
+        return self.precise_stance and place_sight.takes_block(
+            self._cells_now().get(target)
+        )
 
     def _worth_searching(self, target: Pos) -> bool:
         """The interaction-goal search can only help where the map is still unsensed.

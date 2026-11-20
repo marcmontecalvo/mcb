@@ -91,6 +91,55 @@ def test_seagrass_in_the_target_cell_hides_every_face_behind_it():
     assert not ps.clickable_from(cells, eye_at(0, 64, 0), (1, 62, 0))
 
 
+@pytest.mark.parametrize("plant", ["short_grass", "tall_grass", "fern", "dead_bush"])
+def test_dry_grass_in_the_target_cell_is_broken_before_the_click(plant):
+    # BodyBuild.place destroys a dry, instantly broken, replaceable occupant before
+    # its face search: the grass hides nothing (run 20261120T075123420431Z)
+    cells = pond(depth=1)
+    target = (-1, 63, 0)  # a ground cell of the bank, dug and grown over
+    # as the sensor delivers it
+    cells[target] = {
+        "block": "minecraft:" + plant,
+        "collision_boxes": [],
+        "replaceable": True,
+        "fluid": "minecraft:empty",
+    }
+    assert ps.takes_block(cells[target])
+    assert ps.clickable_from(cells, eye_at(-3, 64, 0), target)
+
+
+def test_a_flower_in_the_target_cell_still_hides_the_faces_behind_it():
+    # not replaceable: the server refuses "occupied", the cell is broken first
+    cells = pond(depth=1)
+    cells[-1, 63, 0] = tulip = {
+        "block": "minecraft:orange_tulip",
+        "collision_boxes": [],
+        "replaceable": False,
+        "fluid": "minecraft:empty",
+    }
+    assert not ps.takes_block(tulip)
+    assert not ps.clickable_from(cells, eye_at(-3, 64, 0), (-1, 63, 0))
+
+
+@pytest.mark.parametrize(
+    ("cell", "takes"),
+    [
+        (None, True),  # unknown: the server decides
+        ({"block": "minecraft:air"}, True),
+        (water(), True),
+        (seagrass(), True),
+        ({"block": "minecraft:snow", "collision_boxes": []}, True),
+        ({"block": "minecraft:snow", "collision_boxes": [[0, 0, 0, 1, 0.5, 1]]}, False),
+        ({"block": "minecraft:wall_torch"}, False),
+        (solid(), False),
+        # the sensor's flag wins over the name
+        ({"block": "minecraft:short_grass", "replaceable": False}, False),
+    ],
+)
+def test_takes_block(cell, takes):
+    assert ps.takes_block(cell) is takes
+
+
 def test_water_and_unknown_cells_are_no_support_and_no_obstacle():
     cells = pond(depth=1)
     del cells[1, 61, 0]  # the floor under the target is unknown
