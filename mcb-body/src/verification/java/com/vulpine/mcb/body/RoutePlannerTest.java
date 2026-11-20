@@ -599,6 +599,21 @@ public final class RoutePlannerTest {
         check(off.status().equals("reached") && off.expanded() < 50,
                 "from a hanging scaffolding cell a block goes against the wall beside it (" + off.status() + " " + off.expanded() + ")");
 
+        // A hanging cell's bottom plate holds the body, sneaking too (ScaffoldingBlock.getCollisionShape): there is
+        // no letting go of it. Run 20261119T225430670386Z was planned a drop from one and stood on the plate.
+        var plate = floor(12);
+        plate.put(new Key(2, 3, 2), hanging);
+        var drop = new RoutePlanner((x, y, z) -> plate.get(new Key(x, y, z)), new RoutePlanner.Node(2, 3, 2),
+                new RoutePlanner.Node(2, 1, 2), 0, 3, true).withMoves(false, false).search(10_000);
+        var route = drop.route();
+        boolean through = false;
+        for (int i = 1; i < route.size(); i++)
+            through |= route.get(i - 1).equals(new RoutePlanner.Node(2, 3, 2)) && route.get(i).x() == 2
+                    && route.get(i).z() == 2 && route.get(i).y() < 3;
+        // Up onto its top plate and off the side is a real way down.
+        check(drop.status().equals("reached") && !through,
+                "no drop through a hanging scaffolding cell's bottom plate: " + drop.status() + " " + route);
+
         // Bridge off a scaffolding tower: the walkway is scaffolding while its distance is at most 6, solid beyond.
         var world = new HashMap<Key, Map<String, Object>>();
         for (int x = -2; x <= 14; x++) for (int z = -3; z <= 3; z++) for (int y = -1; y <= 6; y++)

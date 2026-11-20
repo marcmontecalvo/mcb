@@ -31,6 +31,10 @@ class FakeBody:
         self.fail = dict(fail or {})
         self.violations: list[str] = []
         self.stance_calls: list[tuple[bp.Pos, frozenset]] = []
+        # CompanionBody.stance_cover: the next cells a stance should also reach
+        self.stance_cover: dict = {}
+        self.covers: list[set] = []
+        self.ranked = True
 
     # --- BuildBody ---------------------------------------------------------
     def world(self, x, y, z):
@@ -54,14 +58,23 @@ class FakeBody:
         return [s for s in spots if self._stance_ok(s, target_pos, reach)]
 
     def goto_stance(self, target_pos, reach, avoid=()):
+        self.covers.append(set(self.stance_cover))
         self.stance_calls.append((target_pos, frozenset(avoid)))
         if self.pos not in avoid and self._stance_ok(self.pos, target_pos, reach):
             return True
         spots = self.stances(target_pos, reach, avoid)
         if not spots:
             return False
-        self.pos = min(spots, key=lambda s: (_d2(s, self.pos), s))
+        self.pos = min(spots, key=lambda s: (-self._covered(s), _d2(s, self.pos), s))
         return True
+
+    def _covered(self, s):
+        """How many stance_cover cells stance ``s`` reaches (CompanionBody.stances
+        ranks by it after walkability)."""
+        if not self.ranked:
+            return 0
+        body = (s, (s[0], s[1] + 1, s[2]))
+        return sum(self._in_reach(p, s) and p not in body for p in self.stance_cover)
 
     def place_block(self, pos, state, item):
         if (bad := self._gate_op(pos)) is not None:
@@ -458,6 +471,65 @@ def test_runner_does_not_direct_place_from_an_invisible_roof_stance():
     assert report.failures[0][1] == "no_stance"
 
 
+def test_runner_places_from_here_when_the_body_says_the_server_would_accept_it():
+    """can_place_here is the server's own test (real eye, support faces, reach):
+    a cell five cells along the floor is placed from where the body stands, not
+    after a goto that ends at the same spot (run 20261119T225430670386Z)."""
+
+    class Reaches(_Pit):
+        def world(self, *pos):
+            return "minecraft:air"
+
+        def __init__(self):
+            super().__init__(can_escape=False)
+            self.placements, self.gotos = [], []
+
+        def can_place_here(self, pos, reach, required):
+            return True
+
+        def goto_stance(self, pos, reach, avoid=()):
+            self.gotos.append(pos)
+            return True
+
+        def place_block(self, pos, state, item):
+            self.placements.append(pos)
+            return br.Result(True)
+
+    body = Reaches()
+    report = br.BuildReport()
+    runner = br._Runner(body, report, 100, BLOCKS)
+    runner.attempt(bp.Place((4, 1, 1), "minecraft:oak_planks", "minecraft:oak_planks"))
+    assert body.placements == [(4, 1, 1)]
+    assert body.gotos == []
+    assert report.placed == [(4, 1, 1)]
+
+
+def test_runner_still_walks_to_break_a_cell_beyond_reach():
+    class Breaks(_Pit):
+        def world(self, *pos):
+            return "minecraft:air"
+
+        def __init__(self):
+            super().__init__(can_escape=False)
+            self.breaks, self.gotos = [], []
+
+        def can_place_here(self, pos, reach, required):
+            return True
+
+        def goto_stance(self, pos, reach, avoid=()):
+            self.gotos.append(pos)
+            return True
+
+        def break_block(self, pos):
+            self.breaks.append(pos)
+            return br.Result(True)
+
+    body = Breaks()
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.attempt(bp.Break((6, 0, 0)))
+    assert body.gotos == [(6, 0, 0)] and body.breaks == [(6, 0, 0)]
+
+
 # --- scaffolding towers to stand on -------------------------------------------
 SCAFF = "minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]"
 
@@ -647,6 +719,81 @@ def test_the_retry_round_towers_a_cell_whose_first_tower_was_short():
     assert runner._tower((3, 6, 3), set())
 
 
+class _Drops(TowerBody):
+    """TowerBody whose broken scaffolding comes back to the inventory (the drops
+    picked up, as collect_drops does live)."""
+
+    def break_block(self, pos, tool=None):
+        column, cell = 0, pos
+        while str(self.w.get(cell)).startswith("minecraft:scaffolding"):
+            column += 1
+            cell = (cell[0], cell[1] + 1, cell[2])
+        res = super().break_block(pos, tool)
+        if res.ok:
+            self.inv[SCAFFOLDING] = self.inv.get(SCAFFOLDING, 0) + column
+        return res
+
+
+SCAFFOLDING = "minecraft:scaffolding"
+
+
+def _idle_towers(*columns, held_scaffolding=0):
+    body, t = tall_column_body()
+    body.__class__ = _Drops
+    body.inv[SCAFFOLDING] = held_scaffolding
+    body.inv["minecraft:dirt"] = 20
+    towers = {(x, y, z) for x, z in columns for y in range(6)}
+    for c in towers:
+        body.w[c] = SCAFF
+    runner = br._Runner(body, br.BuildReport(), 300, BLOCKS)
+    runner.scaffolds, runner.template = set(towers), t
+    return body, runner
+
+
+def test_a_tower_short_of_scaffolding_takes_an_idle_one_down_rather_than_dirt():
+    """Run 20261119T225430670386Z: scaffolding stood idle in the unfinished wing
+    while dirt pillars went up the walls (``short`` counted the dirt)."""
+    body, runner = _idle_towers((9, 9), held_scaffolding=2)
+    assert runner._tower((3, 6, 3), set())
+    assert getattr(body, "pillared", 0) == 0  # no dirt column
+    assert not any(body.w[(9, y, 9)].startswith(SCAFFOLDING) for y in range(6))
+    assert any(
+        str(body.w.get((x, y, z))).startswith(SCAFFOLDING)
+        for x in (2, 3, 4)
+        for z in (2, 3, 4)
+        for y in range(6)
+    )
+
+
+def test_only_the_nearest_idle_towers_the_new_one_needs_come_down():
+    body, runner = _idle_towers((6, 6), (12, 12))
+    assert runner._tower((3, 6, 3), set())
+    assert not str(body.w[(6, 0, 6)]).startswith(SCAFFOLDING)
+    assert all(body.w[(12, y, 12)] == SCAFF for y in range(6))
+    assert {(12, y, 12) for y in range(6)} <= runner.scaffolds
+
+
+def test_a_failed_pillar_takes_down_its_own_column_only():
+    body, t = tall_column_body()
+    _no_scaffold_items(body)
+    body.inv["minecraft:dirt"] = 20
+    idle = {(9, y, 9) for y in range(3)}
+    for c in idle:
+        body.w[c] = SCAFF
+    runner = br._Runner(body, br.BuildReport(), 300, BLOCKS)
+    runner.scaffolds, runner.template = set(idle), t
+    goto = body.goto_stance
+    pos = (3, 6, 3)
+    body.goto_stance = lambda target, reach, avoid=(): (
+        False if target == pos else goto(target, reach, avoid)
+    )
+    column = [(2, y, 3) for y in range(6)]
+    assert not runner._pillar(pos, column, "minecraft:dirt", set())
+    assert all(body.w[c] == SCAFF for c in idle)  # the other tower stays up
+    assert runner.scaffolds == idle
+    assert not any(body.w[c] == "minecraft:dirt" for c in column)
+
+
 def test_the_planner_places_no_dirt_while_the_build_runs():
     body, t = tall_column_body(top=2)
     seen = []
@@ -714,8 +861,9 @@ def test_ring_is_swept_along_the_wall_not_zigzagged():
     assert (d.breaks, d.places, d.unknown, d.uses) == ([], [], [], [])
     assert len(order) == len(report.placed) == 2 * 4 * 13
     # far fewer walks than blocks (it was about one stance per block or two)
-    # 17 by work zone; 31 by whole layers; 54 for the order before that
-    assert body.walks <= 0.2 * len(order), body.walks
+    # 9 with stances ranked by the next cells they reach; 17 by work zone with a
+    # stance three cells ahead; 31 by whole layers; 54 for the order before that
+    assert body.walks <= 0.1 * len(order), body.walks
     # consecutive placements are neighbours or within reach: no hop across the ring
     # (by whole layers each layer's last straggler was one)
     jumps = [_d2(a, b) ** 0.5 for a, b in zip(order, order[1:], strict=False)]
@@ -796,6 +944,24 @@ def test_entity_in_way_asks_for_another_stance():
     assert report.stop == "done" and report.skipped == {}
     calls = [avoid for target, avoid in body.stance_calls if target == pane]
     assert any(calls[1:])  # a later stance avoids the one the mob blocked
+
+
+def test_no_walk_is_planned_ahead_for_a_cell_the_server_would_place_from_here():
+    planned = []
+
+    class Ahead(_CoverBody):
+        def plan_ahead(self, pos, reach):
+            planned.append(pos)
+
+    w = flat_world(-2, 12)
+    w[(4, 0, 1)] = PLANKS
+    body = Ahead(w, {PLANKS: 8}, BLOCKS, pos=(0, 0, 2))
+    acts = [bp.Place((4, 1, 1), PLANKS, PLANKS), bp.Place((4, 0, 2), PLANKS, PLANKS)]
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    br._plan_ahead(runner, acts[1], [acts[0]])
+    assert planned == []  # (4, 1, 1): cell distance 18, but in the eye's reach
+    br._plan_ahead(runner, acts[0], [bp.Place((9, 0, 2), PLANKS, PLANKS)])
+    assert planned == [(9, 0, 2)]
 
 
 def test_the_next_stance_is_planned_before_the_current_block_is_placed():
@@ -1532,7 +1698,7 @@ def test_reclaim_does_not_poison_skipped_for_unreachable_scaffolds():
     runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
     runner.template = t
     runner.scaffolds = {(5, 0, 5)}
-    runner._reclaim((0, 2, 0), (0, 0, 0), set())
+    runner._reclaim((0, 2, 0), (0, 0, 0), set(), (frozenset({"minecraft:dirt"}), 1))
     assert (5, 0, 5) not in runner.report.skipped
     assert (5, 0, 5) in runner.scaffolds
 
@@ -1633,6 +1799,61 @@ def test_the_route_ahead_starts_at_the_edge_being_driven():
     assert body.tried == [(0, 0, 0)]
 
 
+class _CoverBody(FakeBody):
+    """FakeBody with CompanionBody's ``can_place_here``: reach from where it
+    stands, never into its own cells."""
+
+    def __init__(self, *a, ranked=True, **kw):
+        super().__init__(*a, **kw)
+        self.ranked = ranked
+
+    def can_place_here(self, pos, reach, required=None):
+        x, y, z = self.pos
+        return self._in_reach(pos) and pos not in (self.pos, (x, y + 1, z))
+
+
+def _row_sweep(ranked):
+    w = flat_world(-2, 24)
+    body = _CoverBody(w, {PLANKS: 64}, BLOCKS, pos=(0, 0, 4), ranked=ranked)
+    pool = [bp.Place((x, 0, 0), PLANKS, PLANKS) for x in range(20)]
+    runner = br._Runner(body, br.BuildReport(), 500, BLOCKS)
+    moves = []
+    goto = body.goto_stance
+
+    def counting(target, reach, avoid=()):
+        before = body.pos
+        ok = goto(target, reach, avoid)
+        moves.extend([body.pos] if body.pos != before else [])
+        return ok
+
+    body.goto_stance = counting
+    br._sweep_pool(runner, pool, set(), None, False)
+    return body, runner.report, moves
+
+
+def test_a_sweep_stands_where_one_walk_places_several_cells_of_the_wall():
+    """Run 20261119T225430670386Z: 119 walks to stances at the edge of reach, one
+    block per walk. The sweep names the next cells; the stance covers them."""
+    body, report, moves = _row_sweep(ranked=True)
+    _, _, nearest_moves = _row_sweep(ranked=False)
+    assert sorted(report.placed) == [(x, 0, 0) for x in range(20)]
+    assert body.covers and all(body.covers)  # every walk named the cells to cover
+    assert len(moves) < len(nearest_moves)
+    assert body.stance_cover == {}  # not left set for the next caller
+
+
+def test_the_sweep_places_what_the_server_would_accept_without_walking():
+    w = flat_world(-2, 12)
+    w[(4, 0, 1)] = PLANKS  # a face to click
+    body = _CoverBody(w, {PLANKS: 8}, BLOCKS, pos=(0, 0, 2))
+    act = bp.Place((4, 1, 1), PLANKS, PLANKS)  # cell distance 18 > (REACH-0.5)^2
+    assert body.can_place_here(act.pos, br.REACH)
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    br._sweep_pool(runner, [act], set(), None, False)
+    assert runner.report.placed == [act.pos]
+    assert body.stance_calls == []
+
+
 def _zone(p):
     return p[0] // bp.ZONE
 
@@ -1669,7 +1890,7 @@ def test_a_tower_in_an_unfinished_wing_stays_up_while_scaffolding_is_held():
     # A person keeps the scaffolding up until that section is done; taking it down
     # and putting it up again was walks across the house.
     body, runner = _reclaim_case(False, {"minecraft:scaffolding": 64})
-    runner._reclaim((0, 2, 0), (0, 0, 1), set(), short=False)
+    runner._reclaim((0, 2, 0), (0, 0, 1), set(), None)
     assert body.w[(18, 0, 2)] == "minecraft:dirt"
     assert runner.scaffolds == {(18, 0, 2), (18, 1, 2)}
     assert not body.stance_calls  # no walk for it either
@@ -1677,12 +1898,12 @@ def test_a_tower_in_an_unfinished_wing_stays_up_while_scaffolding_is_held():
 
 def test_a_tower_in_a_finished_wing_comes_down():
     body, runner = _reclaim_case(True, {"minecraft:scaffolding": 64})
-    runner._reclaim((0, 2, 0), (0, 0, 1), set(), short=False)
+    runner._reclaim((0, 2, 0), (0, 0, 1), set(), None)
     assert body.w[(18, 0, 2)] in bp.AIR and body.w[(18, 1, 2)] in bp.AIR
     assert not runner.scaffolds
 
 
 def test_standing_towers_come_down_when_the_new_one_is_short():
     body, runner = _reclaim_case(False, {})
-    runner._reclaim((0, 2, 0), (0, 0, 1), set(), short=True)
+    runner._reclaim((0, 2, 0), (0, 0, 1), set(), runner._lacking(6, False))
     assert body.w[(18, 0, 2)] in bp.AIR

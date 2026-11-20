@@ -518,6 +518,52 @@ def test_roof_support_top_is_not_visible_from_recorded_floor_height():
     assert not b.can_place_here(target, 4.5)
 
 
+def _wall_beside_target():
+    """A plank placed at (1, 0, 2); the next wall cell (1, 0, 3) shows the floor's top
+    face past it to a body at (0, 0, 0), but the ray to the cell's centre runs through
+    the plank (run 20261119T225430670386Z: 119 walks to cells the server accepted)."""
+    b, _, memory = body()
+    plank = {"block": "minecraft:oak_planks", "collision_boxes": [FULL]}
+    memory.cells[(1, 0, 2)] = plank
+    b.precise_stance = True
+    return b, (1, 0, 3)
+
+
+def test_a_cell_whose_centre_is_hidden_is_placed_from_a_visible_support_face():
+    b, target = _wall_beside_target()
+    assert not cb.interacts(b._cells_now(), (0, 0, 0), target, 4.5)  # the old test
+    assert b.can_place_here(target, 4.5)
+    assert (0, 0, 0) in b.stances(target, 4.5)
+
+
+def test_goto_stance_does_not_walk_when_the_server_would_place_from_here(monkeypatch):
+    b, target = _wall_beside_target()
+    monkeypatch.setattr(
+        b, "_navigate", lambda *a, **k: (_ for _ in ()).throw(AssertionError)
+    )
+    assert b.goto_stance(target, 4.5) is True
+
+
+def test_placement_sight_keeps_the_required_support_face():
+    # a log along x hangs on its x neighbours only: the floor under it is no face
+    b, target = _wall_beside_target()
+    beside = {(0, 0, 3), (2, 0, 3)}
+    assert not b.can_place_here(target, 4.5, beside)
+    b.required_support = beside
+    assert (0, 0, 0) not in b.stances(target, 4.5)
+
+
+def test_placement_sight_uses_the_real_eye_not_the_stance_centre():
+    b, _, memory = body()
+    target = (5, 1, 0)  # on a plank 4.6 from the cell centre's eye
+    plank = {"block": "minecraft:oak_planks", "collision_boxes": [FULL]}
+    memory.cells[(5, 0, 0)] = plank
+    b._obs["body"]["position"] = [0.5, 0.0, 0.5]
+    assert not b.can_place_here(target, 4.5)
+    b._obs["body"]["position"] = [0.99, 0.0, 0.5]  # same cell, its near edge
+    assert b.can_place_here(target, 4.5)
+
+
 def test_walk_only_reuses_failed_stance_probe_until_geometry_changes(monkeypatch):
     b, _, _ = body()
     b.walk_only = True
@@ -797,37 +843,38 @@ def test_a_bounded_scan_reads_only_the_sections_near_its_centres():
     assert read == [[((0, 0, 0), 24.0)]]
 
 
-def test_a_stance_must_see_a_face_of_a_solid_neighbour():
-    from mclab.companion_body import sees_support
+def _sees(cells, node, target, scaffold=False):
+    return cb.places_from(
+        cells, cb.stance_eye(node), node, target, 4.5, scaffold=scaffold
+    )
 
+
+def test_a_stance_must_see_a_face_of_a_solid_neighbour():
     solid = {"block": "minecraft:oak_planks", "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
     lattice = {"block": "minecraft:scaffolding", "collision_boxes": []}
     target = (5, 69, 5)
     cells = {(4, 69, 5): solid}  # the neighbour west of the target
 
-    assert sees_support(cells, (6, 66, 5), target)  # east of it: sees its east face
-    assert not sees_support(cells, (3, 66, 5), target)  # west of it: sees its back
-    assert sees_support({(5, 69, 4): lattice}, (5, 66, 3), target) is False
-    assert sees_support({(5, 69, 4): lattice}, (5, 66, 6), target)  # scaffolding counts
+    assert _sees(cells, (6, 66, 5), target)  # east of it: sees its east face
+    assert not _sees(cells, (3, 66, 5), target)  # west of it: sees its back
+    assert not _sees({(5, 69, 4): lattice}, (5, 66, 3), target)
+    assert _sees({(5, 69, 4): lattice}, (5, 66, 6), target)  # scaffolding counts
     # the top of a scaffolding column is reached from the ground beside it
-    assert sees_support({(5, 68, 5): lattice}, (7, 66, 5), target)
+    assert _sees({(5, 68, 5): lattice}, (7, 66, 5), target, scaffold=True)
     # only when placing scaffolding itself; a plank cannot extend scaffolding sideways
-    assert not sees_support({(5, 68, 5): lattice}, (7, 66, 5), target, scaffold=False)
-
+    assert not _sees({(5, 68, 5): lattice}, (7, 66, 5), target)
 
 
 def test_a_face_hidden_behind_a_wall_does_not_make_a_stance():
-    from mclab.companion_body import sees_support
-
     solid = {"block": "minecraft:oak_planks", "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
     target = (0, 1, 0)  # inside corner: floor below, walls west... seen past a wall
     cells = {(0, 0, 0): solid}  # the floor block under the target
     far = (3, 1, 3)
 
-    assert sees_support(cells, far, target)
+    assert _sees(cells, far, target)
     cells[(1, 1, 1)] = cells[(1, 2, 1)] = cells[(2, 2, 2)] = cells[(1, 1, 0)] = solid
     cells[(0, 1, 1)] = cells[(1, 2, 0)] = cells[(0, 2, 1)] = solid
-    assert not sees_support(cells, far, target)
+    assert not _sees(cells, far, target)
 
 
 def test_companion_plans_ask_for_doors_and_vines_and_old_requests_are_unchanged():
@@ -937,6 +984,50 @@ def test_no_placing_turns_placement_off_and_restores_the_policy():
         assert b.movement_policy.allow_climb
     assert b.terrain_policy is DIG_TERRAIN
     assert b.movement_policy.allow_climb
+
+
+_ROW = [(x, 0, 4) for x in range(4, 7)] + [(x, 0, 5) for x in range(3, 7)]
+
+
+def _covers(b, node, cover):
+    cells = b._cells_now()
+    return sum(
+        cb.places_from(cells, cb.stance_eye(node), node, p, 4.5) for p in cover
+    )
+
+
+def test_stances_prefer_one_that_also_places_the_next_cells_of_the_sweep():
+    """Nearest-first put the body at the edge of reach, so the next cell along the
+    wall was out of reach again: one walk per block (run 20261119T225430670386Z,
+    119 walks, 195 s). With the sweep's next cells as ``stance_cover`` the stance
+    that places the most of them comes first."""
+    b, _, _ = body()
+    b.precise_stance = True
+    target = (3, 0, 4)
+    nearest = b.stances(target, 4.5)[0]
+    b.stance_cover = dict.fromkeys(_ROW)
+    best = b.stances(target, 4.5)[0]
+    assert cb.places_from(b._cells_now(), cb.stance_eye(best), best, target, 4.5)
+    assert _covers(b, best, _ROW) > _covers(b, nearest, _ROW)
+    assert _covers(b, best, _ROW) == len(_ROW)
+
+
+def test_a_stance_inside_a_cell_of_the_sweep_does_not_count_it_covered():
+    b, _, _ = body()
+    b.precise_stance = True
+    b.stance_cover = {(4, 0, 4): None}
+    assert b._stance_covers(b._cells_now(), (4, 0, 4), 4.5) == 0
+    assert b._stance_covers(b._cells_now(), (4, 0, 3), 4.5) == 1
+
+
+def test_stance_cover_does_not_outrank_a_walkable_stance(monkeypatch):
+    b, _, _ = body()
+    b.precise_stance = True
+    target = (3, 0, 4)
+    b.stance_cover = dict.fromkeys(_ROW)
+    walk = {(0, 0, 1)}
+    monkeypatch.setattr(b, "_walkable", lambda *a: walk)
+    assert b.stances(target, 4.5)[0] == (0, 0, 1)
 
 
 def test_stances_rank_walkable_cells_before_nearer_unreachable_ones(monkeypatch):

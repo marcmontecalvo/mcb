@@ -369,6 +369,24 @@ public final class RouteMotorTest {
         var centred=up.tick(new RouteMotor.Pose(3.5,1.3,.5,0,0,-90,false,20),geometry(cells));
         check(up.active() && centred.jump() && centred.forward()==0,"a centred climber just climbs: "+centred);
     }
+    /**
+     * Sinking down a scaffolding column the box must stay inside it too: house-large run 20261119T225430670386Z
+     * went down 0.202 off centre, its box on the bottom plate of a hanging cell beside the column, and the edge
+     * ended route_no_progress (a non-final descent allowed 0.35 off).
+     */
+    private static void descentStaysInColumnChecks() {
+        var cells=floor();
+        for(int y=1;y<=4;y++) cells.put(new Key(3,y,0),Map.of("block","minecraft:scaffolding","fluid","minecraft:empty",
+                "collision_boxes",List.of(List.of(0,.875,0,1,1,1)),"properties",Map.of("bottom","false","distance","0")));
+        var policy=new RouteMotor.Policy(true,true,true,3,false,true);
+        var down=new RouteMotor("sink",List.of(new RouteMotor.Point(3,4,0),new RouteMotor.Point(3,3,0),
+                new RouteMotor.Point(3,2,0),new RouteMotor.Point(3,1,0)),policy);
+        var input=down.tick(new RouteMotor.Pose(3.25,3.6,.5,0,0,-90,false,20),geometry(cells));
+        check(down.active() && input.sneak() && input.forward()>0,
+                "a body sinking off centre in a scaffolding column steers back to the centre: "+input);
+        var centred=down.tick(new RouteMotor.Pose(3.5,3.5,.5,0,0,-90,false,20),geometry(cells));
+        check(down.active() && centred.sneak() && centred.forward()==0,"a centred body just sinks: "+centred);
+    }
     /** Battery vine-escape (run 20261119T212820324510Z): the edge from the swim stance into the vine column is a
      *  level climb edge, so it held no jump; the body sank 2 blocks under the vine and circled there 10 s. */
     private static void wetClimbEdgeSwimsUpChecks() {
@@ -798,7 +816,7 @@ public final class RouteMotorTest {
         check(!motor(List.of(new RouteMotor.Point(0,1,0),new RouteMotor.Point(1,1,0),new RouteMotor.Point(2,1,1)))
                 .tick(new RouteMotor.Pose(.9,1,.5,.2,0,-90,true,20),geometry(walledCorner)).sprint(),"no sprint when the post-corner sweep clips");
         surfaceChecks(); swimAndLandingChecks(); nativeSpeedChecks(); sprintAscentChecks(); climbChecks(); diagonalChecks(); resyncAndSwimChecks();
-        shapeHeightChecks(); centerOnlyClimbableChecks(); climbStaysInColumnChecks(); wetClimbEdgeSwimsUpChecks();
+        shapeHeightChecks(); centerOnlyClimbableChecks(); climbStaysInColumnChecks(); descentStaysInColumnChecks(); wetClimbEdgeSwimsUpChecks();
         System.out.println("RouteMotor: "+checks+" safety/state checks passed");
     }
 }

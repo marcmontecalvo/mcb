@@ -552,8 +552,10 @@ final class RouteMotor {
         if (vertical) {
             // Rising, the 0.6-wide box must stay inside the 1-wide column (offset <= .2): run 20261119T202232979013Z
             // hung .22 off a vine column with its head under leaves in the next column and never rose.
+            // Sinking too: 0.202 off down a scaffolding column put the box on a hanging neighbour's bottom plate (run
+            // 20261119T225430670386Z, route_no_progress). A ladder descent hugs its wall and keeps the looser rule.
             double keep = index == route.size() - 1 ? arrivalRadius : .35;
-            if (up) keep = Math.min(keep, CLIMB_CENTRE);
+            if (up || sneak) keep = Math.min(keep, CLIMB_CENTRE);
             boolean off = target.distance(pose) > keep;
             return new Input(off && Math.abs(turn) <= 45 ? .3 : 0, off ? yaw : 0, up, false, sneak);
         }

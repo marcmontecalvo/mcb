@@ -238,20 +238,7 @@ def _clean_feet(cells, node: Pos) -> bool:
     return not cell.get("collision_boxes")
 
 
-# neighbour direction -> is the eye of a body at stance cell `node` (1.62 above its feet)
-# on the target side of that neighbour's face toward `target`
-_FACE_SEEN = {
-    (1, 0, 0): lambda n, t: n[0] <= t[0],
-    (-1, 0, 0): lambda n, t: n[0] >= t[0],
-    (0, 0, 1): lambda n, t: n[2] <= t[2],
-    (0, 0, -1): lambda n, t: n[2] >= t[2],
-    (0, 1, 0): lambda n, t: n[1] <= t[1] - 1,
-    (0, -1, 0): lambda n, t: n[1] >= t[1] - 1,
-}
-
-
 EYE_HEIGHT = 1.62
-FACE_SAMPLES = ((0, 0), (0.4, 0.4), (-0.4, 0.4), (0.4, -0.4), (-0.4, -0.4))
 _HIT_SAMPLES = ((0, 0), (0.25, 0.25), (-0.25, 0.25), (0.25, -0.25), (-0.25, -0.25))
 
 
@@ -301,23 +288,6 @@ def _reaches_scaffold_column(cells, node: Pos, target: Pos, reach: float) -> boo
     return True
 
 
-def _face_visible(cells, eye, block: Pos, d) -> bool:
-    """Is some point of ``block``'s face toward -d (the target side) seen from ``eye``
-    with no solid cell between? Live run 20261102T220426500869Z: an inside wall
-    corner, whose faces only show from near the corner, was tried from across the
-    room three times and skipped."""
-    axis = next(i for i in range(3) if d[i])
-    other = [i for i in range(3) if i != axis]
-    for u, v in FACE_SAMPLES:
-        point = [block[i] + 0.5 for i in range(3)]
-        point[axis] -= d[axis] * 0.5
-        point[other[0]] += u
-        point[other[1]] += v
-        if _ray_clear(cells, eye, point, block):
-            return True
-    return False
-
-
 def _ray_clear(cells, eye, point, block: Pos) -> bool:
     """Every cell the segment eye->point passes through, exactly (grid traversal, as the
     game's clip does), is clear except ``block``. Sampling the segment let a diagonal
@@ -361,49 +331,51 @@ def _ray_clear(cells, eye, point, block: Pos) -> bool:
     return True
 
 
-def sees_support(
+def _support_cells(required) -> set[Pos] | None:
+    """``required`` (one cell, several, or None for any) as a set of cells."""
+    if required is None:
+        return None
+    if isinstance(required, tuple) and len(required) == 3 and isinstance(required[0], int):
+        return {required}
+    return {tuple(p) for p in required}
+
+
+def _on_scaffold_column(cells, target: Pos) -> bool:
+    return (cells.get((target[0], target[1] - 1, target[2])) or {}).get(
+        "block"
+    ) == "minecraft:scaffolding"
+
+
+def places_from(
     cells,
+    eye,
     node: Pos,
     target: Pos,
-    required: Pos | Collection[Pos] | None = None,
+    reach: float,
+    required=None,
     *,
-    scaffold: bool = True,
+    scaffold: bool = False,
 ) -> bool:
-    """Does some solid neighbour of `target` have its face toward `target` turned to
-    the eye of a body standing at `node`? Live run: the second plank of a pair was
-    tried from the far side of the first, which shows it no face."""
-    # the body arrives within PRECISE_RADIUS of the centre: a face must show from all of it
-    eyes = [
-        (node[0] + 0.5 + dx, node[1] + EYE_HEIGHT, node[2] + 0.5 + dz)
-        for dx, dz in ((0, 0), (0.2, 0.2), (-0.2, 0.2), (0.2, -0.2), (-0.2, -0.2))
-    ]
-    if required is not None:
-        if (
-            isinstance(required, tuple)
-            and len(required) == 3
-            and isinstance(required[0], int)
-        ):
-            allowed = {required}
-        else:
-            allowed = {tuple(p) for p in required}
-    else:
-        allowed = None
+    """Would place_block put a block into the empty ``target`` from ``eye`` (a body
+    standing in ``node``)? The server clicks any of 19 points of a support face in
+    reach that the eye sees (place_sight). A ray to the target's centre is not that
+    test: the block placed a moment before beside it hides the centre while the floor
+    face past it shows, and the body walked after nearly every block of a wall (run
+    20261119T225430670386Z: 119 walks, 195 s, to cells it could place from where it
+    stood). Scaffolding on a column is the column's own rule: a side click anywhere
+    up it extends it (vanilla ScaffoldingBlockItem)."""
+    if scaffold and _on_scaffold_column(cells, target):
+        return interacts(cells, node, target, reach) or _reaches_scaffold_column(
+            cells, node, target, reach
+        )
+    return place_sight.clickable_from(
+        cells, eye, target, reach, sources=_support_cells(required)
+    )
 
-    for d, seen in _FACE_SEEN.items():
-        n = (target[0] + d[0], target[1] + d[1], target[2] + d[2])
-        if allowed is not None and n not in allowed:
-            continue
-        cell = cells.get(n)
-        if (
-            _clickable(cell)
-            and seen(node, target)
-            and all(_face_visible(cells, eye, n, d) for eye in eyes)
-        ):
-            return True
-        # a column of scaffolding is extended by clicking its side, from anywhere beside it
-        if scaffold and d == (0, -1, 0) and cell and cell.get("block") == "minecraft:scaffolding":
-            return True
-    return False
+
+def stance_eye(node: Pos) -> tuple[float, float, float]:
+    """The eye of a body standing at the centre of ``node``."""
+    return (node[0] + 0.5, node[1] + EYE_HEIGHT, node[2] + 0.5)
 
 
 class StuckGuard:
@@ -680,6 +652,9 @@ class CompanionBody:
         # set per placement by build_runner: the one face the block hangs on
         self.required_support: Pos | None = None
         self.placing_scaffold: bool = False
+        # set per sweep step by build_runner: the next cells (-> required support) a
+        # stance should also place, so one walk serves several blocks
+        self.stance_cover: dict[Pos, Pos | set[Pos] | None] = {}
         self._obs: dict = {}
         self._inv: dict[str, int] = {}
         self._rows: list[dict] = []  # the per-slot rows behind _inv
@@ -1827,22 +1802,17 @@ class CompanionBody:
             and node not in ((tx, ty, tz), (tx, ty - 1, tz))
             and (standable(cells, node) or _tower_top(cells, node))
             and (
-                interacts(cells, node, target, reach)
-                or (
-                    placing
-                    and self.placing_scaffold
-                    and _reaches_scaffold_column(cells, node, target, reach)
-                )
-            )
-            and (
-                not placing
-                or sees_support(
+                places_from(
                     cells,
+                    stance_eye(node),
                     node,
                     target,
+                    reach,
                     self.required_support,
                     scaffold=self.placing_scaffold,
                 )
+                if placing
+                else interacts(cells, node, target, reach)
             )
         ]
         # ponytail: stances the body can walk to come first. Sorted by distance
@@ -1850,9 +1820,32 @@ class CompanionBody:
         # away; each cost a failed 4000-node plan (run 20261110T095528994372Z: 284
         # unreachable probes, a dirt tower per wall). Upgrade path: plan cost.
         walk = self._walkable(cells, here) if found else ()
+        # Among those, the one that also places the most of the sweep's next cells
+        # (``stance_cover``): nearest-first stood at the edge of reach and the next
+        # cell along the wall needed a walk of its own (run 20261119T225430670386Z).
         return sorted(
             found,
-            key=lambda n: (n not in walk, not _clean_feet(cells, n), math.dist(n, here), n),
+            key=lambda n: (
+                n not in walk,
+                not _clean_feet(cells, n),
+                -self._stance_covers(cells, n, reach),
+                math.dist(n, here),
+                n,
+            ),
+        )
+
+    def _stance_covers(self, cells, node: Pos, reach: float) -> int:
+        """How many of ``stance_cover`` (cell -> required support) a body standing on
+        ``node`` places. A cell the body would stand in is not one of them."""
+        if not self.stance_cover:
+            return 0
+        eye, body_cells = stance_eye(node), (node, (node[0], node[1] + 1, node[2]))
+        return sum(
+            pos not in body_cells
+            and places_from(
+                cells, eye, node, pos, reach, required, scaffold=self.placing_scaffold
+            )
+            for pos, required in self.stance_cover.items()
         )
 
     def _walkable(self, cells, here: Pos) -> set[Pos]:
@@ -1932,20 +1925,22 @@ class CompanionBody:
         return place_sight.clickable_from(self._cells_now(), eye, target, reach)
 
     def can_place_here(self, target: Pos, reach: float, required=None) -> bool:
-        """Check the current placement stance before an optimistic direct action."""
-        cells, here = self._cells_now(), self.position()
-        return (
-            (
-                interacts(cells, here, target, reach)
-                or (
-                    self.placing_scaffold
-                    and _reaches_scaffold_column(cells, here, target, reach)
-                )
-            )
-            and not self._overlaps(target)
-            and sees_support(
-                cells, here, target, required, scaffold=self.placing_scaffold
-            )
+        """Would place_block succeed from where the body stands, its real eye as the
+        server uses (``places_from``)? Checked before an optimistic direct action."""
+        if self._overlaps(target):
+            return False
+        return self._places_from_here(target, reach, required)
+
+    def _places_from_here(self, target: Pos, reach: float, required) -> bool:
+        cells = self._cells_now()
+        return places_from(
+            cells,
+            place_sight.eye_of(self._obs["body"]["position"]),
+            self.position(),
+            target,
+            reach,
+            required,
+            scaffold=self.placing_scaffold,
         )
 
     @_fresh_idle
@@ -1971,20 +1966,12 @@ class CompanionBody:
         # block cannot be placed into a cell the body overlaps, and the 0.6 arrival
         # radius lets it stand 0.4 into a neighbour (live run: 21 state_unreachable).
         crowded = self.precise_stance and self._overlaps(target)
-        placing = self._placing(target)
-        sees = not placing or sees_support(
-            cells,
-            here,
-            target,
-            self.required_support,
-            scaffold=self.placing_scaffold,
+        reach_ok = (
+            self._places_from_here(target, reach, self.required_support)
+            if self._placing(target)
+            else interacts(cells, here, target, reach)
         )
-        reach_ok = interacts(cells, here, target, reach) or (
-            placing
-            and self.placing_scaffold
-            and _reaches_scaffold_column(cells, here, target, reach)
-        )
-        if here not in avoid and reach_ok and not crowded and sees:
+        if here not in avoid and reach_ok and not crowded:
             return True
         # Known stances first, walked with the body planner; the interaction-goal
         # search only for a target whose stance is not yet on the map.

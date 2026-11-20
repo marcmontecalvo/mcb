@@ -1253,7 +1253,10 @@ final class RoutePlanner {
             boolean platform = "minecraft:scaffolding".equals(at(x, y, z).get("block")) && standable(up);
             if ((climbable(at(x, y + 1, z)) || platform) && openOrClimb(at(x, y + 2, z))) out.add(new Move(up, ticks ? LADDER_UP : 1.4));
             if (climbable(at(x, y - 1, z))) out.add(new Move(down, ticks ? LADDER_DOWN : 1.4));
-            else letGo(node, out);
+            // Scaffolding over anything but scaffolding is a hanging cell: its bottom plate holds the body, sneaking
+            // too (vanilla ScaffoldingBlock.getCollisionShape), so there is nothing to let go of (run
+            // 20261119T225430670386Z stood on the plate of a planned drop). Over a floor the drop is no drop.
+            else if (!scaffolding(at(x, y, z))) letGo(node, out);
             for (var d : DIRECTIONS) for (int dy = 0; dy <= 1; dy++) {
                 var target = new Node(x + d[0], y + dy, z + d[1]);
                 if (blockStandable(target)) out.add(new Move(target, heightCost(dy)));
