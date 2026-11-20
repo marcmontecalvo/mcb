@@ -25,7 +25,9 @@ Lab ops: `course_reset` (`player`, `profile_id`, `course_spec`, `watchdog`),
 `course_begin`, `course_end`, `course_test`, `natural_probe`, `natural_start`
 (`player`, `subject` label; optional `show_markers` and `stall_ticks`, 0 = off,
 else 40..2400), `natural_path` (`points`: up to 64 cells, drawn only while markers
-are on), `stop` (`reason`), `fixture`/`death_proof`/
+are on), `natural_markers` (optional `show` to switch markers on or off mid-run,
+`goal` cell for the green ring in place of the session goal, `target` cell for a
+yellow block outline; JSON null clears one), `stop` (`reason`), `fixture`/`death_proof`/
 `knockback_proof` (`player`), `reference_start`, `reference_stop`, `heartbeat`.
 The lab checks its op allowlist before identity. A natural run ends `failed` /
 `stalled` when the subject stays within one block of a point for `stall_ticks`;

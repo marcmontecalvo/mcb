@@ -2038,3 +2038,119 @@ def test_standing_towers_come_down_when_the_new_one_is_short():
     body, runner = _reclaim_case(False, {})
     runner._reclaim((0, 2, 0), (0, 0, 1), set(), runner._lacking(6, False))
     assert body.w[(18, 0, 2)] in bp.AIR
+
+
+# --- bridges off a standing tower ---------------------------------------------
+
+
+class BridgeBody(_Drops):
+    """A tower body whose ``only_from`` cells place from the listed stances only (a
+    face seen from one side, as the roof's eave stairs), and that lists bridge
+    stances as CompanionBody.bridge_stances does: cells in the air that would be
+    stances with a scaffolding block under them."""
+
+    only_from: dict = {}
+
+    def _stance_ok(self, s, target, reach):
+        allowed = self.only_from.get(target)
+        if allowed is not None and s not in allowed:
+            return False
+        return super()._stance_ok(s, target, reach)
+
+    def bridge_stances(self, target, reach, avoid=()):
+        tx, ty, tz = target
+        found = []
+        for dx in range(-4, 5):
+            for dy in range(-5, 3):
+                for dz in range(-4, 5):
+                    s = (tx + dx, ty + dy, tz + dz)
+                    floor = (s[0], s[1] - 1, s[2])
+                    if s in avoid or floor == target or self.w.get(floor) != AIR:
+                        continue
+                    self.w[floor] = SCAFF
+                    try:
+                        if self._stance_ok(s, target, reach):
+                            found.append(s)
+                    finally:
+                        self.w[floor] = AIR
+        return sorted(found, key=lambda s: (_d2(s, self.pos), s))
+
+
+ROOT = {(3, y, 3) for y in range(7)}  # a standing tower, its top block at y=6
+
+
+def _eave(pos, only_from, scaffolding=10):
+    """The body on top of ROOT; ``pos`` hangs on a plank column below it and places
+    only from ``only_from``."""
+    w = flat_world(hi=14)
+    for c in ROOT:
+        w[c] = SCAFF
+    for y in range(pos[1]):
+        w[(pos[0], y, pos[2])] = PLANKS
+    body = BridgeBody(w, {PLANKS: 10, SCAFFOLDING: scaffolding}, BLOCKS, pos=(3, 7, 3))
+    body.only_from = {pos: set(only_from)}
+    runner = br._Runner(body, br.BuildReport(), 300, BLOCKS)
+    runner.scaffolds = set(ROOT)
+    under = (pos[0], pos[1] - 1, pos[2])
+    runner.template = bp.Template.from_build(
+        make_build({(0, 0, 0): PLANKS}, (1, 1, 1)), under
+    )
+    runner.reserved = frozenset({pos, under})
+    return body, runner
+
+
+def _new_scaffolding(body):
+    return {p for p, s in body.w.items() if s.startswith(SCAFFOLDING)} - ROOT
+
+
+def test_a_cell_seen_only_from_beside_the_tower_top_gets_one_block_off_it():
+    # House-large run 20261120T141244368734Z: the eave stair placed only from one
+    # block off the tower the body stood on; a second tower went up beside it,
+    # after a walk across the site to take an idle one down.
+    pos = (5, 7, 3)
+    body, runner = _eave(pos, {(4, 7, 3)})
+    assert not body.goto_stance(pos, br.REACH)
+    assert runner._tower(pos, set())
+    assert body.pos == (4, 7, 3)
+    assert _new_scaffolding(body) == {(4, 6, 3)} == runner.scaffolds - ROOT
+    assert runner.report.scaffolded == [(4, 6, 3)]
+
+
+def test_a_bridge_turns_a_corner():
+    # Scaffolding hangs from its neighbours in any direction: an L is as good as a
+    # straight run.
+    pos = (5, 7, 5)
+    body, runner = _eave(pos, {(4, 7, 5)})
+    assert runner._tower(pos, set())
+    assert body.pos == (4, 7, 5)
+    path = runner.report.scaffolded
+    assert len(path) == 3 and path[-1] == (4, 6, 5)
+    assert path[0] in {(4, 6, 3), (3, 6, 4)}
+    steps = zip(path, path[1:], strict=False)
+    assert all(
+        sum(abs(a - b) for a, b in zip(p, q, strict=True)) == 1 for p, q in steps
+    )
+    assert len({p[0] for p in path}) > 1 and len({p[2] for p in path}) > 1  # bent
+
+
+def test_a_bridge_short_of_scaffolding_takes_an_idle_tower_down_never_its_own_root():
+    pos = (5, 7, 3)
+    body, runner = _eave(pos, {(4, 7, 3)}, scaffolding=0)
+    idle = {(9, y, 9) for y in range(3)}
+    for c in idle:
+        body.w[c] = SCAFF
+    runner.scaffolds |= idle
+    assert runner._tower(pos, set())
+    assert all(body.w[c] == SCAFF for c in ROOT)
+    assert not body.w[(9, 0, 9)].startswith(SCAFFOLDING)
+    assert _new_scaffolding(body) == {(4, 6, 3)}
+
+
+def test_a_tower_is_built_when_no_bridge_reaches_the_stance():
+    pos = (5, 7, 12)  # nine blocks off the root: farther than scaffolding hangs
+    body, runner = _eave(pos, {(5, 7, 11)})
+    for y in range(7):
+        body.w[(5, y, 11)] = AIR
+    assert runner._tower(pos, set())
+    # a new column from the ground
+    assert any(p[1] == 0 for p in _new_scaffolding(body))

@@ -289,6 +289,8 @@ class Bridge:
             return request
         if op == "course_test" and fields.get("kind") == "sensor_check":
             return self._send("sensor_check")
+        if op == "kit" and fields.get("player"):
+            return self._send(op, **fields)  # a named person, not this client's body
         if op in BODY_SUBJECT_OPS:
             if op == "fixture":
                 self._send("release")

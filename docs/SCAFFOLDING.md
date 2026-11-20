@@ -92,3 +92,35 @@ holds the results.
   (`CompanionBody.edits_placed`/`edits_broken`, every placement, including a cell placed again).
   A leg fails if it places more than twice its minimum (0, 5, 4, 2, 5, 7, 0, 0 for legs 0-7)
   or breaks anything before leg 7.
+
+## Scaffold challenges (bot or a person)
+
+`scripts/check-scaffold-challenges.py` (battery check `scaffold-challenges`, slow, skipped by
+`--fast`) lays one course at a time at `--origin` (a flat, empty lab spot; default the lab
+fixture, 990 80 988), runs it, scores it and clears the spot again. `--list` prints them;
+pick by name or `--level basic|advanced|all`.
+
+| Level | Name | What it asks |
+|---|---|---|
+| basic | `climb` | onto a stone ledge five up |
+| basic | `descend` | to the floor of a shaft ten deep, no damage (drop scaffolding down, stack it up, climb down) |
+| basic | `reach-out` | stand two up and four out over a pit (tower, then extend sideways) |
+| advanced | `bridge` | straight bridge (5) to an island in a fenced pit, no falling in |
+| advanced | `bridge-l` | the island is off every line from the pad: one turn |
+| advanced | `bridge-u` | a glass wall stands in front of the island: two turns round it |
+| advanced | `span` | a pit 13 wide and 4 deep: a bridge reaches 6, so a tower on the pit floor carries the middle |
+| advanced | `stairs` | upstairs in a two-storey house with a solid ceiling: take the stairs; scaffolding or edits to the house fail it |
+
+The geometry is pure (`src/mclab/scaffold_challenges.py`): tests check that each course
+needs scaffolding (walking alone cannot reach the goal; the stairs course is walkable) and
+that the bridges need 0, 1 and 2 turns within scaffold distance 6.
+
+- **Bot:** `--subject bot` (default). The bot spawns at the start with scaffolding and a
+  pickaxe and navigates to the goal with placing allowed (the house is protected). Add
+  `--show-markers` to see its red planned path, green goal and yellow block; create or
+  delete `<run folder>/<challenge>/MARKERS` to flip them while it runs.
+- **Person:** join the lab server with a normal client, then
+  `--subject human --player <name> [--minutes 10]`. You are moved to the start with only
+  scaffolding and a pickaxe; the green ring and beam mark the goal and the attempt ends when
+  you stand on it. Results: `results/scaffolding/<stamp>/summary.json` (reached, damage,
+  scaffolding used).

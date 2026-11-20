@@ -57,6 +57,7 @@ from mclab.control_loop import NATIVE, drive
 from mclab.execution import RecordedBridge, policy_state
 from mclab.gather_tasks import item_stack
 from mclab.interaction_goal import _segment_hits_box, interacts
+from mclab.markers import Markers
 from mclab.memory_policy import MemoryPolicy
 from mclab.movement_policy import HURT_DROP_MAX, MovementPolicy
 from mclab.native_driver import EdgeFailures
@@ -288,6 +289,39 @@ def _reaches_scaffold_column(cells, node: Pos, target: Pos, reach: float) -> boo
     return True
 
 
+# ScaffoldingBlockItem walks at most this many cells sideways along a run.
+SCAFFOLD_SIDEWAYS = 7
+# A scaffolding block as the sensor reports it: no collision boxes from the side.
+SCAFFOLD_CELL = {
+    "block": "minecraft:scaffolding",
+    "fluid": "minecraft:empty",
+    "collision_boxes": [],
+}
+_TOP_SAMPLES = ((0, 0), (0.25, 0.25), (-0.25, 0.25), (0.25, -0.25), (-0.25, -0.25))
+
+
+def _reaches_scaffold_run(cells, eye, target: Pos, reach: float) -> bool:
+    """Does ``eye`` see the top face of a block of a horizontal scaffolding run
+    beside ``target``? Clicked not sneaking with the heading toward ``target``, that
+    top puts the new block past the run (vanilla ScaffoldingBlockItem; BodyBuild's
+    bridge sources): from on top of a tower, the side face toward the next cell is
+    under the body's feet, and the top face is how a player bridges."""
+    tx, ty, tz = target
+    for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        for k in range(1, SCAFFOLD_SIDEWAYS + 1):
+            c = (tx + dx * k, ty, tz + dz * k)
+            if (cells.get(c) or {}).get("block") != "minecraft:scaffolding":
+                break
+            top = c[1] + 1
+            if eye[1] <= top:
+                continue
+            for u, v in _TOP_SAMPLES:
+                point = (c[0] + 0.5 + u, top, c[2] + 0.5 + v)
+                if math.dist(eye, point) <= reach and _ray_clear(cells, eye, point, c):
+                    return True
+    return False
+
+
 def _ray_clear(cells, eye, point, block: Pos) -> bool:
     """Every cell the segment eye->point passes through, exactly (grid traversal, as the
     game's clip does), is clear except ``block``. Sampling the segment let a diagonal
@@ -370,6 +404,8 @@ def places_from(
         return interacts(cells, node, target, reach) or _reaches_scaffold_column(
             cells, node, target, reach
         )
+    if scaffold and _reaches_scaffold_run(cells, eye, target, reach):
+        return True
     return place_sight.clickable_from(
         cells, eye, target, reach, sources=_support_cells(required), state=state
     )
@@ -667,6 +703,8 @@ class CompanionBody:
         # set per sweep step by build_runner: the next cells (-> required support and
         # state) a stance should also place, so one walk serves several blocks
         self.stance_cover: dict[Pos, tuple[Pos | set[Pos] | None, str | None]] = {}
+        # in-game route, stance and block markers (mclab.markers); None: off
+        self.markers = None
         self._obs: dict = {}
         self._inv: dict[str, int] = {}
         self._rows: list[dict] = []  # the per-slot rows behind _inv
@@ -1025,7 +1063,13 @@ class CompanionBody:
                 boxes,
             )
 
+    def _mark(self, **aim) -> None:
+        """Point the in-game markers (mclab.markers), when the session has them."""
+        if self.markers is not None:
+            self.markers.aim(**aim)
+
     def place_block(self, pos: Pos, state: str, item: str) -> Result:
+        self._mark(target=pos)
         result = self.op("place_block", pos=list(pos), state=state, item=item)
         if result.ok:
             placed = result.data.get("placed")
@@ -1120,6 +1164,7 @@ class CompanionBody:
 
     def use_block(self, pos: Pos, item: str | None = None) -> Result:
         extra = {"item": item} if item else {}
+        self._mark(target=pos)
         result = self.op("use_block", pos=list(pos), **extra)
         if result.ok:
             self._remember(
@@ -1136,6 +1181,7 @@ class CompanionBody:
         extra: dict = {"tool": tool} if tool else {}
         if drops_optional:
             extra["drops_optional"] = True
+        self._mark(target=pos)
         result = self.op("break_block", pos=list(pos), **extra)
         if result.ok:
             self._remember(pos, "minecraft:air", result.data.get("_event_tick"))
@@ -1371,6 +1417,7 @@ class CompanionBody:
         probe: bool = False,
         progress: dict | None = None,
     ) -> bool:
+        self._mark(goal=goal)
         mid = self._hop_toward(goal) if reach is None else None
         if mid is not None:
             # A goal past the sensed terrain is an unreachable search (a plan 101
@@ -1845,6 +1892,44 @@ class CompanionBody:
         head.sort(key=lambda n: not self._sound(cells, n, target, reach))
         return head + ranked[SOUND_RANKED:]
 
+    def bridge_stances(self, target: Pos, reach: float, avoid: Collection[Pos] = ()):
+        """Cells in the air from which ``target`` would be reached if a scaffolding
+        block were put under them (a bridge off a standing tower,
+        build_plan.bridge_cells): the cell and the one above it empty, the one below
+        takes a block. Cells that are stances already (``stances``) are not listed.
+        Nearest the body first."""
+        cells, here = self._cells_now(), self.position()
+        tx, ty, tz = target
+        r = math.ceil(reach)
+        placing = self._placing(target)
+
+        def empty(p: Pos) -> bool:
+            return (cells.get(p) or {}).get("block") in AIR_BLOCKS
+
+        found = []
+        for dx in range(-r, r + 1):
+            for dz in range(-r, r + 1):
+                for dy in range(-r, 2):
+                    node = (tx + dx, ty + dy, tz + dz)
+                    floor = (node[0], node[1] - 1, node[2])
+                    if (
+                        node in avoid
+                        or node in (target, (tx, ty - 1, tz))
+                        or floor == target
+                        or not empty(node)
+                        or not empty((node[0], node[1] + 1, node[2]))
+                        or not place_sight.takes_block(cells.get(floor))
+                    ):
+                        continue
+                    view = ChainMap({floor: dict(SCAFFOLD_CELL)}, cells)
+                    if (
+                        self._places_from(view, stance_eye(node), node, target, reach)
+                        if placing
+                        else interacts(view, node, target, reach)
+                    ):
+                        found.append(node)
+        return sorted(found, key=lambda n: (math.dist(n, here), n))
+
     def _places_from(self, cells, eye, node: Pos, target: Pos, reach: float) -> bool:
         """``places_from`` with this placement's support, state and scaffold rule."""
         return places_from(
@@ -2018,6 +2103,7 @@ class CompanionBody:
         recheck: bool = True,
     ) -> bool:
         target, avoid = tuple(target_pos), set(avoid)
+        self._mark(target=target)
         if not self._obs:
             self.observe()
         here = self.position()
@@ -2270,13 +2356,16 @@ def start_session(
     terrain_policy: TerrainPolicy | None = None,
     world_memory: bool | None = None,
     memory_policy: MemoryPolicy | None = None,
+    markers=None,
 ):
     """Begin the long ``natural_start`` episode that keeps /policy and the follower
     open, and return ``(CompanionBody, SpatialMemory)``. Needs an idle lab.
     ``dig`` selects edit permissions; explicit movement/terrain policies override
     the defaults, without changing the available action methods.
     ``world_memory``: see session_archive (default: on in a kept world).
-    ``memory_policy`` controls retention, history visibility and memory budgets."""
+    ``memory_policy`` controls retention, history visibility and memory budgets.
+    ``markers``: a switch (callable -> bool, e.g. markers.file_switch) for the
+    in-game route, stance and block markers; None: never shown."""
     # sections-v1 terrain needs the "sections" preset; same profile as natural runs.
     awareness = awareness or Awareness.from_payload(
         read_json(ROOT / "config/stepc/awareness-sections-64.json")
@@ -2346,6 +2435,9 @@ def start_session(
         end_session(bridge, memory)
         raise RuntimeError(f"start {list(start)} is not a standable feet cell")
     body.places = places
+    if markers is not None:
+        body.markers = Markers(bridge, markers)
+        body.markers.aim()  # shown from the start when switched on
     return body, memory
 
 

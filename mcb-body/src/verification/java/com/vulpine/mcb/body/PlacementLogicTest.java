@@ -41,6 +41,13 @@ public final class PlacementLogicTest {
         check(PlacementLogic.facePlane(true, 0, 1) == 0.5 && PlacementLogic.facePlane(false, 0, 1) == -0.5, "cube planes");
         check(Math.abs(PlacementLogic.pitchTo(0, -1, 1) - 45f) < 1e-4, "looking down is positive pitch");
         check(Math.abs(PlacementLogic.pitchTo(0, 0, 3)) < 1e-4, "level pitch");
+        // A bridge: the top of any block of a horizontal scaffolding run beside the cell, clicked not
+        // sneaking with the heading toward the cell, puts the block past the run (ScaffoldingBlockItem
+        // walks at most 7 cells sideways).
+        check(PlacementLogic.scaffoldRun(k -> false) == 0, "no run");
+        check(PlacementLogic.scaffoldRun(k -> k <= 3) == 3, "run of three");
+        check(PlacementLogic.scaffoldRun(k -> true) == 7, "the item walks 7 cells at most");
+        check(PlacementLogic.scaffoldRun(k -> k != 2) == 1, "a gap ends the run");
         System.out.println("PlacementLogicTest ok");
     }
 }

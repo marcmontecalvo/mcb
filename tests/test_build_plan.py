@@ -762,6 +762,71 @@ def test_axis_y_chain_and_lantern_under_skipped_chain_do_not_keep_doors_out():
     assert (0, 0, 0) in [a.pos for a in acts]
 
 
+POT = "minecraft:flower_pot"
+
+
+def _balcony():
+    """A wall at z=1 with a two-high window gap at x=2, a balcony floor at z=2 with
+    a flower pot on it: the pot is reached only through the window."""
+    cells = {}
+    for x in range(5):
+        cells[(x, 0, 2)] = PLANKS  # the balcony floor
+        for y in (1, 2):
+            cells[(x, y, 1)] = PANE if x == 2 else PLANKS
+    cells[(1, 1, 2)] = POT
+    world = flat_world(hi=6)
+    for p, s in cells.items():
+        if s == PLANKS:
+            world[p] = s
+    template = bp.Template.from_build(make_build(cells, (5, 3, 3)), (0, 0, 0))
+    blocks = {**BLOCKS, POT: {"item": POT}}
+    return template, world, blocks
+
+
+def test_a_window_is_glazed_after_the_details_it_is_the_way_to():
+    # run 20261120T141244368734Z: the balcony window's low panes went in first; the
+    # pots outside them were then out of sight from the room and the body went round
+    # by a tree to reach them
+    template, world, blocks = _balcony()
+    held = {"minecraft:glass_pane": 2, POT: 1}
+    acts = bp.next_actions(template, at(world), blocks, held, near=(2, 1, 0))
+    assert [a.pos for a in acts] == [(1, 1, 2)]
+    world[(1, 1, 2)] = POT
+    acts = bp.next_actions(template, at(world), blocks, held, near=(2, 1, 0))
+    assert {a.pos for a in acts} == {(2, 1, 1)}
+
+
+def test_a_detail_that_cannot_go_in_does_not_keep_the_window_open():
+    template, world, blocks = _balcony()
+    skipped = bp.next_actions(
+        template,
+        at(world),
+        blocks,
+        {"minecraft:glass_pane": 2, POT: 1},
+        near=(2, 1, 0),
+        skipped={(1, 1, 2)},
+    )
+    short = bp.next_actions(
+        template, at(world), blocks, {"minecraft:glass_pane": 2}, near=(2, 1, 0)
+    )
+    assert (2, 1, 1) in [a.pos for a in skipped]
+    assert (2, 1, 1) in [a.pos for a in short if isinstance(a, bp.Place)]
+
+
+def test_a_tower_top_needs_room_for_the_head():
+    # run 20261120T141244368734Z: a hopper at head height under the first floor's
+    # ceiling got a two-block tower whose top put the head in the ceiling; the body
+    # never got onto it and the tower came down again
+    w = flat_world(hi=6)
+    for x in range(-2, 6):
+        for z in range(-2, 6):
+            w[(x, 3, z)] = PLANKS  # the floor above, three over the ground
+    assert bp.tower_cells((3, 2, 3), at(w), BLOCKS) == []
+    assert bp.tower_cells((3, 2, 3), at(w), BLOCKS, roof=True) == []
+    w[(4, 3, 3)] = AIR  # a hole over the column: the head fits through it
+    assert bp.tower_cells((3, 2, 3), at(w), BLOCKS) == [(4, 0, 3), (4, 1, 3)]
+
+
 def test_tower_cells_rejects_non_sturdy_stairs_for_scaffolding():
     w = flat_world(hi=6)
     blocks = {
@@ -843,3 +908,67 @@ def test_a_zone_never_builds_over_a_missing_cell_in_its_columns():
     offered = {a.pos for a in acts}
     assert (1, 0, 0) in offered and (1, 1, 0) not in offered
     assert all(p[0] < 8 for p in offered)
+
+
+# --- bridges off a standing scaffolding tower ---------------------------------
+
+SCAFFOLD = "minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]"
+
+
+def _tower_world(top=5, hi=12):
+    """Flat stone at y=-1 and a scaffolding column at (0, 0..top, 0)."""
+    w = flat_world(lo=-2, hi=hi)
+    for y in range(top + 1):
+        w[(0, y, 0)] = SCAFFOLD
+    return w
+
+
+def test_a_floor_beside_a_tower_top_is_one_scaffolding_block_off_it():
+    # House-large run 20261120T141244368734Z: a roof stair placed only from one
+    # block off the side of the tower the body stood on; a second tower went up
+    # beside the first instead of that one block.
+    w = _tower_world()
+    assert bp.bridge_cells((1, 5, 0), at(w), BLOCKS) == [(1, 5, 0)]
+
+
+def test_a_bridge_runs_root_side_first_up_to_six_blocks_off_the_tower():
+    w = _tower_world()
+    assert bp.bridge_cells((3, 5, 0), at(w), BLOCKS) == [
+        (1, 5, 0),
+        (2, 5, 0),
+        (3, 5, 0),
+    ]
+    assert len(bp.bridge_cells((6, 5, 0), at(w), BLOCKS)) == 6
+    assert bp.bridge_cells((7, 5, 0), at(w), BLOCKS) == []  # distance 7 falls
+
+
+def test_a_bridge_goes_round_template_cells_and_never_into_them():
+    w = _tower_world()
+    path = bp.bridge_cells((2, 5, 0), at(w), BLOCKS, frozenset({(1, 5, 0)}))
+    assert path and path[-1] == (2, 5, 0) and (1, 5, 0) not in path
+    assert len(path) == 4  # (0,5,1) or (0,5,-1) side, then across
+    assert bp.bridge_cells((2, 5, 0), at(w), BLOCKS, frozenset({(2, 5, 0)})) == []
+
+
+def test_a_bridge_leaves_only_from_a_tower_top_with_room_to_walk_out():
+    w = _tower_world()
+    assert bp.bridge_cells((1, 3, 0), at(w), BLOCKS) == []  # mid-column
+    w[(1, 7, 0)] = PLANKS  # no headroom over the bridge
+    assert bp.bridge_cells((1, 5, 0), at(w), BLOCKS) == []
+
+
+def test_a_bridge_counts_the_distance_its_root_already_hangs_at():
+    w = _tower_world()
+    for x in (1, 2, 3):
+        w[(x, 5, 0)] = SCAFFOLD  # an earlier bridge, distance 3 at its end
+    w[(0, 6, 0)] = AIR
+    assert len(bp.bridge_cells((6, 5, 0), at(w), BLOCKS)) == 3
+    assert bp.bridge_cells((7, 5, 0), at(w), BLOCKS) == []
+
+
+def test_no_bridge_over_unknown_or_solid_cells():
+    w = _tower_world()
+    del w[(1, 5, 0)]
+    assert bp.bridge_cells((1, 5, 0), at(w), BLOCKS) == []
+    w[(1, 5, 0)] = PLANKS
+    assert bp.bridge_cells((1, 5, 0), at(w), BLOCKS) == []

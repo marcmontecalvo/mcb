@@ -565,6 +565,7 @@ class _Runner:
         if self.scaffolds is None or self._towering or pos in self.towered:
             return False
         self.towered.add(pos)
+        bridge = self._bridge_plan(pos, avoid)
         cells = bp.tower_cells(
             pos,
             self.body.world,
@@ -584,6 +585,16 @@ class _Runner:
                 scaffolding=False,
             )
             dirt_only = bool(cells)
+        # A few blocks off a tower already standing beat a new one: no climb from
+        # the ground, no idle tower taken down for it (house-large run
+        # 20261120T141244368734Z put a second tower beside the first for want of
+        # one block off its top).
+        if (
+            bridge
+            and (not cells or dirt_only or len(bridge[1]) <= len(cells))
+            and self._bridge(pos, avoid, *bridge)
+        ):
+            return True
         if cells:
             # Scaffolding the new tower lacks comes off idle towers before dirt goes
             # up: counting dirt as cover left the scaffolding standing in the
@@ -686,6 +697,86 @@ class _Runner:
                 self.scaffolds.discard(cell)
         return False
 
+    def _bridge_plan(self, pos: Pos, avoid) -> tuple[Pos, list[Pos]] | None:
+        """The stance in the air for ``pos`` (the body's optional ``bridge_stances``)
+        that the fewest scaffolding blocks off a standing tower's top hold up
+        (bp.bridge_cells: straight, L or U, up to six off the tower), and those
+        blocks, the tower's side first. None when no bridge reaches one."""
+        listed = getattr(self.body, "bridge_stances", None)
+        if listed is None:
+            return None
+        best = None
+        for node in listed(pos, REACH, avoid):
+            floor = (node[0], node[1] - 1, node[2])
+            cells = bp.bridge_cells(floor, self.body.world, self.blocks, self.reserved)
+            if cells and (best is None or len(cells) < len(best[1])):
+                best = (node, cells)
+                if len(cells) == 1:
+                    break
+        return best
+
+    def _structure(self, start: Pos) -> set[Pos]:
+        """The standing scaffolding connected to ``start``'s neighbours (the tower
+        and bridges a new bridge hangs from)."""
+        world = self.body.world
+        todo = [
+            n
+            for n in (bp._add(start, v) for v in bp._AROUND)
+            if bp._scaffolding(world(*n))
+        ]
+        seen = set(todo)
+        while todo and len(seen) < bp._DISTANCE_FLOOD:
+            p = todo.pop()
+            for v in bp._AROUND:
+                n = bp._add(p, v)
+                if n not in seen and bp._scaffolding(world(*n)):
+                    seen.add(n)
+                    todo.append(n)
+        return seen
+
+    def _bridge(self, pos: Pos, avoid, node: Pos, cells: list[Pos]) -> bool:
+        """Put ``cells`` down off the tower's top, the tower's side first (each from
+        on top of the last), and stand on ``node`` above the last one. Short of
+        scaffolding, idle towers come down first, never the one bridged from."""
+        keep = {c[::2] for c in self._structure(cells[0])}
+        self._reclaim(pos, cells[0], avoid, self._lacking(len(cells), True), keep)
+        if self._lacking(len(cells), True) is not None:
+            return False
+        with _aim_kept(self.body), ExitStack() as done:
+            _aim(self.body, bp.Scaffold(cells[0], sc.BLOCK))
+            self._towering = True
+            done.callback(setattr, self, "_towering", False)
+            for cell in cells:
+                if bp._scaffolding(self.body.world(*cell)):
+                    self.scaffolds.add(cell)
+                    continue
+                n = len(self.report.scaffolded)
+                was_skipped = self.report.skipped.get(cell)
+                self.attempt(bp.Scaffold(cell, sc.BLOCK))
+                if len(self.report.scaffolded) == n:
+                    if was_skipped is None:
+                        self.report.skipped.pop(cell, None)
+                    self.fails.pop(cell, None)
+                    self.avoid.pop(cell, None)
+                    self._drop(cells)
+                    return False
+                self.scaffolds.add(cell)
+        listed = getattr(self.body, "stances", None)  # optional
+        others = set(listed(pos, REACH, avoid)) - {node} if listed else set()
+        if self.body.goto_stance(pos, REACH, set(avoid) | others):
+            return True
+        self._drop(cells)
+        return False
+
+    def _drop(self, cells: list[Pos]) -> None:
+        """A bridge nobody stands on is only in the way: break the block next to
+        the tower and the rest falls with it."""
+        if _standing(self.body, cells[0]):
+            self.body.break_block(cells[0])
+        for cell in cells:
+            if not _standing(self.body, cell):
+                self.scaffolds.discard(cell)
+
     def _lacking(self, n: int, scaffolding: bool) -> tuple[frozenset[str], int] | None:
         """The blocks a tower of ``n`` would be built of (scaffolding, or else the
         other temporaries) and how many of them the body lacks; None when it holds
@@ -696,7 +787,12 @@ class _Runner:
         return None if have >= n else (frozenset(items), n - have)
 
     def _reclaim(
-        self, pos: Pos, base: Pos, avoid, lacking: tuple[frozenset[str], int] | None
+        self,
+        pos: Pos,
+        base: Pos,
+        avoid,
+        lacking: tuple[frozenset[str], int] | None,
+        keep_columns=frozenset(),
     ) -> None:
         """Before raising a tower short of blocks, take down idle towers and
         footholds holding them and pick them up: one stack of scaffolding moves
@@ -710,10 +806,12 @@ class _Runner:
         zone lie on the way to the next zone's roof and the next walk put them back).
         So columns come down cheapest per block first (``_reclaim_cost``). A column
         beside ``pos`` stays (the new tower may grow on it). The body first walks to
-        the new tower's ``base``: it is usually still up on the old one."""
+        the new tower's ``base``: it is usually still up on the old one.
+        ``keep_columns`` (x, z) stay too: the tower a bridge hangs from."""
         if lacking is None:
             return
         keep = {(pos[0] + dx, pos[2] + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
+        keep |= set(keep_columns)
         idle = {c for c in self.scaffolds or () if c[::2] not in keep}
         if not idle:
             return

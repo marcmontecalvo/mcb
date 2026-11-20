@@ -610,7 +610,11 @@ def tower_cells(
         if low is None or head in reserved or y - low[1] > MAX_TOWER:
             continue
         cells = [(x + dx, h, z + dz) for h in range(low[1], y)]
-        states = [world(*c) for c in (*cells, head)]
+        # The body stands on the top with its feet in ``head``'s cell and its head
+        # one over: a tower under a ceiling it cannot get its head into is never
+        # climbed (run 20261120T141244368734Z, a hopper under the first floor).
+        crown = (x + dx, y + 1, z + dz)
+        states = [world(*c) for c in (*cells, head, crown)]
         if any(s is None or parse_state(s)[0] in FLUIDS for s in states):
             continue
         base_state = world(x + dx, low[1] - 1, z + dz)
@@ -619,7 +623,7 @@ def tower_cells(
             if scaffolding
             else _is_solid(base_state, blocks)
         )
-        if not base_ok or _is_solid(states[-1], blocks):
+        if not base_ok or any(_is_solid(s, blocks) for s in states[-2:]):
             continue
         return cells
     if not roof:
@@ -665,6 +669,102 @@ def tower_cells(
         ):
             continue
         return cells
+    return []
+
+
+_FLAT = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1))
+_AROUND = (*_FLAT, (0, 1, 0), (0, -1, 0))
+# How much standing scaffolding a root's distance is worked out from.
+_DISTANCE_FLOOD = 512
+
+
+def _scaffolding(state: str | None) -> bool:
+    return state is not None and parse_state(state)[0] == sc.BLOCK
+
+
+def _scaffold_distance(root: Pos, world, blocks: dict) -> int:
+    """The ``distance`` the standing scaffolding block ``root`` holds (the game's
+    rule, mclab.scaffolding), from the scaffolding connected to it."""
+    seen, todo = {root}, [root]
+    while todo and len(seen) < _DISTANCE_FLOOD:
+        p = todo.pop()
+        for v in _AROUND:
+            n = _add(p, v)
+            if n not in seen and _scaffolding(world(*n)):
+                seen.add(n)
+                todo.append(n)
+
+    def sturdy_below(p: Pos) -> bool:
+        under = (p[0], p[1] - 1, p[2])
+        return under not in seen and _sturdy_up(world(*under), blocks)
+
+    return sc.distances(seen, sturdy_below)[root]
+
+
+def bridge_cells(
+    floor: Pos,
+    world,
+    blocks: dict,
+    reserved=frozenset(),
+    max_len: int = sc.UNSTABLE - 1,
+) -> list[Pos]:
+    """Scaffolding to put down, the tower's side first, so that ``floor`` holds a
+    block to stand on: a horizontal run at ``floor``'s level off the top of a
+    standing scaffolding tower (or the end of an earlier bridge). Scaffolding hangs
+    up to six blocks sideways from a supported block, so a tower serves every stance
+    within 13 blocks end to end; one block off its top replaces a second tower beside
+    it (house-large run 20261120T141244368734Z). Every cell is empty, outside the
+    template (``reserved``), with room above to walk out on it; the top it leaves
+    from has the same room. The shortest that stays up; [] if none does."""
+    y = floor[1]
+
+    def clear(p: Pos) -> bool:
+        state = world(*p)
+        return (
+            state is not None
+            and not _is_solid(state, blocks)
+            and parse_state(state)[0] not in FLUIDS
+        )
+
+    def walk_room(p: Pos) -> bool:
+        return clear((p[0], y + 1, p[2])) and clear((p[0], y + 2, p[2]))
+
+    def open_cell(p: Pos) -> bool:
+        state = world(*p)
+        return (
+            p not in reserved
+            and state is not None
+            and parse_state(state)[0] in REPLACEABLE
+            and parse_state(state)[0] not in FLUIDS
+            and walk_room(p)
+        )
+
+    def root(p: Pos) -> bool:
+        return _scaffolding(world(*p)) and walk_room(p)
+
+    def holds(root_cell: Pos, length: int) -> bool:
+        """A run ``length`` long out of ``root_cell`` stays under the fall distance."""
+        return _scaffold_distance(root_cell, world, blocks) + length < sc.UNSTABLE
+
+    if not open_cell(floor):
+        return []
+    parent: dict[Pos, Pos | None] = {floor: None}
+    frontier = [floor]
+    for length in range(1, max_len + 1):
+        later = []
+        for cell in frontier:
+            for v in _FLAT:
+                n = _add(cell, v)
+                if root(n) and holds(n, length):
+                    path, at = [], cell
+                    while at is not None:
+                        path.append(at)
+                        at = parent[at]
+                    return path
+                if length < max_len and n not in parent and open_cell(n):
+                    parent[n] = cell
+                    later.append(n)
+        frontier = later
     return []
 
 
@@ -746,6 +846,20 @@ DETAIL_WORDS = (
 def is_detail(state: str) -> bool:
     ident = parse_state(state)[0]
     return any(word in ident for word in DETAIL_WORDS)
+
+
+def _glazing(state: str) -> bool:
+    """Glass, panes and bars: what fills a window gap."""
+    ident = parse_state(state)[0]
+    return "glass" in ident or ident == "minecraft:iron_bars"
+
+
+GLAZING_RISE = 2  # details this many layers off a pane, and in work reach, go first
+
+
+def _near_glazing(pane: Pos, detail: Pos) -> bool:
+    dx, dy, dz = (a - b for a, b in zip(pane, detail, strict=True))
+    return abs(dy) <= GLAZING_RISE and dx * dx + dz * dz <= WORK_REACH**2
 
 
 EXIT_DROP = 3  # the longest drop that is a way off a spot (no damage)
@@ -1025,6 +1139,16 @@ def next_actions(
     )
 
     def offerable(pos, state, cost, held) -> bool:
+        if not _offerable(pos, state, cost, held):
+            return False
+        # Glazing goes in after the details round it, the way a person finishes a
+        # window: the balcony's low panes went in first and its flower pots, out of
+        # sight from the room, were then reached by way of a tree (run
+        # 20261120T141244368734Z). Only cells offerable now hold a pane: one skipped,
+        # short or waiting on another never keeps the window open.
+        return not (_glazing(state) and any(_near_glazing(pos, q) for q in decor))
+
+    def _offerable(pos, state, cost, held) -> bool:
         if skipped is not None and pos in skipped:
             return False
         low = lowest if near is None else zone_lowest.get(zone(pos))
@@ -1048,6 +1172,14 @@ def next_actions(
             and _gate(pos, state, world, blocks) is None
         )
 
+    decor = [
+        t[0]
+        for t in todo
+        if is_detail(t[1])
+        and not _glazing(t[1])
+        and parse_state(t[1])[0] not in FLUIDS
+        and _offerable(t[0], t[1], t[2], inventory)
+    ]
     active = None  # the work zone, with a body position
     if near is not None and not starved:
         ready = [t[0] for t in todo if offerable(t[0], t[1], t[2], inventory)]

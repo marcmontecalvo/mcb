@@ -45,6 +45,7 @@ from mclab.companion_progress import write_progress
 from mclab.gather_options import GatherOptions
 from mclab.gather_plan import Gather, Hunt, Shear, plan
 from mclab.gather_tasks import item_stack
+from mclab.markers import run_switch
 from mclab.paths import ROOT
 from mclab.recorder import exclusive_arena
 from mclab.run_config import policies
@@ -223,6 +224,13 @@ def main() -> int:
     )
     parser.add_argument(
         "--seed", type=int, help="run in a fresh copy of this natural seed's world"
+    )
+    parser.add_argument(
+        "--show-markers",
+        dest="show_markers",
+        action="store_true",
+        help="start with the in-game markers on (red planned route, green stance, "
+        "yellow block); create or delete <run folder>/MARKERS to flip them mid-run",
     )
     args, config = parse_run(parser, "build")
     with digest_on_exit(), launch_record(config):
@@ -406,7 +414,12 @@ def run(args, config, parser):
         memory = None
         try:
             body, memory = start_session(
-                bridge, folder, args.start, dig=True, **policies(config)
+                bridge,
+                folder,
+                args.start,
+                dig=True,
+                markers=run_switch(folder, on=args.show_markers),
+                **policies(config),
             )
             body.places.remember("build_site", args.start)
             chests = []
@@ -521,7 +534,12 @@ def run(args, config, parser):
                 nonlocal current_stage
                 current_stage = name
                 write_progress(
-                    folder, job="build", stage=name, done=done, total=total, detail=detail
+                    folder,
+                    job="build",
+                    stage=name,
+                    done=done,
+                    total=total,
+                    detail=detail,
                 )
 
             def recorder(report, final):

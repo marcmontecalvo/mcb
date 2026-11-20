@@ -373,6 +373,7 @@ def resolve_config(
         "stage",
         "scaffolding",
         "origin",
+        "show_markers",
     )
     natural_fields = (
         "routes",
@@ -835,7 +836,7 @@ def config_schema() -> dict:
         "conditions": ["natural"],
         "condition": ["natural"],
         "repetitions": ["natural"],
-        "show_markers": ["natural"],
+        "show_markers": ["natural", "build"],
         "stall_seconds": ["natural"],
         "cost_profile": ["natural"],
         "flee": ["natural"],

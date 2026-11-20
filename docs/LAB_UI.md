@@ -265,8 +265,10 @@ exist are offered), **Gather** (`run-gather.py`, optional iron pickaxe) or
   (`--coal item|block|ore`) beside it. Under *Placement and inspection*: offsets
   dx/dz, rotation 0/90/180/270, `--margin` (0-16, default 1) and `--inspect`
   (the body stays until a file named `STOP` appears in the run folder, or Kill
-  now). `--resume`, `--empty`, `--stage`, `--preview` and `--scaffolding` are
-  command-line only. The worker writes what it started the run with to
+  now). `--resume`, `--empty`, `--stage`, `--preview`, `--scaffolding` and
+  `--show-markers` (the in-game red route, green stance and yellow block markers
+  from the start; create or delete `<run folder>/MARKERS` to flip them while it
+  runs) are command-line only. The worker writes what it started the run with to
   `launch.json` in the run folder.
   Every input is validated server-side; build and schematic paths must resolve
   inside those folders. There is no "Use my position" button: the lab state does

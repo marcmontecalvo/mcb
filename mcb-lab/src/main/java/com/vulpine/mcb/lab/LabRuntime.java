@@ -37,7 +37,7 @@ public final class LabRuntime implements AutoCloseable {
     private static final Gson GSON = new Gson();
     private static final Set<String> OPS = Set.of("natural_probe", "natural_start", "course_reset",
             "reference_start", "fixture", "death_proof", "knockback_proof", "kit", "stop", "heartbeat",
-            "course_begin", "course_end", "course_test", "reference_stop", "natural_path");
+            "course_begin", "course_end", "course_test", "reference_stop", "natural_path", "natural_markers");
     private static volatile LabRuntime active;
 
     private final MinecraftServer server;
@@ -267,6 +267,10 @@ public final class LabRuntime implements AutoCloseable {
             case "natural_path" -> {
                 // A viewing aid: a path arriving after the episode ends is simply dropped.
                 if (natural != null && natural.running()) natural.showPath(request.getAsJsonArray("points"));
+            }
+            case "natural_markers" -> {
+                // Viewing aid as natural_path: on/off and where they point, dropped once the episode ends.
+                if (natural != null && natural.running()) natural.markers(request);
             }
             case "stop" -> {
                 stopAll(request.has("reason") ? text(request, "reason") : "stopped");

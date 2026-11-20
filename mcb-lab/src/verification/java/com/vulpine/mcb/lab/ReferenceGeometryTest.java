@@ -19,6 +19,7 @@ public final class ReferenceGeometryTest {
         CausalPickupLedgerTest.main(args);
         NavigationSpecTest.main(args);
         LabRuntimeTest.main(args);
+        LabKitTest.main(args);
         for (String mechanic : Set.of("collision", "step", "ledge", "fall")) {
             var layout = ReferenceGeometry.plan(mechanic, 990, 80, 988);
             require(layout.cells().size() == 847, "bounded volume");

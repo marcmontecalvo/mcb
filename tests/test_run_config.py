@@ -100,6 +100,13 @@ def test_invalid_build_settings(overrides):
         resolve_config("build", overrides=overrides)
 
 
+def test_a_build_can_start_with_its_markers_showing():
+    config = resolve_config("build", overrides={"run": {"show_markers": True}})
+    assert config["run"]["show_markers"] is True
+    supported = config_schema()["properties"]["run"]["properties"]["show_markers"]
+    assert set(supported["supported_tests"]) == {"natural", "build"}
+
+
 @pytest.mark.parametrize("family", ["courses", "models", "battery", "companion"])
 def test_non_policy_families_do_not_claim_effective_policies(family):
     config = resolve_config(family)

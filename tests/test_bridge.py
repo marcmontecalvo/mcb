@@ -67,6 +67,15 @@ def test_ops_route_to_the_mod_that_owns_them(client, wire):
     assert wire[-1][1]["player"] == "LabBody"
 
 
+def test_a_kit_for_a_named_player_needs_no_body(client, wire):
+    # A scaffold challenge lays its course and kit out for a person (no Carpet body).
+    client.send("kit", player="Steve", at=[990, 80, 988], clear=[4, 4, 4])
+    assert wire[-1][0] == "/lab/admin" and wire[-1][1]["player"] == "Steve"
+    client.body_name = "LabBody"
+    client.send("kit", place=[])
+    assert wire[-1][1]["player"] == "LabBody"
+
+
 def test_native_route_operations_use_body_endpoint(client, wire):
     client.send("follow_route", route_id="r", route=[[0, 1, 0], [1, 1, 0]])
     client.send("cancel_route")

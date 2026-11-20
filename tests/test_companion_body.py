@@ -1,3 +1,4 @@
+import contextlib
 import math
 from dataclasses import replace
 
@@ -2165,3 +2166,77 @@ def test_placement_sight_uses_the_body_real_eye(monkeypatch):
     b._obs["body"]["position"] = [2.2, 1.0, 0.5]  # past the plane
     assert b.sees_placement(target)
     assert not b.sees_placement(target, eye=(1.5, 2.62, 0.5))
+
+
+LATTICE = {"block": "minecraft:scaffolding", "collision_boxes": []}
+
+
+def test_a_bridge_block_is_placed_from_on_top_of_the_tower_beside_it():
+    # On top of a tower the side face toward the next cell is under the feet; the
+    # top face, clicked not sneaking along the heading, extends the run sideways
+    # (vanilla ScaffoldingBlockItem; BodyBuild's bridge sources).
+    tower = {(0, y, 0): LATTICE for y in range(6)}
+    assert _sees(tower, (0, 6, 0), (1, 5, 0), scaffold=True)
+    assert not _sees(tower, (0, 6, 0), (1, 5, 0))  # a plank needs that side face
+    bridge = {**tower, (1, 5, 0): LATTICE}
+    assert _sees(bridge, (0, 6, 0), (2, 5, 0), scaffold=True)  # past the run
+    assert _sees(bridge, (1, 6, 0), (1, 5, 1), scaffold=True)  # an L turn
+    assert not _sees(tower, (0, 6, 0), (8, 5, 0), scaffold=True)  # out of reach
+
+
+def _roof_eave():
+    """A tower at (0, 0..5, 0); a plank at (0, 6, -1) the eave cell (-1, 6, -1)
+    hangs on by its west face. From the tower's top that face is turned away; one
+    block west of the top it shows (house-large run 20261120T141244368734Z)."""
+    b, _, memory = body()
+    air = {"block": "minecraft:air", "collision_boxes": []}
+    for x in range(-4, 5):
+        for y in range(0, 10):
+            for z in range(-4, 5):
+                memory.cells[(x, y, z)] = air
+    for y in range(6):
+        memory.cells[(0, y, 0)] = LATTICE
+    memory.cells[(0, 6, -1)] = {
+        "block": "minecraft:oak_planks",
+        "collision_boxes": [FULL],
+    }
+    b.precise_stance = True
+    b._obs["body"]["position"] = [0.5, 6.0, 0.5]
+    return b, (-1, 6, -1)
+
+
+def test_a_cell_out_of_sight_from_the_tower_top_has_a_bridge_stance_beside_it():
+    b, target = _roof_eave()
+    assert b.stances(target, 4.5) == []
+    found = b.bridge_stances(target, 4.5)
+    assert (-1, 6, 0) in found
+    assert all(
+        b._cells_now()[(n[0], n[1] - 1, n[2])]["block"] == "minecraft:air"
+        for n in found
+    )
+    assert (-1, 6, 0) not in b.bridge_stances(target, 4.5, avoid={(-1, 6, 0)})
+
+
+def test_a_bridge_stance_needs_room_for_the_body():
+    b, target = _roof_eave()
+    b.memory.cells[(-1, 7, 0)] = {"block": "minecraft:stone", "collision_boxes": [FULL]}
+    assert (-1, 6, 0) not in b.bridge_stances(target, 4.5)
+
+
+def test_markers_point_at_the_block_acted_on_and_the_stance_walked_to(monkeypatch):
+    from mclab.markers import Markers
+
+    b, bridge, _ = body()
+    sent = []
+    client = type("C", (), {"send": lambda self, op, **f: sent.append(f)})()
+    marks = Markers(client, lambda: True)
+    b.markers = marks
+    bridge.reply["place_block"] = ("done", {"placed": "minecraft:dirt"})
+    b.place_block((1, 0, 1), "minecraft:dirt", "minecraft:dirt")
+    assert marks.target == (1, 0, 1) and {"target": [1, 0, 1]} in sent
+    monkeypatch.setattr(
+        b, "_hop_toward", lambda goal: (_ for _ in ()).throw(StopIteration)
+    )
+    with contextlib.suppress(StopIteration):
+        b._navigate((5, 0, 5), reach=None, radius=0.6)
+    assert marks.goal == (5, 0, 5)
