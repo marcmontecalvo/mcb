@@ -55,15 +55,16 @@ def main():
                     )
                 body.wait_ticks(10)
                 body.observe()
-                # Flowers in ground-level cells: they hide the faces under them, so
-                # the sweep must break them, not pass them by (run
-                # 20261120T075123420431Z left 16 tulips to the per-cell search, and
-                # site prep stopped "blocked" on them).
+                # Flowers in cells to fill, on the bank's ground (y=62 here, the
+                # house ground is 63): they hide the faces under them, so the sweep
+                # must break them, not pass them by (run 20261120T075123420431Z left
+                # 16 tulips to the per-cell search; site prep stopped "blocked").
                 flowers = [
                     (x, 63, z)
                     for x in range(-21, -15)
                     for z in range(60, 66)
-                    if bp.parse_state(body.world(x, 63, z) or "")[0]
+                    if bp.parse_state(body.world(x, 63, z) or "")[0] == "minecraft:air"
+                    and bp.parse_state(body.world(x, 62, z) or "")[0]
                     in ("minecraft:grass_block", "minecraft:dirt")
                 ][:2]
                 if len(flowers) < 2:
@@ -110,18 +111,17 @@ def main():
                 summary["final_states"] = [
                     {"pos": p, "state": body.world(*p)} for p in fills
                 ]
-                # Exposed dirt can legitimately grow grass during the sweep.
-                # Lower cells must remain dirt; neither water nor an empty hole
+                # Exposed dirt can legitimately grow grass during the sweep, at any
+                # level: a lower cell stands open until the one above it closes
+                # ((-19, 62, 61) in results/site-fill/20261120T081417567540Z). The
+                # column scan stops at natural solids and the kit is dirt, so a
+                # grass block here is placed dirt. Neither water nor an empty hole
                 # counts as filled, even if the placement counter is complete.
                 summary["mismatches"] = [
                     row
                     for row in summary["final_states"]
                     if bp.parse_state(row["state"] or "")[0]
-                    not in (
-                        {"minecraft:dirt", "minecraft:grass_block"}
-                        if row["pos"][1] == 63
-                        else {"minecraft:dirt"}
-                    )
+                    not in {"minecraft:dirt", "minecraft:grass_block"}
                 ]
                 summary["passed"] = n == len(fills) and not summary["mismatches"]
                 print(
