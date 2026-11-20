@@ -49,13 +49,19 @@ final class PlanSets {
     int size() { return sets.size(); }
 
     /**
-     * The edits object with each &lt;field&gt;_set reference replaced by the stored entries
-     * followed by the inline ones (a later inline entry wins for the same cell). The input
-     * is not changed; a request without references is returned as an equal copy.
+     * The edits object with each &lt;field&gt;_set reference replaced by the stored entries,
+     * less those whose cell (x, y, z) is listed in &lt;field&gt;_removed, followed by the inline
+     * ones (a later inline entry wins for the same cell). The input is not changed; a request
+     * without references is returned as an equal copy.
      */
     JsonObject resolve(JsonObject edits) {
         var out = new JsonObject();
-        for (var e : edits.entrySet()) if (!e.getKey().endsWith("_set")) out.add(e.getKey(), e.getValue());
+        for (var e : edits.entrySet()) {
+            String key = e.getKey();
+            if (key.endsWith("_removed") && !edits.has(key.substring(0, key.length() - 8) + "_set"))
+                throw new IllegalArgumentException("plan_set_field");  // a removal names its set
+            if (!key.endsWith("_set") && !key.endsWith("_removed")) out.add(key, e.getValue());
+        }
         for (var e : edits.entrySet()) {
             if (!e.getKey().endsWith("_set")) continue;
             String field = e.getKey().substring(0, e.getKey().length() - 4);
@@ -63,8 +69,10 @@ final class PlanSets {
             Stored stored = e.getValue().isJsonPrimitive() ? sets.get(e.getValue().getAsString()) : null;
             if (stored == null) throw new IllegalArgumentException("plan_set_unknown");
             if (!stored.field().equals(field)) throw new IllegalArgumentException("plan_set_field");
+            Set<Long> removed = removed(edits, field);
             var merged = new JsonArray(stored.entries().size() + 16);
-            merged.addAll(stored.entries());
+            if (removed.isEmpty()) merged.addAll(stored.entries());
+            else for (var entry : stored.entries()) if (!removed.contains(cell(entry))) merged.add(entry);
             if (edits.has(field)) {
                 if (!edits.get(field).isJsonArray()) throw new IllegalArgumentException("plan_set_field");
                 merged.addAll(edits.getAsJsonArray(field));
@@ -72,5 +80,23 @@ final class PlanSets {
             out.add(field, merged);
         }
         return out;
+    }
+
+    private static Set<Long> removed(JsonObject edits, String field) {
+        var list = edits.get(field + "_removed");
+        if (list == null) return Set.of();
+        if (!list.isJsonArray()) throw new IllegalArgumentException("plan_set_field");
+        var out = new java.util.HashSet<Long>();
+        for (var entry : list.getAsJsonArray()) {
+            if (!entry.isJsonArray() || entry.getAsJsonArray().size() != 3) throw new IllegalArgumentException("plan_set_field");
+            out.add(cell(entry));
+        }
+        return out;
+    }
+
+    /** The cell of a stored or removed entry: its first three numbers (a costly entry adds a price). */
+    private static long cell(com.google.gson.JsonElement entry) {
+        var a = entry.getAsJsonArray();
+        return RoutePlanner.key(a.get(0).getAsInt(), a.get(1).getAsInt(), a.get(2).getAsInt());
     }
 }

@@ -78,6 +78,23 @@ public final class PlanSetsTest {
         check(policy.protectedCells().contains(RoutePlanner.key(1184, 71, -823)), "base cell protected");
         check(policy.protectedCells().contains(RoutePlanner.key(3, 1, 0)), "inline foothold protected");
         check(policy.extraCosts().get(RoutePlanner.key(1184, 79, -823)) == 300.0, "costly cell priced");
+        // Cells that left a set since its upload go as <field>_removed (by x,y,z): a placed wall cell moves from
+        // protected to costly on every placement, and re-uploading the whole set each time was ~2 planner_set
+        // round trips per goto (house-large run 20261119T225430670386Z).
+        var shrunk = sets.resolve(edits(",\"protected\":[[3,1,0]],\"protected_set\":\"" + protectedId
+                + "\",\"protected_removed\":[[1184,71,-823]],\"costly\":[[1185,79,-823,300.0]],\"costly_set\":\""
+                + costlyId + "\",\"costly_removed\":[[1184,79,-823]]"));
+        check(!shrunk.has("protected_removed") && !shrunk.has("costly_removed"), "removals resolved away");
+        var shrunkPolicy = RoutePlanner.EditPolicy.fromJson(shrunk);
+        check(shrunkPolicy.protectedCells().size() == house.size(), "base minus removed plus inline: "
+                + shrunkPolicy.protectedCells().size());
+        check(!shrunkPolicy.protectedCells().contains(RoutePlanner.key(1184, 71, -823)), "a removed cell is not protected");
+        check(!shrunkPolicy.extraCosts().containsKey(RoutePlanner.key(1184, 79, -823))
+                && shrunkPolicy.extraCosts().get(RoutePlanner.key(1185, 79, -823)) == 300.0, "a removed costly cell is gone");
+        rejects(() -> sets.resolve(edits(",\"protected\":[],\"protected_removed\":[[1,2,3]]")),
+                "plan_set_field", "a removal without its set");
+        rejects(() -> sets.resolve(edits(",\"protected_set\":\"" + protectedId + "\",\"protected_removed\":[[1,2]]")),
+                "plan_set_field", "a removal is a cell");
         // Without a costly reference and inline field the request is unchanged.
         var plain = edits(",\"protected\":[[3,1,0]]");
         check(sets.resolve(plain).equals(plain), "requests without references pass through");

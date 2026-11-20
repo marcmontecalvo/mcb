@@ -91,7 +91,10 @@ class Body:
                 )
             stored = self.sets[ref]
             assert stored["field"] == field
-            obj[field] = stored["entries"] + obj.get(field, [])
+            gone = {tuple(c) for c in obj.pop(f"{field}_removed", [])}
+            kept = [e for e in stored["entries"] if tuple(e[:3]) not in gone]
+            obj[field] = kept + obj.get(field, [])
+        assert not [k for k in obj if k.endswith("_removed")], "removal without a set"
         return obj
 
     def ops(self):
@@ -176,19 +179,56 @@ def test_protected_cells_reach_the_planner_through_the_reference():
     assert costly and all(c[3] == BUILD_BREAK_COST for c in costly)
 
 
-def test_a_removed_cell_uploads_a_new_set_rather_than_keep_protecting_it():
+def test_a_removed_cell_goes_inline_and_is_no_longer_protected():
+    """A placed wall block moves from protected to costly (CompanionBody.
+    _planner_terrain): a set that lost a cell used to be uploaded whole again, about
+    two planner_set round trips per goto (run 20261119T225430670386Z)."""
     payload, house = _house_payload()
     body = _client(Body())
     submit_plan(body, payload)
     smaller = json.loads(json.dumps(payload))
     gone = smaller["edits"]["protected"].pop(5)
+    smaller["edits"]["costly"].append([*gone, BUILD_BREAK_COST])
+    smaller["plan_id"] = "plan-next"
+    body.calls.clear()
+    submit_plan(body, smaller)
+    assert body.ops() == ["plan_route"]
+    sent = body.calls[0][1]["edits"]
+    assert sent["protected_removed"] == [gone[:3]]
+    resolved = set(map(tuple, body.accepted[1]["edits"]["protected"]))
+    assert tuple(gone) not in resolved
+    _same_plan(body.accepted[1], smaller)
+
+
+def test_a_set_that_lost_many_cells_is_uploaded_again():
+    payload, house = _house_payload()
+    body = _client(Body())
+    submit_plan(body, payload)
+    smaller = json.loads(json.dumps(payload))
+    del smaller["edits"]["protected"][: plan_sets.INLINE_LIMIT + 1]
     smaller["plan_id"] = "plan-next"
     body.calls.clear()
     submit_plan(body, smaller)
     assert "planner_set" in body.ops()
-    resolved = set(map(tuple, body.accepted[1]["edits"]["protected"]))
-    assert tuple(gone) not in resolved
+    assert "protected_removed" not in body.calls[-1][1]["edits"]
     _same_plan(body.accepted[1], smaller)
+
+
+def test_a_cell_removed_then_added_back_is_protected_again():
+    payload, _ = _house_payload()
+    body = _client(Body())
+    submit_plan(body, payload)
+    smaller = json.loads(json.dumps(payload))
+    gone = smaller["edits"]["protected"].pop(5)
+    smaller["plan_id"] = "plan-2"
+    submit_plan(body, smaller)
+    again = json.loads(json.dumps(payload))
+    again["plan_id"] = "plan-3"
+    body.calls.clear()
+    submit_plan(body, again)
+    assert body.ops() == ["plan_route"]
+    assert tuple(gone) in set(map(tuple, body.accepted[-1]["edits"]["protected"]))
+    _same_plan(body.accepted[-1], again)
 
 
 def test_a_body_that_lost_the_set_gets_it_again_before_planning():
@@ -282,5 +322,11 @@ def test_logged_uploads_rebuild_the_request_for_offline_replay():
     sent = next(f for op, f in body.calls if op == "plan_route")
     replay = plan_sets.resolve(sent, plan_sets.collect(uploads))
     _same_plan(replay, payload)
+    smaller = json.loads(json.dumps(payload))
+    smaller["edits"]["protected"].pop(5)
+    smaller["plan_id"] = "plan-next"
+    submit_plan(body, smaller)
+    shrunk = [f for op, f in body.calls if op == "plan_route"][-1]
+    _same_plan(plan_sets.resolve(shrunk, plan_sets.collect(uploads)), smaller)
     with pytest.raises(KeyError, match="plan_set_unknown"):
         plan_sets.resolve(sent, {})
