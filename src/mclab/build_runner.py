@@ -69,6 +69,14 @@ FOOTHOLD_STOCK = 32  # spare blocks to climb or step down on, held from the star
 FOOTHOLD_LOW = 8  # fewer spare than this mid-build: top the stock back up
 FOOTHOLD_RETRY = 40  # build actions before a refill that brought none is tried again
 FOOTHOLD_ITEM = "minecraft:dirt"
+# Taking an idle column down for its blocks (_reclaim_cost), in blocks of sprinting.
+# A climb goes at the vanilla ladder/scaffolding limit, 0.12 blocks/tick up and 0.15
+# down, against ~0.28 sprinting: each block of height costs about 2.5 blocks of walk.
+CLIMB_COST = 2.5
+REACH_UP = 3  # a column foot this far above the floor is broken from the floor
+# A column in a zone still being built is wanted again: putting it back up costs a
+# place per block on top of the walk there (run 20261120T101447633151Z).
+REBUILD_COST = 4.0
 # entity_in_way: a mob or player on the ray that did not move off within ~1 s
 STANCE_REASONS = frozenset({"out_of_reach", "state_unreachable", "entity_in_way"})
 FACING_STEP = {
@@ -690,36 +698,26 @@ class _Runner:
     def _reclaim(
         self, pos: Pos, base: Pos, avoid, lacking: tuple[frozenset[str], int] | None
     ) -> None:
-        """Take down the towers and footholds the body is done with before raising a
-        new one, and pick them up: one stack of scaffolding moves round the house
-        instead of standing where it was first put up while dirt steps go up the
-        walls (run 20261117T130121185147Z: every tower stood to the end). A column
-        beside ``pos`` stays (the new tower may grow on it). The body first walks to
-        the new tower's ``base``: it is usually still up on the old one.
+        """Before raising a tower short of blocks, take down idle towers and
+        footholds holding them and pick them up: one stack of scaffolding moves
+        round the house instead of standing where it was first put up while dirt
+        steps go up the walls (run 20261117T130121185147Z: every tower stood to the
+        end). ``lacking`` (items, n): the new tower is short of n of those items;
+        None: nothing comes down, the rest comes down at cleanup.
 
-        The towers of finished work zones come down: a person keeps the scaffolding
-        up until that section is done (run 20261119T133618892664Z took towers down
-        mid-wing and walked back to put them up again). ``lacking`` (items, n): the
-        new tower is short of n of those items, and the idle towers nearest ``pos``
-        holding them come down too, until it is not. The rest come down at
-        cleanup."""
+        Each take-down is a walk, and a climb for a foothold up on the roof (run
+        20261120T101447633151Z: 52 take-downs, 741 s; roof footholds of a finished
+        zone lie on the way to the next zone's roof and the next walk put them back).
+        So columns come down cheapest per block first (``_reclaim_cost``). A column
+        beside ``pos`` stays (the new tower may grow on it). The body first walks to
+        the new tower's ``base``: it is usually still up on the old one."""
+        if lacking is None:
+            return
         keep = {(pos[0] + dx, pos[2] + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
         idle = {c for c in self.scaffolds or () if c[::2] not in keep}
-        done = set(idle)
-        if idle and self.template is not None:
-            d = bp.diff(self.template, self.body.world)
-            towers = self.scaffolds or set()  # in the footprint they read as breaks
-            open_zones = {
-                bp.zone_of(self.template, p)
-                for p in [
-                    *(p for p, _ in d.places),
-                    *(p for p in d.breaks if p not in towers),
-                    *(u[0] for u in d.uses),
-                ]
-            }
-            done = {c for c in idle if bp.zone_of(self.template, c) not in open_zones}
-        if lacking is not None:
-            done |= self._to_cover(pos, idle - done, *lacking)
+        if not idle:
+            return
+        done = self._to_cover(base, idle, *lacking)
         if not any(_standing(self.body, c) for c in done):
             return
         self.body.goto_stance(base, REACH, avoid)
@@ -731,25 +729,60 @@ class _Runner:
         }
         self._take_down(done)
 
-    def _to_cover(self, pos: Pos, idle: set, items: frozenset, n: int) -> set:
-        """Whole idle columns, nearest ``pos`` first, until their standing blocks of
-        ``items`` make up ``n``."""
+    def _to_cover(self, base: Pos, idle: set, items: frozenset, n: int) -> set:
+        """Whole idle columns, cheapest per block of ``items`` first
+        (``_reclaim_cost``), until their standing blocks of ``items`` make up
+        ``n``."""
         columns: dict[tuple[int, int], list[Pos]] = {}
         for c in idle:
             columns.setdefault(c[::2], []).append(c)
-        picked: set = set()
-        for xz in sorted(columns, key=lambda xz: (math.dist(xz, pos[::2]), xz)):
-            if n <= 0:
-                break
+        open_zones = self._open_zones()
+        ranked = []
+        for xz, cells in columns.items():
             held = [
                 c
-                for c in columns[xz]
+                for c in cells
                 if bp.parse_state(self.body.world(*c) or "minecraft:air")[0] in items
             ]
             if held:
-                picked.update(columns[xz])
-                n -= len(held)
+                cost = self._reclaim_cost(base, cells, len(held), open_zones)
+                ranked.append((cost, xz, len(held)))
+        picked: set = set()
+        for _, xz, got in sorted(ranked):
+            if n <= 0:
+                break
+            picked.update(columns[xz])
+            n -= got
         return picked
+
+    def _open_zones(self) -> set | None:
+        """Work zones with cells still to place, break or use (None: no template)."""
+        if self.template is None:
+            return None
+        d = bp.diff(self.template, self.body.world)
+        towers = self.scaffolds or set()  # in the footprint they read as breaks
+        return {
+            bp.zone_of(self.template, p)
+            for p in [
+                *(p for p, _ in d.places),
+                *(p for p in d.breaks if p not in towers),
+                *(u[0] for u in d.uses),
+            ]
+        }
+
+    def _reclaim_cost(self, base: Pos, cells: list, got: int, open_zones) -> float:
+        """Blocks of walking per block got back from one column: the walk from the new
+        tower's ``base`` to the column's foot, its climbs weighted by CLIMB_COST, and
+        REBUILD_COST more per block for a column in a zone still being built (run
+        20261119T133618892664Z took towers down mid-wing and put them up again)."""
+        standing = [c for c in cells if _standing(self.body, c)] or cells
+        root = min(standing, key=lambda c: c[1])
+        climb = max(0, root[1] - base[1] - REACH_UP)
+        walk = math.dist(root[::2], base[::2]) + CLIMB_COST * climb
+        if open_zones is None or self.template is None:
+            return walk / got
+        rebuild = bp.zone_of(self.template, root) in open_zones
+        return walk / got + (REBUILD_COST if rebuild else 0.0)
 
     def _take_down(self, done: set) -> None:
         """Break ``done`` (cleanup order) and pick the drops up; they leave

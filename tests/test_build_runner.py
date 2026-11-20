@@ -1,4 +1,5 @@
 import contextlib
+import functools
 import math
 
 import pytest
@@ -1994,11 +1995,43 @@ def test_a_tower_in_an_unfinished_wing_stays_up_while_scaffolding_is_held():
     assert not body.stance_calls  # no walk for it either
 
 
-def test_a_tower_in_a_finished_wing_comes_down():
+def test_a_tower_in_a_finished_wing_stays_up_while_scaffolding_is_held():
+    """Run 20261120T101447633151Z: 52 mid-build take-downs cost 741 s. Roof
+    footholds of a finished zone are on the way to the next zone's roof: the next
+    walk put them back and the next tower took them down again. With nothing
+    short, what stands comes down once, at cleanup."""
     body, runner = _reclaim_case(True, {"minecraft:scaffolding": 64})
     runner._reclaim((0, 2, 0), (0, 0, 1), set(), None)
-    assert body.w[(18, 0, 2)] in bp.AIR and body.w[(18, 1, 2)] in bp.AIR
-    assert not runner.scaffolds
+    assert body.w[(18, 0, 2)] == "minecraft:dirt"
+    assert runner.scaffolds == {(18, 0, 2), (18, 1, 2)}
+    assert not body.stance_calls
+
+
+def test_a_short_tower_takes_a_ground_tower_down_before_a_roof_foothold():
+    """A foothold up on a roof gives one block back for a climb; one break at the
+    foot of a ground tower gives back the whole column."""
+    body, runner = _idle_towers((12, 12), held_scaffolding=5)
+    body.w[(6, 5, 7)] = PLANKS  # a roof the foothold stands on
+    body.w[(6, 6, 7)] = SCAFF
+    runner.scaffolds.add((6, 6, 7))
+    assert runner._lacking(6, True) == (frozenset({SCAFFOLDING}), 1)
+    assert runner._tower((3, 6, 3), set())
+    assert body.w[(6, 6, 7)] == SCAFF  # nearer the cell, but up on the roof
+    assert not str(body.w[(12, 0, 12)]).startswith(SCAFFOLDING)
+
+
+def test_a_short_tower_takes_a_finished_zones_column_before_one_still_in_use():
+    # Run 20261119T133618892664Z took towers down mid-wing and walked back to put
+    # them up again.
+    body, runner = _idle_towers((6, 6), (13, 3), held_scaffolding=0)
+    cells = {(0, y, 0): PLANKS for y in range(7)} | {(9, 0, 0): PLANKS}
+    runner.template = bp.Template.from_build(make_build(cells, (10, 7, 1)), (3, 0, 3))
+    body.w[(12, 0, 3)] = PLANKS  # the far zone's only cell, placed
+    zone = functools.partial(bp.zone_of, runner.template)
+    assert zone((13, 0, 3)) != zone((6, 0, 6)) == zone((3, 6, 3))
+    assert runner._tower((3, 6, 3), set())
+    assert not str(body.w[(13, 0, 3)]).startswith(SCAFFOLDING)  # its zone is done
+    assert all(body.w[(6, y, 6)] == SCAFF for y in range(6))
 
 
 def test_standing_towers_come_down_when_the_new_one_is_short():
