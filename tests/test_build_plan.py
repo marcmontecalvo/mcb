@@ -564,7 +564,8 @@ def test_work_in_reach_above_the_lowest_layer_is_offered_where_its_column_is_don
 
     acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10}, near=(0, 2, 0))
 
-    assert {a.pos for a in acts} == {(0, 2, 0), (1, 2, 0), (12, 0, 0)}
+    # the far hole is in another work zone: it waits until this one is done
+    assert {a.pos for a in acts} == {(0, 2, 0), (1, 2, 0)}
     # without a body position the layer rule stands
     assert [a.pos for a in bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10})] == [
         (12, 0, 0)
@@ -792,3 +793,53 @@ def test_next_actions_breaks_trapped_foothold_before_placing_underneath():
     )
     assert [type(a) for a in acts] == [bp.Break]
     assert acts[0].pos == (1, 1, 1)
+
+
+def _two_wings(hi=20):
+    """Two 2-column wings three high, 16 apart along x: different work zones."""
+    cells = {(x, y, 0): PLANKS for x in (0, 1, 16, 17) for y in range(3)}
+    t = bp.Template.from_build(make_build(cells, (18, 3, 1)), (0, 0, 0))
+    return t, flat_world(hi=hi)
+
+
+def test_work_stays_in_the_zone_the_body_is_in():
+    # A person finishes one wing before walking to the other: with the near wing's
+    # floor down, its next course is offered, not the far wing's floor (run
+    # 20261119T133618892664Z: 47 walks of 12-24 blocks between placements).
+    t, w = _two_wings()
+    w[(0, 0, 0)] = w[(1, 0, 0)] = PLANKS
+
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 20}, near=(0, 1, 1))
+    assert {a.pos for a in acts} == {(0, 1, 0), (1, 1, 0)}
+
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 20}, near=(17, 0, 1))
+    assert {a.pos for a in acts} == {(16, 0, 0), (17, 0, 0)}
+    # without a body position the global layer rule stands
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 20})
+    assert {a.pos for a in acts} == {(16, 0, 0), (17, 0, 0)}
+
+
+def test_the_zone_worked_last_is_finished_before_a_nearer_one():
+    # A body on the border between two zones keeps to the one it was working in.
+    t, w = _two_wings()
+    acts = bp.next_actions(
+        t, at(w), BLOCKS, {PLANKS: 20}, near=(15, 0, 1), focus=(1, 0, 0)
+    )
+    assert {a.pos for a in acts} == {(0, 0, 0), (1, 0, 0)}
+    # a finished focus zone gives way to the zone the body stands in
+    for x in (0, 1):
+        for y in range(3):
+            w[(x, y, 0)] = PLANKS
+    acts = bp.next_actions(
+        t, at(w), BLOCKS, {PLANKS: 20}, near=(15, 0, 1), focus=(1, 0, 0)
+    )
+    assert {a.pos for a in acts} == {(16, 0, 0), (17, 0, 0)}
+
+
+def test_a_zone_never_builds_over_a_missing_cell_in_its_columns():
+    t, w = _two_wings()
+    w[(0, 0, 0)] = PLANKS  # (1, 0, 0) still missing
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 20}, near=(0, 1, 1))
+    offered = {a.pos for a in acts}
+    assert (1, 0, 0) in offered and (1, 1, 0) not in offered
+    assert all(p[0] < 8 for p in offered)

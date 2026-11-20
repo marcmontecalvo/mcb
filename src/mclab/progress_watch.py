@@ -2,7 +2,8 @@
 movement and no successful edit while the body is working).
 
 ``WatchedBody`` wraps a ``BuildBody`` and times every working op (stance, walk, place,
-break, use). Progress is a successful op or the feet moving :data:`MOVE_BLOCKS`. When an
+break, use). Progress is a successful op or the feet moving :data:`MOVE_BLOCKS` (a
+failed walk counts only if it ended nearer its goal, within the stall window). When an
 op ends and :attr:`ProgressWatch.limit` seconds have passed without progress, the stall
 is logged and recorded, the body's optional ``escape_hole`` is tried (a trapped body is
 the usual cause), and after :attr:`max_stalls` stalls in a row with no progress between
@@ -13,6 +14,7 @@ them :class:`StallError` stops the work with an actionable reason. Bounded waits
 from __future__ import annotations
 
 import contextlib
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -22,6 +24,7 @@ DEAD_SECONDS = 30.0  # one pause this long ends the run
 MAX_STALLS = 3
 SPOT_STALLS = 4  # each stall is 40-100 s of failed tries (run 20261110T115340557226Z)
 MOVE_BLOCKS = 0.75
+_WALKS = ("goto_stance", "walk_to")
 _OPS = ("goto_stance", "walk_to", "place_block", "break_block", "use_block")
 
 
@@ -39,6 +42,17 @@ def _json_pos(pos):
     if isinstance(pos, (list, tuple)):
         return [round(v, 2) if isinstance(v, float) else v for v in pos]
     return pos
+
+
+def _got_nearer(target, before, after) -> bool:
+    """The feet ended at least MOVE_BLOCKS closer to ``target`` than they started."""
+    try:
+        goal = tuple(target)
+        if len(goal) != len(before):
+            return False
+        return math.dist(before, goal) - math.dist(after, goal) >= MOVE_BLOCKS
+    except (TypeError, ValueError):
+        return False
 
 
 @dataclass
@@ -77,10 +91,23 @@ class ProgressWatch:
         """Called after each working op: record progress or handle a stall."""
         now, here = self.clock(), tuple(body.position())
         if self._last is None:
-            self._last, self._at = now, here
+            # the clock starts when the first op did, not when it ended
+            self._last = now - (elapsed or 0.0)
+            self._at = tuple(start_pos) if start_pos is not None else here
         moved = any(
             abs(a - b) >= MOVE_BLOCKS for a, b in zip(here, self._at, strict=True)
         )
+        feet_moved = moved
+        if not ok and op in _WALKS:
+            # A failed walk is progress only when it got nearer its goal, and not
+            # when it took longer than the stall window to do so: moving the feet
+            # is not the objective (run 20261119T133618892664Z: a 31.7 s failed
+            # goto_stance across the yard logged as a recovered slow_op).
+            began = start_pos if start_pos is not None else self._at
+            moved = (
+                _got_nearer(target, began, here)
+                and (elapsed is None or elapsed <= self.limit)
+            )
         if ok or moved:
             if elapsed is not None and elapsed > self.limit:
                 self.long_stops.append(
@@ -139,7 +166,7 @@ class ProgressWatch:
         if recovered:
             self.progress(body.position())
             return
-        if idle >= DEAD_SECONDS:
+        if idle >= DEAD_SECONDS and not feet_moved:  # a long walk is not standing still
             # Stop for analysis instead of carrying on: a body that stood still
             # this long is useless in play, and what follows is more of the same.
             raise StallError(

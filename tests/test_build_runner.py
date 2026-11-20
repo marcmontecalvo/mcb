@@ -1,4 +1,5 @@
 import contextlib
+import math
 
 import pytest
 from test_build_plan import (
@@ -713,12 +714,15 @@ def test_ring_is_swept_along_the_wall_not_zigzagged():
     assert (d.breaks, d.places, d.unknown, d.uses) == ([], [], [], [])
     assert len(order) == len(report.placed) == 2 * 4 * 13
     # far fewer walks than blocks (it was about one stance per block or two)
-    assert body.walks <= 0.4 * len(order), body.walks  # 35; the old order: 54
-    # consecutive placements are neighbours or within reach; only a layer's last
-    # straggler may be across the ring (not a cross-house hop every few blocks)
+    # 17 by work zone; 31 by whole layers; 54 for the order before that
+    assert body.walks <= 0.2 * len(order), body.walks
+    # consecutive placements are neighbours or within reach: no hop across the ring
+    # (by whole layers each layer's last straggler was one)
     jumps = [_d2(a, b) ** 0.5 for a, b in zip(order, order[1:], strict=False)]
-    assert sum(j > br.REACH * 2 for j in jumps) <= 3, sorted(jumps)[-5:]
-    assert sum(jumps) <= 2 * len(order), sum(jumps)  # 163; the old order: 475
+    assert not [j for j in jumps if j > br.REACH * 2], sorted(jumps)[-5:]
+    # 209 by zone (each zone's two courses go out and back along its corner from
+    # about the same stances); 163 by whole layers; 475 for the zigzag order
+    assert sum(jumps) <= 2.5 * len(order), sum(jumps)
 
 
 def test_scaffolding_touching_the_body_is_broken_to_free_it():
@@ -1570,3 +1574,115 @@ def test_run_build_emits_detail_and_cleanup_stages_and_long_stops():
     assert report.long_stops[0]["kind"] == "slow_op"
     assert report.long_stops[0]["duration_s"] == 6.5
 
+
+class _Recorder(FakeBody):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.tried: list = []
+
+    def place_block(self, pos, state, item):
+        self.tried.append(pos)
+        return super().place_block(pos, state, item)
+
+
+def test_blocks_are_never_placed_into_the_route_the_body_is_walking():
+    # Run 20261119T133618892664Z: every route_target_unknown_or_changed and
+    # route_swept_geometry_unknown_or_unsafe came within 40 ticks of a block placed
+    # while passing; one walk had 12 blocks placed into the steps ahead of the body.
+    route = [
+        (0, 0, 0),
+        (1, 0, 0),
+        (2, 0, 0),
+        (3, 0, 0),
+        (4, 0, 0),
+        (5, 1, 0),  # a step up: the take-off column needs head room for the jump
+        (6, 1.5, 0),  # a slab (fractional y): the body reaches into y 3
+        (7, 1.5, 1),  # a diagonal: both corner columns are swept
+    ]
+    in_path = [
+        (0, 1, 0),  # the body's own head
+        (2, 0, 0),  # feet
+        (3, 1, 0),  # head
+        (4, 2, 0),  # jump room over the take-off
+        (5, 2, 0),  # head on the step
+        (6, 3, 0),  # head over the slab
+        (6, 2, 1),  # diagonal corner
+        (7, 1, 0),  # diagonal corner
+    ]
+    beside = [(2, 0, 1), (3, 0, -1), (5, 0, 1)]
+    body = _Recorder(flat_world(hi=10), {PLANKS: 64}, BLOCKS)
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    pool = [bp.Place(p, PLANKS, PLANKS, 1) for p in in_path + beside]
+    on_pass = br._passing(runner, pool, set())
+    for position in [(0.5, 0, 0.5), (3.5, 0, 0.5), (6.5, 1.5, 0.5)]:
+        body.pos = tuple(math.floor(v) for v in position)
+        for _ in range(len(in_path + beside)):
+            on_pass(position, route=route)
+    assert not set(body.tried) & set(in_path)
+    assert set(beside) <= {p for p in body.tried if body.w[p] == PLANKS}
+
+
+def test_the_route_ahead_starts_at_the_edge_being_driven():
+    # cells already walked past are free to build in again
+    route = [(0, 0, 0), (1, 0, 0), (2, 0, 0), (3, 0, 0)]
+    body = _Recorder(flat_world(hi=10), {PLANKS: 64}, BLOCKS)
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    pool = [bp.Place((0, 0, 0), PLANKS, PLANKS, 1)]
+    on_pass = br._passing(runner, pool, set())
+    on_pass((2.5, 0, 0.5), route=route[1:])
+    assert body.tried == [(0, 0, 0)]
+
+
+def _zone(p):
+    return p[0] // bp.ZONE
+
+
+def test_one_wing_is_finished_before_the_body_walks_to_the_other():
+    # Run 20261119T133618892664Z built by global layer: 824 walks, 47 of them 12-24
+    # blocks across the house between two placements.
+    cells = {(x, y, 0): PLANKS for x in (0, 1, 16, 17) for y in range(3)}
+    t = bp.Template.from_build(make_build(cells, (18, 3, 1)), (0, 0, 0))
+    body = _Recorder(flat_world(hi=22), {PLANKS: 64}, BLOCKS, pos=(0, 0, 2))
+    report = br.run_build(t, body, BLOCKS, site_margin=None)
+    assert report.stop == "done"
+    zones = [_zone(p) for p in report.placed]
+    switches = sum(a != b for a, b in zip(zones, zones[1:], strict=False))
+    assert switches == 1, zones
+
+
+def _reclaim_case(done_far_wing: bool, held: dict):
+    cells = {(0, 0, 0): PLANKS, (18, 0, 0): PLANKS}
+    t = bp.Template.from_build(make_build(cells, (19, 1, 1)), (0, 0, 0))
+    w = flat_world(hi=22)
+    if done_far_wing:
+        w[(18, 0, 0)] = PLANKS
+    tower = {(18, 0, 2), (18, 1, 2)}
+    for c in tower:
+        w[c] = "minecraft:dirt"
+    body = FakeBody(w, held, BLOCKS, pos=(1, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.template, runner.scaffolds = t, set(tower)
+    return body, runner
+
+
+def test_a_tower_in_an_unfinished_wing_stays_up_while_scaffolding_is_held():
+    # A person keeps the scaffolding up until that section is done; taking it down
+    # and putting it up again was walks across the house.
+    body, runner = _reclaim_case(False, {"minecraft:scaffolding": 64})
+    runner._reclaim((0, 2, 0), (0, 0, 1), set(), short=False)
+    assert body.w[(18, 0, 2)] == "minecraft:dirt"
+    assert runner.scaffolds == {(18, 0, 2), (18, 1, 2)}
+    assert not body.stance_calls  # no walk for it either
+
+
+def test_a_tower_in_a_finished_wing_comes_down():
+    body, runner = _reclaim_case(True, {"minecraft:scaffolding": 64})
+    runner._reclaim((0, 2, 0), (0, 0, 1), set(), short=False)
+    assert body.w[(18, 0, 2)] in bp.AIR and body.w[(18, 1, 2)] in bp.AIR
+    assert not runner.scaffolds
+
+
+def test_standing_towers_come_down_when_the_new_one_is_short():
+    body, runner = _reclaim_case(False, {})
+    runner._reclaim((0, 2, 0), (0, 0, 1), set(), short=True)
+    assert body.w[(18, 0, 2)] in bp.AIR

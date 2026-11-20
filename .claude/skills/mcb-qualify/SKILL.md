@@ -42,5 +42,9 @@ Get the touched paths with `git diff --name-only origin/main...HEAD` plus `git s
   evidence or compare it with a qualified run.
 - Each RESULT line is PASS, FAIL or UNSURE. UNSURE is neither: report it as UNSURE. A
   near-goal `search cap: VIOLATION` is a bug.
-- Not built yet (design: `mcb-lab-tooling.md` §C): `mclab check --touched` and
-  `mclab qual --fast|--full`. Until they exist, run the commands above.
+- `uv run --locked mclab qual [--fast] [--only NAME ...] [--keep-all]` (or
+  `scripts/qualify.ps1`) runs the whole battery and prints a PASS/FAIL/UNSURE table
+  plus `QUAL: N PASS, M FAIL, K UNSURE`. It keeps the logs and run folders of failures
+  and slow or suspicious passes (paths in the table and `summary.json`) and deletes clean
+  passes. `--fast` skips the iron-*, small-house and scaffold-course experiments.
+- Not built yet (design: `mcb-lab-tooling.md` §C): `mclab check --touched`.

@@ -28,12 +28,13 @@ docs/BUILD_DEBUGGING.md). "Run it and let me know so I can take a look" always m
 | Install the mod | `uv run --locked mclab mod-install` (server stopped) | seconds |
 | Unit tests | `rtk test uv run --locked pytest -q` | ~2.5 min full |
 | One check script | `scripts/check-*.py` | 0.3–2 min |
-| Battery | `scripts/run-battery.py --out results/battery/<b>/<r> [--only …] [--list]` | 1–15 min per check, 1–2 h full |
+| Qualify (one command) | `uv run --locked mclab qual [--fast] [--only …] [--keep-all]` or `scripts/qualify.ps1` | 1–2 h full |
+| Battery | `scripts/run-battery.py [--out results/battery/<stamp>] [--only …] [--keep-all] [--list]` | 1–15 min per check, 1–2 h full |
 | Build / gather run | `scripts/run-build.py`, `scripts/run-gather.py` | median 8 min, p90 64 min, max ~90 min |
 | Compare attempts | `uv run --locked mclab runs [KEY] [--last N] [--json]` | seconds |
 | Full data prune | `uv run --locked python -m mclab.prune [--apply]` | minutes (ledger VACUUM) |
 
-Battery checks: wading, wading-trapped, scaffold, scaffold-course, hill-default,
+Battery checks: wading, wading-trapped, vine-escape, scaffold, scaffold-course, hill-default,
 hill-water, hill-ladder, animals, natural-ops, site-fill, iron-xray, iron-mine, iron-raw,
 small-house.
 
@@ -49,6 +50,15 @@ The reference large build is `tests/fixtures/schematics/house-large.build.json`,
 | Q2 | battery subset from the path map | fast subset before runs > ~15 min; full before merge, overnight runs, after mod-install |
 | Q3 | iron-*, small-house, scaffold-course | the experiment itself, not a gate |
 | Q4 | `mclab body qualify`, `mclab course reset-check`, `execution-check`, `docs/gates.json` | scored/legacy admission after native changes |
+
+`mclab qual` runs every check back to back (restarting the server first) and ends with
+a table plus `QUAL: N PASS, M FAIL, K UNSURE`; exit 0 only if all PASS. `--fast` skips
+iron-xray, iron-mine, iron-raw, small-house and scaffold-course. Output goes to
+`results/battery/<UTC stamp>/` (`SUMMARY.md`, `summary.json` with verdict, seconds and
+kept/discarded per check). A clean pass (no standstill, no search-cap finding, under 75 %
+of its timeout) has its log and run folder deleted, except a run id cited in `docs/`;
+FAIL, UNSURE and anything that looked bad keeps its log and folder. `--keep-all` keeps
+everything.
 
 Path map (touched path → Q2 fast subset):
 

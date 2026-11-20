@@ -15,6 +15,8 @@ final class RouteMotor {
     // Values are vanilla movement rates, independently used here for motion prediction.
     static final double WALK_BLOCKS_PER_TICK = 4.317 / 20;
     static final double SPRINT_BLOCKS_PER_TICK = 5.612 / 20;
+    /** Off-centre limit while climbing up a column: half the cell (.5) less half the body (.3), less a margin. */
+    static final double CLIMB_CENTRE = .15;
     record Point(double x, double y, double z) {
         double distance(Pose p) { return Math.hypot(x + .5 - p.x, z + .5 - p.z); }
     }
@@ -98,7 +100,11 @@ final class RouteMotor {
             if (!Double.isFinite(p.x) || !Double.isFinite(p.y) || !Double.isFinite(p.z)
                     || Math.abs(p.x) > 30_000_000 || Math.abs(p.z) > 30_000_000
                     || p.x != Math.rint(p.x) || p.z != Math.rint(p.z)
-                    || p.y < -2048 || p.y > 2048 || p.y * 2 != Math.rint(p.y * 2)
+                    || p.y < -2048 || p.y > 2048
+                    // With shapes, any sensed floor height is a stance, as in RoutePlanner.cellHeights: a closed
+                    // trapdoor tops at 3/16, carpet 1/16, a lily pad 3/32. geometry.standable checks the real
+                    // support every tick. The old half-block lattice refused a trapdoor route 35 times and
+                    // trapped the bot in a bedroom (house-large run 20261119T133618892664Z).
                     || (!policy.shapes && p.y != Math.rint(p.y))) throw new IllegalArgumentException("route_point");
             if (i == 0) continue;
             var previous = route.get(i - 1);
@@ -446,12 +452,15 @@ final class RouteMotor {
         // arrival never advances index, sending the body back over the same cells.
         boolean supported = pose.grounded || (pose.inWater && geometry.standable(target));
         if (supported && Math.abs(pose.y - target.y) <= .2 && (!last || target.distance(pose) <= arrivalRadius)) return true;
+        // A centre-only request exists to reach its arrival radius; the looser swim and climb radii
+        // ended a 0.05 centring on scaffolding in one tick, 80+ resubmissions per drive (house-large
+        // run 20261119T133618892664Z).
         // Swimming bobs the feet up to a block under the surface stance.
         if (policy.swim && pose.inWater && pose.y >= target.y - (last ? .25 : 1.0) && pose.y <= target.y + .2
-                && (!last || target.distance(pose) <= .35) && geometry.swimSurface(target)) return true;
+                && (!last || target.distance(pose) <= (centerOnly ? arrivalRadius : .35)) && geometry.swimSurface(target)) return true;
         double floor = geometry.scaffolding(target) ? 0 : .5;
         return policy.climb && pose.y >= target.y - floor && pose.y <= target.y + (target.y > source.y ? .9 : .3)
-                && (!last || target.distance(pose) <= .45) && geometry.climbable(target);
+                && (!last || target.distance(pose) <= (centerOnly ? arrivalRadius : .45)) && geometry.climbable(target);
     }
 
     /**
@@ -523,7 +532,10 @@ final class RouteMotor {
         boolean vertical = target.x == source.x && target.z == source.z;
         double turn = wrap(yawTo(pose, target) - pose.yaw);
         double yaw = Math.max(-45, Math.min(45, turn));
-        boolean up = target.y > source.y || (geometry.scaffolding(target) && vertical && pose.y < target.y);
+        boolean up = target.y > source.y || (geometry.scaffolding(target) && vertical && pose.y < target.y)
+                // In water under the target's height, swim up as swim() does: a level edge from the swim stance into
+                // a vine column held no jump, and the body sank 2 blocks under the vine (run 20261119T212820324510Z).
+                || (pose.inWater && pose.y < target.y);
         if (moved < .01) stalled++; else stalled = 0;
         if (stalled > 30) { stop("route_no_progress"); return Input.STOP; }
         // Scaffolding: a body above a cell that is not descending stands on its top plate, so going down inside a
@@ -538,7 +550,11 @@ final class RouteMotor {
             return new Input(Math.abs(turn) > 45 ? 0 : Math.min(1, Math.max(.3, target.distance(pose))), yaw, false, false, false);
         }
         if (vertical) {
-            boolean off = target.distance(pose) > (index == route.size() - 1 ? arrivalRadius : .35);
+            // Rising, the 0.6-wide box must stay inside the 1-wide column (offset <= .2): run 20261119T202232979013Z
+            // hung .22 off a vine column with its head under leaves in the next column and never rose.
+            double keep = index == route.size() - 1 ? arrivalRadius : .35;
+            if (up) keep = Math.min(keep, CLIMB_CENTRE);
+            boolean off = target.distance(pose) > keep;
             return new Input(off && Math.abs(turn) <= 45 ? .3 : 0, off ? yaw : 0, up, false, sneak);
         }
         return new Input(Math.abs(turn) > 45 ? 0 : 1, yaw, up, false, sneak);

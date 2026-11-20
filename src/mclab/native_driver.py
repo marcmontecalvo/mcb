@@ -4,11 +4,12 @@ tick. Python-side search here is a fallback/oracle, not the production planner
 (docs/JAVA_MIGRATION_STATUS_2026-11-03.md)."""
 
 import math
+import re
 import time
 from collections import Counter
 from dataclasses import asdict
 
-from mclab import water_movement
+from mclab import map_change, water_movement
 from mclab.body_search import predicted_cells, tool_map
 from mclab.execution import ControllerFailure, policy_state
 from mclab.navigation import empty, full_cube
@@ -47,7 +48,123 @@ STEP_FAIL_BAN_TICKS = 40  # a motor-failed step edge is avoided for 2 s, then re
 # A no-progress edge with no mob in it is banned this long, not for the session:
 # the cause may have been a door mid-swing or a mob that has since left.
 NO_PROGRESS_BAN_TICKS = 200
+# The same edge failing again doubles its ban, up to this (about 5 min of game time).
+MAX_EDGE_BAN_TICKS = 6400
 GEOMETRY_STORM_REPLANS = 6  # consecutive unknown-geometry route kills before "stuck"
+
+
+def _edge_key(edge):
+    return tuple(tuple(p) for p in edge)
+
+
+def edge_footprint(edge) -> list[tuple[int, int, int]]:
+    """The cells a move's success depends on.
+
+    The box spanning both ends, one cell wider on every side (a neighbouring
+    column's leaves at head height stalled the vine climb), from the floor under
+    the lower end to one above the higher end's head (jump clearance).
+    """
+    (ax, ay, az), (bx, by, bz) = (tuple(map(math.floor, p)) for p in edge)
+    return [
+        (x, y, z)
+        for x in range(min(ax, bx) - 1, max(ax, bx) + 2)
+        for y in range(min(ay, by) - 1, max(ay, by) + 3)
+        for z in range(min(az, bz) - 1, max(az, bz) + 2)
+    ]
+
+
+def _cell_state(cell) -> tuple | None:
+    if cell is None:
+        return None
+    props = cell.get("properties") or {}
+    return (
+        cell.get("block"),
+        cell.get("fluid"),
+        tuple(sorted((str(k), str(v)) for k, v in props.items())),
+    )
+
+
+class EdgeFailures:
+    """Route edges the body failed to walk, kept while their blocks stay the same.
+
+    One drive's bans died with the drive: run 20261119T202232979013Z planned
+    the same vine rise 25 times over 200 s, every new walk starting clean and
+    every ban expiring after 200 ticks. Each repeat doubles the edge's ban
+    (NO_PROGRESS_BAN_TICKS, 2x, 4x ... MAX_EDGE_BAN_TICKS) and a new walk
+    starts with the edges still banned, so the planner prices a way around
+    or an edit (pillar, dig) instead of the same failed move.
+
+    A failure says something only about the world it happened in. With ``cells``
+    (a callable returning the body's current block map) each failure keeps the
+    states of the move's footprint (``edge_footprint``); once any of those cells
+    reads differently (the body placed or broke a block, water flowed, gravel
+    fell) the edge is forgotten, ban and escalation count both. A cell that has
+    gone unknown is not a change. Without ``cells`` bans only expire.
+    """
+
+    def __init__(self, cells=None):
+        self._cells = cells
+        self._failures: dict = {}
+        self._until: dict = {}
+        self._seen: dict = {}  # edge -> {cell: state} when it last failed
+
+    def _snapshot(self, key) -> dict:
+        cells = self._cells()
+        return {p: _cell_state(cells.get(p)) for p in edge_footprint(key)}
+
+    def fail(self, edge, tick: int) -> int:
+        key = _edge_key(edge)
+        self.stale(key)  # in a changed world the count starts over
+        count = self._failures.get(key, 0) + 1
+        self._failures[key] = count
+        span = min(NO_PROGRESS_BAN_TICKS * 2 ** (count - 1), MAX_EDGE_BAN_TICKS)
+        self._until[key] = max(self._until.get(key, 0), tick + span)
+        if self._cells is not None:
+            self._seen[key] = self._snapshot(key)
+        return self._until[key]
+
+    def failures(self, edge) -> int:
+        return self._failures.get(_edge_key(edge), 0)
+
+    def stale(self, edge) -> bool:
+        """True (and the edge forgotten) when a block around it has changed."""
+        key = _edge_key(edge)
+        seen = self._seen.get(key)
+        if seen is None:
+            return False
+        cells = self._cells()
+        for pos, then in seen.items():
+            now = _cell_state(cells.get(pos))
+            if now is not None and now != then:
+                self.forget(key)
+                return True
+        return False
+
+    def forget(self, edge) -> None:
+        key = _edge_key(edge)
+        for store in (self._failures, self._until, self._seen):
+            store.pop(key, None)
+
+    def active(self, tick: int) -> dict:
+        """Edges still banned at ``tick`` in an unchanged world, with expiry ticks."""
+        for key in list(self._seen):
+            self.stale(key)
+        return {edge: until for edge, until in self._until.items() if until > tick}
+
+
+def _ban(controller, bans, edge, tick: int) -> int:
+    """Ban ``edge`` in this drive, escalating through the session memory if any."""
+    memory = getattr(controller, "edge_failures", None)
+    until = (
+        memory.fail(edge, tick) if memory is not None else tick + NO_PROGRESS_BAN_TICKS
+    )
+    bans[edge] = until
+    controller.failed_edges.add(edge)
+    return until
+
+
+# RouteMotor's own validation refusals (IllegalArgumentException("route_...")).
+ROUTE_REFUSAL = re.compile(r"^Bridge rejected request \d+: (route_[a-z_]+)$")
 # Mobs a companion may kill when one still blocks a step after MOB_RETRIES.
 # The mod refuses players, villagers, tamed and non-animal targets on its own.
 CLEARABLE_MOBS = frozenset(
@@ -74,7 +191,12 @@ def blocking_entities(observation, source, target):
         x, y, z = entity["position"]
         half_width = MOB_WIDTHS.get(entity.get("type"), 0.6) / 2
         box = entity.get("bounding_box") or (
-            x - half_width, y, z - half_width, x + half_width, y + 1, z + half_width
+            x - half_width,
+            y,
+            z - half_width,
+            x + half_width,
+            y + 1,
+            z + half_width,
         )
         min_x, min_y, min_z, max_x, max_y, max_z = box
         if (
@@ -115,7 +237,8 @@ def no_progress_decision(controller, observation, edge, retries):
     # the attack guard conservative vertically rather than miss a tall blocker.
     guarded = any(
         (e.get("named") or e.get("type") not in MOB_WIDTHS)
-        and not e.get("item") and e.get("type") not in NOT_MOBS
+        and not e.get("item")
+        and e.get("type") not in NOT_MOBS
         and any(
             abs(e["position"][0] - c[0] - 0.5) <= 1.3
             and abs(e["position"][2] - c[2] - 0.5) <= 1.3
@@ -123,8 +246,10 @@ def no_progress_decision(controller, observation, edge, retries):
         )
         for e in observation.get("visible_entities") or ()
     )
-    if not guarded and getattr(controller, "clear_mob", None) is not None and all(
-        e.get("type") in CLEARABLE_MOBS and not e.get("named") for e in mobs
+    if (
+        not guarded
+        and getattr(controller, "clear_mob", None) is not None
+        and all(e.get("type") in CLEARABLE_MOBS and not e.get("named") for e in mobs)
     ):
         return "kill", mobs
     return "ban", mobs
@@ -224,10 +349,19 @@ def prefetch_while_following(controller, route, native=None):
     revision, cells = controller._planning_snapshot()
     if refreshing(controller) and native is not None:
         index = native.get("next_index", 1)
-        end = route[min(len(route) - 1, max(index, 1) + REFRESH_AHEAD - 1)]
-        if (tuple(end), revision) == getattr(controller, "refreshed", None):
-            return  # Same start on the same map: the answer would not change.
-        controller.refreshed = (tuple(end), revision)
+        end = tuple(route[min(len(route) - 1, max(index, 1) + REFRESH_AHEAD - 1)])
+        last = getattr(controller, "refreshed", None)
+        if last is not None and last[0] == end:
+            if last[1] == revision:
+                return  # Same start on the same map: the answer would not change.
+            if not map_change.changed(
+                last[2], cells, _cells_ahead(controller, route, end)
+            ):
+                # A newer map with nothing changed along the way ahead (a block
+                # placed beside the body, re-observed cells) is no reason to re-plan.
+                controller.refreshed = (end, revision, cells)
+                return
+        controller.refreshed = (end, revision, cells)
     if end == controller.goal:
         return
     controller.prefetch = controller._new_search(cells, end, revision)
@@ -242,6 +376,15 @@ def prefetch_while_following(controller, route, native=None):
             },
         )
     )
+
+
+def _cells_ahead(controller, route, start):
+    """Cells of the planned way on from ``start``, as far as the plan reaches."""
+    for way in (getattr(controller, "route", None) or (), route):
+        way = [tuple(p) for p in way]
+        if start in way:
+            return map_change.route_cells(way[way.index(start) :])
+    return map_change.route_cells([start])
 
 
 def prefetch_past_edits(controller):
@@ -464,6 +607,15 @@ def submit_route(client, controller, stats, route):
     return route_id
 
 
+def route_ahead(route, follower, route_id):
+    """The part of ``route`` the motor has still to drive: from the source of the
+    edge it is on (``next_index`` - 1). A follower status for another route says
+    nothing about this one, so all of it is ahead."""
+    if follower.get("route_id") != route_id:
+        return list(route)
+    return list(route[max(follower.get("next_index", 1) - 1, 0) :])
+
+
 def drive_native(client, controller, wall_timeout):
     from mclab.control_loop import _fail, _running, record_selector
 
@@ -493,7 +645,9 @@ def drive_native(client, controller, wall_timeout):
         (progress["distance"], progress["tick"]) if progress else (math.inf, None)
     )
     bans, mob_retries = {}, Counter()  # no-progress edges: expiry tick, mob retries
+    remembered = False  # session edge bans (controller.edge_failures) seeded yet
     geometry_storm = 0  # consecutive route_swept_geometry kills of this drive
+    refusals = 0  # consecutive routes the body refused to accept
     try:
         while time.monotonic() < deadline:
             if getattr(controller, "cancelled", False):
@@ -512,8 +666,17 @@ def drive_native(client, controller, wall_timeout):
                 goal_revision = revision
             observation = policy_state(client)
             now = observation.get("tick")
+            memory = getattr(controller, "edge_failures", None)
+            if not remembered and memory is not None and now is not None:
+                # edges earlier walks failed on are still banned for this one
+                remembered = True
+                for edge, until in memory.active(now).items():
+                    bans[edge] = until
+                    controller.failed_edges.add(edge)
             for edge, until in list(bans.items()):
-                if now is not None and now >= until:
+                expired = now is not None and now >= until
+                # a block around the move changed: the failure no longer applies
+                if expired or (memory is not None and memory.stale(edge)):
                     del bans[edge]
                     controller.failed_edges.discard(edge)
             terminal = _running(client, observation)
@@ -522,8 +685,13 @@ def drive_native(client, controller, wall_timeout):
             on_pass = getattr(controller, "on_pass", None)
             position = observation.get("body", {}).get("position")
             if on_pass is not None and position:
-                if observation.get("route_follower", {}).get("state") == "following":
-                    on_pass(position)  # e.g. a build places what comes within reach
+                follower = observation.get("route_follower", {})
+                if follower.get("state") == "following":
+                    # e.g. a build places what comes within reach, never into the
+                    # cells the motor still has to drive through
+                    on_pass(
+                        position, route=route_ahead(active_route, follower, active_id)
+                    )
             # Companion goto: a controller may end the drive without ending the episode.
             stop_reason = getattr(controller, "stop_reason", None)
             if stop_reason is not None and (why := stop_reason(observation)):
@@ -664,10 +832,37 @@ def drive_native(client, controller, wall_timeout):
                         time.sleep(0.1)
                         continue
                     stats["routes_spliced"] += 1
-                    active_id = submit_route(client, controller, stats, joined)
+                    try:
+                        active_id = submit_route(client, controller, stats, joined)
+                    except RuntimeError as error:
+                        # The body refused the splice: the old route drives on.
+                        _route_refused(
+                            client, controller, joined, error, bans, observation
+                        )
+                        refusals += 1
+                        if refusals >= GEOMETRY_STORM_REPLANS:
+                            return _refusal_storm(client, refusals, observation)
+                        continue
+                    refusals = 0
                     active_route = joined
                     continue
                 client.record("native_route_finished", native)
+                if native.get("reason") == "route_center_not_grounded":
+                    # Feet more than 0.2 off the stance height (a stair's low step
+                    # under a stance planned from its top): the motor cannot centre
+                    # here, and asking again got 64 identical refusals in 16.8 s
+                    # (house-large run 20261119T133618892664Z).
+                    uncentered = getattr(controller, "uncentered", None)
+                    if uncentered is not None and active_route:
+                        uncentered.add(tuple(active_route[0]))
+                    client.record(
+                        "native_center_refused",
+                        {
+                            "node": tuple(active_route[0]) if active_route else None,
+                            "position": observation["body"]["position"],
+                            "tick": observation.get("tick"),
+                        },
+                    )
                 if native.get("state") != "done":
                     stats["route_replans"] += 1
                     # Edges the motor cannot drive: replan around them. Without
@@ -719,8 +914,10 @@ def drive_native(client, controller, wall_timeout):
                                 if not note["ok"]:  # no endless retry-kill cycle
                                     decision = "ban"
                             if decision == "ban":
-                                note["ban_until"] = tick + NO_PROGRESS_BAN_TICKS
-                                bans[edge] = note["ban_until"]
+                                note["ban_until"] = _ban(controller, bans, edge, tick)
+                                memory = getattr(controller, "edge_failures", None)
+                                if memory is not None:
+                                    note["failures"] = memory.failures(edge)
                             client.record("native_route_no_progress", note)
                         if 0 < index < len(route) and decision in {None, "ban"}:
                             controller.failed_edges.add(
@@ -873,7 +1070,15 @@ def drive_native(client, controller, wall_timeout):
                     > 1.5
                 ):
                     raise ControllerFailure("Native route start displaced")
-                active_id = submit_route(client, controller, stats, route)
+                try:
+                    active_id = submit_route(client, controller, stats, route)
+                except RuntimeError as error:
+                    _route_refused(client, controller, route, error, bans, observation)
+                    refusals += 1
+                    if refusals >= GEOMETRY_STORM_REPLANS:
+                        return _refusal_storm(client, refusals, observation)
+                    continue
+                refusals = 0
                 active_route = route
             time.sleep(0.05)
         raise ControllerFailure("Native route wall deadline exceeded")
@@ -901,6 +1106,52 @@ def drive_native(client, controller, wall_timeout):
         )
         client.control_loop_summary = stats
         client.record("control_loop_summary", stats)
+
+
+def _route_refused(client, controller, route, error, bans, observation):
+    """A route RouteMotor refused at submission is a failed set of edges, not a
+    failed goto: avoid them for a while and plan again.
+
+    House-large run 20261119T133618892664Z: a route over a closed trapdoor was
+    refused "route_point" 35 times. Each refusal ended the goto with nothing
+    learned, so every later goto planned the same route. Which edge broke the
+    rule is not reported, so all of the route's edges are avoided, for
+    NO_PROGRESS_BAN_TICKS only. Any other error propagates unchanged.
+    """
+    match = ROUTE_REFUSAL.match(str(error))
+    if match is None:
+        raise error
+    tick = observation.get("tick") or 0
+    edges = [(tuple(a), tuple(b)) for a, b in zip(route, route[1:], strict=False)]
+    for edge in edges:
+        _ban(controller, bans, edge, tick)
+    client.record(
+        "native_route_refused",
+        {
+            "reason": match.group(1),
+            "route": [tuple(p) for p in route],
+            "position": observation["body"]["position"],
+            "tick": observation.get("tick"),
+        },
+    )
+    controller.previous_route = ()
+    controller.route.clear()
+    controller.search = None
+    controller._discard_prefetch()
+    return match.group(1)
+
+
+def _refusal_storm(client, refusals, observation):
+    """Every replan was refused too: end the goto so the caller picks a new stance."""
+    client.record(
+        "native_route_storm_stuck",
+        {
+            "refusals": refusals,
+            "position": observation["body"]["position"],
+            "tick": observation.get("tick"),
+        },
+    )
+    return {"type": "navigation_stopped", "data": {"reason": "stuck"}}
 
 
 def _stop_goto(client, error):

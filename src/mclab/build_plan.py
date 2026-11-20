@@ -814,6 +814,21 @@ def inside_corner(template: Template, pos: Pos) -> bool:
 
 
 WORK_REACH = 4.5  # the body's block interaction range
+# Work zones: square tiles of the footprint, ZONE columns a side, about what the
+# body covers from two or three stances. With a body position the build is done one
+# zone at a time, bottom up inside the zone, the way a person finishes one wing
+# before walking to the next (run 20261119T133618892664Z built by whole layers: 824
+# walks, 47 of them 12-24 blocks across the house between two placements).
+ZONE = 8
+
+
+def zone_of(template: Template, pos: Pos) -> tuple[int, int]:
+    """The work zone of a cell (cells outside the footprint: the nearest zone)."""
+    hx = max(0, (template.size[0] - 1) // ZONE)
+    hz = max(0, (template.size[2] - 1) // ZONE)
+    zx = (pos[0] - template.origin[0]) // ZONE
+    zz = (pos[2] - template.origin[2]) // ZONE
+    return (min(max(zx, 0), hx), min(max(zz, 0), hz))
 
 
 def next_actions(
@@ -827,8 +842,15 @@ def next_actions(
     skipped: set | None = None,
     near: Pos | None = None,
     fetch_first: bool = False,
+    focus: Pos | None = None,
 ):
     """Next legal actions, or [] when nothing can be done now.
+
+    ``near`` also scopes the placements to one work zone (``zone_of``): the zone of
+    ``focus`` (a cell of the zone worked last) while it has placeable work, else the
+    zone the body stands in, else the one with the placeable cell nearest the body.
+    Inside a zone the layer rule holds per zone; the column rule (nothing over a
+    missing cell in its column) holds everywhere.
 
     ``fetch_first``: ask for materials (NeedMaterials) while a placeable cell below
     the working layer is only short of its item, instead of building on above it.
@@ -945,7 +967,7 @@ def next_actions(
         return structure_left and is_detail(state)
 
     waiting = [
-        t[0][1]
+        t[0]
         for t in todo
         if parse_state(t[1])[0] not in FLUIDS
         and not held_back(t[1])
@@ -955,7 +977,14 @@ def next_actions(
         and _gate(t[0], t[1], world, blocks)
         not in ("support", "below", "floating", "unknown", "unfilled")
     ]
-    lowest = min(waiting, default=None)
+    lowest = min((p[1] for p in waiting), default=None)
+
+    def zone(p):
+        return zone_of(template, p)
+
+    zone_lowest: dict = {}  # the layer rule per work zone (with a body position)
+    for p in waiting:
+        zone_lowest[zone(p)] = min(zone_lowest.get(zone(p), p[1]), p[1])
     # A cell given up on (skipped) does not keep the doors out: run
     # 20261118T070135016043Z left both doors off for five unplaceable cells. Nor
     # does one hanging from it (a lantern under a skipped chain, run
@@ -994,30 +1023,47 @@ def next_actions(
         and _gate(t[0], t[1], world, blocks) is None
         for t in todo
     )
-    for pos, state, cost, (item, n) in () if starved else todo:
-        if len(out) >= limit:
-            break
+
+    def offerable(pos, state, cost, held) -> bool:
         if skipped is not None and pos in skipped:
-            continue
+            return False
+        low = lowest if near is None else zone_lowest.get(zone(pos))
         if (
-            lowest is not None
-            and pos[1] > lowest
+            low is not None
+            and pos[1] > low
             and not (_in_reach(pos) and not _pending_below(pos))
         ):
-            continue
+            return False
         # The doorway is the body's way in and out: a door placed while other cells are
         # still missing shut the body inside (it cannot open doors; run
         # 20261102T225803126737Z: every walk "stuck" once the walls closed).
         if _is_door(state) and others_left:
-            continue
+            return False
         if held_back(state):
-            continue
+            return False
         if (pos[0], pos[1] + 1, pos[2]) in sealed_footholds:
-            continue
-        if (
-            all(left.get(i, 0) >= c for i, c in cost.items())
+            return False
+        return (
+            all(held.get(i, 0) >= c for i, c in cost.items())
             and _gate(pos, state, world, blocks) is None
-        ):
+        )
+
+    active = None  # the work zone, with a body position
+    if near is not None and not starved:
+        ready = [t[0] for t in todo if offerable(t[0], t[1], t[2], inventory)]
+        zones = {zone(p) for p in ready}
+        if focus is not None and zone(focus) in zones:
+            active = zone(focus)
+        elif zone(near) in zones:
+            active = zone(near)
+        elif ready:
+            active = zone(min(ready, key=lambda p: (far(p), p)))
+    for pos, state, cost, (item, n) in () if starved else todo:
+        if len(out) >= limit:
+            break
+        if active is not None and zone(pos) != active:
+            continue
+        if offerable(pos, state, cost, left):
             for i, c in cost.items():
                 left[i] -= c
             out.append(Place(pos, state, item, n))

@@ -30,7 +30,7 @@ import tempfile
 import zlib
 from dataclasses import replace
 
-from mclab import event_log
+from mclab import event_log, plan_sets
 from mclab.awareness import Awareness
 from mclab.body_search import edit_payload
 from mclab.memory_policy import MemoryPolicy
@@ -153,13 +153,19 @@ def recorded_request(path, plan_id):
     parts = []
     for e in event_log.records(path, plan_ids=[plan_id]):
         p = e["payload"]
-        if p.get("kind") == "part" and "offset" in p:  # a large request is sent in parts
+        if (
+            p.get("kind") == "part" and "offset" in p
+        ):  # a large request is sent in parts
             parts.append((p["offset"], p["data"]))
         elif e["type"] == "request" and p.get("op") == "plan_route":
             if parts:
                 data = "".join(d for _, d in sorted(parts))
-                return json.loads(zlib.decompress(base64.b64decode(data)))
-            return p
+                p = json.loads(zlib.decompress(base64.b64decode(data)))
+            # Large edit sets travel once by reference (mclab.plan_sets).
+            uploads = event_log.records(path, types=["request"], kinds=["planner_set"])
+            return plan_sets.resolve(
+                p, plan_sets.collect(r["payload"] for r in uploads)
+            )
     raise SystemExit(f"no plan_route request {plan_id} in {path}")
 
 

@@ -546,7 +546,16 @@ class _Runner:
             )
             dirt_only = bool(cells)
         if cells:
-            self._reclaim(pos, cells[0], avoid)
+            held = self.body.inventory()
+            short = (
+                not any(
+                    held.get(i, 0) >= len(cells)
+                    for i in self._temporaries(scaffolding=False)
+                )
+                if dirt_only
+                else self._scaffold_item(len(cells)) is None
+            )
+            self._reclaim(pos, cells[0], avoid, short)
         if not cells:
             # Every neighbouring column is the template itself (an interior roof
             # cell): the stance is the roof's edge, reached by pillaring or stairs of
@@ -642,15 +651,32 @@ class _Runner:
                 self.scaffolds.discard(cell)
         return False
 
-    def _reclaim(self, pos: Pos, base: Pos, avoid) -> None:
+    def _reclaim(self, pos: Pos, base: Pos, avoid, short: bool = True) -> None:
         """Take down the towers and footholds the body is done with before raising a
         new one, and pick them up: one stack of scaffolding moves round the house
         instead of standing where it was first put up while dirt steps go up the
         walls (run 20261117T130121185147Z: every tower stood to the end). A column
         beside ``pos`` stays (the new tower may grow on it). The body first walks to
-        the new tower's ``base``: it is usually still up on the old one."""
+        the new tower's ``base``: it is usually still up on the old one.
+
+        ``short``: the new tower lacks blocks without them. Otherwise only the towers
+        of finished work zones come down: a person keeps the scaffolding up until
+        that section is done (run 20261119T133618892664Z took towers down mid-wing
+        and walked back to put them up again). The rest come down at cleanup."""
         keep = {(pos[0] + dx, pos[2] + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
         done = {c for c in self.scaffolds or () if c[::2] not in keep}
+        if not short and done and self.template is not None:
+            d = bp.diff(self.template, self.body.world)
+            towers = self.scaffolds or set()  # in the footprint they read as breaks
+            open_zones = {
+                bp.zone_of(self.template, p)
+                for p in [
+                    *(p for p, _ in d.places),
+                    *(p for p in d.breaks if p not in towers),
+                    *(u[0] for u in d.uses),
+                ]
+            }
+            done = {c for c in done if bp.zone_of(self.template, c) not in open_zones}
         if not any(_standing(self.body, c) for c in done):
             return
         self.body.goto_stance(base, REACH, avoid)
@@ -858,15 +884,66 @@ def _ready(a, corners) -> bool:
     )
 
 
+BODY_HALF_WIDTH = 0.3  # the body's hitbox is 0.6 wide
+BODY_HEIGHT = 1.8
+JUMP_ROOM = 3.0  # head room a step up needs above the take-off (RouteGeometry.sweep)
+
+
+def _top_cell(y: float) -> int:
+    """The highest cell a body with its feet at ``y`` reaches into."""
+    return math.ceil(y + BODY_HEIGHT - 1e-6) - 1
+
+
+def _body_cells(position) -> set[Pos]:
+    """The cells the body's hitbox overlaps where it stands (world coordinates)."""
+    x, y, z = (float(v) for v in position)
+    r = BODY_HALF_WIDTH - 1e-6
+    return {
+        (cx, cy, cz)
+        for cx in range(math.floor(x - r), math.floor(x + r) + 1)
+        for cz in range(math.floor(z - r), math.floor(z + r) + 1)
+        for cy in range(math.floor(y + 1e-6), _top_cell(y) + 1)
+    }
+
+
+def _swept_cells(route) -> set[Pos]:
+    """Every cell the body passes through following ``route`` (block points, feet
+    height may be fractional on stairs and slabs): feet to head at each point, the
+    body's height over the higher end of each edge in both columns (a step down
+    crosses the lower column at the upper height), the jump room over the take-off
+    of a step up, and both corner columns of a diagonal."""
+    pts = [(math.floor(p[0]), float(p[1]), math.floor(p[2])) for p in route]
+    cells: set[Pos] = set()
+    for x, y, z in pts:
+        cells.update((x, h, z) for h in range(math.floor(y), _top_cell(y) + 1))
+    for (ax, ay, az), (bx, by, bz) in zip(pts, pts[1:], strict=False):
+        top = _top_cell(max(ay, by))
+        if by > ay:  # the take-off needs room for the jump
+            top = max(top, math.ceil(ay + JUMP_ROOM - 1e-6) - 1)
+        columns = [((ax, az), ay), ((bx, bz), by)]
+        if ax != bx and az != bz:
+            low = min(ay, by)
+            columns += [((ax, bz), low), ((bx, az), low)]
+        for (cx, cz), low in columns:
+            cells.update((cx, h, cz) for h in range(math.floor(low), top + 1))
+    return cells
+
+
 def _passing(runner: _Runner, pool: list, corners: set):
     """The ``on_pass`` hook: place one pending block the body can reach right now.
 
     Margin of one block inside REACH (the body is moving). A failure is not
     recorded and the block is not tried again while passing: the sweep's own
-    attempt keeps the retry and failure bookkeeping."""
+    attempt keeps the retry and failure bookkeeping.
+
+    ``route``: the points the motor has still to drive. A block is never placed
+    into them, nor into the body itself: the motor stops on a target or swept
+    cell that changed (run 20261119T133618892664Z: all 52
+    route_target_unknown_or_changed and 13 route_swept_geometry stops came within
+    40 ticks of a block placed while passing)."""
     refused: set = set()
 
-    def on_pass(position) -> None:
+    def on_pass(position, route=None) -> None:
         body = runner.body
         if runner._towering or runner.short or runner.report.steps >= runner.max_steps:
             return
@@ -878,6 +955,10 @@ def _passing(runner: _Runner, pool: list, corners: set):
             and _dist2(a.pos, position) <= (REACH - 1.0) ** 2
             and _ready(a, corners)
         ]
+        if not near:
+            return
+        path = _body_cells(position) | _swept_cells(route or ())
+        near = [a for a in near if a.pos not in path]
         if not near:
             return
         if observe := getattr(body, "observe", None):
@@ -905,14 +986,20 @@ def _passing(runner: _Runner, pool: list, corners: set):
 
 
 def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:
+    prev = None  # the cell worked last: in reach, the next one goes on beside it
     while pool and runner.report.steps < runner.max_steps and not runner.short:
         here = runner.body.position()
 
-        def key(a, here=here, last=last):
+        def key(a, here=here, last=last, prev=prev):
             d2 = _dist2(a.pos, here)
             near = d2 <= (REACH - 0.5) ** 2
             same = getattr(a, "item", None) != last
-            return (a.pos[1], not near, 0 if near else d2, same, d2)
+            # In reach, go on along the wall from the last cell rather than by
+            # distance to the body: from a corner both arms are as near, and the
+            # nearest-first order swung between them, leaving the far ends of both
+            # for a walk each.
+            along = _dist2(a.pos, prev) if near and prev is not None else d2
+            return (a.pos[1], not near, 0 if near else d2, same, along, d2)
 
         ready = [a for a in pool if _ready(a, corners)]
         act = min(ready, key=key)
@@ -946,7 +1033,7 @@ def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:
         corners.discard(act.pos)
         _plan_ahead(runner, act, pool)
         runner.attempt(act)
-        last, tried = getattr(act, "item", None), True
+        last, tried, prev = getattr(act, "item", None), True, act.pos
 
 
 @functools.cache
@@ -1279,6 +1366,8 @@ def _run(
         _adopt_footholds(body, template, scaffolds)
         _tend_hunger(body, on_need_materials, hunger)
         _keep_footholds(runner, on_need_materials, log, stock)
+        # the zone of the last block placed is finished before the next one is begun
+        focus = report.placed[-1] if report.placed else None
         acts = bp.next_actions(
             template,
             body.world,
@@ -1289,6 +1378,7 @@ def _run(
             skipped=skipped,
             near=body.position(),
             fetch_first=True,
+            focus=focus,
         )
         fetching = False
         if acts and isinstance(acts[0], bp.NeedMaterials) and not acts[0].scaffold:
@@ -1306,6 +1396,7 @@ def _run(
                     scaffolds=scaffolds,
                     skipped=skipped,
                     near=body.position(),
+                    focus=focus,
                 )
             else:
                 fetching = True

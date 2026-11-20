@@ -1493,7 +1493,7 @@ def test_drops_seen_in_an_earlier_collect_are_still_collected(monkeypatch):
     monkeypatch.setattr(b, "position", lambda: tuple(pos))
     monkeypatch.setattr(b, "wait_ticks", lambda n: None)
     far = {"uuid": "f", "item": "minecraft:scaffolding", "position": [6.5, 0.0, 0.5]}
-    views = iter([[far]])
+    views = iter([[far], [far]])  # in view while the drop wait looks, then gone
     monkeypatch.setattr(b, "entities", lambda: next(views, []))
     walked = []
 
@@ -1712,3 +1712,216 @@ def test_walk_only_fallback_tries_multiple_candidates_when_walk_empty(monkeypatc
     assert b.goto_stance((2, 1, 0), 4.5)
     assert seen == goals[:2]
 
+
+
+# --- collect_drops waits only for items that are there -------------------------------
+
+
+def _item(uuid, y, x=2.5):
+    return {"uuid": uuid, "item": "minecraft:dirt", "position": [x, y, 0.5]}
+
+
+def test_collect_drops_does_not_wait_when_nothing_dropped(monkeypatch):
+    # Run 20261119T133618892664Z: 31 blind 40-tick waits (62 s) after breaks.
+    b, bridge, _ = body()
+    waits, notes = [], []
+    monkeypatch.setattr(b, "wait_ticks", waits.append)
+    bridge.record = lambda kind, data: notes.append(data)
+    monkeypatch.setattr(b, "entities", lambda: [])
+    b.collect_drops([(0, 0, 0)])
+    assert waits == [] and notes == []
+
+
+def test_collect_drops_ignores_items_out_of_range(monkeypatch):
+    b, _, _ = body()
+    waits = []
+    monkeypatch.setattr(b, "wait_ticks", waits.append)
+    monkeypatch.setattr(b, "entities", lambda: [_item("far", 0.0, x=50.5)])
+    b.collect_drops([(0, 0, 0)], radius=8.0)
+    assert waits == []
+
+
+def test_collect_drops_stops_waiting_once_the_item_has_landed(monkeypatch):
+    b, _, _ = body()
+    waits = []
+    monkeypatch.setattr(b, "wait_ticks", waits.append)
+    heights = iter([3.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+    monkeypatch.setattr(b, "entities", lambda: [_item("a", next(heights, 0.0))])
+    monkeypatch.setattr(b, "walk_to_drop", lambda cell, r: True)
+    b.collect_drops([(0, 0, 0)], radius=8.0)
+    assert 0 < sum(waits) < cb.DROP_WAIT_TICKS
+
+
+def test_collect_drops_waiting_is_bounded_when_an_item_never_settles(monkeypatch):
+    b, _, _ = body()
+    waits, y = [], [1000.0]
+
+    def entities():
+        y[0] -= 1.0  # falls forever
+        return [_item("a", y[0])]
+
+    monkeypatch.setattr(b, "wait_ticks", waits.append)
+    monkeypatch.setattr(b, "entities", entities)
+    monkeypatch.setattr(b, "walk_to_drop", lambda cell, r: True)
+    b.collect_drops([(0, 0, 0)], radius=8.0)
+    assert sum(waits) <= cb.DROP_WAIT_TICKS + cb.MAX_PICKUPS * 5
+
+
+def test_collect_drops_stops_when_the_item_was_picked_up_meanwhile(monkeypatch):
+    b, _, _ = body()
+    waits = []
+    monkeypatch.setattr(b, "wait_ticks", waits.append)
+    views = iter([[_item("a", 1.0, x=0.9)], []])  # picked up under the body
+    monkeypatch.setattr(b, "entities", lambda: next(views, []))
+    monkeypatch.setattr(b, "walk_to_drop", pytest.fail)
+    b._known_drops = {}
+    b.collect_drops([(0, 0, 0)], radius=8.0)
+    assert sum(waits) <= 5
+
+
+# --- goto_stance: per-candidate budget, memory --------------------------------------
+
+
+def test_each_stance_candidate_gets_its_own_progress_budget(monkeypatch):
+    b, _, _ = body()
+    b._obs["body"]["position"] = [20.5, 0.0, 20.5]
+    monkeypatch.setattr(b, "stances", lambda *a, **k: [(2, 0, 0), (3, 0, 1), (3, 0, 2)])
+    seen = []
+
+    def navigate(goal, *, progress=None, **kw):
+        seen.append(progress)
+        return False
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    assert b.goto_stance((2, 0, 2), 4.5) is False
+    probes = seen[:3]
+    assert len({id(p) for p in probes}) == 3  # none shared between candidates
+    assert all(p["tick"] is None and p["limit_ticks"] == cb.CANDIDATE_PROGRESS_TICKS
+               for p in probes)
+    assert cb.CANDIDATE_PROGRESS_TICKS <= 200  # about 10 s
+
+
+def test_stances_that_failed_are_not_retried_by_the_next_call(monkeypatch):
+    b, _, _ = body()
+    b._obs["body"]["position"] = [20.5, 0.0, 20.5]
+    monkeypatch.setattr(b, "stances", lambda *a, **k: [(2, 0, 0), (3, 0, 1)])
+    seen = []
+
+    def navigate(goal, **kw):
+        seen.append(goal)
+        if goal == (3, 0, 1):
+            b._obs["body"]["position"] = [18.5, 0.0, 18.5]  # moved before failing
+        return False
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    assert not b.goto_stance((2, 0, 2), 4.5)
+    assert not b.goto_stance((2, 0, 2), 4.5)  # from another spot, same target
+    assert seen[:2] == [(2, 0, 0), (3, 0, 1)]
+    assert (2, 0, 0) not in seen[2:] and (3, 0, 1) not in seen[2:]
+    b._remember((0, 0, 0), "minecraft:stone", 100)  # the world changed: try again
+    b.goto_stance((2, 0, 2), 4.5)
+    assert (2, 0, 0) in seen[2:]
+
+
+class _FakeController:
+    def __init__(self):
+        self.failed_edges = set()
+        self.probe, self.mode, self.last_result = False, "following", None
+        self.last_partial_walk, self.map_view = None, None
+        self.goal_progress_ticks = None
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+def _navigating_body(monkeypatch):
+    b, bridge, _ = body()
+    bridge.state = lambda: {}
+    made, drove = [], []
+
+    def make(*a, **k):
+        made.append(_FakeController())
+        return made[-1]
+
+    def drive(bridge, controller, wall, profile=None):
+        drove.append((set(controller.failed_edges), controller.goal_progress_ticks))
+        controller.failed_edges.add(((0, 0, 0), (1, 0, len(drove))))
+        return {"type": "navigation_stopped", "data": {"reason": "failed"}}
+
+    monkeypatch.setattr(b, "_goto_controller", make)
+    monkeypatch.setattr(cb, "drive", drive)
+    monkeypatch.setattr(b, "observe", lambda: {})
+    monkeypatch.setattr(b, "_hop_toward", lambda goal: None)
+    return b, drove
+
+
+def test_failed_edges_carry_across_the_candidates_of_one_goto(monkeypatch):
+    b, drove = _navigating_body(monkeypatch)
+    b._goto_edges = set()  # what goto_stance opens around its candidate loop
+    b._navigate((2, 0, 0), reach=None, radius=0.6, probe=True)
+    b._navigate((3, 0, 1), reach=None, radius=0.6, probe=True)
+    assert drove[0][0] == set()
+    assert drove[1][0] == {((0, 0, 0), (1, 0, 1))}
+
+
+def test_failed_edges_do_not_leak_past_the_goto(monkeypatch):
+    b, drove = _navigating_body(monkeypatch)
+    b._navigate((2, 0, 0), reach=None, radius=0.6, probe=True)
+    b._navigate((3, 0, 1), reach=None, radius=0.6, probe=True)
+    assert drove[1][0] == set()
+
+
+def test_every_walk_shares_the_body_s_failed_edge_memory(monkeypatch):
+    b, _ = _navigating_body(monkeypatch)
+    seen = []
+    monkeypatch.setattr(
+        cb,
+        "drive",
+        lambda bridge, controller, wall, profile=None: (
+            seen.append(controller.edge_failures),
+            {"type": "navigation_stopped", "data": {"reason": "failed"}},
+        )[1],
+    )
+    b._navigate((2, 0, 0), reach=None, radius=0.6, probe=True)
+    b._navigate((3, 0, 1), reach=None, radius=0.6, probe=True)
+    assert seen[0] is seen[1] is b.edge_failures
+
+
+def test_the_failed_edge_memory_forgets_a_move_whose_blocks_the_body_changed(
+    monkeypatch,
+):
+    # A ban holds only while the blocks around the move are as they were when it
+    # failed; the memory reads the body's map with its own recent edits on top.
+    b, _ = _navigating_body(monkeypatch)
+    edge = ((0, 1, 0), (1, 1, 0))
+    b.edge_failures.fail(edge, 0)
+    assert not b.edge_failures.stale(edge)
+    b.memory.cells[(1, 0, 0)] = {"block": "minecraft:cobblestone"}
+    assert b.edge_failures.stale(edge)
+
+
+def test_the_candidate_budget_reaches_the_drive_as_its_progress_limit(monkeypatch):
+    b, drove = _navigating_body(monkeypatch)
+    progress = {"distance": math.inf, "tick": None, "limit_ticks": 180}
+    b._navigate((2, 0, 0), reach=None, radius=0.6, probe=True, progress=progress)
+    assert drove[0][1] == 180
+
+
+def test_placement_sight_uses_the_body_real_eye(monkeypatch):
+    # the server clicks from player.getEyePosition(): the body's real position, not
+    # its cell centre. Standing at the edge of its cell the body sees a face that the
+    # centre does not.
+    b, _, _ = body()
+    full = [[0, 0, 0, 1, 1, 1]]
+    cells = {(1, 0, 0): {"block": "minecraft:dirt", "collision_boxes": full}}
+    for y in range(1, 4):
+        for x in (0, 1, 2):
+            cells.setdefault((x, y, 0), {"block": "minecraft:air"})
+    monkeypatch.setattr(b, "_cells_now", lambda: cells)
+    target = (2, 0, 0)  # beside the dirt: its east face at x=2 is the only support
+    b._obs["body"]["position"] = [1.5, 1.0, 0.5]  # eye at x=1.5: behind that face
+    assert not b.sees_placement(target)
+    b._obs["body"]["position"] = [2.2, 1.0, 0.5]  # past the plane
+    assert b.sees_placement(target)
+    assert not b.sees_placement(target, eye=(1.5, 2.62, 0.5))
