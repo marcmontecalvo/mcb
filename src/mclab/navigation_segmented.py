@@ -15,7 +15,7 @@ from mclab.gap_jump import GapJumpExecutor, prepare_gap
 from mclab.grid_cache import CLIMBABLE
 from mclab.interaction_goal import interacts, interacts_at_position
 from mclab.movement_policy import MovementPolicy
-from mclab.navigation import NavigationController, empty, standable
+from mclab.navigation import NavigationController, empty, full_cube, standable
 from mclab.observation_worker import ObservationWorker
 from mclab.pillar_steps import executor_for as python_executor_for
 from mclab.pillar_steps import prepare_pillar
@@ -25,7 +25,7 @@ from mclab.terrain_geometry import known_step
 from mclab.terrain_steps import prepare_step
 from mclab.terrain_transport import ExpandedTerrain
 
-NATIVE_EDIT_KINDS = frozenset({"downward", "descend"})
+NATIVE_EDIT_KINDS = frozenset({"downward", "descend", "scaffold_drop"})
 # A confirmed terrain step that has not moved the body 0.05 in 1.5 s has failed;
 # failure plus replan must stay under the 5 s standstill rule.
 COMMIT_STALL_TICKS = 30
@@ -62,9 +62,42 @@ def executor_for(plan, policy):
 
 
 def native_edit_matches(plan, cells, supported):
-    """Fresh-geometry check of a downward/descend plan (shapes match the body's)."""
+    """Fresh-geometry check of a native edit plan (shapes match the body's)."""
     (x, y, z), (tx, ty, tz) = plan.source, plan.target
-    if plan.places or not plan.breaks or not supported(cells, plan.source):
+    if not supported(cells, plan.source):
+        return False
+    if plan.kind == "scaffold_drop":
+        n = len(plan.places)
+        if (
+            plan.breaks
+            or not (2 <= n <= 32)
+            or abs(tx - x) + abs(tz - z) != 1
+            or ty != y - 1
+            or set(plan.scaffold) != set(plan.places)
+            or not full_cube(cells.get((x, y - 1, z)))
+        ):
+            return False
+        floor_y = y - n
+        if tuple(plan.places) != tuple((tx, floor_y + i, tz) for i in range(n)):
+            return False
+        floor = cells.get((tx, floor_y - 1, tz))
+        if not (
+            full_cube(floor)
+            or (
+                floor is not None
+                and floor.get("block") == "minecraft:scaffolding"
+                and floor.get("fluid", "minecraft:empty") == "minecraft:empty"
+            )
+        ):
+            return False
+        if any(
+            (cells.get((tx + dx, y - 1, tz + dz)) or {}).get("block")
+            == "minecraft:scaffolding"
+            for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))
+        ):
+            return False
+        return all(empty(cells.get(p)) for p in plan.places)
+    if plan.places or not plan.breaks:
         return False
     if any(cells.get(p) is None for p in plan.breaks):
         return False  # Unknown cells are never treated as breakable air.
@@ -936,6 +969,14 @@ class SegmentedController(NavigationController):
         valid = node == plan.source
         if valid and plan.kind in NATIVE_EDIT_KINDS:
             valid = native_edit_matches(plan, fresh, self._node_supported)
+            if valid and plan.scaffold:
+                valid = scaffold_step_matches(
+                    plan,
+                    fresh,
+                    self.terrain_queue_policy,
+                    observation["body"].get("inventory", []),
+                    protected=self.own_footholds,
+                )
         elif valid and plan.scaffold:
             valid = scaffold_step_matches(
                 plan,

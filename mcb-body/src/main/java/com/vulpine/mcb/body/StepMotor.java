@@ -122,14 +122,14 @@ final class StepMotor {
     // Cells the planner chose scaffolding for (it stays up: supported within 6 of the ground); the rest are solid.
     private final Set<BlockPos> scaffoldCells = new HashSet<>();
     private final Map<String,String> tools;
-    private final boolean bridge, downward;
-    private final int reserve, tickLimit;
+    private final boolean bridge, downward, scaffoldDrop;
+    private final int reserve, tickLimit, dropExtraTicks;
     // Baritone Settings.pauseMiningForFallingBlocks: wait this long after a cut under a
     // falling-block stack, and while any falling block is near, before trusting the cell.
     private static final int SETTLE_TICKS = 6;
     private final Set<BlockPos> settleWatch = new HashSet<>();
     private int settleUntil = -1;
-    private int index, started = -1, issueTick = -1, finishedTick = -1;
+    private int index, started = -1, issueTick = -1, finishedTick = -1, lastSelected;
     private boolean issued, launched;
     private int blind, approachTick = -1, deadTicks, handTicks;
     private final Set<BlockPos> handCells = new HashSet<>();
@@ -178,6 +178,7 @@ final class StepMotor {
         int horizontal = Math.abs(source.getX()-target.getX())+Math.abs(source.getZ()-target.getZ());
         int rise=target.getY()-source.getY();
         downward = kind.equals("downward");
+        scaffoldDrop = kind.equals("scaffold_drop");
         if (downward) {
             // Baritone MovementDownward: break the block under the feet and drop one.
             if (!bool(policy,"allow_break") || horizontal!=0 || rise!=-1 || breaks.size()!=1 || places.size()!=0
@@ -196,12 +197,30 @@ final class StepMotor {
             if (!bool(policy,"allow_pillar") || horizontal!=0 || rise!=1 || exit==null || breaks.size()!=0
                     || places.size()!=1 || !point(places.get(0).getAsJsonArray()).equals(source))
                 throw new IllegalArgumentException("native_pillar_plan");
+        } else if (scaffoldDrop) {
+            // Drop-scaffolding column (ROADMAP B2a): contiguous vertical scaffolding column
+            // in the adjacent shaft from floorY up to target.y (= source.y - 1), placed by clicking the rim face.
+            if (horizontal!=1 || rise!=-1 || breaks.size()!=0
+                    || places.size()<2 || places.size()>RoutePlanner.SCAFFOLD_DROP_MAX)
+                throw new IllegalArgumentException("native_scaffold_drop_plan");
+            int floorY=source.getY()-places.size();
+            for (int i=0;i<places.size();i++) {
+                var p=point(places.get(i).getAsJsonArray());
+                if (p.getX()!=target.getX() || p.getZ()!=target.getZ() || p.getY()!=floorY+i || !scaffoldCells.contains(p))
+                    throw new IllegalArgumentException("native_scaffold_drop_plan");
+            }
         } else if (!kind.equals("step") || horizontal!=1 || rise<0 || rise>1
                 || places.size()>integer(policy,"max_support_stack",1,3)) throw new IllegalArgumentException("native_step_shape");
         var unique=new HashSet<BlockPos>();
         for (var value:breaks) addOperation(false,point(value.getAsJsonArray()),unique);
         for (var value:places) addOperation(true,point(value.getAsJsonArray()),unique);
         if (operations.isEmpty()) throw new IllegalArgumentException("native_step_requires_edits");
+        int extraDrop=0;
+        if (scaffoldDrop) {
+            for (var o:operations)
+                extraDrop+=(int)Math.ceil(RoutePlanner.fallTicks(Math.max(0,(source.getY()-1)-o.point.getY())))+12;
+        }
+        dropExtraTicks=extraDrop;
         // No solid block allowed: every placed cell must be one the planner made scaffolding
         // (a body holding only scaffolding builds its whole tower of it).
         if (materials.isEmpty() && operations.stream().anyMatch(o -> o.place && !scaffoldCells.contains(o.point)))
@@ -210,8 +229,9 @@ final class StepMotor {
         if (kind.equals("descend")) operations.sort(java.util.Comparator.comparingInt((Operation o)->o.point.getY()).reversed());
     }
     private void addOperation(boolean place,BlockPos p,Set<BlockPos> unique) {
+        int minY = scaffoldDrop ? source.getY() - RoutePlanner.SCAFFOLD_DROP_MAX : source.getY() - 3;
         if (!unique.add(p) || protectedPositions.contains(p) || Math.abs(p.getX()-source.getX())>1
-                || Math.abs(p.getZ()-source.getZ())>1 || p.getY()<source.getY()-3 || p.getY()>source.getY()+3
+                || Math.abs(p.getZ()-source.getZ())>1 || p.getY()<minY || p.getY()>source.getY()+3
                 || (!place && !downward && p.equals(source.below()))) throw new IllegalArgumentException("native_step_protected_or_bounds");
         operations.add(new Operation(place,p));
     }
@@ -297,6 +317,11 @@ final class StepMotor {
     private static final String SCAFFOLDING="minecraft:scaffolding";
     /** Scaffolding senses as empty collision, yet it is placed on and stood on. */
     static boolean scaffolding(Map<String,Object> c) { return c!=null && SCAFFOLDING.equals(c.get("block")); }
+    /** Settled scaffolding whose scheduled tick has updated distance below 7 (safe to stack onto). */
+    static boolean settledScaffold(Map<String,Object> c) {
+        if (!scaffolding(c)) return false;
+        return !(c.get("properties") instanceof Map<?,?> m && "7".equals(String.valueOf(m.get("distance"))));
+    }
     /** Something to click a block onto: a full cube or scaffolding (supported: the planner only counts it so). */
     static boolean sturdy(Map<String,Object> c) { return cube(c) || scaffolding(c); }
     /** Sneaking in or on scaffolding drops the body through it. */
@@ -364,8 +389,9 @@ final class StepMotor {
         return new BodyRuntime.Controls("native-step",tick,tick,tick+2,2,forward,0,yaw,pitch,jump,sneak,false,mine,false,false,use,slot);
     }
     private BodyRuntime.Controls stopInput(int tick,String why) { stop(why); return input(tick,0,0,0,false,false,false,false,0); }
-    private static boolean fallingNear(ServerPlayer p,BlockPos pos) {
-        return !p.level().getEntitiesOfClass(FallingBlockEntity.class,new AABB(pos).inflate(.5,0,.5).expandTowards(0,16,0)).isEmpty();
+    private static boolean fallingNear(ServerPlayer p,BlockPos pos) { return fallingNear(p,pos,16); }
+    private static boolean fallingNear(ServerPlayer p,BlockPos pos,int height) {
+        return !p.level().getEntitiesOfClass(FallingBlockEntity.class,new AABB(pos).inflate(.5,0,.5).expandTowards(0,height,0)).isEmpty();
     }
     /** Where to look to cut a cell: its centre if in view, else the first face in view (Baritone
      *  RotationUtils.reachable). Live run 20261112T181731902927Z: a tunnel ceiling hid the centre of
@@ -394,7 +420,7 @@ final class StepMotor {
 
     BodyRuntime.Controls tick(ServerPlayer p,int tick,RouteGeometry.Reader reader) {
         if(started<0) started=tick;
-        if(tick-started>tickLimit+handTicks) return stopInput(tick,"native_step_deadline");
+        if(tick-started>tickLimit+handTicks+dropExtraTicks) return stopInput(tick,"native_step_deadline");
         double distance=Math.hypot(p.getX()-source.getX()-.5,p.getZ()-source.getZ()-.5);
         boolean pillar=kind.equals("pillar");
         if(distance>(pillar?.45:.85) || p.getY()<(downward?target.getY():source.getY())-.2 || p.getY()>source.getY()+(pillar?1.4:.2))
@@ -453,18 +479,25 @@ final class StepMotor {
             if(tick<settleUntil) return input(tick,0,0,0,false,false,false,false,0);
             settleUntil=-1; settleWatch.remove(op.point);
         } else if(!empty(cell)) settleUntil=-1;
-        boolean complete=op.place?(scaffoldCells.contains(op.point)?scaffolding(cell):cube(cell)):empty(cell);
+        boolean complete=op.place
+                ? (scaffoldDrop
+                        ? (settledScaffold(cell) && !fallingNear(p,op.point,Math.max(16,source.getY()-op.point.getY()+2)))
+                        : (scaffoldCells.contains(op.point)?scaffolding(cell):cube(cell)))
+                : empty(cell);
         if(complete) {
             if(op.place) {
                 if(!issued || !placedItem.equals(cell.get("block"))) return stopInput(tick,"native_placement_changed");
                 placed.put(op.point,placedItem);
             } else if(issuedBreaks.contains(op.point)) broken.add(op.point);
-            index++; issued=false; placedItem=""; issueTick=-1; approachTick=-1;
-            return input(tick,0,0,0,false,false,false,false,0);
+            index++; issued=false; placedItem=""; issueTick=-1; approachTick=-1; approachProgress=0;
+            return input(tick,0,0,0,false,scaffoldDrop && !inScaffold(reader),false,false,scaffoldDrop?lastSelected:0);
         }
         if(issued && op.place) {
-            if(tick-issueTick>15) return stopInput(tick,"native_placement_not_observed");
-            return input(tick,0,0,0,false,!pillar && !inScaffold(reader),false,false,0);
+            int waitLimit=scaffoldDrop
+                    ? Math.max(25,(int)Math.ceil(RoutePlanner.fallTicks(Math.max(0,(source.getY()-1)-op.point.getY())))+20)
+                    : 15;
+            if(tick-issueTick>waitLimit) return stopInput(tick,"native_placement_not_observed");
+            return input(tick,0,0,0,false,!pillar && !inScaffold(reader),false,false,scaffoldDrop?lastSelected:0);
         }
         // In a scaffolding cell (a hanging one's bottom plate, or a column's lower top) the body stands as on a floor.
         boolean sourceOk=geometry.standable(new RouteMotor.Point(source.getX(),source.getY(),source.getZ()))
@@ -497,7 +530,7 @@ final class StepMotor {
             });
         } else {
             // Flowers are non-replaceable and block placement: punch first (instant), then place next tick.
-            if(flower(cell)) {
+            if(!scaffoldDrop && flower(cell)) {
                 if(protectedBlocks.contains(cell.get("block"))) return stopInput(tick,"native_edit_protected");
                 Vec3 e=p.getEyePosition(),c=Vec3.atCenterOf(op.point);
                 double py=wrap(Math.toDegrees(Math.atan2(-(c.x-e.x),c.z-e.z))-p.getYRot());
@@ -538,7 +571,28 @@ final class StepMotor {
             if(stackOnScaffold && !pillar && sourceScaffold)
                 return stopInput(tick,"native_scaffold_redirect");
             BlockPos side=null;
-            if(bridgeOnScaffold) {
+            if(scaffoldDrop) {
+                // Click the rim block's side face while sneaking at the edge: scaffolding spawns at
+                // (target.x, source.y - 1, target.z) with distance 7, falls, and stacks up from the floor.
+                directReplace=false;
+                if(!cube(read(reader,source.below())) || !sturdy(read(reader,op.point.below())))
+                    return stopInput(tick,"native_placement_anchor_changed");
+                var dropCell=new BlockPos(target.getX(),source.getY()-1,target.getZ());
+                if(!op.point.equals(dropCell)) {
+                    var dropState=read(reader,dropCell);
+                    if(dropState==null) return stopInput(tick,"native_edit_geometry_unknown");
+                    if(!empty(dropState) && !replaceableCover(dropState)) return stopInput(tick,"native_placement_not_empty");
+                }
+                for(var d:List.of(net.minecraft.core.Direction.NORTH,net.minecraft.core.Direction.SOUTH,
+                        net.minecraft.core.Direction.EAST,net.minecraft.core.Direction.WEST))
+                    if(scaffolding(read(reader,dropCell.relative(d))))
+                        return stopInput(tick,"native_scaffold_redirect");
+                expected=source.below();
+                face=dx==1?"EAST":dx==-1?"WEST":dz==1?"SOUTH":"NORTH";
+                aim=new Vec3(source.getX()+.5+dx*.499,source.getY()-.5,source.getZ()+.5+dz*.499);
+                stackOnScaffold=false;
+                lastSelected=Math.max(0,selected);
+            } else if(bridgeOnScaffold) {
                 // Off a scaffolding floor: click its top face, not sneaking; the item extends sideways the way the body faces.
                 expected=source.below(); face="UP"; redirect=true;
                 var directed=redirectAim(source,p.getEyePosition(),dx,dz);

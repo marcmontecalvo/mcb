@@ -1592,3 +1592,43 @@ def test_a_centring_the_motor_refuses_is_not_requested_again(monkeypatch):
     assert node in controller.uncentered
     assert [op for op, _ in sent].count("follow_route") == 1
     assert any(kind == "native_center_refused" for kind, _ in records)
+
+
+def test_confirm_step_accepts_scaffold_drop_column():
+    places = tuple((2, y, 0) for y in range(-10, 0))
+    plan = StepPlan(
+        (1, 0, 0),
+        (2, -1, 0),
+        places=places,
+        kind="scaffold_drop",
+        scaffold=places,
+    )
+    before = {
+        "inventory": [{"slot": 0, "item": "minecraft:scaffolding", "count": 16}],
+        "building_pickups": {},
+    }
+    after = {
+        "body": {
+            "inventory": [{"slot": 0, "item": "minecraft:scaffolding", "count": 6}],
+            "building_pickups": {},
+        }
+    }
+    fresh = {
+        p: {
+            "block": "minecraft:scaffolding",
+            "fluid": "minecraft:empty",
+            "collision_boxes": [],
+        }
+        for p in places
+    }
+    report = {
+        "broken_positions": [],
+        "placed_positions": [
+            {"position": list(p), "item": "minecraft:scaffolding"} for p in places
+        ],
+    }
+    assert native_driver.confirm_step(plan, before, after, fresh, report)
+    # Missing one block in fresh geometry is not yet confirmed.
+    incomplete = dict(fresh)
+    incomplete[(2, -10, 0)] = {"block": "minecraft:air", "collision_boxes": []}
+    assert not native_driver.confirm_step(plan, before, after, incomplete, report)

@@ -313,9 +313,10 @@ final class RoutePlanner {
             if (entry[3] == 1)  // the cheapest way on runs through unknown space
                 return terminal = trim(result("segment", node, cost));
             expanded++;
-            // Later edges from a node see the edits of the edge that reached it.
+            // Later edges from a node see the edits of the edge that reached it (or a dropped
+            // scaffolding column while descending straight through it).
             overlay = null;
-            if (edits != null) overlay = overlayOf(plans.get(node));
+            if (edits != null) overlay = overlayFor(node);
             double estimate = closeness(node);
             if (estimate < closeness(best)) best = node;
             for (int i = 0; baritoneSearch && i < COEFFICIENTS.length; i++) {
@@ -536,122 +537,59 @@ final class RoutePlanner {
             return ticks ? unknownPenalty * (WALK * horizontal(node) + vertical(node, false, false)) : unknownPenalty * distance(node);
         double h = remaining(node);
         if (digAware()) h = Math.max(h, field(node));
-        boolean gaps = gapReady();
-        if (riseAware() || gaps) h = Math.max(h, riseEstimate(node));
-        if (gaps) h = Math.max(h, gapEstimate(node));
+        if (riseFieldAware()) h = Math.max(h, riseFieldFor(node));
         return (heuristicWeight == 0 ? 1 : heuristicWeight) * h;
     }
+    private double riseFieldFor(Node node) {
+        double direct = riseField(node);
+        var drop = activeScaffoldDrop(node);
+        if (drop != null) {
+            int floorY = drop.places.get(0)[1];
+            if (node.y >= floorY)
+                return Math.min(direct, (node.y - floorY) * LADDER_DOWN + riseField(new Node(node.x, floorY, node.z)));
+        }
+        return direct;
+    }
 
-    // --- rise bound: a goal above every floor near it is reached only by placing ---
-    // Without it a goal 5 straight up was priced at the jump rate (~5 ticks a block) while each pillar block costs
-    // EDIT_STEP + PLACE + the edit chain (~55): the search flooded 8000 flat nodes before pillaring (scaffold course,
-    // plan-5). Each block of height above a column's own floor needs at least one placed block, so the bound is
-    // min over columns c of (walk to c + placing up from its floor + walk on to the goal), or placing up from the
-    // node itself and walking on: a route gains height only from a terrain top it stands on, or a block it places.
-    static final int RISE_MARGIN = 48, RISE_SCAN = 8;  // the box edge bounds h: 48 blocks walk ~ 170 ticks
-    private double[] riseCols;  // per column of the box: least walk + place cost to stand at goal height
-    private int riseX0, riseZ0, riseW, riseD, riseGy;
+    // --- rise/gap/drop bound: lazy 3D backward Dijkstra from the goal ---
+    // Replaces the old 2D column-scan riseNeed/riseInit/gapInit heuristic, which collapsed all y < goal.y
+    // into a single layer and stopped at any box top (walls, roof edges), pricing ground nodes beside a
+    // wall/roof as 0 placements and flooding the 4000-node cap (pillar_to, climb, reach-out). The 3D lazy
+    // Dijkstra works like field(): it expands backward from the goal over passable cells (x, y, z), pricing
+    // walking, climbing, dropping, pillaring, bridging/stacking, and scaffold_drop, settling only as far as
+    // A* queries (no fixed box-edge leak).
+    static final int RISE_BUDGET = 60_000, RISE_MARGIN_H = 48, RISE_MARGIN_V = 16, SCAFFOLD_DROP_MAX = 32;
+    private PriorityQueue<double[]> riseQueue;  // {distance, x, y, z}
+    private final Map<Long, Double> riseDistance = new HashMap<>();
+    private final Map<Long, Double> riseTentative = new HashMap<>();
+    private final Map<Long, Integer> riseEditCount = new HashMap<>();
+    private int riseX0, riseX1, riseY0, riseY1, riseZ0, riseZ1;
+    private double riseBoundaryMin = INF;
+    private Boolean gapOn;
 
     private boolean riseAware() {
         return ticks && reach == null && edits != null && (edits.allowPlace || edits.allowPillar)
-                && goal.y > start.y + 1;
+                && (goal.y > start.y + 1 || (goal.y > start.y + EPS && !naturalSupport(goal.x, (int) Math.floor(goal.y + EPS), goal.z)));
     }
-    /** Least cost of placing k blocks of height, k edits on from an edit depth d. */
-    private double riseCost(int k, int d) {
-        if (k <= 0) return 0;
-        int solid = edits != null ? Math.max(0, k - edits.scaffoldSupply) : k;
-        return k * (EDIT_STEP + PLACE) + SOLID_PLACE * solid + EDIT_CHAIN * (k * (double) d + k * (k - 1) / 2.0);
-    }
-    private double riseRate() { return baritoneSearch ? COST_HEURISTIC : SPRINT; }
-    private double riseEstimate(Node node) {
-        if (riseCols == null) { if (gapReady()) gapInit(); else riseInit(); }
-        int k = riseGy - (int) Math.floor(node.y + EPS);
-        if (k <= 0) return 0;
-        double own = riseCost(k, depth.getOrDefault(node, 0)) + riseRate() * horizontal(node);
-        int i = node.x - riseX0, j = node.z - riseZ0;
-        double cols = i < 0 || j < 0 || i >= riseW || j >= riseD ? 0
-                : gapLayers > 0 ? riseCols[(i * riseD + j) * gapLayers + Math.min(depth.getOrDefault(node, 0), GAP_DEPTH)]
-                : riseCols[i * riseD + j];
-        return JUMP * (goal.y - node.y) + Math.min(own, cols);
-    }
-    /** Places needed in a column of the base terrain: 0 where it may already reach goal height
-     *  (unknown cells), else goal height less the top of its highest floor, climbable or water below it. */
-    private int riseNeed(int x, int z) {
-        int top = riseGy - 1, bottom = (int) Math.floor(Math.min(start.y, goal.y)) - RISE_SCAN;
-        for (int y = top; y > bottom; y--) {
-            var c = baseCell(x, y, z);
-            if (c == null) return 0;  // unknown: anything may stand there
-            // the top of a floor, a climbable (scaffolding, ladder) or water: as high as it reaches unaided
-            if (!boxes(c).isEmpty() || climbable(c) || !dry(c)) return Math.max(0, riseGy - (y + 1));
-        }
-        return Math.max(0, riseGy - bottom);
-    }
-    private void riseInit() {
-        riseGy = (int) Math.floor(goal.y + EPS);
-        riseX0 = Math.min(start.x, goal.x) - RISE_MARGIN;
-        riseZ0 = Math.min(start.z, goal.z) - RISE_MARGIN;
-        riseW = Math.min(Math.max(start.x, goal.x) + RISE_MARGIN - riseX0 + 1, 256);
-        riseD = Math.min(Math.max(start.z, goal.z) + RISE_MARGIN - riseZ0 + 1, 256);
-        riseCols = new double[riseW * riseD];
-        // Multi-source Dijkstra: each column starts at its place cost plus the walk on to the goal, a column on the
-        // box edge at the walk alone (beyond it nothing is scanned), and walking between columns at the walk rate.
-        double rate = riseRate();
-        var queue = new PriorityQueue<double[]>((a, b) -> Double.compare(a[0], b[0]));
-        for (int i = 0; i < riseW; i++) for (int j = 0; j < riseD; j++) {
-            boolean edge = i == 0 || j == 0 || i == riseW - 1 || j == riseD - 1;
-            int x = riseX0 + i, z = riseZ0 + j;
-            double ax = Math.abs(x - goal.x), az = Math.abs(z - goal.z);
-            double on = rate * Math.max(0, (baritoneSearch ? Math.abs(ax - az) + Math.min(ax, az) * SQRT2 : Math.hypot(ax, az)) - radius);
-            double v = on + (edge ? 0 : riseCost(riseNeed(x, z), 0));
-            riseCols[i * riseD + j] = v;
-            queue.add(new double[]{v, i, j});
-        }
-        while (!queue.isEmpty()) {
-            var q = queue.poll();
-            int i = (int) q[1], j = (int) q[2];
-            if (q[0] > riseCols[i * riseD + j]) continue;
-            for (int di = -1; di <= 1; di++) for (int dj = -1; dj <= 1; dj++) {
-                int a = i + di, b = j + dj;
-                if ((di == 0 && dj == 0) || a < 0 || b < 0 || a >= riseW || b >= riseD) continue;
-                double v = q[0] + rate * (di != 0 && dj != 0 ? SQRT2 : 1);
-                if (v < riseCols[a * riseD + b]) { riseCols[a * riseD + b] = v; queue.add(new double[]{v, a, b}); }
-            }
-        }
-    }
-
-    // --- gap bound: open air at the goal's height is crossed only on placed blocks ---
-    // A 4-block bridge off a tower top cost ~274 while the walk bound said ~14: the search flooded the ground
-    // under the tower before bridging (scaffold course run 20261118T011847445077Z, plan-4). A body at goal height
-    // stays there over columns with support at that height (any floor, climbable or water below, or unknown), pays
-    // at least one place for each column without, or leaves the level, after which the rise bound holds.
-    private double[] gapCols;
     private boolean gapAware() {
         return ticks && reach == null && edits != null && (edits.allowPlace || edits.allowBridge) && integral(goal.y);
     }
-    private Boolean gapOn;
-    /** The gap field is worth building: places allowed and a straight walk at goal height would need some, or the
-     *  goal is above the start (the field then also serves as the rise bound, with edit depth). */
-    private boolean gapReady() {
-        if (gapOn == null) gapOn = gapAware() && (riseAware() || linePlaces() > 0);
+    private boolean dropAware() {
+        return ticks && reach == null && extra && edits != null && edits.allowPlace
+                && edits.scaffoldSupply > 0 && edits.placeBudget >= 2 && goal.y < start.y - maxDrop;
+    }
+    private boolean riseFieldAware() {
+        if (gapOn == null) gapOn = riseAware() || dropAware() || (gapAware() && linePlaces() > 0);
         return gapOn;
     }
-    private boolean levelSupport(int x, int z, int gy) {
-        var below = baseCell(x, gy - 1, z);
-        var feet = baseCell(x, gy, z);
-        if (below == null || feet == null) return true;  // unknown: anything may stand there
-        return !boxes(below).isEmpty() || climbable(below) || !dry(below) || !boxes(feet).isEmpty() || climbable(feet);
+    private double riseRate() { return baritoneSearch ? COST_HEURISTIC : SPRINT; }
+    private boolean naturalSupport(int x, int y, int z) {
+        var below = baseCell(x, y - 1, z);
+        var feet = baseCell(x, y, z);
+        if (below == null || feet == null) return unknownPenalty > 0;
+        return !boxes(below).isEmpty() || climbable(below) || !dry(below)
+                || !boxes(feet).isEmpty() || climbable(feet) || !dry(feet);
     }
-    private double gapEstimate(Node node) {
-        if (Math.floor(node.y + EPS) != Math.floor(goal.y + EPS)) return 0;
-        if (gapCols == null) gapInit();
-        int i = node.x - riseX0, j = node.z - riseZ0;
-        int d = Math.min(depth.getOrDefault(node, 0), GAP_DEPTH);
-        return i < 0 || j < 0 || i >= riseW || j >= riseD ? 0 : gapCols[(i * riseD + j) * gapLayers + d];
-    }
-    static final int GAP_MARGIN = 24, GAP_MARGIN_MAX = 64, GAP_DEPTH = 6;  // gap field box; edit depths tracked exactly up to 6
-    private int gapLayers;
-    /** Places a straight walk from start to goal at goal height would need: the columns on the line without
-     *  support (the start's own excluded). 0: the field is skipped, its bound being 0 at best on such a line. */
     private int linePlaces() {
         int gy = (int) Math.floor(goal.y + EPS), steps = Math.max(Math.abs(goal.x - start.x), Math.abs(goal.z - start.z));
         int count = 0, lx = start.x, lz = start.z;
@@ -660,101 +598,246 @@ final class RoutePlanner {
             int z = (int) Math.round(start.z + (goal.z - start.z) * (double) t / steps);
             if (x == lx && z == lz) continue;
             lx = x; lz = z;
-            if (!levelSupport(x, z, gy)) count++;
+            if (!naturalSupport(x, gy, z)) count++;
         }
         return count;
     }
-    private void gapInit() {
-        // The box edge prices a detour out to it and back, so the box must be wide enough that the detour costs
-        // more than placing along the line: a 4-block bridge (~270 ticks) needs ~40 blocks of margin.
+    private static boolean lava(Map<String, Object> c) {
+        return c != null && String.valueOf(c.get("fluid")).contains("lava");
+    }
+    private boolean risePassable(int x, int y, int z) {
+        if (x == start.x && z == start.z && y == (int) Math.floor(start.y + EPS)) return true;
+        if (!edits.breakCosts.isEmpty()) return enterCost(x, y, z) < INF && enterCost(x, y + 1, z) < INF;
+        var c0 = baseCell(x, y, z);
+        var c1 = baseCell(x, y + 1, z);
+        if (c0 == null || c1 == null) return unknownPenalty > 0;
+        return !fullDry(c0) && !lava(c0) && !fullDry(c1) && !lava(c1);
+    }
+    private boolean canPlaceSupport(int x, int y, int z) {
+        if (!edits.allowPlace || edits.placeSupply <= 0 || edits.placeBudget <= 0) return false;
+        if (edits.protectedCells.contains(key(x, y - 1, z))) return false;
+        var below = baseCell(x, y - 1, z);
+        return below != null && empty(below) && !edits.protectedBlocks.contains(below.get("block"));
+    }
+    /** Smallest stack height k in 1..maxStack resting on sturdy below (x, y-1, z), or 0. */
+    private int stackDepth(int x, int y, int z) {
+        int limit = Math.min(edits.maxStack, Math.min(edits.placeBudget, edits.placeSupply));
+        for (int k = 1; k <= limit; k++) {
+            int py = y - k;
+            if (edits.protectedCells.contains(key(x, py, z))) return 0;
+            var c = baseCell(x, py, z);
+            if (c == null || !empty(c) || edits.protectedBlocks.contains(c.get("block"))) return 0;
+            var under = baseCell(x, py - 1, z);
+            if (under != null && sturdy(under)) return k;
+        }
+        return 0;
+    }
+    private double riseField(Node node) {
+        if (riseQueue == null) riseFieldInit();
+        int ny = (int) Math.floor(node.y + EPS);
+        long k = key(node.x, ny, node.z);
+        Double d = riseDistance.get(k);
+        while (d == null && !riseQueue.isEmpty() && riseDistance.size() < RISE_BUDGET) {
+            riseFieldSettle();
+            d = riseDistance.get(k);
+        }
+        if (d != null) return d;
+        boolean inside = node.x >= riseX0 && node.x <= riseX1 && node.z >= riseZ0 && node.z <= riseZ1
+                && ny >= riseY0 && ny <= riseY1;
+        if (inside && !riseQueue.isEmpty()) return riseQueue.peek()[0];
+        if (inside) return riseBoundaryMin < INF ? riseBoundaryMin : 1e6;
+        var clamp = new Node(Math.max(riseX0, Math.min(riseX1, node.x)),
+                Math.max(riseY0, Math.min(riseY1, ny)), Math.max(riseZ0, Math.min(riseZ1, node.z)));
+        int dx = Math.abs(clamp.x - node.x), dz = Math.abs(clamp.z - node.z);
+        double walk = riseRate() * (Math.max(dx, dz) + (SQRT2 - 1) * Math.min(dx, dz));
+        return Math.max(0, riseField(clamp) - walk);
+    }
+    private void riseFieldInit() {
+        riseQueue = new PriorityQueue<>((a, b) -> Double.compare(a[0], b[0]));
+        int sy = (int) Math.floor(start.y + EPS), gy = (int) Math.floor(goal.y + EPS);
+        riseX0 = Math.min(start.x, goal.x) - RISE_MARGIN_H; riseX1 = Math.max(start.x, goal.x) + RISE_MARGIN_H;
+        riseZ0 = Math.min(start.z, goal.z) - RISE_MARGIN_H; riseZ1 = Math.max(start.z, goal.z) + RISE_MARGIN_H;
+        riseY0 = Math.min(sy, gy) - RISE_MARGIN_V; riseY1 = Math.max(sy, gy) + RISE_MARGIN_V;
+        int r = (int) Math.ceil(radius);
+        for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) {
+            if (Math.hypot(dx, dz) > radius + EPS) continue;
+            int x = goal.x + dx, z = goal.z + dz;
+            if (x < riseX0 || x > riseX1 || z < riseZ0 || z > riseZ1 || gy < riseY0 || gy > riseY1) continue;
+            if (!risePassable(x, gy, z)) continue;
+            long k = key(x, gy, z);
+            riseTentative.put(k, 0.0);
+            riseEditCount.put(k, 0);
+            riseQueue.add(new double[]{0, x, gy, z});
+        }
+    }
+    private void riseRelax(int cx, int cy, int cz, double total, int editCount) {
+        if (cx < riseX0 || cx > riseX1 || cz < riseZ0 || cz > riseZ1 || cy < riseY0 || cy > riseY1) return;
+        long ck = key(cx, cy, cz);
+        if (riseDistance.containsKey(ck)) return;
+        if (total < riseTentative.getOrDefault(ck, INF)) {
+            riseTentative.put(ck, total);
+            riseEditCount.put(ck, editCount);
+            riseQueue.add(new double[]{total, cx, cy, cz});
+        }
+    }
+    private void riseFieldSettle() {
+        var entry = riseQueue.poll();
+        int x = (int) entry[1], y = (int) entry[2], z = (int) entry[3];
+        long k = key(x, y, z);
+        double v = entry[0];
+        if (riseDistance.putIfAbsent(k, v) != null) return;
+        if (x == riseX0 || x == riseX1 || z == riseZ0 || z == riseZ1 || y == riseY0 || y == riseY1)
+            riseBoundaryMin = Math.min(riseBoundaryMin, v);
+        int e = riseEditCount.getOrDefault(k, 0);
+        boolean supported = naturalSupport(x, y, z);
+        boolean canPlace = !supported && canPlaceSupport(x, y, z);
+        if (!supported && !canPlace) return;
         double rate = riseRate();
-        int onLine = linePlaces(), margin = GAP_MARGIN;
-        if (onLine > 0) {
-            double line = riseCost(onLine, 0) + BRIDGE_PLACE * onLine;
-            margin = Math.max(margin, Math.min(GAP_MARGIN_MAX, (int) Math.ceil(line / (2 * rate)) + 2));
-        }
-        if (riseAware()) margin = Math.max(margin, RISE_MARGIN);
-        riseGy = (int) Math.floor(goal.y + EPS);
-        riseX0 = Math.min(start.x, goal.x) - margin;
-        riseZ0 = Math.min(start.z, goal.z) - margin;
-        riseW = Math.min(Math.max(start.x, goal.x) + margin - riseX0 + 1, 160);
-        riseD = Math.min(Math.max(start.z, goal.z) + margin - riseZ0 + 1, 160);
-        int gy = riseGy, n = riseW * riseD, layers = GAP_DEPTH + 1;
-        gapLayers = layers;
-        // Two levels per column, each at edit depths 0..GAP_DEPTH (edits already on the route: each further edit
-        // pays EDIT_CHAIN per edit before it), searched back from the goal. L: standing at goal height over the
-        // column; B: below it. L to a neighbour's L walks, and places the neighbour's support where it has none
-        // (EDIT_STEP + PLACE, + BRIDGE_PLACE over nothing, + the chain); L drops to B free; B walks to B; B rises
-        // to L in its column by the places its floor is short (riseCost). The box edge costs the walk on to the goal.
-        // Depths past GAP_DEPTH count as GAP_DEPTH, which only lowers the chain: still a lower bound.
-        double minPlace = PLACE + (edits != null && edits.scaffoldSupply == 0 ? SOLID_PLACE : 0);
-        var place = new double[n];
-        var need = new int[n];
-        var level = new double[n * layers];
-        var below = new double[n * layers];
-        java.util.Arrays.fill(level, Double.POSITIVE_INFINITY);
-        java.util.Arrays.fill(below, Double.POSITIVE_INFINITY);
-        var queue = new PriorityQueue<double[]>((a, b) -> Double.compare(a[0], b[0]));
-        for (int i = 0; i < riseW; i++) for (int j = 0; j < riseD; j++) {
-            int x = riseX0 + i, z = riseZ0 + j, k = i * riseD + j;
-            if (levelSupport(x, z, gy)) place[k] = 0;
-            else {
-                var under = baseCell(x, gy - 2, z);
-                place[k] = EDIT_STEP + minPlace + (under != null && !sturdy(under) ? BRIDGE_PLACE : 0);
-            }
-            need[k] = riseNeed(x, z);
-            boolean edge = i == 0 || j == 0 || i == riseW - 1 || j == riseD - 1;
-            boolean goalCol = Math.hypot(x - goal.x, z - goal.z) <= radius + EPS;
-            // Beyond the edge anything may hold: from there only the walk on to the goal is certain.
-            double on = goalCol ? 0 : rate * Math.max(0, Math.hypot(x - goal.x, z - goal.z) - radius);
-            for (int d = 0; d < layers; d++) {
-                int s = k * layers + d;
-                if (goalCol || edge) { level[s] = on; queue.add(new double[]{on, s, 0}); }
-                if (edge) { below[s] = on; queue.add(new double[]{on, s, 1}); }
+        double minPlace = PLACE + (edits.scaffoldSupply == 0 ? SOLID_PLACE : 0);
+        double riseMove = Math.max(JUMP, WALK) + (baritoneSearch ? JUMP_PENALTY : 0);
+        boolean canBreak = !edits.breakCosts.isEmpty();
+        double digFeet = canBreak ? enterCost(x, y, z) : 0;
+        double digHead = canBreak ? enterCost(x, y + 1, z) : 0;
+        if (digFeet == INF || digHead == INF) return;
+        double horizPlace = INF, stepUpPlace = INF;
+        if (!supported && edits.stepEdits && canPlace) {
+            int sd = stackDepth(x, y, z);
+            if (edits.allowBridge) {
+                var under = baseCell(x, y - 2, z);
+                double bridge = under != null && !sturdy(under) ? BRIDGE_PLACE : 0;
+                horizPlace = EDIT_STEP + minPlace + bridge + EDIT_CHAIN * e;
+                // A step-up edit cannot bridge off c.below() (p.y == c.y, not c.y - 1): anchored() only
+                // succeeds via a sturdy floor within maxStack below, a full-cube side wall beside p,
+                // or a prior placement under p (which costs as much as pillar + level bridge when allowPillar).
+                boolean sideWall = false;
+                for (var d : DIRECTIONS) if (fullDry(baseCell(x + d[0], y - 1, z + d[1]))) { sideWall = true; break; }
+                if (sd > 0) stepUpPlace = EDIT_STEP + sd * minPlace + STACK_PLACE * (sd - 1) + EDIT_CHAIN * e;
+                else if (sideWall || !edits.allowPillar) stepUpPlace = horizPlace;
+            } else if (sd > 0) {
+                horizPlace = EDIT_STEP + sd * minPlace + STACK_PLACE * (sd - 1) + EDIT_CHAIN * e;
+                stepUpPlace = horizPlace;
             }
         }
-        while (!queue.isEmpty()) {
-            var q = queue.poll();
-            int s = (int) q[1], k = s / layers, d = s % layers; boolean low = q[2] == 1;
-            double v = q[0];
-            if (v > (low ? below[s] : level[s])) continue;
-            if (low) {  // B(k,d): L(k,d) drops into it
-                if (v < level[s]) { level[s] = v; queue.add(new double[]{v, s, 0}); }
-            } else {    // L(k,d): B(k,e) rises into it with e + need = d (or more, once clamped)
-                int up = need[k];
-                for (int e = 0; e < layers; e++) {
-                    if (Math.min(e + up, GAP_DEPTH) != d) continue;
-                    double r = v + riseCost(up, e);
-                    int t = k * layers + e;
-                    if (r < below[t]) { below[t] = r; queue.add(new double[]{r, t, 1}); }
+        // 1. Cardinal level (dy = 0) and step-up (c at y-1 -> s at y)
+        boolean unknownS = baseCell(x, y, z) == null || baseCell(x, y + 1, z) == null || baseCell(x, y - 1, z) == null;
+        double walkStep = unknownS && unknownPenalty > 0 ? unknownPenalty * WALK : rate;
+        double digBoth = digFeet + digHead;
+        for (var d : DIRECTIONS) {
+            int cx = x + d[0], cz = z + d[1];
+            if (risePassable(cx, y, cz)) {
+                if (supported) {
+                    boolean dig = digBoth > 0;
+                    double extraDig = dig ? EDIT_STEP + digBoth + EDIT_CHAIN * e : 0;
+                    riseRelax(cx, y, cz, v + walkStep + extraDig, e + (dig ? 1 : 0));
+                } else if (horizPlace < INF) {
+                    riseRelax(cx, y, cz, v + rate + horizPlace + digBoth, e + 1);
                 }
             }
-            int i = k / riseD, j = k % riseD;
-            for (int di = -1; di <= 1; di++) for (int dj = -1; dj <= 1; dj++) {
-                int a = i + di, b = j + dj;
-                if ((di == 0 && dj == 0) || a < 0 || b < 0 || a >= riseW || b >= riseD) continue;
-                int c = a * riseD + b;
-                double walk = rate * (di != 0 && dj != 0 ? SQRT2 : 1);
-                if (low || place[k] == 0) {  // same depth: a walk
-                    int t = c * layers + d;
-                    double w = v + walk;
-                    if (low ? w < below[t] : w < level[t]) {
-                        if (low) below[t] = w; else level[t] = w;
-                        queue.add(new double[]{w, t, low ? 1 : 0});
+            if (risePassable(cx, y - 1, cz)) {
+                if (supported) {
+                    boolean dig = digBoth > 0;
+                    double extraDig = dig ? EDIT_STEP + digBoth + EDIT_CHAIN * e : 0;
+                    double step = unknownS && unknownPenalty > 0 ? unknownPenalty * (WALK + JUMP) : (dig ? riseMove : rate);
+                    riseRelax(cx, y - 1, cz, v + step + extraDig, e + (dig ? 1 : 0));
+                } else if (stepUpPlace < INF) {
+                    riseRelax(cx, y - 1, cz, v + riseMove + stepUpPlace + digBoth, e + 1);
+                }
+            }
+        }
+        // 2. Diagonals (dy = 0, never place or dig)
+        if (diagonals && supported && digBoth == 0) {
+            for (var d : DIAGONALS) {
+                int cx = x + d[0], cz = z + d[1];
+                if (!risePassable(cx, y, cz)) continue;
+                boolean s1 = risePassable(x + d[0], y, z), s2 = risePassable(x, y, z + d[1]);
+                if (baritoneDiagonal ? (s1 || s2) : (s1 && s2))
+                    riseRelax(cx, y, cz, v + walkStep * SQRT2, e);
+            }
+        }
+        // 3. Gap jumps (dy = 0, land on natural support)
+        if (maxGap > 0 && supported && digBoth == 0 && !unknownS) {
+            for (var d : DIRECTIONS) for (int w = 1; w <= maxGap; w++) {
+                if (w > 1 && !sprint) continue;
+                int cx = x + d[0] * (w + 1), cz = z + d[1] * (w + 1);
+                if (risePassable(cx, y, cz)) riseRelax(cx, y, cz, v + WALK * (w + 1), e);
+            }
+        }
+        // 4. Vertical rise in same column: climb, swim, or pillar (c = (x, y-1, z) -> s = (x, y, z))
+        if (risePassable(x, y - 1, z)) {
+            var cBelow = baseCell(x, y - 1, z);
+            if (digHead == 0 && climb && climbable(cBelow))
+                riseRelax(x, y - 1, z, v + LADDER_UP, e);
+            else if (digHead == 0 && swim && cBelow != null && baseCell(x, y, z) != null
+                    && (!dry(cBelow) || !dry(baseCell(x, y, z))))
+                riseRelax(x, y - 1, z, v + SWIM, e);
+            else if (unknownPenalty > 0 && (cBelow == null || unknownS))
+                riseRelax(x, y - 1, z, v + unknownPenalty * (JUMP + WALK), e);
+            if (extra && edits.allowPillar && canPlace && digHead == 0) {
+                var h1 = baseCell(x, y + 1, z);
+                var h2 = baseCell(x, y + 2, z);
+                if (h1 != null && !fullDry(h1) && h2 != null && !fullDry(h2))
+                    riseRelax(x, y - 1, z, v + JUMP + JUMP_PENALTY + EDIT_STEP + minPlace + EDIT_CHAIN * e, e + 1);
+            }
+        }
+        // 5. Drops into supported s: cardinal step-down, water landing, climb-down, downward dig
+        if (supported) {
+            var sCell = baseCell(x, y, z);
+            boolean wetLanding = swim && sCell != null && dry(sCell) && water(baseCell(x, y - 1, z), true);
+            int dropCap = wetLanding ? LANDING_MAX : maxDrop;
+            for (int h = 1; h <= dropCap; h++) {
+                if (!canBreak && fullDry(baseCell(x, y + h + 1, z))) break;
+                double fall = unknownS && unknownPenalty > 0
+                        ? unknownPenalty * (WALK + fallTicks(h))
+                        : wetLanding && h > maxDrop
+                        ? WALK_OFF + fallTicks(h)
+                        : (h == 1 ? rate : WALK_OFF + Math.max(fallTicks(h), CENTER_AFTER_FALL) + hurt(h));
+                for (var d : DIRECTIONS) {
+                    int cx = x + d[0], cz = z + d[1];
+                    if (risePassable(cx, y + h, cz)) {
+                        if (h == 1 && digFeet > 0) {
+                            // descend edit breaks target column
+                            riseRelax(cx, y + 1, cz, v + heightCost(-1) + EDIT_STEP + digFeet + digHead + EDIT_CHAIN * e, e + 1);
+                        } else if (digBoth == 0) {
+                            riseRelax(cx, y + h, cz, v + fall, e);
+                        }
                     }
-                    continue;
                 }
-                // L(c,e) walks into k placing its support at depth e, reaching depth min(e+1, GAP_DEPTH) = d.
-                for (int e = Math.max(0, d - 1); e <= d; e++) {
-                    if (Math.min(e + 1, GAP_DEPTH) != d) continue;
-                    int t = c * layers + e;
-                    double w = v + walk + place[k] + EDIT_CHAIN * e;
-                    if (w < level[t]) { level[t] = w; queue.add(new double[]{w, t, 0}); }
+            }
+            if (risePassable(x, y + 1, z)) {
+                var above = baseCell(x, y + 1, z);
+                if (digFeet == 0 && climb && (climbable(sCell) || climbable(above)))
+                    riseRelax(x, y + 1, z, v + LADDER_DOWN, e);
+                else if (unknownPenalty > 0 && (sCell == null || above == null))
+                    riseRelax(x, y + 1, z, v + unknownPenalty * fallTicks(2) / 2, e);
+                if (extra && canBreak && digFeet > 0)
+                    riseRelax(x, y + 1, z, v + fallTicks(1) + EDIT_STEP + digFeet + EDIT_CHAIN * e, e + 1);
+            }
+            // 6. Reverse scaffold_drop: a column of empty unprotected air rising from supported floor s
+            // to a solid rim cell c beside the shaft top lets c drop scaffolding and sneak-descend to s.
+            if (extra && edits.allowPlace && edits.scaffoldSupply > 0 && edits.placeBudget >= 2
+                    && digBoth == 0 && (y < (int) Math.floor(start.y + EPS) || dropAware())
+                    && empty(sCell) && sturdy(baseCell(x, y - 1, z)) && !HAZARDS.contains(baseCell(x, y - 1, z).get("block"))) {
+                int maxDepth = Math.min(edits.scaffoldSupply, Math.min(edits.placeBudget, SCAFFOLD_DROP_MAX));
+                for (int depth = 1; depth <= maxDepth; depth++) {
+                    int py = y + depth - 1;
+                    if (py + 1 > riseY1) break;
+                    var pc = baseCell(x, py, z);
+                    if (!empty(pc) || edits.protectedCells.contains(key(x, py, z))
+                            || edits.protectedBlocks.contains(pc.get("block"))) break;
+                    if (depth < 2) continue;
+                    int rimY = py + 1;
+                    if (!empty(baseCell(x, rimY, z)) || !empty(baseCell(x, rimY + 1, z))) continue;
+                    if (hasBaseScaffoldNeighbour(x, py, z)) continue;
+                    double dropCost = rate + EDIT_STEP + PLACE * depth + STACK_PLACE * (depth - 1)
+                            + EDIT_CHAIN * e + depth * LADDER_DOWN;
+                    for (var d : DIRECTIONS) {
+                        int cx = x + d[0], cz = z + d[1];
+                        if (fullDry(baseCell(cx, rimY - 1, cz)) && risePassable(cx, rimY, cz))
+                            riseRelax(cx, rimY, cz, v + dropCost, e + 1);
+                    }
                 }
             }
         }
-        gapCols = level;
-        riseCols = below;
     }
 
     // --- dig-aware heuristic: a relaxed cell graph searched backward from the goal ---
@@ -1241,7 +1324,10 @@ final class RoutePlanner {
             addEdit(pillar(node), JUMP + JUMP_PENALTY, node, out);
         }
         for (var d : DIRECTIONS) {
-            if (edits != null) addEdit(descend(node, d), heightCost(-1), node, out);
+            if (edits != null) {
+                addEdit(descend(node, d), heightCost(-1), node, out);
+                addEdit(scaffoldDrop(node, d), flat() + (ticks ? LADDER_DOWN : 1.4), node, out);
+            }
             if (swim) landings(node, d, out);
         }
     }
@@ -1611,6 +1697,26 @@ final class RoutePlanner {
         return this;
     }
 
+    /** The scaffold_drop edit whose dropped column contains node (at target or descending straight down it). */
+    private Edit activeScaffoldDrop(Node node) {
+        if (edits == null) return null;
+        var edit = plans.get(node);
+        if (edit != null) return edit.kind.equals("scaffold_drop") ? edit : null;
+        for (Node cur = previous.get(node); cur != null && cur.x == node.x && cur.z == node.z; cur = previous.get(cur)) {
+            var prior = plans.get(cur);
+            if (prior != null) return prior.kind.equals("scaffold_drop") ? prior : null;
+        }
+        return null;
+    }
+
+    /** Overlay for a node being expanded: its own edit, or a dropped scaffold column it is descending. */
+    private Map<Long, Map<String, Object>> overlayFor(Node node) {
+        var edit = plans.get(node);
+        if (edit != null) return overlayOf(edit);
+        var drop = activeScaffoldDrop(node);
+        return drop != null ? overlayOf(drop) : null;
+    }
+
     /** Planned changes: broken cells (and the falling stack over them) become air, placed ones cubes. */
     private Map<Long, Map<String, Object>> overlayOf(Edit edit) {
         if (edit == null) return null;
@@ -1819,6 +1925,49 @@ final class RoutePlanner {
             return null;
         var places = List.of(new int[]{x, y, z});
         return new Edit(node, new Node(x, node.y + 1, z), List.of(), places, "pillar", scaffoldCells(places));
+    }
+
+    private boolean hasBaseScaffoldNeighbour(int x, int y, int z) {
+        for (var d : DIRECTIONS) if (scaffolding(baseCell(x + d[0], y, z + d[1]))) return true;
+        return false;
+    }
+    private boolean hasScaffoldNeighbour(int x, int y, int z) {
+        for (var d : DIRECTIONS) if (scaffolding(cell(x + d[0], y, z + d[1]))) return true;
+        return false;
+    }
+
+    /**
+     * Drop-scaffolding shaft column (ROADMAP B2a): from a solid rim cell, click the rim's side face
+     * repeatedly with scaffolding (distance 7 -> falls as FallingBlockEntity and stacks up from the
+     * shaft floor), then step onto the finished column to sneak-descend or bridge onward.
+     */
+    private Edit scaffoldDrop(Node node, int[] d) {
+        if (!edits.allowPlace || edits.scaffoldSupply < 2 || edits.placeBudget < 2) return null;
+        int x = node.x, y = (int) node.y, z = node.z, tx = x + d[0], tz = z + d[1];
+        if (!fullDry(cell(x, y - 1, z))) return null;
+        if (!empty(cell(tx, y, tz)) || !empty(cell(tx, y + 1, tz))) return null;
+        if (hasScaffoldNeighbour(tx, y - 1, tz)) return null;
+        int limit = Math.min(edits.scaffoldSupply, Math.min(edits.placeBudget, SCAFFOLD_DROP_MAX));
+        int cy = y - 1;
+        while (y - 1 - cy < limit && empty(cell(tx, cy, tz))) {
+            var c = cell(tx, cy, tz);
+            if (edits.protectedCells.contains(key(tx, cy, tz))
+                    || edits.protectedBlocks.contains(c.get("block"))) return null;
+            cy--;
+        }
+        int floorY = cy + 1, depth = y - floorY;
+        if (depth < 2) return null;
+        var floor = cell(tx, floorY - 1, tz);
+        if (!sturdy(floor) || HAZARDS.contains(floor.get("block"))) return null;
+        int baseDist = fullDry(floor) ? 0 : existingDistance(tx, floorY - 1, tz, Map.of(), 6);
+        if (baseDist > 6) return null;
+        var places = new ArrayList<int[]>(depth);
+        var scaffold = new ArrayList<int[]>(depth);
+        for (int py = floorY; py <= y - 1; py++) {
+            places.add(new int[]{tx, py, tz});
+            scaffold.add(new int[]{tx, py, tz, baseDist});
+        }
+        return new Edit(node, new Node(tx, node.y - 1, tz), List.of(), places, "scaffold_drop", scaffold);
     }
 
     private static double sq(double v) { return v * v; }
