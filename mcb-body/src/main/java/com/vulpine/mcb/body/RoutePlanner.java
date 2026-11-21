@@ -544,7 +544,7 @@ final class RoutePlanner {
         double direct = riseField(node);
         var drop = activeScaffoldDrop(node);
         if (drop != null) {
-            int floorY = drop.places.get(0)[1];
+            int floorY = drop.places.get(SCAFFOLD_DROP_CRANE)[1];
             if (node.y >= floorY)
                 return Math.min(direct, (node.y - floorY) * LADDER_DOWN + riseField(new Node(node.x, floorY, node.z)));
         }
@@ -558,7 +558,8 @@ final class RoutePlanner {
     // Dijkstra works like field(): it expands backward from the goal over passable cells (x, y, z), pricing
     // walking, climbing, dropping, pillaring, bridging/stacking, and scaffold_drop, settling only as far as
     // A* queries (no fixed box-edge leak).
-    static final int RISE_BUDGET = 60_000, RISE_MARGIN_H = 48, RISE_MARGIN_V = 16, SCAFFOLD_DROP_MAX = 32;
+    static final int RISE_BUDGET = 60_000, RISE_MARGIN_H = 48, RISE_MARGIN_V = 16,
+            SCAFFOLD_DROP_MAX = 32, SCAFFOLD_DROP_CRANE = 5;
     private PriorityQueue<double[]> riseQueue;  // {distance, x, y, z}
     private final Map<Long, Double> riseDistance = new HashMap<>();
     private final Map<Long, Double> riseTentative = new HashMap<>();
@@ -576,7 +577,8 @@ final class RoutePlanner {
     }
     private boolean dropAware() {
         return ticks && reach == null && extra && edits != null && edits.allowPlace
-                && edits.scaffoldSupply > 0 && edits.placeBudget >= 2 && goal.y < start.y - maxDrop;
+                && edits.scaffoldSupply >= SCAFFOLD_DROP_CRANE + 2
+                && edits.placeBudget >= SCAFFOLD_DROP_CRANE + 2 && goal.y < start.y - maxDrop;
     }
     private boolean riseFieldAware() {
         if (gapOn == null) gapOn = riseAware() || dropAware() || (gapAware() && linePlaces() > 0);
@@ -754,10 +756,11 @@ final class RoutePlanner {
                     riseRelax(cx, y, cz, v + walkStep * SQRT2, e);
             }
         }
-        // 3. Gap jumps (dy = 0, land on natural support)
+        // 3. Gap jumps (dy = 0, land on natural support; every crossed cell must be passable, never through a wall)
         if (maxGap > 0 && supported && digBoth == 0 && !unknownS) {
             for (var d : DIRECTIONS) for (int w = 1; w <= maxGap; w++) {
                 if (w > 1 && !sprint) continue;
+                if (!risePassable(x + d[0] * w, y, z + d[1] * w)) break;
                 int cx = x + d[0] * (w + 1), cz = z + d[1] * (w + 1);
                 if (risePassable(cx, y, cz)) riseRelax(cx, y, cz, v + WALK * (w + 1), e);
             }
@@ -813,26 +816,38 @@ final class RoutePlanner {
                     riseRelax(x, y + 1, z, v + fallTicks(1) + EDIT_STEP + digFeet + EDIT_CHAIN * e, e + 1);
             }
             // 6. Reverse scaffold_drop: a column of empty unprotected air rising from supported floor s
-            // to a solid rim cell c beside the shaft top lets c drop scaffolding and sneak-descend to s.
-            if (extra && edits.allowPlace && edits.scaffoldSupply > 0 && edits.placeBudget >= 2
+            // to a solid rim cell c beside the shaft top lets c build the 5-block overhang crane, drop
+            // scaffolding through its DOWN face (distance 7 -> falls & stacks), and sneak-descend to s.
+            if (extra && edits.allowPlace && edits.scaffoldSupply >= SCAFFOLD_DROP_CRANE + 2
+                    && edits.placeBudget >= SCAFFOLD_DROP_CRANE + 2
                     && digBoth == 0 && (y < (int) Math.floor(start.y + EPS) || dropAware())
                     && empty(sCell) && sturdy(baseCell(x, y - 1, z)) && !HAZARDS.contains(baseCell(x, y - 1, z).get("block"))) {
-                int maxDepth = Math.min(edits.scaffoldSupply, Math.min(edits.placeBudget, SCAFFOLD_DROP_MAX));
+                int maxDepth = Math.min(edits.scaffoldSupply - SCAFFOLD_DROP_CRANE,
+                        Math.min(edits.placeBudget - SCAFFOLD_DROP_CRANE, SCAFFOLD_DROP_MAX));
                 for (int depth = 1; depth <= maxDepth; depth++) {
                     int py = y + depth - 1;
-                    if (py + 1 > riseY1) break;
+                    if (py + 3 > riseY1) break;
                     var pc = baseCell(x, py, z);
                     if (!empty(pc) || edits.protectedCells.contains(key(x, py, z))
                             || edits.protectedBlocks.contains(pc.get("block"))) break;
                     if (depth < 2) continue;
                     int rimY = py + 1;
-                    if (!empty(baseCell(x, rimY, z)) || !empty(baseCell(x, rimY + 1, z))) continue;
-                    if (hasBaseScaffoldNeighbour(x, py, z)) continue;
-                    double dropCost = rate + EDIT_STEP + PLACE * depth + STACK_PLACE * (depth - 1)
-                            + EDIT_CHAIN * e + depth * LADDER_DOWN;
+                    if (!empty(baseCell(x, rimY, z)) || !empty(baseCell(x, rimY + 1, z))
+                            || !empty(baseCell(x, rimY + 2, z))) continue;
+                    if (edits.protectedCells.contains(key(x, rimY + 2, z))) continue;
+                    if (hasBaseScaffoldNeighbour(x, rimY + 1, z)) continue;
+                    int n = depth + SCAFFOLD_DROP_CRANE;
+                    double dropCost = rate + EDIT_STEP + PLACE * n + STACK_PLACE * (n - 1)
+                            + 2 * BRIDGE_PLACE + EDIT_CHAIN * e + depth * LADDER_DOWN;
                     for (var d : DIRECTIONS) {
-                        int cx = x + d[0], cz = z + d[1];
-                        if (fullDry(baseCell(cx, rimY - 1, cz)) && risePassable(cx, rimY, cz))
+                        int cx = x + d[0], cz = z + d[1], bx = cx + d[0], bz = cz + d[1];
+                        if (fullDry(baseCell(cx, rimY - 1, cz)) && fullDry(baseCell(bx, rimY - 1, bz))
+                                && risePassable(cx, rimY, cz)
+                                && empty(baseCell(cx, rimY + 2, cz))
+                                && !edits.protectedCells.contains(key(cx, rimY + 2, cz))
+                                && empty(baseCell(bx, rimY, bz)) && !edits.protectedCells.contains(key(bx, rimY, bz))
+                                && empty(baseCell(bx, rimY + 1, bz)) && !edits.protectedCells.contains(key(bx, rimY + 1, bz))
+                                && empty(baseCell(bx, rimY + 2, bz)) && !edits.protectedCells.contains(key(bx, rimY + 2, bz)))
                             riseRelax(cx, rimY, cz, v + dropCost, e + 1);
                     }
                 }
@@ -1937,17 +1952,34 @@ final class RoutePlanner {
     }
 
     /**
-     * Drop-scaffolding shaft column (ROADMAP B2a): from a solid rim cell, click the rim's side face
-     * repeatedly with scaffolding (distance 7 -> falls as FallingBlockEntity and stacks up from the
-     * shaft floor), then step onto the finished column to sneak-descend or bridge onward.
+     * Drop-scaffolding shaft column (ROADMAP B2a): in vanilla Minecraft, ScaffoldingBlockItem refuses
+     * clicking a non-scaffolding block when getDistance == 7, but sneak-clicking the DOWN face of an
+     * overhanging scaffolding block bypasses that check and spawns a distance-7 scaffolding block that
+     * falls as FallingBlockEntity and stacks up from the shaft floor. From solid rim cell (x,y,z) with
+     * solid backing cell (bx,y-1,bz), StepMotor places a 5-block overhang crane [(bx,y,bz)..(bx,y+2,bz),
+     * (x,y+2,z), (tx,y+2,tz)] and then sneak-clicks (tx,y+2,tz)'s DOWN face to drop the shaft column
+     * [(tx,floorY,tz)..(tx,y-1,tz)].
      */
     private Edit scaffoldDrop(Node node, int[] d) {
-        if (!edits.allowPlace || edits.scaffoldSupply < 2 || edits.placeBudget < 2) return null;
-        int x = node.x, y = (int) node.y, z = node.z, tx = x + d[0], tz = z + d[1];
-        if (!fullDry(cell(x, y - 1, z))) return null;
+        if (!edits.allowPlace || edits.scaffoldSupply < SCAFFOLD_DROP_CRANE + 2
+                || edits.placeBudget < SCAFFOLD_DROP_CRANE + 2) return null;
+        int x = node.x, y = (int) node.y, z = node.z;
+        int tx = x + d[0], tz = z + d[1], bx = x - d[0], bz = z - d[1];
+        if (!fullDry(cell(x, y - 1, z)) || !fullDry(cell(bx, y - 1, bz))) return null;
         if (!empty(cell(tx, y, tz)) || !empty(cell(tx, y + 1, tz))) return null;
-        if (hasScaffoldNeighbour(tx, y - 1, tz)) return null;
-        int limit = Math.min(edits.scaffoldSupply, Math.min(edits.placeBudget, SCAFFOLD_DROP_MAX));
+        // Drop spawn cell (tx, y + 1, tz) must have no horizontal scaffolding neighbour (else distance <= 6, hangs).
+        if (hasScaffoldNeighbour(tx, y + 1, tz)) return null;
+        int[][] crane = {
+                {bx, y, bz, 0}, {bx, y + 1, bz, 0}, {bx, y + 2, bz, 0},
+                {x, y + 2, z, 1}, {tx, y + 2, tz, 2}
+        };
+        for (var p : crane) {
+            var c = cell(p[0], p[1], p[2]);
+            if (!empty(c) || edits.protectedCells.contains(key(p[0], p[1], p[2]))
+                    || edits.protectedBlocks.contains(c.get("block"))) return null;
+        }
+        int limit = Math.min(edits.scaffoldSupply - SCAFFOLD_DROP_CRANE,
+                Math.min(edits.placeBudget - SCAFFOLD_DROP_CRANE, SCAFFOLD_DROP_MAX));
         int cy = y - 1;
         while (y - 1 - cy < limit && empty(cell(tx, cy, tz))) {
             var c = cell(tx, cy, tz);
@@ -1961,8 +1993,12 @@ final class RoutePlanner {
         if (!sturdy(floor) || HAZARDS.contains(floor.get("block"))) return null;
         int baseDist = fullDry(floor) ? 0 : existingDistance(tx, floorY - 1, tz, Map.of(), 6);
         if (baseDist > 6) return null;
-        var places = new ArrayList<int[]>(depth);
-        var scaffold = new ArrayList<int[]>(depth);
+        var places = new ArrayList<int[]>(SCAFFOLD_DROP_CRANE + depth);
+        var scaffold = new ArrayList<int[]>(SCAFFOLD_DROP_CRANE + depth);
+        for (var p : crane) {
+            places.add(new int[]{p[0], p[1], p[2]});
+            scaffold.add(p);
+        }
         for (int py = floorY; py <= y - 1; py++) {
             places.add(new int[]{tx, py, tz});
             scaffold.add(new int[]{tx, py, tz, baseDist});

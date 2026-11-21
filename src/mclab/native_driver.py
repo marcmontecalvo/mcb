@@ -6,7 +6,7 @@ tick. Python-side search here is a fallback/oracle, not the production planner
 import math
 import re
 import time
-from collections import Counter
+from collections import ChainMap, Counter
 from dataclasses import asdict
 
 from mclab import map_change, water_movement
@@ -795,11 +795,20 @@ def drive_native(client, controller, wall_timeout):
                     continue
                 confirmation_deadline = confirmation_deadline or time.monotonic() + 2
                 plan = active_step[1]
+                fresh = controller._fresh(observation["tick"])
+                # scaffold_drop's lower cells sit below the +-4 refresh box and settle
+                # many ticks before the top finishes; read them from fresh+known.
+                confirm_cells = (
+                    ChainMap(fresh, controller._known_cells())
+                    if plan.kind == "scaffold_drop"
+                    and hasattr(controller, "_known_cells")
+                    else fresh
+                )
                 if not confirm_step(
                     plan,
                     step_before,
                     observation,
-                    controller._fresh(observation["tick"]),
+                    confirm_cells,
                     report,
                 ):
                     if time.monotonic() > confirmation_deadline:

@@ -301,6 +301,8 @@ public final class RouteMotorTest {
         var sink=new RouteMotor("sink",List.of(new RouteMotor.Point(2,4,0),new RouteMotor.Point(3,3,0),new RouteMotor.Point(3,2,0)),policy);
         var walkOver=sink.tick(new RouteMotor.Pose(2.6,4,.5,0,0,-90,true,20),geometry(real));
         check(sink.active() && walkOver.forward()>0 && !walkOver.sneak(),"stepping onto a scaffolding top walks without sneak");
+        var rimHeel=sink.tick(new RouteMotor.Pose(3.25,4,.5,0,0,-90,true,20),geometry(real));
+        check(sink.active() && rimHeel.forward()>0 && !rimHeel.sneak(),"with heel still on the rim the body keeps walking before sneaking");
         var sinkIn=sink.tick(new RouteMotor.Pose(3.5,4,.5,0,0,-90,true,20),geometry(real));
         check(sink.active() && sinkIn.sneak() && sinkIn.forward()==0,"over the column top the body sneaks to sink in");
         // Climbing inside scaffolding must not finish below the plate (target.y - 0.5 drops back down).

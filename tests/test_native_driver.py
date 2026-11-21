@@ -1595,7 +1595,10 @@ def test_a_centring_the_motor_refuses_is_not_requested_again(monkeypatch):
 
 
 def test_confirm_step_accepts_scaffold_drop_column():
-    places = tuple((2, y, 0) for y in range(-10, 0))
+    from collections import ChainMap
+
+    crane = ((0, 0, 0), (0, 1, 0), (0, 2, 0), (1, 2, 0), (2, 2, 0))
+    places = crane + tuple((2, y, 0) for y in range(-10, 0))
     plan = StepPlan(
         (1, 0, 0),
         (2, -1, 0),
@@ -1609,26 +1612,31 @@ def test_confirm_step_accepts_scaffold_drop_column():
     }
     after = {
         "body": {
-            "inventory": [{"slot": 0, "item": "minecraft:scaffolding", "count": 6}],
+            "inventory": [{"slot": 0, "item": "minecraft:scaffolding", "count": 1}],
             "building_pickups": {},
         }
     }
-    fresh = {
-        p: {
-            "block": "minecraft:scaffolding",
-            "fluid": "minecraft:empty",
-            "collision_boxes": [],
-        }
-        for p in places
+    scaff = {
+        "block": "minecraft:scaffolding",
+        "fluid": "minecraft:empty",
+        "collision_boxes": [],
     }
+    # Lower shaft cells (below +-4 near-body refresh) live in known cells, not fresh.
+    fresh = {p: scaff for p in places if p[1] >= -4}
+    known = {p: scaff for p in places}
     report = {
         "broken_positions": [],
         "placed_positions": [
             {"position": list(p), "item": "minecraft:scaffolding"} for p in places
         ],
     }
-    assert native_driver.confirm_step(plan, before, after, fresh, report)
-    # Missing one block in fresh geometry is not yet confirmed.
-    incomplete = dict(fresh)
+    assert not native_driver.confirm_step(plan, before, after, fresh, report)
+    assert native_driver.confirm_step(
+        plan, before, after, ChainMap(fresh, known), report
+    )
+    # Missing one block in known geometry is not yet confirmed.
+    incomplete = dict(known)
     incomplete[(2, -10, 0)] = {"block": "minecraft:air", "collision_boxes": []}
-    assert not native_driver.confirm_step(plan, before, after, incomplete, report)
+    assert not native_driver.confirm_step(
+        plan, before, after, ChainMap(fresh, incomplete), report
+    )

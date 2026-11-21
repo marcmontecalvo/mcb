@@ -198,14 +198,28 @@ final class StepMotor {
                     || places.size()!=1 || !point(places.get(0).getAsJsonArray()).equals(source))
                 throw new IllegalArgumentException("native_pillar_plan");
         } else if (scaffoldDrop) {
-            // Drop-scaffolding column (ROADMAP B2a): contiguous vertical scaffolding column
-            // in the adjacent shaft from floorY up to target.y (= source.y - 1), placed by clicking the rim face.
+            // Drop-scaffolding shaft column (ROADMAP B2a): 5-block overhang crane
+            // [(bx,y,bz)..(bx,y+2,bz), (x,y+2,z), (tx,y+2,tz)] plus contiguous vertical
+            // shaft column [(tx,floorY,tz)..(tx,y-1,tz)] dropped from (tx,y+2,tz)'s DOWN face.
+            int crane = RoutePlanner.SCAFFOLD_DROP_CRANE;
             if (horizontal!=1 || rise!=-1 || breaks.size()!=0
-                    || places.size()<2 || places.size()>RoutePlanner.SCAFFOLD_DROP_MAX)
+                    || places.size()<crane+2 || places.size()>crane+RoutePlanner.SCAFFOLD_DROP_MAX)
                 throw new IllegalArgumentException("native_scaffold_drop_plan");
-            int floorY=source.getY()-places.size();
-            for (int i=0;i<places.size();i++) {
+            int sdx=target.getX()-source.getX(), sdz=target.getZ()-source.getZ();
+            int bx=source.getX()-sdx, bz=source.getZ()-sdz, y=source.getY();
+            BlockPos[] expectedCrane = {
+                    new BlockPos(bx,y,bz), new BlockPos(bx,y+1,bz), new BlockPos(bx,y+2,bz),
+                    new BlockPos(source.getX(),y+2,source.getZ()),
+                    new BlockPos(target.getX(),y+2,target.getZ())
+            };
+            for (int i=0;i<crane;i++) {
                 var p=point(places.get(i).getAsJsonArray());
+                if (!p.equals(expectedCrane[i]) || !scaffoldCells.contains(p))
+                    throw new IllegalArgumentException("native_scaffold_drop_plan");
+            }
+            int depth=places.size()-crane, floorY=y-depth;
+            for (int i=0;i<depth;i++) {
+                var p=point(places.get(crane+i).getAsJsonArray());
                 if (p.getX()!=target.getX() || p.getZ()!=target.getZ() || p.getY()!=floorY+i || !scaffoldCells.contains(p))
                     throw new IllegalArgumentException("native_scaffold_drop_plan");
             }
@@ -217,8 +231,12 @@ final class StepMotor {
         if (operations.isEmpty()) throw new IllegalArgumentException("native_step_requires_edits");
         int extraDrop=0;
         if (scaffoldDrop) {
-            for (var o:operations)
-                extraDrop+=(int)Math.ceil(RoutePlanner.fallTicks(Math.max(0,(source.getY()-1)-o.point.getY())))+12;
+            for (int i=0;i<operations.size();i++) {
+                var o=operations.get(i);
+                extraDrop+=i<RoutePlanner.SCAFFOLD_DROP_CRANE
+                        ? 15
+                        : (int)Math.ceil(RoutePlanner.fallTicks(Math.max(0,(source.getY()+1)-o.point.getY())))+15;
+            }
         }
         dropExtraTicks=extraDrop;
         // No solid block allowed: every placed cell must be one the planner made scaffolding
@@ -481,7 +499,9 @@ final class StepMotor {
         } else if(!empty(cell)) settleUntil=-1;
         boolean complete=op.place
                 ? (scaffoldDrop
-                        ? (settledScaffold(cell) && !fallingNear(p,op.point,Math.max(16,source.getY()-op.point.getY()+2)))
+                        ? (index<RoutePlanner.SCAFFOLD_DROP_CRANE
+                                ? scaffolding(cell)
+                                : (settledScaffold(cell) && !fallingNear(p,op.point,Math.max(16,(source.getY()+2)-op.point.getY()+2))))
                         : (scaffoldCells.contains(op.point)?scaffolding(cell):cube(cell)))
                 : empty(cell);
         if(complete) {
@@ -490,14 +510,15 @@ final class StepMotor {
                 placed.put(op.point,placedItem);
             } else if(issuedBreaks.contains(op.point)) broken.add(op.point);
             index++; issued=false; placedItem=""; issueTick=-1; approachTick=-1; approachProgress=0;
-            return input(tick,0,0,0,false,scaffoldDrop && !inScaffold(reader),false,false,scaffoldDrop?lastSelected:0);
+            return input(tick,0,0,0,false,scaffoldDrop && index>=3 && !inScaffold(reader),false,false,scaffoldDrop?lastSelected:0);
         }
         if(issued && op.place) {
-            int waitLimit=scaffoldDrop
-                    ? Math.max(25,(int)Math.ceil(RoutePlanner.fallTicks(Math.max(0,(source.getY()-1)-op.point.getY())))+20)
+            int waitLimit=scaffoldDrop && index>=RoutePlanner.SCAFFOLD_DROP_CRANE
+                    ? Math.max(25,(int)Math.ceil(RoutePlanner.fallTicks(Math.max(0,(source.getY()+1)-op.point.getY())))+20)
                     : 15;
             if(tick-issueTick>waitLimit) return stopInput(tick,"native_placement_not_observed");
-            return input(tick,0,0,0,false,!pillar && !inScaffold(reader),false,false,scaffoldDrop?lastSelected:0);
+            boolean waitSneak=scaffoldDrop ? (index>=3 && !inScaffold(reader)) : (!pillar && !inScaffold(reader));
+            return input(tick,0,0,0,false,waitSneak,false,false,scaffoldDrop?lastSelected:0);
         }
         // In a scaffolding cell (a hanging one's bottom plate, or a column's lower top) the body stands as on a floor.
         boolean sourceOk=geometry.standable(new RouteMotor.Point(source.getX(),source.getY(),source.getZ()))
@@ -552,6 +573,73 @@ final class StepMotor {
             }
             if(stock<=(scaffold?0:reserve)) return stopInput(tick,"native_material_reserve");
             if(selected>=9) selected=BodyActions.toHotbar(p,selected,-1);
+            boolean sneakOk=!inScaffold(reader);
+            if(scaffoldDrop) {
+                // 5-block overhang crane + DOWN-face drop (ROADMAP B2a):
+                // 0: (bx,y,bz) on (bx,y-1,bz) UP; 1..2: plain side-click (bx,y..y+1,bz) to stack up;
+                // 3: sneak side-click (bx,y+2,bz) to extend to (x,y+2,z);
+                // 4: sneak at rim, side-click (x,y+2,z) to extend to (tx,y+2,tz);
+                // 5..n-1: sneak at rim, DOWN-click (tx,y+2,tz) to spawn distance=7 falling scaffolding.
+                int sdx=target.getX()-source.getX(), sdz=target.getZ()-source.getZ();
+                int bx=source.getX()-sdx, bz=source.getZ()-sdz;
+                double sProgress=(p.getX()-source.getX()-.5)*sdx+(p.getZ()-source.getZ()-.5)*sdz;
+                String sideFace=sdx==1?"EAST":sdx==-1?"WEST":sdz==1?"SOUTH":"NORTH";
+                directReplace=false; stackOnScaffold=false; lastSelected=Math.max(0,selected);
+                if(!cube(read(reader,source.below())) || !cube(read(reader,new BlockPos(bx,source.getY()-1,bz))))
+                    return stopInput(tick,"native_placement_anchor_changed");
+                if(index==0) {
+                    expected=new BlockPos(bx,source.getY()-1,bz);
+                    face="UP";
+                    aim=new Vec3(bx+.5,source.getY()-.001,bz+.5);
+                } else if(index==1 || index==2) {
+                    var anchor=new BlockPos(bx,source.getY()+(index==1?0:1),bz);
+                    if(!scaffolding(read(reader,anchor))) return stopInput(tick,"native_placement_anchor_changed");
+                    expected=anchor; face=sideFace;
+                    aim=new Vec3(bx+.5+sdx*.499,anchor.getY()+.5,bz+.5+sdz*.499);
+                } else if(index==3) {
+                    var anchor=new BlockPos(bx,source.getY()+2,bz);
+                    if(!scaffolding(read(reader,anchor))) return stopInput(tick,"native_placement_anchor_changed");
+                    expected=anchor; face=sideFace;
+                    aim=new Vec3(bx+.5+sdx*.499,anchor.getY()+.5,bz+.5+sdz*.499);
+                } else if(index==4) {
+                    var anchor=new BlockPos(source.getX(),source.getY()+2,source.getZ());
+                    if(!scaffolding(read(reader,anchor))) return stopInput(tick,"native_placement_anchor_changed");
+                    expected=anchor; face=sideFace;
+                    aim=new Vec3(source.getX()+.5+sdx*.499,anchor.getY()+.35,source.getZ()+.5+sdz*.499);
+                } else {
+                    var overhang=new BlockPos(target.getX(),source.getY()+2,target.getZ());
+                    if(!scaffolding(read(reader,overhang)) || !sturdy(read(reader,op.point.below())))
+                        return stopInput(tick,"native_placement_anchor_changed");
+                    var dropCell=new BlockPos(target.getX(),source.getY()+1,target.getZ());
+                    var dropState=read(reader,dropCell);
+                    if(dropState==null) return stopInput(tick,"native_edit_geometry_unknown");
+                    if(!empty(dropState) && !replaceableCover(dropState)) return stopInput(tick,"native_placement_not_empty");
+                    for(var d:List.of(net.minecraft.core.Direction.NORTH,net.minecraft.core.Direction.SOUTH,
+                            net.minecraft.core.Direction.EAST,net.minecraft.core.Direction.WEST))
+                        if(scaffolding(read(reader,dropCell.relative(d))))
+                            return stopInput(tick,"native_scaffold_redirect");
+                    expected=overhang; face="DOWN";
+                    aim=new Vec3(target.getX()+.5,overhang.getY()+.001,target.getZ()+.5);
+                }
+                if(index<4) {
+                    if(sProgress<-.1 || sProgress>.35) {
+                        double gx=source.getX()+.5+sdx*.1, gz=source.getZ()+.5+sdz*.1;
+                        double turn=wrap(Math.toDegrees(Math.atan2(-(gx-p.getX()),gz-p.getZ()))-p.getYRot());
+                        return input(tick,Math.abs(turn)<8?.5:0,Math.max(-45,Math.min(45,turn)),0,false,sneakOk,false,false,lastSelected);
+                    }
+                    sneak=(index==3) && sneakOk;
+                } else {
+                    if(sProgress<.65) {
+                        if(sProgress>approachProgress+.02) { approachProgress=sProgress; approachTick=tick; }
+                        else if(approachTick<0) approachTick=tick;
+                        if(!issued && tick-approachTick>60) return stopInput(tick,"native_placement_no_progress");
+                        double ax=source.getX()+.5+sdx*.75-p.getX(), az=source.getZ()+.5+sdz*.75-p.getZ();
+                        double turn=wrap(Math.toDegrees(Math.atan2(-ax,az))-p.getYRot());
+                        return input(tick,Math.abs(turn)<8?1:0,Math.max(-45,Math.min(45,turn)),0,false,sneakOk,false,false,lastSelected);
+                    }
+                    sneak=sneakOk;
+                }
+            } else {
             expected=op.point.below(); face="UP";
             int dx=op.point.getX()-source.getX(),dz=op.point.getZ()-source.getZ();
             double progress=(p.getX()-source.getX()-.5)*dx+(p.getZ()-source.getZ()-.5)*dz;
@@ -571,28 +659,7 @@ final class StepMotor {
             if(stackOnScaffold && !pillar && sourceScaffold)
                 return stopInput(tick,"native_scaffold_redirect");
             BlockPos side=null;
-            if(scaffoldDrop) {
-                // Click the rim block's side face while sneaking at the edge: scaffolding spawns at
-                // (target.x, source.y - 1, target.z) with distance 7, falls, and stacks up from the floor.
-                directReplace=false;
-                if(!cube(read(reader,source.below())) || !sturdy(read(reader,op.point.below())))
-                    return stopInput(tick,"native_placement_anchor_changed");
-                var dropCell=new BlockPos(target.getX(),source.getY()-1,target.getZ());
-                if(!op.point.equals(dropCell)) {
-                    var dropState=read(reader,dropCell);
-                    if(dropState==null) return stopInput(tick,"native_edit_geometry_unknown");
-                    if(!empty(dropState) && !replaceableCover(dropState)) return stopInput(tick,"native_placement_not_empty");
-                }
-                for(var d:List.of(net.minecraft.core.Direction.NORTH,net.minecraft.core.Direction.SOUTH,
-                        net.minecraft.core.Direction.EAST,net.minecraft.core.Direction.WEST))
-                    if(scaffolding(read(reader,dropCell.relative(d))))
-                        return stopInput(tick,"native_scaffold_redirect");
-                expected=source.below();
-                face=dx==1?"EAST":dx==-1?"WEST":dz==1?"SOUTH":"NORTH";
-                aim=new Vec3(source.getX()+.5+dx*.499,source.getY()-.5,source.getZ()+.5+dz*.499);
-                stackOnScaffold=false;
-                lastSelected=Math.max(0,selected);
-            } else if(bridgeOnScaffold) {
+            if(bridgeOnScaffold) {
                 // Off a scaffolding floor: click its top face, not sneaking; the item extends sideways the way the body faces.
                 expected=source.below(); face="UP"; redirect=true;
                 var directed=redirectAim(source,p.getEyePosition(),dx,dz);
@@ -624,7 +691,6 @@ final class StepMotor {
             // vanilla edge clamp keeps the body on the block. 0.3 input on top cost
             // ~30 ticks per placement (Step C run 20261030T023556227338Z: median 39).
             // Sneaking on scaffolding drops the body through it: never sneak on a scaffolding floor.
-            boolean sneakOk=!inScaffold(reader);
             boolean approach=!pillar && !redirect && side==null && op.point.getY()<source.getY() && hor==1;
             if(approach && progress<.6) {
                 // The sneak edge clamp pins the centre at the support's rim, so a
@@ -644,6 +710,7 @@ final class StepMotor {
                 return input(tick,Math.abs(turn)<8?1:0,Math.max(-45,Math.min(45,turn)),0,false,sneakOk,false,false,Math.max(0,selected));
             }
             sneak=approach && sneakOk;
+            }
         }
         if(selected<0) return stopInput(tick,"native_hotbar_supply_missing");
         Vec3 eye=p.getEyePosition();

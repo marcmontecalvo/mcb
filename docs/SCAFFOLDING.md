@@ -122,10 +122,13 @@ The geometry is pure (`src/mclab/scaffold_challenges.py`). Tests check:
   clear to feet+3, as `RoutePlanner.planEdit` and StepMotor need). A roof at y=3 kept the
   bot on the pad in the first live run (20261120T173256582204Z).
 
-`descend` asks for what the planner cannot do yet: scaffolding placed over a shaft falls and
-stacks up from the floor, and the bot has no edit for that (it hangs a bridge out and stops;
-first live run: 3 placed, search cap toward the floor). It stays a course: it is the test for
-that work (ROADMAP B2a).
+`descend` exercises drop-scaffolding descent (`scaffold_drop`, ROADMAP B2a): in vanilla
+Minecraft `ScaffoldingBlockItem` refuses clicking a non-scaffolding rim block when
+`getDistance == 7`, so `RoutePlanner` and `StepMotor` place a 5-block overhang crane behind
+and over the rim (`(bx,y..y+2,bz)`, `(x,y+2,z)`, `(tx,y+2,tz)`) and sneak-click the
+overhang's `DOWN` face to spawn distance-7 scaffolding blocks that fall and stack up from
+the shaft floor (15 scaffolding total for the 10-deep shaft), then climb straight down
+inside the column with zero damage.
 
 The kit is scaffolding alone (it breaks by hand; a pickaxe would dig out of a pit or quarry
 stone to pillar with). Any changed course cell fails an attempt. A bridge course also needs

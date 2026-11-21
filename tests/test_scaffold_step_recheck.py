@@ -62,7 +62,8 @@ def test_the_reserve_holds_back_solid_blocks_not_scaffolding():
 
 def test_scaffold_drop_is_a_native_edit_and_validates_shaft_geometry():
     assert "scaffold_drop" in NATIVE_EDIT_KINDS
-    places = tuple((2, y, 0) for y in range(-10, 0))
+    crane = ((0, 0, 0), (0, 1, 0), (0, 2, 0), (1, 2, 0), (2, 2, 0))
+    places = crane + tuple((2, y, 0) for y in range(-10, 0))
     plan = StepPlan(
         (1, 0, 0),
         (2, -1, 0),
@@ -72,6 +73,7 @@ def test_scaffold_drop_is_a_native_edit_and_validates_shaft_geometry():
     )
     assert isinstance(executor_for(plan, POLICY), NativeEdit)
     shaft = {
+        (0, -1, 0): STONE,
         (1, -1, 0): STONE,
         (1, 0, 0): AIR,
         (1, 1, 0): AIR,
@@ -83,25 +85,27 @@ def test_scaffold_drop_is_a_native_edit_and_validates_shaft_geometry():
     supported = lambda c, p: p == (1, 0, 0)  # noqa: E731
     assert native_edit_matches(plan, shaft, supported)
     assert scaffold_step_matches(plan, shaft, POLICY, SCAFFOLD)
-    # Insufficient scaffolding fails inventory check.
-    short = [{"slot": 0, "item": "minecraft:scaffolding", "count": 9}]
+    # Insufficient scaffolding fails inventory check (needs 5 crane + 10 shaft = 15).
+    short = [{"slot": 0, "item": "minecraft:scaffolding", "count": 14}]
     assert not scaffold_step_matches(plan, shaft, POLICY, short)
-    # Horizontal scaffolding beside rim drop cell would bridge instead of falling.
+    # Scaffolding beside drop spawn cell (tx, y+1, tz) hangs instead of falling.
     side_scaff = {
         **shaft,
-        (2, -1, 1): {"block": "minecraft:scaffolding", "collision_boxes": []},
+        (2, 1, 1): {"block": "minecraft:scaffolding", "collision_boxes": []},
     }
     assert not native_edit_matches(plan, side_scaff, supported)
-    # Non-solid rim floor fails.
+    # Non-solid rim floor or backing floor fails.
     scaff_rim = {
         **shaft,
         (1, -1, 0): {"block": "minecraft:scaffolding", "collision_boxes": []},
     }
     assert not native_edit_matches(plan, scaff_rim, supported)
-    # Blocked cell inside shaft fails.
+    assert not native_edit_matches(plan, {**shaft, (0, -1, 0): AIR}, supported)
+    # Blocked cell inside shaft or crane fails.
     assert not native_edit_matches(plan, {**shaft, (2, -5, 0): STONE}, supported)
+    assert not native_edit_matches(plan, {**shaft, (1, 2, 0): STONE}, supported)
     # Stacking onto existing scaffolding at shaft bottom is valid.
-    partial_places = tuple((2, y, 0) for y in range(-7, 0))
+    partial_places = crane + tuple((2, y, 0) for y in range(-7, 0))
     partial = StepPlan(
         (1, 0, 0),
         (2, -1, 0),

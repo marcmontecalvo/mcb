@@ -868,21 +868,42 @@ check(down.status().equals("reached") && down.steps().isEmpty()
         check(descended.status().equals("reached") && descended.expanded() < 150,
                 "descend challenge plans scaffold_drop and climbs down: " + descended.status() + " expanded=" + descended.expanded());
         check(descended.steps().size() == 1 && descended.steps().get(0).kind().equals("scaffold_drop")
-                && descended.steps().get(0).places().size() == 10 && allScaffold(descended).isEmpty(),
-                "descend emits one 10-block scaffold_drop: " + descended.steps());
+                && descended.steps().get(0).places().size() == RoutePlanner.SCAFFOLD_DROP_CRANE + 10
+                && allScaffold(descended).isEmpty(),
+                "descend emits one 15-block crane+shaft scaffold_drop: " + descended.steps());
         check(descended.route().stream().anyMatch(n -> n.x() == 2 && n.y() == -9 && n.z() == 0),
                 "descend route climbs down the dropped column to the shaft floor: " + descended.route());
 
-        // 6. scaffold_drop must not fire when a horizontal neighbour of the rim drop cell is scaffolding
-        // (clicking the rim would hang at distance <= 6 instead of falling).
+        // 6. scaffold_drop must not fire when a horizontal neighbour of the overhang drop cell (tx, y+1, tz) is scaffolding
+        // (clicking the overhang DOWN face would hang at distance <= 6 instead of falling).
         var sideScaff = new HashMap<>(shaft);
-        sideScaff.put(new Key(2, 0, 1), scaffold());
-        sideScaff.put(new Key(2, 0, -1), scaffold());
+        sideScaff.put(new Key(2, 2, 1), scaffold());
+        sideScaff.put(new Key(2, 2, -1), scaffold());
         var blockedDrop = new RoutePlanner((x, y, z) -> sideScaff.get(new Key(x, y, z)), new RoutePlanner.Node(1, 1, 0),
                 new RoutePlanner.Node(2, 1, 0), 0, 3, true).withPolicy(true, true, true, true, true, 1)
                 .withMoves(false, true).withEdits(climbPol).search(500);
         check(blockedDrop.steps().stream().noneMatch(e -> e.kind().equals("scaffold_drop")),
-                "no scaffold_drop when rim drop cell borders scaffolding");
+                "no scaffold_drop when overhang drop cell borders scaffolding");
+
+        // 7. descend on a floating slab over an ocean with maxGap=2 and unknownPenalty=2:
+        // riseField's gap-jump branch must not jump through the 1-block-thick shaft wall into the ocean.
+        var slab = new HashMap<Key, Map<String, Object>>();
+        for (int x = -20; x <= 20; x++) for (int z = -20; z <= 20; z++) for (int y = 55; y <= 90; y++) {
+            boolean hole = x >= 2 && x <= 4 && z >= -1 && z <= 1 && y >= 70 && y <= 79;
+            boolean shaftWall = x >= 1 && x <= 5 && z >= -2 && z <= 2 && y >= 69 && y <= 79 && !hole;
+            boolean plat = x >= -7 && x <= 7 && z >= -7 && z <= 7 && y == 79 && !hole;
+            if (y <= 57 || shaftWall || plat) slab.put(new Key(x, y, z), stone());
+            else if (y <= 62) slab.put(new Key(x, y, z), water());
+            else slab.put(new Key(x, y, z), air());
+        }
+        var slabDescend = new RoutePlanner((x, y, z) -> slab.get(new Key(x, y, z)), new RoutePlanner.Node(0, 80, 0),
+                new RoutePlanner.Node(3, 70, 0), 0.4, 3, true, 2.0)
+                .withPolicy(true, true, true, true, true, 1)
+                .withMoves(true, true).withGaps(2).withEdits(climbPol).search(4000);
+        check(slabDescend.status().equals("reached") && slabDescend.expanded() < 50
+                && slabDescend.steps().size() == 1 && slabDescend.steps().get(0).kind().equals("scaffold_drop"),
+                "floating-slab descend over ocean does not jump through shaft wall: "
+                        + slabDescend.status() + " expanded=" + slabDescend.expanded());
     }
 
     // Break cost of stone: 8 ticks with an iron pickaxe + 2 extra + 6 aim.

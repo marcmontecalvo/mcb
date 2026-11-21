@@ -6,7 +6,7 @@ geometry before moving and never substitutes unconditional goal-directed digging
 
 import math
 import time
-from collections import deque
+from collections import ChainMap, deque
 from dataclasses import replace
 
 from mclab import body_search, collision_geometry, map_change, water_movement
@@ -67,18 +67,32 @@ def native_edit_matches(plan, cells, supported):
     if not supported(cells, plan.source):
         return False
     if plan.kind == "scaffold_drop":
+        crane_n = 5
         n = len(plan.places)
+        dx, dz = tx - x, tz - z
+        bx, bz = x - dx, z - dz
         if (
             plan.breaks
-            or not (2 <= n <= 32)
-            or abs(tx - x) + abs(tz - z) != 1
+            or not (crane_n + 2 <= n <= crane_n + 32)
+            or abs(dx) + abs(dz) != 1
             or ty != y - 1
             or set(plan.scaffold) != set(plan.places)
             or not full_cube(cells.get((x, y - 1, z)))
+            or not full_cube(cells.get((bx, y - 1, bz)))
         ):
             return False
-        floor_y = y - n
-        if tuple(plan.places) != tuple((tx, floor_y + i, tz) for i in range(n)):
+        depth = n - crane_n
+        floor_y = y - depth
+        expected = (
+            (bx, y, bz),
+            (bx, y + 1, bz),
+            (bx, y + 2, bz),
+            (x, y + 2, z),
+            (tx, y + 2, tz),
+        ) + tuple((tx, floor_y + i, tz) for i in range(depth))
+        if tuple(plan.places) != expected:
+            return False
+        if not (empty(cells.get((tx, y, tz))) and empty(cells.get((tx, y + 1, tz)))):
             return False
         floor = cells.get((tx, floor_y - 1, tz))
         if not (
@@ -91,9 +105,9 @@ def native_edit_matches(plan, cells, supported):
         ):
             return False
         if any(
-            (cells.get((tx + dx, y - 1, tz + dz)) or {}).get("block")
+            (cells.get((tx + ox, y + 1, tz + oz)) or {}).get("block")
             == "minecraft:scaffolding"
-            for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))
+            for ox, oz in ((1, 0), (-1, 0), (0, 1), (0, -1))
         ):
             return False
         return all(empty(cells.get(p)) for p in plan.places)
@@ -968,11 +982,20 @@ class SegmentedController(NavigationController):
         fresh = self._fresh(observation["tick"])
         valid = node == plan.source
         if valid and plan.kind in NATIVE_EDIT_KINDS:
-            valid = native_edit_matches(plan, fresh, self._node_supported)
+            # scaffold_drop spans cells below the +-4 near-body refresh box:
+            # verify the rim on fresh geometry and the full shaft against known+fresh.
+            if plan.kind == "scaffold_drop":
+                cells = ChainMap(fresh, self._known_cells())
+                valid = self._node_supported(
+                    fresh, plan.source
+                ) and native_edit_matches(plan, cells, self._node_supported)
+            else:
+                cells = fresh
+                valid = native_edit_matches(plan, fresh, self._node_supported)
             if valid and plan.scaffold:
                 valid = scaffold_step_matches(
                     plan,
-                    fresh,
+                    cells,
                     self.terrain_queue_policy,
                     observation["body"].get("inventory", []),
                     protected=self.own_footholds,
