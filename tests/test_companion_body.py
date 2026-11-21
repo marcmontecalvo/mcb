@@ -1727,6 +1727,27 @@ def test_a_build_carrying_scaffolding_climbs_on_scaffolding_only(monkeypatch):
     assert b.temporary_items() == [] and b.temporary_items(scaffolding=False) == []
 
 
+def test_a_prop_may_be_a_solid_block_while_the_build_steps_on_scaffolding_only(
+    monkeypatch,
+):
+    # Run 20261121T222050257793Z: two hoppers facing each other each need a block
+    # to click against. Scaffolding with a rail under it does not place, and under
+    # scaffold_only the dirt held was no temporary, so both were skipped. A prop is
+    # put down and taken back in the same placement: nothing is left behind.
+    from mclab import temporary_blocks as tb
+    from mclab.companion_jobs import load_vanilla_pack
+
+    b, _, _ = body()
+    held = {"minecraft:scaffolding": 64, "minecraft:dirt": 2}
+    monkeypatch.setattr(b, "inventory", lambda: held)
+    monkeypatch.setattr(b, "world", lambda *p: "minecraft:air")
+    b.build_cells = {}
+    b.temporary_ok = tb.eligible(load_vanilla_pack())
+    b.scaffold_only = True
+    assert b.temporary_items(scaffolding=False) == []
+    assert b.temporary_items(scaffolding=False, prop=True) == ["minecraft:dirt"]
+
+
 def test_plug_keep_is_a_body_op():
     from mclab.bridge import BODY_OPS
 

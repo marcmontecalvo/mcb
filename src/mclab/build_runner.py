@@ -74,6 +74,7 @@ STANCE_BUDGET_S = 5.0  # a pause longer than this reads as a broken bot
 FOOTHOLD_STOCK = 32  # spare blocks to climb or step down on, held from the start
 FOOTHOLD_LOW = 8  # fewer spare than this mid-build: top the stock back up
 FOOTHOLD_RETRY = 40  # build actions before a refill that brought none is tried again
+PROP_BLOCK = "minecraft:dirt"  # asked for when a cell needs a prop and none is held
 FOOTHOLD_ITEM = "minecraft:dirt"
 # Taking an idle column down for its blocks (_reclaim_cost), in blocks of sprinting.
 # A climb goes at the vanilla ladder/scaffolding limit, 0.12 blocks/tick up and 0.15
@@ -394,16 +395,21 @@ class _Runner:
             # When no currently solid neighbour can produce ``act.state`` (e.g.
             # mutually facing hoppers), plan the temporary prop up front instead of
             # letting stance search fail and raise a useless tower.
-            if (
-                isinstance(act, bp.Place)
-                and bp.prop_cells(
-                    pos, act.state, getattr(self.body, "world", None), self.blocks
-                )
-                and any(
-                    self.body.inventory().get(i, 0) > 0
-                    for i in self._temporaries(False)
-                )
+            if isinstance(act, bp.Place) and bp.prop_cells(
+                pos, act.state, getattr(self.body, "world", None), self.blocks
             ):
+                if self._prop_item() is None:
+                    # No block to prop with: ask for one. Climbing cannot make the
+                    # click face, so a stance search and a tower here only ended in a
+                    # refused dirt ask (run 20261121T222050257793Z, two hoppers).
+                    self.short = {PROP_BLOCK: 1}
+                    self.short_for = pos
+                    self.report.failures.append(
+                        (pos, "no_prop_block", self.body.position(), {})
+                    )
+                    if self.template is not None:
+                        self.fails[pos] = MAX_TRIES
+                    return self._fail(pos, "no_material")
                 if self._propped(act, avoid):
                     _take_back(self, act)
                     return _record(self.report, act)
@@ -466,8 +472,7 @@ class _Runner:
             return False
         self.propped.add(act.pos)
         ident, props = bp.parse_state(act.state)
-        held = self.body.inventory()
-        item = next((i for i in self._temporaries(False) if held.get(i, 0) > 0), None)
+        item = self._prop_item()
         if item is None:
             return False
         candidates = bp.prop_cells(act.pos, act.state, self.body.world, self.blocks)
@@ -1156,6 +1161,18 @@ class _Runner:
             return pick(scaffolding)
         items = list(bp.SCAFFOLD_ITEMS)
         return items if scaffolding else [i for i in items if i != sc.BLOCK]
+
+    def _prop_item(self) -> str | None:
+        """A held solid block to put beside a cell as its click face and take back
+        straight away. Never scaffolding (it does not place over a rail or a slab),
+        and allowed while the build otherwise climbs on scaffolding only."""
+        pick = getattr(self.body, "temporary_items", None)
+        if pick is not None and getattr(self.body, "temporary_ok", None) is not None:
+            items = pick(False, prop=True)
+        else:
+            items = self._temporaries(False)
+        held = self.body.inventory()
+        return next((i for i in items if held.get(i, 0) > 0), None)
 
     def _fail(self, pos: Pos, reason: str) -> None:
         self.fails[pos] = self.fails.get(pos, 0) + 1

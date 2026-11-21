@@ -1338,17 +1338,22 @@ class CompanionBody:
             policy, protected_positions=tuple(keep), costly_positions=tuple(costly)
         )
 
-    def temporary_items(self, scaffolding: bool = True) -> list[str]:
+    def temporary_items(
+        self, scaffolding: bool = True, prop: bool = False
+    ) -> list[str]:
         """Held blocks the body may put down to climb or bridge and take back, best
         first (mclab.temporary_blocks): scaffolding, dirt, cobblestone, then spare
         plain blocks that drop themselves. Spare means beyond what the build still
-        has to place. Without a build job: the policy's own materials."""
+        has to place. Without a build job: the policy's own materials. ``prop``: a
+        block to click against, taken back in the same placement, so scaffold_only
+        does not apply (scaffolding over a rail does not place: run
+        20261121T222050257793Z left two facing hoppers out)."""
         allowed = getattr(self, "temporary_ok", None)
         if allowed is None:
             items = list(self.terrain_policy.material_allowlist)
             held = self.inventory()
             return [i for i in items if held.get(i, 0) > 0]
-        if getattr(self, "scaffold_only", False):
+        if getattr(self, "scaffold_only", False) and not prop:
             # A build that carries scaffolding climbs, bridges and steps on nothing
             # else: a place scaffolding cannot make is a rule to fix, not a dirt step
             # left behind (run 20261121T180806599463Z).
