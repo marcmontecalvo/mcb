@@ -100,6 +100,39 @@ def test_invalid_build_settings(overrides):
         resolve_config("build", overrides=overrides)
 
 
+def test_a_stage_lab_starts_from_a_stage_and_stops_at_another():
+    run = resolve_config(
+        "build", overrides={"run": {"start_from": "site_ready", "until": "structure"}}
+    )["run"]
+    assert run["start_from"] == "site_ready" and run["until"] == "structure"
+    shown = resolve_config(
+        "build", overrides={"run": {"start_from": "structure_done", "stage": True}}
+    )["run"]
+    assert shown["stage"] is True  # show a saved stage without building
+    props = config_schema()["properties"]["run"]["properties"]
+    assert props["start_from"]["enum"] == ["site_ready", "structure_done"]
+    assert props["until"]["enum"] == ["site", "structure"]
+    assert props["until"]["supported_tests"] == ["build"]
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        {"start_from": "halfway"},
+        {"until": "roof"},
+        {"start_from": "site_ready", "resume": "x.json"},
+        {"start_from": "site_ready", "supply": True},
+        {"start_from": "site_ready", "empty": True},
+        {"start_from": "site_ready", "until": "site"},  # already there
+        {"start_from": "structure_done", "until": "structure"},
+        {"until": "site", "stage": True, "resume": "x.json"},  # staging builds nothing
+    ],
+)
+def test_impossible_stage_labs_are_refused(run):
+    with pytest.raises(ValueError):
+        resolve_config("build", overrides={"run": run})
+
+
 def test_a_build_can_start_with_its_markers_showing():
     config = resolve_config("build", overrides={"run": {"show_markers": True}})
     assert config["run"]["show_markers"] is True

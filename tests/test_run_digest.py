@@ -126,6 +126,25 @@ def test_build_key_comes_from_run_config_else_argv_and_names_the_gather_target(
     assert run_digest.build_key({"job": "gather", "start": None}) is None
 
 
+def test_a_stage_lab_is_its_own_build_key_and_the_library_key_is_the_whole_build(
+    tmp_path,
+):
+    # A site-only or structure-only lab is not comparable with a whole build: its
+    # key carries the segment. The stage library is shared by all of them.
+    run = make_run(tmp_path, STAMP, result="fail", with_events=False)
+    config = json.loads((run / "run_config.json").read_text(encoding="utf-8"))
+    config["run"] |= {"start_from": "site_ready", "until": "structure"}
+    (run / "run_config.json").write_text(json.dumps(config), encoding="utf-8")
+
+    ident = run_digest.identity(run)
+
+    assert ident["mode"] == "from" and ident["start_from"] == "site_ready"
+    assert run_digest.build_key(ident) == KEY + "+from=site_ready+until=structure"
+    assert run_digest.build_key(ident, segment=False) == KEY
+    only_site = {**ident, "start_from": None, "until": "site"}
+    assert run_digest.build_key(only_site) == KEY + "+until=site"
+
+
 def test_write_then_load_round_trips_and_ensure_keeps_a_deep_digest(tmp_path):
     run = make_run(tmp_path, STAMP, result="fail")
     written = run_digest.write(run)

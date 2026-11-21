@@ -20,6 +20,38 @@ attempt without building (`--preview` adds a reference copy beside it;
 docs/BUILD_DEBUGGING.md). "Run it and let me know so I can take a look" always means
 `--inspect`.
 
+## Stage labs: start or stop a build in the middle
+
+A whole supplied house-large build takes 40–50 minutes. Its three parts can be run alone:
+
+| Lab | Command (with the usual `--start ... --seed ... --build ...`) |
+|---|---|
+| Site only: clear, level, fill | `--supply --until site` |
+| Structure only, from a cleared site | `--from site_ready --until structure` |
+| The rest of the build, from a cleared site | `--from site_ready` |
+| Details only, from a finished structure | `--from structure_done` |
+| Show a saved stage, no build | `--from <stage> --stage` |
+
+Every build run saves a stage snapshot when it reaches `site_ready` (site cleared and
+level, no house block yet) or `structure_done` (only details and doors left). The snapshot
+covers the whole site box (footprint plus margin, 8 below the ground to 4 above the
+template), the inventory and the chests with what they still hold. It goes to
+`<run>/checkpoints/<stage>.json` and to the stage library,
+`results/stages/<build key>/<stage>.json`. The newest one wins, and it records the run and
+commit it came from. `--from` restores that snapshot into a fresh copy of the seed's world
+(cells, chests and inventory, a few seconds), then reads the chests and builds as a
+supply run would. A run from a stage doesn't save that stage again.
+
+A stage belongs to one build file, start and seed. If the build file changes, `--from`
+refuses the stage until a new one is saved. A `--from` / `--until` run has its own
+build key (`...#seed+from=site_ready+until=structure`), so `mclab runs` never compares
+a part with a whole build. An `--until` run passes when it reaches its milestone with the
+stage saved. It has no empty-diff row, because the rest is unbuilt on purpose. Pruning
+never touches `results/stages/`.
+
+`--resume <checkpoint>` is different: it uses a numbered or final checkpoint, which holds
+the template's cells and the inventory but no chests, and it runs the build alone.
+
 ## Action catalog
 
 | Action | Command | Typical duration |

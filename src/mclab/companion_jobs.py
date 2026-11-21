@@ -535,6 +535,8 @@ def build_job(
     on_stage=None,
     site_margin: int | None = 1,
     gather_options: GatherOptions | None = None,
+    until: str | None = None,
+    on_milestone: Callable[[str], None] | None = None,
 ) -> JobReport:
     """``chests``: positions of chests known at the start. They are read first; shulker
     boxes are taken at once (they carry the gather's overflow), scaffolding stays put
@@ -542,7 +544,9 @@ def build_job(
     inventory already holds everything (a resumed checkpoint); no chests, no gathering.
     ``on_progress(report, final)`` is passed to ``run_build``. ``site_margin``: blocks
     of levelled ground prepared around the footprint before building (>= 0, default
-    1; None skips site preparation)."""
+    1; None skips site preparation). ``until`` / ``on_milestone``: as ``run_build``; a
+    build ended at its ``until`` milestone stops ``until_site`` / ``until_structure``.
+    """
     publish_stage = on_stage or (
         lambda *a, **k: None
     )  # publishes the dashboard's live stage
@@ -819,6 +823,8 @@ def build_job(
                 knowledge.blocks,
                 on_need_materials=refill,
                 on_site_ready=site_ready,
+                on_milestone=on_milestone,
+                until=until,
                 survey=survey,
                 on_progress=on_progress,
                 on_stage=stage,
@@ -829,7 +835,14 @@ def build_job(
         finally:
             body.precise_stance = False
             body.scaffold_only = False
-        report.stop = "built" if report.build.stop == "done" else "not_built"
+        stop = report.build.stop
+        report.stop = (
+            "built"
+            if stop == "done"
+            else stop
+            if stop.startswith("until_")
+            else "not_built"
+        )
         if clock:
             # build includes refills; crafting happens inside the gather phase
             report.ticks = {"gather": gathered - started, "build": clock() - gathered}

@@ -62,6 +62,14 @@ def test_a_dry_run_changes_nothing(tmp_path):
     assert len(list((tmp_path / "results").rglob("events.jsonl"))) == 5
 
 
+def test_the_stage_library_is_never_pruned(tmp_path):
+    # results/stages/<build key>/<stage>.json is what the stage labs start from.
+    for run in run_ids(5):
+        make(tmp_path, "stages", run, ["events.jsonl", "map.sqlite3"])
+
+    assert prune.plan(tmp_path) == []
+
+
 # ---- build/gather runs: per build key -----------------------------------------
 
 

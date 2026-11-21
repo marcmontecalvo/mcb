@@ -63,6 +63,9 @@ CLEANUP_ROUNDS = 3
 MAX_RECOVERIES = 3
 BUILD_WALL = 30.0  # seconds a build walk may take before the route is given up
 SETTLE_TICKS = 60  # wait for the sensor before calling a build blocked
+# Where a build can be told to end early: at the site_ready or structure_done
+# milestone (a stage lab, build_checkpoint.STAGES); None builds everything.
+UNTIL = (None, "site", "structure")
 # A broken bridge root: scaffolding past distance 6 falls a tick a cell, and the
 # items then drop to the ground (a run of 6 and a few blocks of fall).
 COLLAPSE_TICKS = 12
@@ -1763,8 +1766,16 @@ def run_build(
     clock: Callable[[], float] | None = None,
     log: Callable[[str], None] | None = None,
     on_site_ready: Callable[[], None] | None = None,
+    on_milestone: Callable[[str], None] | None = None,
+    until: str | None = None,
 ) -> BuildReport:
     """Build ``template`` through ``body``; see the module docstring.
+
+    ``on_milestone(name)``: ``site_ready`` once the site is ready (after
+    ``on_site_ready``), ``structure_done`` the first time only details are left (a
+    stage snapshot is taken there). ``until``: ``site`` or ``structure`` ends the
+    build at that milestone (stop ``until_site`` / ``until_structure``); the details
+    are then left for a run that starts from the snapshot.
 
     ``site_margin``: prepare the footprint plus this many cells on every side first
     (site_prep; ``None`` skips it, negative raises ValueError). ``stall_seconds``: a
@@ -1773,6 +1784,8 @@ def run_build(
     ``on_site_ready()``: called once the site is clear and level, before the first
     block is placed (the job puts the levelling's dirt away there).
     """
+    if until not in UNTIL:
+        raise ValueError(f"until must be one of {sorted(u for u in UNTIL if u)}")
     report = BuildReport()
     places = getattr(body, "places", None)  # None for fakes and tests
     knowledge = Knowledge(places.archive) if places is not None else None
@@ -1819,6 +1832,8 @@ def run_build(
             log or (lambda m: None),
             on_stage or (lambda *a, **k: None),
             on_site_ready or (lambda: None),
+            on_milestone or (lambda name: None),
+            until,
         )
     except StallError as exc:
         report.stop, report.stall_reason = "stalled", str(exc)
@@ -1853,6 +1868,8 @@ def _run(
     log,
     on_stage=lambda *a, **k: None,
     on_site_ready=lambda: None,
+    on_milestone=lambda name: None,
+    until=None,
 ) -> None:
     on_stage("clearing trees")
     if survey:
@@ -1905,6 +1922,10 @@ def _run(
         )
         on_stage("placing")
     on_site_ready()
+    on_milestone("site_ready")
+    if until == "site":
+        report.stop = "until_site"
+        return
     runner.scaffolds, runner.template = scaffolds, template
     runner.reserved = frozenset(
         p for p, s in template.cells.items() if bp.parse_state(s)[0] not in bp.AIR
@@ -1923,6 +1944,7 @@ def _run(
     hunger: dict = {}
     stock: dict = {}
     indoor_cleared = False
+    structure_done = False
     build_stage = "placing"
     on_stage(build_stage)
     while True:
@@ -2039,6 +2061,12 @@ def _run(
         if has_structure:
             build_stage = "placing"
         elif has_details:
+            if not structure_done:
+                structure_done = True
+                on_milestone("structure_done")
+                if until == "structure":
+                    report.stop = "until_structure"
+                    break
             if build_stage == "placing" and has_non_door_details and not indoor_cleared:
                 indoor_cleared = True
                 with calm():
@@ -2128,6 +2156,8 @@ def _run(
             report.stop = "blocked"
         else:
             report.stop = "done"
+    if report.stop == "done" and not structure_done:
+        on_milestone("structure_done")  # a house with no details: its end
     report.counts = bp.progress(template, body.world)
     report.unknown = bp.diff(template, body.world).unknown
 

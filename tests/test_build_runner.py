@@ -184,6 +184,38 @@ def small_house_body(**kw):
     return FakeBody(w, inv, BLOCKS, **kw), bp.Template.from_build(HOUSE, (1, 0, 1))
 
 
+def test_a_full_build_marks_both_milestones_in_order():
+    body, t = small_house_body()
+    seen = []
+    report = br.run_build(t, body, BLOCKS, on_milestone=seen.append)
+    assert report.stop == "done"
+    assert seen == ["site_ready", "structure_done"]
+
+
+def test_until_site_stops_once_the_site_is_ready_before_any_house_block():
+    body, t = small_house_body()
+    seen = []
+    report = br.run_build(t, body, BLOCKS, until="site", on_milestone=seen.append)
+    assert report.stop == "until_site" and seen == ["site_ready"]
+    assert report.placed == []
+
+
+def test_until_structure_stops_with_only_the_details_left():
+    body, t = small_house_body()
+    seen = []
+    report = br.run_build(t, body, BLOCKS, until="structure", on_milestone=seen.append)
+    assert report.stop == "until_structure"
+    assert seen == ["site_ready", "structure_done"]
+    left = [s for _, s in bp.diff(t, body.world).places]
+    assert left and all(bp.is_detail(s) or bp._is_door(s) for s in left)
+
+
+def test_an_unknown_until_is_refused():
+    body, t = small_house_body()
+    with pytest.raises(ValueError):
+        br.run_build(t, body, BLOCKS, until="roof")
+
+
 def test_small_house_reaches_empty_diff_with_the_expected_materials():
     body, t = small_house_body()
     report = br.run_build(t, body, BLOCKS)
