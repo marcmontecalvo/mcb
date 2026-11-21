@@ -21,9 +21,12 @@ uv run --locked python scripts/run-build.py --start -24 64 56 --supply --seed 31
   until `<run folder>/STOP` exists.
 - When you see `INSPECT`, tell the user: the run folder, the outcome line, and
   "join 127.0.0.1:25575". Then **stop and wait**.
-- **Never** create `STOP`, stop the server, `mclab server stop`, TaskStop the script, or
-  start another run while it is inspecting. STOP restores (wipes) the arena. The user
-  creates STOP when finished.
+- While the user is looking, **never** create `STOP`, stop the server, `mclab server stop`,
+  TaskStop the script, or start another run. STOP restores (wipes) the arena.
+- **When the user says they're done looking** (or asks for the next run), create
+  `<run folder>/STOP` yourself and let the script exit; wait for the background task's
+  exit notification before starting anything else. The user never creates STOP: they
+  tell you in chat, or (later) click stop on the lab page.
 - To show a saved attempt without rebuilding it:
   `run-build.py --resume results/companion/<run>/checkpoints/final.json --stage`.
   Add `--preview` to place a reference copy beside it (docs/BUILD_DEBUGGING.md).

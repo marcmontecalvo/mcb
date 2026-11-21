@@ -218,3 +218,20 @@ water (`eye_in_water`, falling back to `in_water`), not at 90 % air.
 - **Normal awareness cadence.** `awareness-sections-64.json` (every 5 ticks) is
   the development profile; the `-fast` profiles are rejected (they slowed the
   planner).
+
+## Build stops, supply access and /mcb authority (November 21, 2026)
+
+- **A materials stop cleans up.** `run_build` stops on `need_materials` only when
+  nothing else can be placed, so it takes its scaffolding and footholds down first; a
+  later resume builds its own towers again. Run 20261121T171016886377Z left every
+  tower standing.
+- **Containers are opened like any other block.** A chest or shulker box withdraw
+  goes through `reach_and_do`: a blocked view or reach tries other stances instead
+  of failing the refill.
+- **/mcb authority is open by default.** An empty or missing owner list in
+  `config/companion.json` lets every player in the game command the bot; once anyone
+  is listed, only the listed owners and allowlist may (UUID or name). An unreadable
+  config refuses everyone. The shipped config lists the operator as owner.
+- **The agent ends inspection holds.** The user never creates `<run>/STOP`; when they
+  say they are done looking, the agent running the session creates it. A stop
+  button on the lab page is planned (B6).

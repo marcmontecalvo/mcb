@@ -14,7 +14,8 @@ versions are in the skills under `.claude/skills/` (`mcb-lab-run`, `mcb-qualify`
 - the world is joinable at `127.0.0.1:25575`.
 
 The hold lasts until `<run folder>/STOP` exists. Creating STOP restores (wipes) the arena,
-so only the person inspecting creates it. `--resume <checkpoint> --stage` shows a saved
+so it is created only once the person inspecting says they are done: the agent running
+the session creates it when told in chat (the lab page has no stop button for this yet). `--resume <checkpoint> --stage` shows a saved
 attempt without building (`--preview` adds a reference copy beside it;
 docs/BUILD_DEBUGGING.md). "Run it and let me know so I can take a look" always means
 `--inspect`.
