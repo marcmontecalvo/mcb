@@ -107,6 +107,15 @@ def test_a_build_can_start_with_its_markers_showing():
     assert set(supported["supported_tests"]) == {"natural", "build"}
 
 
+def test_a_build_shows_its_markers_unless_switched_off():
+    # A build is watched in game: where the bot heads next and the route it plans
+    # show without a flag; scored natural runs keep them off.
+    assert resolve_config("build")["run"]["show_markers"] is True
+    off = resolve_config("build", overrides={"run": {"show_markers": False}})
+    assert off["run"]["show_markers"] is False
+    assert resolve_config("natural")["run"]["show_markers"] is False
+
+
 @pytest.mark.parametrize("family", ["courses", "models", "battery", "companion"])
 def test_non_policy_families_do_not_claim_effective_policies(family):
     config = resolve_config(family)

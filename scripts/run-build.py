@@ -228,9 +228,10 @@ def main() -> int:
     parser.add_argument(
         "--show-markers",
         dest="show_markers",
-        action="store_true",
-        help="start with the in-game markers on (red planned route, green stance, "
-        "yellow block); create or delete <run folder>/MARKERS to flip them mid-run",
+        action=argparse.BooleanOptionalAction,
+        help="in-game markers: red planned route, green stance, yellow block (on "
+        "by default; --no-show-markers starts them off); create or delete "
+        "<run folder>/MARKERS to flip them mid-run",
     )
     args, config = parse_run(parser, "build")
     with digest_on_exit(), launch_record(config):
