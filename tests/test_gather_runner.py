@@ -201,6 +201,34 @@ def test_a_table_on_the_chest_is_broken_and_put_down_elsewhere():
     assert body.w.get(table) in (None, M + "air")
 
 
+@pytest.mark.parametrize("reason", ["no_line_of_sight", "out_of_reach"])
+def test_a_chest_out_of_sight_from_one_stance_is_opened_from_another(reason):
+    # Run 20261121T171016886377Z: a shulker box the bot stored into stood between
+    # its one stance and the supply chest; every withdraw from that chest failed
+    # no_line_of_sight there and the house stopped 27 cells short of done.
+    chest = (3, 0, 0)
+    world = floor() | {chest: M + "chest"}
+    body = FakeGatherBody(K, world)
+    body.boxes[chest] = {M + "oak_log": 4}
+    opened = body.container
+    stances = []
+
+    def container(pos, action, items=None):
+        stances.append(body.position())
+        if len(stances) == 1:
+            return Result(False, reason)  # the view from the first stance is blocked
+        return opened(pos, action, items)
+
+    body.container = container
+    tasks = PlanResult((Withdraw(((M + "oak_log", 2),), chest),), (), 0.0)
+
+    report = run_gather(tasks, body, K)
+
+    assert report.stop == "done", report
+    assert body.inventory()[M + "oak_log"] == 2
+    assert len(stances) == 2 and stances[0] != stances[1]
+
+
 def test_a_run_whose_walks_never_arrive_stops_stalled():
     # The treeless-shore guard (run 20261102T120137588638Z: 100,000 ticks): the
     # watchdog counts an arrived ring leg as progress, so the guard for a body

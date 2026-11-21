@@ -2054,15 +2054,13 @@ def _run(
             runner.propped.clear()
         if on_progress:
             on_progress(report, False)
+    # A build stopped short of materials cleans up too: nothing more can be placed
+    # until someone brings them, and a later resume builds its own towers again
+    # (run 20261121T171016886377Z left every scaffolding tower standing).
     has_cleanup = bool(
-        (
-            report.stop != "need_materials"
-            and (
-                scaffolds
-                or getattr(body, "stray_breaks", None)
-                or getattr(body, "stray_footholds", None)
-            )
-        )
+        scaffolds
+        or getattr(body, "stray_breaks", None)
+        or getattr(body, "stray_footholds", None)
         or (
             report.stop in ("done", "blocked")
             and (
@@ -2074,9 +2072,8 @@ def _run(
     if has_cleanup:
         on_stage("cleanup")
     no_doors = getattr(body, "no_opening_doors", nullcontext)
-    if report.stop != "need_materials":
-        with calm():
-            _clean_up(runner, template, scaffolds)
+    with calm():
+        _clean_up(runner, template, scaffolds)
     if report.stop in ("done", "blocked"):
         # the final audit below decides: a clean diff is done, whatever the loop said
         # Cleanup walks can reopen doors after the main loop's clean audit.

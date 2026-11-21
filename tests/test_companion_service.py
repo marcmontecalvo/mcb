@@ -37,9 +37,35 @@ def test_unauthorized_is_refused(calls):
     assert calls == {"start": [], "kill": 0}
 
 
-def test_empty_config_refuses_everyone(calls):
+def test_an_empty_config_lets_every_player_command_the_bot(calls):
+    # Nobody listed: everyone in the game may talk to the bot and give it orders.
     svc.CONFIG.write_text(json.dumps({"owners": [], "allowlist": []}))
+    assert svc.handle(event(1, "status", uuid="x")) == "status line"
+    svc.CONFIG.write_text("{}")
+    assert svc.handle(event(1, "status", uuid="x")) == "status line"
+
+
+def test_a_missing_config_lets_every_player_command_the_bot(calls, tmp_path):
+    svc.CONFIG = tmp_path / "absent.json"
+    assert svc.handle(event(1, "status", uuid="x")) == "status line"
+
+
+def test_a_broken_config_refuses_everyone(calls):
+    svc.CONFIG.write_text("{not json")
     assert svc.handle(event(1, "status")) == "Not allowed."
+
+
+def test_a_listed_player_name_is_allowed_like_a_uuid(calls):
+    svc.CONFIG.write_text(json.dumps({"owners": [], "allowlist": ["Steve"]}))
+    allowed = event(1, "status", uuid="x")
+    allowed["data"]["player_name"] = "steve"
+    assert svc.handle(allowed) == "status line"
+    assert svc.handle(event(1, "status", uuid="x")) == "Not allowed."
+
+
+def test_the_shipped_config_names_the_owner():
+    shipped = json.loads((svc.ROOT / "config/companion.json").read_text())
+    assert "243def0a-1a75-4518-8358-b4cb18a1cc54" in shipped["owners"]
 
 
 @pytest.mark.parametrize(

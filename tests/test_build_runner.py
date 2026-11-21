@@ -632,6 +632,29 @@ def test_a_cell_with_no_stance_gets_a_scaffolding_tower_and_it_comes_down():
     assert not [p for p, s in body.w.items() if s.startswith("minecraft:scaffolding")]
 
 
+def test_a_build_out_of_materials_takes_its_scaffolding_down_before_it_stops():
+    # Run 20261121T171016886377Z ended need_materials 27 cells short with its
+    # scaffolding towers still standing round the house: the stop skipped cleanup.
+    w = flat_world(hi=14)
+    cells = {(0, y, 0): "minecraft:oak_planks" for y in range(7)}
+    cells[(0, 7, 0)] = "minecraft:stone"  # on top of the tower's cell, none held
+    t = bp.Template.from_build(make_build(cells, (1, 8, 1)), (3, 0, 3))
+    inv = {item: 100 for item in {i["item"] for i in BLOCKS.values()}}
+    inv["minecraft:scaffolding"] = 64
+    del inv["minecraft:stone"]
+    body = TowerBody(w, inv, BLOCKS)
+    asked = []
+
+    report = br.run_build(
+        t, body, BLOCKS, on_need_materials=lambda m: asked.append(dict(m)) or False
+    )
+
+    assert {"minecraft:stone": 1} in asked
+    assert report.stop == "need_materials" and report.needed == {"minecraft:stone": 1}
+    assert report.scaffolded and (3, 6, 3) in report.placed  # a tower went up
+    assert not [p for p, s in body.w.items() if s.startswith("minecraft:scaffolding")]
+
+
 def _no_scaffold_items(body):
     for item in bp.SCAFFOLD_ITEMS:
         body.inv[item] = 0
