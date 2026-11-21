@@ -377,6 +377,24 @@ def materials_of(build: dict, knowledge: Knowledge) -> dict[str, int]:
     return dict(counts)
 
 
+def materials_left(
+    template: bp.Template, world, knowledge: Knowledge
+) -> dict[str, int]:
+    """The materials of what the build still has to place: every template cell the
+    world does not hold yet (missing, wrong or not seen). A fresh site needs the whole
+    house; a half-built one only the rest."""
+    from mclab.schematic import state_materials
+
+    d = bp.diff(template, world)
+    todo = [state for _, state in d.places]
+    todo += [template.cells[p] for p in (*d.breaks, *d.unknown)]
+    counts: Counter[str] = Counter()
+    for state in todo:
+        items, _ = state_materials(state, knowledge.blocks)
+        counts.update(items)
+    return dict(counts)
+
+
 def _held(body, state: GatherState) -> Counter:
     total = Counter(body.inventory())
     for contents in state.containers.values():
@@ -573,7 +591,7 @@ def build_job(
             stage("reading chests")
             read_chests(chests, body, state)
             _take({SHULKER: 2}, body, knowledge, state, gather_options)
-        needed = materials_of(build, knowledge)
+        needed = materials_left(template, body.world, knowledge)
         needed.update(bp.tool_needs(template, body.inventory()))
         report.needed = dict(needed)
 

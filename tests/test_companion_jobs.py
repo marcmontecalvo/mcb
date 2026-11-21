@@ -33,6 +33,19 @@ def world():
     return w
 
 
+def test_a_half_built_house_needs_only_what_is_left_to_place(tmp_path):
+    # Live, a details lab started from a finished structure went strip-mining for
+    # 287 oak planks: the whole house's materials were compared with what it held.
+    w = world() | {(x, 0, z): PLANKS for x in range(4, 7) for z in range(4, 7)}
+    body = FakeGatherBody(K, w, {COBBLE: 3})
+
+    report = build_job(small_template(tmp_path), (4, 0, 4), 0, body, K)
+
+    assert report.needed == {COBBLE: 3}
+    assert report.gather is None and report.starter is None  # nothing gathered
+    assert report.stop == "built"
+
+
 def test_empty_inventory_to_a_finished_small_template(tmp_path):
     body = FakeGatherBody(K, world())
 

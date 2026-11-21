@@ -17,6 +17,9 @@ class _Body:
     def inventory(self):
         return dict(self._inventory)
 
+    def world(self, x, y, z):
+        return None  # nothing seen: the build needs the whole template
+
 
 def test_session_archive_respects_memory_mode_and_fresh_world_isolation(
     tmp_path, monkeypatch
