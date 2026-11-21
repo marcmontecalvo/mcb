@@ -85,7 +85,9 @@ def bridge_standing(bridge, c, origin, **who) -> bool | None:
         batch = area[i : i + PROBE_BATCH]
         got = kit(bridge, at=list(origin), probe=[list(p) for p in batch], **who)
         scaffolding |= {
-            p for p, now in zip(batch, got["probed"], strict=True) if now == sch.SCAFFOLDING
+            p
+            for p, now in zip(batch, got["probed"], strict=True)
+            if now == sch.SCAFFOLDING
         }
     return sch.bridge_stands(c, scaffolding)
 

@@ -165,7 +165,8 @@ def test_edit_event_tick_controls_overlay_and_expiry(monkeypatch, operation):
     b, bridge, memory = body()
     bridge.tick = 104
     bridge.reply[operation] = (
-        "done", {"placed": "minecraft:dirt", "after": "minecraft:dirt"}
+        "done",
+        {"placed": "minecraft:dirt", "after": "minecraft:dirt"},
     )
     if operation == "place_block":
         b.place_block((2, 0, 0), "minecraft:dirt", "minecraft:dirt")
@@ -214,15 +215,27 @@ def test_overlay_uses_actual_compact_sample_tick(tmp_path, monkeypatch, encoding
     bridge.tick = 104
     bridge.reply["place_block"] = ("done", {"placed": "minecraft:dirt"})
     assert b.place_block((2, 0, 0), "minecraft:dirt", "minecraft:dirt").ok
-    state = {"block": "minecraft:air", "fluid": "minecraft:empty",
-             "replaceable": True, "properties": {}, "collision_boxes": []}
+    state = {
+        "block": "minecraft:air",
+        "fluid": "minecraft:empty",
+        "replaceable": True,
+        "properties": {},
+        "collision_boxes": [],
+    }
 
     def observation(captured, sample):
         terrain = {
-            "schema_version": 1, "encoding": "sparse_section_palette",
-            "unknown_is_air": False, "sample_tick": sample, "palette": [state],
-            "sections": [], "known_cells": 0, "bulk_cells": 0,
-            "dense_sections": [], "uniform_sections": [], "encoding_ms": 0.1,
+            "schema_version": 1,
+            "encoding": "sparse_section_palette",
+            "unknown_is_air": False,
+            "sample_tick": sample,
+            "palette": [state],
+            "sections": [],
+            "known_cells": 0,
+            "bulk_cells": 0,
+            "dense_sections": [],
+            "uniform_sections": [],
+            "encoding_ms": 0.1,
         }
         if encoding == "sparse":
             terrain["sections"] = [
@@ -236,12 +249,19 @@ def test_overlay_uses_actual_compact_sample_tick(tmp_path, monkeypatch, encoding
             )
             terrain[f"{encoding}_sections"] = [entry]
             terrain["bulk_cells"] = 4096
-        return expand_terrain({
-            "tick": sample + 3, "sensor_profile": "awareness-v1", "body": {},
-            "awareness": {"config": awareness.payload(), "revision": "r",
-                          "coverage": {"sample_tick": sample}},
-            "terrain_sections": terrain,
-        })
+        return expand_terrain(
+            {
+                "tick": sample + 3,
+                "sensor_profile": "awareness-v1",
+                "body": {},
+                "awareness": {
+                    "config": awareness.payload(),
+                    "revision": "r",
+                    "coverage": {"sample_tick": sample},
+                },
+                "terrain_sections": terrain,
+            }
+        )
 
     try:
         monkeypatch.setattr(cb, "policy_state", lambda _: observation(102, 105))
@@ -992,9 +1012,7 @@ _ROW = [(x, 0, 4) for x in range(4, 7)] + [(x, 0, 5) for x in range(3, 7)]
 
 def _covers(b, node, cover):
     cells = b._cells_now()
-    return sum(
-        cb.places_from(cells, cb.stance_eye(node), node, p, 4.5) for p in cover
-    )
+    return sum(cb.places_from(cells, cb.stance_eye(node), node, p, 4.5) for p in cover)
 
 
 def test_stances_prefer_one_that_also_places_the_next_cells_of_the_sweep():
@@ -1250,6 +1268,7 @@ def test_stand_height_does_not_snap_up_onto_an_overhang():
     # Run 20261117T011432772067Z: the ground under a tree's leaves became a
     # canopy-top goal 3 up; a solid hillside still snaps up.
     b, _, _ = body()
+
     def column(x, *states):
         for y, state in enumerate(states):
             boxes = [] if state == "air" else [[0, 0, 0, 1, 1, 1]]
@@ -1520,7 +1539,6 @@ def test_goto_stance_skips_duplicate_distant_hops_and_fallback_when_hop_fails(
     assert calls == [((90, 62, -59), None, True)]
 
 
-
 def test_position_of_a_dead_body_raises_bodydied():
     import pytest
 
@@ -1704,7 +1722,8 @@ def test_drops_seen_once_are_collected_even_when_out_of_sight_from_the_pit(monke
     # The step stack is seen only from the rim, before the body goes down.
     views = iter([[floor, step]])
     monkeypatch.setattr(
-        b, "entities",
+        b,
+        "entities",
         lambda: [e for e in next(views, [floor]) if e["uuid"] in held],
     )
     walked = []
@@ -1820,6 +1839,7 @@ def test_a_walk_planned_ahead_is_priced_with_what_the_body_holds(monkeypatch):
         material_allowlist=("minecraft:dirt",),
         scaffold_materials=("minecraft:scaffolding",),
     )
+
     class Bare:  # the controller as plan_ahead has it: never decided yet
         def __init__(self, goal, memory, *, terrain_policy, **_):
             self.terrain_policy, self.inventory = terrain_policy, ()
@@ -1954,7 +1974,6 @@ def test_walk_only_fallback_tries_multiple_candidates_when_walk_empty(monkeypatc
     assert seen == goals[:2]
 
 
-
 # --- collect_drops waits only for items that are there -------------------------------
 
 
@@ -2037,8 +2056,10 @@ def test_each_stance_candidate_gets_its_own_progress_budget(monkeypatch):
     assert b.goto_stance((2, 0, 2), 4.5) is False
     probes = seen[:3]
     assert len({id(p) for p in probes}) == 3  # none shared between candidates
-    assert all(p["tick"] is None and p["limit_ticks"] == cb.CANDIDATE_PROGRESS_TICKS
-               for p in probes)
+    assert all(
+        p["tick"] is None and p["limit_ticks"] == cb.CANDIDATE_PROGRESS_TICKS
+        for p in probes
+    )
     assert cb.CANDIDATE_PROGRESS_TICKS <= 200  # about 10 s
 
 

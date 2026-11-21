@@ -531,9 +531,7 @@ def test_protect_keeps_sealed_attic_cavities_out_of_build_air():
     from mclab.companion_jobs import protect
     from mclab.terrain_steps import TerrainPolicy
 
-    cells = {
-        (x, y, z): M + "air" for x in range(5) for y in range(6) for z in range(5)
-    }
+    cells = {(x, y, z): M + "air" for x in range(5) for y in range(6) for z in range(5)}
     for x in range(5):
         for z in range(5):
             cells[(x, 0, z)] = M + "oak_planks"

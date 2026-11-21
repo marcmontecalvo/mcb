@@ -1143,9 +1143,7 @@ def next_actions(
             )
         )
     }
-    sealed_blockers = {
-        (p[0], p[1] - 1, p[2]) for p in sealed_footholds
-    } | {
+    sealed_blockers = {(p[0], p[1] - 1, p[2]) for p in sealed_footholds} | {
         _add(p, v)
         for p in sealed_footholds
         if p in sealed_cavities

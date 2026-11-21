@@ -2314,6 +2314,7 @@ def test_reclaim_breaks_all_roots_of_bridged_scaffolding_and_adopts_step_foothol
     }
     for c in struct:
         w[c] = SCAFF
+
     class BridgedDrops(TowerBody):
         """Models vanilla scaffolding stability (sc.survivors): breaking one root of
         a bridged structure leaves the rest held up sideways; breaking all roots

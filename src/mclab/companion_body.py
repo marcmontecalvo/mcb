@@ -376,7 +376,11 @@ def _support_cells(required) -> set[Pos] | None:
     """``required`` (one cell, several, or None for any) as a set of cells."""
     if required is None:
         return None
-    if isinstance(required, tuple) and len(required) == 3 and isinstance(required[0], int):
+    if (
+        isinstance(required, tuple)
+        and len(required) == 3
+        and isinstance(required[0], int)
+    ):
         return {required}
     return {tuple(p) for p in required}
 
@@ -454,7 +458,9 @@ class _GotoController(SegmentedController):
     allow_partial_gain = True  # False for pillar_to: never walk away from the column
     on_pass = None  # called with the body position while a route is followed
     last_partial_walk = None  # (start, end) of the last partial walked to this goal
-    dead_ends = None  # {"revision", "ends"}: partial endpoints known unreachable-from, per goal
+    dead_ends = (
+        None  # {"revision", "ends"}: partial endpoints known unreachable-from, per goal
+    )
 
     @property
     def planner_radius(self):
@@ -559,7 +565,9 @@ class _GotoController(SegmentedController):
         # cut it off at 60 ticks, 55 times in a row, so no route was ever planned.
         last = getattr(self, "last_result", None)
         uploading = last is not None and last.reason == "planner map transfer"
-        if uploading or self.mode in ({"arrived", "following", "centering"} | EDIT_MODES):
+        if uploading or self.mode in (
+            {"arrived", "following", "centering"} | EDIT_MODES
+        ):
             self.searching_since = None
         elif self.mode in {"searching", "incomplete", "planning", "terrain_incomplete"}:
             # An interaction goal whose stance the known map cannot reach floods the
@@ -627,7 +635,9 @@ class _GotoController(SegmentedController):
         dead = self.dead_ends
         if dead is not None and dead["ends"]:
             revision = getattr(getattr(self, "map_view", None), "revision", None)
-            if dead["revision"] != revision:  # a map fact: new terrain may open the way on
+            if (
+                dead["revision"] != revision
+            ):  # a map fact: new terrain may open the way on
                 dead["ends"].clear()
             elif any(math.dist(route[-1], end) <= 1.5 for end in dead["ends"]):
                 return False
@@ -660,8 +670,23 @@ def _fresh_idle(op):
 # Build blocks the planner must never break: they do not drop themselves intact or hold
 # state (glass and ice shatter, leaves decay, the rest have block entities or attachments).
 _NO_BUILD_BREAK = (
-    "glass", "_leaves", "ice", "chest", "barrel", "furnace", "smoker", "bed", "door",
-    "sign", "bookshelf", "lantern", "hopper", "campfire", "shulker", "banner", "head",
+    "glass",
+    "_leaves",
+    "ice",
+    "chest",
+    "barrel",
+    "furnace",
+    "smoker",
+    "bed",
+    "door",
+    "sign",
+    "bookshelf",
+    "lantern",
+    "hopper",
+    "campfire",
+    "shulker",
+    "banner",
+    "head",
 )
 
 
@@ -699,9 +724,15 @@ class CompanionBody:
         # building: arrive near the cell centre, clear of the target
         self.precise_stance = False
         self.stray_footholds: set[Pos] = set()  # blocks the planner placed to walk
-        self.stray_breaks: dict[Pos, str] = {}  # blocks it broke to walk -> original state
-        self.edits_placed = self.edits_broken = 0  # planner edits, every placement counted
-        self.build_cells: dict[Pos, str] = {}  # the template's non-air cells (see protect)
+        self.stray_breaks: dict[
+            Pos, str
+        ] = {}  # blocks it broke to walk -> original state
+        self.edits_placed = self.edits_broken = (
+            0  # planner edits, every placement counted
+        )
+        self.build_cells: dict[
+            Pos, str
+        ] = {}  # the template's non-air cells (see protect)
         # set per placement by build_runner: the one face the block hangs on
         self.required_support: Pos | None = None
         # set with it: the block state placed, whose half, axis or facing the click
@@ -775,7 +806,9 @@ class CompanionBody:
     def free_slots(self) -> int:
         """Empty main-inventory slots (0..35; armour and offhand excluded). The mod
         sends only the non-empty slots."""
-        return MAIN_SLOTS - len({r["slot"] for r in self._rows if 0 <= r["slot"] < MAIN_SLOTS})
+        return MAIN_SLOTS - len(
+            {r["slot"] for r in self._rows if 0 <= r["slot"] < MAIN_SLOTS}
+        )
 
     def can_hold(self, item: str, items: dict | None = None) -> bool:
         """A free slot, or a held stack of ``item`` below its max size (``items``:
@@ -980,7 +1013,8 @@ class CompanionBody:
         for key, section in list(sections.items()):
             sx, sy, sz = key
             if within is not None and not any(
-                all(lo <= s <= hi for s, (lo, hi) in zip(key, box, strict=True)) for box in boxes
+                all(lo <= s <= hi for s, (lo, hi) in zip(key, box, strict=True))
+                for box in boxes
             ):
                 continue
             if ids.isdisjoint(set(section.states)):
@@ -1082,7 +1116,10 @@ class CompanionBody:
         if result.ok:
             placed = result.data.get("placed")
             self._remember(
-                pos, placed, result.data.get("_event_tick"), result.data.get("collision_boxes")
+                pos,
+                placed,
+                result.data.get("_event_tick"),
+                result.data.get("collision_boxes"),
             )
             kind = (placed or "").split("[")[0].removeprefix("minecraft:")
             if kind in RECORDED_BLOCKS:
@@ -1196,7 +1233,10 @@ class CompanionBody:
         elif (data := result.data or {}).get("plugged"):
             # fluid ran in and the leak-plug reflex refilled the cell with a block
             self._remember(
-                pos, data["plugged"], data.get("_event_tick"), data.get("collision_boxes")
+                pos,
+                data["plugged"],
+                data.get("_event_tick"),
+                data.get("collision_boxes"),
             )
         return result
 
@@ -1268,7 +1308,11 @@ class CompanionBody:
             block = cell.get("block") or ""
             if "_leaves" in block:
                 continue
-            if p in built and block == parse_state(built[p])[0] and _breakable_build_block(cell):
+            if (
+                p in built
+                and block == parse_state(built[p])[0]
+                and _breakable_build_block(cell)
+            ):
                 costly.append(p)
             else:
                 keep.append(p)
@@ -1309,12 +1353,14 @@ class CompanionBody:
             return policy
         items = tuple(self.temporary_items(scaffolding=False))
         scaffold = (SCAFFOLDING,) if SCAFFOLDING in self.temporary_items() else ()
-        if (
-            not items and not scaffold
-        ) or (items, scaffold) == (policy.material_allowlist, policy.scaffold_materials):
+        if (not items and not scaffold) or (items, scaffold) == (
+            policy.material_allowlist,
+            policy.scaffold_materials,
+        ):
             return policy
         return replace(
-            policy, material_allowlist=items or policy.material_allowlist,
+            policy,
+            material_allowlist=items or policy.material_allowlist,
             scaffold_materials=scaffold,
         )
 
@@ -1434,7 +1480,9 @@ class CompanionBody:
             before = self.position()
             if math.hypot(mid[0] - before[0], mid[2] - before[2]) > SENSED_RADIUS:
                 return False
-            if not self._navigate(mid, reach=None, radius=2.0, probe=probe, progress=progress):
+            if not self._navigate(
+                mid, reach=None, radius=2.0, probe=probe, progress=progress
+            ):
                 return False
             if math.dist(self.position(), before) < 2.0:
                 return False  # the hop did not move us: do not loop
@@ -1464,7 +1512,9 @@ class CompanionBody:
             # this candidate's own no-progress window, in place of the whole goto's
             controller.goal_progress_ticks = progress["limit_ticks"]
         shared_edges = getattr(self, "_goto_edges", None)
-        if shared_edges:  # what earlier candidates of this goto learned cannot be walked
+        if (
+            shared_edges
+        ):  # what earlier candidates of this goto learned cannot be walked
             controller.failed_edges |= shared_edges
         controller.last_partial_walk = self._partial_walks.get(tuple(goal))
         controller.dead_ends = dead = self._dead_ends.setdefault(
@@ -1507,7 +1557,10 @@ class CompanionBody:
         if (
             walked is not None
             and math.dist(before, walked[1]) <= 1.5
-            and (controller.mode == "unreachable" or (last is not None and last.status == "unreachable"))
+            and (
+                controller.mode == "unreachable"
+                or (last is not None and last.status == "unreachable")
+            )
         ):
             # The last partial ended here and no plan leaves: a dead end for this goal.
             revision = getattr(controller.map_view, "revision", None)
@@ -1606,8 +1659,15 @@ class CompanionBody:
             refused = "out_of_reach"
         if refused is not None:
             if (record := getattr(self.bridge, "record", None)) is not None:
-                record("gather_note", {"gather": "drop_" + refused, "item_cell": list(pos),
-                                       "stand_y": standing_y, "feet": self.position()[1]})
+                record(
+                    "gather_note",
+                    {
+                        "gather": "drop_" + refused,
+                        "item_cell": list(pos),
+                        "stand_y": standing_y,
+                        "feet": self.position()[1],
+                    },
+                )
             return None if refused == "falling" else False
         return self.walk_to((x, standing_y, z), radius)
 
@@ -1623,6 +1683,7 @@ class CompanionBody:
                     sy = self._stand_y(x + dx, y, z + dz)
                     if abs(sy - y) <= 1 and sy - here[1] <= DROP_RISE:
                         spots.append((x + dx, sy, z + dz))
+
         def gap(c):
             return math.hypot(c[0] + 0.5 - at[0], c[2] + 0.5 - at[2])
 
@@ -1648,7 +1709,8 @@ class CompanionBody:
             found = {
                 e["uuid"]: e
                 for e in self.entities()
-                if e.get("item") and e.get("uuid")
+                if e.get("item")
+                and e.get("uuid")
                 and any(math.dist(e["position"], c) <= radius for c in centres)
             }
             known.update(found)
@@ -1664,7 +1726,10 @@ class CompanionBody:
             self.wait_ticks(DROP_POLL_TICKS)
             waited += DROP_POLL_TICKS
             seen = sight()
-            if all(abs(before.get(u, math.inf) - e["position"][1]) < 0.01 for u, e in seen.items()):
+            if all(
+                abs(before.get(u, math.inf) - e["position"][1]) < 0.01
+                for u, e in seen.items()
+            ):
                 break  # every item in view rests (an empty view: all picked up)
         if waited and (record := getattr(self.bridge, "record", None)) is not None:
             # The wait leaves no event of its own; idle_gaps.py counts this note as work.
@@ -1688,7 +1753,8 @@ class CompanionBody:
             drops = [
                 e
                 for u, e in known.items()
-                if u not in skipped and e["position"][1] - here[1] <= DROP_RISE
+                if u not in skipped
+                and e["position"][1] - here[1] <= DROP_RISE
                 and any(math.dist(e["position"], c) <= radius for c in centres)
             ]
             if not drops:
@@ -1727,9 +1793,7 @@ class CompanionBody:
             self.terrain_policy = saved
 
     @contextmanager
-    def no_placing(
-        self, wall: float = 10.0, max_drop: int | None = None
-    ):
+    def no_placing(self, wall: float = 10.0, max_drop: int | None = None):
         """Move without placing blocks, and give up a walk after ``wall`` seconds:
         an unreachable goal otherwise replans for 90 s (42 s gaps with 18 plans,
         run 20261110T020332013460Z)."""
@@ -2197,7 +2261,9 @@ class CompanionBody:
         if getattr(self, "_walk_memo", (None,))[0] == key:
             return self._walk_memo[1]
         drop = self.movement_policy.max_drop
-        use_doors = bool(getattr(getattr(self, "terrain_policy", None), "use_doors", True))
+        use_doors = bool(
+            getattr(getattr(self, "terrain_policy", None), "use_doors", True)
+        )
 
         def passable(node: Pos) -> bool:
             if standable(cells, node) or _tower_top(cells, node):
@@ -2286,7 +2352,11 @@ class CompanionBody:
                     boxes = sensed.get("collision_boxes")
             if boxes is None:
                 boxes = [] if block in AIR_BLOCKS else [[0, 0, 0, 1, 1, 1]]
-            recent[pos] = {"block": block, "fluid": "minecraft:empty", "collision_boxes": boxes}
+            recent[pos] = {
+                "block": block,
+                "fluid": "minecraft:empty",
+                "collision_boxes": boxes,
+            }
         # ponytail: a lookup view, never a copy. Copying the whole sensed map here was
         # 79% of build time, ~13 s per placed block (py-spy, run 20261110T024448883505Z)
         return ChainMap(recent, self.memory.cells) if recent else self.memory.cells
@@ -2406,9 +2476,7 @@ class CompanionBody:
             # see it, so the tower built for a target was never the stance tried and
             # the body stopped inside the column (run 20261110T223248667856Z).
             walk = self._walkable(cells, here)
-            matched = [
-                n for n in stances if n in walk or _scaffold_stance(cells, n)
-            ]
+            matched = [n for n in stances if n in walk or _scaffold_stance(cells, n)]
             if matched:
                 stances = matched[:WALK_ONLY_CANDIDATES]
             else:
@@ -2452,11 +2520,16 @@ class CompanionBody:
             if hopped and distant and self.position() == here:
                 continue
             key = (here, node)
-            if getattr(self, "walk_only", False) and self._failed_stance_probes.get(key, 0) > time.monotonic():
+            if (
+                getattr(self, "walk_only", False)
+                and self._failed_stance_probes.get(key, 0) > time.monotonic()
+            ):
                 continue
             if distant and self._hop_toward(node) is not None:
                 hopped = True
-            if self._navigate(node, reach=None, radius=radius, probe=True, progress=progress):
+            if self._navigate(
+                node, reach=None, radius=radius, probe=True, progress=progress
+            ):
                 if not (placing and recheck) or self._places_from_here(
                     target, reach, self.required_support, self.placing_state
                 ):
@@ -2682,10 +2755,16 @@ def start_session(
         while True:
             state = bridge.http("/state")
             sampled = state.get("awareness", {}).get("coverage", {}).get("sample_tick")
-            if state["state"] == "running" and isinstance(sampled, int) and sampled >= 0:
+            if (
+                state["state"] == "running"
+                and isinstance(sampled, int)
+                and sampled >= 0
+            ):
                 break
             if time.monotonic() > deadline:
-                raise RuntimeError("Policy stream did not reach a sampled running state")
+                raise RuntimeError(
+                    "Policy stream did not reach a sampled running state"
+                )
             time.sleep(0.05)
     except BaseException:
         memory.close()

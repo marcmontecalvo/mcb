@@ -981,9 +981,9 @@ class _Runner:
                     and r not in self.report.skipped
                     and not (
                         self.template is not None
-                        and bp.parse_state(
-                            self.template.cells.get(r, "minecraft:air")
-                        )[0]
+                        and bp.parse_state(self.template.cells.get(r, "minecraft:air"))[
+                            0
+                        ]
                         == sc.BLOCK
                     )
                 ]
@@ -1053,9 +1053,7 @@ class _Runner:
             prev = r
         if open_zones is None or self.template is None:
             return walk / got
-        rebuild = any(
-            bp.zone_of(self.template, r) in open_zones for r in standing
-        )
+        rebuild = any(bp.zone_of(self.template, r) in open_zones for r in standing)
         return walk / got + (REBUILD_COST if rebuild else 0.0)
 
     def _take_down(self, done: set) -> bool:

@@ -1007,7 +1007,6 @@ def _rim_stance(body, todo, walked, here: Pos, ground: int, approached, placed):
     return min(rim, key=lambda q: (_dist2(q, here), q))
 
 
-
 def _ground(body, x: int, y: int, z: int) -> bool:
     """A face to stand on or click, by the cell's real collision boxes when the body
     knows them (modded blocks included), else by name."""
@@ -1041,9 +1040,7 @@ def _round_plan(site, template, body, protected, skipped) -> _Plan:
     for q in plan.held:
         floor[q[::2]] = min(q[1], floor.get(q[::2], q[1]))
     plan.fills = [
-        p
-        for p in plan.fills
-        if p not in skipped and p[1] < floor.get(p[::2], p[1] + 1)
+        p for p in plan.fills if p not in skipped and p[1] < floor.get(p[::2], p[1] + 1)
     ]
     for p, why in skipped.items():  # cells whose edits failed are reported, not retried
         if site.contains(p):
