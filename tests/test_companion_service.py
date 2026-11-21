@@ -110,12 +110,63 @@ def test_gap_and_restart_do_not_crash(calls):
         {"launch_id": "b", "gap": False, "latest_sequence": 1, "events": []},
     ]
     state = {"cursor": 5, "launch_id": "a", "tail": deque(maxlen=50)}
+
     def tell(uuid, text):
         sent.append(text)
+
     svc.poll(state, fetch=lambda path, payload=None: batches.pop(0), tell=tell)
     assert state["cursor"] == 90 and sent == ["Nothing to stop."]
     svc.poll(state, fetch=lambda path, payload=None: batches.pop(0), tell=tell)
     assert state["cursor"] == 1  # new launch: sequences restarted
+
+
+@pytest.fixture
+def runs(monkeypatch, tmp_path):
+    from mclab import dashboard
+
+    monkeypatch.setattr(dashboard, "SESSIONS", tmp_path / "sessions")
+    monkeypatch.setattr(svc, "RUNS", tmp_path / "companion")
+
+    def run(name, **progress):
+        folder = tmp_path / "companion" / name
+        folder.mkdir(parents=True)
+        (folder / "progress.json").write_text(json.dumps(progress))
+        return folder
+
+    return run
+
+
+def test_status_describes_a_run_build_run_without_a_dashboard_session(runs):
+    # /mcb status during run-build.py answered "Idle.": it read dashboard sessions only.
+    now = 1_795_284_500.0
+    runs(
+        "20261121T180806599463Z",
+        job="build",
+        stage="placing",
+        done=40,
+        total=1242,
+        updated_at=now - 2,
+    )
+    assert svc._status([], now=now) == "Running build: placing 40/1242."
+
+
+def test_status_reports_an_inspection_hold_as_finished_not_stalled(runs):
+    now = 1_795_284_500.0
+    runs(
+        "20261121T180806599463Z", job="build", stage="inspection", updated_at=now - 600
+    )
+    assert svc._status([], now=now) == (
+        "Finished build; holding the world for inspection."
+    )
+
+
+def test_status_is_idle_when_the_last_run_ended(runs):
+    now = 1_795_284_500.0
+    folder = runs(
+        "20261121T170000000000Z", job="build", stage="done", updated_at=now - 60
+    )
+    (folder / "summary.json").write_text("{}")
+    assert svc._status([], now=now) == "Idle."
 
 
 def test_explain():
@@ -144,3 +195,64 @@ def test_explain_counts_recent_done_ops_as_activity():
     old = [{"type": "break_block_done", "at": 100}]
     assert "Stalled" in explain(stale, session, old, 200)
     assert "Stalled" in explain(stale, session, [], 200)
+
+
+def test_the_service_replies_until_told_to_stop_and_waits_out_a_server_not_up(
+    calls, capsys
+):
+    # The supervisor runs this loop for the server's whole life: the bridge is down
+    # until Minecraft is up, so a refused call is retried and logged once, not per poll.
+    import threading
+
+    stop = threading.Event()
+    replies = []
+    script = [
+        OSError("refused"),
+        OSError("refused"),
+        {"launch_id": "a", "latest_sequence": 4, "events": []},
+        {
+            "launch_id": "a",
+            "latest_sequence": 5,
+            "events": [event(5, "status")],
+        },
+    ]
+
+    def call(path, payload=None):
+        if path == "/tell":
+            replies.append(payload["text"])
+            stop.set()
+            return {}
+        step = (
+            script.pop(0)
+            if script
+            else {"launch_id": "a", "latest_sequence": 5, "events": []}
+        )
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+    svc.run(stop=stop, call=call, pause=lambda s: None)
+
+    assert replies == ["status line"]
+    assert capsys.readouterr().out.count("refused") == 1
+
+
+def test_the_supervisor_runs_the_companion_service():
+    import inspect
+
+    from mclab import supervisor
+
+    assert "companion_service.run" in inspect.getsource(supervisor.main)
+
+
+def test_events_are_stamped_when_read_so_recent_work_counts_as_progress(calls):
+    # Bridge events carry a tick, not a time: unstamped, every break_block_done was
+    # ignored and a busy site prep read "Stalled ... no progress for 30s".
+    done = {"sequence": 7, "type": "break_block_done", "data": {}}
+    batch = {"launch_id": "a", "latest_sequence": 7, "events": [done]}
+    state = {"cursor": 6, "launch_id": "a", "tail": deque(maxlen=50)}
+    svc.poll(state, fetch=lambda path, payload=None: batch, now=lambda: 1234.5)
+    assert state["tail"][-1]["at"] == 1234.5
+    stale = {"job": "build", "stage": "site prep", "updated_at": 1200.0}
+    text = explain(stale, {"status": "running"}, list(state["tail"]), 1240.0)
+    assert text.startswith("Running build: site prep")

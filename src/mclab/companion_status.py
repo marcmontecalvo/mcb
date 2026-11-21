@@ -2,6 +2,7 @@
 
 STALL_SECONDS = 20
 ACTIVE = {"queued", "running"}
+HOLD_STAGES = {"staged", "inspection"}  # as run_digest.HOLD_STAGES
 
 
 def last_failure(events_tail):
@@ -23,6 +24,8 @@ def explain(progress, session, events_tail, now):
         return "Starting up."
     job = progress.get("job") or "job"
     stage = progress.get("stage") or "working"
+    if stage in HOLD_STAGES:  # the job is over; the world stays up to be looked at
+        return f"Finished {job}; holding the world for inspection."
     counts = ""
     if progress.get("total"):
         counts = f" {progress.get('done') or 0:g}/{progress['total']:g}"
