@@ -1296,6 +1296,30 @@ def next_actions(
     def _pending_below(pos):
         return below_todo.get((pos[0], pos[2]), pos[1]) < pos[1]
 
+    # A structure cell short of its item gives up its layer but not its column: run
+    # 20261121T154048852669Z ran out of cobblestone with two foundation cells left in
+    # a zone, its lowest layer moved up a floor, and the planks went in over them,
+    # sealing a pocket no face showed into (1225/1228). Only a cell whose support is
+    # in place holds its column (one waiting on a cell above it would hold it for
+    # good), and never a detail (a lantern never handed over would hold it for good).
+    short_below: dict = {}
+    for t in todo_open:
+        pos, state = t[0], t[1]
+        if (
+            is_detail(state)
+            or _is_door(state)
+            or parse_state(state)[0] in FLUIDS
+            or pos in given_up
+            or all(inventory.get(i, 0) >= c for i, c in t[2].items())
+            or _gate(pos, state, world, blocks) is not None
+        ):
+            continue
+        col = (pos[0], pos[2])
+        short_below[col] = min(short_below.get(col, pos[1]), pos[1])
+
+    def _short_below(pos):
+        return short_below.get((pos[0], pos[2]), pos[1]) < pos[1]
+
     left = dict(inventory)
     out: list = []
     # ponytail: run 20261110T150634125260Z built walls to y 69 with the staircase and
@@ -1313,6 +1337,8 @@ def next_actions(
 
     def offerable(pos, state, cost, held) -> bool:
         if pos in glazing_held or (skipped is not None and pos in skipped):
+            return False
+        if _short_below(pos):
             return False
         low = lowest if near is None else zone_lowest.get(zone(pos))
         if (

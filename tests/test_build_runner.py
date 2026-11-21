@@ -2488,6 +2488,43 @@ def test_cleanup_sweeps_nearest_first_while_keeping_columns_top_down():
     assert runner.report.broken[2:] == [(12, y, 12) for y in range(4, -1, -1)]
 
 
+def test_cleanup_takes_a_walking_foothold_back_after_the_work_above_it():
+    # Run 20261121T154048852669Z: the planner put a dirt step in the stairwell to
+    # climb to the upper floor. Cleanup, nearest first, broke the step while
+    # footholds upstairs were still to come down, then walked up through the gap and
+    # placed the step again, twice; the last one was left (1225/1228). A person takes
+    # the step away on the way down, after everything above it.
+    w = flat_world(hi=12)
+    step, upstairs, far_low = (2, 3, 2), (6, 5, 6), (10, 0, 10)
+    for p in (step, upstairs, far_low):
+        w[p] = "minecraft:dirt"
+    t = bp.Template.from_build(make_build({(0, 0, 0): PLANKS}, (12, 8, 12)), (0, 0, 0))
+    w[(0, 0, 0)] = PLANKS
+
+    class StepBody(FakeBody):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.stray_footholds = {step}
+
+        def goto_stance(self, target_pos, reach, avoid=()):
+            if target_pos[1] > step[1] and self.w[step] == AIR:
+                self.w[step] = "minecraft:dirt"  # the only way up is the step
+                self.stray_footholds.add(step)
+            return super().goto_stance(target_pos, reach, avoid)
+
+    body = StepBody(w, {}, BLOCKS, pos=(2, 2, 3))
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.template = t
+    scaffolds = {upstairs, far_low}
+    runner.scaffolds = scaffolds
+
+    br._clean_up(runner, t, scaffolds)
+
+    assert runner.report.broken.index(upstairs) < runner.report.broken.index(step)
+    assert runner.report.broken.count(step) == 1  # never placed again
+    assert all(w[p] == AIR for p in (step, upstairs, far_low))
+
+
 def test_structure_to_details_clears_indoor_strays_while_keeping_exterior_towers():
     w = flat_world(hi=10)
     # Structure plank at (0, 0, 0), glass detail at (1, 0, 0); indoor dirt at (2, 0, 2),

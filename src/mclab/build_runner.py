@@ -1556,11 +1556,18 @@ def _adopt_footholds(body, template: bp.Template, scaffolds: set) -> None:
     }
 
 
-def _sweep_cleanup(runner: _Runner, acts: list) -> None:
+def _sweep_cleanup(
+    runner: _Runner, acts: list, steps: Collection[Pos] = frozenset()
+) -> None:
     """Break cleanup targets nearest-first (walking distance when available),
     always taking the highest remaining block of any solid column first so the
     body clears one corner/room at a time instead of zig-zagging across the house
-    (run 20261120T175636584118Z spent 363 s in global top-down cleanup)."""
+    (run 20261120T175636584118Z spent 363 s in global top-down cleanup).
+
+    ``steps`` (blocks the planner placed to walk) come down only once nothing above
+    them is left, the way a person takes the step away on the way down: run
+    20261121T154048852669Z broke a stairwell step with footholds upstairs still to
+    clear, walked up through the gap placing it again, twice, and left the last."""
     pool = list(acts)
     walk_dist = getattr(runner.body, "walk_distance", None)
     while pool and runner.report.steps < runner.max_steps:
@@ -1570,6 +1577,8 @@ def _sweep_cleanup(runner: _Runner, acts: list) -> None:
             col = a.pos[::2]
             by_col[col] = max(by_col.get(col, a.pos[1]), a.pos[1])
         ready = [a for a in pool if a.pos[1] == by_col[a.pos[::2]]]
+        top = max(a.pos[1] for a in pool)
+        ready = [a for a in ready if a.pos not in steps or a.pos[1] == top] or ready
 
         def key(a, here=here):
             d2 = _dist2(a.pos, here)
@@ -1624,12 +1633,14 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
     _restore_breaks(runner, template)
     collect = getattr(body, "collect_drops", None)  # optional, like walk_to
     settle = getattr(body, "wait_ticks", None)  # optional
+    steps: set[Pos] = set()  # placed by the planner to walk: taken back last
     for round_idx in range(CLEANUP_ROUNDS * 2):
         # dirt/scaffolding the planner placed to walk (walking_with_edits) comes down
         # with the rest — including footholds placed during earlier cleanup rounds
         _adopt_footholds(body, template, scaffolds)
         strays = getattr(body, "stray_footholds", None)
         if strays:
+            steps |= strays & scaffolds
             strays.clear()
         acts = [
             a
@@ -1652,7 +1663,7 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
                 prev_towering = runner._towering
                 runner._towering = True
                 stack.callback(setattr, runner, "_towering", prev_towering)
-            _sweep_cleanup(runner, acts)
+            _sweep_cleanup(runner, acts, steps)
         broken = True
         if has_collapse and settle:
             settle(COLLAPSE_TICKS)

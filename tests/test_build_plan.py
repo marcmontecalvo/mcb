@@ -977,6 +977,61 @@ def test_a_zone_never_builds_over_a_missing_cell_in_its_columns():
     assert all(p[0] < 8 for p in offered)
 
 
+def _foundation_under_floor():
+    """Cobblestone at y0 under planks at y1, two columns: (0, 0, 0) is placed, and a
+    wall beside the floor holds up the planks over the hole (the house's log wall)."""
+    cells = {(x, 0, 0): COBBLE for x in (0, 1)} | {(x, 1, 0): PLANKS for x in (0, 1)}
+    t = bp.Template.from_build(make_build(cells, (2, 2, 1)), (0, 0, 0))
+    w = flat_world(hi=14)
+    w[(0, 0, 0)] = COBBLE
+    w[(1, 1, 1)] = "minecraft:stone"
+    return t, w
+
+
+@pytest.mark.parametrize("near", [None, (0, 2, 1), (5, 0, 5)])
+def test_a_cell_short_of_its_item_still_holds_its_column(near):
+    # Run 20261121T154048852669Z: cobblestone ran out with two foundation cells left
+    # in a zone, so its lowest layer moved up a floor and the planks went in over
+    # them. The pocket they left was sealed (no face showed from outside it) and the
+    # build stopped at 1225/1228. Short cells give up their layer, not their column.
+    t, w = _foundation_under_floor()
+
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10}, near=near)
+
+    offered = {a.pos for a in acts if isinstance(a, bp.Place)}
+    assert (1, 1, 0) not in offered
+    assert (0, 1, 0) in offered  # its column is done: the layer above goes on
+
+
+def test_a_column_held_only_by_a_short_cell_asks_for_its_item():
+    t, w = _foundation_under_floor()
+    w[(0, 1, 0)] = PLANKS  # all that can go in without cobblestone is in
+
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10}, near=(0, 2, 1))
+
+    assert [type(a) for a in acts] == [bp.NeedMaterials]
+    assert acts[0].items.get(COBBLE) == 1
+
+
+def test_a_short_detail_holds_no_column():
+    # A detail never handed over (24 lanterns short in the same run) must not keep
+    # the cells over it out for good.
+    lantern = "minecraft:lantern[hanging=false,waterlogged=false]"
+    blocks = BLOCKS | {"minecraft:lantern": {"item": "minecraft:lantern"}}
+    cells = {(0, 0, 0): PLANKS, (0, 1, 0): lantern, (0, 2, 0): PLANKS}
+    cells |= {(1, y, 0): PLANKS for y in range(3)}
+    t = bp.Template.from_build(make_build(cells, (2, 3, 1)), (0, 0, 0))
+    w = flat_world(hi=14)
+    w[(0, 0, 0)] = PLANKS
+    w[(0, 2, 1)] = "minecraft:stone"  # the wall that holds up the planks over it
+    for y in range(2):
+        w[(1, y, 0)] = PLANKS
+
+    acts = bp.next_actions(t, at(w), blocks, {PLANKS: 10}, near=(1, 3, 1))
+
+    assert (0, 2, 0) in {a.pos for a in acts if isinstance(a, bp.Place)}
+
+
 # --- bridges off a standing scaffolding tower ---------------------------------
 
 SCAFFOLD = "minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]"
