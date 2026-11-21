@@ -256,3 +256,42 @@ def test_events_are_stamped_when_read_so_recent_work_counts_as_progress(calls):
     stale = {"job": "build", "stage": "site prep", "updated_at": 1200.0}
     text = explain(stale, {"status": "running"}, list(state["tail"]), 1240.0)
     assert text.startswith("Running build: site prep")
+
+
+def test_sample_noise_does_not_push_recent_work_out_of_the_status_tail(calls):
+    # Run 20261121T195634605213Z: half the body's events are policy_sample and a
+    # quarter received, so a place_block_done left the 50-event tail within seconds
+    # and a busy site prep read "Stalled ... no progress for 21s".
+    work = {"sequence": 1, "type": "place_block_done", "data": {}}
+    noise = [
+        {"sequence": n, "type": kind, "data": {}}
+        for n in range(2, 300)
+        for kind in ("policy_sample", "received")
+    ]
+    batch = {"launch_id": "a", "latest_sequence": 300, "events": [work, *noise]}
+    state = {"cursor": 0, "launch_id": "a", "tail": deque(maxlen=50)}
+    svc.poll(state, fetch=lambda path, payload=None: batch, now=lambda: 1234.5)
+    assert [e["type"] for e in state["tail"]] == ["place_block_done"]
+    assert state["cursor"] == 300
+    stale = {"job": "build", "stage": "site prep", "updated_at": 1200.0}
+    text = explain(stale, {"status": "running"}, list(state["tail"]), 1240.0)
+    assert text.startswith("Running build: site prep")
+
+
+@pytest.mark.parametrize("kind", ["route_progress", "block_broken", "leak_plugged"])
+def test_explain_counts_walking_and_world_edits_as_activity(kind):
+    # Walking between site-prep cells finishes no op for a while: still working.
+    stale = {"job": "build", "stage": "site prep", "updated_at": 0}
+    acting = [{"type": kind, "at": 195}]
+    assert explain(stale, {"status": "running"}, acting, 200).startswith(
+        "Running build: site prep"
+    )
+
+
+def test_the_status_tail_keeps_failures_and_commands():
+    assert svc.notable("break_block_failed")
+    assert svc.notable("route_stopped")
+    assert svc.notable("player_command")
+    assert svc.notable("place_block_done")
+    assert not svc.notable("policy_sample")
+    assert not svc.notable("received")

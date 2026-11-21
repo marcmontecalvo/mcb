@@ -144,10 +144,20 @@ def _call(path, payload=None):
         return json.loads(response.read())
 
 
+def notable(kind):
+    """Kept in the status tail: work, failures and commands. Samples and receipts
+    (three quarters of the body's events) would push recent work out of it."""
+    return (
+        kind == "player_command"
+        or companion_status.is_work(kind)
+        or companion_status.is_failure(kind)
+    )
+
+
 def poll(state, fetch=_call, tell=None, now=time.time):
     """One poll: advance state's cursor, reply to each player_command.
-    A ring gap skips forward. Each event is stamped ``at`` when read (the bridge
-    gives ticks, not times) so the stall answer counts recent work."""
+    A ring gap skips forward. Each kept event is stamped ``at`` when read (the
+    bridge gives ticks, not times) so the stall answer counts recent work."""
     batch = fetch(f"/events?after={state['cursor']}")
     if batch["launch_id"] != state.get("launch_id"):
         # server restarted: sequences restart
@@ -157,8 +167,10 @@ def poll(state, fetch=_call, tell=None, now=time.time):
     if batch.get("gap"):
         print("companion-service: event ring gap, some events were lost", flush=True)
     for event in batch["events"]:
-        event.setdefault("at", now())
         state["cursor"] = event["sequence"]
+        if not notable(event["type"]):
+            continue
+        event.setdefault("at", now())
         state["tail"].append(event)
         if event["type"] == "player_command":
             reply = handle(event, state["tail"])
