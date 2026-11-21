@@ -529,7 +529,7 @@ def build_job(
     try:
         build = json.loads(Path(build_json_path).read_text(encoding="utf-8"))
         template = bp.Template.from_build(build, tuple(origin), rotation, mirror)
-        protect(body, template, site_margin)
+        protect(body, template, site_margin, blocks=knowledge.blocks)
         # What the body may put down to climb and take back: scaffolding, dirt,
         # cobblestone, then spare plain blocks that drop themselves (mclab.temporary_blocks).
         body.temporary_ok = temporary_blocks.eligible(knowledge)
@@ -783,7 +783,12 @@ def build_job(
         report.duration_s, report.phases_s, report.stages_s = phase_clock.finish()
 
 
-def protect(body, template: bp.Template, site_margin: int | None = None) -> None:
+def protect(
+    body,
+    template: bp.Template,
+    site_margin: int | None = None,
+    blocks: dict | None = None,
+) -> None:
     """Keep a digging body's route planner, and its gathering, out of the template's
     cells and out of the ground of the site to be levelled: dirt dug for fill must
     come from outside it (run 20261110T001441278034Z dug holes in its own site)."""
@@ -797,9 +802,16 @@ def protect(body, template: bp.Template, site_margin: int | None = None) -> None
     # The planner may break a standing wall cell at a price (CompanionBody._planner_terrain);
     # the build loop re-places it.
     body.build_cells = {p: st for p, st in template.cells.items() if bp.parse_state(st)[0] not in bp.AIR}
-    # Its air cells take footholds (the build loop adopts them as scaffolds and takes
+    # Its open air cells take footholds (the build loop adopts them as scaffolds and takes
     # them back): with them protected, no pillar could rise beside a wall under the
     # eaves, and the upper floor of a house without stairs was out of reach
-    # (run 20261117T075353967859Z).
-    body.build_air = {p for p, st in template.cells.items() if bp.parse_state(st)[0] in bp.AIR}
+    # (run 20261117T075353967859Z). Sealed interior cavities (e.g. a 1-high attic gap
+    # under a roof ridge) stay protected so no foothold is ever sealed inside them
+    # (run 20261120T175636584118Z: dirt at (-12, 75, 63)).
+    sealed = bp.sealed_air(template, blocks)
+    body.build_air = {
+        p
+        for p, st in template.cells.items()
+        if bp.parse_state(st)[0] in bp.AIR and p not in sealed
+    }
     body.terrain_policy = replace(policy, protected_positions=tuple(sorted(cells)))

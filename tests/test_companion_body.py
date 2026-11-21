@@ -2240,3 +2240,73 @@ def test_markers_point_at_the_block_acted_on_and_the_stance_walked_to(monkeypatc
     with contextlib.suppress(StopIteration):
         b._navigate((5, 0, 5), reach=None, radius=0.6)
     assert marks.goal == (5, 0, 5)
+
+
+def test_prop_stances_and_can_place_with_prop_here_solve_hopper_room():
+    # Exact layout of house-large hopper room: wall on z=0, ceiling at y=3,
+    # target (2, 2, 1) hopper facing west, prop cell (1, 2, 1) air.
+    b, _, _ = body()
+    b.precise_stance = True
+    cells = b.memory.cells
+    for x in range(-1, 6):
+        for z in range(-1, 6):
+            for y in range(-1, 5):
+                cells[(x, y, z)] = {"block": "minecraft:air", "collision_boxes": []}
+            cells[(x, -1, z)] = {"block": "minecraft:stone", "collision_boxes": [FULL]}
+            cells[(x, 3, z)] = {
+                "block": "minecraft:birch_planks",
+                "collision_boxes": [FULL],
+            }
+        for y in range(0, 3):
+            cells[(x, y, 0)] = {
+                "block": "minecraft:oak_planks",
+                "collision_boxes": [FULL],
+            }
+    west = "minecraft:hopper[enabled=true,facing=west]"
+    b.placing_state = west
+    b._obs["body"]["position"] = [2.5, 0.0, 2.5]
+    assert b.stances((2, 2, 1), 4.5) == []  # no solid west neighbour to click
+    found = b.prop_stances((1, 2, 1), "minecraft:dirt", (2, 2, 1), west, 4.5)
+    assert (2, 0, 2) in found
+    assert b.can_place_with_prop_here((1, 2, 1), "minecraft:dirt", (2, 2, 1), west, 4.5)
+    # West of the prop cell, the east face of (1, 2, 1) is hidden behind it.
+    b._obs["body"]["position"] = [0.5, 0.0, 2.5]
+    assert not b.can_place_with_prop_here(
+        (1, 2, 1), "minecraft:dirt", (2, 2, 1), west, 4.5
+    )
+
+
+def test_can_reach_from_tower_rejects_eye_above_chain_down_face_and_wrong_side():
+    b, _, _ = body()
+    b.precise_stance = True
+    cells = b.memory.cells
+    for x in range(-3, 4):
+        for z in range(-3, 4):
+            for y in range(0, 12):
+                cells[(x, y, z)] = {"block": "minecraft:air", "collision_boxes": []}
+            cells[(x, -1, z)] = {"block": "minecraft:stone", "collision_boxes": [FULL]}
+    # Chain target (0, 9, 0) hanging under (0, 10, 0) whose down face is at y=10.0.
+    cells[(0, 10, 0)] = {
+        "block": "minecraft:iron_chain",
+        "collision_boxes": [[0.40625, 0.0, 0.40625, 0.59375, 1.0, 0.59375]],
+    }
+    b.required_support = {(0, 10, 0), (0, 8, 0)}
+    b.placing_state = "minecraft:iron_chain[axis=y,waterlogged=false]"
+    # Standing at feet y=9 puts eye at 10.62 > 10.0: cannot see the down face!
+    tall = [(-1, h, 0) for h in range(0, 9)]
+    assert b.can_reach_from_tower((0, 9, 0), 4.5, (-1, 9, 0), tall) == 0
+    # Standing at feet y=6..8 puts eye below 10.0 and sees the down face soundly.
+    short = [(-1, h, 0) for h in range(0, 6)]
+    assert b.can_reach_from_tower((0, 9, 0), 4.5, (-1, 6, 0), short) == 2
+    # Solid wall at z=1 blocks an outside tower at (0, *, 2) from reaching (0, 2, 0).
+    for x in range(-3, 4):
+        for y in range(0, 6):
+            cells[(x, y, 1)] = {
+                "block": "minecraft:oak_planks",
+                "collision_boxes": [FULL],
+            }
+    cells[(0, 2, -1)] = {"block": "minecraft:oak_planks", "collision_boxes": [FULL]}
+    b.required_support = None
+    b.placing_state = "minecraft:oak_planks"
+    outside = [(0, 0, 2), (0, 1, 2)]
+    assert b.can_reach_from_tower((0, 2, 0), 4.5, (0, 2, 2), outside) == 0

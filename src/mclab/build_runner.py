@@ -243,7 +243,7 @@ def _support(act, blocks: dict) -> Pos | set[Pos] | None:
         return None
     ident, props = bp.parse_state(act.state)
     kind = bp._support_kind(ident, props, blocks.get(ident, {}))
-    if kind in ("facing_opposite", "any_face"):
+    if kind in ("facing_opposite", "any_face", "above"):
         return bp._support_cell(kind, props, act.pos)
     axis = props.get("axis")
     if axis == "z":
@@ -388,6 +388,28 @@ class _Runner:
                 act,
                 _support_for(act, getattr(self.body, "world", None), self.blocks),
             )
+            # When no currently solid neighbour can produce ``act.state`` (e.g.
+            # mutually facing hoppers), plan the temporary prop up front instead of
+            # letting stance search fail and raise a useless tower.
+            if (
+                isinstance(act, bp.Place)
+                and bp.prop_cells(
+                    pos, act.state, getattr(self.body, "world", None), self.blocks
+                )
+                and any(
+                    self.body.inventory().get(i, 0) > 0
+                    for i in self._temporaries(False)
+                )
+            ):
+                if self._propped(act, avoid):
+                    _take_back(self, act)
+                    return _record(self.report, act)
+                self.report.failures.append(
+                    (pos, "no_stance", self.body.position(), {})
+                )
+                if self.template is not None:
+                    self.fails[pos] = MAX_TRIES
+                return self._fail(pos, "no_stance")
             if not self._stance(pos, avoid):
                 self.report.failures.append(
                     (pos, "no_stance", self.body.position(), {})
@@ -414,7 +436,7 @@ class _Runner:
             self.report.failures.append(
                 (pos, result.reason or "failed", stance, detail)
             )
-            if result.reason == "state_unreachable" and self._propped(act):
+            if result.reason == "state_unreachable" and self._propped(act, avoid):
                 _take_back(self, act)
                 return _record(self.report, act)
             if _blind(detail) and self._tower(pos, avoid):
@@ -431,40 +453,67 @@ class _Runner:
                 return
             avoid.add(stance)
 
-    def _propped(self, act) -> bool:
-        """A block whose facing comes from the face clicked, with nothing on that
-        side to click (two hoppers facing each other, run 20261118T070135016043Z):
-        a temporary block there, the block placed against it, the temporary taken
-        back, the way a player builds it. Once per cell."""
+    def _propped(self, act, avoid=()) -> bool:
+        """A block whose state needs a click face with nothing solid on that side yet
+        (two hoppers facing each other, run 20261118T070135016043Z &
+        20261120T175636584118Z): put a temporary block there, place the block against
+        it, and take the temporary back. Prefers a single stance that can place both
+        the temporary and the target block. Once per cell (reset on retry rounds)."""
         if not isinstance(act, bp.Place) or act.pos in self.propped:
             return False
         self.propped.add(act.pos)
         ident, props = bp.parse_state(act.state)
-        step = FACING_STEP.get(props.get("facing", ""))
         held = self.body.inventory()
         item = next((i for i in self._temporaries(False) if held.get(i, 0) > 0), None)
-        if step is None or item is None:
+        if item is None:
             return False
-        x, y, z = act.pos
-        signs = (1,) if ident == "minecraft:hopper" else (1, -1)
+        candidates = bp.prop_cells(act.pos, act.state, self.body.world, self.blocks)
+        if not candidates:
+            step = FACING_STEP.get(props.get("facing", ""))
+            if step is None:
+                return False
+            x, y, z = act.pos
+            signs = (1,) if ident == "minecraft:hopper" else (1, -1)
+            candidates = [
+                (x + sign * step[0], y + sign * step[1], z + sign * step[2])
+                for sign in signs
+                if bp.parse_state(
+                    self.body.world(
+                        x + sign * step[0], y + sign * step[1], z + sign * step[2]
+                    )
+                    or ""
+                )[0]
+                in bp.AIR
+            ]
         can_place = getattr(self.body, "can_place_here", None)
-        for sign in signs:
-            cell = (x + sign * step[0], y + sign * step[1], z + sign * step[2])
-            if bp.parse_state(self.body.world(*cell) or "")[0] not in bp.AIR:
+        goto_prop = getattr(self.body, "goto_prop_stance", None)
+        tx, ty, tz = act.pos
+        avoid_target = set(avoid) | {act.pos, (tx, ty - 1, tz)}
+        for cell in candidates:
+            if bp.parse_state(self.body.world(*cell) or "")[0] not in bp.REPLACEABLE:
                 continue
             with _aim_kept(self.body):
                 temp = bp.Place(cell, item, item)
                 _aim(self.body, temp)
-                if can_place is not None and not can_place(cell, REACH, None, item):
-                    self.body.goto_stance(cell, REACH)
+                shared = False
+                if goto_prop is not None:
+                    shared = goto_prop(cell, item, act.pos, act.state, REACH, avoid)
+                if not shared:
+                    if can_place is not None and not can_place(cell, REACH, None, item):
+                        self.body.goto_stance(cell, REACH, avoid_target)
+                if self._traps(temp, self.body.position()):
+                    continue
                 if not self.body.place_block(cell, item, item).ok:
                     continue
                 _aim(self.body, act, cell)
                 if can_place is not None and not can_place(
                     act.pos, REACH, cell, act.state
                 ):
-                    self.body.goto_stance(act.pos, REACH)
-                result = _do(self.body, act)
+                    self.body.goto_stance(act.pos, REACH, avoid)
+                if self._traps(act, self.body.position()):
+                    result = Result(False, "would_trap")
+                else:
+                    result = _do(self.body, act)
             broke = self.body.break_block(cell)
             if not broke.ok and getattr(self.body, "goto_stance", None):
                 self.body.goto_stance(cell, REACH)
@@ -472,7 +521,8 @@ class _Runner:
             if broke.ok:
                 collect = getattr(self.body, "collect_drops", None)  # optional
                 if collect:
-                    collect([cell])
+                    with no_placing(self.body):
+                        collect([cell])
             elif self.scaffolds is not None and _standing(self.body, cell):
                 self.scaffolds.add(cell)
             if result.ok:
@@ -573,6 +623,29 @@ class _Runner:
             return False
         self.towered.add(pos)
         bridge = self._bridge_plan(pos, avoid)
+        reach_fn = getattr(self.body, "can_reach_from_tower", None)
+        listed = getattr(self.body, "stances", None)
+        allow_roof_lift = listed is None or any(
+            n[1] >= pos[1] for n in listed(pos, REACH, avoid)
+        )
+        can_reach_scaff = (
+            (
+                lambda foot, tc: reach_fn(
+                    pos, REACH, foot, tc, scaffolding=True, avoid=avoid
+                )
+            )
+            if reach_fn is not None
+            else None
+        )
+        can_reach_dirt = (
+            (
+                lambda foot, tc: reach_fn(
+                    pos, REACH, foot, tc, scaffolding=False, avoid=avoid
+                )
+            )
+            if reach_fn is not None
+            else None
+        )
         cells = bp.tower_cells(
             pos,
             self.body.world,
@@ -580,6 +653,8 @@ class _Runner:
             self.reserved,
             roof=True,
             scaffolding=True,
+            can_reach=can_reach_scaff,
+            allow_roof_lift=allow_roof_lift,
         )
         dirt_only = False
         if not cells:
@@ -590,6 +665,8 @@ class _Runner:
                 self.reserved,
                 roof=True,
                 scaffolding=False,
+                can_reach=can_reach_dirt,
+                allow_roof_lift=allow_roof_lift,
             )
             dirt_only = bool(cells)
         # A few blocks off a tower already standing beat a new one: no climb from
@@ -606,10 +683,13 @@ class _Runner:
             # Scaffolding the new tower lacks comes off idle towers before dirt goes
             # up: counting dirt as cover left the scaffolding standing in the
             # unfinished wing while dirt pillars climbed the walls (run
-            # 20261119T225430670386Z).
-            self._reclaim(
-                pos, cells[0], avoid, self._lacking(len(cells), not dirt_only)
-            )
+            # 20261119T225430670386Z). Retry while idle structures keep yielding.
+            for _ in range(CLEANUP_ROUNDS):
+                lacking = self._lacking(len(cells), not dirt_only)
+                if lacking is None:
+                    break
+                if not self._reclaim(pos, cells[0], avoid, lacking):
+                    break
         if not cells:
             # Every neighbouring column is the template itself (an interior roof
             # cell): the stance is the roof's edge, reached by pillaring or stairs of
@@ -697,11 +777,10 @@ class _Runner:
             others = set(listed(pos, REACH, avoid)) - tops if listed else set()
         if self.body.goto_stance(pos, REACH, set(avoid) | others):
             return True
-        # Not climbed: a tower nobody stands on is only in the way.
-        self.body.break_block(cells[0])
-        for cell in cells:
-            if not _standing(self.body, cell):
-                self.scaffolds.discard(cell)
+        # Not climbed: a tower nobody stands on is only in the way; wait for its
+        # collapse and pick the scaffolding back up so the stack is not bled dry
+        # (run 20261120T175636584118Z abandoned 15+ blocks on failed climbs).
+        self._drop(cells)
         return False
 
     def _bridge_plan(self, pos: Pos, avoid) -> tuple[Pos, list[Pos]] | None:
@@ -776,18 +855,20 @@ class _Runner:
         return False
 
     def _drop(self, cells: list[Pos]) -> None:
-        """A bridge nobody stands on is only in the way: break the block next to
-        the tower and the rest falls with it; once it has fallen, pick the
-        scaffolding up as a tower teardown does (left lying, 2-3 of them were on the
-        ground after run 20261120T141244368734Z)."""
+        """A bridge or tower nobody stands on is only in the way: break its base
+        and the rest falls with it; once it has fallen, pick the scaffolding up
+        without placing new footholds (left lying, blocks bled the 64 stack in runs
+        20261120T141244368734Z and 20261120T175636584118Z)."""
         if _standing(self.body, cells[0]) and self.body.break_block(cells[0]).ok:
             if settle := getattr(self.body, "wait_ticks", None):  # optional
                 settle(COLLAPSE_TICKS)
             if collect := getattr(self.body, "collect_drops", None):  # optional
-                collect(list(cells))
-        for cell in cells:
-            if not _standing(self.body, cell):
-                self.scaffolds.discard(cell)
+                with no_placing(self.body):
+                    collect(list(cells))
+        gone = {c for c in cells if not _standing(self.body, c)}
+        self.scaffolds -= gone
+        if isinstance(strays := getattr(self.body, "stray_footholds", None), set):
+            strays -= gone
 
     def _lacking(self, n: int, scaffolding: bool) -> tuple[frozenset[str], int] | None:
         """The blocks a tower of ``n`` would be built of (scaffolding, or else the
@@ -798,6 +879,35 @@ class _Runner:
         have = max((held.get(i, 0) - still.get(i, 0) for i in items), default=0)
         return None if have >= n else (frozenset(items), n - have)
 
+    def _sturdy_below(self, p: Pos) -> bool:
+        below = self.body.world(p[0], p[1] - 1, p[2])
+        return (
+            below is not None
+            and bp.parse_state(below)[0] not in bp.REPLACEABLE
+            and bp.parse_state(below)[0] != sc.BLOCK
+        )
+
+    def _scaffold_components(self, seeds: set[Pos]) -> list[set[Pos]]:
+        """Connected standing scaffolding structures in the world touching ``seeds``."""
+        world = self.body.world
+        visited: set[Pos] = set()
+        comps: list[set[Pos]] = []
+        for start in sorted(seeds):
+            if start in visited or not bp._scaffolding(world(*start)):
+                continue
+            comp = {start}
+            todo = [start]
+            while todo and len(comp) < bp._DISTANCE_FLOOD:
+                p = todo.pop()
+                for v in bp._AROUND:
+                    n = bp._add(p, v)
+                    if n not in comp and bp._scaffolding(world(*n)):
+                        comp.add(n)
+                        todo.append(n)
+            visited |= comp
+            comps.append(comp)
+        return comps
+
     def _reclaim(
         self,
         pos: Pos,
@@ -805,63 +915,104 @@ class _Runner:
         avoid,
         lacking: tuple[frozenset[str], int] | None,
         keep_columns=frozenset(),
-    ) -> None:
-        """Before raising a tower short of blocks, take down idle towers and
+    ) -> bool:
+        """Before raising a tower short of blocks, take down idle structures and
         footholds holding them and pick them up: one stack of scaffolding moves
         round the house instead of standing where it was first put up while dirt
         steps go up the walls (run 20261117T130121185147Z: every tower stood to the
         end). ``lacking`` (items, n): the new tower is short of n of those items;
         None: nothing comes down, the rest comes down at cleanup.
 
-        Each take-down is a walk, and a climb for a foothold up on the roof (run
-        20261120T101447633151Z: 52 take-downs, 741 s; roof footholds of a finished
-        zone lie on the way to the next zone's roof and the next walk put them back).
-        So columns come down cheapest per block first (``_reclaim_cost``). A column
-        beside ``pos`` stays (the new tower may grow on it). The body first walks to
-        the new tower's ``base``: it is usually still up on the old one.
-        ``keep_columns`` (x, z) stay too: the tower a bridge hangs from."""
+        Scaffolding is evaluated as whole connected structures (via ``sc.roots``
+        and ``sc.survivors``): picking hanging columns without their roots yielded
+        zero breaks, and breaking one root of a bridged structure left the rest
+        standing (run 20261120T175636584118Z). Step-placed footholds are adopted
+        before ranking so they are reclaimable too. Returns True if anything was
+        broken."""
         if lacking is None:
-            return
+            return False
+        if self.template is not None and self.scaffolds is not None:
+            _adopt_footholds(self.body, self.template, self.scaffolds)
         keep = {(pos[0] + dx, pos[2] + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
         keep |= set(keep_columns)
         idle = {c for c in self.scaffolds or () if c[::2] not in keep}
         if not idle:
-            return
-        done = self._to_cover(base, idle, *lacking)
+            return False
+        done = self._to_cover(base, idle, *lacking, keep)
         if not any(_standing(self.body, c) for c in done):
-            return
+            return False
         self.body.goto_stance(base, REACH, avoid)
+        if self.template is not None and self.scaffolds is not None:
+            _adopt_footholds(self.body, self.template, self.scaffolds)
         bx, _, bz = self.body.position()
-        done = {  # never the column the body stands on, if it is still up there
-            c
-            for c in done
-            if max(abs(c[0] - math.floor(bx)), abs(c[2] - math.floor(bz))) > 1
+        body_keep = {
+            (math.floor(bx) + dx, math.floor(bz) + dz)
+            for dx in (-1, 0, 1)
+            for dz in (-1, 0, 1)
         }
-        self._take_down(done)
+        all_keep = keep | body_keep
+        idle = {c for c in self.scaffolds or () if c[::2] not in all_keep}
+        done = self._to_cover(base, idle, *lacking, all_keep)
+        if not any(_standing(self.body, c) for c in done):
+            return False
+        return self._take_down(done)
 
-    def _to_cover(self, base: Pos, idle: set, items: frozenset, n: int) -> set:
-        """Whole idle columns, cheapest per block of ``items`` first
-        (``_reclaim_cost``), until their standing blocks of ``items`` make up
-        ``n``."""
-        columns: dict[tuple[int, int], list[Pos]] = {}
-        for c in idle:
-            columns.setdefault(c[::2], []).append(c)
+    def _to_cover(
+        self,
+        base: Pos,
+        idle: set,
+        items: frozenset,
+        n: int,
+        keep_columns=frozenset(),
+    ) -> set:
+        """Whole idle scaffolding structures (all removable roots + everything that
+        falls with them) and solid columns, cheapest per actually dropped block of
+        ``items`` first (``_reclaim_cost``), until their yield makes up ``n``."""
         open_zones = self._open_zones()
-        ranked = []
-        for xz, cells in columns.items():
-            held = [
-                c
-                for c in cells
-                if bp.parse_state(self.body.world(*c) or "minecraft:air")[0] in items
-            ]
-            if held:
-                cost = self._reclaim_cost(base, cells, len(held), open_zones)
-                ranked.append((cost, xz, len(held)))
+        ranked: list[tuple[float, tuple[int, int], int, set[Pos]]] = []
+        if sc.BLOCK in items:
+            scaff_idle = {c for c in idle if bp._scaffolding(self.body.world(*c))}
+            for comp in self._scaffold_components(scaff_idle):
+                all_roots = sc.roots(comp, self._sturdy_below)
+                rem_roots = [
+                    r
+                    for r in all_roots
+                    if r[::2] not in keep_columns
+                    and r not in self.report.skipped
+                    and not (
+                        self.template is not None
+                        and bp.parse_state(
+                            self.template.cells.get(r, "minecraft:air")
+                        )[0]
+                        == sc.BLOCK
+                    )
+                ]
+                if not rem_roots:
+                    continue
+                dropped = comp - sc.survivors(comp, self._sturdy_below, rem_roots)
+                if not dropped:
+                    continue
+                cost = self._reclaim_cost(base, rem_roots, len(dropped), open_zones)
+                ranked.append((cost, rem_roots[0][::2], len(dropped), dropped))
+        solid_items = items - {sc.BLOCK}
+        if solid_items:
+            columns: dict[tuple[int, int], list[Pos]] = {}
+            for c in idle:
+                if c[::2] in keep_columns:
+                    continue
+                if (
+                    bp.parse_state(self.body.world(*c) or "minecraft:air")[0]
+                    in solid_items
+                ):
+                    columns.setdefault(c[::2], []).append(c)
+            for xz, cells in columns.items():
+                cost = self._reclaim_cost(base, cells, len(cells), open_zones)
+                ranked.append((cost, xz, len(cells), set(cells)))
         picked: set = set()
-        for _, xz, got in sorted(ranked):
+        for _, _, got, cells in sorted(ranked, key=lambda r: (r[0], r[1])):
             if n <= 0:
                 break
-            picked.update(columns[xz])
+            picked.update(cells)
             n -= got
         return picked
 
@@ -881,26 +1032,42 @@ class _Runner:
         }
 
     def _reclaim_cost(self, base: Pos, cells: list, got: int, open_zones) -> float:
-        """Blocks of walking per block got back from one column: the walk from the new
-        tower's ``base`` to the column's foot, its climbs weighted by CLIMB_COST, and
-        REBUILD_COST more per block for a column in a zone still being built (run
-        20261119T133618892664Z took towers down mid-wing and put them up again)."""
+        """Blocks of walking per block got back from one column or structure: the
+        walk from the new tower's ``base`` to the roots, their climbs weighted by
+        CLIMB_COST, and REBUILD_COST more per block for a root in a zone still being
+        built (run 20261119T133618892664Z took towers down mid-wing and put them up
+        again)."""
         standing = [c for c in cells if _standing(self.body, c)] or cells
-        root = min(standing, key=lambda c: c[1])
+        root = min(standing, key=lambda c: (math.dist(c[::2], base[::2]), c[1]))
         climb = max(0, root[1] - base[1] - REACH_UP)
         walk = math.dist(root[::2], base[::2]) + CLIMB_COST * climb
+        # Extra roots of a bridged structure each add a walk/climb between them.
+        extra_roots = {c[::2]: c for c in standing if c[::2] != root[::2]}
+        prev = root
+        for r in sorted(
+            extra_roots.values(), key=lambda c: math.dist(c[::2], prev[::2])
+        ):
+            walk += math.dist(r[::2], prev[::2]) + CLIMB_COST * max(
+                0, r[1] - base[1] - REACH_UP
+            )
+            prev = r
         if open_zones is None or self.template is None:
             return walk / got
-        rebuild = bp.zone_of(self.template, root) in open_zones
+        rebuild = any(
+            bp.zone_of(self.template, r) in open_zones for r in standing
+        )
         return walk / got + (REBUILD_COST if rebuild else 0.0)
 
-    def _take_down(self, done: set) -> None:
-        """Break ``done`` (cleanup order) and pick the drops up; they leave
-        ``scaffolds`` and their failures are forgotten."""
+    def _take_down(self, done: set) -> bool:
+        """Break ``done`` (cleanup order), wait for scaffolding collapses and pick
+        the drops up without placing new footholds; they leave ``scaffolds`` and
+        their failures are forgotten. Returns True if anything was broken."""
         prev_skips = {
             c: self.report.skipped[c] for c in done if c in self.report.skipped
         }
         collect = getattr(self.body, "collect_drops", None)  # optional
+        settle = getattr(self.body, "wait_ticks", None)  # optional
+        broke_any = False
         for _ in range(CLEANUP_ROUNDS):
             acts = [
                 a
@@ -909,17 +1076,36 @@ class _Runner:
             ]
             if not acts:
                 break
+            scaff_roots = {
+                a.pos for a in acts if bp._scaffolding(self.body.world(*a.pos))
+            }
+            has_collapse = bool(scaff_roots) and any(
+                c not in scaff_roots and bp._scaffolding(self.body.world(*c))
+                for c in done
+            )
+            broken_before = len(self.report.broken)
             for act in acts:
                 self.attempt(act)
+            if len(self.report.broken) > broken_before:
+                broke_any = True
+            if has_collapse and settle:
+                settle(COLLAPSE_TICKS)
             if collect:
-                collect([a.pos for a in acts])
-        self.scaffolds -= {c for c in done if not _standing(self.body, c)}
+                with no_placing(self.body):
+                    collect(list(done))
+        if self.template is not None and self.scaffolds is not None:
+            _adopt_footholds(self.body, self.template, self.scaffolds)
+        gone = {c for c in done if not _standing(self.body, c)}
+        self.scaffolds -= gone
+        if isinstance(strays := getattr(self.body, "stray_footholds", None), set):
+            strays -= gone
         for c in done:
             if c not in prev_skips:
                 self.report.skipped.pop(c, None)
             self.fails.pop(c, None)
             self.avoid.pop(c, None)
             self.towered.discard(c)
+        return broke_any
 
     def _pillar(self, pos: Pos, cells: list, item: str, avoid) -> bool:
         """A column of anything but scaffolding is solid: nothing walks or climbs onto
@@ -1352,16 +1538,21 @@ def _adopt_footholds(body, template: bp.Template, scaffolds: set) -> None:
 
 def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
     """Take the scaffolds back: break them (scaffolding: only the blocks on the ground,
-    the rest drops with them), then pick up what fell. A few rounds, since the blocks
-    that hung from a root go a few ticks later. True if anything was broken."""
+    the rest drops with them), wait for scaffolding collapses, then pick up what fell
+    without placing new footholds. Re-adopts any footholds placed by cleanup walks
+    every round so none survive into the final diff (run 20261120T175636584118Z left
+    three cleanup-placed footholds inside the house). True if anything was broken."""
     body, broken = runner.body, False
     _restore_breaks(runner, template)
-    # dirt the planner placed to walk (walking_with_edits) comes down with the rest
-    _adopt_footholds(body, template, scaffolds)
-    strays = getattr(body, "stray_footholds", None)
-    if strays:
-        strays.clear()
-    for _ in range(CLEANUP_ROUNDS):
+    collect = getattr(body, "collect_drops", None)  # optional, like walk_to
+    settle = getattr(body, "wait_ticks", None)  # optional
+    for round_idx in range(CLEANUP_ROUNDS * 2):
+        # dirt/scaffolding the planner placed to walk (walking_with_edits) comes down
+        # with the rest — including footholds placed during earlier cleanup rounds
+        _adopt_footholds(body, template, scaffolds)
+        strays = getattr(body, "stray_footholds", None)
+        if strays:
+            strays.clear()
         acts = [
             a
             for a in bp.cleanup_actions(template, body.world, scaffolds)
@@ -1369,12 +1560,29 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
         ]
         if not acts:
             break
-        for act in acts:
-            runner.attempt(act)
+        standing_before = [c for c in scaffolds if _standing(body, c)]
+        scaff_roots = {a.pos for a in acts if bp._scaffolding(body.world(*a.pos))}
+        has_collapse = bool(scaff_roots) and any(
+            c not in scaff_roots and bp._scaffolding(body.world(*c))
+            for c in standing_before
+        )
+        # On later convergence rounds, avoid placing new footholds or raising new
+        # towers while sweeping up strays created by earlier cleanup walks.
+        with ExitStack() as stack:
+            if round_idx >= CLEANUP_ROUNDS:
+                stack.enter_context(no_placing(body))
+                prev_towering = runner._towering
+                runner._towering = True
+                stack.callback(setattr, runner, "_towering", prev_towering)
+            for act in acts:
+                runner.attempt(act)
         broken = True
-        collect = getattr(body, "collect_drops", None)  # optional, like walk_to
+        if has_collapse and settle:
+            settle(COLLAPSE_TICKS)
         if collect:
-            collect([a.pos for a in acts])
+            fell = [c for c in standing_before if not _standing(body, c)]
+            with no_placing(body):
+                collect(fell or [a.pos for a in acts])
     return broken
 
 
@@ -1683,6 +1891,7 @@ def _run(
             runner.fails.clear()
             runner.avoid.clear()
             runner.towered.clear()
+            runner.propped.clear()
             continue
         if not acts:
             d = bp.diff(template, body.world)
@@ -1748,6 +1957,7 @@ def _run(
             runner.fails.clear()
             runner.avoid.clear()
             runner.towered.clear()
+            runner.propped.clear()
         if on_progress:
             on_progress(report, False)
     has_cleanup = bool(

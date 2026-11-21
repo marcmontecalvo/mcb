@@ -1039,3 +1039,111 @@ def test_no_bridge_over_unknown_or_solid_cells():
     assert bp.bridge_cells((1, 5, 0), at(w), BLOCKS) == []
     w[(1, 5, 0)] = PLANKS
     assert bp.bridge_cells((1, 5, 0), at(w), BLOCKS) == []
+
+
+def test_prop_cells_finds_absent_click_face_for_mutual_hoppers_and_top_slab():
+    # Run 20261120T175636584118Z: mutually facing hoppers had no solid face on
+    # the facing side; stance search returned empty and never triggered _propped.
+    w = flat_world(hi=6)
+    w[(2, 2, 0)] = PLANKS  # north wall behind (-16, 67, 60)
+    w[(1, 2, 0)] = PLANKS  # north wall behind (-17, 67, 60)
+    west = "minecraft:hopper[enabled=true,facing=west]"
+    east = "minecraft:hopper[enabled=true,facing=east]"
+    blocks = {**BLOCKS, "minecraft:hopper": {"item": "minecraft:hopper"}}
+    assert bp.prop_cells((2, 2, 1), west, at(w), blocks) == [(1, 2, 1)]
+    assert bp.prop_cells((1, 2, 1), east, at(w), blocks) == [(2, 2, 1)]
+    # Once one hopper stands, the other needs no prop.
+    w[(2, 2, 1)] = west
+    assert bp.prop_cells((1, 2, 1), east, at(w), blocks) == []
+    # Top slab over only a floor needs a side prop (clicking up makes bottom).
+    top_slab = "minecraft:oak_slab[type=top,waterlogged=false]"
+    slab_props = bp.prop_cells((4, 0, 4), top_slab, at(w), BLOCKS)
+    assert slab_props and all(p[1] == 0 for p in slab_props)
+    w[(5, 0, 4)] = PLANKS
+    assert bp.prop_cells((4, 0, 4), top_slab, at(w), BLOCKS) == []
+    # Blocks with permanent needs_support (e.g. hanging lantern) never prop.
+    lantern = "minecraft:lantern[hanging=true,waterlogged=false]"
+    assert bp.prop_cells((4, 2, 4), lantern, at(w), BLOCKS) == []
+
+
+def test_tower_cells_with_can_reach_picks_shortest_sound_height_and_skips_unreachable():
+    # Run 20261120T175636584118Z: chain (-21, 74, 63) hangs from (-21, 75, 63);
+    # feet at y=74 put eye at 75.62 (above down face 75.0), and roof fallback built
+    # a tower on the wrong side of a wall for an indoor hopper.
+    w = flat_world(hi=16)
+    target = (3, 10, 3)
+
+    def chain_reach(foot, cells):
+        # Eye must stay below the down face at y=11.0 (feet <= 9) and within reach.
+        if foot[1] >= 10:
+            return 0
+        if foot[1] == 5:
+            return 1  # marginal reach
+        return 2 if 6 <= foot[1] <= 9 else 0
+
+    cells = bp.tower_cells(
+        target, at(w), BLOCKS, roof=True, can_reach=chain_reach, allow_roof_lift=False
+    )
+    assert cells
+    assert cells[0][1] == 0 and cells[-1][1] == 5  # feet at y=6, shortest sound tower
+    # When nothing can reach the target and no roof stance exists, build no tower.
+    assert (
+        bp.tower_cells(
+            target,
+            at(w),
+            BLOCKS,
+            roof=True,
+            can_reach=lambda foot, cells: 0,
+            allow_roof_lift=False,
+        )
+        == []
+    )
+
+
+def test_sealed_air_marks_enclosed_attic_cavity_and_leaves_doored_room_open():
+    # A 1-high enclosed attic cavity above a room with a door.
+    cells = {}
+    for x in range(5):
+        for z in range(5):
+            cells[(x, 0, z)] = PLANKS  # floor
+            cells[(x, 3, z)] = PLANKS  # ceiling / attic floor
+            cells[(x, 5, z)] = PLANKS  # roof over 1-high attic
+    for x in range(5):
+        for y in (1, 2, 4):
+            cells[(x, y, 0)] = PLANKS
+            cells[(x, y, 4)] = PLANKS
+    for z in range(5):
+        for y in (1, 2, 4):
+            cells[(0, y, z)] = PLANKS
+            cells[(4, y, z)] = PLANKS
+    cells[(2, 1, 0)] = DOOR_LO
+    cells[(2, 2, 0)] = DOOR_UP
+    t = bp.Template.from_build(make_build(cells, (5, 6, 5)), (0, 0, 0))
+    sealed = bp.sealed_air(t, BLOCKS)
+    assert (2, 4, 2) in sealed  # enclosed attic cavity
+    assert (2, 1, 2) not in sealed  # room reachable through the door
+    assert (2, 2, 2) not in sealed
+
+
+def test_next_actions_breaks_foothold_in_sealed_cavity_before_sealing_roof():
+    # Run 20261120T175636584118Z: dirt at (-12, 75, 63) was sealed in when the roof
+    # plank above it was placed.
+    cells = {
+        (1, 0, 1): PLANKS,
+        (0, 1, 1): PLANKS,
+        (2, 1, 1): PLANKS,
+        (1, 1, 0): PLANKS,
+        (1, 1, 2): PLANKS,
+        (1, 2, 1): PLANKS,
+    }
+    w = flat_world(hi=5)
+    for p in ((1, 0, 1), (0, 1, 1), (2, 1, 1), (1, 1, 0), (1, 1, 2)):
+        w[p] = PLANKS
+    w[(1, 1, 1)] = "minecraft:dirt"  # foothold inside the cavity before roof closes
+    t = bp.Template.from_build(make_build(cells, (3, 3, 3)), (0, 0, 0))
+    scaffolds = {(1, 1, 1)}
+    acts = bp.next_actions(
+        t, at(w), BLOCKS, {PLANKS: 4}, scaffolds=scaffolds, near=(50, 0, 50)
+    )
+    assert [type(a) for a in acts] == [bp.Break]
+    assert acts[0].pos == (1, 1, 1)

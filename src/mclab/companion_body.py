@@ -297,6 +297,12 @@ SCAFFOLD_CELL = {
     "fluid": "minecraft:empty",
     "collision_boxes": [],
 }
+# A temporary full-cube block (dirt/cobblestone) used for virtual tower/prop checks.
+_SOLID_CELL = {
+    "block": "minecraft:dirt",
+    "fluid": "minecraft:empty",
+    "collision_boxes": [[0, 0, 0, 1, 1, 1]],
+}
 _TOP_SAMPLES = ((0, 0), (0.25, 0.25), (-0.25, 0.25), (0.25, -0.25), (-0.25, -0.25))
 
 
@@ -1929,6 +1935,183 @@ class CompanionBody:
                     ):
                         found.append(node)
         return sorted(found, key=lambda n: (math.dist(n, here), n))
+
+    def can_reach_from_tower(
+        self,
+        target: Pos,
+        reach: float,
+        foot: Pos,
+        tower: list[Pos],
+        *,
+        scaffolding: bool = True,
+        avoid: Collection[Pos] = (),
+    ) -> int:
+        """Can the body standing at ``foot`` on top of ``tower`` place/interact with
+        ``target``? Returns 2 if sound across offset eyes, 1 if centre-only, 0 if not."""
+        tx, ty, tz = target
+        if foot in avoid or foot in (target, (tx, ty - 1, tz)):
+            return 0
+        proto = SCAFFOLD_CELL if scaffolding else _SOLID_CELL
+        view = ChainMap({c: dict(proto) for c in tower}, self._cells_now())
+        if self._placing(target):
+            if not self._places_from(view, stance_eye(foot), foot, target, reach):
+                return 0
+            return 2 if self._sound(view, foot, target, reach) else 1
+        return 2 if interacts(view, foot, target, reach) else 0
+
+    def can_place_with_prop_here(
+        self,
+        prop_pos: Pos,
+        prop_item: str,
+        target: Pos,
+        target_state: str,
+        reach: float,
+    ) -> bool:
+        """From where the body stands now, can it place ``prop_item`` at ``prop_pos``
+        and then click that prop to place ``target_state`` at ``target``?"""
+        if self._overlaps(prop_pos) or self._overlaps(target):
+            return False
+        cells = self._cells_now()
+        eye = place_sight.eye_of(self._obs["body"]["position"])
+        here = self.position()
+        if not places_from(cells, eye, here, prop_pos, reach, state=prop_item):
+            return False
+        view = ChainMap({prop_pos: dict(_SOLID_CELL)}, cells)
+        return places_from(
+            view, eye, here, target, reach, required=prop_pos, state=target_state
+        )
+
+    def prop_stances(
+        self,
+        prop_pos: Pos,
+        prop_item: str,
+        target: Pos,
+        target_state: str,
+        reach: float,
+        avoid: Collection[Pos] = (),
+    ) -> list[Pos]:
+        """Known standable cells from which the body can place ``prop_item`` at
+        ``prop_pos`` AND click it to place ``target_state`` at ``target``."""
+        cells, here = self._cells_now(), self.position()
+        tx, ty, tz = target
+        px, py, pz = prop_pos
+        r = math.ceil(reach)
+        excluded = set(avoid) | {
+            target,
+            (tx, ty - 1, tz),
+            prop_pos,
+            (px, py - 1, pz),
+        }
+        view = ChainMap({prop_pos: dict(_SOLID_CELL)}, cells)
+
+        def both_from(eye, node: Pos) -> bool:
+            return places_from(
+                cells, eye, node, prop_pos, reach, state=prop_item
+            ) and places_from(
+                view, eye, node, target, reach, required=prop_pos, state=target_state
+            )
+
+        found = [
+            node
+            for node in (
+                (tx + dx, ty + dy, tz + dz)
+                for dx in range(-r, r + 1)
+                for dz in range(-r, r + 1)
+                for dy in range(-r, 2)
+            )
+            if node not in excluded
+            and (standable(cells, node) or _tower_top(cells, node))
+            and both_from(stance_eye(node), node)
+        ]
+        walk = self._walkable(cells, here) if found else ()
+        ranked = sorted(
+            found,
+            key=lambda n: (
+                n not in walk,
+                not _clean_feet(cells, n),
+                math.dist(n, here),
+                n,
+            ),
+        )
+
+        def sound_both(node: Pos) -> bool:
+            x, y, z = stance_eye(node)
+            return all(
+                both_from((x + dx, y, z + dz), node)
+                for dx, dz in (
+                    (SOUND_OFFSET, 0),
+                    (-SOUND_OFFSET, 0),
+                    (0, SOUND_OFFSET),
+                    (0, -SOUND_OFFSET),
+                )
+            )
+
+        head = ranked[:SOUND_RANKED]
+        head.sort(key=lambda n: not sound_both(n))
+        return head + ranked[SOUND_RANKED:]
+
+    @_fresh_idle
+    def goto_prop_stance(
+        self,
+        prop_pos: Pos,
+        prop_item: str,
+        target: Pos,
+        target_state: str,
+        reach: float,
+        avoid: Collection[Pos] = (),
+    ) -> bool:
+        """Walk to a single stance that can place ``prop_item`` at ``prop_pos`` and
+        then click it to place ``target_state`` at ``target``."""
+        self._goto_edges = set()
+        try:
+            if not self._obs:
+                self.observe()
+            here = self.position()
+            avoid_set = set(avoid)
+            if here not in avoid_set and self.can_place_with_prop_here(
+                prop_pos, prop_item, target, target_state, reach
+            ):
+                return True
+            stances = self.prop_stances(
+                prop_pos, prop_item, target, target_state, reach, avoid_set
+            )
+            cells = self._cells_now()
+            probe_budget_s = None
+            if getattr(self, "walk_only", False):
+                walk = self._walkable(cells, here)
+                matched = [
+                    n for n in stances if n in walk or _scaffold_stance(cells, n)
+                ]
+                if matched:
+                    stances = matched[:WALK_ONLY_CANDIDATES]
+                else:
+                    stances = stances[:MAX_CANDIDATES]
+                    probe_budget_s = WALK_ONLY_CANDIDATES * PROBE_WALL_S
+            radius = PRECISE_RADIUS if self.precise_stance else 0.6
+            probe_started = time.monotonic()
+            for node in stances[:MAX_CANDIDATES]:
+                if (
+                    probe_budget_s is not None
+                    and time.monotonic() - probe_started >= probe_budget_s
+                ):
+                    break
+                progress = {
+                    "distance": math.inf,
+                    "tick": None,
+                    "limit_ticks": CANDIDATE_PROGRESS_TICKS,
+                }
+                if self._navigate(
+                    node, reach=None, radius=radius, probe=True, progress=progress
+                ):
+                    if self.can_place_with_prop_here(
+                        prop_pos, prop_item, target, target_state, reach
+                    ):
+                        return True
+                if self.boxed_in:
+                    return False
+            return False
+        finally:
+            self._goto_edges = None
 
     def _places_from(self, cells, eye, node: Pos, target: Pos, reach: float) -> bool:
         """``places_from`` with this placement's support, state and scaffold rule."""

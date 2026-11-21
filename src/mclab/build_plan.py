@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 
+from mclab import place_state
 from mclab import scaffolding as sc
 from mclab.schematic import (
     format_state,
@@ -585,6 +586,94 @@ def _given_up(todo, skipped, blocks: dict, world=None) -> set:
     return dead | (candidates - live)
 
 
+_PROP_FRACS = (0.25, 0.75)
+
+
+def prop_cells(pos: Pos, state: str, world, blocks: dict) -> list[Pos]:
+    """Empty neighbour cells where a temporary block would give a face whose click
+    produces ``state``, when no currently solid neighbour can (e.g. two hoppers
+    facing each other, or a top slab with only a floor below). [] when an existing
+    neighbour already provides a valid click face, or when ``state`` requires
+    permanent support (breaking the temporary block would drop it)."""
+    if world is None:
+        return []
+    ident, props = parse_state(state)
+    facts = blocks.get(ident, {})
+    if _support_kind(ident, props, facts) is not None:
+        return []
+    gravity = bool(facts.get("gravity"))
+
+    def face_works(direction: str) -> bool:
+        face = place_state.OPPOSITE[direction]
+        if place_state.AXIS[face] == "y":
+            return place_state.click_gives(state, face, 0.5)
+        return any(place_state.click_gives(state, face, fy) for fy in _PROP_FRACS)
+
+    needed_dirs = [d for d in _VEC if face_works(d)]
+    if not needed_dirs:
+        return []
+    for d in needed_dirs:
+        n = _add(pos, _VEC[d])
+        s = world(*n)
+        if _is_solid(s, blocks) or _scaffolding(s):
+            return []
+    out: list[Pos] = []
+    for d in needed_dirs:
+        if gravity and d == "down":
+            continue
+        n = _add(pos, _VEC[d])
+        s = world(*n)
+        if s is None:
+            continue
+        nid = parse_state(s)[0]
+        if nid not in REPLACEABLE or nid in FLUIDS:
+            continue
+        if any(
+            _is_solid(world(*_add(n, v)), blocks) or _scaffolding(world(*_add(n, v)))
+            for v in _NEIGHBOURS
+        ):
+            out.append(n)
+    return out
+
+
+def _template_passable(state: str, blocks: dict | None = None) -> bool:
+    ident, _ = parse_state(state)
+    if (
+        ident in AIR
+        or ident in REPLACEABLE
+        or ident.endswith(("_door", "_fence_gate", "_trapdoor"))
+    ):
+        return True
+    if blocks is not None:
+        return blocks.get(ident, {}).get("needs_support") is not None
+    return False
+
+
+def sealed_air(template: Template, blocks: dict | None = None) -> frozenset[Pos]:
+    """Template air cells with no 6-neighbour path through passable template cells
+    to the outside (doors, gates, trapdoors and supported details count as passable).
+    A foothold placed inside one would be sealed in once the shell closes (run
+    20261120T175636584118Z: dirt at (-12, 75, 63) under the roof ridge)."""
+    cells = template.cells
+    if not cells:
+        return frozenset()
+    passable = {p for p, s in cells.items() if _template_passable(s, blocks)}
+    seen: set[Pos] = set()
+    todo: list[Pos] = []
+    for p in passable:
+        if any(_add(p, v) not in cells for v in _NEIGHBOURS):
+            seen.add(p)
+            todo.append(p)
+    while todo:
+        p = todo.pop()
+        for v in _NEIGHBOURS:
+            n = _add(p, v)
+            if n in passable and n not in seen:
+                seen.add(n)
+                todo.append(n)
+    return frozenset(p for p in passable - seen if parse_state(cells[p])[0] in AIR)
+
+
 def tower_cells(
     pos: Pos,
     world,
@@ -593,45 +682,103 @@ def tower_cells(
     *,
     roof: bool = False,
     scaffolding: bool = True,
+    can_reach=None,
+    allow_roof_lift: bool = True,
 ) -> list[Pos]:
     """Scaffolding column, bottom up, to stand on beside ``pos``: in a horizontal
-    neighbour's column, from the ground to one below pos's height (the eye is then
-    level with pos), headroom above it free. Template cells (``reserved``) are never
-    used; the margin and still-empty cells of the house are fine. With ``roof=True``,
-    when all four immediate neighbours are blocked (an interior ceiling cell), raises a
-    tower up to ``pos[1]`` in a nearby open column so the body can step onto roof level.
-    [] if none fits."""
+    neighbour's column, from the ground to a height whose top leaves headroom free.
+    When ``can_reach(foot, cells)`` is given, tries heights bottom-up across columns
+    within reach (radius 3) and picks the shortest sound tower whose top can actually
+    reach/click ``pos`` (so hanging chains stand below the ``down`` face and towers
+    never go up on the wrong side of a wall). Without ``can_reach``, stands at
+    ``pos[1]`` in an immediate neighbour. Template cells (``reserved``) are never used.
+    With ``roof=True`` and ``allow_roof_lift=True``, falls back to a nearby open column
+    up to ``pos[1]`` so the body can step onto roof level. [] if none fits."""
     x, y, z = pos
-    for dx, _, dz in (_VEC[d] for d in _CW):
+
+    def _build_column(
+        nx: int, nz: int, feet_y: int, *, check_head_reserved: bool
+    ) -> tuple[Pos, list[Pos]] | None:
+        top = feet_y - 1
         low = _column_scaffold(
-            x + dx, z + dz, y - 1, world, blocks, reserved, scaffolding=scaffolding
+            nx, nz, top, world, blocks, reserved, scaffolding=scaffolding
         )
-        head = (x + dx, y, z + dz)
-        if low is None or head in reserved or y - low[1] > MAX_TOWER:
-            continue
-        cells = [(x + dx, h, z + dz) for h in range(low[1], y)]
-        # The body stands on the top with its feet in ``head``'s cell and its head
-        # one over: a tower under a ceiling it cannot get its head into is never
+        foot = (nx, feet_y, nz)
+        head = (nx, feet_y + 1, nz)
+        if (
+            low is None
+            or feet_y <= low[1]
+            or foot in reserved
+            or (check_head_reserved and head in reserved)
+            or feet_y - low[1] > MAX_TOWER
+        ):
+            return None
+        cells = [(nx, h, nz) for h in range(low[1], feet_y)]
+        if pos in cells:
+            return None
+        # The body stands on the top with its feet in ``foot`` and its head in
+        # ``head``: a tower under a ceiling it cannot get its head into is never
         # climbed (run 20261120T141244368734Z, a hopper under the first floor).
         # A dirt column is pillared by jumping (pillar_to): the last jump starts a
         # cell lower and the planner's pillar edge wants feet+2 and feet+3 empty
-        # (RoutePlanner.pillar), one more cell over the crown. Scaffolding is
+        # (RoutePlanner.pillar), one more cell over the head. Scaffolding is
         # climbed, not jumped.
-        crown = (x + dx, y + 1, z + dz)
-        over = () if scaffolding else ((x + dx, y + 2, z + dz),)
-        states = [world(*c) for c in (*cells, head, *over, crown)]
+        over = () if scaffolding else ((nx, feet_y + 2, nz),)
+        states = [world(*c) for c in (*cells, foot, head, *over)]
         if any(s is None or parse_state(s)[0] in FLUIDS for s in states):
-            continue
-        base_state = world(x + dx, low[1] - 1, z + dz)
+            return None
+        base_state = world(nx, low[1] - 1, nz)
         base_ok = (
             _sturdy_up(base_state, blocks)
             if scaffolding
             else _is_solid(base_state, blocks)
         )
         if not base_ok or any(_is_solid(s, blocks) for s in states[len(cells) :]):
-            continue
-        return cells
-    if not roof:
+            return None
+        return foot, cells
+
+    if can_reach is not None:
+        candidates = sorted(
+            (
+                (dx, dz)
+                for dx in range(-3, 4)
+                for dz in range(-3, 4)
+                if (dx or dz) and dx * dx + dz * dz <= 9
+            ),
+            key=lambda d: (
+                d[0] * d[0] + d[1] * d[1],
+                abs(d[0]) + abs(d[1]),
+                d[0],
+                d[1],
+            ),
+        )
+        best: tuple[tuple[int, int, int, int, int], list[Pos]] | None = None
+        for dx, dz in candidates:
+            nx, nz = x + dx, z + dz
+            d2 = dx * dx + dz * dz
+            for feet_y in range(y - 4, y + 2):
+                built = _build_column(nx, nz, feet_y, check_head_reserved=feet_y > y)
+                if built is None:
+                    continue
+                foot, cells = built
+                score = int(can_reach(foot, cells))
+                if score <= 0:
+                    continue
+                # Prefer sound stances (higher score) first, then shortest tower,
+                # then closer column.
+                rank = (-score, len(cells), d2, dx, dz)
+                if best is None or rank < best[0]:
+                    best = (rank, cells)
+                if score >= 2:
+                    break  # any taller column at (nx, nz) only costs more blocks
+        if best is not None:
+            return best[1]
+    else:
+        for dx, _, dz in (_VEC[d] for d in _CW):
+            built = _build_column(x + dx, z + dz, y, check_head_reserved=False)
+            if built is not None:
+                return built[1]
+    if not (roof and allow_roof_lift):
         return []
     # Every immediate horizontal neighbour is reserved/blocked (e.g. an interior ceiling
     # cell): raise a tower up to y in a nearby open column to reach roof level.
@@ -645,32 +792,9 @@ def tower_cells(
         key=lambda d: (abs(d[0]) + abs(d[1]), d[0] * d[0] + d[1] * d[1], d[0], d[1]),
     )
     for dx, dz in candidates:
-        nx, nz = x + dx, z + dz
-        low = _column_scaffold(
-            nx, nz, y, world, blocks, reserved, scaffolding=scaffolding
-        )
-        foot, head = (nx, y + 1, nz), (nx, y + 2, nz)
-        if (
-            low is None
-            or foot in reserved
-            or head in reserved
-            or y + 1 - low[1] > MAX_TOWER
-        ):
-            continue
-        cells = [(nx, h, nz) for h in range(low[1], y + 1)]
-        over = () if scaffolding else ((nx, y + 3, nz),)  # the last jump (above)
-        states = [world(*c) for c in (*cells, foot, head, *over)]
-        if any(s is None or parse_state(s)[0] in FLUIDS for s in states):
-            continue
-        base_state = world(nx, low[1] - 1, nz)
-        base_ok = (
-            _sturdy_up(base_state, blocks)
-            if scaffolding
-            else _is_solid(base_state, blocks)
-        )
-        if not base_ok or any(_is_solid(s, blocks) for s in states[len(cells) :]):
-            continue
-        return cells
+        built = _build_column(x + dx, z + dz, y + 1, check_head_reserved=True)
+        if built is not None:
+            return built[1]
     return []
 
 
@@ -997,14 +1121,35 @@ def next_actions(
         )
 
     place_positions = {pos for pos, _ in d.places}
+    sealed_cavities = (
+        sealed_air(template, blocks)
+        if any(p in scaffolds for p in d.breaks)
+        else frozenset()
+    )
     sealed_footholds = {
         p
         for p in d.breaks
         if p in scaffolds
         and (skipped is None or p not in skipped)
-        and parse_state(world(*p) or "")[0] != sc.BLOCK
-        and _is_solid(world(p[0], p[1] + 1, p[2]), blocks)
-        and (p[0], p[1] - 1, p[2]) in place_positions
+        and (
+            (
+                parse_state(world(*p) or "")[0] != sc.BLOCK
+                and _is_solid(world(p[0], p[1] + 1, p[2]), blocks)
+                and (p[0], p[1] - 1, p[2]) in place_positions
+            )
+            or (
+                p in sealed_cavities
+                and any(_add(p, v) in place_positions for v in _NEIGHBOURS)
+            )
+        )
+    }
+    sealed_blockers = {
+        (p[0], p[1] - 1, p[2]) for p in sealed_footholds
+    } | {
+        _add(p, v)
+        for p in sealed_footholds
+        if p in sealed_cavities
+        for v in _NEIGHBOURS
     }
     breaks = sorted(
         (
@@ -1074,7 +1219,7 @@ def next_actions(
         return (
             (skipped is None or pos not in skipped)
             and parse_state(state)[0] not in FLUIDS
-            and (pos[0], pos[1] + 1, pos[2]) not in sealed_footholds
+            and pos not in sealed_blockers
             and all(inventory.get(i, 0) >= c for i, c in cost.items())
             and _gate(pos, state, world, blocks) is None
         )
@@ -1183,7 +1328,7 @@ def next_actions(
             return False
         if held_back(state):
             return False
-        if (pos[0], pos[1] + 1, pos[2]) in sealed_footholds:
+        if pos in sealed_blockers:
             return False
         return (
             all(held.get(i, 0) >= c for i, c in cost.items())

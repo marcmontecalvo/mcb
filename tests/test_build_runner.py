@@ -2216,3 +2216,234 @@ def test_a_tower_is_built_when_no_bridge_reaches_the_stance():
     assert runner._tower(pos, set())
     # a new column from the ground
     assert any(p[1] == 0 for p in _new_scaffolding(body))
+
+
+def test_upfront_prop_places_mutual_hoppers_with_zero_towers():
+    # Run 20261120T175636584118Z: mutually facing hoppers under a ceiling returned
+    # empty stances(), skipped _propped(), and raised towers on the wrong side of
+    # the wall. With upfront prop planning, both hoppers go in with 0 towers.
+    w = flat_world(hi=8)
+    for x in range(0, 5):
+        for y in range(0, 4):
+            w[(x, y, 0)] = PLANKS  # solid wall on north (z=0)
+        for z in range(1, 4):
+            w[(x, 3, z)] = PLANKS  # low ceiling at y=3
+    east = "minecraft:hopper[enabled=true,facing=east]"
+    west = "minecraft:hopper[enabled=true,facing=west]"
+
+    class RealSightHopperBody(HopperBody):
+        required_support = None
+        placing_scaffold = False
+        placing_state = None
+
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.prop_walks = []
+
+        def stances(self, target, reach, avoid=()):
+            # Mirrors CompanionBody: no stance when a hopper's facing side is air.
+            if self.placing_state and "hopper" in self.placing_state:
+                _, props = bp.parse_state(self.placing_state)
+                ahead = bp._add(target, bp._VEC[props["facing"]])
+                if bp.parse_state(self.world(*ahead) or "")[0] in bp.AIR:
+                    return []
+            return [(2, 0, 2)]
+
+        def can_place_here(self, pos, reach, required=None, state=None):
+            if state and "hopper" in state:
+                _, props = bp.parse_state(state)
+                ahead = bp._add(pos, bp._VEC[props["facing"]])
+                return bp.parse_state(self.world(*ahead) or "")[0] not in bp.AIR
+            return True
+
+        def goto_prop_stance(
+            self, prop_pos, prop_item, target, target_state, reach, avoid=()
+        ):
+            self.prop_walks.append((prop_pos, target))
+            self.pos = (2, 0, 2)
+            return True
+
+        def goto_stance(self, target_pos, reach, avoid=()):
+            if not self.stances(target_pos, reach, avoid):
+                return False
+            self.pos = (2, 0, 2)
+            return True
+
+    blocks = {**BLOCKS, "minecraft:hopper": {"item": "minecraft:hopper"}}
+    body = RealSightHopperBody(
+        w,
+        {"minecraft:hopper": 2, "minecraft:dirt": 4, SCAFFOLDING: 16},
+        blocks,
+        pos=(2, 0, 3),
+    )
+    runner = br._Runner(body, br.BuildReport(), 50, blocks)
+    runner.scaffolds = set()
+    runner.attempt(bp.Place((2, 2, 1), west, "minecraft:hopper", 1))
+    runner.attempt(bp.Place((1, 2, 1), east, "minecraft:hopper", 1))
+    assert w[(2, 2, 1)] == west and w[(1, 2, 1)] == east
+    assert body.inv["minecraft:dirt"] == 4
+    assert body.prop_walks == [((1, 2, 1), (2, 2, 1))]
+    assert not runner.report.scaffolded  # zero towers built
+    assert not runner.report.failures
+    assert not runner.report.skipped
+
+
+def test_hanging_lantern_requires_support_above_so_eye_stays_below_down_face():
+    lantern_hang = "minecraft:lantern[hanging=true,waterlogged=false]"
+    lantern_stand = "minecraft:lantern[hanging=false,waterlogged=false]"
+    hang_act = bp.Place((3, 5, 3), lantern_hang, "minecraft:lantern")
+    stand_act = bp.Place((3, 5, 3), lantern_stand, "minecraft:lantern")
+    assert br._support(hang_act, BLOCKS) == (3, 6, 3)
+    assert br._support(stand_act, BLOCKS) is None
+
+
+def test_reclaim_breaks_all_roots_of_bridged_scaffolding_and_adopts_step_footholds():
+    # Run 20261120T175636584118Z: two towers joined by a bridge (plus hanging
+    # blocks closer to the new tower, placed by Java steps into stray_footholds).
+    # Breaking one root left the rest held up sideways; column slicing picked
+    # hanging columns whose roots were absent and broke nothing.
+    w = flat_world(hi=16)
+    # Bridged structure: root A at (10, 0..3, 10), bridge (11, 3, 10), root B at
+    # (12, 0..3, 10), plus hanging arms (8..9, 3, 10) closer to target (3, 6, 3).
+    struct = {
+        *((10, y, 10) for y in range(4)),
+        (11, 3, 10),
+        *((12, y, 10) for y in range(4)),
+        (9, 3, 10),
+        (8, 3, 10),
+    }
+    for c in struct:
+        w[c] = SCAFF
+    class BridgedDrops(TowerBody):
+        """Models vanilla scaffolding stability (sc.survivors): breaking one root of
+        a bridged structure leaves the rest held up sideways; breaking all roots
+        drops the whole structure into inventory."""
+
+        def break_block(self, pos, tool=None):
+            res = FakeBody.break_block(self, pos, tool)
+            if not res.ok:
+                return res
+            scaffs = {p for p, s in self.w.items() if str(s).startswith(SCAFFOLDING)}
+
+            def sturdy(p):
+                below = self.w.get((p[0], p[1] - 1, p[2]))
+                return (
+                    below is not None
+                    and bp.parse_state(below)[0] not in bp.REPLACEABLE
+                    and bp.parse_state(below)[0] != SCAFFOLDING
+                )
+
+            keep = sc.survivors(scaffs, sturdy)
+            fell = scaffs - keep
+            for c in fell:
+                self.w[c] = AIR
+            self.inv[SCAFFOLDING] = self.inv.get(SCAFFOLDING, 0) + 1 + len(fell)
+            return res
+
+    body = BridgedDrops(
+        w, {SCAFFOLDING: 0, "minecraft:dirt": 32}, BLOCKS, pos=(3, 0, 4)
+    )
+    # Simulate Java step-placed scaffolding in stray_footholds, not yet in scaffolds.
+    body.stray_footholds = set(struct)
+    waits = []
+    collected = []
+    no_place_active = []
+    body.wait_ticks = lambda n: waits.append(n)
+
+    @contextlib.contextmanager
+    def no_placing():
+        no_place_active.append(True)
+        try:
+            yield
+        finally:
+            no_place_active.append(False)
+
+    body.no_placing = no_placing
+    body.collect_drops = lambda cells: collected.append(
+        (no_place_active[-1:], set(cells))
+    )
+    t = bp.Template.from_build(make_build({(3, 6, 3): PLANKS}, (4, 7, 4)), (0, 0, 0))
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.template = t
+    runner.scaffolds = set()  # empty until _reclaim adopts stray_footholds
+    assert runner._tower((3, 6, 3), set())
+    # Both roots (10,0,10) and (12,0,10) were broken so the whole structure fell,
+    # waited COLLAPSE_TICKS, collected under no_placing, and built a scaffolding tower!
+    assert all(w[c] == AIR for c in struct)
+    assert br.COLLAPSE_TICKS in waits
+    assert collected and collected[0][0] == [True] and struct <= collected[0][1]
+    assert all(str(w[c]).startswith(SCAFFOLDING) for c in runner.scaffolds)
+    assert not body.stray_footholds  # broken strays are not re-adopted later
+
+
+def test_failed_tower_climb_waits_for_collapse_and_collects_scaffolding():
+    # Run 20261120T175636584118Z abandoned 15+ scaffolding blocks when failed
+    # tower climbs broke cells[0] without wait_ticks or collect_drops.
+    w = flat_world(hi=12)
+
+    class UnclimbableTowerBody(_Drops):
+        def goto_stance(self, target_pos, reach, avoid=()):
+            if target_pos == (3, 5, 3):
+                return False  # cannot climb the finished tower
+            return super().goto_stance(target_pos, reach, avoid)
+
+    body = UnclimbableTowerBody(w, {SCAFFOLDING: 10}, BLOCKS, pos=(1, 0, 3))
+    events = []
+    body.wait_ticks = lambda n: events.append(("wait", n))
+    body.collect_drops = lambda cells: events.append(("collect", len(cells)))
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.scaffolds = set()
+    assert not runner._tower((3, 5, 3), set())
+    assert events == [("wait", br.COLLAPSE_TICKS), ("collect", 5)]
+    assert body.inv[SCAFFOLDING] == 10
+    assert not runner.scaffolds
+
+
+def test_cleanup_adopts_and_removes_footholds_placed_during_cleanup_walks():
+    # Run 20261120T175636584118Z left 3 cleanup-placed footholds inside the house
+    # because _clean_up adopted stray_footholds only once before its loop and ran
+    # collect_drops with placing enabled.
+    w = flat_world(hi=8)
+    w[(2, 0, 2)] = "minecraft:dirt"
+    t = bp.Template.from_build(make_build({(0, 0, 0): PLANKS}, (4, 4, 4)), (0, 0, 0))
+    w[(0, 0, 0)] = PLANKS
+
+    class CleanupStrayBody(FakeBody):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.stray_footholds = set()
+            self.placing_allowed = True
+            self.collect_placing_states = []
+            self._spawned = False
+
+        @contextlib.contextmanager
+        def no_placing(self):
+            prev = self.placing_allowed
+            self.placing_allowed = False
+            try:
+                yield
+            finally:
+                self.placing_allowed = prev
+
+        def goto_stance(self, target_pos, reach, avoid=()):
+            if target_pos == (2, 0, 2) and not self._spawned and self.placing_allowed:
+                self._spawned = True
+                # Walking to break (2, 0, 2) places a new foothold inside template air!
+                self.w[(1, 0, 1)] = "minecraft:dirt"
+                self.stray_footholds.add((1, 0, 1))
+            return super().goto_stance(target_pos, reach, avoid)
+
+        def collect_drops(self, cells):
+            self.collect_placing_states.append(self.placing_allowed)
+
+    body = CleanupStrayBody(w, {}, BLOCKS, pos=(3, 0, 3))
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.template = t
+    scaffolds = {(2, 0, 2)}
+    runner.scaffolds = scaffolds
+    assert br._clean_up(runner, t, scaffolds)
+    assert w[(2, 0, 2)] == AIR
+    assert w[(1, 0, 1)] == AIR  # adopted and cleaned up on the next round
+    assert body.collect_placing_states and all(
+        not s for s in body.collect_placing_states
+    )

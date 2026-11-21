@@ -522,3 +522,37 @@ def test_phase_clock_tracks_phases_and_stages():
     }
     assert stages["gathering materials"] == 9.0
     assert stages["site prep (gathering)"] == 3.0
+
+
+def test_protect_keeps_sealed_attic_cavities_out_of_build_air():
+    from types import SimpleNamespace
+
+    from mclab import build_plan as bp
+    from mclab.companion_jobs import protect
+    from mclab.terrain_steps import TerrainPolicy
+
+    cells = {
+        (x, y, z): M + "air" for x in range(5) for y in range(6) for z in range(5)
+    }
+    for x in range(5):
+        for z in range(5):
+            cells[(x, 0, z)] = M + "oak_planks"
+            cells[(x, 3, z)] = M + "oak_planks"
+            cells[(x, 5, z)] = M + "oak_planks"
+    for x in range(5):
+        for y in (1, 2, 4):
+            cells[(x, y, 0)] = M + "oak_planks"
+            cells[(x, y, 4)] = M + "oak_planks"
+    for z in range(5):
+        for y in (1, 2, 4):
+            cells[(0, y, z)] = M + "oak_planks"
+            cells[(4, y, z)] = M + "oak_planks"
+    cells[(2, 1, 0)] = M + "oak_door[facing=north,half=lower,hinge=left,open=false]"
+    cells[(2, 2, 0)] = M + "oak_door[facing=north,half=upper,hinge=left,open=false]"
+    t = bp.Template(cells, (5, 6, 5), (0, 0, 0), "attic")
+    body = SimpleNamespace(terrain_policy=TerrainPolicy())
+    protect(body, t)
+    # Sealed attic cell stays protected (not in build_air); open room stays in.
+    assert (2, 4, 2) in body.terrain_policy.protected_positions
+    assert (2, 4, 2) not in body.build_air
+    assert (2, 1, 2) in body.build_air
