@@ -174,6 +174,37 @@ def test_junk_is_what_the_build_does_not_want_and_never_tools_or_scaffolding():
     }
     # dirt stays: it is the fallback scaffold and the fill under a cell over water
     assert junk(held, {"minecraft:oak_planks": 287}) == {"minecraft:orange_tulip": 34}
+    # once the site is level and scaffolding is the foothold, dirt the build does
+    # not place goes too
+    assert junk(held, {"minecraft:oak_planks": 287}, stow_dirt=True) == {
+        "minecraft:orange_tulip": 34,
+        "minecraft:dirt": 29,
+    }
+    assert junk(
+        held, {"minecraft:oak_planks": 287, "minecraft:dirt": 20}, stow_dirt=True
+    ) == {"minecraft:orange_tulip": 34, "minecraft:dirt": 9}
+
+
+def test_site_prep_dirt_goes_to_the_chests_and_two_scaffolding_stacks_come_out(
+    tmp_path,
+):
+    # A supplied build: the body is to build from what the chests hold, not carry
+    # site-prep dirt around to put down as steps (run 20261121T180806599463Z left a
+    # dirt step on the roof and tunnelled through a wall to reach it).
+    dirt, scaffold = M + "dirt", M + "scaffolding"
+    w = world()
+    w[(2, 0, 2)] = M + "chest"
+    body = FakeGatherBody(K, w, {dirt: 40})
+    stock = {PLANKS: 9, COBBLE: 3, scaffold: 128}
+    body.boxes[(2, 0, 2)] = dict(stock)
+    state = GatherState(containers={(2, 0, 2): dict(stock)})
+
+    report = build_job(small_template(tmp_path), (4, 0, 4), 0, body, K, state=state)
+
+    assert report.stop == "built", report
+    assert body.inv.get(dirt, 0) == 0
+    assert body.boxes[(2, 0, 2)].get(dirt, 0) >= 40
+    assert body.inv.get(scaffold) == 128
 
 
 def test_a_refill_records_what_was_asked_gained_and_still_short():
@@ -262,7 +293,7 @@ def test_a_refill_gather_never_puts_the_builds_scaffolding_or_blocks_away():
 
 
 def test_scaffolding_spent_mid_build_is_taken_back_from_the_chests():
-    from mclab.companion_jobs import SCAFFOLD_STACK, _scaffold_topup
+    from mclab.companion_jobs import SCAFFOLD_CARRY, _scaffold_topup
 
     scaffolding = M + "scaffolding"
 
@@ -273,10 +304,13 @@ def test_scaffolding_spent_mid_build_is_taken_back_from_the_chests():
         def inventory(self):
             return {scaffolding: self.held}
 
-    state = GatherState(containers={(2, 0, 2): {scaffolding: 51}})
-    assert _scaffold_topup(Body(0), state) == {scaffolding: 51}
-    assert _scaffold_topup(Body(20), state) == {scaffolding: SCAFFOLD_STACK - 20}
-    assert _scaffold_topup(Body(SCAFFOLD_STACK // 2), state) == {}
+    assert SCAFFOLD_CARRY == 128  # two stacks
+    state = GatherState(containers={(2, 0, 2): {scaffolding: 151}})
+    assert _scaffold_topup(Body(0), state) == {scaffolding: 128}
+    assert _scaffold_topup(Body(20), state) == {scaffolding: SCAFFOLD_CARRY - 20}
+    assert _scaffold_topup(Body(SCAFFOLD_CARRY // 2), state) == {}
+    few = GatherState(containers={(2, 0, 2): {scaffolding: 51}})
+    assert _scaffold_topup(Body(0), few) == {scaffolding: 51}
     assert _scaffold_topup(Body(0), GatherState(containers={})) == {}
 
 

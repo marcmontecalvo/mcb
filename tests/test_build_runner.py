@@ -1433,6 +1433,37 @@ def test_footholds_spent_mid_build_are_topped_up_and_a_dry_chest_is_not_pestered
     assert len(asks) == 3
 
 
+def test_scaffolding_is_the_foothold_stock_when_the_build_carries_it():
+    # A supplied build carries two stacks of scaffolding: it climbs on those, and
+    # the foothold stock never sends it to the chests for dirt.
+    scaffold, dirt = "minecraft:scaffolding", "minecraft:dirt"
+
+    class Runner:
+        def __init__(self, held):
+            self.held = held
+            self.body = self
+
+        def inventory(self):
+            return dict(self.held)
+
+        def _temporaries(self, scaffolding=True):
+            items = [scaffold, dirt] if scaffolding else [dirt]
+            return [i for i in items if self.held.get(i, 0) > 0]
+
+    asks = []
+    runner = Runner({scaffold: 128})
+    assert br._stock_footholds(runner, asks.append, lambda _m: None) is None
+    assert asks == []
+
+    runner.held[scaffold] = 5  # spent down: top up with scaffolding, not dirt
+    br._stock_footholds(runner, asks.append, lambda _m: None)
+    assert asks == [{scaffold: br.FOOTHOLD_STOCK - 5}]
+
+    runner.held[scaffold] = 0  # all of it out in the world: still scaffolding
+    br._stock_footholds(runner, asks.append, lambda _m: None)
+    assert asks[-1] == {scaffold: br.FOOTHOLD_STOCK}
+
+
 def test_a_starving_body_with_no_food_goes_to_the_chests_once():
     class Body:
         def __init__(self):

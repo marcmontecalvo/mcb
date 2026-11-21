@@ -66,13 +66,16 @@ COAL_FORMS = {
 }
 # containers west and north of the start (the house stands east and south of it);
 # a container's slots are what limits it, and the server splits any stack it writes
-# at the item's own limit, so a cap counts slots: bin 0 gives three to BIN_TOOLS
-# (a scaffolding stack and two single-stack shulker boxes)
-CAPS = [24, 27, 27, 27, 27, 27, 27, 27]
+# at the item's own limit, so a cap counts slots: bin 0 gives four to BIN_TOOLS
+# (two scaffolding stacks, the body carries both, and two single-stack shulker boxes)
 BIN_TOOLS = [
     {"item": "minecraft:scaffolding", "count": 64},
+    {"item": "minecraft:scaffolding", "count": 64},
     {"item": "minecraft:shulker_box", "count": 2},
-]  # the first bin's three spare slots: what the build works with, not its materials
+]  # what the build works with, not its materials
+TOOL_SLOTS = 4  # BIN_TOOLS as slots: a shulker box stacks to 1
+CHEST_SLOTS = 27
+CAPS = [CHEST_SLOTS - TOOL_SLOTS] + [CHEST_SLOTS] * 7
 OFFSETS = [
     [-2, 0, 0],
     [-2, 0, -1],

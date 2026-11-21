@@ -1199,17 +1199,23 @@ def _stock_footholds(runner, on_need_materials, log, low=FOOTHOLD_STOCK) -> bool
         return None
     held = runner.body.inventory()
     need = _still_needed(runner.body)
+    # A build that carries scaffolding climbs on it: that is its stock, and dirt is
+    # not fetched for it (the dirt goes back to the chests after site prep).
+    scaffolding = held.get(sc.BLOCK, 0) > 0 or getattr(runner, "scaffold_run", False)
+    if scaffolding:
+        runner.scaffold_run = True
+    item = sc.BLOCK if scaffolding else FOOTHOLD_ITEM
     have = sum(
         max(0, held.get(i, 0) - need.get(i, 0))
-        for i in runner._temporaries(scaffolding=False)
+        for i in runner._temporaries(scaffolding=scaffolding)
     )
     if have >= low:
         return None
-    ask = {FOOTHOLD_ITEM: FOOTHOLD_STOCK - have}
+    ask = {item: FOOTHOLD_STOCK - have}
     log(f"stocking footholds: {ask} (holding {have} spare)")
-    before = runner.body.inventory().get(FOOTHOLD_ITEM, 0)
+    before = runner.body.inventory().get(item, 0)
     on_need_materials(ask)  # best effort: the build goes on without them
-    return runner.body.inventory().get(FOOTHOLD_ITEM, 0) > before
+    return runner.body.inventory().get(item, 0) > before
 
 
 def _keep_footholds(runner, on_need_materials, log, stock: dict) -> None:
@@ -1756,6 +1762,7 @@ def run_build(
     stall_seconds: float | None = STALL_SECONDS,
     clock: Callable[[], float] | None = None,
     log: Callable[[str], None] | None = None,
+    on_site_ready: Callable[[], None] | None = None,
 ) -> BuildReport:
     """Build ``template`` through ``body``; see the module docstring.
 
@@ -1763,6 +1770,8 @@ def run_build(
     (site_prep; ``None`` skips it, negative raises ValueError). ``stall_seconds``: a
     stationary retry loop longer than this is recovered, then stopped as ``stalled``
     (progress_watch; ``None`` disables). Stops: ``site_not_ready``, ``stalled``.
+    ``on_site_ready()``: called once the site is clear and level, before the first
+    block is placed (the job puts the levelling's dirt away there).
     """
     report = BuildReport()
     places = getattr(body, "places", None)  # None for fakes and tests
@@ -1787,6 +1796,13 @@ def run_build(
                 watch.progress(body.position())
                 return ok
 
+        if on_site_ready:
+            ready = on_site_ready
+
+            def on_site_ready(_ready=ready):
+                _ready()  # a walk to the chests and back
+                watch.progress(body.position())
+
     try:
         _run(
             template,
@@ -1802,6 +1818,7 @@ def run_build(
             protected,
             log or (lambda m: None),
             on_stage or (lambda *a, **k: None),
+            on_site_ready or (lambda: None),
         )
     except StallError as exc:
         report.stop, report.stall_reason = "stalled", str(exc)
@@ -1835,6 +1852,7 @@ def _run(
     protected,
     log,
     on_stage=lambda *a, **k: None,
+    on_site_ready=lambda: None,
 ) -> None:
     on_stage("clearing trees")
     if survey:
@@ -1886,6 +1904,7 @@ def _run(
             body, template.cells, template=template
         )
         on_stage("placing")
+    on_site_ready()
     runner.scaffolds, runner.template = scaffolds, template
     runner.reserved = frozenset(
         p for p, s in template.cells.items() if bp.parse_state(s)[0] not in bp.AIR

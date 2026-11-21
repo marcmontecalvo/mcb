@@ -235,3 +235,21 @@ water (`eye_in_water`, falling back to `in_water`), not at 90 % air.
 - **The agent ends inspection holds.** The user never creates `<run>/STOP`; when they
   say they are done looking, the agent running the session creates it. A stop
   button on the lab page is planned (B6).
+
+## Materials on hand for build-speed work (November 21, 2026)
+
+B2b measures building, not gathering or crafting: a `--supply` run must hold every
+block of the house between the bot and the chests.
+
+- **The house's blocks are never spent on anything else.** Cobblestone and dirt stay
+  free to use for levelling, plugs and footholds, but only beyond what the build still
+  has to place. The body's water plug now gets that count (`plug_keep`) and plugs with
+  dirt first. Run 20261121T180806599463Z plugged site-prep water with 21 of the
+  house's 54 cobblestone, and the foundation waited 8 minutes for more.
+- **Scaffolding is the foothold on a supplied build.** The supply holds two stacks
+  and the bot carries both (`SCAFFOLD_CARRY`); the foothold stock counts and tops up
+  scaffolding, not dirt.
+- **Dirt goes to the chests after site prep.** Once the site is level, the bot keeps
+  only the dirt the house places; the rest goes into the chests then and at every
+  refill. Run 20261121T180806599463Z carried dirt into the build, left a dirt step on
+  the roof and tunnelled through a wall to reach it.

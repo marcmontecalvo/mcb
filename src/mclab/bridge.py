@@ -28,6 +28,7 @@ BODY_OPS = frozenset(
         "despawn",
         "release",
         "heartbeat",
+        "plug_keep",
         "controls",
         "follow_route",
         "follow_step",

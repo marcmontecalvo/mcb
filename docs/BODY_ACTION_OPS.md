@@ -82,6 +82,18 @@ needs a tool the inventory lacks, so it would drop nothing), `nothing_to_break` 
 `unbreakable`, `entity_in_way` (a mob or player stayed on every ray to the block for
 about 1 s; the attack is held so it is never struck: take another stance). With no suitable tool the body holds an empty hotbar slot if it has one.
 
+A fluid that flows into a cell the body just broke (by `break_block` or a step edit) is
+plugged at once with a held block (`leak_plugged` event): dirt, then cobblestone, then
+another plain solid, never a gravity block or a valuable, and only beyond the counts last
+set by `plug_keep`.
+
+### `plug_keep`
+Request: `{"items": {"minecraft:<block>": n, ...}}` (at most 512 kinds, 0 ≤ n ≤ 1,000,000).
+The blocks the water plug must not spend: a build sends what it still has to place, so the
+plug uses only spare blocks. It replaces the previous set; `{}` lifts it. Reply:
+`plug_keep_accepted` `{"kinds"}`. `CompanionBody` sends it at build start and, when it has
+changed, before each `break_block`, `place_block` and `use_block`.
+
 ## Wave 3 (built and live-checked: `scripts/check-animals.py` 16/16, `scripts/check-containers.py` 18/18, `scripts/check-natural-ops.py` 14/14)
 
 Common refusals as in wave 2. Entity ops take `"entity": "<uuid>"` from the

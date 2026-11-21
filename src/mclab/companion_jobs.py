@@ -96,13 +96,13 @@ SHULKER = "minecraft:shulker_box"
 
 
 def _scaffold_topup(body, state: GatherState) -> dict[str, int]:
-    """{scaffolding: what brings the carried stack back to SCAFFOLD_STACK}, as far
-    as the chests hold it, or {}; asked only once it is down to half a stack."""
+    """{scaffolding: what brings the carried amount back to SCAFFOLD_CARRY}, as far
+    as the chests hold it, or {}; asked only once it is down to half of that."""
     held = body.inventory().get(bp.SCAFFOLD_ITEMS[0], 0)
     stored = sum(c.get(bp.SCAFFOLD_ITEMS[0], 0) for c in state.containers.values())
-    if held >= SCAFFOLD_STACK // 2 or stored <= 0:
+    if held >= SCAFFOLD_CARRY // 2 or stored <= 0:
         return {}
-    return {bp.SCAFFOLD_ITEMS[0]: min(SCAFFOLD_STACK - held, stored)}
+    return {bp.SCAFFOLD_ITEMS[0]: min(SCAFFOLD_CARRY - held, stored)}
 
 
 INVENTORY_SLOTS = 36
@@ -285,6 +285,9 @@ def _keeping(wanted, body) -> frozenset[str]:
 
 
 SCAFFOLD_STACK = 64
+# Two stacks carried through a build: towers and bridges on both sides of a large
+# house without a walk back to the chests in between.
+SCAFFOLD_CARRY = 2 * SCAFFOLD_STACK
 KNOWLEDGE = ROOT / "knowledge"
 
 
@@ -420,9 +423,18 @@ def read_chests(chests, body, state: GatherState) -> None:
 TOOL_WORDS = ("_axe", "_pickaxe", "_shovel", "_hoe", "_sword", "shears", "bucket")
 
 
-def junk(inventory: dict[str, int], wanted: dict[str, int], foods=()) -> dict[str, int]:
-    """What a refill may put away: nothing the build wants, no tools, no scaffolding, no food."""
-    return {
+def junk(
+    inventory: dict[str, int],
+    wanted: dict[str, int],
+    foods=(),
+    *,
+    stow_dirt: bool = False,
+) -> dict[str, int]:
+    """What a refill may put away: nothing the build wants, no tools, no scaffolding,
+    no food. Dirt is kept as the fallback foothold and site-prep fill, unless
+    ``stow_dirt`` (the site is level and scaffolding is the foothold): then only
+    what the build itself places stays."""
+    out = {
         i: n
         for i, n in inventory.items()
         if n > 0
@@ -432,6 +444,12 @@ def junk(inventory: dict[str, int], wanted: dict[str, int], foods=()) -> dict[st
         and i not in foods
         and not any(w in i for w in TOOL_WORDS)
     }
+    if stow_dirt and (extra := inventory.get(DIRT, 0) - wanted.get(DIRT, 0)) > 0:
+        out[DIRT] = extra
+    return out
+
+
+DIRT = "minecraft:dirt"
 
 
 def _stow_junk(
@@ -440,11 +458,18 @@ def _stow_junk(
     knowledge,
     state: GatherState,
     gather_options: GatherOptions | None = None,
+    *,
+    stow_dirt: bool = False,
 ) -> None:
     # ponytail: the emptiest known chest takes the site-clearing leftovers (dirt,
     # flowers, saplings). Run 20261110T124208809624Z stopped need_materials at 294
     # blocks: the inventory was full of them, so the refill withdrew nothing.
-    spare = junk(body.inventory(), wanted, getattr(body, "foods", None) or ())
+    spare = junk(
+        body.inventory(),
+        wanted,
+        getattr(body, "foods", None) or (),
+        stow_dirt=stow_dirt,
+    )
     if not spare or not state.containers:
         return
     pos = min(state.containers, key=lambda c: sum(state.containers[c].values()))
@@ -645,6 +670,20 @@ def build_job(
         gathered = clock() if clock else 0
 
         refills = 0
+        site = {"level": False}  # set once site prep is done
+
+        def stow_dirt() -> bool:
+            """Dirt goes back to the chests once the site is level and scaffolding,
+            not dirt, is what the body climbs on."""
+            held = body.inventory().get(bp.SCAFFOLD_ITEMS[0], 0)
+            return site["level"] and held > 0
+
+        def site_ready() -> None:
+            site["level"] = True
+            if stow_dirt() and state.containers:
+                _stow_junk(
+                    needed, body, knowledge, state, gather_options, stow_dirt=True
+                )
 
         def refill(shortfall: dict[str, int]) -> bool:
             nonlocal refills
@@ -655,7 +694,14 @@ def build_job(
             stage("refilling materials", refills, MAX_REFILLS)
             try:
                 wanted = dict(shortfall)
-                _stow_junk({**needed, **wanted}, body, knowledge, state, gather_options)
+                _stow_junk(
+                    {**needed, **wanted},
+                    body,
+                    knowledge,
+                    state,
+                    gather_options,
+                    stow_dirt=stow_dirt(),
+                )
                 before = body.inventory()
                 # Every trip to the chests tops up the food carried (FOOD_KEEP). Food is
                 # taken from the chests only, never hunted mid-build: with none stored the
@@ -751,7 +797,7 @@ def build_job(
         held_now = body.inventory()
         _take(
             {
-                bp.SCAFFOLD_ITEMS[0]: SCAFFOLD_STACK,
+                bp.SCAFFOLD_ITEMS[0]: SCAFFOLD_CARRY,
                 **{
                     i: held_now.get(i, 0) + n
                     for i, n in _food_topup(body, state).items()
@@ -769,6 +815,7 @@ def build_job(
                 body,
                 knowledge.blocks,
                 on_need_materials=refill,
+                on_site_ready=site_ready,
                 survey=survey,
                 on_progress=on_progress,
                 on_stage=stage,
@@ -821,3 +868,6 @@ def protect(
         if bp.parse_state(st)[0] in bp.AIR and p not in sealed
     }
     body.terrain_policy = replace(policy, protected_positions=tuple(sorted(cells)))
+    # From the first site-prep edit on, the water plug spares the house's blocks.
+    if (sync := getattr(body, "sync_plug_keep", None)) is not None:
+        sync()
