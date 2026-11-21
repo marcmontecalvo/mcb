@@ -92,3 +92,62 @@ holds the results.
   (`CompanionBody.edits_placed`/`edits_broken`, every placement, including a cell placed again).
   A leg fails if it places more than twice its minimum (0, 5, 4, 2, 5, 7, 0, 0 for legs 0-7)
   or breaks anything before leg 7.
+
+## Scaffold challenges (bot or a person)
+
+`scripts/check-scaffold-challenges.py` (battery check `scaffold-challenges`, slow, skipped by
+`--fast`) lays one course at a time at `--origin` (a flat, empty lab spot; default the lab
+fixture, 990 80 988), runs it, scores it and clears the spot again. `--list` prints them;
+pick by name or `--level basic|advanced|all`.
+
+| Level | Name | What it asks |
+|---|---|---|
+| basic | `climb` | onto a stone ledge five up |
+| basic | `descend` | to the floor of a shaft ten deep, no damage (drop scaffolding down, stack it up, climb down) |
+| basic | `reach-out` | stand two up and four out over a pit (tower, then extend sideways) |
+| advanced | `bridge` | straight bridge (root + 5, 8 scaffolding) to an island in a fenced, roofed pit 10 deep, no falling in |
+| advanced | `bridge-l` | the island is off every line from the pad: one turn (root + 4, 7 scaffolding) |
+| advanced | `bridge-u` | a glass wall stands in front of the island: two turns round it (root + 5, 8 scaffolding) |
+| advanced | `stairs` | upstairs in a two-storey house with a solid ceiling: take the stairs; any scaffolding fails it |
+
+The geometry is pure (`src/mclab/scaffold_challenges.py`). Tests check:
+- each course needs scaffolding (walking alone cannot reach the goal; the stairs course is
+  walkable);
+- the bridges need 0, 1 and 2 turns within scaffold distance 6;
+- every pit is walled and floored in laid stone;
+- the bridge courses are closed under a glass roof at y=4 on fences three high (no tower
+  onto a fence to walk along it), and their pit is deeper than the scaffolding handed out
+  (no column down to the floor and up again at the island);
+- the roof leaves the step from the pad onto the bridge root its jump room (launch cell
+  clear to feet+3, as `RoutePlanner.planEdit` and StepMotor need). A roof at y=3 kept the
+  bot on the pad in the first live run (20261120T173256582204Z).
+
+`descend` exercises drop-scaffolding descent (`scaffold_drop`, ROADMAP B2a): in vanilla
+Minecraft `ScaffoldingBlockItem` refuses clicking a non-scaffolding rim block when
+`getDistance == 7`, so `RoutePlanner` and `StepMotor` place a 5-block overhang crane behind
+and over the rim (`(bx,y..y+2,bz)`, `(x,y+2,z)`, `(tx,y+2,tz)`) and sneak-click the
+overhang's `DOWN` face to spawn distance-7 scaffolding blocks that fall and stack up from
+the shaft floor (15 scaffolding total for the 10-deep shaft), then climb straight down
+inside the column with zero damage.
+
+The kit is scaffolding alone (it breaks by hand; a pickaxe would dig out of a pit or quarry
+stone to pillar with). Any changed course cell fails an attempt. A bridge course also needs
+the bridge left standing: the open cells are read back and scaffolding must join, face to
+face, a root on the pad to the island's side (`bridge_stands`). A sprint jump from the pad's
+corner reaches the bridge-l island with no scaffolding, and bridge-u's one-turn L leaves a
+gap a person can jump (review of e029b74); a jump leaves no bridge, or one with a gap. The lab kit reads the cells
+back (`probe`), so a person's own scaffolding, placed or broken, does not count. A pit
+13 wide crossed by dropping scaffolding onto its floor to stack a middle tower is not a
+course yet: the walk down and up again cannot be ruled out, and the planner does not drop
+columns (ROADMAP).
+
+- **Bot:** `--subject bot` (default). The bot spawns at the start with the scaffolding and
+  navigates to the goal with placing allowed (every course cell is protected). Add
+  `--show-markers` to see its red planned path, green goal and yellow block; create or
+  delete `<run folder>/<challenge>/MARKERS` to flip them while it runs.
+- **Person:** join the lab server with a normal client, then
+  `--subject human --player <name> [--minutes 10]`. You are moved to the start with only
+  the scaffolding; the green ring and beam mark the goal and the attempt ends when you stand
+  on it. It is stopped and the spot restored even if the script fails part way. Results:
+  `results/scaffolding/<stamp>/summary.json` (reached, damage, scaffolding used, course
+  cells changed).

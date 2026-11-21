@@ -330,7 +330,9 @@ def _relaunch_client() -> str:
 def _wait_terminal(client, timeout):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        client.state(heartbeat=True)
+        # No heartbeat: its callers have no bot body (Baritone, a person), heartbeat is
+        # a body op, and the lab watches none for these sessions; each was rejected.
+        client.state(heartbeat=False)
         terminal = terminal_event(client)
         if terminal is not None:
             return terminal

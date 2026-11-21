@@ -64,11 +64,20 @@ final class NaturalRun {
     // Viewing aids and the stall cutoff. Both are optional and default off.
     private static final DustParticleOptions PATH_DUST = new DustParticleOptions(0xFF2020, 1.0f);
     private static final DustParticleOptions GOAL_DUST = new DustParticleOptions(0x20FF40, 2.0f);
+    private static final DustParticleOptions TARGET_DUST = new DustParticleOptions(0xFFD020, 1.0f);
     private static final int MARKER_INTERVAL_TICKS = 4, MAX_PATH_POINTS = 64;
-    private static final double STALL_MOVE_BLOCKS = 1.0;
-    private final boolean showMarkers;
+    private static final double STALL_MOVE_BLOCKS = 1.0, MARKER_GOAL_RADIUS = 0.6;
+    // Markers may be switched on and off while the session runs (a long build: natural_markers).
+    private boolean showMarkers;
     private final int stallTicks;
+    // The request's own kit (a scaffold challenge) in place of the fixed one; null: the fixed kit.
+    private final List<ItemStack> kit;
+    private final Double goalDy;
     private List<Vec3> path = List.of();
+    // Where the markers show the subject heading (a build's stance) and the block it works on;
+    // null: the session's own goal, no block.
+    private Vec3 markerGoal;
+    private BlockPos markerTarget;
     private Vec3 stallAnchor;
     private int stallSince;
 
@@ -85,6 +94,8 @@ final class NaturalRun {
         tickLimit = request.get("tick_limit").getAsInt();
         mobs = request.get("mobs").getAsBoolean();
         showMarkers = request.has("show_markers") && request.get("show_markers").getAsBoolean();
+        kit = request.has("kit") ? LabKit.stacks(LabKit.stackSpecs(request.getAsJsonArray("kit"))) : null;
+        goalDy = goalDy(request);
         stallTicks = request.has("stall_ticks") ? request.get("stall_ticks").getAsInt() : 0;
         if (stallTicks != 0 && (stallTicks < 40 || stallTicks > 2400))
             throw new IllegalArgumentException("natural_stall_ticks");
@@ -142,7 +153,19 @@ final class NaturalRun {
         return new AABB(start, goal).inflate(64, 64, 64);
     }
 
-    private static void giveKit(ServerPlayer p) {
+    /**
+     * goal_dy: how far the feet may be from the goal's height, and then the subject must stand
+     * (a challenge goal on a ledge or a pit floor); absent: GOAL_DY, standing or not.
+     */
+    static Double goalDy(JsonObject request) {
+        if (!request.has("goal_dy")) return null;
+        double dy = request.get("goal_dy").getAsDouble();
+        if (dy < 0.25 || dy > GOAL_DY) throw new IllegalArgumentException("natural_goal_dy");
+        return dy;
+    }
+
+    private void giveKit(ServerPlayer p) {
+        if (kit != null) { LabKit.give(p, kit); return; }
         var inventory = p.getInventory();
         inventory.clearContent();
         inventory.setItem(0, new ItemStack(Items.IRON_PICKAXE));
@@ -205,8 +228,9 @@ final class NaturalRun {
         if(hostiles>0) hostileExposureTicks++;
         double horizontal = Math.hypot(p.getX() - goal.x, p.getZ() - goal.z);
         minDistance = Math.min(minDistance, horizontal);
-        if (horizontal <= radius && Math.abs(p.getY() - goal.y) <= (hill==null?GOAL_DY:0.25)
-                && (hill==null || p.onGround())) { finish("success", "reached_goal"); return; }
+        double reach = hill != null ? 0.25 : goalDy != null ? goalDy : GOAL_DY;
+        if (horizontal <= radius && Math.abs(p.getY() - goal.y) <= reach
+                && (hill == null && goalDy == null || p.onGround())) { finish("success", "reached_goal"); return; }
         if (server.getTickCount() >= deadlineTick) { finish("failed", "tick_limit"); return; }
         // Stall: the body has not left a 1-block neighbourhood for stallTicks. This also
         // ends oscillation (planner and motor disagreeing) rather than waiting out the clock.
@@ -223,15 +247,40 @@ final class NaturalRun {
     void showPath(JsonArray points) {
         if (points.size() > MAX_PATH_POINTS) throw new IllegalArgumentException("natural_path_length");
         var parsed = new ArrayList<Vec3>();
-        for (var value : points) {
-            var point = cell(value.getAsJsonArray());
-            if (point.distanceTo(start) > MAX_PROBE_RADIUS * 2) throw new IllegalArgumentException("natural_path_bounds");
-            parsed.add(point);
-        }
+        for (var value : points) parsed.add(near(cell(value.getAsJsonArray()), "natural_path_bounds"));
         path = List.copyOf(parsed);
     }
 
-    /** Server particles every client sees: red dust along the path, a green ring and beam at the goal. */
+    /**
+     * natural_markers: switch the markers on or off, and move them to the stance the subject heads for
+     * ("goal") and the block it works on ("target"); an absent key keeps its value, a JSON null clears it.
+     */
+    void markers(JsonObject request) {
+        if (request.has("show")) showMarkers = request.get("show").getAsBoolean();
+        if (request.has("goal"))
+            markerGoal = request.get("goal").isJsonNull() ? null
+                    : near(cell(request.getAsJsonArray("goal")), "natural_marker_bounds");
+        if (request.has("target")) {
+            if (request.get("target").isJsonNull()) markerTarget = null;
+            else {
+                var at = near(cell(request.getAsJsonArray("target")), "natural_marker_bounds");
+                markerTarget = BlockPos.containing(at.x, at.y, at.z);
+            }
+        }
+        if (!showMarkers) path = List.of();
+    }
+
+    boolean showingMarkers() { return showMarkers; }
+
+    private Vec3 near(Vec3 point, String reason) {
+        if (point.distanceTo(start) > MAX_PROBE_RADIUS * 2) throw new IllegalArgumentException(reason);
+        return point;
+    }
+
+    /**
+     * Server particles every client sees: red dust along the path, a green ring and beam at the goal (or
+     * the stance the subject heads for), a yellow outline round the block it works on.
+     */
     private void drawMarkers() {
         var level = server.overworld();
         for (int i = 1; i < path.size(); i++) {
@@ -241,13 +290,31 @@ final class NaturalRun {
                 level.sendParticles(PATH_DUST, true, true, q.x, q.y + 0.15, q.z, 1, 0, 0, 0, 0);
             }
         }
+        var ring = markerGoal == null ? goal : markerGoal;
+        double r = markerGoal == null ? radius : MARKER_GOAL_RADIUS;
         for (int k = 0; k < 24; k++) {
             double angle = Math.PI * 2 * k / 24;
-            level.sendParticles(GOAL_DUST, true, true, goal.x + Math.cos(angle) * radius, goal.y + 0.2,
-                    goal.z + Math.sin(angle) * radius, 1, 0, 0, 0, 0);
+            level.sendParticles(GOAL_DUST, true, true, ring.x + Math.cos(angle) * r, ring.y + 0.2,
+                    ring.z + Math.sin(angle) * r, 1, 0, 0, 0, 0);
         }
-        for (int h = 0; h < 24; h += 2)
-            level.sendParticles(GOAL_DUST, true, true, goal.x, goal.y + h, goal.z, 1, 0, 0, 0, 0);
+        int beam = markerGoal == null ? 24 : 4;
+        for (int h = 0; h < beam; h += 2)
+            level.sendParticles(GOAL_DUST, true, true, ring.x, ring.y + h, ring.z, 1, 0, 0, 0, 0);
+        if (markerTarget != null) {
+            // The twelve edges of the block, three points each.
+            double x0 = markerTarget.getX(), y0 = markerTarget.getY(), z0 = markerTarget.getZ();
+            for (int e = 0; e < 12; e++) {
+                for (int k = 0; k <= 3; k++) {
+                    double t = k / 3.0;
+                    double[] p = switch (e / 4) {
+                        case 0 -> new double[] {t, e % 2, (e / 2) % 2};
+                        case 1 -> new double[] {e % 2, t, (e / 2) % 2};
+                        default -> new double[] {e % 2, (e / 2) % 2, t};
+                    };
+                    level.sendParticles(TARGET_DUST, true, true, x0 + p[0], y0 + p[1], z0 + p[2], 1, 0, 0, 0, 0);
+                }
+            }
+        }
     }
 
     void broke(ServerPlayer p, boolean success) {
@@ -304,6 +371,14 @@ final class NaturalRun {
         result.put("kit_blocks_used_estimate", p == null ? -1 : 2 * KIT_BLOCKS - left);
         result.put("kit_blocks_picked_up",kitBlocksPickedUp);
         result.put("kit_blocks_spent_adjusted",p==null || !p.isAlive()?-1:2*KIT_BLOCKS+kitBlocksPickedUp-left);
+        if (kit != null && p != null) {
+            // What is left of the request's kit (taking scaffolding back down returns it).
+            var kitLeft = new LinkedHashMap<String, Integer>();
+            for (var stack : kit)
+                kitLeft.put(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(),
+                        p.getInventory().countItem(stack.getItem()));
+            result.put("kit_left", kitLeft);
+        }
         if (p != null) result.put("final_position", List.of(p.getX(), p.getY(), p.getZ()));
         result.put("mobs", mobs);
         result.put("stall_ticks", stallTicks);

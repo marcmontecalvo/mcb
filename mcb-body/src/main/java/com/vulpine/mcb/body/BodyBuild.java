@@ -118,6 +118,14 @@ final class BodyBuild {
             // is above the eye of a body standing beside a tall column.
             for (BlockPos c = pos.below(); level.getBlockState(c).is(Blocks.SCAFFOLDING); c = c.below())
                 sources.add(new Source(c, List.of(Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST)));
+            // A bridge: a body on top of a tower sees only the top face of the block under it, not the
+            // side toward the cell. The top of a run of scaffolding beside the cell, clicked not sneaking
+            // with the heading toward the cell, puts the block past the run (house-large run
+            // 20261120T141244368734Z put up a second tower for want of one block off the first).
+            for (Direction d : Direction.Plane.HORIZONTAL) {
+                int run = PlacementLogic.scaffoldRun(k -> level.getBlockState(pos.relative(d, k)).is(Blocks.SCAFFOLDING));
+                for (int k = 1; k <= run; k++) sources.add(new Source(pos.relative(d, k), List.of(Direction.UP)));
+            }
         }
         anySolid = !sources.isEmpty();
         // Why each clickable neighbour was rejected, reported when nothing works (state_unreachable).

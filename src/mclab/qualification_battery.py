@@ -20,7 +20,14 @@ from mclab import prune
 from mclab.paths import ROOT
 
 # ``--fast`` leaves these out: the experiments (Q3), 15 minutes each.
-FAST_EXCLUDE = ("iron-xray", "iron-mine", "iron-raw", "small-house", "scaffold-course")
+FAST_EXCLUDE = (
+    "iron-xray",
+    "iron-mine",
+    "iron-raw",
+    "small-house",
+    "scaffold-course",
+    "scaffold-challenges",
+)
 SLOW_FRACTION = 0.75  # a check this close to its timeout is kept even when it passed
 
 

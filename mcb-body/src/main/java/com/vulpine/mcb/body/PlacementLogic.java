@@ -92,6 +92,21 @@ final class PlacementLogic {
         return out;
     }
 
+    /** ScaffoldingBlockItem.updatePlacementContext walks at most this many cells sideways. */
+    static final int SCAFFOLD_SIDEWAYS = 7;
+
+    /**
+     * How many cells of a horizontal scaffolding run lie beside a cell along one direction
+     * ({@code scaffolding.test(k)}: the cell k steps away is scaffolding). Clicking the top of any of them,
+     * not sneaking, with the heading toward the cell puts the new block into the cell: a bridge, the way a
+     * player extends scaffolding sideways from on top of it.
+     */
+    static int scaffoldRun(java.util.function.IntPredicate scaffolding) {
+        int n = 0;
+        while (n < SCAFFOLD_SIDEWAYS && scaffolding.test(n + 1)) n++;
+        return n;
+    }
+
     /** Offsets (u, v) in blocks from a face centre, centre first, then the quarter points. */
     static final double[][] HIT_OFFSETS = {
             {0, 0}, {0, 0.25}, {0, -0.25}, {0.25, 0}, {-0.25, 0},

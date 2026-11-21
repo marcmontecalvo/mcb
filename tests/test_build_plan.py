@@ -762,8 +762,140 @@ def test_axis_y_chain_and_lantern_under_skipped_chain_do_not_keep_doors_out():
     assert (0, 0, 0) in [a.pos for a in acts]
 
 
-def test_tower_cells_rejects_non_sturdy_stairs_for_scaffolding():
+POT = "minecraft:flower_pot"
+
+
+def _balcony(rise=0):
+    """A wall at z=1 with a two-high window gap at x=2, a balcony floor at z=2 with
+    a flower pot on it: the pot is reached only through the window. ``rise`` lifts
+    the balcony floor (and the pot) that many layers."""
+    cells = {}
+    for x in range(5):
+        cells[(x, rise, 2)] = PLANKS  # the balcony floor
+        for y in (1, 2):
+            cells[(x, y, 1)] = PANE if x == 2 else PLANKS
+    cells[(1, rise + 1, 2)] = POT
+    world = flat_world(hi=6)
+    for p, s in cells.items():
+        if s == PLANKS:
+            world[p] = s
+    template = bp.Template.from_build(make_build(cells, (5, 3, 3)), (0, 0, 0))
+    blocks = {**BLOCKS, POT: {"item": POT}}
+    return template, world, blocks
+
+
+def test_a_window_is_glazed_after_the_details_it_is_the_way_to():
+    # run 20261120T141244368734Z: the balcony window's low panes went in first; the
+    # pots outside them were then out of sight from the room and the body went round
+    # by a tree to reach them
+    template, world, blocks = _balcony()
+    held = {"minecraft:glass_pane": 2, POT: 1}
+    acts = bp.next_actions(template, at(world), blocks, held, near=(2, 1, 0))
+    assert [a.pos for a in acts] == [(1, 1, 2)]
+    world[(1, 1, 2)] = POT
+    acts = bp.next_actions(template, at(world), blocks, held, near=(2, 1, 0))
+    assert {a.pos for a in acts} == {(2, 1, 1)}
+
+
+def test_a_window_waits_for_a_detail_a_layer_up_with_the_body_away():
+    # review of 5bb4812: the pot one layer above the low pane was held by the layer
+    # rule (the pane's layer was the lowest), so it did not hold the pane, and the
+    # pane went in first with the body out of reach. The held panes must not hold
+    # the layer either, or neither ever goes in.
+    template, world, blocks = _balcony(rise=1)
+    held = {"minecraft:glass_pane": 2, POT: 1}
+    away = (2, 1, -5)
+    acts = bp.next_actions(template, at(world), blocks, held, near=away)
+    assert [a.pos for a in acts] == [(1, 2, 2)]
+    world[(1, 2, 2)] = POT  # then the window closes, bottom up
+    acts = bp.next_actions(template, at(world), blocks, held, near=away)
+    assert [a.pos for a in acts] == [(2, 1, 1)]
+    world[(2, 1, 1)] = PANE
+    acts = bp.next_actions(template, at(world), blocks, held, near=away)
+    assert [a.pos for a in acts] == [(2, 2, 1)]
+
+
+def test_held_bars_do_not_count_as_structure_left():
+    # iron bars are glazing but not a detail: held for the pot, they must not keep
+    # the details back as structure still to place (each would wait on the other)
+    template, world, blocks = _balcony(rise=1)
+    bars = "minecraft:iron_bars"
+    cells = {p: s for p, s in template.cells.items()}
+    for p, s in cells.items():
+        if s == PANE:
+            cells[p] = bars
+    template = bp.Template.from_build(make_build(cells, (5, 3, 3)), (0, 0, 0))
+    blocks = {**blocks, bars: {"item": bars}}
+    held = {bars: 2, POT: 1}
+    acts = bp.next_actions(template, at(world), blocks, held, near=(2, 1, -5))
+    assert [a.pos for a in acts] == [(1, 2, 2)]
+
+
+@pytest.mark.parametrize("glazing", ["minecraft:glass_pane", "minecraft:iron_bars"])
+def test_a_held_pane_not_in_hand_does_not_send_the_body_to_fetch(glazing):
+    # second review of the glazing fix: the fetch-first rule still read every cell,
+    # so a held pane that was not in the inventory sent the body to the chests while
+    # the pot it waits for was in hand and placeable
+    template, world, blocks = _balcony(rise=1)
+    if glazing != PANE:
+        cells = {p: (glazing if s == PANE else s) for p, s in template.cells.items()}
+        template = bp.Template.from_build(make_build(cells, (5, 3, 3)), (0, 0, 0))
+        blocks = {**blocks, glazing: {"item": glazing}}
+    acts = bp.next_actions(
+        template, at(world), blocks, {POT: 1}, near=(2, 1, -5), fetch_first=True
+    )
+    assert [a.pos for a in acts if isinstance(a, bp.Place)] == [(1, 2, 2)]
+    assert not any(isinstance(a, bp.NeedMaterials) for a in acts)
+
+
+def test_a_detail_that_cannot_go_in_does_not_keep_the_window_open():
+    template, world, blocks = _balcony()
+    skipped = bp.next_actions(
+        template,
+        at(world),
+        blocks,
+        {"minecraft:glass_pane": 2, POT: 1},
+        near=(2, 1, 0),
+        skipped={(1, 1, 2)},
+    )
+    short = bp.next_actions(
+        template, at(world), blocks, {"minecraft:glass_pane": 2}, near=(2, 1, 0)
+    )
+    assert (2, 1, 1) in [a.pos for a in skipped]
+    assert (2, 1, 1) in [a.pos for a in short if isinstance(a, bp.Place)]
+
+
+def test_a_tower_top_needs_room_for_the_head():
+    # run 20261120T141244368734Z: a hopper at head height under the first floor's
+    # ceiling got a two-block tower whose top put the head in the ceiling; the body
+    # never got onto it and the tower came down again
     w = flat_world(hi=6)
+    for x in range(-2, 6):
+        for z in range(-2, 6):
+            w[(x, 3, z)] = PLANKS  # the floor above, three over the ground
+    assert bp.tower_cells((3, 2, 3), at(w), BLOCKS) == []
+    assert bp.tower_cells((3, 2, 3), at(w), BLOCKS, roof=True) == []
+    w[(4, 3, 3)] = AIR  # a hole over the column: the head fits through it
+    assert bp.tower_cells((3, 2, 3), at(w), BLOCKS) == [(4, 0, 3), (4, 1, 3)]
+
+
+def test_a_dirt_tower_top_needs_room_for_the_last_jump():
+    # review of 5bb4812: a dirt column is pillared by jumping (pillar_to); the
+    # planner's pillar edge wants feet+2 and feet+3 empty (RoutePlanner.pillar), so
+    # the cell over the crown must be clear too, or pillar_to searches to its cap.
+    # A scaffolding tower is climbed, not jumped: the crown is enough.
+    w = flat_world(hi=6)
+    for x in range(-2, 6):
+        for z in range(-2, 6):
+            w[(x, 3, z)] = PLANKS  # a ceiling two over the crown's floor
+    assert bp.tower_cells((3, 1, 3), at(w), BLOCKS) == [(3, 0, 2)]
+    assert bp.tower_cells((3, 1, 3), at(w), BLOCKS, scaffolding=False) == []
+    w[(4, 3, 3)] = AIR
+    assert bp.tower_cells((3, 1, 3), at(w), BLOCKS, scaffolding=False) == [(4, 0, 3)]
+
+
+def test_tower_cells_rejects_non_sturdy_stairs_for_scaffolding():
+    w = flat_world(hi=8)  # known up to the dirt tower's last jump
     blocks = {
         **BLOCKS,
         "minecraft:oak_stairs": {"item": "minecraft:oak_stairs", "full_cube": False},
@@ -843,3 +975,230 @@ def test_a_zone_never_builds_over_a_missing_cell_in_its_columns():
     offered = {a.pos for a in acts}
     assert (1, 0, 0) in offered and (1, 1, 0) not in offered
     assert all(p[0] < 8 for p in offered)
+
+
+def _foundation_under_floor():
+    """Cobblestone at y0 under planks at y1, two columns: (0, 0, 0) is placed, and a
+    wall beside the floor holds up the planks over the hole (the house's log wall)."""
+    cells = {(x, 0, 0): COBBLE for x in (0, 1)} | {(x, 1, 0): PLANKS for x in (0, 1)}
+    t = bp.Template.from_build(make_build(cells, (2, 2, 1)), (0, 0, 0))
+    w = flat_world(hi=14)
+    w[(0, 0, 0)] = COBBLE
+    w[(1, 1, 1)] = "minecraft:stone"
+    return t, w
+
+
+@pytest.mark.parametrize("near", [None, (0, 2, 1), (5, 0, 5)])
+def test_a_cell_short_of_its_item_still_holds_its_column(near):
+    # Run 20261121T154048852669Z: cobblestone ran out with two foundation cells left
+    # in a zone, so its lowest layer moved up a floor and the planks went in over
+    # them. The pocket they left was sealed (no face showed from outside it) and the
+    # build stopped at 1225/1228. Short cells give up their layer, not their column.
+    t, w = _foundation_under_floor()
+
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10}, near=near)
+
+    offered = {a.pos for a in acts if isinstance(a, bp.Place)}
+    assert (1, 1, 0) not in offered
+    assert (0, 1, 0) in offered  # its column is done: the layer above goes on
+
+
+def test_a_column_held_only_by_a_short_cell_asks_for_its_item():
+    t, w = _foundation_under_floor()
+    w[(0, 1, 0)] = PLANKS  # all that can go in without cobblestone is in
+
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 10}, near=(0, 2, 1))
+
+    assert [type(a) for a in acts] == [bp.NeedMaterials]
+    assert acts[0].items.get(COBBLE) == 1
+
+
+def test_a_short_detail_holds_no_column():
+    # A detail never handed over (24 lanterns short in the same run) must not keep
+    # the cells over it out for good.
+    lantern = "minecraft:lantern[hanging=false,waterlogged=false]"
+    blocks = BLOCKS | {"minecraft:lantern": {"item": "minecraft:lantern"}}
+    cells = {(0, 0, 0): PLANKS, (0, 1, 0): lantern, (0, 2, 0): PLANKS}
+    cells |= {(1, y, 0): PLANKS for y in range(3)}
+    t = bp.Template.from_build(make_build(cells, (2, 3, 1)), (0, 0, 0))
+    w = flat_world(hi=14)
+    w[(0, 0, 0)] = PLANKS
+    w[(0, 2, 1)] = "minecraft:stone"  # the wall that holds up the planks over it
+    for y in range(2):
+        w[(1, y, 0)] = PLANKS
+
+    acts = bp.next_actions(t, at(w), blocks, {PLANKS: 10}, near=(1, 3, 1))
+
+    assert (0, 2, 0) in {a.pos for a in acts if isinstance(a, bp.Place)}
+
+
+# --- bridges off a standing scaffolding tower ---------------------------------
+
+SCAFFOLD = "minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]"
+
+
+def _tower_world(top=5, hi=12):
+    """Flat stone at y=-1 and a scaffolding column at (0, 0..top, 0)."""
+    w = flat_world(lo=-2, hi=hi)
+    for y in range(top + 1):
+        w[(0, y, 0)] = SCAFFOLD
+    return w
+
+
+def test_a_floor_beside_a_tower_top_is_one_scaffolding_block_off_it():
+    # House-large run 20261120T141244368734Z: a roof stair placed only from one
+    # block off the side of the tower the body stood on; a second tower went up
+    # beside the first instead of that one block.
+    w = _tower_world()
+    assert bp.bridge_cells((1, 5, 0), at(w), BLOCKS) == [(1, 5, 0)]
+
+
+def test_a_bridge_runs_root_side_first_up_to_six_blocks_off_the_tower():
+    w = _tower_world()
+    assert bp.bridge_cells((3, 5, 0), at(w), BLOCKS) == [
+        (1, 5, 0),
+        (2, 5, 0),
+        (3, 5, 0),
+    ]
+    assert len(bp.bridge_cells((6, 5, 0), at(w), BLOCKS)) == 6
+    assert bp.bridge_cells((7, 5, 0), at(w), BLOCKS) == []  # distance 7 falls
+
+
+def test_a_bridge_goes_round_template_cells_and_never_into_them():
+    w = _tower_world()
+    path = bp.bridge_cells((2, 5, 0), at(w), BLOCKS, frozenset({(1, 5, 0)}))
+    assert path and path[-1] == (2, 5, 0) and (1, 5, 0) not in path
+    assert len(path) == 4  # (0,5,1) or (0,5,-1) side, then across
+    assert bp.bridge_cells((2, 5, 0), at(w), BLOCKS, frozenset({(2, 5, 0)})) == []
+
+
+def test_a_bridge_leaves_only_from_a_tower_top_with_room_to_walk_out():
+    w = _tower_world()
+    assert bp.bridge_cells((1, 3, 0), at(w), BLOCKS) == []  # mid-column
+    w[(1, 7, 0)] = PLANKS  # no headroom over the bridge
+    assert bp.bridge_cells((1, 5, 0), at(w), BLOCKS) == []
+
+
+def test_a_bridge_counts_the_distance_its_root_already_hangs_at():
+    w = _tower_world()
+    for x in (1, 2, 3):
+        w[(x, 5, 0)] = SCAFFOLD  # an earlier bridge, distance 3 at its end
+    w[(0, 6, 0)] = AIR
+    assert len(bp.bridge_cells((6, 5, 0), at(w), BLOCKS)) == 3
+    assert bp.bridge_cells((7, 5, 0), at(w), BLOCKS) == []
+
+
+def test_no_bridge_over_unknown_or_solid_cells():
+    w = _tower_world()
+    del w[(1, 5, 0)]
+    assert bp.bridge_cells((1, 5, 0), at(w), BLOCKS) == []
+    w[(1, 5, 0)] = PLANKS
+    assert bp.bridge_cells((1, 5, 0), at(w), BLOCKS) == []
+
+
+def test_prop_cells_finds_absent_click_face_for_mutual_hoppers_and_top_slab():
+    # Run 20261120T175636584118Z: mutually facing hoppers had no solid face on
+    # the facing side; stance search returned empty and never triggered _propped.
+    w = flat_world(hi=6)
+    w[(2, 2, 0)] = PLANKS  # north wall behind (-16, 67, 60)
+    w[(1, 2, 0)] = PLANKS  # north wall behind (-17, 67, 60)
+    west = "minecraft:hopper[enabled=true,facing=west]"
+    east = "minecraft:hopper[enabled=true,facing=east]"
+    blocks = {**BLOCKS, "minecraft:hopper": {"item": "minecraft:hopper"}}
+    assert bp.prop_cells((2, 2, 1), west, at(w), blocks) == [(1, 2, 1)]
+    assert bp.prop_cells((1, 2, 1), east, at(w), blocks) == [(2, 2, 1)]
+    # Once one hopper stands, the other needs no prop.
+    w[(2, 2, 1)] = west
+    assert bp.prop_cells((1, 2, 1), east, at(w), blocks) == []
+    # Top slab over only a floor needs a side prop (clicking up makes bottom).
+    top_slab = "minecraft:oak_slab[type=top,waterlogged=false]"
+    slab_props = bp.prop_cells((4, 0, 4), top_slab, at(w), BLOCKS)
+    assert slab_props and all(p[1] == 0 for p in slab_props)
+    w[(5, 0, 4)] = PLANKS
+    assert bp.prop_cells((4, 0, 4), top_slab, at(w), BLOCKS) == []
+    # Blocks with permanent needs_support (e.g. hanging lantern) never prop.
+    lantern = "minecraft:lantern[hanging=true,waterlogged=false]"
+    assert bp.prop_cells((4, 2, 4), lantern, at(w), BLOCKS) == []
+
+
+def test_tower_cells_with_can_reach_picks_shortest_sound_height_and_skips_unreachable():
+    # Run 20261120T175636584118Z: chain (-21, 74, 63) hangs from (-21, 75, 63);
+    # feet at y=74 put eye at 75.62 (above down face 75.0), and roof fallback built
+    # a tower on the wrong side of a wall for an indoor hopper.
+    w = flat_world(hi=16)
+    target = (3, 10, 3)
+
+    def chain_reach(foot, cells):
+        # Eye must stay below the down face at y=11.0 (feet <= 9) and within reach.
+        if foot[1] >= 10:
+            return 0
+        if foot[1] == 5:
+            return 1  # marginal reach
+        return 2 if 6 <= foot[1] <= 9 else 0
+
+    cells = bp.tower_cells(
+        target, at(w), BLOCKS, roof=True, can_reach=chain_reach, allow_roof_lift=False
+    )
+    assert cells
+    assert cells[0][1] == 0 and cells[-1][1] == 5  # feet at y=6, shortest sound tower
+    # When nothing can reach the target and no roof stance exists, build no tower.
+    assert (
+        bp.tower_cells(
+            target,
+            at(w),
+            BLOCKS,
+            roof=True,
+            can_reach=lambda foot, cells: 0,
+            allow_roof_lift=False,
+        )
+        == []
+    )
+
+
+def test_sealed_air_marks_enclosed_attic_cavity_and_leaves_doored_room_open():
+    # A 1-high enclosed attic cavity above a room with a door.
+    cells = {}
+    for x in range(5):
+        for z in range(5):
+            cells[(x, 0, z)] = PLANKS  # floor
+            cells[(x, 3, z)] = PLANKS  # ceiling / attic floor
+            cells[(x, 5, z)] = PLANKS  # roof over 1-high attic
+    for x in range(5):
+        for y in (1, 2, 4):
+            cells[(x, y, 0)] = PLANKS
+            cells[(x, y, 4)] = PLANKS
+    for z in range(5):
+        for y in (1, 2, 4):
+            cells[(0, y, z)] = PLANKS
+            cells[(4, y, z)] = PLANKS
+    cells[(2, 1, 0)] = DOOR_LO
+    cells[(2, 2, 0)] = DOOR_UP
+    t = bp.Template.from_build(make_build(cells, (5, 6, 5)), (0, 0, 0))
+    sealed = bp.sealed_air(t, BLOCKS)
+    assert (2, 4, 2) in sealed  # enclosed attic cavity
+    assert (2, 1, 2) not in sealed  # room reachable through the door
+    assert (2, 2, 2) not in sealed
+
+
+def test_next_actions_breaks_foothold_in_sealed_cavity_before_sealing_roof():
+    # Run 20261120T175636584118Z: dirt at (-12, 75, 63) was sealed in when the roof
+    # plank above it was placed.
+    cells = {
+        (1, 0, 1): PLANKS,
+        (0, 1, 1): PLANKS,
+        (2, 1, 1): PLANKS,
+        (1, 1, 0): PLANKS,
+        (1, 1, 2): PLANKS,
+        (1, 2, 1): PLANKS,
+    }
+    w = flat_world(hi=5)
+    for p in ((1, 0, 1), (0, 1, 1), (2, 1, 1), (1, 1, 0), (1, 1, 2)):
+        w[p] = PLANKS
+    w[(1, 1, 1)] = "minecraft:dirt"  # foothold inside the cavity before roof closes
+    t = bp.Template.from_build(make_build(cells, (3, 3, 3)), (0, 0, 0))
+    scaffolds = {(1, 1, 1)}
+    acts = bp.next_actions(
+        t, at(w), BLOCKS, {PLANKS: 4}, scaffolds=scaffolds, near=(50, 0, 50)
+    )
+    assert [type(a) for a in acts] == [bp.Break]
+    assert acts[0].pos == (1, 1, 1)

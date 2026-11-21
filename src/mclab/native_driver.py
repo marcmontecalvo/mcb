@@ -6,7 +6,7 @@ tick. Python-side search here is a fallback/oracle, not the production planner
 import math
 import re
 import time
-from collections import Counter
+from collections import ChainMap, Counter
 from dataclasses import asdict
 
 from mclab import map_change, water_movement
@@ -350,18 +350,30 @@ def prefetch_while_following(controller, route, native=None):
     if refreshing(controller) and native is not None:
         index = native.get("next_index", 1)
         end = tuple(route[min(len(route) - 1, max(index, 1) + REFRESH_AHEAD - 1)])
+        full = getattr(controller, "route", None) or ()
+        goal = tuple(controller.goal) if controller.goal is not None else None
+        complete = bool(full) and goal is not None and tuple(full[-1]) == goal
+        goal_rev = getattr(controller, "goal_revision", 0)
         last = getattr(controller, "refreshed", None)
-        if last is not None and last[0] == end:
+        if last is not None and (
+            last[0] == end or (complete and len(last) >= 4 and last[3] == goal_rev)
+        ):
             if last[1] == revision:
-                return  # Same start on the same map: the answer would not change.
+                return  # Same start or complete route on the same map: no news.
             if not map_change.changed(
                 last[2], cells, _cells_ahead(controller, route, end)
             ):
                 # A newer map with nothing changed along the way ahead (a block
                 # placed beside the body, re-observed cells) is no reason to re-plan.
-                controller.refreshed = (end, revision, cells)
+                controller.refreshed = (end, revision, cells, goal_rev)
                 return
-        controller.refreshed = (end, revision, cells)
+        if complete and (last is None or len(last) < 4 or last[3] != goal_rev):
+            # Active route already reaches the goal on this map: record baseline
+            # snapshot and only re-plan if geometry ahead actually changes (run
+            # 20261120T175636584118Z fired 20 plans in 6.8 s on an unobstructed walk).
+            controller.refreshed = (end, revision, cells, goal_rev)
+            return
+        controller.refreshed = (end, revision, cells, goal_rev)
     if end == controller.goal:
         return
     controller.prefetch = controller._new_search(cells, end, revision)
@@ -783,11 +795,20 @@ def drive_native(client, controller, wall_timeout):
                     continue
                 confirmation_deadline = confirmation_deadline or time.monotonic() + 2
                 plan = active_step[1]
+                fresh = controller._fresh(observation["tick"])
+                # scaffold_drop's lower cells sit below the +-4 refresh box and settle
+                # many ticks before the top finishes; read them from fresh+known.
+                confirm_cells = (
+                    ChainMap(fresh, controller._known_cells())
+                    if plan.kind == "scaffold_drop"
+                    and hasattr(controller, "_known_cells")
+                    else fresh
+                )
                 if not confirm_step(
                     plan,
                     step_before,
                     observation,
-                    controller._fresh(observation["tick"]),
+                    confirm_cells,
                     report,
                 ):
                     if time.monotonic() > confirmation_deadline:

@@ -5,8 +5,9 @@ These are operator aids in the development lab; the companion cannot kit blocks.
 
 For a new run, append `--preview --inspect` to the existing build command.
 After construction ends, the lab places the reference copy beside the attempt
-and keeps the session open. Join `127.0.0.1:25575` to inspect it. Create a file
-named `STOP` in the printed results folder to finish and restore the lab world.
+and keeps the session open. Join `127.0.0.1:25575` to inspect it. A file named
+`STOP` in the printed results folder finishes and restores the lab world; the agent
+creates it when you say you are done looking.
 Interrupting the script also unwinds its normal cleanup.
 
 For an existing failed run, use its saved checkpoint to skip gathering:

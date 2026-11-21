@@ -12,19 +12,108 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.AABB;
 
+import com.google.gson.JsonArray;
+
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /** Lab-only: sets a body's inventory and its surroundings (the body never grants itself items). */
 final class LabKit {
     private LabKit() {}
 
-    private static final int MAX_RADIUS = 24, MAX_HEIGHT = 16, MAX_PLACE = 64, MAX_STACKS = 64;
+    private static final int MAX_RADIUS = 24, MAX_HEIGHT = 16, MAX_PLACE = 64, MAX_STACKS = 64, MAX_PROBE = 2048;
+
+    /**
+     * The cell kit offsets count from: the body's feet, or a fixed {@code at} cell (a course laid
+     * out for a person who stands anywhere; scripts/check-scaffold-challenges.py).
+     */
+    static int[] origin(JsonObject request, int x, int y, int z) {
+        if (!request.has("at")) return new int[]{x, y, z};
+        var at = request.get("at");
+        if (!at.isJsonArray() || at.getAsJsonArray().size() != 3) throw new IllegalArgumentException("invalid_at");
+        var a = at.getAsJsonArray();
+        return new int[]{a.get(0).getAsInt(), a.get(1).getAsInt(), a.get(2).getAsInt()};
+    }
+
+    /**
+     * {@code probe}: offsets whose block ids the kit reports (after its other work), so a
+     * course can be checked as laid without a body's sensing (a person attempts it).
+     */
+    static List<int[]> probeOffsets(JsonArray list) {
+        if (list.size() > MAX_PROBE) throw new IllegalArgumentException("too_many_probes");
+        var out = new java.util.ArrayList<int[]>();
+        for (var element : list) {
+            if (!element.isJsonArray() || element.getAsJsonArray().size() != 3) throw new IllegalArgumentException("invalid_probe");
+            var a = element.getAsJsonArray();
+            int[] p = {a.get(0).getAsInt(), a.get(1).getAsInt(), a.get(2).getAsInt()};
+            if (Math.abs(p[0]) > MAX_RADIUS || Math.abs(p[2]) > MAX_RADIUS || Math.abs(p[1]) > 64) throw new IllegalArgumentException("invalid_probe");
+            out.add(p);
+        }
+        return out;
+    }
+
+    /** {@code home: true} moves the subject to the {@code at} cell first; it needs {@code at}. */
+    static boolean home(JsonObject request) {
+        if (!request.has("home") || !request.get("home").getAsBoolean()) return false;
+        if (!request.has("at")) throw new IllegalArgumentException("home_needs_at");
+        return true;
+    }
+
+    /** Item stacks as asked, shape and counts checked; the item ids are checked when given. */
+    static List<Map.Entry<String, Integer>> stackSpecs(JsonArray list) {
+        if (list.size() > MAX_STACKS) throw new IllegalArgumentException("too_many_stacks");
+        var out = new ArrayList<Map.Entry<String, Integer>>();
+        for (var element : list) {
+            var entry = element.getAsJsonObject();
+            String item = entry.get("item").getAsString();
+            int count = entry.get("count").getAsInt();
+            if (item.isEmpty() || Identifier.tryParse(item) == null) throw new IllegalArgumentException("unknown_item");
+            if (count < 1 || count > 2048) throw new IllegalArgumentException("invalid_count");
+            out.add(Map.entry(item, count));
+        }
+        return List.copyOf(out);
+    }
+
+    /** Checks every id against the item registry before anything is given. */
+    static List<ItemStack> stacks(List<Map.Entry<String, Integer>> specs) {
+        var out = new ArrayList<ItemStack>();
+        for (var spec : specs) {
+            var id = Identifier.tryParse(spec.getKey());
+            if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) throw new IllegalArgumentException("unknown_item");
+            out.add(new ItemStack(BuiltInRegistries.ITEM.getValue(id), spec.getValue()));
+        }
+        return out;
+    }
+
+    /** Empties the inventory and gives the stacks, the first selected. */
+    static int give(ServerPlayer player, List<ItemStack> stacks) {
+        player.getInventory().clearContent();
+        for (var stack : stacks)
+            if (!player.getInventory().add(stack.copy())) throw new IllegalArgumentException("inventory_full");
+        player.getInventory().setSelectedSlot(0);
+        player.containerMenu.broadcastChanges();
+        return stacks.size();
+    }
 
     static Map<String, Object> apply(MinecraftServer server, ServerPlayer player, JsonObject request) {
         var level = server.overworld();
-        BlockPos feet = player.blockPosition();
-        int cleared = 0, placed = 0, stacks = 0;
+        BlockPos here = player.blockPosition();
+        int[] o = origin(request, here.getX(), here.getY(), here.getZ());
+        BlockPos feet = new BlockPos(o[0], o[1], o[2]);
+        boolean fixed = request.has("at");
+        if (fixed && !level.isLoaded(feet)) throw new IllegalArgumentException("at_not_loaded");
+        if (home(request)) {
+            // A course laid or restored round a fixed origin: the subject goes back to
+            // its start first, so no cell of the course is left out for standing in it
+            // (the bottom of a shaft stayed open after a restore).
+            player.teleportTo(level, feet.getX() + 0.5, feet.getY(), feet.getZ() + 0.5, java.util.Set.of(), player.getYRot(), player.getXRot(), true);
+            player.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
+            player.fallDistance = 0;
+        }
+        BlockPos body = player.blockPosition();
+        int cleared = 0, placed = 0, stacks = 0, skipped = 0;
         if (request.has("clear")) {
             var c = request.getAsJsonArray("clear");
             int dx = c.get(0).getAsInt(), dy = c.get(1).getAsInt(), dz = c.get(2).getAsInt();
@@ -34,8 +123,10 @@ final class LabKit {
                 var floor = feet.offset(x, -1, z);
                 if (level.getBlockState(floor).canBeReplaced()) level.setBlock(floor, Blocks.STONE.defaultBlockState(), 2);
                 for (int y = 0; y <= dy; y++) {
+                    // The body's own cells too: air never harms it, and with home the body stands on
+                    // the start, where scaffolding left by the attempt would outlive the restore
+                    // (review of e029b74). Only place keeps out of them.
                     var pos = feet.offset(x, y, z);
-                    if (pos.equals(feet) || pos.equals(feet.above())) continue; // the body stands here
                     if (!level.getBlockState(pos).isAir()) { level.setBlock(pos, air, 2); cleared++; }
                 }
             }
@@ -50,7 +141,13 @@ final class LabKit {
                 var entry = element.getAsJsonObject();
                 var offset = entry.getAsJsonArray("offset");
                 BlockPos pos = feet.offset(offset.get(0).getAsInt(), offset.get(1).getAsInt(), offset.get(2).getAsInt());
-                if (pos.equals(feet) || pos.equals(feet.above())) throw new IllegalArgumentException("offset_inside_body");
+                if (pos.equals(body) || pos.equals(body.above())) {
+                    // Offsets from the body never name its own cells; a fixed origin may, where a
+                    // person happens to stand, and those cells are left as they are.
+                    if (!fixed) throw new IllegalArgumentException("offset_inside_body");
+                    skipped++;
+                    continue;
+                }
                 try {
                     var parsed = BlockStateParser.parseForBlock(BuiltInRegistries.BLOCK, entry.get("state").getAsString(), false);
                     level.setBlock(pos, parsed.blockState(), 2);
@@ -61,21 +158,7 @@ final class LabKit {
                 placed++;
             }
         }
-        if (request.has("inventory")) {
-            var list = request.getAsJsonArray("inventory");
-            if (list.size() > MAX_STACKS) throw new IllegalArgumentException("too_many_stacks");
-            player.getInventory().clearContent();
-            for (var element : list) {
-                var entry = element.getAsJsonObject();
-                var id = Identifier.tryParse(entry.get("item").getAsString());
-                int count = entry.get("count").getAsInt();
-                if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) throw new IllegalArgumentException("unknown_item");
-                if (count < 1 || count > 2048) throw new IllegalArgumentException("invalid_count");
-                if (!player.getInventory().add(new ItemStack(BuiltInRegistries.ITEM.getValue(id), count)))
-                    throw new IllegalArgumentException("inventory_full");
-                stacks++;
-            }
-        }
+        if (request.has("inventory")) stacks = give(player, stacks(stackSpecs(request.getAsJsonArray("inventory"))));
         if (request.has("food")) {
             int food = request.get("food").getAsInt();
             if (food < 0 || food > 20) throw new IllegalArgumentException("invalid_food");
@@ -89,7 +172,15 @@ final class LabKit {
         out.put("summoned_entities", summoned);
         out.put("cleared", cleared);
         out.put("placed", placed);
+        out.put("skipped", skipped);
         out.put("stacks", stacks);
+        out.put("feet", List.of(body.getX(), body.getY(), body.getZ()));
+        if (request.has("probe")) {
+            var ids = new java.util.ArrayList<String>();
+            for (int[] p : probeOffsets(request.getAsJsonArray("probe")))
+                ids.add(BuiltInRegistries.BLOCK.getKey(level.getBlockState(feet.offset(p[0], p[1], p[2])).getBlock()).toString());
+            out.put("probed", ids);
+        }
         return out;
     }
 

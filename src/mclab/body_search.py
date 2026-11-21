@@ -181,7 +181,9 @@ def edit_payload(policy, inventory, protected, tool_choice="lowest_sufficient"):
         for row in inventory
         if row.get("item") in policy.scaffold_materials
     )
-    supply = max(0, sum(held.values()) + scaffold_held - policy.reserve_blocks)
+    # The reserve holds back solid blocks (the last ones, kept for an emergency
+    # pillar), never scaffolding: Java's solidSupply is place_supply - scaffold_supply.
+    supply = max(0, sum(held.values()) - policy.reserve_blocks) + scaffold_held
     cells = set(map(tuple, protected)) | set(policy.protected_positions)
     # Zero supply is a price, not a toggle: with nothing to place the planner must not
     # explore place edges it cannot pay for (502 plans ran out at 4,000 nodes, run

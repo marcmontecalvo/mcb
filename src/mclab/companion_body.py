@@ -39,6 +39,7 @@ Assumptions (the coordinator verifies them live)
 from __future__ import annotations
 
 import functools
+import heapq
 import logging
 import math
 import time
@@ -57,6 +58,7 @@ from mclab.control_loop import NATIVE, drive
 from mclab.execution import RecordedBridge, policy_state
 from mclab.gather_tasks import item_stack
 from mclab.interaction_goal import _segment_hits_box, interacts
+from mclab.markers import Markers
 from mclab.memory_policy import MemoryPolicy
 from mclab.movement_policy import HURT_DROP_MAX, MovementPolicy
 from mclab.native_driver import EdgeFailures
@@ -238,20 +240,7 @@ def _clean_feet(cells, node: Pos) -> bool:
     return not cell.get("collision_boxes")
 
 
-# neighbour direction -> is the eye of a body at stance cell `node` (1.62 above its feet)
-# on the target side of that neighbour's face toward `target`
-_FACE_SEEN = {
-    (1, 0, 0): lambda n, t: n[0] <= t[0],
-    (-1, 0, 0): lambda n, t: n[0] >= t[0],
-    (0, 0, 1): lambda n, t: n[2] <= t[2],
-    (0, 0, -1): lambda n, t: n[2] >= t[2],
-    (0, 1, 0): lambda n, t: n[1] <= t[1] - 1,
-    (0, -1, 0): lambda n, t: n[1] >= t[1] - 1,
-}
-
-
 EYE_HEIGHT = 1.62
-FACE_SAMPLES = ((0, 0), (0.4, 0.4), (-0.4, 0.4), (0.4, -0.4), (-0.4, -0.4))
 _HIT_SAMPLES = ((0, 0), (0.25, 0.25), (-0.25, 0.25), (0.25, -0.25), (-0.25, -0.25))
 
 
@@ -301,20 +290,42 @@ def _reaches_scaffold_column(cells, node: Pos, target: Pos, reach: float) -> boo
     return True
 
 
-def _face_visible(cells, eye, block: Pos, d) -> bool:
-    """Is some point of ``block``'s face toward -d (the target side) seen from ``eye``
-    with no solid cell between? Live run 20261102T220426500869Z: an inside wall
-    corner, whose faces only show from near the corner, was tried from across the
-    room three times and skipped."""
-    axis = next(i for i in range(3) if d[i])
-    other = [i for i in range(3) if i != axis]
-    for u, v in FACE_SAMPLES:
-        point = [block[i] + 0.5 for i in range(3)]
-        point[axis] -= d[axis] * 0.5
-        point[other[0]] += u
-        point[other[1]] += v
-        if _ray_clear(cells, eye, point, block):
-            return True
+# ScaffoldingBlockItem walks at most this many cells sideways along a run.
+SCAFFOLD_SIDEWAYS = 7
+# A scaffolding block as the sensor reports it: no collision boxes from the side.
+SCAFFOLD_CELL = {
+    "block": "minecraft:scaffolding",
+    "fluid": "minecraft:empty",
+    "collision_boxes": [],
+}
+# A temporary full-cube block (dirt/cobblestone) used for virtual tower/prop checks.
+_SOLID_CELL = {
+    "block": "minecraft:dirt",
+    "fluid": "minecraft:empty",
+    "collision_boxes": [[0, 0, 0, 1, 1, 1]],
+}
+_TOP_SAMPLES = ((0, 0), (0.25, 0.25), (-0.25, 0.25), (0.25, -0.25), (-0.25, -0.25))
+
+
+def _reaches_scaffold_run(cells, eye, target: Pos, reach: float) -> bool:
+    """Does ``eye`` see the top face of a block of a horizontal scaffolding run
+    beside ``target``? Clicked not sneaking with the heading toward ``target``, that
+    top puts the new block past the run (vanilla ScaffoldingBlockItem; BodyBuild's
+    bridge sources): from on top of a tower, the side face toward the next cell is
+    under the body's feet, and the top face is how a player bridges."""
+    tx, ty, tz = target
+    for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        for k in range(1, SCAFFOLD_SIDEWAYS + 1):
+            c = (tx + dx * k, ty, tz + dz * k)
+            if (cells.get(c) or {}).get("block") != "minecraft:scaffolding":
+                break
+            top = c[1] + 1
+            if eye[1] <= top:
+                continue
+            for u, v in _TOP_SAMPLES:
+                point = (c[0] + 0.5 + u, top, c[2] + 0.5 + v)
+                if math.dist(eye, point) <= reach and _ray_clear(cells, eye, point, c):
+                    return True
     return False
 
 
@@ -361,49 +372,66 @@ def _ray_clear(cells, eye, point, block: Pos) -> bool:
     return True
 
 
-def sees_support(
+def _support_cells(required) -> set[Pos] | None:
+    """``required`` (one cell, several, or None for any) as a set of cells."""
+    if required is None:
+        return None
+    if (
+        isinstance(required, tuple)
+        and len(required) == 3
+        and isinstance(required[0], int)
+    ):
+        return {required}
+    return {tuple(p) for p in required}
+
+
+def _on_scaffold_column(cells, target: Pos) -> bool:
+    return (cells.get((target[0], target[1] - 1, target[2])) or {}).get(
+        "block"
+    ) == "minecraft:scaffolding"
+
+
+def places_from(
     cells,
+    eye,
     node: Pos,
     target: Pos,
-    required: Pos | Collection[Pos] | None = None,
+    reach: float,
+    required=None,
     *,
-    scaffold: bool = True,
+    scaffold: bool = False,
+    state: str | None = None,
 ) -> bool:
-    """Does some solid neighbour of `target` have its face toward `target` turned to
-    the eye of a body standing at `node`? Live run: the second plank of a pair was
-    tried from the far side of the first, which shows it no face."""
-    # the body arrives within PRECISE_RADIUS of the centre: a face must show from all of it
-    eyes = [
-        (node[0] + 0.5 + dx, node[1] + EYE_HEIGHT, node[2] + 0.5 + dz)
-        for dx, dz in ((0, 0), (0.2, 0.2), (-0.2, 0.2), (0.2, -0.2), (-0.2, -0.2))
-    ]
-    if required is not None:
-        if (
-            isinstance(required, tuple)
-            and len(required) == 3
-            and isinstance(required[0], int)
-        ):
-            allowed = {required}
-        else:
-            allowed = {tuple(p) for p in required}
-    else:
-        allowed = None
+    """Would place_block put a block into the empty ``target`` from ``eye`` (a body
+    standing in ``node``)? The server clicks any of 19 points of a support face in
+    reach that the eye sees (place_sight) and that gives ``state`` (place_state: a
+    slab's half, a log's axis). A ray to the target's centre is not that
+    test: the block placed a moment before beside it hides the centre while the floor
+    face past it shows, and the body walked after nearly every block of a wall (run
+    20261119T225430670386Z: 119 walks, 195 s, to cells it could place from where it
+    stood). Scaffolding on a column is the column's own rule: a side click anywhere
+    up it extends it (vanilla ScaffoldingBlockItem)."""
+    if scaffold and _on_scaffold_column(cells, target):
+        return interacts(cells, node, target, reach) or _reaches_scaffold_column(
+            cells, node, target, reach
+        )
+    if scaffold and _reaches_scaffold_run(cells, eye, target, reach):
+        return True
+    return place_sight.clickable_from(
+        cells, eye, target, reach, sources=_support_cells(required), state=state
+    )
 
-    for d, seen in _FACE_SEEN.items():
-        n = (target[0] + d[0], target[1] + d[1], target[2] + d[2])
-        if allowed is not None and n not in allowed:
-            continue
-        cell = cells.get(n)
-        if (
-            _clickable(cell)
-            and seen(node, target)
-            and all(_face_visible(cells, eye, n, d) for eye in eyes)
-        ):
-            return True
-        # a column of scaffolding is extended by clicking its side, from anywhere beside it
-        if scaffold and d == (0, -1, 0) and cell and cell.get("block") == "minecraft:scaffolding":
-            return True
-    return False
+
+# The body stops within PRECISE_RADIUS of a stance's centre. An eye this far off the
+# centre on each side still placing is a sound stance; one that places only from the
+# exact centre misses as often as not (run 20261120T083111010944Z).
+SOUND_OFFSET = 0.15
+SOUND_RANKED = 8  # the head of the stance list checked for soundness (4 eyes each)
+
+
+def stance_eye(node: Pos) -> tuple[float, float, float]:
+    """The eye of a body standing at the centre of ``node``."""
+    return (node[0] + 0.5, node[1] + EYE_HEIGHT, node[2] + 0.5)
 
 
 class StuckGuard:
@@ -427,9 +455,12 @@ class _GotoController(SegmentedController):
     no_drive = False  # drive_native keeps every motor submission off
     walk_wall = 0.0  # wall of the walk a successful probe turns into
     walk_partial = False  # a probe that ran out of search walks the moves it found
+    allow_partial_gain = True  # False for pillar_to: never walk away from the column
     on_pass = None  # called with the body position while a route is followed
     last_partial_walk = None  # (start, end) of the last partial walked to this goal
-    dead_ends = None  # {"revision", "ends"}: partial endpoints known unreachable-from, per goal
+    dead_ends = (
+        None  # {"revision", "ends"}: partial endpoints known unreachable-from, per goal
+    )
 
     @property
     def planner_radius(self):
@@ -534,7 +565,9 @@ class _GotoController(SegmentedController):
         # cut it off at 60 ticks, 55 times in a row, so no route was ever planned.
         last = getattr(self, "last_result", None)
         uploading = last is not None and last.reason == "planner map transfer"
-        if uploading or self.mode in ({"arrived", "following", "centering"} | EDIT_MODES):
+        if uploading or self.mode in (
+            {"arrived", "following", "centering"} | EDIT_MODES
+        ):
             self.searching_since = None
         elif self.mode in {"searching", "incomplete", "planning", "terrain_incomplete"}:
             # An interaction goal whose stance the known map cannot reach floods the
@@ -561,7 +594,7 @@ class _GotoController(SegmentedController):
                 self.walk_partial
                 or getattr(self, "route_steps", None)
                 or self.mode in EDIT_MODES
-                or self._partial_gains(last.route)
+                or (self.allow_partial_gain and self._partial_gains(last.route))
             )
         ):
             # The search ran out of nodes. Its moves toward the goal are walked at
@@ -602,7 +635,9 @@ class _GotoController(SegmentedController):
         dead = self.dead_ends
         if dead is not None and dead["ends"]:
             revision = getattr(getattr(self, "map_view", None), "revision", None)
-            if dead["revision"] != revision:  # a map fact: new terrain may open the way on
+            if (
+                dead["revision"] != revision
+            ):  # a map fact: new terrain may open the way on
                 dead["ends"].clear()
             elif any(math.dist(route[-1], end) <= 1.5 for end in dead["ends"]):
                 return False
@@ -635,8 +670,23 @@ def _fresh_idle(op):
 # Build blocks the planner must never break: they do not drop themselves intact or hold
 # state (glass and ice shatter, leaves decay, the rest have block entities or attachments).
 _NO_BUILD_BREAK = (
-    "glass", "_leaves", "ice", "chest", "barrel", "furnace", "smoker", "bed", "door",
-    "sign", "bookshelf", "lantern", "hopper", "campfire", "shulker", "banner", "head",
+    "glass",
+    "_leaves",
+    "ice",
+    "chest",
+    "barrel",
+    "furnace",
+    "smoker",
+    "bed",
+    "door",
+    "sign",
+    "bookshelf",
+    "lantern",
+    "hopper",
+    "campfire",
+    "shulker",
+    "banner",
+    "head",
 )
 
 
@@ -674,12 +724,26 @@ class CompanionBody:
         # building: arrive near the cell centre, clear of the target
         self.precise_stance = False
         self.stray_footholds: set[Pos] = set()  # blocks the planner placed to walk
-        self.stray_breaks: dict[Pos, str] = {}  # blocks it broke to walk -> original state
-        self.edits_placed = self.edits_broken = 0  # planner edits, every placement counted
-        self.build_cells: dict[Pos, str] = {}  # the template's non-air cells (see protect)
+        self.stray_breaks: dict[
+            Pos, str
+        ] = {}  # blocks it broke to walk -> original state
+        self.edits_placed = self.edits_broken = (
+            0  # planner edits, every placement counted
+        )
+        self.build_cells: dict[
+            Pos, str
+        ] = {}  # the template's non-air cells (see protect)
         # set per placement by build_runner: the one face the block hangs on
         self.required_support: Pos | None = None
+        # set with it: the block state placed, whose half, axis or facing the click
+        # decides (place_state); None for any click
+        self.placing_state: str | None = None
         self.placing_scaffold: bool = False
+        # set per sweep step by build_runner: the next cells (-> required support and
+        # state) a stance should also place, so one walk serves several blocks
+        self.stance_cover: dict[Pos, tuple[Pos | set[Pos] | None, str | None]] = {}
+        # in-game route, stance and block markers (mclab.markers); None: off
+        self.markers = None
         self._obs: dict = {}
         self._inv: dict[str, int] = {}
         self._rows: list[dict] = []  # the per-slot rows behind _inv
@@ -742,7 +806,9 @@ class CompanionBody:
     def free_slots(self) -> int:
         """Empty main-inventory slots (0..35; armour and offhand excluded). The mod
         sends only the non-empty slots."""
-        return MAIN_SLOTS - len({r["slot"] for r in self._rows if 0 <= r["slot"] < MAIN_SLOTS})
+        return MAIN_SLOTS - len(
+            {r["slot"] for r in self._rows if 0 <= r["slot"] < MAIN_SLOTS}
+        )
 
     def can_hold(self, item: str, items: dict | None = None) -> bool:
         """A free slot, or a held stack of ``item`` below its max size (``items``:
@@ -947,7 +1013,8 @@ class CompanionBody:
         for key, section in list(sections.items()):
             sx, sy, sz = key
             if within is not None and not any(
-                all(lo <= s <= hi for s, (lo, hi) in zip(key, box, strict=True)) for box in boxes
+                all(lo <= s <= hi for s, (lo, hi) in zip(key, box, strict=True))
+                for box in boxes
             ):
                 continue
             if ids.isdisjoint(set(section.states)):
@@ -1038,12 +1105,21 @@ class CompanionBody:
                 boxes,
             )
 
+    def _mark(self, **aim) -> None:
+        """Point the in-game markers (mclab.markers), when the session has them."""
+        if self.markers is not None:
+            self.markers.aim(**aim)
+
     def place_block(self, pos: Pos, state: str, item: str) -> Result:
+        self._mark(target=pos)
         result = self.op("place_block", pos=list(pos), state=state, item=item)
         if result.ok:
             placed = result.data.get("placed")
             self._remember(
-                pos, placed, result.data.get("_event_tick"), result.data.get("collision_boxes")
+                pos,
+                placed,
+                result.data.get("_event_tick"),
+                result.data.get("collision_boxes"),
             )
             kind = (placed or "").split("[")[0].removeprefix("minecraft:")
             if kind in RECORDED_BLOCKS:
@@ -1133,6 +1209,7 @@ class CompanionBody:
 
     def use_block(self, pos: Pos, item: str | None = None) -> Result:
         extra = {"item": item} if item else {}
+        self._mark(target=pos)
         result = self.op("use_block", pos=list(pos), **extra)
         if result.ok:
             self._remember(
@@ -1149,13 +1226,17 @@ class CompanionBody:
         extra: dict = {"tool": tool} if tool else {}
         if drops_optional:
             extra["drops_optional"] = True
+        self._mark(target=pos)
         result = self.op("break_block", pos=list(pos), **extra)
         if result.ok:
             self._remember(pos, "minecraft:air", result.data.get("_event_tick"))
         elif (data := result.data or {}).get("plugged"):
             # fluid ran in and the leak-plug reflex refilled the cell with a block
             self._remember(
-                pos, data["plugged"], data.get("_event_tick"), data.get("collision_boxes")
+                pos,
+                data["plugged"],
+                data.get("_event_tick"),
+                data.get("collision_boxes"),
             )
         return result
 
@@ -1227,7 +1308,11 @@ class CompanionBody:
             block = cell.get("block") or ""
             if "_leaves" in block:
                 continue
-            if p in built and block == parse_state(built[p])[0] and _breakable_build_block(cell):
+            if (
+                p in built
+                and block == parse_state(built[p])[0]
+                and _breakable_build_block(cell)
+            ):
                 costly.append(p)
             else:
                 keep.append(p)
@@ -1268,12 +1353,14 @@ class CompanionBody:
             return policy
         items = tuple(self.temporary_items(scaffolding=False))
         scaffold = (SCAFFOLDING,) if SCAFFOLDING in self.temporary_items() else ()
-        if (
-            not items and not scaffold
-        ) or (items, scaffold) == (policy.material_allowlist, policy.scaffold_materials):
+        if (not items and not scaffold) or (items, scaffold) == (
+            policy.material_allowlist,
+            policy.scaffold_materials,
+        ):
             return policy
         return replace(
-            policy, material_allowlist=items or policy.material_allowlist,
+            policy,
+            material_allowlist=items or policy.material_allowlist,
             scaffold_materials=scaffold,
         )
 
@@ -1297,6 +1384,7 @@ class CompanionBody:
         # with an empty inventory, so placing was off while the body held 31 dirt and
         # 40 scaffolding and the walk ran to 10,000 nodes (run 20261118T111231396410Z).
         controller.inventory = tuple(dict(r) for r in getattr(self, "_rows", ()))
+        controller.allow_partial_gain = not getattr(self, "_pillar_only", False)
         return controller
 
     def plan_ahead(self, target: Pos, reach: float) -> None:
@@ -1384,6 +1472,7 @@ class CompanionBody:
         probe: bool = False,
         progress: dict | None = None,
     ) -> bool:
+        self._mark(goal=goal)
         mid = self._hop_toward(goal) if reach is None else None
         if mid is not None:
             # A goal past the sensed terrain is an unreachable search (a plan 101
@@ -1391,7 +1480,9 @@ class CompanionBody:
             before = self.position()
             if math.hypot(mid[0] - before[0], mid[2] - before[2]) > SENSED_RADIUS:
                 return False
-            if not self._navigate(mid, reach=None, radius=2.0, probe=probe, progress=progress):
+            if not self._navigate(
+                mid, reach=None, radius=2.0, probe=probe, progress=progress
+            ):
                 return False
             if math.dist(self.position(), before) < 2.0:
                 return False  # the hop did not move us: do not loop
@@ -1421,7 +1512,9 @@ class CompanionBody:
             # this candidate's own no-progress window, in place of the whole goto's
             controller.goal_progress_ticks = progress["limit_ticks"]
         shared_edges = getattr(self, "_goto_edges", None)
-        if shared_edges:  # what earlier candidates of this goto learned cannot be walked
+        if (
+            shared_edges
+        ):  # what earlier candidates of this goto learned cannot be walked
             controller.failed_edges |= shared_edges
         controller.last_partial_walk = self._partial_walks.get(tuple(goal))
         controller.dead_ends = dead = self._dead_ends.setdefault(
@@ -1464,7 +1557,10 @@ class CompanionBody:
         if (
             walked is not None
             and math.dist(before, walked[1]) <= 1.5
-            and (controller.mode == "unreachable" or (last is not None and last.status == "unreachable"))
+            and (
+                controller.mode == "unreachable"
+                or (last is not None and last.status == "unreachable")
+            )
         ):
             # The last partial ended here and no plan leaves: a dead end for this goal.
             revision = getattr(controller.map_view, "revision", None)
@@ -1563,8 +1659,15 @@ class CompanionBody:
             refused = "out_of_reach"
         if refused is not None:
             if (record := getattr(self.bridge, "record", None)) is not None:
-                record("gather_note", {"gather": "drop_" + refused, "item_cell": list(pos),
-                                       "stand_y": standing_y, "feet": self.position()[1]})
+                record(
+                    "gather_note",
+                    {
+                        "gather": "drop_" + refused,
+                        "item_cell": list(pos),
+                        "stand_y": standing_y,
+                        "feet": self.position()[1],
+                    },
+                )
             return None if refused == "falling" else False
         return self.walk_to((x, standing_y, z), radius)
 
@@ -1580,6 +1683,7 @@ class CompanionBody:
                     sy = self._stand_y(x + dx, y, z + dz)
                     if abs(sy - y) <= 1 and sy - here[1] <= DROP_RISE:
                         spots.append((x + dx, sy, z + dz))
+
         def gap(c):
             return math.hypot(c[0] + 0.5 - at[0], c[2] + 0.5 - at[2])
 
@@ -1605,7 +1709,8 @@ class CompanionBody:
             found = {
                 e["uuid"]: e
                 for e in self.entities()
-                if e.get("item") and e.get("uuid")
+                if e.get("item")
+                and e.get("uuid")
                 and any(math.dist(e["position"], c) <= radius for c in centres)
             }
             known.update(found)
@@ -1621,7 +1726,10 @@ class CompanionBody:
             self.wait_ticks(DROP_POLL_TICKS)
             waited += DROP_POLL_TICKS
             seen = sight()
-            if all(abs(before.get(u, math.inf) - e["position"][1]) < 0.01 for u, e in seen.items()):
+            if all(
+                abs(before.get(u, math.inf) - e["position"][1]) < 0.01
+                for u, e in seen.items()
+            ):
                 break  # every item in view rests (an empty view: all picked up)
         if waited and (record := getattr(self.bridge, "record", None)) is not None:
             # The wait leaves no event of its own; idle_gaps.py counts this note as work.
@@ -1645,7 +1753,8 @@ class CompanionBody:
             drops = [
                 e
                 for u, e in known.items()
-                if u not in skipped and e["position"][1] - here[1] <= DROP_RISE
+                if u not in skipped
+                and e["position"][1] - here[1] <= DROP_RISE
                 and any(math.dist(e["position"], c) <= radius for c in centres)
             ]
             if not drops:
@@ -1684,9 +1793,7 @@ class CompanionBody:
             self.terrain_policy = saved
 
     @contextmanager
-    def no_placing(
-        self, wall: float = 10.0, max_drop: int | None = None
-    ):
+    def no_placing(self, wall: float = 10.0, max_drop: int | None = None):
         """Move without placing blocks, and give up a walk after ``wall`` seconds:
         an unreachable goal otherwise replans for 90 s (42 s gaps with 18 plans,
         run 20261110T020332013460Z)."""
@@ -1764,6 +1871,8 @@ class CompanionBody:
         (at most ``n`` blocks, no digging or bridging), even inside ``no_placing``: the
         build's tower of dirt is a solid column nothing can walk or climb onto."""
         saved = self.terrain_policy
+        saved_only = getattr(self, "walk_only", False)
+        saved_pillar = getattr(self, "_pillar_only", False)
         self.terrain_policy = replace(
             saved,
             allow_place=True,
@@ -1773,9 +1882,16 @@ class CompanionBody:
             place_budget=n,
             material_allowlist=(item,),
         )
+        self.walk_only = True
+        self._pillar_only = True
         try:
-            return self._navigate(tuple(feet), reach=None, radius=0.6)
+            # probe=True with allow_partial_gain=False ensures a capped pillar search
+            # never wanders away from the column around the house (run
+            # 20261120T175636584118Z: 205 near cap hits from pillar_to).
+            return self._navigate(tuple(feet), reach=None, radius=0.6, probe=True)
         finally:
+            self._pillar_only = saved_pillar
+            self.walk_only = saved_only
             self.terrain_policy = saved
 
     @_fresh_idle
@@ -1827,54 +1943,396 @@ class CompanionBody:
             and node not in ((tx, ty, tz), (tx, ty - 1, tz))
             and (standable(cells, node) or _tower_top(cells, node))
             and (
-                interacts(cells, node, target, reach)
-                or (
-                    placing
-                    and self.placing_scaffold
-                    and _reaches_scaffold_column(cells, node, target, reach)
-                )
-            )
-            and (
-                not placing
-                or sees_support(
-                    cells,
-                    node,
-                    target,
-                    self.required_support,
-                    scaffold=self.placing_scaffold,
-                )
+                self._places_from(cells, stance_eye(node), node, target, reach)
+                if placing
+                else interacts(cells, node, target, reach)
             )
         ]
-        # ponytail: stances the body can walk to come first. Sorted by distance
-        # alone, wall tops and roof cells two blocks away outranked the floor four
-        # away; each cost a failed 4000-node plan (run 20261110T095528994372Z: 284
-        # unreachable probes, a dirt tower per wall). Upgrade path: plan cost.
-        walk = self._walkable(cells, here) if found else ()
-        return sorted(
+        # ponytail: stances the body can walk to come first, ranked by real BFS
+        # walking distance (not straight-line crow-distance, which sent the bot out
+        # the door and around walls: 43 detours / 413 s in run 20261120T175636584118Z).
+        walk = self._walkable(cells, here) if found else {}
+
+        def _walk_cost(n: Pos) -> float:
+            if isinstance(walk, dict) and n in walk:
+                return float(walk[n])
+            return math.dist(n, here)
+
+        # Among walkable stances, balance walking distance against upcoming sweep
+        # cells covered (``stance_cover``): each extra covered cell saves ~3 steps of
+        # walking, so it prefers a better spot along the same wall without walking 24
+        # blocks around the house for +1 cover.
+        ranked = sorted(
             found,
-            key=lambda n: (n not in walk, not _clean_feet(cells, n), math.dist(n, here), n),
+            key=lambda n: (
+                n not in walk,
+                not _clean_feet(cells, n),
+                _walk_cost(n) - 3.0 * self._stance_covers(cells, n, reach),
+                _walk_cost(n),
+                math.dist(n, here),
+                n,
+            ),
+        )
+        if not placing:
+            return ranked
+        # Within the head of the list, a stance that still places from an eye off
+        # its centre goes before one that places only from the exact centre.
+        head = ranked[:SOUND_RANKED]
+        head.sort(key=lambda n: not self._sound(cells, n, target, reach))
+        return head + ranked[SOUND_RANKED:]
+
+    def bridge_stances(self, target: Pos, reach: float, avoid: Collection[Pos] = ()):
+        """Cells in the air from which ``target`` would be reached if a scaffolding
+        block were put under them (a bridge off a standing tower,
+        build_plan.bridge_cells): the cell and the one above it empty, the one below
+        takes a block. Cells that are stances already (``stances``) are not listed.
+        Nearest the body first."""
+        cells, here = self._cells_now(), self.position()
+        tx, ty, tz = target
+        r = math.ceil(reach)
+        placing = self._placing(target)
+
+        def empty(p: Pos) -> bool:
+            return (cells.get(p) or {}).get("block") in AIR_BLOCKS
+
+        found = []
+        for dx in range(-r, r + 1):
+            for dz in range(-r, r + 1):
+                for dy in range(-r, 2):
+                    node = (tx + dx, ty + dy, tz + dz)
+                    floor = (node[0], node[1] - 1, node[2])
+                    if (
+                        node in avoid
+                        or node in (target, (tx, ty - 1, tz))
+                        or floor == target
+                        or not empty(node)
+                        or not empty((node[0], node[1] + 1, node[2]))
+                        or not place_sight.takes_block(cells.get(floor))
+                    ):
+                        continue
+                    view = ChainMap({floor: dict(SCAFFOLD_CELL)}, cells)
+                    if (
+                        self._places_from(view, stance_eye(node), node, target, reach)
+                        if placing
+                        else interacts(view, node, target, reach)
+                    ):
+                        found.append(node)
+        return sorted(found, key=lambda n: (math.dist(n, here), n))
+
+    def can_reach_from_tower(
+        self,
+        target: Pos,
+        reach: float,
+        foot: Pos,
+        tower: list[Pos],
+        *,
+        scaffolding: bool = True,
+        avoid: Collection[Pos] = (),
+    ) -> int:
+        """Can the body standing at ``foot`` on top of ``tower`` place/interact with
+        ``target``? Returns 2 if sound across offset eyes, 1 if centre-only, 0 if not."""
+        tx, ty, tz = target
+        if foot in avoid or foot in (target, (tx, ty - 1, tz)):
+            return 0
+        proto = SCAFFOLD_CELL if scaffolding else _SOLID_CELL
+        view = ChainMap({c: dict(proto) for c in tower}, self._cells_now())
+        if self._placing(target):
+            if not self._places_from(view, stance_eye(foot), foot, target, reach):
+                return 0
+            return 2 if self._sound(view, foot, target, reach) else 1
+        return 2 if interacts(view, foot, target, reach) else 0
+
+    def can_place_with_prop_here(
+        self,
+        prop_pos: Pos,
+        prop_item: str,
+        target: Pos,
+        target_state: str,
+        reach: float,
+    ) -> bool:
+        """From where the body stands now, can it place ``prop_item`` at ``prop_pos``
+        and then click that prop to place ``target_state`` at ``target``?"""
+        if self._overlaps(prop_pos) or self._overlaps(target):
+            return False
+        cells = self._cells_now()
+        eye = place_sight.eye_of(self._obs["body"]["position"])
+        here = self.position()
+        if not places_from(cells, eye, here, prop_pos, reach, state=prop_item):
+            return False
+        view = ChainMap({prop_pos: dict(_SOLID_CELL)}, cells)
+        return places_from(
+            view, eye, here, target, reach, required=prop_pos, state=target_state
         )
 
-    def _walkable(self, cells, here: Pos) -> set[Pos]:
-        """Cells reachable from ``here`` on foot with no edits: 4 directions, one
-        up, ``max_drop`` down, at most WALK_CELLS cells. A ranking hint, not a
-        verdict (no diagonals, jumps or headroom between cells)."""
-        key = (here, self._tick() // 40)
+    def prop_stances(
+        self,
+        prop_pos: Pos,
+        prop_item: str,
+        target: Pos,
+        target_state: str,
+        reach: float,
+        avoid: Collection[Pos] = (),
+    ) -> list[Pos]:
+        """Known standable cells from which the body can place ``prop_item`` at
+        ``prop_pos`` AND click it to place ``target_state`` at ``target``."""
+        cells, here = self._cells_now(), self.position()
+        tx, ty, tz = target
+        px, py, pz = prop_pos
+        r = math.ceil(reach)
+        excluded = set(avoid) | {
+            target,
+            (tx, ty - 1, tz),
+            prop_pos,
+            (px, py - 1, pz),
+        }
+        view = ChainMap({prop_pos: dict(_SOLID_CELL)}, cells)
+
+        def both_from(eye, node: Pos) -> bool:
+            return places_from(
+                cells, eye, node, prop_pos, reach, state=prop_item
+            ) and places_from(
+                view, eye, node, target, reach, required=prop_pos, state=target_state
+            )
+
+        found = [
+            node
+            for node in (
+                (tx + dx, ty + dy, tz + dz)
+                for dx in range(-r, r + 1)
+                for dz in range(-r, r + 1)
+                for dy in range(-r, 2)
+            )
+            if node not in excluded
+            and (standable(cells, node) or _tower_top(cells, node))
+            and both_from(stance_eye(node), node)
+        ]
+        walk = self._walkable(cells, here) if found else {}
+
+        def _walk_cost(n: Pos) -> float:
+            if isinstance(walk, dict) and n in walk:
+                return float(walk[n])
+            return math.dist(n, here)
+
+        ranked = sorted(
+            found,
+            key=lambda n: (
+                n not in walk,
+                not _clean_feet(cells, n),
+                _walk_cost(n),
+                math.dist(n, here),
+                n,
+            ),
+        )
+
+        def sound_both(node: Pos) -> bool:
+            x, y, z = stance_eye(node)
+            return all(
+                both_from((x + dx, y, z + dz), node)
+                for dx, dz in (
+                    (SOUND_OFFSET, 0),
+                    (-SOUND_OFFSET, 0),
+                    (0, SOUND_OFFSET),
+                    (0, -SOUND_OFFSET),
+                )
+            )
+
+        head = ranked[:SOUND_RANKED]
+        head.sort(key=lambda n: not sound_both(n))
+        return head + ranked[SOUND_RANKED:]
+
+    @_fresh_idle
+    def goto_prop_stance(
+        self,
+        prop_pos: Pos,
+        prop_item: str,
+        target: Pos,
+        target_state: str,
+        reach: float,
+        avoid: Collection[Pos] = (),
+    ) -> bool:
+        """Walk to a single stance that can place ``prop_item`` at ``prop_pos`` and
+        then click it to place ``target_state`` at ``target``."""
+        self._goto_edges = set()
+        try:
+            if not self._obs:
+                self.observe()
+            here = self.position()
+            avoid_set = set(avoid)
+            if here not in avoid_set and self.can_place_with_prop_here(
+                prop_pos, prop_item, target, target_state, reach
+            ):
+                return True
+            stances = self.prop_stances(
+                prop_pos, prop_item, target, target_state, reach, avoid_set
+            )
+            cells = self._cells_now()
+            probe_budget_s = None
+            if getattr(self, "walk_only", False):
+                walk = self._walkable(cells, here)
+                matched = [
+                    n for n in stances if n in walk or _scaffold_stance(cells, n)
+                ]
+                if matched:
+                    stances = matched[:WALK_ONLY_CANDIDATES]
+                else:
+                    stances = stances[:MAX_CANDIDATES]
+                    probe_budget_s = WALK_ONLY_CANDIDATES * PROBE_WALL_S
+            radius = PRECISE_RADIUS if self.precise_stance else 0.6
+            probe_started = time.monotonic()
+            for node in stances[:MAX_CANDIDATES]:
+                if (
+                    probe_budget_s is not None
+                    and time.monotonic() - probe_started >= probe_budget_s
+                ):
+                    break
+                progress = {
+                    "distance": math.inf,
+                    "tick": None,
+                    "limit_ticks": CANDIDATE_PROGRESS_TICKS,
+                }
+                if self._navigate(
+                    node, reach=None, radius=radius, probe=True, progress=progress
+                ):
+                    if self.can_place_with_prop_here(
+                        prop_pos, prop_item, target, target_state, reach
+                    ):
+                        return True
+                if self.boxed_in:
+                    return False
+            return False
+        finally:
+            self._goto_edges = None
+
+    def _places_from(self, cells, eye, node: Pos, target: Pos, reach: float) -> bool:
+        """``places_from`` with this placement's support, state and scaffold rule."""
+        return places_from(
+            cells,
+            eye,
+            node,
+            target,
+            reach,
+            self.required_support,
+            scaffold=self.placing_scaffold,
+            state=self.placing_state,
+        )
+
+    def _sound(self, cells, node: Pos, target: Pos, reach: float) -> bool:
+        """Does ``target`` place from every eye SOUND_OFFSET off ``node``'s centre?"""
+        x, y, z = stance_eye(node)
+        return all(
+            self._places_from(cells, (x + dx, y, z + dz), node, target, reach)
+            for dx, dz in (
+                (SOUND_OFFSET, 0),
+                (-SOUND_OFFSET, 0),
+                (0, SOUND_OFFSET),
+                (0, -SOUND_OFFSET),
+            )
+        )
+
+    def _stance_covers(self, cells, node: Pos, reach: float) -> int:
+        """How many of ``stance_cover`` (cell -> required support and state) a body
+        standing on ``node`` places. A cell the body would stand in is not one."""
+        if not self.stance_cover:
+            return 0
+        eye, body_cells = stance_eye(node), (node, (node[0], node[1] + 1, node[2]))
+        return sum(
+            pos not in body_cells
+            and places_from(
+                cells,
+                eye,
+                node,
+                pos,
+                reach,
+                required,
+                scaffold=self.placing_scaffold,
+                state=state,
+            )
+            for pos, (required, state) in self.stance_cover.items()
+        )
+
+    def _walkable(self, cells, here: Pos) -> dict[Pos, int]:
+        """Cells reachable from ``here`` with no terrain edits, mapped to their
+        walking cost in steps (Dijkstra/BFS up to WALK_CELLS): 4 horizontal moves
+        (+1 step up, ``max_drop`` down), wooden doors/gates, and scaffolding climbs/
+        descents. Replaces the old DFS set so stances and sweep targets rank by
+        actual walking distance instead of straight-line crow-distance across walls."""
+        rev = getattr(self.memory, "revision", None)
+        key = (here, self._tick() // 40, rev, len(self._overlay))
         if getattr(self, "_walk_memo", (None,))[0] == key:
             return self._walk_memo[1]
         drop = self.movement_policy.max_drop
-        seen, todo = {here}, [here]
-        while todo and len(seen) < WALK_CELLS:
-            x, y, z = todo.pop()
+        use_doors = bool(
+            getattr(getattr(self, "terrain_policy", None), "use_doors", True)
+        )
+
+        def passable(node: Pos) -> bool:
+            if standable(cells, node) or _tower_top(cells, node):
+                return True
+            if not use_doors:
+                return False
+            c = cells.get(node)
+            if not c:
+                return False
+            blk = c.get("block") or ""
+            if not (
+                (blk.endswith("_door") and not blk.endswith("iron_door"))
+                or blk.endswith("_fence_gate")
+            ):
+                return False
+            below = cells.get((node[0], node[1] - 1, node[2]))
+            return bool(
+                below
+                and (below.get("collision_boxes") or below.get("block") == SCAFFOLDING)
+            )
+
+        dist: dict[Pos, int] = {here: 0}
+        heap: list[tuple[int, Pos]] = [(0, here)]
+        while heap and len(dist) < WALK_CELLS:
+            cost, (x, y, z) = heapq.heappop(heap)
+            if cost > dist.get((x, y, z), cost):
+                continue
             for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 for dy in range(1, -drop - 1, -1):
                     node = (x + dx, y + dy, z + dz)
-                    if node not in seen and standable(cells, node):
-                        seen.add(node)
-                        todo.append(node)
+                    if passable(node):
+                        nc = cost + (2 if dy > 0 else 1)
+                        if nc < dist.get(node, 10**9):
+                            dist[node] = nc
+                            heapq.heappush(heap, (nc, node))
                         break
-        self._walk_memo = (key, seen)
-        return seen
+            cur_blk = (cells.get((x, y, z)) or {}).get("block")
+            below_blk = (cells.get((x, y - 1, z)) or {}).get("block")
+            if cur_blk == SCAFFOLDING:
+                for dy, step_cost in ((1, 3), (-1, 2)):
+                    node = (x, y + dy, z)
+                    if passable(node) and cost + step_cost < dist.get(node, 10**9):
+                        dist[node] = cost + step_cost
+                        heapq.heappush(heap, (cost + step_cost, node))
+            elif below_blk == SCAFFOLDING:
+                node = (x, y - 1, z)
+                if passable(node) and cost + 2 < dist.get(node, 10**9):
+                    dist[node] = cost + 2
+                    heapq.heappush(heap, (cost + 2, node))
+        self._walk_memo = (key, dist)
+        return dist
+
+    def walk_distance(self, pos: Pos) -> int | None:
+        """Minimum cached walking cost from the body to a standable cell within
+        work reach of ``pos`` (None if unreachable on foot)."""
+        walk = self._walkable(self._cells_now(), self.position())
+        if not isinstance(walk, dict):
+            return None
+        px, py, pz = pos
+        best: int | None = None
+        for dx in range(-3, 4):
+            for dz in range(-3, 4):
+                if dx * dx + dz * dz > 9:
+                    continue
+                for dy in range(-3, 2):
+                    c = walk.get((px + dx, py + dy, pz + dz))
+                    if c is not None and (best is None or c < best):
+                        best = c
+        return best
 
     def _cells_now(self):
         """The sensed map plus this body's own recent edits (the overlay): a wall
@@ -1894,14 +2352,24 @@ class CompanionBody:
                     boxes = sensed.get("collision_boxes")
             if boxes is None:
                 boxes = [] if block in AIR_BLOCKS else [[0, 0, 0, 1, 1, 1]]
-            recent[pos] = {"block": block, "fluid": "minecraft:empty", "collision_boxes": boxes}
+            recent[pos] = {
+                "block": block,
+                "fluid": "minecraft:empty",
+                "collision_boxes": boxes,
+            }
         # ponytail: a lookup view, never a copy. Copying the whole sensed map here was
         # 79% of build time, ~13 s per placed block (py-spy, run 20261110T024448883505Z)
         return ChainMap(recent, self.memory.cells) if recent else self.memory.cells
 
     def _placing(self, target: Pos) -> bool:
-        """Building into an empty cell: the stance must see a face to click."""
-        return self.precise_stance and not _clickable(self._cells_now().get(target))
+        """Building into a cell that takes a block (air, fluid, unknown or grass): the
+        stance must show the server a support face. A flower is broken first, and its
+        stance is a break's: while the flower counted as a cell to place into, it hid
+        every face and site prep found no stance to break 16 tulips (run
+        20261120T075123420431Z, stopped "blocked")."""
+        return self.precise_stance and place_sight.takes_block(
+            self._cells_now().get(target)
+        )
 
     def _worth_searching(self, target: Pos) -> bool:
         """The interaction-goal search can only help where the map is still unsensed.
@@ -1931,21 +2399,29 @@ class CompanionBody:
             eye = place_sight.eye_of(self._obs["body"]["position"])
         return place_sight.clickable_from(self._cells_now(), eye, target, reach)
 
-    def can_place_here(self, target: Pos, reach: float, required=None) -> bool:
-        """Check the current placement stance before an optimistic direct action."""
-        cells, here = self._cells_now(), self.position()
-        return (
-            (
-                interacts(cells, here, target, reach)
-                or (
-                    self.placing_scaffold
-                    and _reaches_scaffold_column(cells, here, target, reach)
-                )
-            )
-            and not self._overlaps(target)
-            and sees_support(
-                cells, here, target, required, scaffold=self.placing_scaffold
-            )
+    def can_place_here(
+        self, target: Pos, reach: float, required=None, state: str | None = None
+    ) -> bool:
+        """Would place_block put ``state`` (None: any block) into ``target`` from where
+        the body stands, its real eye as the server uses (``places_from``)? Checked
+        before an optimistic direct action."""
+        if self._overlaps(target):
+            return False
+        return self._places_from_here(target, reach, required, state)
+
+    def _places_from_here(
+        self, target: Pos, reach: float, required, state: str | None = None
+    ) -> bool:
+        cells = self._cells_now()
+        return places_from(
+            cells,
+            place_sight.eye_of(self._obs["body"]["position"]),
+            self.position(),
+            target,
+            reach,
+            required,
+            scaffold=self.placing_scaffold,
+            state=state,
         )
 
     @_fresh_idle
@@ -1960,9 +2436,14 @@ class CompanionBody:
             self._goto_edges = None
 
     def _goto_stance(
-        self, target_pos: Pos, reach: float, avoid: Collection[Pos] = ()
+        self,
+        target_pos: Pos,
+        reach: float,
+        avoid: Collection[Pos] = (),
+        recheck: bool = True,
     ) -> bool:
         target, avoid = tuple(target_pos), set(avoid)
+        self._mark(target=target)
         if not self._obs:
             self.observe()
         here = self.position()
@@ -1972,19 +2453,14 @@ class CompanionBody:
         # radius lets it stand 0.4 into a neighbour (live run: 21 state_unreachable).
         crowded = self.precise_stance and self._overlaps(target)
         placing = self._placing(target)
-        sees = not placing or sees_support(
-            cells,
-            here,
-            target,
-            self.required_support,
-            scaffold=self.placing_scaffold,
+        reach_ok = (
+            self._places_from_here(
+                target, reach, self.required_support, self.placing_state
+            )
+            if placing
+            else interacts(cells, here, target, reach)
         )
-        reach_ok = interacts(cells, here, target, reach) or (
-            placing
-            and self.placing_scaffold
-            and _reaches_scaffold_column(cells, here, target, reach)
-        )
-        if here not in avoid and reach_ok and not crowded and sees:
+        if here not in avoid and reach_ok and not crowded:
             return True
         # Known stances first, walked with the body planner; the interaction-goal
         # search only for a target whose stance is not yet on the map.
@@ -2000,9 +2476,7 @@ class CompanionBody:
             # see it, so the tower built for a target was never the stance tried and
             # the body stopped inside the column (run 20261110T223248667856Z).
             walk = self._walkable(cells, here)
-            matched = [
-                n for n in stances if n in walk or _scaffold_stance(cells, n)
-            ]
+            matched = [n for n in stances if n in walk or _scaffold_stance(cells, n)]
             if matched:
                 stances = matched[:WALK_ONLY_CANDIDATES]
             else:
@@ -2046,12 +2520,21 @@ class CompanionBody:
             if hopped and distant and self.position() == here:
                 continue
             key = (here, node)
-            if getattr(self, "walk_only", False) and self._failed_stance_probes.get(key, 0) > time.monotonic():
+            if (
+                getattr(self, "walk_only", False)
+                and self._failed_stance_probes.get(key, 0) > time.monotonic()
+            ):
                 continue
             if distant and self._hop_toward(node) is not None:
                 hopped = True
-            if self._navigate(node, reach=None, radius=radius, probe=True, progress=progress):
-                return True
+            if self._navigate(
+                node, reach=None, radius=radius, probe=True, progress=progress
+            ):
+                if not (placing and recheck) or self._places_from_here(
+                    target, reach, self.required_support, self.placing_state
+                ):
+                    return True
+                return self._chosen_again(target, reach, avoid, node)
             self._failed_stances[(target, node)] = time.monotonic() + STANCE_RETRY_S
             if self.boxed_in:
                 return False
@@ -2073,6 +2556,17 @@ class CompanionBody:
                 if self.position() not in avoid:
                     return True
         return False
+
+    def _chosen_again(self, target: Pos, reach: float, avoid: set, node: Pos) -> bool:
+        """Arrived at ``node``, the eye there shows no face that gives the state: a
+        block placed while passing hid it (run 20261120T083111010944Z: a log placed
+        on the way beside [-7, 66, 67]), or the arrival is off a narrow view's
+        centre. Choose once more on the map as it is now; with nothing better, the
+        server decides from here, as it did before this check."""
+        self._failed_stances[(target, node)] = time.monotonic() + STANCE_RETRY_S
+        if self._goto_stance(target, reach, avoid | {node}, recheck=False):
+            return True
+        return self.position() == node
 
     @_fresh_idle
     def escape_hole(self, target: Pos) -> bool:
@@ -2205,13 +2699,16 @@ def start_session(
     terrain_policy: TerrainPolicy | None = None,
     world_memory: bool | None = None,
     memory_policy: MemoryPolicy | None = None,
+    markers=None,
 ):
     """Begin the long ``natural_start`` episode that keeps /policy and the follower
     open, and return ``(CompanionBody, SpatialMemory)``. Needs an idle lab.
     ``dig`` selects edit permissions; explicit movement/terrain policies override
     the defaults, without changing the available action methods.
     ``world_memory``: see session_archive (default: on in a kept world).
-    ``memory_policy`` controls retention, history visibility and memory budgets."""
+    ``memory_policy`` controls retention, history visibility and memory budgets.
+    ``markers``: a switch (callable -> bool, e.g. markers.file_switch) for the
+    in-game route, stance and block markers; None: never shown."""
     # sections-v1 terrain needs the "sections" preset; same profile as natural runs.
     awareness = awareness or Awareness.from_payload(
         read_json(ROOT / "config/stepc/awareness-sections-64.json")
@@ -2258,10 +2755,16 @@ def start_session(
         while True:
             state = bridge.http("/state")
             sampled = state.get("awareness", {}).get("coverage", {}).get("sample_tick")
-            if state["state"] == "running" and isinstance(sampled, int) and sampled >= 0:
+            if (
+                state["state"] == "running"
+                and isinstance(sampled, int)
+                and sampled >= 0
+            ):
                 break
             if time.monotonic() > deadline:
-                raise RuntimeError("Policy stream did not reach a sampled running state")
+                raise RuntimeError(
+                    "Policy stream did not reach a sampled running state"
+                )
             time.sleep(0.05)
     except BaseException:
         memory.close()
@@ -2281,6 +2784,9 @@ def start_session(
         end_session(bridge, memory)
         raise RuntimeError(f"start {list(start)} is not a standable feet cell")
     body.places = places
+    if markers is not None:
+        body.markers = Markers(bridge, markers)
+        body.markers.aim()  # shown from the start when switched on
     return body, memory
 
 

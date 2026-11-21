@@ -10,10 +10,14 @@ Terrain-mode plans (BodyTerrainSearch) carry the same build in
 Each such list is uploaded once to the body's ``PlanSets`` store (op ``planner_set``:
 begin / part / commit; the id is the sha256 of the set's JSON, which the body checks)
 and a plan names it as ``edits["<field>_set"]``, keeping inline only the entries added
-since that upload. The body resolves base + inline back into the exact list Python
-built, so planner results do not change. A set that lost entries is uploaded again
-(a reference never protects a cell Python no longer protects), and a reference the
-body does not hold is refused (``plan_set_unknown``) rather than planned without it.
+since that upload and, as ``<field>_removed``, the cells (x, y, z) that left it. The
+body resolves base - removed + inline back into the exact list Python built, so
+planner results do not change and a reference never protects a cell Python no longer
+protects. A placed wall block moves from ``protected`` to ``costly`` on every
+placement; re-uploading the whole set for each of those was about two planner_set
+round trips per goto (run 20261119T225430670386Z). A set whose delta outgrows
+INLINE_LIMIT is uploaded again, and a reference the body does not hold is refused
+(``plan_set_unknown``) rather than planned without it.
 """
 
 import base64
@@ -30,8 +34,9 @@ PATHS = (
     ("policy", "protected_positions"),
     ("policy", "costly_positions"),
 )
-# Entries a field may carry inline (as a whole list or as the delta over its uploaded
-# set). 128 cells is ~2 KB of JSON, so a plan with both fields stays one bridge frame.
+# Entries a field may carry inline (as a whole list, or added plus removed over its
+# uploaded set). 128 cells is ~2 KB of JSON, so a plan with both fields stays one
+# bridge frame.
 INLINE_LIMIT = 128
 PART = 10_000
 
@@ -95,8 +100,7 @@ class PlanSetStore:
             base = self.bases.get(path)
             if (
                 base is None
-                or not base[1] <= current
-                or len(current - base[1]) > INLINE_LIMIT
+                or len(current - base[1]) + len(base[1] - current) > INLINE_LIMIT
             ):
                 set_id, raw = encode(field, sorted(current))
                 upload(set_id, raw)
@@ -105,6 +109,10 @@ class PlanSetStore:
                 holder = out[parents[0]] = dict(holder)
             holder[field] = [list(e) for e in sorted(current - base[1])]
             holder[f"{field}_set"] = base[0]
+            # by cell: a costly entry whose price changed is removed and added again
+            gone = sorted({tuple(e[:3]) for e in base[1] - current})
+            if gone:
+                holder[f"{field}_removed"] = [list(c) for c in gone]
         return out
 
 
@@ -129,7 +137,7 @@ def resolve(payload, sets):
     """The request as the body plans it: references replaced by base + inline."""
 
     def one(obj):
-        out = {k: v for k, v in obj.items() if not k.endswith("_set")}
+        out = {k: v for k, v in obj.items() if not k.endswith(("_set", "_removed"))}
         for field in FIELDS:
             set_id = obj.get(f"{field}_set")
             if set_id is None:
@@ -137,7 +145,9 @@ def resolve(payload, sets):
             stored = sets.get(set_id)
             if stored is None or stored.get("field") != field:
                 raise KeyError(f"plan_set_unknown: {field} {set_id}")
-            out[field] = stored["entries"] + list(obj.get(field, []))
+            gone = {tuple(c) for c in obj.get(f"{field}_removed", ())}
+            kept = [e for e in stored["entries"] if tuple(e[:3]) not in gone]
+            out[field] = kept + list(obj.get(field, []))
         return out
 
     out = one(payload)

@@ -541,9 +541,11 @@ public final class RoutePlannerTest {
     private static Map<String, Object> scaffold() {  // as the sensor reports it: no collision boxes
         return Map.of("block", "minecraft:scaffolding", "collision_boxes", List.of(), "fluid", "minecraft:empty");
     }
+    // 64 dirt and the scaffolding: place_supply counts both, as body_search.edit_payload sends it.
     private static RoutePlanner.EditPolicy scaffoldPolicy(int scaffoldSupply) {
         return new RoutePlanner.EditPolicy(true, Map.of("minecraft:stone", STONE_BREAK), Map.of(), true, true, true,
-                3, 64, 64, 64, Set.of(), Set.of(), "minecraft:dirt", List.of("minecraft:dirt"), Map.of(), scaffoldSupply);
+                3, 64, 64, 64 + scaffoldSupply, Set.of(), Set.of(), "minecraft:dirt", List.of("minecraft:dirt"), Map.of(),
+                scaffoldSupply);
     }
     private static RoutePlanner.Result scaffoldRun(Map<Key, Map<String, Object>> cells, RoutePlanner.Node start,
             RoutePlanner.Node goal, int scaffoldSupply) {
@@ -599,6 +601,21 @@ public final class RoutePlannerTest {
         check(off.status().equals("reached") && off.expanded() < 50,
                 "from a hanging scaffolding cell a block goes against the wall beside it (" + off.status() + " " + off.expanded() + ")");
 
+        // A hanging cell's bottom plate holds the body, sneaking too (ScaffoldingBlock.getCollisionShape): there is
+        // no letting go of it. Run 20261119T225430670386Z was planned a drop from one and stood on the plate.
+        var plate = floor(12);
+        plate.put(new Key(2, 3, 2), hanging);
+        var drop = new RoutePlanner((x, y, z) -> plate.get(new Key(x, y, z)), new RoutePlanner.Node(2, 3, 2),
+                new RoutePlanner.Node(2, 1, 2), 0, 3, true).withMoves(false, false).search(10_000);
+        var route = drop.route();
+        boolean through = false;
+        for (int i = 1; i < route.size(); i++)
+            through |= route.get(i - 1).equals(new RoutePlanner.Node(2, 3, 2)) && route.get(i).x() == 2
+                    && route.get(i).z() == 2 && route.get(i).y() < 3;
+        // Up onto its top plate and off the side is a real way down.
+        check(drop.status().equals("reached") && !through,
+                "no drop through a hanging scaffolding cell's bottom plate: " + drop.status() + " " + route);
+
         // Bridge off a scaffolding tower: the walkway is scaffolding while its distance is at most 6, solid beyond.
         var world = new HashMap<Key, Map<String, Object>>();
         for (int x = -2; x <= 14; x++) for (int z = -3; z <= 3; z++) for (int y = -1; y <= 6; y++)
@@ -615,6 +632,20 @@ public final class RoutePlannerTest {
                 "7 out from the tower is solid, nearer cells scaffolding: status=" + far.status() + " expanded=" + far.expanded()
                         + " steps=" + far.steps().size() + " first=" + (far.steps().isEmpty() ? "none" : far.steps().get(0))
                         + " last=" + lastEdit);
+        // Scaffolding and nothing else held (a scaffold challenge, materials []): a cell 7 out would be solid, and
+        // there is no solid block to place, so it is no step at all (review of 5bb4812: it was planned as cobblestone,
+        // the fallback material, and the motor could only fail it). The walkway 6 out stays.
+        var only = new RoutePlanner.EditPolicy(true, Map.of(), Map.of(), true, true, true,
+                3, 64, 64, 64, Set.of(), Set.of(), "minecraft:cobblestone", List.of(), Map.of(), 64);
+        check(only.solidSupply() == 0 && scaffoldPolicy(5).solidSupply() == 64, "solid supply: held blocks that are not scaffolding");
+        var sixOnly = new RoutePlanner((x, y, z) -> world.get(new Key(x, y, z)), new RoutePlanner.Node(1, 1, 0),
+                new RoutePlanner.Node(7, 1, 0), 0, 3, true).withMoves(false, true).withEdits(only).search(100_000);
+        check(sixOnly.status().equals("reached"), "scaffolding only: the walkway 6 out is planned: " + sixOnly.status());
+        var sevenOnly = new RoutePlanner((x, y, z) -> world.get(new Key(x, y, z)), new RoutePlanner.Node(1, 1, 0),
+                new RoutePlanner.Node(8, 1, 0), 0, 3, true).withMoves(false, true).withEdits(only).search(100_000);
+        check(!sevenOnly.status().equals("reached")
+                        && sevenOnly.steps().stream().allMatch(e -> e.scaffold().size() == e.places().size()),
+                "scaffolding only: no solid place 7 out: " + sevenOnly.status() + " " + sevenOnly.steps());
         // A bridge beside a scaffolding pillar on solid ground.
         var beside = new HashMap<Key, Map<String, Object>>();
         for (int x = -2; x <= 4; x++) for (int z = -3; z <= 3; z++) for (int y = -1; y <= 6; y++)
@@ -704,7 +735,7 @@ public final class RoutePlannerTest {
         return out;
     }
     private static RoutePlanner.Result courseRun(Map<Key, Map<String, Object>> w, RoutePlanner.Node start, RoutePlanner.Node goal) {
-        var pol = new RoutePlanner.EditPolicy(true, Map.of(), Map.of(), true, true, true, 3, 64, 64, 64, holeAir(w), Set.of(),
+        var pol = new RoutePlanner.EditPolicy(true, Map.of(), Map.of(), true, true, true, 3, 64, 64, 128, holeAir(w), Set.of(),
                 "minecraft:cobblestone", List.of("minecraft:cobblestone"), Map.of(), 64);
         return new RoutePlanner((x, y, z) -> w.get(new Key(x, y, z)), start, goal, 0, 3, true)
                 .withMoves(false, true).withEdits(pol).search(200_000);
@@ -769,6 +800,110 @@ check(down.status().equals("reached") && down.steps().isEmpty()
         var join = courseRun(six, new RoutePlanner.Node(15, 6, 0), new RoutePlanner.Node(2, 6, 0));
         check(join.status().equals("reached") && allScaffold(join).isEmpty() && placesAll(join, p -> p[0] == 9),
                 "course: the cell 6 from one tower is scaffolding: " + join.status());
+
+        riseAndDropChecks();
+    }
+
+    /** Regression checks for D-c (riseField 3D backward Dijkstra) and B2a (scaffold_drop). */
+    private static void riseAndDropChecks() {
+        // 1. climb challenge: 5-high stone ledge (x 2..4, z -1..1, y 1..5), start (0,1,0), goal (3,6,0).
+        // Old 2D riseNeed priced ledge columns at 0 places and flooded the 4000-node cap.
+        var climb = new HashMap<Key, Map<String, Object>>();
+        for (int x = -20; x <= 20; x++) for (int z = -20; z <= 20; z++) for (int y = -1; y <= 10; y++)
+            climb.put(new Key(x, y, z), y <= 0 ? stone() : air());
+        for (int x = 2; x <= 4; x++) for (int z = -1; z <= 1; z++) for (int y = 1; y <= 5; y++)
+            climb.put(new Key(x, y, z), stone());
+        var climbPol = new RoutePlanner.EditPolicy(true, Map.of(), Map.of(), true, true, true,
+                1, 64, 16, 16, Set.of(), Set.of(), "minecraft:cobblestone", List.of(), Map.of(), 16);
+        var climbed = new RoutePlanner((x, y, z) -> climb.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(3, 6, 0), 0.6, 3, true).withPolicy(true, true, true, true, true, 1)
+                .withMoves(false, true).withEdits(climbPol).search(4000);
+        check(climbed.status().equals("reached") && climbed.expanded() < 100 && allScaffold(climbed).isEmpty(),
+                "climb challenge reaches ledge without cap hit: " + climbed.status() + " expanded=" + climbed.expanded());
+
+        // 2. reach-out challenge: 8-deep pit (x 2..8, z -3..3), start (0,1,0), goal (5,3,0).
+        var reach = new HashMap<Key, Map<String, Object>>();
+        for (int x = -20; x <= 25; x++) for (int z = -20; z <= 20; z++) for (int y = -9; y <= 10; y++) {
+            boolean pit = x >= 2 && x <= 8 && z >= -3 && z <= 3 && y >= -7 && y <= 0;
+            reach.put(new Key(x, y, z), (y <= 0 && !pit) ? stone() : air());
+        }
+        var reached = new RoutePlanner((x, y, z) -> reach.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(5, 3, 0), 0.6, 3, true).withPolicy(true, true, true, true, true, 1)
+                .withMoves(false, true).withEdits(climbPol).search(4000);
+        check(reached.status().equals("reached") && reached.expanded() < 150 && allScaffold(reached).isEmpty(),
+                "reach-out challenge reaches over pit without cap hit: " + reached.status() + " expanded=" + reached.expanded());
+
+        // 3. pillar_to next to a tall house wall & roof (dirt only, allowBridge=false, scaffoldSupply=0).
+        // Old riseNeed saw the roof beside the goal as 0 places and burned 4000 nodes chasing the roof.
+        var house = new HashMap<Key, Map<String, Object>>();
+        for (int x = -20; x <= 20; x++) for (int z = -20; z <= 20; z++) for (int y = -1; y <= 12; y++)
+            house.put(new Key(x, y, z), y <= 0 ? stone() : air());
+        for (int x = 1; x <= 6; x++) for (int z = -3; z <= 3; z++) for (int y = 1; y <= 5; y++)
+            house.put(new Key(x, y, z), stone());
+        var dirtPillar = new RoutePlanner.EditPolicy(true, Map.of(), Map.of(), true, false, true,
+                1, 0, 8, 16, Set.of(), Set.of(), "minecraft:dirt", List.of("minecraft:dirt"), Map.of(), 0);
+        var pillared = new RoutePlanner((x, y, z) -> house.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(0, 6, 0), 0, 3, true).withPolicy(true, true, true, true, true, 1)
+                .withMoves(false, true).withEdits(dirtPillar).search(4000);
+        check(pillared.status().equals("reached") && pillared.expanded() < 100,
+                "dirt pillar_to beside tall wall/roof does not chase roof mirage: " + pillared.status() + " expanded=" + pillared.expanded());
+
+        // 4. 1-block dirt pillar straight up on a wide floor (goal.y == start.y + 1, unsupported).
+        var oneUp = new RoutePlanner((x, y, z) -> floor(40).get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(0, 2, 0), 0, 3, true).withPolicy(true, true, true, true, true, 1)
+                .withMoves(false, true).withEdits(dirtPillar).search(4000);
+        check(oneUp.status().equals("reached") && oneUp.expanded() < 50,
+                "1-block dirt pillar straight up does not flood flat floor: " + oneUp.status() + " expanded=" + oneUp.expanded());
+
+        // 5. descend challenge (ROADMAP B2a): 10-deep shaft (x 2..4, z -1..1, y -9..0 air, floor at y=-10),
+        // start (0,1,0), goal (3,-9,0), 16 scaffolding only.
+        var shaft = new HashMap<Key, Map<String, Object>>();
+        for (int x = -12; x <= 14; x++) for (int z = -12; z <= 12; z++) for (int y = -11; y <= 6; y++) {
+            boolean hole = x >= 2 && x <= 4 && z >= -1 && z <= 1 && y >= -9 && y <= 0;
+            shaft.put(new Key(x, y, z), (y <= 0 && !hole) ? stone() : air());
+        }
+        var descended = new RoutePlanner((x, y, z) -> shaft.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(3, -9, 0), 0.6, 3, true).withPolicy(true, true, true, true, true, 1)
+                .withMoves(false, true).withEdits(climbPol).search(4000);
+        check(descended.status().equals("reached") && descended.expanded() < 150,
+                "descend challenge plans scaffold_drop and climbs down: " + descended.status() + " expanded=" + descended.expanded());
+        check(descended.steps().size() == 1 && descended.steps().get(0).kind().equals("scaffold_drop")
+                && descended.steps().get(0).places().size() == RoutePlanner.SCAFFOLD_DROP_CRANE + 10
+                && allScaffold(descended).isEmpty(),
+                "descend emits one 15-block crane+shaft scaffold_drop: " + descended.steps());
+        check(descended.route().stream().anyMatch(n -> n.x() == 2 && n.y() == -9 && n.z() == 0),
+                "descend route climbs down the dropped column to the shaft floor: " + descended.route());
+
+        // 6. scaffold_drop must not fire when a horizontal neighbour of the overhang drop cell (tx, y+1, tz) is scaffolding
+        // (clicking the overhang DOWN face would hang at distance <= 6 instead of falling).
+        var sideScaff = new HashMap<>(shaft);
+        sideScaff.put(new Key(2, 2, 1), scaffold());
+        sideScaff.put(new Key(2, 2, -1), scaffold());
+        var blockedDrop = new RoutePlanner((x, y, z) -> sideScaff.get(new Key(x, y, z)), new RoutePlanner.Node(1, 1, 0),
+                new RoutePlanner.Node(2, 1, 0), 0, 3, true).withPolicy(true, true, true, true, true, 1)
+                .withMoves(false, true).withEdits(climbPol).search(500);
+        check(blockedDrop.steps().stream().noneMatch(e -> e.kind().equals("scaffold_drop")),
+                "no scaffold_drop when overhang drop cell borders scaffolding");
+
+        // 7. descend on a floating slab over an ocean with maxGap=2 and unknownPenalty=2:
+        // riseField's gap-jump branch must not jump through the 1-block-thick shaft wall into the ocean.
+        var slab = new HashMap<Key, Map<String, Object>>();
+        for (int x = -20; x <= 20; x++) for (int z = -20; z <= 20; z++) for (int y = 55; y <= 90; y++) {
+            boolean hole = x >= 2 && x <= 4 && z >= -1 && z <= 1 && y >= 70 && y <= 79;
+            boolean shaftWall = x >= 1 && x <= 5 && z >= -2 && z <= 2 && y >= 69 && y <= 79 && !hole;
+            boolean plat = x >= -7 && x <= 7 && z >= -7 && z <= 7 && y == 79 && !hole;
+            if (y <= 57 || shaftWall || plat) slab.put(new Key(x, y, z), stone());
+            else if (y <= 62) slab.put(new Key(x, y, z), water());
+            else slab.put(new Key(x, y, z), air());
+        }
+        var slabDescend = new RoutePlanner((x, y, z) -> slab.get(new Key(x, y, z)), new RoutePlanner.Node(0, 80, 0),
+                new RoutePlanner.Node(3, 70, 0), 0.4, 3, true, 2.0)
+                .withPolicy(true, true, true, true, true, 1)
+                .withMoves(true, true).withGaps(2).withEdits(climbPol).search(4000);
+        check(slabDescend.status().equals("reached") && slabDescend.expanded() < 50
+                && slabDescend.steps().size() == 1 && slabDescend.steps().get(0).kind().equals("scaffold_drop"),
+                "floating-slab descend over ocean does not jump through shaft wall: "
+                        + slabDescend.status() + " expanded=" + slabDescend.expanded());
     }
 
     // Break cost of stone: 8 ticks with an iron pickaxe + 2 extra + 6 aim.

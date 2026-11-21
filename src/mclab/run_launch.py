@@ -31,10 +31,17 @@ CHECKS = {
     "natural-ops",
     "natural-reporting",
     "placement",
+    "scaffold-challenges",
     "site-fill",
     "spatial-navigation",
 }
-CHECKS_WITH_FLAGS = {"companion-wading", "hill-navigation", "natural-ops"}
+CHECKS_WITH_FLAGS = {
+    "companion-scaffold-course",  # --origin
+    "companion-wading",
+    "hill-navigation",
+    "natural-ops",
+    "scaffold-challenges",  # names, --level, --subject, --player, --origin, ...
+}
 API_CHECKS = {
     "body-commands": ("mclab.qualify", "qualify_commands"),
     "body-protocol": ("mclab.protocolproof", "qualify_protocol"),

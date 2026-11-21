@@ -56,6 +56,7 @@ CHECKS: dict[str, tuple[list[str], int]] = {
     "vine-escape": (["scripts/check-companion-vine-escape.py"], 300),
     "scaffold": (["scripts/check-companion-scaffold.py"], 300),
     "scaffold-course": (["scripts/check-companion-scaffold-course.py"], 900),
+    "scaffold-challenges": (["scripts/check-scaffold-challenges.py"], 2400),
     "hill-default": (["scripts/check-hill-navigation.py", "--variants", "2"], 600),
     "hill-water": (
         [

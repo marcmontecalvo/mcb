@@ -1035,12 +1035,18 @@ class _Exec:
             pos = next(iter(self.state.containers))
         if pos is None:
             return Result(False, "no_container")
-        if not self.body.goto_stance(pos, STATION_REACH):
-            return Result(False, "no_stance")
         items = [{"item": i, "count": n} for i, n in t.items] or None
-        result = self.body.container(pos, action, items)
-        if not result.ok and result.reason == "cannot_open" and self.unblock(pos):
+
+        def use() -> Result:
             result = self.body.container(pos, action, items)
+            if not result.ok and result.reason == "cannot_open" and self.unblock(pos):
+                result = self.body.container(pos, action, items)
+            return result
+
+        # Another stance when the view from this one is blocked: run
+        # 20261121T171016886377Z put a shulker box between its one stance and the
+        # supply chest and every later withdraw from it failed no_line_of_sight.
+        result = self.reach_and_do(pos, use, STATION_REACH)
         if result.ok:
             contents: dict[str, int] = {}
             for stack in result.data.get("contents") or ():

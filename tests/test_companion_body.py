@@ -1,3 +1,4 @@
+import contextlib
 import math
 from dataclasses import replace
 
@@ -164,7 +165,8 @@ def test_edit_event_tick_controls_overlay_and_expiry(monkeypatch, operation):
     b, bridge, memory = body()
     bridge.tick = 104
     bridge.reply[operation] = (
-        "done", {"placed": "minecraft:dirt", "after": "minecraft:dirt"}
+        "done",
+        {"placed": "minecraft:dirt", "after": "minecraft:dirt"},
     )
     if operation == "place_block":
         b.place_block((2, 0, 0), "minecraft:dirt", "minecraft:dirt")
@@ -213,15 +215,27 @@ def test_overlay_uses_actual_compact_sample_tick(tmp_path, monkeypatch, encoding
     bridge.tick = 104
     bridge.reply["place_block"] = ("done", {"placed": "minecraft:dirt"})
     assert b.place_block((2, 0, 0), "minecraft:dirt", "minecraft:dirt").ok
-    state = {"block": "minecraft:air", "fluid": "minecraft:empty",
-             "replaceable": True, "properties": {}, "collision_boxes": []}
+    state = {
+        "block": "minecraft:air",
+        "fluid": "minecraft:empty",
+        "replaceable": True,
+        "properties": {},
+        "collision_boxes": [],
+    }
 
     def observation(captured, sample):
         terrain = {
-            "schema_version": 1, "encoding": "sparse_section_palette",
-            "unknown_is_air": False, "sample_tick": sample, "palette": [state],
-            "sections": [], "known_cells": 0, "bulk_cells": 0,
-            "dense_sections": [], "uniform_sections": [], "encoding_ms": 0.1,
+            "schema_version": 1,
+            "encoding": "sparse_section_palette",
+            "unknown_is_air": False,
+            "sample_tick": sample,
+            "palette": [state],
+            "sections": [],
+            "known_cells": 0,
+            "bulk_cells": 0,
+            "dense_sections": [],
+            "uniform_sections": [],
+            "encoding_ms": 0.1,
         }
         if encoding == "sparse":
             terrain["sections"] = [
@@ -235,12 +249,19 @@ def test_overlay_uses_actual_compact_sample_tick(tmp_path, monkeypatch, encoding
             )
             terrain[f"{encoding}_sections"] = [entry]
             terrain["bulk_cells"] = 4096
-        return expand_terrain({
-            "tick": sample + 3, "sensor_profile": "awareness-v1", "body": {},
-            "awareness": {"config": awareness.payload(), "revision": "r",
-                          "coverage": {"sample_tick": sample}},
-            "terrain_sections": terrain,
-        })
+        return expand_terrain(
+            {
+                "tick": sample + 3,
+                "sensor_profile": "awareness-v1",
+                "body": {},
+                "awareness": {
+                    "config": awareness.payload(),
+                    "revision": "r",
+                    "coverage": {"sample_tick": sample},
+                },
+                "terrain_sections": terrain,
+            }
+        )
 
     try:
         monkeypatch.setattr(cb, "policy_state", lambda _: observation(102, 105))
@@ -516,6 +537,52 @@ def test_roof_support_top_is_not_visible_from_recorded_floor_height():
     target, support = (-18, 67, 58), (-18, 66, 58)
     memory.cells[support] = {"block": "minecraft:oak_planks", "collision_boxes": [FULL]}
     assert not b.can_place_here(target, 4.5)
+
+
+def _wall_beside_target():
+    """A plank placed at (1, 0, 2); the next wall cell (1, 0, 3) shows the floor's top
+    face past it to a body at (0, 0, 0), but the ray to the cell's centre runs through
+    the plank (run 20261119T225430670386Z: 119 walks to cells the server accepted)."""
+    b, _, memory = body()
+    plank = {"block": "minecraft:oak_planks", "collision_boxes": [FULL]}
+    memory.cells[(1, 0, 2)] = plank
+    b.precise_stance = True
+    return b, (1, 0, 3)
+
+
+def test_a_cell_whose_centre_is_hidden_is_placed_from_a_visible_support_face():
+    b, target = _wall_beside_target()
+    assert not cb.interacts(b._cells_now(), (0, 0, 0), target, 4.5)  # the old test
+    assert b.can_place_here(target, 4.5)
+    assert (0, 0, 0) in b.stances(target, 4.5)
+
+
+def test_goto_stance_does_not_walk_when_the_server_would_place_from_here(monkeypatch):
+    b, target = _wall_beside_target()
+    monkeypatch.setattr(
+        b, "_navigate", lambda *a, **k: (_ for _ in ()).throw(AssertionError)
+    )
+    assert b.goto_stance(target, 4.5) is True
+
+
+def test_placement_sight_keeps_the_required_support_face():
+    # a log along x hangs on its x neighbours only: the floor under it is no face
+    b, target = _wall_beside_target()
+    beside = {(0, 0, 3), (2, 0, 3)}
+    assert not b.can_place_here(target, 4.5, beside)
+    b.required_support = beside
+    assert (0, 0, 0) not in b.stances(target, 4.5)
+
+
+def test_placement_sight_uses_the_real_eye_not_the_stance_centre():
+    b, _, memory = body()
+    target = (5, 1, 0)  # on a plank 4.6 from the cell centre's eye
+    plank = {"block": "minecraft:oak_planks", "collision_boxes": [FULL]}
+    memory.cells[(5, 0, 0)] = plank
+    b._obs["body"]["position"] = [0.5, 0.0, 0.5]
+    assert not b.can_place_here(target, 4.5)
+    b._obs["body"]["position"] = [0.99, 0.0, 0.5]  # same cell, its near edge
+    assert b.can_place_here(target, 4.5)
 
 
 def test_walk_only_reuses_failed_stance_probe_until_geometry_changes(monkeypatch):
@@ -797,37 +864,38 @@ def test_a_bounded_scan_reads_only_the_sections_near_its_centres():
     assert read == [[((0, 0, 0), 24.0)]]
 
 
-def test_a_stance_must_see_a_face_of_a_solid_neighbour():
-    from mclab.companion_body import sees_support
+def _sees(cells, node, target, scaffold=False):
+    return cb.places_from(
+        cells, cb.stance_eye(node), node, target, 4.5, scaffold=scaffold
+    )
 
+
+def test_a_stance_must_see_a_face_of_a_solid_neighbour():
     solid = {"block": "minecraft:oak_planks", "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
     lattice = {"block": "minecraft:scaffolding", "collision_boxes": []}
     target = (5, 69, 5)
     cells = {(4, 69, 5): solid}  # the neighbour west of the target
 
-    assert sees_support(cells, (6, 66, 5), target)  # east of it: sees its east face
-    assert not sees_support(cells, (3, 66, 5), target)  # west of it: sees its back
-    assert sees_support({(5, 69, 4): lattice}, (5, 66, 3), target) is False
-    assert sees_support({(5, 69, 4): lattice}, (5, 66, 6), target)  # scaffolding counts
+    assert _sees(cells, (6, 66, 5), target)  # east of it: sees its east face
+    assert not _sees(cells, (3, 66, 5), target)  # west of it: sees its back
+    assert not _sees({(5, 69, 4): lattice}, (5, 66, 3), target)
+    assert _sees({(5, 69, 4): lattice}, (5, 66, 6), target)  # scaffolding counts
     # the top of a scaffolding column is reached from the ground beside it
-    assert sees_support({(5, 68, 5): lattice}, (7, 66, 5), target)
+    assert _sees({(5, 68, 5): lattice}, (7, 66, 5), target, scaffold=True)
     # only when placing scaffolding itself; a plank cannot extend scaffolding sideways
-    assert not sees_support({(5, 68, 5): lattice}, (7, 66, 5), target, scaffold=False)
-
+    assert not _sees({(5, 68, 5): lattice}, (7, 66, 5), target)
 
 
 def test_a_face_hidden_behind_a_wall_does_not_make_a_stance():
-    from mclab.companion_body import sees_support
-
     solid = {"block": "minecraft:oak_planks", "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
     target = (0, 1, 0)  # inside corner: floor below, walls west... seen past a wall
     cells = {(0, 0, 0): solid}  # the floor block under the target
     far = (3, 1, 3)
 
-    assert sees_support(cells, far, target)
+    assert _sees(cells, far, target)
     cells[(1, 1, 1)] = cells[(1, 2, 1)] = cells[(2, 2, 2)] = cells[(1, 1, 0)] = solid
     cells[(0, 1, 1)] = cells[(1, 2, 0)] = cells[(0, 2, 1)] = solid
-    assert not sees_support(cells, far, target)
+    assert not _sees(cells, far, target)
 
 
 def test_companion_plans_ask_for_doors_and_vines_and_old_requests_are_unchanged():
@@ -939,6 +1007,191 @@ def test_no_placing_turns_placement_off_and_restores_the_policy():
     assert b.movement_policy.allow_climb
 
 
+_ROW = [(x, 0, 4) for x in range(4, 7)] + [(x, 0, 5) for x in range(3, 7)]
+
+
+def _covers(b, node, cover):
+    cells = b._cells_now()
+    return sum(cb.places_from(cells, cb.stance_eye(node), node, p, 4.5) for p in cover)
+
+
+def test_stances_prefer_one_that_also_places_the_next_cells_of_the_sweep():
+    """Nearest-first put the body at the edge of reach, so the next cell along the
+    wall was out of reach again: one walk per block (run 20261119T225430670386Z,
+    119 walks, 195 s). With the sweep's next cells as ``stance_cover`` the stance
+    that places the most of them comes first."""
+    b, _, _ = body()
+    b.precise_stance = True
+    target = (3, 0, 4)
+    nearest = b.stances(target, 4.5)[0]
+    b.stance_cover = dict.fromkeys(_ROW, (None, None))
+    best = b.stances(target, 4.5)[0]
+    assert cb.places_from(b._cells_now(), cb.stance_eye(best), best, target, 4.5)
+    assert _covers(b, best, _ROW) > _covers(b, nearest, _ROW)
+    assert _covers(b, best, _ROW) == len(_ROW)
+
+
+def test_a_stance_inside_a_cell_of_the_sweep_does_not_count_it_covered():
+    b, _, _ = body()
+    b.precise_stance = True
+    b.stance_cover = {(4, 0, 4): (None, None)}
+    assert b._stance_covers(b._cells_now(), (4, 0, 4), 4.5) == 0
+    assert b._stance_covers(b._cells_now(), (4, 0, 3), 4.5) == 1
+
+
+def test_a_flower_cell_is_broken_not_placed_into(monkeypatch):
+    """A flower is no cell to place into (the server refuses "occupied"), so its
+    stance is a break's: the line to the flower, not a support face behind it. The
+    flower hid every face, no break stance was found, and site prep stopped
+    "blocked" on 16 tulips (run 20261120T075123420431Z)."""
+    b, _, memory = body()
+    b.precise_stance = True
+    target = (3, 0, 0)
+    memory.cells[target] = {"block": "minecraft:orange_tulip", "collision_boxes": []}
+    assert not b._placing(target)
+    assert b.stances(target, 4.5)
+
+
+@pytest.mark.parametrize(
+    "occupant", [None, "minecraft:air", "minecraft:water", "minecraft:short_grass"]
+)
+def test_an_empty_or_replaceable_cell_is_placed_into(occupant):
+    b, _, memory = body()
+    b.precise_stance = True
+    target = (3, 0, 0)
+    if occupant is None:
+        memory.cells.pop(target)  # unknown
+    else:
+        memory.cells[target] = {"block": occupant, "collision_boxes": []}
+    assert b._placing(target)
+    # the server breaks grass before its clicks: it hides no support face
+    assert b.stances(target, 4.5)
+
+
+def test_stance_cover_does_not_outrank_a_walkable_stance(monkeypatch):
+    b, _, _ = body()
+    b.precise_stance = True
+    target = (3, 0, 4)
+    b.stance_cover = dict.fromkeys(_ROW, (None, None))
+    walk = {(0, 0, 1)}
+    monkeypatch.setattr(b, "_walkable", lambda *a: walk)
+    assert b.stances(target, 4.5)[0] == (0, 0, 1)
+
+
+TOP_SLAB = "minecraft:oak_slab[type=top,waterlogged=false]"
+BOTTOM_SLAB = "minecraft:oak_slab[type=bottom,waterlogged=false]"
+ON_FLOOR = (3, 0, 3)  # its one support is the floor: a click there is a bottom half
+
+
+def test_stances_need_a_click_that_gives_the_requested_state():
+    """Sight alone sent the body where only the wrong half of a face showed: 20 of
+    28 wrong_state failures in run 20261120T083111010944Z were stairs and slabs."""
+    b, _, _ = body()
+    b.precise_stance = True
+    assert b.stances(ON_FLOOR, 4.5)
+    b.placing_state = BOTTOM_SLAB
+    assert b.stances(ON_FLOOR, 4.5)
+    assert b.can_place_here(ON_FLOOR, 4.5, None, BOTTOM_SLAB)
+    b.placing_state = TOP_SLAB
+    assert b.stances(ON_FLOOR, 4.5) == []
+    assert not b.can_place_here(ON_FLOOR, 4.5, None, TOP_SLAB)
+
+
+def test_stance_cover_counts_a_cell_only_where_its_state_can_be_made():
+    b, _, _ = body()
+    b.precise_stance = True
+    b.stance_cover = {ON_FLOOR: (None, BOTTOM_SLAB)}
+    assert b._stance_covers(b._cells_now(), (1, 0, 3), 4.5) == 1
+    b.stance_cover = {ON_FLOOR: (None, TOP_SLAB)}
+    assert b._stance_covers(b._cells_now(), (1, 0, 3), 4.5) == 0
+
+
+def _two_stances(monkeypatch, b, sound, shaky):
+    """``sound`` places from anywhere in its cell, ``shaky`` only from the exact
+    centre; ``shaky`` is the nearer one."""
+    monkeypatch.setattr(b, "position", lambda: (0, 0, 0))
+
+    def places(cells, eye, node, target, reach, required=None, **kw):
+        return node == sound or (node == shaky and eye == cb.stance_eye(shaky))
+
+    monkeypatch.setattr(cb, "places_from", places)
+    monkeypatch.setattr(b, "_walkable", lambda *a: {sound, shaky})
+
+
+def test_a_stance_that_places_only_from_its_exact_centre_ranks_after_a_sound_one(
+    monkeypatch,
+):
+    """The body stops within PRECISE_RADIUS of a stance's centre: where the face
+    shows through a gap that narrow, the eye it arrives with misses it (run
+    20261120T083111010944Z, [-17, 68, 59] from [-15, 69, 61]: in view from the
+    centre, hidden 0.1 off it)."""
+    b, _, _ = body()
+    b.precise_stance = True
+    sound, shaky = (5, 0, 3), (1, 0, 2)
+    _two_stances(monkeypatch, b, sound, shaky)
+    found = b.stances(ON_FLOOR, 4.5)
+    assert set(found) == {sound, shaky}
+    assert found == [sound, shaky]
+
+
+def test_goto_stance_rechecks_on_arrival_and_walks_on_when_the_face_is_hidden(
+    monkeypatch,
+):
+    """A block placed while passing can hide the face the stance was chosen for
+    (run 20261120T083111010944Z: a log placed on the way beside [-7, 66, 67], then
+    the click from the stance found no face). The body checks from where it
+    arrived and chooses again on the fresh map, without a doomed click."""
+    b, _, memory = body()
+    b.precise_stance = True
+    first, second = (1, 0, 3), (5, 0, 3)
+    at = {"pos": (0, 0, 0)}
+    monkeypatch.setattr(b, "position", lambda: at["pos"])
+    hidden = set()
+
+    def can(target, reach, required=None, state=None, **kw):
+        return at["pos"] != (0, 0, 0) and at["pos"] not in hidden
+
+    monkeypatch.setattr(b, "_places_from_here", can)
+    picks = [[first, second], [second]]
+    monkeypatch.setattr(b, "stances", lambda *a, **k: picks.pop(0))
+    monkeypatch.setattr(b, "_walkable", lambda *a: {first, second})
+    walked = []
+
+    def navigate(node, **kw):
+        walked.append(node)
+        at["pos"] = node
+        if node == first:
+            hidden.add(first)  # placed on the way: the face is gone from here
+        return True
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    assert b.goto_stance(ON_FLOOR, 4.5) is True
+    assert walked == [first, second]
+    assert picks == []  # chosen again on the map after the walk
+
+
+def test_goto_stance_keeps_the_arrival_when_no_other_stance_is_found(monkeypatch):
+    # nothing better on the fresh map: the server decides from where the body stands
+    b, _, _ = body()
+    b.precise_stance = True
+    first = (1, 0, 3)
+    at = {"pos": (0, 0, 0)}
+    monkeypatch.setattr(b, "position", lambda: at["pos"])
+    monkeypatch.setattr(b, "_places_from_here", lambda *a, **k: False)
+    picks = [[first], []]
+    monkeypatch.setattr(b, "stances", lambda *a, **k: picks.pop(0))
+    monkeypatch.setattr(b, "_walkable", lambda *a: {first})
+    monkeypatch.setattr(b, "_worth_searching", lambda t: False)
+
+    def navigate(node, **kw):
+        at["pos"] = node
+        return True
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    assert b.goto_stance(ON_FLOOR, 4.5) is True
+    assert at["pos"] == first
+
+
 def test_stances_rank_walkable_cells_before_nearer_unreachable_ones(monkeypatch):
     b, _, _ = body()
     floor = {(x, 0, 0) for x in range(6)}
@@ -1015,6 +1268,7 @@ def test_stand_height_does_not_snap_up_onto_an_overhang():
     # Run 20261117T011432772067Z: the ground under a tree's leaves became a
     # canopy-top goal 3 up; a solid hillside still snaps up.
     b, _, _ = body()
+
     def column(x, *states):
         for y, state in enumerate(states):
             boxes = [] if state == "air" else [[0, 0, 0, 1, 1, 1]]
@@ -1285,7 +1539,6 @@ def test_goto_stance_skips_duplicate_distant_hops_and_fallback_when_hop_fails(
     assert calls == [((90, 62, -59), None, True)]
 
 
-
 def test_position_of_a_dead_body_raises_bodydied():
     import pytest
 
@@ -1469,7 +1722,8 @@ def test_drops_seen_once_are_collected_even_when_out_of_sight_from_the_pit(monke
     # The step stack is seen only from the rim, before the body goes down.
     views = iter([[floor, step]])
     monkeypatch.setattr(
-        b, "entities",
+        b,
+        "entities",
         lambda: [e for e in next(views, [floor]) if e["uuid"] in held],
     )
     walked = []
@@ -1585,6 +1839,7 @@ def test_a_walk_planned_ahead_is_priced_with_what_the_body_holds(monkeypatch):
         material_allowlist=("minecraft:dirt",),
         scaffold_materials=("minecraft:scaffolding",),
     )
+
     class Bare:  # the controller as plan_ahead has it: never decided yet
         def __init__(self, goal, memory, *, terrain_policy, **_):
             self.terrain_policy, self.inventory = terrain_policy, ()
@@ -1661,7 +1916,13 @@ def test_walk_only_keeps_climbed_scaffolding_stance_and_eye_cell_sees_past_rim(
     b.required_support = (1, 8, 0)
     assert cb.interacts(cells, (0, 6, 0), (1, 7, 0), 4.5)
     walked = []
-    monkeypatch.setattr(b, "_navigate", lambda goal, **k: walked.append(goal) or True)
+
+    def arrive(goal, **k):  # an arrival puts the body (and its eye) on the stance
+        walked.append(goal)
+        b._obs["body"]["position"] = [goal[0] + 0.5, goal[1], goal[2] + 0.5]
+        return True
+
+    monkeypatch.setattr(b, "_navigate", arrive)
     assert b.goto_stance((1, 7, 0), 4.5)
     assert walked == [(0, 6, 0)]
 
@@ -1711,7 +1972,6 @@ def test_walk_only_fallback_tries_multiple_candidates_when_walk_empty(monkeypatc
     )
     assert b.goto_stance((2, 1, 0), 4.5)
     assert seen == goals[:2]
-
 
 
 # --- collect_drops waits only for items that are there -------------------------------
@@ -1796,8 +2056,10 @@ def test_each_stance_candidate_gets_its_own_progress_budget(monkeypatch):
     assert b.goto_stance((2, 0, 2), 4.5) is False
     probes = seen[:3]
     assert len({id(p) for p in probes}) == 3  # none shared between candidates
-    assert all(p["tick"] is None and p["limit_ticks"] == cb.CANDIDATE_PROGRESS_TICKS
-               for p in probes)
+    assert all(
+        p["tick"] is None and p["limit_ticks"] == cb.CANDIDATE_PROGRESS_TICKS
+        for p in probes
+    )
     assert cb.CANDIDATE_PROGRESS_TICKS <= 200  # about 10 s
 
 
@@ -1925,3 +2187,230 @@ def test_placement_sight_uses_the_body_real_eye(monkeypatch):
     b._obs["body"]["position"] = [2.2, 1.0, 0.5]  # past the plane
     assert b.sees_placement(target)
     assert not b.sees_placement(target, eye=(1.5, 2.62, 0.5))
+
+
+LATTICE = {"block": "minecraft:scaffolding", "collision_boxes": []}
+
+
+def test_a_bridge_block_is_placed_from_on_top_of_the_tower_beside_it():
+    # On top of a tower the side face toward the next cell is under the feet; the
+    # top face, clicked not sneaking along the heading, extends the run sideways
+    # (vanilla ScaffoldingBlockItem; BodyBuild's bridge sources).
+    tower = {(0, y, 0): LATTICE for y in range(6)}
+    assert _sees(tower, (0, 6, 0), (1, 5, 0), scaffold=True)
+    assert not _sees(tower, (0, 6, 0), (1, 5, 0))  # a plank needs that side face
+    bridge = {**tower, (1, 5, 0): LATTICE}
+    assert _sees(bridge, (0, 6, 0), (2, 5, 0), scaffold=True)  # past the run
+    assert _sees(bridge, (1, 6, 0), (1, 5, 1), scaffold=True)  # an L turn
+    assert not _sees(tower, (0, 6, 0), (8, 5, 0), scaffold=True)  # out of reach
+
+
+def _roof_eave():
+    """A tower at (0, 0..5, 0); a plank at (0, 6, -1) the eave cell (-1, 6, -1)
+    hangs on by its west face. From the tower's top that face is turned away; one
+    block west of the top it shows (house-large run 20261120T141244368734Z)."""
+    b, _, memory = body()
+    air = {"block": "minecraft:air", "collision_boxes": []}
+    for x in range(-4, 5):
+        for y in range(0, 10):
+            for z in range(-4, 5):
+                memory.cells[(x, y, z)] = air
+    for y in range(6):
+        memory.cells[(0, y, 0)] = LATTICE
+    memory.cells[(0, 6, -1)] = {
+        "block": "minecraft:oak_planks",
+        "collision_boxes": [FULL],
+    }
+    b.precise_stance = True
+    b._obs["body"]["position"] = [0.5, 6.0, 0.5]
+    return b, (-1, 6, -1)
+
+
+def test_a_cell_out_of_sight_from_the_tower_top_has_a_bridge_stance_beside_it():
+    b, target = _roof_eave()
+    assert b.stances(target, 4.5) == []
+    found = b.bridge_stances(target, 4.5)
+    assert (-1, 6, 0) in found
+    assert all(
+        b._cells_now()[(n[0], n[1] - 1, n[2])]["block"] == "minecraft:air"
+        for n in found
+    )
+    assert (-1, 6, 0) not in b.bridge_stances(target, 4.5, avoid={(-1, 6, 0)})
+
+
+def test_a_bridge_stance_needs_room_for_the_body():
+    b, target = _roof_eave()
+    b.memory.cells[(-1, 7, 0)] = {"block": "minecraft:stone", "collision_boxes": [FULL]}
+    assert (-1, 6, 0) not in b.bridge_stances(target, 4.5)
+
+
+def test_markers_point_at_the_block_acted_on_and_the_stance_walked_to(monkeypatch):
+    from mclab.markers import Markers
+
+    b, bridge, _ = body()
+    sent = []
+    client = type("C", (), {"send": lambda self, op, **f: sent.append(f)})()
+    marks = Markers(client, lambda: True)
+    b.markers = marks
+    bridge.reply["place_block"] = ("done", {"placed": "minecraft:dirt"})
+    b.place_block((1, 0, 1), "minecraft:dirt", "minecraft:dirt")
+    assert marks.target == (1, 0, 1) and {"target": [1, 0, 1]} in sent
+    monkeypatch.setattr(
+        b, "_hop_toward", lambda goal: (_ for _ in ()).throw(StopIteration)
+    )
+    with contextlib.suppress(StopIteration):
+        b._navigate((5, 0, 5), reach=None, radius=0.6)
+    assert marks.goal == (5, 0, 5)
+
+
+def test_prop_stances_and_can_place_with_prop_here_solve_hopper_room():
+    # Exact layout of house-large hopper room: wall on z=0, ceiling at y=3,
+    # target (2, 2, 1) hopper facing west, prop cell (1, 2, 1) air.
+    b, _, _ = body()
+    b.precise_stance = True
+    cells = b.memory.cells
+    for x in range(-1, 6):
+        for z in range(-1, 6):
+            for y in range(-1, 5):
+                cells[(x, y, z)] = {"block": "minecraft:air", "collision_boxes": []}
+            cells[(x, -1, z)] = {"block": "minecraft:stone", "collision_boxes": [FULL]}
+            cells[(x, 3, z)] = {
+                "block": "minecraft:birch_planks",
+                "collision_boxes": [FULL],
+            }
+        for y in range(0, 3):
+            cells[(x, y, 0)] = {
+                "block": "minecraft:oak_planks",
+                "collision_boxes": [FULL],
+            }
+    west = "minecraft:hopper[enabled=true,facing=west]"
+    b.placing_state = west
+    b._obs["body"]["position"] = [2.5, 0.0, 2.5]
+    assert b.stances((2, 2, 1), 4.5) == []  # no solid west neighbour to click
+    found = b.prop_stances((1, 2, 1), "minecraft:dirt", (2, 2, 1), west, 4.5)
+    assert (2, 0, 2) in found
+    assert b.can_place_with_prop_here((1, 2, 1), "minecraft:dirt", (2, 2, 1), west, 4.5)
+    # West of the prop cell, the east face of (1, 2, 1) is hidden behind it.
+    b._obs["body"]["position"] = [0.5, 0.0, 2.5]
+    assert not b.can_place_with_prop_here(
+        (1, 2, 1), "minecraft:dirt", (2, 2, 1), west, 4.5
+    )
+
+
+def test_can_reach_from_tower_rejects_eye_above_chain_down_face_and_wrong_side():
+    b, _, _ = body()
+    b.precise_stance = True
+    cells = b.memory.cells
+    for x in range(-3, 4):
+        for z in range(-3, 4):
+            for y in range(0, 12):
+                cells[(x, y, z)] = {"block": "minecraft:air", "collision_boxes": []}
+            cells[(x, -1, z)] = {"block": "minecraft:stone", "collision_boxes": [FULL]}
+    # Chain target (0, 9, 0) hanging under (0, 10, 0) whose down face is at y=10.0.
+    cells[(0, 10, 0)] = {
+        "block": "minecraft:iron_chain",
+        "collision_boxes": [[0.40625, 0.0, 0.40625, 0.59375, 1.0, 0.59375]],
+    }
+    b.required_support = {(0, 10, 0), (0, 8, 0)}
+    b.placing_state = "minecraft:iron_chain[axis=y,waterlogged=false]"
+    # Standing at feet y=9 puts eye at 10.62 > 10.0: cannot see the down face!
+    tall = [(-1, h, 0) for h in range(0, 9)]
+    assert b.can_reach_from_tower((0, 9, 0), 4.5, (-1, 9, 0), tall) == 0
+    # Standing at feet y=6..8 puts eye below 10.0 and sees the down face soundly.
+    short = [(-1, h, 0) for h in range(0, 6)]
+    assert b.can_reach_from_tower((0, 9, 0), 4.5, (-1, 6, 0), short) == 2
+    # Solid wall at z=1 blocks an outside tower at (0, *, 2) from reaching (0, 2, 0).
+    for x in range(-3, 4):
+        for y in range(0, 6):
+            cells[(x, y, 1)] = {
+                "block": "minecraft:oak_planks",
+                "collision_boxes": [FULL],
+            }
+    cells[(0, 2, -1)] = {"block": "minecraft:oak_planks", "collision_boxes": [FULL]}
+    b.required_support = None
+    b.placing_state = "minecraft:oak_planks"
+    outside = [(0, 0, 2), (0, 1, 2)]
+    assert b.can_reach_from_tower((0, 2, 0), 4.5, (0, 2, 2), outside) == 0
+
+
+def test_walkable_bfs_ranks_same_side_of_wall_before_walk_around_wall():
+    # A wall at z=1 spans x=0..6 with a doorway only at x=7: from (1, 0, 2) inside,
+    # (1, 0, 0) outside is crow-closer (2.0) than (3, 0, 2) inside (2.0), and walking
+    # around to (1, 0, 0) takes ~14 steps vs 2 steps inside.
+    b, _, _ = body()
+    b.precise_stance = True
+    cells = b.memory.cells
+    for x in range(-1, 10):
+        for z in range(-1, 5):
+            for y in range(0, 4):
+                cells[(x, y, z)] = {"block": "minecraft:air", "collision_boxes": []}
+            cells[(x, -1, z)] = {"block": "minecraft:stone", "collision_boxes": [FULL]}
+    for x in (*range(-1, 7), 8, 9):
+        for y in (0, 1, 2):
+            cells[(x, y, 1)] = {
+                "block": "minecraft:oak_planks",
+                "collision_boxes": [FULL],
+            }
+    for z in range(1, 5):
+        for y in (0, 1, 2):
+            cells[(-1, y, z)] = {
+                "block": "minecraft:oak_planks",
+                "collision_boxes": [FULL],
+            }
+            cells[(9, y, z)] = {
+                "block": "minecraft:oak_planks",
+                "collision_boxes": [FULL],
+            }
+    for x in range(-1, 10):
+        for y in (0, 1, 2):
+            cells[(x, y, 4)] = {
+                "block": "minecraft:oak_planks",
+                "collision_boxes": [FULL],
+            }
+    # Window opening at (2, 1, 1) (solid below at y=0 and lintel above at y=2):
+    # blocks walking through the wall, while both inside (2, 0, 2) (walk=1) and
+    # outside (2, 0, 0) (walk=14) can place into it. Inside must rank first!
+    cells[(2, 1, 1)] = {"block": "minecraft:air", "collision_boxes": []}
+    # Wooden door at x=7, z=1: BFS must treat it as passable, not a wall.
+    door = {"block": "minecraft:oak_door", "collision_boxes": [[0, 0, 0, 1, 1, 0.2]]}
+    cells[(7, 0, 1)] = dict(door)
+    cells[(7, 1, 1)] = dict(door)
+    b._obs["body"]["position"] = [1.5, 0.0, 2.5]
+    walk = b._walkable(cells, (1, 0, 2))
+    assert isinstance(walk, dict)
+    assert walk[(3, 0, 2)] == 2
+    assert walk[(1, 0, 0)] == 15  # 14 steps + 1 door-open penalty through (7, 0, 1)
+    b.placing_state = "minecraft:oak_planks"
+    ranked = b.stances((2, 1, 1), 4.5)
+    assert ranked.index((2, 0, 2)) < ranked.index((2, 0, 0))
+    assert b.walk_distance((2, 0, 2)) == 0
+
+
+def test_pillar_to_disables_partial_walk_away_from_column(monkeypatch):
+    from types import SimpleNamespace
+
+    b, _, _ = body()
+    seen = {}
+
+    def fake_navigate(goal, reach=None, radius=0.6, probe=False, progress=None):
+        seen["probe"] = probe
+        seen["walk_only"] = b.walk_only
+        seen["pillar_only"] = b._pillar_only
+        return True
+
+    monkeypatch.setattr(b, "_navigate", fake_navigate)
+    assert b.pillar_to((0, 6, 0), "minecraft:dirt", 6)
+    assert seen == {"probe": True, "walk_only": True, "pillar_only": True}
+    # And with allow_partial_gain=False, an incomplete probe returns unreachable
+    # rather than walking a partial route away from the column.
+    ctrl = cb._GotoController.__new__(cb._GotoController)
+    ctrl.probe = True
+    ctrl.walk_partial = False
+    ctrl.allow_partial_gain = False
+    ctrl.mode = "incomplete"
+    ctrl.route_steps = []
+    ctrl.last_result = SimpleNamespace(
+        status="incomplete", route=[(0, 0, 0), (5, 0, 0)]
+    )
+    ctrl.goal = (0, 10, 0)
+    assert ctrl._probe_verdict() == "unreachable"

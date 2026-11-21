@@ -3,7 +3,8 @@
 The body mod records each /mcb use as a `player_command` event (stop also cancels
 the body in the mod, with no Python or model involved). This loop reads those
 events, applies the owner/allowlist from
-config/companion.json (empty lists refuse everyone), validates arguments and dispatches.
+config/companion.json (empty lists let every player in), validates arguments and
+dispatches.
 """
 
 import json
@@ -22,15 +23,24 @@ ITEM = re.compile(r"[a-z0-9_]{1,64}")
 BUILD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
 
 
-def allowed(uuid):
+def allowed(uuid, name=""):
+    """Who may command the bot. Nobody listed (or no config file): every player in
+    the game. Otherwise only the listed owners and allowlist, each a player UUID or
+    a name (case-insensitive). A config that cannot be read refuses everyone."""
+    if not CONFIG.is_file():
+        return True
     try:
         value = read_json(CONFIG)
-    except (OSError, ValueError):
+        people = {
+            str(u).lower()
+            for key in ("owners", "allowlist")
+            for u in value.get(key) or []
+        }
+    except (OSError, ValueError, AttributeError, TypeError):
         return False
-    people = {
-        str(u).lower() for key in ("owners", "allowlist") for u in value.get(key, [])
-    }
-    return str(uuid).lower() in people
+    if not people:
+        return True
+    return bool({str(uuid).lower(), str(name).lower()} & people - {""})
 
 
 def parse(data):
@@ -86,7 +96,7 @@ def _status(tail):
 def handle(event, tail=()):
     """The reply for one player_command event. Never raises."""
     data = event.get("data") or {}
-    if not allowed(data.get("player_uuid", "")):
+    if not allowed(data.get("player_uuid", ""), data.get("player_name", "")):
         return "Not allowed."
     try:
         command, args = parse(data)

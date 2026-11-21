@@ -150,7 +150,9 @@ def _slots_used_real(counts, items, real: dict[str, int]) -> int:
     )
 
 
-def _load(wanted: dict[str, int], body, knowledge, state: GatherState) -> dict[str, int]:
+def _load(
+    wanted: dict[str, int], body, knowledge, state: GatherState
+) -> dict[str, int]:
     """What of ``wanted`` one trip to the chests carries: missing structure blocks
     before held structure before details (bp.is_detail), as much as the slots left
     beside the essentials hold. Uses real occupied slots so fragmented stacks do not
@@ -418,9 +420,7 @@ def read_chests(chests, body, state: GatherState) -> None:
 TOOL_WORDS = ("_axe", "_pickaxe", "_shovel", "_hoe", "_sword", "shears", "bucket")
 
 
-def junk(
-    inventory: dict[str, int], wanted: dict[str, int], foods=()
-) -> dict[str, int]:
+def junk(inventory: dict[str, int], wanted: dict[str, int], foods=()) -> dict[str, int]:
     """What a refill may put away: nothing the build wants, no tools, no scaffolding, no food."""
     return {
         i: n
@@ -518,7 +518,9 @@ def build_job(
     ``on_progress(report, final)`` is passed to ``run_build``. ``site_margin``: blocks
     of levelled ground prepared around the footprint before building (>= 0, default
     1; None skips site preparation)."""
-    publish_stage = on_stage or (lambda *a, **k: None)  # publishes the dashboard's live stage
+    publish_stage = on_stage or (
+        lambda *a, **k: None
+    )  # publishes the dashboard's live stage
     phase_clock = PhaseClock()
 
     def stage(name: str, done=None, total=None, detail=None):
@@ -529,7 +531,7 @@ def build_job(
     try:
         build = json.loads(Path(build_json_path).read_text(encoding="utf-8"))
         template = bp.Template.from_build(build, tuple(origin), rotation, mirror)
-        protect(body, template, site_margin)
+        protect(body, template, site_margin, blocks=knowledge.blocks)
         # What the body may put down to climb and take back: scaffolding, dirt,
         # cobblestone, then spare plain blocks that drop themselves (mclab.temporary_blocks).
         body.temporary_ok = temporary_blocks.eligible(knowledge)
@@ -691,7 +693,9 @@ def build_job(
                 held_now = body.inventory()
                 stored = _stored(state)
                 missing = {
-                    i: n for i, n in wanted.items() if held_now.get(i, 0) + stored[i] < n
+                    i: n
+                    for i, n in wanted.items()
+                    if held_now.get(i, 0) + stored[i] < n
                 }
                 if not missing:
                     _note_refill(body, wanted, before, "chests", False)
@@ -734,9 +738,9 @@ def build_job(
                 # ponytail: any gain counts. The whole remaining house does not fit in one
                 # inventory, and demanding all of it stopped run 20261110T063137807602Z at
                 # 280 of 1227 blocks with the stock sitting in the chests.
-                ok = any(
-                    held_now.get(i, 0) > before.get(i, 0) for i in missing
-                ) or all(held_now.get(i, 0) >= n for i, n in missing.items())
+                ok = any(held_now.get(i, 0) > before.get(i, 0) for i in missing) or all(
+                    held_now.get(i, 0) >= n for i, n in missing.items()
+                )
                 _note_refill(body, missing, before, f"gather:{outcome.stop}", ok)
                 return ok
             finally:
@@ -783,7 +787,12 @@ def build_job(
         report.duration_s, report.phases_s, report.stages_s = phase_clock.finish()
 
 
-def protect(body, template: bp.Template, site_margin: int | None = None) -> None:
+def protect(
+    body,
+    template: bp.Template,
+    site_margin: int | None = None,
+    blocks: dict | None = None,
+) -> None:
     """Keep a digging body's route planner, and its gathering, out of the template's
     cells and out of the ground of the site to be levelled: dirt dug for fill must
     come from outside it (run 20261110T001441278034Z dug holes in its own site)."""
@@ -796,10 +805,19 @@ def protect(body, template: bp.Template, site_margin: int | None = None) -> None
         cells |= {(x, site.ground_y, z) for x, z in site.columns()}
     # The planner may break a standing wall cell at a price (CompanionBody._planner_terrain);
     # the build loop re-places it.
-    body.build_cells = {p: st for p, st in template.cells.items() if bp.parse_state(st)[0] not in bp.AIR}
-    # Its air cells take footholds (the build loop adopts them as scaffolds and takes
+    body.build_cells = {
+        p: st for p, st in template.cells.items() if bp.parse_state(st)[0] not in bp.AIR
+    }
+    # Its open air cells take footholds (the build loop adopts them as scaffolds and takes
     # them back): with them protected, no pillar could rise beside a wall under the
     # eaves, and the upper floor of a house without stairs was out of reach
-    # (run 20261117T075353967859Z).
-    body.build_air = {p for p, st in template.cells.items() if bp.parse_state(st)[0] in bp.AIR}
+    # (run 20261117T075353967859Z). Sealed interior cavities (e.g. a 1-high attic gap
+    # under a roof ridge) stay protected so no foothold is ever sealed inside them
+    # (run 20261120T175636584118Z: dirt at (-12, 75, 63)).
+    sealed = bp.sealed_air(template, blocks)
+    body.build_air = {
+        p
+        for p, st in template.cells.items()
+        if bp.parse_state(st)[0] in bp.AIR and p not in sealed
+    }
     body.terrain_policy = replace(policy, protected_positions=tuple(sorted(cells)))

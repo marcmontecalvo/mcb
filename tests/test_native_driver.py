@@ -1393,6 +1393,43 @@ def test_replan_on_a_new_map_revision_waits_for_a_change_along_the_route():
     assert len(started) == 2
 
 
+def test_complete_route_does_not_replan_on_each_step_when_map_unchanged():
+    # Run 20261120T175636584118Z fired 20 plans in 6.8 s along a complete, unchanged
+    # route because next_index advanced ``end`` by 1 each step.
+    from mclab.native_driver import prefetch_while_following
+
+    route = [(x, 1, 0) for x in range(25)]
+    air = {"block": "minecraft:air", "collision_boxes": []}
+    stone = {"block": "minecraft:stone", "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
+    floor = {
+        (x, y, z): dict(air)
+        for x in range(-2, 28)
+        for y in range(0, 4)
+        for z in range(-3, 3)
+    }
+    c = _refresh_controller(None, ())
+    c.route = list(route)
+    c.goal = route[-1]  # complete route: already reaches the goal
+    c.prefetch = None
+    c.prefetch_started = 0
+    started = []
+    snapshot = {"value": (7, floor)}
+    c._planning_snapshot = lambda: snapshot["value"]
+    c._new_search = lambda cells, start, revision: started.append(start) or object()
+    # Advancing next_index along the complete route on unchanged geometry fires 0 plans.
+    for idx in (1, 2, 3, 4, 5):
+        prefetch_while_following(c, route, {"next_index": idx})
+    assert started == []
+    # Even a newer map revision with an off-route change fires 0 plans.
+    snapshot["value"] = (8, {**floor, (5, 1, -3): stone})
+    prefetch_while_following(c, route, {"next_index": 6})
+    assert started == []
+    # Only a real change along the route ahead triggers a refresh.
+    snapshot["value"] = (9, {**floor, (18, 1, 0): stone})
+    prefetch_while_following(c, route, {"next_index": 7})
+    assert len(started) == 1
+
+
 def _single_route_client(sent, records, current, reject=lambda n: None):
     count = {"n": 0}
 
@@ -1555,3 +1592,51 @@ def test_a_centring_the_motor_refuses_is_not_requested_again(monkeypatch):
     assert node in controller.uncentered
     assert [op for op, _ in sent].count("follow_route") == 1
     assert any(kind == "native_center_refused" for kind, _ in records)
+
+
+def test_confirm_step_accepts_scaffold_drop_column():
+    from collections import ChainMap
+
+    crane = ((0, 0, 0), (0, 1, 0), (0, 2, 0), (1, 2, 0), (2, 2, 0))
+    places = crane + tuple((2, y, 0) for y in range(-10, 0))
+    plan = StepPlan(
+        (1, 0, 0),
+        (2, -1, 0),
+        places=places,
+        kind="scaffold_drop",
+        scaffold=places,
+    )
+    before = {
+        "inventory": [{"slot": 0, "item": "minecraft:scaffolding", "count": 16}],
+        "building_pickups": {},
+    }
+    after = {
+        "body": {
+            "inventory": [{"slot": 0, "item": "minecraft:scaffolding", "count": 1}],
+            "building_pickups": {},
+        }
+    }
+    scaff = {
+        "block": "minecraft:scaffolding",
+        "fluid": "minecraft:empty",
+        "collision_boxes": [],
+    }
+    # Lower shaft cells (below +-4 near-body refresh) live in known cells, not fresh.
+    fresh = {p: scaff for p in places if p[1] >= -4}
+    known = {p: scaff for p in places}
+    report = {
+        "broken_positions": [],
+        "placed_positions": [
+            {"position": list(p), "item": "minecraft:scaffolding"} for p in places
+        ],
+    }
+    assert not native_driver.confirm_step(plan, before, after, fresh, report)
+    assert native_driver.confirm_step(
+        plan, before, after, ChainMap(fresh, known), report
+    )
+    # Missing one block in known geometry is not yet confirmed.
+    incomplete = dict(known)
+    incomplete[(2, -10, 0)] = {"block": "minecraft:air", "collision_boxes": []}
+    assert not native_driver.confirm_step(
+        plan, before, after, ChainMap(fresh, incomplete), report
+    )

@@ -1,4 +1,10 @@
-from mclab.navigation_segmented import scaffold_step_matches
+from mclab.navigation_segmented import (
+    NATIVE_EDIT_KINDS,
+    NativeEdit,
+    executor_for,
+    native_edit_matches,
+    scaffold_step_matches,
+)
 from mclab.terrain_steps import StepPlan, TerrainPolicy
 
 AIR = {"block": "minecraft:air", "collision_boxes": []}
@@ -38,3 +44,81 @@ def test_a_scaffolding_step_is_refused_without_scaffolding_or_onto_protected_cel
     assert not scaffold_step_matches(STEP, cells(), POLICY, [])
     guarded = TerrainPolicy(**{**POLICY.__dict__, "protected_positions": ((1, 1, 0),)})
     assert not scaffold_step_matches(STEP, cells(), guarded, SCAFFOLD)
+
+
+def test_the_reserve_holds_back_solid_blocks_not_scaffolding():
+    # review of e029b74: a reserve above the solid blocks held went negative and
+    # refused a step that places scaffolding alone
+    from dataclasses import replace
+
+    reserved = replace(POLICY, reserve_blocks=4)
+    assert scaffold_step_matches(STEP, cells(), reserved, SCAFFOLD)
+    dirt = StepPlan((0, 1, 0), (1, 2, 0), places=((1, 1, 0),), kind="step")
+    held = [*SCAFFOLD, {"slot": 1, "item": "minecraft:dirt", "count": 4}]
+    assert not scaffold_step_matches(dirt, cells(), reserved, held)  # all reserved
+    held[1]["count"] = 5
+    assert scaffold_step_matches(dirt, cells(), reserved, held)
+
+
+def test_scaffold_drop_is_a_native_edit_and_validates_shaft_geometry():
+    assert "scaffold_drop" in NATIVE_EDIT_KINDS
+    crane = ((0, 0, 0), (0, 1, 0), (0, 2, 0), (1, 2, 0), (2, 2, 0))
+    places = crane + tuple((2, y, 0) for y in range(-10, 0))
+    plan = StepPlan(
+        (1, 0, 0),
+        (2, -1, 0),
+        places=places,
+        kind="scaffold_drop",
+        scaffold=places,
+    )
+    assert isinstance(executor_for(plan, POLICY), NativeEdit)
+    shaft = {
+        (0, -1, 0): STONE,
+        (1, -1, 0): STONE,
+        (1, 0, 0): AIR,
+        (1, 1, 0): AIR,
+        (2, -11, 0): STONE,
+        **{p: AIR for p in places},
+        (2, 0, 0): AIR,
+        (2, 1, 0): AIR,
+    }
+    supported = lambda c, p: p == (1, 0, 0)  # noqa: E731
+    assert native_edit_matches(plan, shaft, supported)
+    assert scaffold_step_matches(plan, shaft, POLICY, SCAFFOLD)
+    # Insufficient scaffolding fails inventory check (needs 5 crane + 10 shaft = 15).
+    short = [{"slot": 0, "item": "minecraft:scaffolding", "count": 14}]
+    assert not scaffold_step_matches(plan, shaft, POLICY, short)
+    # Scaffolding beside drop spawn cell (tx, y+1, tz) hangs instead of falling.
+    side_scaff = {
+        **shaft,
+        (2, 1, 1): {"block": "minecraft:scaffolding", "collision_boxes": []},
+    }
+    assert not native_edit_matches(plan, side_scaff, supported)
+    # Non-solid rim floor or backing floor fails.
+    scaff_rim = {
+        **shaft,
+        (1, -1, 0): {"block": "minecraft:scaffolding", "collision_boxes": []},
+    }
+    assert not native_edit_matches(plan, scaff_rim, supported)
+    assert not native_edit_matches(plan, {**shaft, (0, -1, 0): AIR}, supported)
+    # Blocked cell inside shaft or crane fails.
+    assert not native_edit_matches(plan, {**shaft, (2, -5, 0): STONE}, supported)
+    assert not native_edit_matches(plan, {**shaft, (1, 2, 0): STONE}, supported)
+    # Stacking onto existing scaffolding at shaft bottom is valid.
+    partial_places = crane + tuple((2, y, 0) for y in range(-7, 0))
+    partial = StepPlan(
+        (1, 0, 0),
+        (2, -1, 0),
+        places=partial_places,
+        kind="scaffold_drop",
+        scaffold=partial_places,
+    )
+    partial_shaft = {
+        **shaft,
+        (2, -8, 0): {
+            "block": "minecraft:scaffolding",
+            "fluid": "minecraft:empty",
+            "collision_boxes": [],
+        },
+    }
+    assert native_edit_matches(partial, partial_shaft, supported)

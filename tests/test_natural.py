@@ -217,3 +217,43 @@ def test_natural_world_restores_properties_left_switched_by_a_killed_run(
         assert (tmp_path / "lab-server.properties.bak").read_text() == lab
     assert properties.read_text() == lab
     assert not (tmp_path / "lab-server.properties.bak").exists()
+
+
+class _BodilessClient:
+    """A session with no bot body (a person or the Baritone client)."""
+
+    run_id, episode_id, body_id = "run", "ep", "body"
+
+    def __init__(self, polls_to_end=2):
+        self.events: list[dict] = []
+        self.heartbeats: list[bool] = []
+        self._polls = polls_to_end
+
+    def state(self, *, heartbeat=True):
+        self.heartbeats.append(heartbeat)
+        self._polls -= 1
+        if self._polls == 0:
+            self.events.append(
+                {
+                    "type": "course_episode_complete",
+                    "run_id": "run",
+                    "episode_id": "ep",
+                    "body_id": "body",
+                }
+            )
+        return {}
+
+
+@pytest.mark.parametrize("wait", ["natural", "baritone_runner"])
+def test_waiting_on_a_bodiless_attempt_sends_no_heartbeat(monkeypatch, wait):
+    # review of e029b74: heartbeat is a body op; with no body every one was rejected
+    # (wrong_identity) twice a second for the whole attempt. The lab watches no
+    # heartbeat for these sessions (no course watchdog).
+    from mclab import baritone_runner
+
+    module = natural if wait == "natural" else baritone_runner
+    monkeypatch.setattr(module, "POLL_SECONDS", 0)
+    client = _BodilessClient()
+    terminal = module._wait_terminal(client, 5)
+    assert terminal["type"] == "course_episode_complete"
+    assert client.heartbeats and not any(client.heartbeats)

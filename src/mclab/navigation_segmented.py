@@ -6,7 +6,7 @@ geometry before moving and never substitutes unconditional goal-directed digging
 
 import math
 import time
-from collections import deque
+from collections import ChainMap, deque
 from dataclasses import replace
 
 from mclab import body_search, collision_geometry, map_change, water_movement
@@ -15,7 +15,7 @@ from mclab.gap_jump import GapJumpExecutor, prepare_gap
 from mclab.grid_cache import CLIMBABLE
 from mclab.interaction_goal import interacts, interacts_at_position
 from mclab.movement_policy import MovementPolicy
-from mclab.navigation import NavigationController, empty, standable
+from mclab.navigation import NavigationController, empty, full_cube, standable
 from mclab.observation_worker import ObservationWorker
 from mclab.pillar_steps import executor_for as python_executor_for
 from mclab.pillar_steps import prepare_pillar
@@ -25,7 +25,7 @@ from mclab.terrain_geometry import known_step
 from mclab.terrain_steps import prepare_step
 from mclab.terrain_transport import ExpandedTerrain
 
-NATIVE_EDIT_KINDS = frozenset({"downward", "descend"})
+NATIVE_EDIT_KINDS = frozenset({"downward", "descend", "scaffold_drop"})
 # A confirmed terrain step that has not moved the body 0.05 in 1.5 s has failed;
 # failure plus replan must stay under the 5 s standstill rule.
 COMMIT_STALL_TICKS = 30
@@ -62,9 +62,56 @@ def executor_for(plan, policy):
 
 
 def native_edit_matches(plan, cells, supported):
-    """Fresh-geometry check of a downward/descend plan (shapes match the body's)."""
+    """Fresh-geometry check of a native edit plan (shapes match the body's)."""
     (x, y, z), (tx, ty, tz) = plan.source, plan.target
-    if plan.places or not plan.breaks or not supported(cells, plan.source):
+    if not supported(cells, plan.source):
+        return False
+    if plan.kind == "scaffold_drop":
+        crane_n = 5
+        n = len(plan.places)
+        dx, dz = tx - x, tz - z
+        bx, bz = x - dx, z - dz
+        if (
+            plan.breaks
+            or not (crane_n + 2 <= n <= crane_n + 32)
+            or abs(dx) + abs(dz) != 1
+            or ty != y - 1
+            or set(plan.scaffold) != set(plan.places)
+            or not full_cube(cells.get((x, y - 1, z)))
+            or not full_cube(cells.get((bx, y - 1, bz)))
+        ):
+            return False
+        depth = n - crane_n
+        floor_y = y - depth
+        expected = (
+            (bx, y, bz),
+            (bx, y + 1, bz),
+            (bx, y + 2, bz),
+            (x, y + 2, z),
+            (tx, y + 2, tz),
+        ) + tuple((tx, floor_y + i, tz) for i in range(depth))
+        if tuple(plan.places) != expected:
+            return False
+        if not (empty(cells.get((tx, y, tz))) and empty(cells.get((tx, y + 1, tz)))):
+            return False
+        floor = cells.get((tx, floor_y - 1, tz))
+        if not (
+            full_cube(floor)
+            or (
+                floor is not None
+                and floor.get("block") == "minecraft:scaffolding"
+                and floor.get("fluid", "minecraft:empty") == "minecraft:empty"
+            )
+        ):
+            return False
+        if any(
+            (cells.get((tx + ox, y + 1, tz + oz)) or {}).get("block")
+            == "minecraft:scaffolding"
+            for ox, oz in ((1, 0), (-1, 0), (0, 1), (0, -1))
+        ):
+            return False
+        return all(empty(cells.get(p)) for p in plan.places)
+    if plan.places or not plan.breaks:
         return False
     if any(cells.get(p) is None for p in plan.breaks):
         return False  # Unknown cells are never treated as breakable air.
@@ -106,7 +153,7 @@ def scaffold_step_matches(plan, cells, policy, inventory, protected=()):
     solid = len(plan.places) - len(scaffold)
     have_scaffold = sum(held.get(i, 0) for i in policy.scaffold_materials)
     have_solid = sum(held.get(i, 0) for i in policy.material_allowlist)
-    spare = have_solid - policy.reserve_blocks
+    spare = max(0, have_solid - policy.reserve_blocks)  # the reserve is solid blocks
     return have_scaffold >= len(scaffold) and spare >= solid
 
 
@@ -935,7 +982,24 @@ class SegmentedController(NavigationController):
         fresh = self._fresh(observation["tick"])
         valid = node == plan.source
         if valid and plan.kind in NATIVE_EDIT_KINDS:
-            valid = native_edit_matches(plan, fresh, self._node_supported)
+            # scaffold_drop spans cells below the +-4 near-body refresh box:
+            # verify the rim on fresh geometry and the full shaft against known+fresh.
+            if plan.kind == "scaffold_drop":
+                cells = ChainMap(fresh, self._known_cells())
+                valid = self._node_supported(
+                    fresh, plan.source
+                ) and native_edit_matches(plan, cells, self._node_supported)
+            else:
+                cells = fresh
+                valid = native_edit_matches(plan, fresh, self._node_supported)
+            if valid and plan.scaffold:
+                valid = scaffold_step_matches(
+                    plan,
+                    cells,
+                    self.terrain_queue_policy,
+                    observation["body"].get("inventory", []),
+                    protected=self.own_footholds,
+                )
         elif valid and plan.scaffold:
             valid = scaffold_step_matches(
                 plan,
@@ -965,6 +1029,23 @@ class SegmentedController(NavigationController):
                 fresh, plan.source, plan.target, max_drop=self.movement_policy.max_drop
             )
         if not valid:
+            # Recorded: a silent refusal hid 733 of them and ~13 min of replans
+            # in house-large run 20261120T113050800552Z.
+            self.events.append(
+                (
+                    "terrain_step_refused",
+                    {
+                        "source": plan.source,
+                        "target": plan.target,
+                        "kind": plan.kind,
+                        "breaks": plan.breaks,
+                        "places": plan.places,
+                        "scaffold": plan.scaffold,
+                        "exit": plan.exit,
+                        "node": tuple(node),
+                    },
+                )
+            )
             self._clear_terrain_forecast()
             self._discard_prefetch()  # planned on the forecast that no longer holds
             self.reason = "forecast preconditions changed; replanning"

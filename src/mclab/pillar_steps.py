@@ -2,7 +2,9 @@
 
 import math
 
+from mclab import collision_geometry
 from mclab.collision_geometry import clear_body
+from mclab.grid_cache import CLIMBABLE
 from mclab.navigation import empty, full_cube, rotation, standable
 from mclab.terrain_steps import StepExecutor, StepPlan, building_supply
 
@@ -15,23 +17,59 @@ def executor_for(plan, policy):
     )
 
 
+def climbs_on(target, exit_node):
+    """The exit is straight up the pillar: the cell above its target (the next move
+    is another pillar) or the target itself (the tower's top block). As
+    StepMotor.java's ``climbOn``: such an exit stands only once the pillar's own
+    blocks are under it, so it needs a clear body column, not a floor."""
+    return (
+        exit_node[0] == target[0]
+        and exit_node[2] == target[2]
+        and exit_node[1] in (target[1], target[1] + 1)
+    )
+
+
+def exit_holds(cells, target, exit_node):
+    """StepMotor's pillar exit check: a straight-up exit is clear for the body; any
+    other exit is stood on (any floor shape: a stair top, a slab, a scaffolding top)
+    or climbed."""
+    x, y, z = exit_node
+    if climbs_on(target, exit_node):
+        return all(empty(cells.get((x, math.floor(y) + dy, z))) for dy in (0, 1))
+    cell = cells.get((x, math.floor(y), z)) or {}
+    return (
+        standable(cells, exit_node)
+        or collision_geometry.standable(cells, exit_node)
+        or cell.get("block") in CLIMBABLE
+    )
+
+
 def prepare_pillar(cells, source, exit_node, policy, inventory, *, protected=()):
     x, y, z = source
+    target = (x, y + 1, z)
+    if exit_node is None or len(exit_node) != 3:
+        return None
+    straight = climbs_on(target, exit_node)
     if (
         not policy.allow_pillar
         or not policy.allow_place
         or policy.place_budget < 1
-        or exit_node is None
-        or len(exit_node) != 3
-        or abs(exit_node[0] - x) + abs(exit_node[2] - z) != 1
+        or not (straight or abs(exit_node[0] - x) + abs(exit_node[2] - z) == 1)
         or not 1 <= exit_node[1] - y <= policy.max_pillar_height + 1
-        or not standable(cells, exit_node)
+        or not exit_holds(cells, target, exit_node)
         or not standable(cells, source)
         or source in protected
         or source in policy.protected_positions
         or (cells.get(source) or {}).get("block") in policy.protected_blocks
         or not all(empty(cells.get((x, y + dy, z))) for dy in range(4))
-        or not empty(cells.get((exit_node[0], exit_node[1] + 2, exit_node[2])))
+        or not (
+            straight
+            # a slab or stair-top exit stands at a half height: the cell above
+            # its head is two whole cells up from the floor's own cell
+            or empty(
+                cells.get((exit_node[0], math.floor(exit_node[1]) + 2, exit_node[2]))
+            )
+        )
         or building_supply(inventory, policy.reserve_blocks, policy.material_allowlist)
         is None
     ):
@@ -83,7 +121,7 @@ class PillarExecutor:
         distance = math.hypot(p[0] - sx - 0.5, p[2] - sz - 0.5)
         if distance > 0.45 or p[1] < sy - 0.2 or p[1] > sy + 1.4:
             return self.fail("displaced during pillar work")
-        if not standable(fresh, self.plan.exit):
+        if not exit_holds(fresh, self.plan.target, self.plan.exit):
             return self.fail("pillar exit changed or stale")
         if not clear_body(fresh, p[0], p[2], p[1], p[1] + 1.8):
             return self.fail("pillar body clearance changed or stale")

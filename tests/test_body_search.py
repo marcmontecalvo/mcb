@@ -324,7 +324,10 @@ def test_boxed_in_dead_plan_lifts_the_bans_from_its_start_cell():
     c.failed_edges.add(((9, 1, 0), (10, 1, 0)))
     search = body_search.BodySearch(c, (5, 1, 0), 3)
     c.plan_reports[search.plan_id] = {
-        "state": "done", "status": "unreachable", "route": [[5, 1, 0]], "expanded": 2,
+        "state": "done",
+        "status": "unreachable",
+        "route": [[5, 1, 0]],
+        "expanded": 2,
     }
     search.advance()
     assert c.failed_edges == {((9, 1, 0), (10, 1, 0))}  # only the start cell's exits
@@ -374,8 +377,14 @@ def test_scaffolding_is_a_separate_supply_and_a_scaffold_plan_cell():
     assert sent["scaffold_supply"] == 5 and sent["place_supply"] > 0
     assert "scaffold_supply" not in body_search.edit_payload(PROD, inv, ())
     plan = body_search.step_plan(
-        {"source": [0, 1, 0], "target": [0, 2, 0], "breaks": [],
-         "places": [[0, 1, 0]], "scaffold": [[0, 1, 0]], "kind": "pillar"}
+        {
+            "source": [0, 1, 0],
+            "target": [0, 2, 0],
+            "breaks": [],
+            "places": [[0, 1, 0]],
+            "scaffold": [[0, 1, 0]],
+            "kind": "pillar",
+        }
     )
     assert plan.scaffold == ((0, 1, 0),)
 
@@ -400,3 +409,19 @@ def test_predicted_cells_marks_scaffold_cells_as_scaffolding():
     grid_cells = predicted_cells(grid.snapshot(), [step])
     assert grid_cells[(1, 0, 0)]["block"] == "minecraft:cobblestone"
     assert grid_cells[(1, 1, 0)]["block"] == "minecraft:scaffolding"
+
+
+def test_the_reserve_comes_out_of_the_solid_blocks_only():
+    # review of e029b74: the reserve was taken from solids and scaffolding together,
+    # so scaffolding alone under a reserve sent place_supply 0 and no place edges;
+    # Java's solidSupply (place_supply - scaffold_supply) is the solid count left
+    policy = replace(
+        PROD, scaffold_materials=("minecraft:scaffolding",), reserve_blocks=4
+    )
+    scaffold = {"slot": 1, "item": "minecraft:scaffolding", "count": 4}
+    sent = body_search.edit_payload(policy, (scaffold,), ())
+    assert sent["place_supply"] == 4 and sent["scaffold_supply"] == 4
+    assert sent["allow_place"]
+    dirt = {"slot": 2, "item": "minecraft:dirt", "count": 10}
+    sent = body_search.edit_payload(policy, (scaffold, dirt), ())
+    assert sent["place_supply"] - sent["scaffold_supply"] == 10 - 4

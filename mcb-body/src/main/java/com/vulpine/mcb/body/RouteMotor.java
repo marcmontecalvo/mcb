@@ -542,18 +542,21 @@ final class RouteMotor {
         // column needs sneak held (Baritone has no scaffolding; vanilla ScaffoldingBlock.getCollisionShape).
         // Only straight down: walking through or out of scaffolding level never sneaks (a crouched body crawls).
         boolean sneak = vertical && target.y < source.y && !up && (geometry.scaffolding(source) || geometry.scaffolding(target));
-        // Off a bridge or floor and down into a scaffolding column (scaffold course leg 4): the top
-        // plate holds a body that walks on, so walk over the column first, then sneak to sink in.
+        // Off a bridge or floor and down into a scaffolding column (scaffold course leg 4, descend):
+        // the top plate holds a body that walks on, so walk clear of the adjacent rim (within
+        // CLIMB_CENTRE = 0.15 so the 0.3-half-width box leaves the rim) before sneaking to sink in.
         if (!vertical && target.y < source.y && geometry.scaffolding(target) && pose.y > target.y + .5) {
-            boolean over = target.distance(pose) <= .3;
+            boolean over = target.distance(pose) <= CLIMB_CENTRE;
             if (over) return new Input(0, 0, false, false, true);
             return new Input(Math.abs(turn) > 45 ? 0 : Math.min(1, Math.max(.3, target.distance(pose))), yaw, false, false, false);
         }
         if (vertical) {
             // Rising, the 0.6-wide box must stay inside the 1-wide column (offset <= .2): run 20261119T202232979013Z
             // hung .22 off a vine column with its head under leaves in the next column and never rose.
+            // Sinking too: 0.202 off down a scaffolding column put the box on a hanging neighbour's bottom plate (run
+            // 20261119T225430670386Z, route_no_progress). A ladder descent hugs its wall and keeps the looser rule.
             double keep = index == route.size() - 1 ? arrivalRadius : .35;
-            if (up) keep = Math.min(keep, CLIMB_CENTRE);
+            if (up || sneak) keep = Math.min(keep, CLIMB_CENTRE);
             boolean off = target.distance(pose) > keep;
             return new Input(off && Math.abs(turn) <= 45 ? .3 : 0, off ? yaw : 0, up, false, sneak);
         }

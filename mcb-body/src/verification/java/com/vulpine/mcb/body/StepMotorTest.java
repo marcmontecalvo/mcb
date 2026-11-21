@@ -129,6 +129,32 @@ public final class StepMotorTest {
         // Tower-top pillar exit ([0,2,0] = target itself) is admitted cleanly.
         var topExit=pillar.deepCopy(); topExit.getAsJsonObject("plan").add("exit",JsonParser.parseString("[0,2,0]"));
         if(!new StepMotor(topExit).active()) throw new AssertionError("tower-top pillar self-exit admitted"); checks++;
+        // Drop-scaffolding descent (ROADMAP B2a): 5-block overhang crane + contiguous vertical shaft column.
+        var drop=request.deepCopy(); var drp=drop.getAsJsonObject("plan");
+        drp.add("source",JsonParser.parseString("[1,0,0]")); drp.add("target",JsonParser.parseString("[2,-1,0]"));
+        drp.add("breaks",JsonParser.parseString("[]")); drp.addProperty("kind","scaffold_drop");
+        var crane="[[0,0,0],[0,1,0],[0,2,0],[1,2,0],[2,2,0]";
+        var col=crane+",[2,-10,0],[2,-9,0],[2,-8,0],[2,-7,0],[2,-6,0],[2,-5,0],[2,-4,0],[2,-3,0],[2,-2,0],[2,-1,0]]";
+        drp.add("places",JsonParser.parseString(col)); drp.add("scaffold",JsonParser.parseString(col));
+        drop.getAsJsonObject("terrain_policy").addProperty("place_budget",16);
+        drop.getAsJsonObject("terrain_policy").add("material_allowlist",JsonParser.parseString("[]"));
+        if(!new StepMotor(drop).active()) throw new AssertionError("valid 10-deep crane+shaft scaffold_drop"); checks++;
+        bad=drop.deepCopy(); bad.getAsJsonObject("plan").add("places",JsonParser.parseString(crane+",[2,-1,0]]"));
+        bad.getAsJsonObject("plan").add("scaffold",JsonParser.parseString(crane+",[2,-1,0]]")); reject(bad);
+        bad=drop.deepCopy(); bad.getAsJsonObject("plan").add("scaffold",JsonParser.parseString("[]")); reject(bad);
+        bad=drop.deepCopy(); bad.getAsJsonObject("plan").add("target",JsonParser.parseString("[2,0,0]")); reject(bad);
+        bad=drop.deepCopy(); bad.getAsJsonObject("plan").add("places",JsonParser.parseString(crane+",[2,-3,0],[2,-1,0]]"));
+        bad.getAsJsonObject("plan").add("scaffold",JsonParser.parseString(crane+",[2,-3,0],[2,-1,0]]")); reject(bad);
+        bad=drop.deepCopy(); bad.getAsJsonObject("plan").add("places",JsonParser.parseString("[[2,-10,0],[2,-9,0],[2,-8,0],[2,-7,0],[2,-6,0],[2,-5,0],[2,-4,0],[2,-3,0],[2,-2,0],[2,-1,0]]"));
+        bad.getAsJsonObject("plan").add("scaffold",JsonParser.parseString("[[2,-10,0],[2,-9,0],[2,-8,0],[2,-7,0],[2,-6,0],[2,-5,0],[2,-4,0],[2,-3,0],[2,-2,0],[2,-1,0]]")); reject(bad);
+        bad=drop.deepCopy(); bad.getAsJsonObject("terrain_policy").add("protected_positions",JsonParser.parseString("[[2,-5,0]]")); reject(bad);
+        // settledScaffold rejects distance=7 (just landed, scheduled tick has not settled yet) and accepts distance=0.
+        var unsettled=java.util.Map.<String,Object>of("block","minecraft:scaffolding","fluid","minecraft:empty",
+                "collision_boxes",java.util.List.of(),"properties",java.util.Map.of("distance","7","bottom","true"));
+        var settled=java.util.Map.<String,Object>of("block","minecraft:scaffolding","fluid","minecraft:empty",
+                "collision_boxes",java.util.List.of(),"properties",java.util.Map.of("distance","0","bottom","false"));
+        if(StepMotor.settledScaffold(unsettled) || !StepMotor.settledScaffold(settled))
+            throw new AssertionError("settledScaffold must distinguish distance=7 from distance=0"); checks++;
         System.out.println("StepMotor: "+checks+" admission checks passed");
     }
 }

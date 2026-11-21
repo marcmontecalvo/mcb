@@ -13,3 +13,5 @@ results/
 /prune-apply.log*
 .claude/worktrees/
 .claude/settings.local.json
+mcb-lab/logs/
+mcb-body/logs/

@@ -177,6 +177,9 @@ def _defaults(test: str) -> dict:
         awareness = Awareness().payload()
         run["entrants"] = ["baritone", "v8_goal"]
         run["conditions"] = [False, True]
+    if test == "build":
+        # watched in game: the route, the stance it heads for and the block it works on
+        run["show_markers"] = True
     if test not in {"natural", "gather", "build"}:
         awareness = None
     run["gather"] = asdict(GatherOptions())
@@ -373,6 +376,7 @@ def resolve_config(
         "stage",
         "scaffolding",
         "origin",
+        "show_markers",
     )
     natural_fields = (
         "routes",
@@ -835,7 +839,7 @@ def config_schema() -> dict:
         "conditions": ["natural"],
         "condition": ["natural"],
         "repetitions": ["natural"],
-        "show_markers": ["natural"],
+        "show_markers": ["natural", "build"],
         "stall_seconds": ["natural"],
         "cost_profile": ["natural"],
         "flee": ["natural"],

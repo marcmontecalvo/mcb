@@ -462,6 +462,45 @@ def test_script_run_forwards_only_allowed_fixed_script_arguments(monkeypatch):
     assert seen == [["--mode", "bounded", "--trace"]]
 
 
+@pytest.mark.parametrize(
+    ("name", "argv"),
+    [
+        ("scaffold-challenges", ["--subject", "human", "--player", "Steve", "climb"]),
+        ("companion-scaffold-course", ["--origin", "990", "80", "988"]),
+    ],
+)
+def test_scaffold_scripts_take_their_own_arguments(monkeypatch, name, argv):
+    seen = []
+
+    @run_launch.script_run(name)
+    def check():
+        seen.append(sys.argv[1:])
+        return 0
+
+    _recording_launch(monkeypatch)
+    monkeypatch.setattr(sys, "argv", [f"check-{name}.py", *argv])
+    assert check() == 0
+    assert seen == [argv]
+
+
+def test_scaffold_challenges_dispatch_to_their_script(tmp_path, monkeypatch):
+    config = resolve_config(
+        "companion",
+        overrides={
+            "run": {"check": "scaffold-challenges", "arguments": ["--level", "basic"]}
+        },
+    )
+    monkeypatch.setattr(run_launch, "ROOT", tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        run_launch, "_script", lambda path, args: calls.append((path, args)) or 0
+    )
+    assert run_launch.execute_config(config) == 0
+    assert calls == [
+        (tmp_path / "scripts/check-scaffold-challenges.py", ["--level", "basic"])
+    ]
+
+
 def test_script_run_rejects_unknown_fixed_script_arguments_before_launch(monkeypatch):
     called = []
 
