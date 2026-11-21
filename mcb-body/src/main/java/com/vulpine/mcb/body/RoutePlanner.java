@@ -1257,6 +1257,12 @@ final class RoutePlanner {
     /** A floor to stand or click on: a full cube, or scaffolding (it senses with no collision boxes, yet a body above it,
      *  not sneaking, stands on its top). */
     private static boolean sturdy(Map<String, Object> c) { return fullDry(c) || (c != null && dry(c) && scaffolding(c)); }
+    /** A full cube whose top face holds scaffolding (Block.isFaceSturdy UP). Leaves collide as a cube yet have an empty
+     *  sides shape: scaffolding on them gets distance 7 and does not place (run 20261121T224929134438Z, 13 steps onto a
+     *  tree). A body still stands on leaves and clicks blocks against them, so only scaffolding support asks this. */
+    private static boolean sturdyTop(Map<String, Object> c) {
+        return fullDry(c) && !String.valueOf(c.get("block")).endsWith("_leaves");
+    }
 
     /** ScaffoldingBlock.getDistance for a block placed at (x,y,z): the stored distance of scaffolding below, 0 on a sturdy
      *  top, else the least neighbour distance + 1 (7 = it falls). own: earlier places of this edit (-1 solid, else distance). */
@@ -1265,7 +1271,7 @@ final class RoutePlanner {
         if (below != null) return below >= 0 ? below : 0;
         var cellBelow = cell(x, y - 1, z);
         if (scaffolding(cellBelow)) return existingDistance(x, y - 1, z, own, budget);
-        if (fullDry(cellBelow)) return 0;
+        if (sturdyTop(cellBelow)) return 0;
         int best = 7;
         for (var d : DIRECTIONS) {
             var n = own.get(key(x + d[0], y, z + d[1]));
