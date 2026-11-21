@@ -87,6 +87,11 @@ public final class BreakTaskTest {
             catch (RuntimeException expected) { refused = true; }
             check(refused, "plug_keep refuses " + bad);
         }
+        // Run 20261121T194310764564Z: a plug with nothing spare emitted item=null and Map.copyOf crashed the server tick.
+        var noBlock = new java.util.LinkedHashMap<String, Object>();
+        noBlock.put("fluid", "water");
+        noBlock.put("item", null);
+        check(BodyRuntime.eventData(noBlock).equals(Map.of("fluid", "water")), "event data drops null values");
         System.out.println("BreakTaskTest ok");
     }
 }

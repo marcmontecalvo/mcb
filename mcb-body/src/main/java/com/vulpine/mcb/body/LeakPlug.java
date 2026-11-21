@@ -105,8 +105,8 @@ final class LeakPlug {
                 held.merge(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(), stack.getCount(), Integer::sum);
         }
         String item = choose(held, keep, LeakPlug::solidBlock);
-        data.put("item", item);
         if (item == null) { data.put("ok", false); data.put("reason", "no_block"); return data; }
+        data.put("item", item);
         var request = new JsonObject();
         var at = new JsonArray();
         at.add(pos.getX()); at.add(pos.getY()); at.add(pos.getZ());

@@ -194,7 +194,17 @@ public final class BodyRuntime implements AutoCloseable {
     private synchronized void emit(String type, String phase, Map<String, Object> data) {
         if (events.size() == 2048) events.removeFirst();
         events.addLast(new Event(1, launchId, runId, episodeId, bodyId, ++eventSequence,
-                server.getTickCount(), phase, type, Map.copyOf(data)));
+                server.getTickCount(), phase, type, eventData(data)));
+    }
+
+    /**
+     * An event's immutable data with null values left out (absent, not null). emit runs on the server tick, so a
+     * Map.copyOf null throw there crashes the server (run 20261121T194310764564Z: a plug with no spare block).
+     */
+    static Map<String, Object> eventData(Map<String, Object> data) {
+        var out = new LinkedHashMap<String, Object>();
+        data.forEach((key, value) -> { if (value != null) out.put(key, value); });
+        return Map.copyOf(out);
     }
 
     /**

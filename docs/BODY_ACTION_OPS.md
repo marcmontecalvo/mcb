@@ -85,7 +85,8 @@ about 1 s; the attack is held so it is never struck: take another stance). With 
 A fluid that flows into a cell the body just broke (by `break_block` or a step edit) is
 plugged at once with a held block (`leak_plugged` event): cobblestone, then dirt, then
 another plain solid, never a gravity block or a valuable, and only beyond the counts last
-set by `plug_keep`.
+set by `plug_keep`. With no spare block the event has `ok: false`, `reason: no_block` and
+no `item` (event data never carries null values).
 
 ### `plug_keep`
 Request: `{"items": {"minecraft:<block>": n, ...}}` (at most 512 kinds, 0 ≤ n ≤ 1,000,000).
