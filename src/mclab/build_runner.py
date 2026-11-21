@@ -1434,6 +1434,7 @@ def _cover(runner: _Runner, act, ready: list) -> dict:
 def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:
     prev = None  # the cell worked last: in reach, the next one goes on beside it
     covers = hasattr(runner.body, "stance_cover")
+    walk_dist = getattr(runner.body, "walk_distance", None)
     while pool and runner.report.steps < runner.max_steps and not runner.short:
         here = runner.body.position()
         ready = [a for a in pool if _ready(a, corners)]
@@ -1442,17 +1443,36 @@ def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:
         near = {
             id(a) for a in ready if a.pos[1] == layer and _in_reach(runner, a, here)
         }
+        walk_cache: dict[Pos, int | None] = {}
 
-        def key(a, here=here, last=last, prev=prev, near=near):
+        def key(
+            a,
+            here=here,
+            last=last,
+            prev=prev,
+            near=near,
+            layer=layer,
+            walk_cache=walk_cache,
+        ):
             d2 = _dist2(a.pos, here)
             reached = id(a) in near
             same = getattr(a, "item", None) != last
             # In reach, go on along the wall from the last cell rather than by
             # distance to the body: from a corner both arms are as near, and the
             # nearest-first order swung between them, leaving the far ends of both
-            # for a walk each.
+            # for a walk each. Out of reach, rank by real walking distance when the
+            # body provides it so the bot finishes one side of a wall / floor first.
             along = _dist2(a.pos, prev) if reached and prev is not None else d2
-            return (a.pos[1], not reached, 0 if reached else d2, same, along, d2)
+            if reached:
+                travel = 0
+            elif walk_dist is not None and a.pos[1] == layer:
+                if a.pos not in walk_cache:
+                    walk_cache[a.pos] = walk_dist(a.pos)
+                wd = walk_cache[a.pos]
+                travel = wd if wd is not None else 1000 + d2
+            else:
+                travel = d2
+            return (a.pos[1], not reached, travel, same, along, d2)
 
         act = min(ready, key=key)
         if tried and _dist2(act.pos, here) > (REACH + STALE_MARGIN) ** 2:
@@ -1536,6 +1556,64 @@ def _adopt_footholds(body, template: bp.Template, scaffolds: set) -> None:
     }
 
 
+def _sweep_cleanup(runner: _Runner, acts: list) -> None:
+    """Break cleanup targets nearest-first (walking distance when available),
+    always taking the highest remaining block of any solid column first so the
+    body clears one corner/room at a time instead of zig-zagging across the house
+    (run 20261120T175636584118Z spent 363 s in global top-down cleanup)."""
+    pool = list(acts)
+    walk_dist = getattr(runner.body, "walk_distance", None)
+    while pool and runner.report.steps < runner.max_steps:
+        here = runner.body.position()
+        by_col: dict[tuple[int, int], int] = {}
+        for a in pool:
+            col = a.pos[::2]
+            by_col[col] = max(by_col.get(col, a.pos[1]), a.pos[1])
+        ready = [a for a in pool if a.pos[1] == by_col[a.pos[::2]]]
+
+        def key(a, here=here):
+            d2 = _dist2(a.pos, here)
+            wd = walk_dist(a.pos) if walk_dist is not None else None
+            dist = wd if wd is not None else (1000 + d2 if walk_dist else d2)
+            return (dist, d2, -a.pos[1], a.pos)
+
+        act = min(ready, key=key)
+        pool.remove(act)
+        if not _standing(runner.body, act.pos):
+            continue
+        runner.attempt(act)
+
+
+def _clear_indoor_strays(
+    runner: _Runner, template: bp.Template, scaffolds: set
+) -> None:
+    """When structure finishes and details begin, clear temporary dirt/scaffolding
+    rooted inside template air cells (rooms/balconies) so indoor stances are not
+    crowded before glazing and furniture go in. Exterior towers rooted outside the
+    template stay standing for gable/roof details."""
+    _adopt_footholds(runner.body, template, scaffolds)
+    indoor = {
+        c
+        for c in scaffolds
+        if c in template.cells
+        and bp.parse_state(template.cells[c])[0] in bp.AIR
+        and _standing(runner.body, c)
+    }
+    if not indoor:
+        return
+    scaff_indoor = {c for c in indoor if bp._scaffolding(runner.body.world(*c))}
+    drop_set = set(indoor - scaff_indoor)
+    for comp in runner._scaffold_components(scaff_indoor):
+        roots = sc.roots(comp, runner._sturdy_below)
+        if roots and all(
+            r in template.cells and bp.parse_state(template.cells[r])[0] in bp.AIR
+            for r in roots
+        ):
+            drop_set |= comp
+    if drop_set:
+        runner._take_down(drop_set)
+
+
 def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
     """Take the scaffolds back: break them (scaffolding: only the blocks on the ground,
     the rest drops with them), wait for scaffolding collapses, then pick up what fell
@@ -1574,8 +1652,7 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
                 prev_towering = runner._towering
                 runner._towering = True
                 stack.callback(setattr, runner, "_towering", prev_towering)
-            for act in acts:
-                runner.attempt(act)
+            _sweep_cleanup(runner, acts)
         broken = True
         if has_collapse and settle:
             settle(COLLAPSE_TICKS)
@@ -1817,6 +1894,7 @@ def _run(
     settled = False
     hunger: dict = {}
     stock: dict = {}
+    indoor_cleared = False
     build_stage = "placing"
     on_stage(build_stage)
     while True:
@@ -1927,9 +2005,16 @@ def _run(
             or isinstance(a, bp.Use)
             for a in acts
         )
+        has_non_door_details = any(
+            isinstance(a, bp.Place) and bp.is_detail(a.state) for a in acts
+        )
         if has_structure:
             build_stage = "placing"
         elif has_details:
+            if build_stage == "placing" and has_non_door_details and not indoor_cleared:
+                indoor_cleared = True
+                with calm():
+                    _clear_indoor_strays(runner, template, scaffolds)
             build_stage = "placing details"
         on_stage(build_stage)
         with calm():

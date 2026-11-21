@@ -2310,3 +2310,86 @@ def test_can_reach_from_tower_rejects_eye_above_chain_down_face_and_wrong_side()
     b.placing_state = "minecraft:oak_planks"
     outside = [(0, 0, 2), (0, 1, 2)]
     assert b.can_reach_from_tower((0, 2, 0), 4.5, (0, 2, 2), outside) == 0
+
+
+def test_walkable_bfs_ranks_same_side_of_wall_before_walk_around_wall():
+    # A wall at z=1 spans x=0..6 with a doorway only at x=7: from (1, 0, 2) inside,
+    # (1, 0, 0) outside is crow-closer (2.0) than (3, 0, 2) inside (2.0), and walking
+    # around to (1, 0, 0) takes ~14 steps vs 2 steps inside.
+    b, _, _ = body()
+    b.precise_stance = True
+    cells = b.memory.cells
+    for x in range(-1, 10):
+        for z in range(-1, 5):
+            for y in range(0, 4):
+                cells[(x, y, z)] = {"block": "minecraft:air", "collision_boxes": []}
+            cells[(x, -1, z)] = {"block": "minecraft:stone", "collision_boxes": [FULL]}
+    for x in (*range(-1, 7), 8, 9):
+        for y in (0, 1, 2):
+            cells[(x, y, 1)] = {
+                "block": "minecraft:oak_planks",
+                "collision_boxes": [FULL],
+            }
+    for z in range(1, 5):
+        for y in (0, 1, 2):
+            cells[(-1, y, z)] = {
+                "block": "minecraft:oak_planks",
+                "collision_boxes": [FULL],
+            }
+            cells[(9, y, z)] = {
+                "block": "minecraft:oak_planks",
+                "collision_boxes": [FULL],
+            }
+    for x in range(-1, 10):
+        for y in (0, 1, 2):
+            cells[(x, y, 4)] = {
+                "block": "minecraft:oak_planks",
+                "collision_boxes": [FULL],
+            }
+    # Window opening at (2, 1, 1) (solid below at y=0 and lintel above at y=2):
+    # blocks walking through the wall, while both inside (2, 0, 2) (walk=1) and
+    # outside (2, 0, 0) (walk=14) can place into it. Inside must rank first!
+    cells[(2, 1, 1)] = {"block": "minecraft:air", "collision_boxes": []}
+    # Wooden door at x=7, z=1: BFS must treat it as passable, not a wall.
+    door = {"block": "minecraft:oak_door", "collision_boxes": [[0, 0, 0, 1, 1, 0.2]]}
+    cells[(7, 0, 1)] = dict(door)
+    cells[(7, 1, 1)] = dict(door)
+    b._obs["body"]["position"] = [1.5, 0.0, 2.5]
+    walk = b._walkable(cells, (1, 0, 2))
+    assert isinstance(walk, dict)
+    assert walk[(3, 0, 2)] == 2
+    assert walk[(1, 0, 0)] == 15  # 14 steps + 1 door-open penalty through (7, 0, 1)
+    b.placing_state = "minecraft:oak_planks"
+    ranked = b.stances((2, 1, 1), 4.5)
+    assert ranked.index((2, 0, 2)) < ranked.index((2, 0, 0))
+    assert b.walk_distance((2, 0, 2)) == 0
+
+
+def test_pillar_to_disables_partial_walk_away_from_column(monkeypatch):
+    from types import SimpleNamespace
+
+    b, _, _ = body()
+    seen = {}
+
+    def fake_navigate(goal, reach=None, radius=0.6, probe=False, progress=None):
+        seen["probe"] = probe
+        seen["walk_only"] = b.walk_only
+        seen["pillar_only"] = b._pillar_only
+        return True
+
+    monkeypatch.setattr(b, "_navigate", fake_navigate)
+    assert b.pillar_to((0, 6, 0), "minecraft:dirt", 6)
+    assert seen == {"probe": True, "walk_only": True, "pillar_only": True}
+    # And with allow_partial_gain=False, an incomplete probe returns unreachable
+    # rather than walking a partial route away from the column.
+    ctrl = cb._GotoController.__new__(cb._GotoController)
+    ctrl.probe = True
+    ctrl.walk_partial = False
+    ctrl.allow_partial_gain = False
+    ctrl.mode = "incomplete"
+    ctrl.route_steps = []
+    ctrl.last_result = SimpleNamespace(
+        status="incomplete", route=[(0, 0, 0), (5, 0, 0)]
+    )
+    ctrl.goal = (0, 10, 0)
+    assert ctrl._probe_verdict() == "unreachable"

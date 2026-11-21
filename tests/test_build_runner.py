@@ -2447,3 +2447,61 @@ def test_cleanup_adopts_and_removes_footholds_placed_during_cleanup_walks():
     assert body.collect_placing_states and all(
         not s for s in body.collect_placing_states
     )
+
+
+def test_sweep_pool_picks_shorter_walk_distance_target_over_crow_closer_across_wall():
+    w = flat_world(hi=10)
+    near_crow_far_walk = (0, 0, 6)  # crow dist 6, walk dist 24 (across wall)
+    far_crow_near_walk = (0, 0, 8)  # crow dist 8, walk dist 3 (same room)
+
+    class WalkDistBody(FakeBody):
+        def walk_distance(self, pos):
+            return {near_crow_far_walk: 24, far_crow_near_walk: 3}.get(pos)
+
+    body = WalkDistBody(w, {PLANKS: 4}, BLOCKS, pos=(0, 0, 0))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    acts = [
+        bp.Place(near_crow_far_walk, PLANKS, PLANKS),
+        bp.Place(far_crow_near_walk, PLANKS, PLANKS),
+    ]
+    br._sweep_pool(runner, acts, set(), None, False)
+    assert runner.report.placed[0] == far_crow_near_walk
+
+
+def test_cleanup_sweeps_nearest_first_while_keeping_columns_top_down():
+    w = flat_world(hi=16)
+    # Near 2-high column at (1, 0..1, 1) and far taller column at (12, 0..4, 12).
+    for y in (0, 1):
+        w[(1, y, 1)] = "minecraft:dirt"
+    for y in range(5):
+        w[(12, y, 12)] = "minecraft:dirt"
+    t = bp.Template.from_build(make_build({(0, 0, 0): PLANKS}, (14, 6, 14)), (0, 0, 0))
+    w[(0, 0, 0)] = PLANKS
+    body = FakeBody(w, {}, BLOCKS, pos=(1, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.template = t
+    scaffolds = {(1, 0, 1), (1, 1, 1), *((12, y, 12) for y in range(5))}
+    runner.scaffolds = scaffolds
+    br._clean_up(runner, t, scaffolds)
+    # Near column cleared top-down first before walking across the house to (12, *, 12).
+    assert runner.report.broken[:2] == [(1, 1, 1), (1, 0, 1)]
+    assert runner.report.broken[2:] == [(12, y, 12) for y in range(4, -1, -1)]
+
+
+def test_structure_to_details_clears_indoor_strays_while_keeping_exterior_towers():
+    w = flat_world(hi=10)
+    # Structure plank at (0, 0, 0), glass detail at (1, 0, 0); indoor dirt at (2, 0, 2),
+    # exterior scaffolding tower at (8, 0..2, 8) outside template box (4x4x4).
+    cells = {(0, 0, 0): PLANKS, (1, 0, 0): "minecraft:glass"}
+    t = bp.Template.from_build(make_build(cells, (4, 4, 4)), (0, 0, 0))
+    w[(2, 0, 2)] = "minecraft:dirt"
+    for y in range(3):
+        w[(8, y, 8)] = SCAFF
+    body = FakeBody(w, {PLANKS: 2, "minecraft:glass": 2}, BLOCKS, pos=(0, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.template = t
+    scaffolds = {(2, 0, 2), (8, 0, 8), (8, 1, 8), (8, 2, 8)}
+    runner.scaffolds = scaffolds
+    br._clear_indoor_strays(runner, t, scaffolds)
+    assert w[(2, 0, 2)] == AIR  # indoor stray cleared
+    assert all(w[(8, y, 8)] == SCAFF for y in range(3))  # exterior tower kept

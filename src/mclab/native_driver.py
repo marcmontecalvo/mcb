@@ -350,18 +350,30 @@ def prefetch_while_following(controller, route, native=None):
     if refreshing(controller) and native is not None:
         index = native.get("next_index", 1)
         end = tuple(route[min(len(route) - 1, max(index, 1) + REFRESH_AHEAD - 1)])
+        full = getattr(controller, "route", None) or ()
+        goal = tuple(controller.goal) if controller.goal is not None else None
+        complete = bool(full) and goal is not None and tuple(full[-1]) == goal
+        goal_rev = getattr(controller, "goal_revision", 0)
         last = getattr(controller, "refreshed", None)
-        if last is not None and last[0] == end:
+        if last is not None and (
+            last[0] == end or (complete and len(last) >= 4 and last[3] == goal_rev)
+        ):
             if last[1] == revision:
-                return  # Same start on the same map: the answer would not change.
+                return  # Same start or complete route on the same map: no news.
             if not map_change.changed(
                 last[2], cells, _cells_ahead(controller, route, end)
             ):
                 # A newer map with nothing changed along the way ahead (a block
                 # placed beside the body, re-observed cells) is no reason to re-plan.
-                controller.refreshed = (end, revision, cells)
+                controller.refreshed = (end, revision, cells, goal_rev)
                 return
-        controller.refreshed = (end, revision, cells)
+        if complete and (last is None or len(last) < 4 or last[3] != goal_rev):
+            # Active route already reaches the goal on this map: record baseline
+            # snapshot and only re-plan if geometry ahead actually changes (run
+            # 20261120T175636584118Z fired 20 plans in 6.8 s on an unobstructed walk).
+            controller.refreshed = (end, revision, cells, goal_rev)
+            return
+        controller.refreshed = (end, revision, cells, goal_rev)
     if end == controller.goal:
         return
     controller.prefetch = controller._new_search(cells, end, revision)

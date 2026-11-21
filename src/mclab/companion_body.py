@@ -39,6 +39,7 @@ Assumptions (the coordinator verifies them live)
 from __future__ import annotations
 
 import functools
+import heapq
 import logging
 import math
 import time
@@ -450,6 +451,7 @@ class _GotoController(SegmentedController):
     no_drive = False  # drive_native keeps every motor submission off
     walk_wall = 0.0  # wall of the walk a successful probe turns into
     walk_partial = False  # a probe that ran out of search walks the moves it found
+    allow_partial_gain = True  # False for pillar_to: never walk away from the column
     on_pass = None  # called with the body position while a route is followed
     last_partial_walk = None  # (start, end) of the last partial walked to this goal
     dead_ends = None  # {"revision", "ends"}: partial endpoints known unreachable-from, per goal
@@ -584,7 +586,7 @@ class _GotoController(SegmentedController):
                 self.walk_partial
                 or getattr(self, "route_steps", None)
                 or self.mode in EDIT_MODES
-                or self._partial_gains(last.route)
+                or (self.allow_partial_gain and self._partial_gains(last.route))
             )
         ):
             # The search ran out of nodes. Its moves toward the goal are walked at
@@ -1336,6 +1338,7 @@ class CompanionBody:
         # with an empty inventory, so placing was off while the body held 31 dirt and
         # 40 scaffolding and the walk ran to 10,000 nodes (run 20261118T111231396410Z).
         controller.inventory = tuple(dict(r) for r in getattr(self, "_rows", ()))
+        controller.allow_partial_gain = not getattr(self, "_pillar_only", False)
         return controller
 
     def plan_ahead(self, target: Pos, reach: float) -> None:
@@ -1804,6 +1807,8 @@ class CompanionBody:
         (at most ``n`` blocks, no digging or bridging), even inside ``no_placing``: the
         build's tower of dirt is a solid column nothing can walk or climb onto."""
         saved = self.terrain_policy
+        saved_only = getattr(self, "walk_only", False)
+        saved_pillar = getattr(self, "_pillar_only", False)
         self.terrain_policy = replace(
             saved,
             allow_place=True,
@@ -1813,9 +1818,16 @@ class CompanionBody:
             place_budget=n,
             material_allowlist=(item,),
         )
+        self.walk_only = True
+        self._pillar_only = True
         try:
-            return self._navigate(tuple(feet), reach=None, radius=0.6)
+            # probe=True with allow_partial_gain=False ensures a capped pillar search
+            # never wanders away from the column around the house (run
+            # 20261120T175636584118Z: 205 near cap hits from pillar_to).
+            return self._navigate(tuple(feet), reach=None, radius=0.6, probe=True)
         finally:
+            self._pillar_only = saved_pillar
+            self.walk_only = saved_only
             self.terrain_policy = saved
 
     @_fresh_idle
@@ -1872,20 +1884,27 @@ class CompanionBody:
                 else interacts(cells, node, target, reach)
             )
         ]
-        # ponytail: stances the body can walk to come first. Sorted by distance
-        # alone, wall tops and roof cells two blocks away outranked the floor four
-        # away; each cost a failed 4000-node plan (run 20261110T095528994372Z: 284
-        # unreachable probes, a dirt tower per wall). Upgrade path: plan cost.
-        walk = self._walkable(cells, here) if found else ()
-        # Among those, the one that also places the most of the sweep's next cells
-        # (``stance_cover``): nearest-first stood at the edge of reach and the next
-        # cell along the wall needed a walk of its own (run 20261119T225430670386Z).
+        # ponytail: stances the body can walk to come first, ranked by real BFS
+        # walking distance (not straight-line crow-distance, which sent the bot out
+        # the door and around walls: 43 detours / 413 s in run 20261120T175636584118Z).
+        walk = self._walkable(cells, here) if found else {}
+
+        def _walk_cost(n: Pos) -> float:
+            if isinstance(walk, dict) and n in walk:
+                return float(walk[n])
+            return math.dist(n, here)
+
+        # Among walkable stances, balance walking distance against upcoming sweep
+        # cells covered (``stance_cover``): each extra covered cell saves ~3 steps of
+        # walking, so it prefers a better spot along the same wall without walking 24
+        # blocks around the house for +1 cover.
         ranked = sorted(
             found,
             key=lambda n: (
                 n not in walk,
                 not _clean_feet(cells, n),
-                -self._stance_covers(cells, n, reach),
+                _walk_cost(n) - 3.0 * self._stance_covers(cells, n, reach),
+                _walk_cost(n),
                 math.dist(n, here),
                 n,
             ),
@@ -2023,12 +2042,19 @@ class CompanionBody:
             and (standable(cells, node) or _tower_top(cells, node))
             and both_from(stance_eye(node), node)
         ]
-        walk = self._walkable(cells, here) if found else ()
+        walk = self._walkable(cells, here) if found else {}
+
+        def _walk_cost(n: Pos) -> float:
+            if isinstance(walk, dict) and n in walk:
+                return float(walk[n])
+            return math.dist(n, here)
+
         ranked = sorted(
             found,
             key=lambda n: (
                 n not in walk,
                 not _clean_feet(cells, n),
+                _walk_cost(n),
                 math.dist(n, here),
                 n,
             ),
@@ -2160,26 +2186,87 @@ class CompanionBody:
             for pos, (required, state) in self.stance_cover.items()
         )
 
-    def _walkable(self, cells, here: Pos) -> set[Pos]:
-        """Cells reachable from ``here`` on foot with no edits: 4 directions, one
-        up, ``max_drop`` down, at most WALK_CELLS cells. A ranking hint, not a
-        verdict (no diagonals, jumps or headroom between cells)."""
-        key = (here, self._tick() // 40)
+    def _walkable(self, cells, here: Pos) -> dict[Pos, int]:
+        """Cells reachable from ``here`` with no terrain edits, mapped to their
+        walking cost in steps (Dijkstra/BFS up to WALK_CELLS): 4 horizontal moves
+        (+1 step up, ``max_drop`` down), wooden doors/gates, and scaffolding climbs/
+        descents. Replaces the old DFS set so stances and sweep targets rank by
+        actual walking distance instead of straight-line crow-distance across walls."""
+        rev = getattr(self.memory, "revision", None)
+        key = (here, self._tick() // 40, rev, len(self._overlay))
         if getattr(self, "_walk_memo", (None,))[0] == key:
             return self._walk_memo[1]
         drop = self.movement_policy.max_drop
-        seen, todo = {here}, [here]
-        while todo and len(seen) < WALK_CELLS:
-            x, y, z = todo.pop()
+        use_doors = bool(getattr(getattr(self, "terrain_policy", None), "use_doors", True))
+
+        def passable(node: Pos) -> bool:
+            if standable(cells, node) or _tower_top(cells, node):
+                return True
+            if not use_doors:
+                return False
+            c = cells.get(node)
+            if not c:
+                return False
+            blk = c.get("block") or ""
+            if not (
+                (blk.endswith("_door") and not blk.endswith("iron_door"))
+                or blk.endswith("_fence_gate")
+            ):
+                return False
+            below = cells.get((node[0], node[1] - 1, node[2]))
+            return bool(
+                below
+                and (below.get("collision_boxes") or below.get("block") == SCAFFOLDING)
+            )
+
+        dist: dict[Pos, int] = {here: 0}
+        heap: list[tuple[int, Pos]] = [(0, here)]
+        while heap and len(dist) < WALK_CELLS:
+            cost, (x, y, z) = heapq.heappop(heap)
+            if cost > dist.get((x, y, z), cost):
+                continue
             for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 for dy in range(1, -drop - 1, -1):
                     node = (x + dx, y + dy, z + dz)
-                    if node not in seen and standable(cells, node):
-                        seen.add(node)
-                        todo.append(node)
+                    if passable(node):
+                        nc = cost + (2 if dy > 0 else 1)
+                        if nc < dist.get(node, 10**9):
+                            dist[node] = nc
+                            heapq.heappush(heap, (nc, node))
                         break
-        self._walk_memo = (key, seen)
-        return seen
+            cur_blk = (cells.get((x, y, z)) or {}).get("block")
+            below_blk = (cells.get((x, y - 1, z)) or {}).get("block")
+            if cur_blk == SCAFFOLDING:
+                for dy, step_cost in ((1, 3), (-1, 2)):
+                    node = (x, y + dy, z)
+                    if passable(node) and cost + step_cost < dist.get(node, 10**9):
+                        dist[node] = cost + step_cost
+                        heapq.heappush(heap, (cost + step_cost, node))
+            elif below_blk == SCAFFOLDING:
+                node = (x, y - 1, z)
+                if passable(node) and cost + 2 < dist.get(node, 10**9):
+                    dist[node] = cost + 2
+                    heapq.heappush(heap, (cost + 2, node))
+        self._walk_memo = (key, dist)
+        return dist
+
+    def walk_distance(self, pos: Pos) -> int | None:
+        """Minimum cached walking cost from the body to a standable cell within
+        work reach of ``pos`` (None if unreachable on foot)."""
+        walk = self._walkable(self._cells_now(), self.position())
+        if not isinstance(walk, dict):
+            return None
+        px, py, pz = pos
+        best: int | None = None
+        for dx in range(-3, 4):
+            for dz in range(-3, 4):
+                if dx * dx + dz * dz > 9:
+                    continue
+                for dy in range(-3, 2):
+                    c = walk.get((px + dx, py + dy, pz + dz))
+                    if c is not None and (best is None or c < best):
+                        best = c
+        return best
 
     def _cells_now(self):
         """The sensed map plus this body's own recent edits (the overlay): a wall
