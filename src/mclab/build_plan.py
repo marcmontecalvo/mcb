@@ -466,6 +466,10 @@ def _sturdy_up(state: str | None, blocks: dict) -> bool:
     ident, props = parse_state(state)
     if ident == sc.BLOCK:
         return True
+    if ident.endswith("_leaves"):
+        # full cubes with an empty support shape (LeavesBlock): nothing that needs
+        # a sturdy face below, scaffolding included, stands on them
+        return False
     facts = blocks.get(ident, {})
     if facts.get("full_cube", True):
         return True

@@ -913,6 +913,24 @@ def test_tower_cells_rejects_non_sturdy_stairs_for_scaffolding():
     assert cells == [(4, 2, 3), (4, 3, 3)]
 
 
+def test_scaffolding_never_stands_on_leaves():
+    # Leaves are full cubes with no support face: the server refuses scaffolding on
+    # them (state_unreachable). Run 20261121T222050257793Z tried 12 times from a
+    # tree beside the house and looped between the tree and the house.
+    leaves = "minecraft:oak_leaves[distance=4,persistent=false,waterlogged=false]"
+    blocks = {
+        **BLOCKS,
+        "minecraft:oak_leaves": {"item": "minecraft:oak_leaves", "full_cube": True},
+    }
+    assert not bp._sturdy_up(leaves, blocks)
+    assert bp._sturdy_up(PLANKS, blocks)
+    w = flat_world(hi=8)
+    pos = (3, 4, 3)
+    for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        w[(3 + dx, 1, 3 + dz)] = leaves
+    assert bp.tower_cells(pos, at(w), blocks, frozenset(), scaffolding=True) == []
+
+
 def test_next_actions_breaks_trapped_foothold_before_placing_underneath():
     cells = {(1, 0, 1): PLANKS, (1, 2, 1): PLANKS}
     w = flat_world(hi=5)
