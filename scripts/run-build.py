@@ -670,13 +670,17 @@ def run(args, config, parser):
             )
             state = GatherState()
             hydrate_containers(body, state)
+            # the stage's standing scaffolding is this run's own to climb and take back
+            scaffolds = ck.scaffolds_of(staged) if staged else set()
             # A run from a stage does not save that stage or an earlier one again.
             behind = ck.STAGES[: ck.STAGES.index(start_from) + 1] if start_from else ()
 
             def milestone(name):
                 if name in behind:
                     return
-                checkpoint.milestone(name, containers=state.containers)
+                checkpoint.milestone(
+                    name, containers=state.containers, scaffolds=scaffolds
+                )
                 print(f"STAGE {name} saved", flush=True)
 
             current_stage = "starting"
@@ -734,6 +738,7 @@ def run(args, config, parser):
                 site_margin=args.margin,
                 until=until,
                 on_milestone=milestone,
+                scaffolds=scaffolds,
             )
             audit_started = time.monotonic()
             report = job.build

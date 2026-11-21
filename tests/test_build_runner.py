@@ -210,6 +210,26 @@ def test_until_structure_stops_with_only_the_details_left():
     assert left and all(bp.is_detail(s) or bp._is_door(s) for s in left)
 
 
+def test_scaffolding_the_run_already_owns_survives_site_prep_and_is_taken_back():
+    # A details lab starts from a structure_done stage with the structure's
+    # scaffolding standing. Run 20261121T222050257793Z did not know it as its own:
+    # site prep tore down 141 blocks of it (171 s) before the first detail.
+    body, t = small_house_body()
+    rope = (0, 0, 1)  # the site margin, west of the footprint
+    body.w[rope] = sc.BLOCK
+    body.inv[sc.BLOCK] = body.inv.get(sc.BLOCK, 0)
+    at_site = {}
+
+    def milestone(name):
+        at_site.setdefault(name, body.w.get(rope))
+
+    owned = {rope}
+    report = br.run_build(t, body, BLOCKS, scaffolds=owned, on_milestone=milestone)
+
+    assert at_site["site_ready"] == sc.BLOCK
+    assert report.stop == "done" and bp.parse_state(body.w[rope])[0] != sc.BLOCK
+
+
 def test_an_unknown_until_is_refused():
     body, t = small_house_body()
     with pytest.raises(ValueError):

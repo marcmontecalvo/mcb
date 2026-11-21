@@ -1,8 +1,10 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from test_build_plan import make_build
 
+from mclab import companion_jobs
 from mclab.companion_jobs import FOOD_KEEP, _food_topup, build_job
 from mclab.gather_fake import FakeGatherBody
 from mclab.gather_runner import GatherState
@@ -44,6 +46,23 @@ def test_a_half_built_house_needs_only_what_is_left_to_place(tmp_path):
     assert report.needed == {COBBLE: 3}
     assert report.gather is None and report.starter is None  # nothing gathered
     assert report.stop == "built"
+
+
+def test_the_job_hands_its_scaffolds_set_to_the_build(tmp_path, monkeypatch):
+    seen = {}
+
+    def run_build(*args, **kwargs):
+        seen["scaffolds"] = kwargs["scaffolds"]
+        return SimpleNamespace(stop="done", placed=[], failures=[], skipped={})
+
+    monkeypatch.setattr(companion_jobs, "run_build", run_build)
+    owned = {(9, 9, 9)}
+    w = world() | {(x, 0, z): PLANKS for x in range(4, 7) for z in range(4, 7)}
+    body = FakeGatherBody(K, w, {COBBLE: 3})
+
+    build_job(small_template(tmp_path), (4, 0, 4), 0, body, K, scaffolds=owned)
+
+    assert seen["scaffolds"] is owned  # live: a stage taken mid-run sees it
 
 
 def test_empty_inventory_to_a_finished_small_template(tmp_path):

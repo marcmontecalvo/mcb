@@ -146,6 +146,20 @@ def chests_of(data: dict) -> list[list[int]]:
     return [list(c["pos"]) for c in data.get("containers") or ()]
 
 
+def scaffolds_of(data: dict) -> set[Pos]:
+    """The build's own scaffolding standing when the stage was taken. A stage saved
+    before the list: every scaffolding cell it holds (nothing else puts scaffolding
+    in the site box)."""
+    if "scaffolds" in data:
+        return {tuple(p) for p in data["scaffolds"]}
+    scaffold = bp.SCAFFOLD_ITEMS[0]
+    return {
+        (x, y, z)
+        for x, y, z, state in data.get("cells") or ()
+        if bp.parse_state(state)[0] == scaffold
+    }
+
+
 def _stacks(contents: dict[str, int], stack: Callable[[str], int]) -> list[dict]:
     out = []
     for item, n in contents.items():
@@ -217,8 +231,11 @@ class Recorder:
             snapshot(self.template, self.body, self.meta, report.stop),
         )
 
-    def milestone(self, stage: str, containers: dict | None = None) -> dict:
-        """A stage snapshot of the whole site box and the containers."""
+    def milestone(
+        self, stage: str, containers: dict | None = None, scaffolds=()
+    ) -> dict:
+        """A stage snapshot of the whole site box and the containers; ``scaffolds``:
+        the build's own standing scaffolding, which a run from the stage owns."""
         if stage not in STAGES:
             raise ValueError(f"unknown stage {stage!r}")
         data = snapshot(
@@ -228,7 +245,11 @@ class Recorder:
             area=self.area,
             containers=containers,
         )
-        data |= {"stage": stage, "source": self.source}
+        data |= {
+            "stage": stage,
+            "source": self.source,
+            "scaffolds": [list(p) for p in sorted(scaffolds)],
+        }
         save(self.folder / "checkpoints" / f"{stage}.json", data)
         if self.library is not None:
             save(self.library / f"{stage}.json", data)

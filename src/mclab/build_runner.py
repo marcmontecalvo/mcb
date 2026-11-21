@@ -1902,6 +1902,7 @@ def _run(
             runner,
             site,
             protected=protected,
+            keep=set(scaffolds),  # the run's own scaffolding (a resumed stage)
             on_need_materials=on_need_materials,
             log=site_log,
         )

@@ -237,12 +237,19 @@ class _Plan:
 
 
 def plan_site(
-    site: Site, template: bp.Template, world, protected=frozenset(), face=None
+    site: Site,
+    template: bp.Template,
+    world,
+    protected=frozenset(),
+    face=None,
+    keep=frozenset(),
 ) -> _Plan:
     """What is still wrong in the area, from the delivered world (pure). ``face(x, y,
     z)`` judges support by real collision boxes: seagrass under a pond is not
     REPLACEABLE by name but has nothing to click (run 20261117T031430547551Z: 63
-    no_support_face fills over it, then the fill stalled)."""
+    no_support_face fills over it, then the fill stalled). ``keep``: the build's own
+    standing scaffolding (a run resumed from a stage), as good as empty here: the
+    builder climbs it and takes it back."""
     plan = _Plan()
     for x, z in site.columns():
         for y in range(site.top_y, site.ground_y, -1):
@@ -253,8 +260,8 @@ def plan_site(
                 continue
             target = template.cells.get(pos)
             wanted = _ident(target) if target else None
-            if ident in bp.AIR or ident == wanted:
-                continue  # empty, or already what the house wants
+            if ident in bp.AIR or ident == wanted or pos in keep:
+                continue  # empty, already what the house wants, or the build's own
             if wanted and wanted not in bp.AIR:
                 # A house block goes here, so whatever stands in it comes out anyway.
                 # Cut ground and vegetation now: its dirt is the fill. Leaving it to
@@ -309,19 +316,22 @@ def prepare_site(
     site: Site,
     *,
     protected: Iterable[Pos] = (),
+    keep: Iterable[Pos] = (),
     on_need_materials: Callable[[dict[str, int]], bool] | None = None,
     max_rounds: int = 400,
     cut_only: bool = False,
     log: Callable[[str], None] = lambda m: None,
 ) -> SiteReport:
     """Clear, cut and fill the area through ``runner.attempt`` (stances, retries,
-    escapes, step budget and failure records are the builder's own)."""
+    escapes, step budget and failure records are the builder's own). ``keep``: the
+    build's own standing scaffolding, left alone (``plan_site``)."""
     rep = SiteReport(
         margin=site.margin,
         area=(site.x0, site.x1, site.z0, site.z1),
         ground_y=site.ground_y,
     )
     protected = frozenset(map(tuple, protected))
+    keep = frozenset(map(tuple, keep))
     report = runner.report
     walk = getattr(body, "walk_to", None)
     collect = getattr(body, "collect_drops", None)
@@ -336,7 +346,7 @@ def prepare_site(
         if report.steps >= runner.max_steps:
             rep.stop = "max_steps"
             return rep
-        plan = _round_plan(site, template, body, protected, report.skipped)
+        plan = _round_plan(site, template, body, protected, report.skipped, keep)
         rep.unknown, rep.blocked = plan.unknown, plan.blocked
         logs, cuts, leaves = _phases(plan.breaks, body.world)
         log(
@@ -415,7 +425,12 @@ def prepare_site(
             # Audit the delivered world without the skip filter before declaring
             # readiness. Failed work remains visible even after a bounded retry.
             audit = plan_site(
-                site, template, body.world, protected, getattr(body, "has_face", None)
+                site,
+                template,
+                body.world,
+                protected,
+                getattr(body, "has_face", None),
+                keep,
             )
             remaining = audit.breaks + audit.fills
             rep.blocked.update(audit.blocked)
@@ -1048,9 +1063,9 @@ def _solid(state) -> bool:
     )
 
 
-def _round_plan(site, template, body, protected, skipped) -> _Plan:
+def _round_plan(site, template, body, protected, skipped, keep=frozenset()) -> _Plan:
     plan = plan_site(
-        site, template, body.world, protected, getattr(body, "has_face", None)
+        site, template, body.world, protected, getattr(body, "has_face", None), keep
     )
     plan.breaks = [p for p in plan.breaks if p not in skipped]
     # A fill over a skipped fill would bury it: no face, no retry ever reaches it

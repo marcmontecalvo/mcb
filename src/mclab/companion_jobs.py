@@ -555,6 +555,7 @@ def build_job(
     gather_options: GatherOptions | None = None,
     until: str | None = None,
     on_milestone: Callable[[str], None] | None = None,
+    scaffolds: set | None = None,
 ) -> JobReport:
     """``chests``: positions of chests known at the start. They are read first; shulker
     boxes are taken at once (they carry the gather's overflow), scaffolding stays put
@@ -564,6 +565,8 @@ def build_job(
     of levelled ground prepared around the footprint before building (>= 0, default
     1; None skips site preparation). ``until`` / ``on_milestone``: as ``run_build``; a
     build ended at its ``until`` milestone stops ``until_site`` / ``until_structure``.
+    ``scaffolds``: the build's own standing scaffolding (a run from a stage), kept
+    live by the build: a stage taken mid-run reads it.
     """
     publish_stage = on_stage or (
         lambda *a, **k: None
@@ -843,6 +846,7 @@ def build_job(
                 on_site_ready=site_ready,
                 on_milestone=on_milestone,
                 until=until,
+                scaffolds=set() if scaffolds is None else scaffolds,
                 survey=survey,
                 on_progress=on_progress,
                 on_stage=stage,

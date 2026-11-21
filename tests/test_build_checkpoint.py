@@ -176,9 +176,17 @@ def test_a_milestone_is_saved_in_the_run_and_published_to_the_stage_library(
         source={"run": "run-1", "commit": "abc"},
     )
 
-    rec.milestone("site_ready", containers={})
+    rec.milestone("site_ready", containers={}, scaffolds={(2, 1, 0), (1, 1, 0)})
 
     saved = ck.load(tmp_path / "run/checkpoints/site_ready.json")
+    assert saved["scaffolds"] == [[1, 1, 0], [2, 1, 0]]
+    assert ck.scaffolds_of(saved) == {(1, 1, 0), (2, 1, 0)}
+    assert ck.scaffolds_of({"version": 1}) == set()
+    # a stage saved before the list: the scaffolding in its site box is the build's
+    older = {"cells": [[0, 1, 0, "minecraft:scaffolding[bottom=false,distance=0]"]]}
+    assert ck.scaffolds_of(older | {"cells": older["cells"] + [[1, 1, 1, PLANKS]]}) == {
+        (0, 1, 0)
+    }
     published = ck.load(library / "build_house@0,0,0#1/site_ready.json")
     assert saved == published
     assert published["stage"] == "site_ready"
