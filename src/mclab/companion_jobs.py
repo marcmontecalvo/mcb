@@ -809,6 +809,9 @@ def build_job(
             gather_options,
         )
         body.precise_stance = True  # placing needs the body centred and out of the cell
+        # Carrying scaffolding, the body climbs, bridges and steps on nothing else
+        # (CompanionBody.temporary_items): no dirt or cobblestone step to clean up.
+        body.scaffold_only = body.inventory().get(bp.SCAFFOLD_ITEMS[0], 0) > 0
         try:
             report.build = run_build(
                 template,
@@ -825,6 +828,7 @@ def build_job(
             )
         finally:
             body.precise_stance = False
+            body.scaffold_only = False
         report.stop = "built" if report.build.stop == "done" else "not_built"
         if clock:
             # build includes refills; crafting happens inside the gather phase

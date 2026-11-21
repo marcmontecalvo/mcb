@@ -1348,6 +1348,12 @@ class CompanionBody:
             items = list(self.terrain_policy.material_allowlist)
             held = self.inventory()
             return [i for i in items if held.get(i, 0) > 0]
+        if getattr(self, "scaffold_only", False):
+            # A build that carries scaffolding climbs, bridges and steps on nothing
+            # else: a place scaffolding cannot make is a rule to fix, not a dirt step
+            # left behind (run 20261121T180806599463Z).
+            held = self.inventory().get(SCAFFOLDING, 0) > 0
+            return [SCAFFOLDING] if scaffolding and held else []
         items = temporary_order(self.inventory(), self.still_needed(), allowed)
         return items if scaffolding else [i for i in items if i != SCAFFOLDING]
 
@@ -1369,14 +1375,15 @@ class CompanionBody:
             return policy
         items = tuple(self.temporary_items(scaffolding=False))
         scaffold = (SCAFFOLDING,) if SCAFFOLDING in self.temporary_items() else ()
-        if (not items and not scaffold) or (items, scaffold) == (
-            policy.material_allowlist,
-            policy.scaffold_materials,
-        ):
+        only = getattr(self, "scaffold_only", False)
+        if not only and not items and not scaffold:
+            return policy
+        if (items, scaffold) == (policy.material_allowlist, policy.scaffold_materials):
             return policy
         return replace(
             policy,
-            material_allowlist=items or policy.material_allowlist,
+            # scaffold_only: no solid fallback at all, not the policy's default list
+            material_allowlist=items if only else items or policy.material_allowlist,
             scaffold_materials=scaffold,
         )
 

@@ -198,6 +198,14 @@ def test_site_prep_dirt_goes_to_the_chests_and_two_scaffolding_stacks_come_out(
     stock = {PLANKS: 9, COBBLE: 3, scaffold: 128}
     body.boxes[(2, 0, 2)] = dict(stock)
     state = GatherState(containers={(2, 0, 2): dict(stock)})
+    modes = set()
+    place = body.place_block
+
+    def watched(pos, state, item):  # scaffolding only, for the whole build
+        modes.add(getattr(body, "scaffold_only", None))
+        return place(pos, state, item)
+
+    body.place_block = watched
 
     report = build_job(small_template(tmp_path), (4, 0, 4), 0, body, K, state=state)
 
@@ -205,6 +213,7 @@ def test_site_prep_dirt_goes_to_the_chests_and_two_scaffolding_stacks_come_out(
     assert body.inv.get(dirt, 0) == 0
     assert body.boxes[(2, 0, 2)].get(dirt, 0) >= 40
     assert body.inv.get(scaffold) == 128
+    assert modes == {True} and body.scaffold_only is False
 
 
 def test_a_refill_records_what_was_asked_gained_and_still_short():

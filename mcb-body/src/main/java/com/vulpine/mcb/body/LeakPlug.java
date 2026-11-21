@@ -28,8 +28,8 @@ final class LeakPlug {
     /** Ticks a finished break_block waits for a fluid beside the cell to arrive before it reports done. */
     static final int SETTLE = 8;
 
-    /** Dirt first: it is what levelling digs up, and a house wants cobblestone far more often than dirt. */
-    private static final List<String> PREFERRED = List.of("minecraft:dirt", "minecraft:cobblestone");
+    /** Cobblestone first: a plug is under the surface, where stone belongs (dirt is the surface layer). */
+    private static final List<String> PREFERRED = List.of("minecraft:cobblestone", "minecraft:dirt");
     private static final int MAX_KEEP_KINDS = 512;
     /** Never spent on a plug: gravity blocks fall out of the hole, and these are worth keeping. */
     private static final List<String> VALUABLE = List.of("_ore", "diamond_block", "iron_block", "gold_block",
@@ -40,7 +40,7 @@ final class LeakPlug {
     private LeakPlug() {}
 
     /**
-     * The item to plug with: dirt, then cobblestone, then any other held block that {@code solid} accepts, each
+     * The item to plug with: cobblestone, then dirt, then any other held block that {@code solid} accepts, each
      * only when more is held than {@code keep} (what the build still has to place) holds back. Run
      * 20261121T180806599463Z plugged site-prep water with 21 of the house's 54 cobblestone and ran short.
      */

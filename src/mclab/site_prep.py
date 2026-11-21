@@ -28,7 +28,8 @@ from mclab.tree_removal import clear_trees_in_footprint, is_log
 
 FILL = "minecraft:dirt"
 # Anything solid the clearing dug up fills a hole as well as dirt does. Full cubes
-# without gravity only; an item the house itself is built from is never spent.
+# without gravity only; of an item the house is built from, only what it does not
+# place is spent.
 FILLERS = (
     FILL,
     "minecraft:cobblestone",
@@ -47,14 +48,33 @@ FILLERS = (
 )
 
 
+# The ground layer of levelled land shows: it is soil. Below it, stone first.
+SOILS = frozenset(
+    {FILL, "minecraft:coarse_dirt", "minecraft:rooted_dirt", "minecraft:mud"}
+)
+
+
 def fill_stock(inventory: dict[str, int], template: bp.Template) -> dict[str, int]:
-    """Held fill material by item, dirt first."""
-    wanted = {_ident(state) for state in template.cells.values()}
-    return {
-        item: inventory[item]
-        for item in FILLERS
-        if inventory.get(item, 0) > 0 and item not in wanted
-    }
+    """Held fill material by item, dirt first; of a block the house is built from,
+    only what is held beyond the house's own count (run 20261121T180806599463Z: the
+    house's cobblestone must be there when its foundation is laid)."""
+    house: dict[str, int] = {}
+    for state in template.cells.values():
+        house[_ident(state)] = house.get(_ident(state), 0) + 1
+    stock = {item: inventory.get(item, 0) - house.get(item, 0) for item in FILLERS}
+    return {item: n for item, n in stock.items() if n > 0}
+
+
+def fill_item(stock: dict[str, int], y: int, ground: int) -> str | None:
+    """The filler for a cell at height ``y``: soil on the ground layer, stone in the
+    layers under it, each while any is held, else whatever is."""
+    held = [i for i, n in stock.items() if n > 0]
+    if not held:
+        return None
+    soil = [i for i in held if i in SOILS]
+    stone = [i for i in held if i not in SOILS]
+    first, then = (soil, stone) if y >= ground else (stone, soil)
+    return (first or then)[0]
 
 
 MAX_CELL_STALLS = 6  # cells given up on after a >5 s stall before the whole site fails
@@ -460,7 +480,8 @@ def prepare_site(
                     # the sweep could not see it to break it; dirt on a flower is
                     # refused "occupied" (run 20261110T033057553889Z, 11 times)
                     runner.attempt(bp.Break(pos))
-                item = next(iter(fill_stock(body.inventory(), template)), FILL)
+                stock = fill_stock(body.inventory(), template)
+                item = fill_item(stock, pos[1], site.ground_y) or FILL
                 runner.attempt(bp.Place(pos, item, item))
             except StallError as err:
                 # a fill cell the body cannot work: report it, do not retry it
@@ -944,7 +965,7 @@ def _fill_sweep(
                 if plug:
                     filled(pos, bp.parse_state(plug)[0])
                     continue
-            item = next(i for i, n in stock.items() if n > 0)
+            item = fill_item(stock, pos[1], ground)
             if body.place_block(pos, item, item).ok:
                 filled(pos, item)
             else:

@@ -1691,6 +1691,42 @@ def test_the_water_plug_is_told_what_the_build_still_needs(monkeypatch):
     assert bridge.sent[-2][0] == "plug_keep" and bridge.sent[-1][0] == "place_block"
 
 
+def test_a_build_carrying_scaffolding_climbs_on_scaffolding_only(monkeypatch):
+    # With scaffolding on hand, dirt and cobblestone are never footholds, steps or
+    # bridges: a place scaffolding cannot make is a rule to fix, not a dirt step left
+    # on the roof (run 20261121T180806599463Z).
+    from dataclasses import replace
+
+    from mclab import body_search
+    from mclab import temporary_blocks as tb
+    from mclab.companion_jobs import load_vanilla_pack
+
+    b, _, _ = body()
+    held = {
+        "minecraft:scaffolding": 128,
+        "minecraft:dirt": 40,
+        "minecraft:cobblestone": 60,
+    }
+    monkeypatch.setattr(b, "inventory", lambda: held)
+    monkeypatch.setattr(b, "world", lambda *p: "minecraft:air")
+    b.build_cells = {(0, y, 0): "minecraft:cobblestone" for y in range(39)}
+    b.temporary_ok = tb.eligible(load_vanilla_pack())
+    b.terrain_policy = replace(cb.DIG_TERRAIN, allow_place=True)
+    b.scaffold_only = True
+    assert b.temporary_items() == ["minecraft:scaffolding"]
+    assert b.temporary_items(scaffolding=False) == []
+    policy = b._with_temporaries(b.terrain_policy)
+    assert policy.material_allowlist == ()
+    assert policy.scaffold_materials == ("minecraft:scaffolding",)
+    rows = [{"slot": i, "item": k, "count": n} for i, (k, n) in enumerate(held.items())]
+    edits = body_search.edit_payload(policy, rows, ())
+    assert edits["materials"] == []
+    assert edits["place_supply"] == edits["scaffold_supply"] == 128  # no solid places
+
+    held["minecraft:scaffolding"] = 0  # all of it out in the world: still none
+    assert b.temporary_items() == [] and b.temporary_items(scaffolding=False) == []
+
+
 def test_plug_keep_is_a_body_op():
     from mclab.bridge import BODY_OPS
 

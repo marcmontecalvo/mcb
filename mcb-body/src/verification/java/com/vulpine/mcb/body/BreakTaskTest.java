@@ -47,13 +47,14 @@ public final class BreakTaskTest {
         check(failedAt == 3 * (BreakTask.ENTITY_WAIT_TICKS + 1), "flickering mob: entity_in_way, got " + failedAt);
         check(BreakTask.ENTITY_WAIT_TICKS <= 20, "held (still) ticks stay at or under 1 s");
 
-        // Plug-the-leak material (a fluid flowed into the broken cell): dirt, cobblestone, then other solids,
+        // Plug-the-leak material (a fluid flowed into the broken cell): cobblestone, dirt, then other solids,
         // each only beyond what the build still has to place (plug_keep).
         java.util.function.Predicate<String> solid = id -> !id.endsWith("torch") && !id.endsWith("_slab");
-        check("minecraft:dirt".equals(LeakPlug.choose(
-                held("minecraft:stone", "minecraft:dirt", "minecraft:cobblestone"), Map.of(), solid)), "dirt first");
         check("minecraft:cobblestone".equals(LeakPlug.choose(
-                held("minecraft:stone", "minecraft:cobblestone"), Map.of(), solid)), "cobblestone second");
+                held("minecraft:stone", "minecraft:dirt", "minecraft:cobblestone"), Map.of(), solid)),
+                "cobblestone first");
+        check("minecraft:dirt".equals(LeakPlug.choose(
+                held("minecraft:stone", "minecraft:dirt"), Map.of(), solid)), "dirt second");
         check("minecraft:stone".equals(LeakPlug.choose(held("minecraft:torch", "minecraft:stone"), Map.of(), solid)),
                 "other solid");
         check(LeakPlug.choose(Map.of(), Map.of(), solid) == null, "no block: no plug");

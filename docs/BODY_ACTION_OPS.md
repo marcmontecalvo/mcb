@@ -83,7 +83,7 @@ needs a tool the inventory lacks, so it would drop nothing), `nothing_to_break` 
 about 1 s; the attack is held so it is never struck: take another stance). With no suitable tool the body holds an empty hotbar slot if it has one.
 
 A fluid that flows into a cell the body just broke (by `break_block` or a step edit) is
-plugged at once with a held block (`leak_plugged` event): dirt, then cobblestone, then
+plugged at once with a held block (`leak_plugged` event): cobblestone, then dirt, then
 another plain solid, never a gravity block or a valuable, and only beyond the counts last
 set by `plug_keep`.
 
