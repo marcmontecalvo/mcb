@@ -1559,12 +1559,13 @@ def test_footholds_spent_mid_build_are_topped_up_and_a_dry_chest_is_not_pestered
 
     runner, asks, stock = Runner(), [], {}
 
-    def refill(items):  # the chests hand over what is asked
+    def refill(items):  # the chests bring the body up to what is asked
         asks.append(dict(items))
-        runner.held["minecraft:dirt"] += items.get("minecraft:dirt", 0)
+        dirt = runner.held["minecraft:dirt"]
+        runner.held["minecraft:dirt"] = max(dirt, items.get("minecraft:dirt", 0))
 
     br._keep_footholds(runner, refill, lambda _m: None, stock)
-    assert asks == [{"minecraft:dirt": br.FOOTHOLD_STOCK - 3}]
+    assert asks == [{"minecraft:dirt": br.FOOTHOLD_STOCK}]  # a total, like every ask
     br._keep_footholds(runner, refill, lambda _m: None, stock)
     assert len(asks) == 1  # stocked: nothing more to ask
 
@@ -1601,7 +1602,7 @@ def test_scaffolding_is_the_foothold_stock_when_the_build_carries_it():
 
     runner.held[scaffold] = 5  # spent down: top up with scaffolding, not dirt
     br._stock_footholds(runner, asks.append, lambda _m: None)
-    assert asks == [{scaffold: br.FOOTHOLD_STOCK - 5}]
+    assert asks == [{scaffold: br.FOOTHOLD_STOCK}]  # the total to hold
 
     runner.held[scaffold] = 0  # all of it out in the world: still scaffolding
     br._stock_footholds(runner, asks.append, lambda _m: None)
@@ -2786,6 +2787,24 @@ def test_a_band_stage_lists_the_footholds_placed_finishing_that_band():
         on_milestone=lambda name: held.setdefault(name, set(scaffolds)),
     )
     assert foothold in held["band_0"]
+
+
+@pytest.mark.parametrize("found", [[], [(1, 0, 0), (1, 1, 0), (1, 2, 0)]])
+def test_a_tower_short_of_dirt_asks_for_the_total_to_hold(monkeypatch, found):
+    # An ask is what the body should hold in all (refill tops up to it). Run
+    # 20261122T064728624126Z held 1 dirt and asked for "1 more" for a roof stair:
+    # the refill saw 1 held, brought nothing, and the stair was skipped no_material.
+    w = flat_world(hi=12)
+    body = FakeBody(w, {"minecraft:dirt": 1}, BLOCKS, pos=(0, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.scaffolds = set()
+    monkeypatch.setattr(
+        bp,
+        "tower_cells",
+        lambda *a, scaffolding=True, **k: [] if scaffolding else found,
+    )
+    assert runner._tower((0, 3, 0), set()) is False
+    assert runner.short == {"minecraft:dirt": 3} and runner.short_for == (0, 3, 0)
 
 
 def test_cleanup_puts_dug_ground_back_in_its_nearest_first_turn():

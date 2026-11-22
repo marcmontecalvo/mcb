@@ -436,7 +436,7 @@ class _Runner:
                     # No block to prop with: ask for one. Climbing cannot make the
                     # click face, so a stance search and a tower here only ended in a
                     # refused dirt ask (run 20261121T222050257793Z, two hoppers).
-                    self.short = {PROP_BLOCK: 1}
+                    self.short = _hold_more(self.body, PROP_BLOCK, 1)
                     self.short_for = pos
                     self.report.failures.append(
                         (pos, "no_prop_block", self.body.position(), {})
@@ -771,7 +771,7 @@ class _Runner:
             have = sum(held.get(i, 0) for i in self._temporaries(scaffolding=False))
             need = max(1, pos[1] - self.body.position()[1])
             if have < need:
-                self.short = {"minecraft:dirt": need - have}
+                self.short = _hold_more(self.body, "minecraft:dirt", need - have)
                 self.short_for = pos
                 self.towered.discard(pos)
             return False
@@ -787,7 +787,9 @@ class _Runner:
             )
             if item is None:
                 have = sum(held.get(i, 0) for i in self._temporaries(scaffolding=False))
-                self.short = {"minecraft:dirt": max(1, len(cells) - have)}
+                self.short = _hold_more(
+                    self.body, "minecraft:dirt", max(1, len(cells) - have)
+                )
                 self.short_for = pos
                 self.towered.discard(pos)
                 return False
@@ -1295,11 +1297,20 @@ def _stock_footholds(runner, on_need_materials, log, low=FOOTHOLD_STOCK) -> bool
     )
     if have >= low:
         return None
-    ask = {item: FOOTHOLD_STOCK - have}
+    ask = _hold_more(runner.body, item, FOOTHOLD_STOCK - have)
     log(f"stocking footholds: {ask} (holding {have} spare)")
     before = runner.body.inventory().get(item, 0)
     on_need_materials(ask)  # best effort: the build goes on without them
     return runner.body.inventory().get(item, 0) > before
+
+
+def _hold_more(body, item: str, more: int) -> dict[str, int]:
+    """The ask for ``more`` of ``item`` than the body holds. ``on_need_materials``
+    asks are totals to hold, like the build's own material asks (companion refill
+    tops up to them). Run 20261122T064728624126Z held 1 dirt and asked for the 1
+    more a roof stair's pillar needed: the refill saw the 1 held, brought nothing,
+    and the stair was skipped no_material."""
+    return {item: body.inventory().get(item, 0) + more}
 
 
 def _keep_footholds(runner, on_need_materials, log, stock: dict) -> None:
