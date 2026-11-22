@@ -756,7 +756,7 @@ class _Runner:
             allow_roof_lift=allow_roof_lift,
         )
         dirt_only = False
-        if not cells:
+        if not cells and not getattr(self.body, "scaffold_only", False):
             cells = bp.tower_cells(
                 pos,
                 self.body.world,
@@ -794,11 +794,12 @@ class _Runner:
             # cell): the stance is the roof's edge, reached by pillaring or stairs of
             # placed blocks. A body holding none has nothing to plan with (run
             # 20261116T224011482858Z: 8 roof cells no_stance, dirt never asked for).
+            item, items = self._footholds()
             held = self.body.inventory()
-            have = sum(held.get(i, 0) for i in self._temporaries(scaffolding=False))
+            have = sum(held.get(i, 0) for i in items)
             need = max(1, pos[1] - self.body.position()[1])
             if have < need:
-                self.short = _hold_more(self.body, "minecraft:dirt", need - have)
+                self.short = _hold_more(self.body, item, need - have)
                 self.short_for = pos
                 self.towered.discard(pos)
             return False
@@ -1254,6 +1255,16 @@ class _Runner:
             return pick(scaffolding)
         items = list(bp.SCAFFOLD_ITEMS)
         return items if scaffolding else [i for i in items if i != sc.BLOCK]
+
+    def _footholds(self) -> tuple[str, list[str]]:
+        """The block to ask for when a climb lacks footholds, and the held items that
+        count as footholds. A build that carries scaffolding climbs on nothing else
+        (CompanionBody.scaffold_only): asked for dirt, it never counted the dirt as
+        held, so each ask grew by the last refill (run 20261122T152815791116Z: 1 to
+        346 dirt over all 40 refills, pits dug beside the house)."""
+        if getattr(self.body, "scaffold_only", False):
+            return sc.BLOCK, [sc.BLOCK]
+        return FOOTHOLD_ITEM, self._temporaries(scaffolding=False)
 
     def _prop_item(self) -> str | None:
         """A held solid block to put beside a cell as its click face and take back

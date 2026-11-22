@@ -2894,6 +2894,60 @@ def test_a_tower_short_of_dirt_asks_for_the_total_to_hold(monkeypatch, found):
     assert runner.short == {"minecraft:dirt": 3} and runner.short_for == (0, 3, 0)
 
 
+class ScaffoldOnlyBody(FakeBody):
+    """A build that carries scaffolding climbs on nothing else (CompanionBody)."""
+
+    temporary_ok = True
+    scaffold_only = True
+
+    def temporary_items(self, scaffolding=True, prop=False):
+        if prop:
+            return [i for i in ("minecraft:dirt",) if self.inv.get(i, 0) > 0]
+        return [SCAFFOLDING] if scaffolding and self.inv.get(SCAFFOLDING, 0) else []
+
+
+def _scaffold_only_tower(monkeypatch, held, solid_cells):
+    """A body at the foot of a cell 3 up where no scaffolding tower stands
+    (``solid_cells``: where a dirt pillar would)."""
+    w = flat_world(hi=12)
+    body = ScaffoldOnlyBody(w, dict(held), BLOCKS, pos=(0, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.scaffolds = set()
+    monkeypatch.setattr(
+        bp,
+        "tower_cells",
+        lambda *a, scaffolding=True, **k: [] if scaffolding else solid_cells,
+    )
+    return runner
+
+
+@pytest.mark.parametrize("solid", [[], [(1, 0, 0), (1, 1, 0), (1, 2, 0)]])
+@pytest.mark.parametrize("dirt", [0, 8, 346])
+def test_a_scaffold_only_build_never_asks_for_dirt_it_cannot_climb(
+    monkeypatch, solid, dirt
+):
+    # Run 20261122T152815791116Z climbed on scaffolding only, so dirt never counted
+    # as held for a climb: each ask was the dirt held plus the climb, each refill
+    # brought that much, and the next ask grew by it (1, 2 ... 346 dirt, all 40
+    # refills, ten minutes digging pits beside the house).
+    runner = _scaffold_only_tower(
+        monkeypatch, {SCAFFOLDING: 64, "minecraft:dirt": dirt}, solid
+    )
+    assert runner._tower((0, 3, 0), set()) is False
+    assert runner.short == {}
+
+
+@pytest.mark.parametrize("solid", [[], [(1, 0, 0), (1, 1, 0), (1, 2, 0)]])
+def test_a_scaffold_only_build_short_of_footholds_asks_for_scaffolding(
+    monkeypatch, solid
+):
+    runner = _scaffold_only_tower(
+        monkeypatch, {SCAFFOLDING: 1, "minecraft:dirt": 30}, solid
+    )
+    assert runner._tower((0, 3, 0), set()) is False
+    assert runner.short == {SCAFFOLDING: 3} and runner.short_for == (0, 3, 0)
+
+
 def test_cleanup_puts_dug_ground_back_in_its_nearest_first_turn():
     # Run 20261122T054201856122Z ended the structure on the roof ridge. Cleanup first
     # walked to the ground to put back a dug cell at the far corner, then, nearest
