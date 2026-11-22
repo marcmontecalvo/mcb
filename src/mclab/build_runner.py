@@ -380,6 +380,17 @@ class _Runner:
         if self.report.steps >= self.max_steps:
             return
         pos = act.pos
+        world = getattr(self.body, "world", None)
+        if (
+            isinstance(act, bp.Place)
+            and world is not None
+            and bp._gate(pos, act.state, world, self.blocks) == "floating"
+        ):
+            # Offered beside a cell planned in the same batch (next_actions counts the
+            # batch as in) that is not in: it waits for the next plan, no try counted.
+            # Run 20261122T071747687093Z took such a roof plank for a prop case, gave
+            # it up, put the slab over it on the released column and walled it in.
+            return None
         here = self.body.position()
         can_place = getattr(self.body, "can_place_here", None)
         support = _support_for(act, getattr(self.body, "world", None), self.blocks)

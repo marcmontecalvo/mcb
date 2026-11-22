@@ -532,7 +532,7 @@ def test_runner_places_from_here_when_the_body_says_the_server_would_accept_it()
 
     class Reaches(_Pit):
         def world(self, *pos):
-            return "minecraft:air"
+            return "minecraft:stone" if pos[1] <= 0 else "minecraft:air"  # the floor
 
         def __init__(self):
             super().__init__(can_escape=False)
@@ -2529,6 +2529,22 @@ def test_a_cell_that_needs_a_prop_asks_for_one_block_when_none_is_held():
     runner.attempt(bp.Place((2, 0, 0), west, "minecraft:hopper", 1))
     assert runner.short == {"minecraft:dirt": 1} and runner.short_for == (2, 0, 0)
     assert not runner.report.scaffolded
+
+
+def test_a_cell_offered_beside_a_batch_mate_not_yet_in_waits_for_it():
+    # Run 20261122T071747687093Z: a roof plank was offered with a neighbour planned in
+    # the same batch. That neighbour was not in when the plank's turn came; the plank
+    # read as a prop case, was given up (no_prop_block), the slab above it went in
+    # over the released column, and the plank ended no_stance, walled in.
+    w = flat_world(hi=8)
+    body = FakeBody(w, {PLANKS: 4, SCAFFOLDING: 64}, BLOCKS, pos=(1, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.scaffolds = set()
+    pos = (2, 3, 0)  # nothing solid round it in the world yet
+    runner.attempt(bp.Place(pos, PLANKS, PLANKS, 1))
+    assert not runner.short and runner.short_for is None
+    assert pos not in runner.fails and pos not in runner.report.skipped
+    assert not runner.report.scaffolded  # no tower for it either
 
 
 def test_a_build_that_climbs_on_scaffolding_gets_its_prop_block_and_places_both():
