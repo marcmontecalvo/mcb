@@ -771,6 +771,7 @@ class CompanionBody:
         self._obs: dict = {}
         self._inv: dict[str, int] = {}
         self._rows: list[dict] = []  # the per-slot rows behind _inv
+        self._inv_at = -math.inf  # how fresh _inv is (_set_inventory)
         self._overlay: dict[Pos, tuple[str, int, list | None]] = {}
         self.log: list[dict] = []  # one row per op or goto, for the results folder
         self.places: PlaceGraph | None = None  # named waypoints (start_session)
@@ -817,12 +818,24 @@ class CompanionBody:
             if sensed_at is not None and sensed_at > at:
                 del self._overlay[pos]
         self._obs = obs
-        self._set_inventory(obs.get("body", {}).get("inventory"))
+        self._set_inventory(obs.get("body", {}).get("inventory"), obs.get("tick"))
         return obs
 
-    def _set_inventory(self, stacks) -> None:
+    def _set_inventory(self, stacks, tick=None, *, op=False) -> None:
+        """Keep the newest inventory. Snapshots (/state, /policy) are published at
+        the end of the tick they are stamped with, but the body runs ops at the
+        start of the next one, before the server bumps its count, so an op stamped
+        T happened after the snapshot stamped T: an op ranks half a tick later.
+        Run 20261122T142224546926Z replanned from the snapshot stamped with its craft's own
+        tick and crafted planks again from logs it had used up. Unstamped stacks
+        (offline fakes) always apply."""
         if stacks is None:
             return
+        if tick is not None:
+            at = float(tick) + (0.5 if op else 0.0)
+            if at < self._inv_at:
+                return
+            self._inv_at = at
         inv: dict[str, int] = {}
         for stack in stacks:
             inv[stack["item"]] = inv.get(stack["item"], 0) + stack["count"]
@@ -873,12 +886,15 @@ class CompanionBody:
     def inventory(self) -> dict[str, int]:
         """Fresh from the body: an op result's inventory predates the pickup of its
         own drop, so a stale count made each replan ask for more stone (run
-        20261102T042713034884Z: five stone passes, 102 cobblestone)."""
-        body = self._state_body()
+        20261102T042713034884Z: five stone passes, 102 cobblestone), unless that
+        /state predates the last op (_set_inventory)."""
+        state = getattr(self.bridge, "state", None)
+        snap = state() if state is not None else {}
+        body = snap.get("body") or None
         if body is None or body.get("inventory") is None:
             self.observe()
         else:
-            self._set_inventory(body["inventory"])
+            self._set_inventory(body["inventory"], snap.get("tick"))
         return dict(self._inv)
 
     def food(self) -> int:
@@ -1108,7 +1124,7 @@ class CompanionBody:
             result = Result(False, "timeout")
         else:
             data = dict(event["data"])
-            self._set_inventory(data.get("inventory"))
+            self._set_inventory(data.get("inventory"), event.get("tick"), op=True)
             if event["type"] == f"{name}_done":
                 if name in {"place_block", "break_block", "use_block"}:
                     data["_event_tick"] = event.get("tick")

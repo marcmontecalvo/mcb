@@ -1605,6 +1605,52 @@ def test_inventory_and_food_read_state_not_policy(monkeypatch):
     assert b.inventory() == {}
 
 
+def _crafted_then_state(state_tick: int):
+    """A craft done at server tick 190, then an inventory() read of a /state
+    stamped ``state_tick`` that still holds the logs the craft used up."""
+    b, bridge, _ = body()
+    logs = [{"slot": 0, "item": "minecraft:birch_log", "count": 3}]
+    planks = [{"slot": 0, "item": "minecraft:birch_planks", "count": 12}]
+    bridge.state = lambda: {"tick": state_tick, "body": {"inventory": logs}}
+    bridge.tick = 190
+    bridge.reply["craft"] = ("done", {"inventory": planks})
+    assert b.craft("minecraft:birch_planks", 3).ok
+    return b
+
+
+def test_a_state_stamped_with_the_ops_own_tick_predates_the_op():
+    """The body runs ops at the start of a tick, before the server bumps its tick
+    count, so a craft reports tick 190 while the /state stamped 190 was published
+    at the end of the tick before it. Run 20261122T142224546926Z replanned from that
+    snapshot and crafted planks again from logs it no longer held."""
+    b = _crafted_then_state(190)
+    assert b.inventory() == {"minecraft:birch_planks": 12}
+
+
+def test_a_later_state_replaces_the_op_inventory():
+    """A tick later the /state is the truth (the op result predates the pickup of
+    its own drop)."""
+    b = _crafted_then_state(191)
+    assert b.inventory() == {"minecraft:birch_log": 3}
+
+
+def test_an_observation_older_than_the_op_does_not_replace_it(monkeypatch):
+    b, bridge, _ = body()
+    bridge.tick = 190
+    bridge.reply["craft"] = (
+        "done", {"inventory": [{"slot": 0, "item": "minecraft:stick", "count": 4}]})
+    assert b.craft("minecraft:stick", 1).ok
+    from mclab import companion_body
+
+    obs = {"tick": 190, "body": {"position": [0.5, 0.0, 0.5], "inventory": []}}
+    monkeypatch.setattr(companion_body, "policy_state", lambda _bridge: obs)
+    b.observe()
+    assert b._inv == {"minecraft:stick": 4}
+    obs["tick"] = 191
+    b.observe()
+    assert b._inv == {}
+
+
 def test_companion_policies_have_every_movement_ability_on():
     from mclab.companion_body import DIG_TERRAIN, NATURAL_MOVEMENT, WALK_TERRAIN
 
