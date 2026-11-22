@@ -353,6 +353,34 @@ Same code (b98da15), one run each: storeys 2:49 faster than zones (structure 2:0
 36 s). Storeys runs on near-identical code spread from 18:50 to 21:19, so one pair does not
 settle it; the whole-build comparison is still to run.
 
+### Validation series (November 22, afternoon)
+
+Site labs (`--supply --until site`): 20261122T142224546926Z, 20261122T143231913671Z,
+20261122T144210171062Z on 3f8739a and 20261122T151804484862Z on b02b1a2, all 4/4 in
+8:28–8:34. Two of the 3f8739a runs crafted twice from used-up ingredients; that was fixed
+by keeping the newest held inventory by server tick (b02b1a2, #9).
+
+Structure labs on d07edfc (#10, scaffold-only foothold asks), all 5/5:
+
+| Run | Order | Job | Note |
+|---|---|---|---|
+| 20261122T152815791116Z | storeys (b02b1a2) | 52:20 | dirt-ask loop (fixed in #10), left out |
+| 20261122T163308723728Z | storeys | 23:59 | |
+| 20261122T170052910305Z | zones | 24:00 | |
+| 20261122T172716055930Z | storeys | 24:41 | |
+| 20261122T180636433203Z | zones | 20:24 | |
+| 20261122T182906280327Z | storeys | 18:59 | |
+| 20261122T185137031693Z | zones | 23:53 | 23 scaffolding left standing (#11) |
+
+Mean job time: storeys 22:33, zones 22:46. That is a tie inside an 18:59–24:41 spread, so
+**zones stays the default** until a whole-build comparison (#14). The biggest single time
+loss in the series is `goal_no_progress` cutting off valid detours (about 322 s in
+152815791116Z and 243 s in one zones run), because the progress check measures straight-line
+distance to the goal (#13). Cleanup can leave temporaries: `get_down` can land inside the
+same pocket (#11), and cleanup never retries a failed cell (#12). Neither fault came from
+the storey order. The `structure_done` stage in the library is from 185137031693Z, so it
+carries those 23 blocks.
+
 Earlier runs that found the faults: 20261122T013145553434Z (props for batch cells),
 20261122T021157007245Z (scaffolding top), 20261122T024835715542Z (closed ledge),
 20261122T031908319185Z, 20261122T034141954170Z (scaffolding place from inside a column),
