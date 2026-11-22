@@ -591,19 +591,30 @@ class _Runner:
         start = time.monotonic()
         if self.body.goto_stance(pos, REACH, avoid):
             return True
-        if getattr(self.body, "boxed_in", False) or getattr(
-            self.body, "on_ledge", False
-        ):
-            # Nothing leaves the spot, or the few spots, the body is on (a ledge the
-            # house closed around; run 20261122T024835715542Z: a west eave of 9
-            # nodes): get down first, then climb back by stairs or a tower like any
-            # other climb. Only here is a drop that hurts taken. Standing in one of the
-            # house's own unbuilt cells, it climbs out on that cell's block instead.
-            if not (self._climb_out() or self._get_down()):
+        # Shut in: the search walked the body's whole region and nothing leaves it (a
+        # ledge or roof slope the house closed around; runs 20261122T024835715542Z,
+        # 9 nodes, and 20261122T125350762344Z, 40). Only here is a drop that hurts
+        # taken; standing in one of the house's own unbuilt cells, the body climbs
+        # out on that cell's block instead. Boxed in, or with the goal below, it gets
+        # out first and climbs back by stairs or a tower like any other climb. With
+        # the goal level or above (a closed floor), a tower comes first, and getting
+        # down stays the way out when no tower reaches it.
+        boxed = getattr(self.body, "boxed_in", False)
+        shut = boxed or getattr(self.body, "shut_in", False)
+        out_first = boxed or (shut and pos[1] < self.body.position()[1])
+        if out_first:
+            if not self._get_out():
                 return False
             if self.body.goto_stance(pos, REACH, avoid):
                 return True
         if self._tower(pos, avoid):
+            return True
+        if (
+            not out_first
+            and getattr(self.body, "shut_in", False)
+            and self._get_out()
+            and self.body.goto_stance(pos, REACH, avoid)
+        ):
             return True
         if self.short:
             return False
@@ -619,6 +630,11 @@ class _Runner:
             return False
         self.report.escapes += 1
         return self.body.goto_stance(pos, REACH, avoid)
+
+    def _get_out(self) -> bool:
+        """Out of a region with no way off: climb out of an own unbuilt cell, else
+        take a drop."""
+        return self._climb_out() or self._get_down()
 
     def _climb_out(self) -> bool:
         """The house closed round the body standing in one of its own unbuilt cells

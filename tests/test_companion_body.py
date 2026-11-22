@@ -509,33 +509,37 @@ def test_a_body_with_no_move_from_its_spot_stops_trying_other_stances(monkeypatc
 
 
 @pytest.mark.parametrize(
-    "status, expanded, moved, boxed, ledge",
+    "status, expanded, moved, boxed, shut",
     [
         ("unreachable", 1, 0.0, True, True),  # no move at all from the spot
         ("unreachable", 9, 0.0, False, True),  # 20261122T024835715542Z: a closed eave
-        ("unreachable", 400, 0.0, False, False),  # a closed floor: towers, not drops
+        # 20261122T125350762344Z: a roof slope of 40 nodes, every way off a drop of 5+
+        ("unreachable", 40, 0.0, False, True),
+        # a closed floor is shut in too, whatever its size; the runner picks towers
+        # or a drop by where the goal is (build_runner._stance)
+        ("unreachable", 400, 0.0, False, True),
         ("unreachable", 0, 0.0, False, False),  # a goal proof expands nothing
         ("incomplete", 9, 0.0, False, False),  # capped: more may lie beyond
         ("unreachable", 9, 2.0, False, False),  # it walked: not stuck where it was
     ],
 )
-def test_a_dead_end_is_boxed_in_when_no_move_and_a_ledge_when_its_region_is_small(
-    status, expanded, moved, boxed, ledge
+def test_a_dead_end_is_boxed_in_when_no_move_and_shut_in_when_its_region_ran_out(
+    status, expanded, moved, boxed, shut
 ):
     last = types.SimpleNamespace(status=status, expanded=expanded)
-    assert cb.dead_end(last, (0.0, 70.0, 0.0), (moved, 70.0, 0.0)) == (boxed, ledge)
+    assert cb.dead_end(last, (0.0, 70.0, 0.0), (moved, 70.0, 0.0)) == (boxed, shut)
     assert cb.dead_end(None, (0.0, 70.0, 0.0), (0.0, 70.0, 0.0)) == (False, False)
 
 
-def test_getting_down_clears_the_ledge_too(monkeypatch):
+def test_getting_down_clears_shut_in_too(monkeypatch):
     b, _, _ = body()
     b._obs["body"]["position"] = [20.5, 10.0, 20.5]
     x, y, z = b.position()
     monkeypatch.setattr(cb, "standable", lambda cells, n: n == (x + 1, y - 5, z))
     monkeypatch.setattr(b, "health", lambda: 20.0)
     monkeypatch.setattr(b, "_navigate", lambda goal, **k: True)
-    b.on_ledge = True
-    assert b.get_down() is True and not b.on_ledge and not b.boxed_in
+    b.shut_in = True
+    assert b.get_down() is True and not b.shut_in and not b.boxed_in
 
 
 def test_getting_down_takes_the_shortest_drop_beside_the_body(monkeypatch):
