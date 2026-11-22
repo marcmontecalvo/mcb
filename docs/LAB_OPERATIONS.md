@@ -34,12 +34,14 @@ A whole supplied house-large build takes 40–50 minutes. Its three parts can be
 | Show a saved stage, no build | `--from <stage> --stage` |
 
 House-large stage library state (Nov 22): `site_ready` comes from site lab
-20261122T151804484862Z (b02b1a2). `structure_done` comes from zones run
-20261122T185137031693Z (d07edfc) and still has 23 scaffolding
-blocks standing that cleanup could not reach before #11 / #12 were fixed, so a details
-lab from it starts with them (details lab 20261122T212004328372Z on b3717f6 took them
-all down). `band_0`..`band_6` come from storeys run 20261122T182906280327Z. Typical times
-on d07edfc: site lab about 8:30, structure lab 19–25 min.
+20261122T151804484862Z (b02b1a2). `structure_done` was refreshed by storeys structure
+lab 20261122T224723178689Z (532e0d4, clean cleanup); earlier details labs
+(20261122T212004328372Z, 20261122T215704799669Z, 20261122T220712351331Z on 7e34f1b,
+and 20261122T222920754771Z, 20261122T223831364743Z on 532e0d4) ran from the previous
+zones `structure_done` (20261122T185137031693Z) that had 23 scaffolding standing and
+took them all down. `band_0`..`band_3` were refreshed by 20261122T224723178689Z
+(`band_4`..`band_6` from 20261122T182906280327Z). Typical times on 532e0d4: site lab
+about 8:30, structure lab ~20 min, details lab ~7:35.
 
 A storeys build (`--order storeys`) also saves `band_N` once the structure of storey
 bands 0..N (`build_plan.storey_bands`: each floor is a band, the walls between floors go

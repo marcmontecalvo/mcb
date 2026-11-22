@@ -1640,3 +1640,346 @@ def test_confirm_step_accepts_scaffold_drop_column():
     assert not native_driver.confirm_step(
         plan, before, after, ChainMap(fresh, incomplete), report
     )
+
+
+def test_route_detour_away_from_goal_is_not_cut_off_while_advancing(monkeypatch):
+    """A valid detour moving away from the goal is not cut off while advancing."""
+    route = [(-i, 1, 0) for i in range(20)]  # walks away from goal (5, 1, 0)
+    sent, records = [], []
+    client = SimpleNamespace(
+        send=lambda op, **kw: sent.append((op, kw)) or {"sequence": 1},
+        acknowledge=lambda *_: None,
+        record=lambda *args: records.append(args),
+        events=[],
+        wait=lambda *_, **__: None,
+    )
+
+    def decide(obs, *, native=False):
+        if obs["tick"] >= 390:
+            controller.route = []
+            controller.mode = "idle"
+
+    controller = SimpleNamespace(
+        goal=(5, 1, 0),
+        goal_progress_ticks=180,
+        route=list(route),
+        mode="following",
+        terrain=None,
+        gap_jump=None,
+        committed_step=None,
+        movement_policy=MovementPolicy(),
+        decide=decide,
+        _admit=lambda _: None,
+        drain_events=lambda: [],
+        stop_reason=lambda obs: "arrived" if obs["tick"] >= 400 else None,
+    )
+    rows = [{"tick": 0, "body": {"position": [0.5, 1, 0.5]}, "route_follower": {}}]
+    # 19 steps x 20 ticks = 380 ticks (> 180 limit) moving away from (5, 1, 0).
+    for step in range(1, 20):
+        rows.append(
+            {
+                "tick": step * 20,
+                "body": {"position": [0.5 - step, 1, 0.5]},
+                "route_follower": {
+                    "route_id": "native-1",
+                    "state": "following",
+                    "next_index": step,
+                },
+            }
+        )
+    # Route completes at tick 390, then one idle poll at tick 400 still far from goal.
+    rows.append(
+        {
+            "tick": 390,
+            "body": {"position": [-18.5, 1, 0.5]},
+            "route_follower": {
+                "route_id": "native-1",
+                "state": "done",
+                "next_index": 20,
+            },
+        }
+    )
+    rows.append(
+        {
+            "tick": 400,
+            "body": {"position": [-18.5, 1, 0.5]},
+            "route_follower": {"state": "idle"},
+        }
+    )
+    it = iter(rows)
+    monkeypatch.setattr(native_driver, "policy_state", lambda _: next(it))
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda *_: None)
+    end = native_driver.drive_native(client, controller, 10)
+    assert end == {"type": "navigation_stopped", "data": {"reason": "arrived"}}
+    assert client.last_controller_error is None
+
+
+def test_standing_still_on_a_route_still_triggers_goal_no_progress(monkeypatch):
+    """A body whose route_follower stops advancing still trips goal_no_progress."""
+    route = [(-i, 1, 0) for i in range(10)]
+    sent, records = [], []
+    client = SimpleNamespace(
+        send=lambda op, **kw: sent.append((op, kw)) or {"sequence": 1},
+        acknowledge=lambda *_: None,
+        record=lambda *args: records.append(args),
+        events=[],
+        wait=lambda *_, **__: None,
+    )
+    controller = SimpleNamespace(
+        goal=(5, 1, 0),
+        goal_progress_ticks=180,
+        route=list(route),
+        mode="following",
+        terrain=None,
+        gap_jump=None,
+        committed_step=None,
+        movement_policy=MovementPolicy(),
+        decide=lambda _, **kw: None,
+        _admit=lambda _: None,
+        drain_events=lambda: [],
+    )
+    rows = [
+        {"tick": 0, "body": {"position": [0.5, 1, 0.5]}, "route_follower": {}},
+        {
+            "tick": 20,
+            "body": {"position": [-0.5, 1, 0.5]},
+            "route_follower": {
+                "route_id": "native-1",
+                "state": "following",
+                "next_index": 2,
+            },
+        },
+        {
+            "tick": 40,
+            "body": {"position": [-1.5, 1, 0.5]},
+            "route_follower": {
+                "route_id": "native-1",
+                "state": "following",
+                "next_index": 3,
+            },
+        },
+    ]
+    # Stuck at next_index=3 from tick 40 onwards.
+    for tick in range(60, 400, 20):
+        rows.append(
+            {
+                "tick": tick,
+                "body": {"position": [-1.5, 1, 0.5]},
+                "route_follower": {
+                    "route_id": "native-1",
+                    "state": "following",
+                    "next_index": 3,
+                },
+            }
+        )
+    seen = []
+    it = iter(rows)
+
+    def policy(_client):
+        row = next(it)
+        seen.append(row["tick"])
+        return row
+
+    monkeypatch.setattr(native_driver, "policy_state", policy)
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda *_: None)
+    native_driver.drive_native(client, controller, 10)
+    assert client.last_controller_error.startswith("goal_no_progress")
+    assert seen[-1] == 220  # 40 (last advance) + 180 (limit)
+
+
+def test_resubmitting_routes_at_index_one_still_triggers_goal_no_progress(monkeypatch):
+    """Repeated replans that never advance past next_index=1 do not reset the clock."""
+    sent, records = [], []
+    client = SimpleNamespace(
+        send=lambda op, **kw: sent.append((op, kw)) or {"sequence": 1},
+        acknowledge=lambda *_: None,
+        record=lambda *args: records.append(args),
+        events=[],
+        wait=lambda *_, **__: None,
+    )
+    controller = SimpleNamespace(
+        goal=(10, 1, 0),
+        goal_progress_ticks=180,
+        route=[(0, 1, 0), (-1, 1, 0)],
+        mode="following",
+        terrain=None,
+        gap_jump=None,
+        committed_step=None,
+        failed_edges=set(),
+        previous_route=(),
+        search=None,
+        _discard_prefetch=lambda: None,
+        movement_policy=MovementPolicy(),
+        decide=lambda _, **kw: setattr(controller, "route", [(0, 1, 0), (-1, 1, 0)]),
+        _admit=lambda _: None,
+        drain_events=lambda: [],
+    )
+    state = {"tick": -20, "route_n": 0}
+
+    def policy(_client):
+        state["tick"] += 20
+        if state["tick"] == 0:
+            return {
+                "tick": 0,
+                "body": {"position": [0.5, 1, 0.5]},
+                "route_follower": {},
+            }
+        state["route_n"] += 1
+        return {
+            "tick": state["tick"],
+            "body": {"position": [0.5, 1, 0.5]},
+            "route_follower": {
+                "route_id": f"native-{state['route_n']}",
+                "state": "needs_replan",
+                "reason": "route_step_deadline",
+                "next_index": 1,
+            },
+        }
+
+    monkeypatch.setattr(native_driver, "policy_state", policy)
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda *_: None)
+    native_driver.drive_native(client, controller, 10)
+    assert client.last_controller_error.startswith("goal_no_progress")
+    assert state["tick"] == 180
+
+
+def test_short_two_node_detour_routes_keep_progress_alive(monkeypatch):
+    """Two-node routes finishing state=done between polls count as progress."""
+    sent, records = [], []
+    client = SimpleNamespace(
+        send=lambda op, **kw: sent.append((op, kw)) or {"sequence": 1},
+        acknowledge=lambda *_: None,
+        record=lambda *args: records.append(args),
+        events=[],
+        wait=lambda *_, **__: None,
+    )
+    state = {"step": 0}
+
+    def decide(_obs, *, native=False):
+        s = state["step"]
+        controller.route = [(-s, 1, 0), (-(s + 1), 1, 0)]
+        controller.mode = "following"
+
+    controller = SimpleNamespace(
+        goal=(5, 1, 0),
+        goal_progress_ticks=100,
+        route=[(0, 1, 0), (-1, 1, 0)],
+        mode="following",
+        terrain=None,
+        gap_jump=None,
+        committed_step=None,
+        movement_policy=MovementPolicy(),
+        decide=decide,
+        _admit=lambda _: None,
+        drain_events=lambda: [],
+        stop_reason=lambda obs: "arrived" if obs["tick"] >= 200 else None,
+    )
+    rows = [{"tick": 0, "body": {"position": [0.5, 1, 0.5]}, "route_follower": {}}]
+    for i in range(1, 11):
+        rows.append(
+            {
+                "tick": i * 20,
+                "body": {"position": [0.5 - i, 1, 0.5]},
+                "route_follower": {
+                    "route_id": f"native-{i}",
+                    "state": "done",
+                    "next_index": 2,
+                },
+            }
+        )
+    it = iter(rows)
+
+    def policy(_client):
+        row = next(it)
+        state["step"] = row["tick"] // 20
+        return row
+
+    monkeypatch.setattr(native_driver, "policy_state", policy)
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda *_: None)
+    end = native_driver.drive_native(client, controller, 10)
+    assert end == {"type": "navigation_stopped", "data": {"reason": "arrived"}}
+    assert client.last_controller_error is None
+
+
+@pytest.mark.parametrize("confirmed", [True, False])
+def test_confirmed_step_keeps_detour_alive_but_failed_step_does_not(
+    monkeypatch, confirmed
+):
+    """Confirmed terrain steps along a detour reset the clock; failed steps do not."""
+    from mclab.terrain_steps import TerrainPolicy
+
+    sent, records = [], []
+    client = SimpleNamespace(
+        send=lambda op, **kw: sent.append((op, kw)) or {"sequence": 1},
+        acknowledge=lambda *_: None,
+        record=lambda *args: records.append(args),
+        events=[],
+        wait=lambda *_, **__: None,
+    )
+    step_num = {"n": 0}
+    policy_obj = TerrainPolicy()
+
+    def decide(obs, *, native=False):
+        if obs["tick"] < 240:
+            step_num["n"] += 1
+            plan = StepPlan(
+                (0, 1, 0),
+                (0, 2, 0),
+                breaks=((0, 3, 0),),
+                kind="pillar",
+            )
+            controller.terrain = SimpleNamespace(plan=plan, policy=policy_obj)
+        else:
+            controller.terrain = None
+
+    controller = SimpleNamespace(
+        goal=(10, 1, 0),
+        goal_progress_ticks=120,
+        route=[],
+        mode="terrain_editing",
+        terrain=None,
+        gap_jump=None,
+        committed_step=None,
+        failed_edges=set(),
+        own_footholds=set(),
+        edits_broken=0,
+        edits_placed=0,
+        search=None,
+        _clear_terrain_forecast=lambda: None,
+        _discard_prefetch=lambda: None,
+        _fresh=lambda _: {(0, 3, 0): {"block": "minecraft:air", "collision_boxes": []}},
+        movement_policy=MovementPolicy(),
+        decide=decide,
+        _admit=lambda _: None,
+        drain_events=lambda: [],
+        stop_reason=lambda obs: "arrived" if obs["tick"] >= 240 else None,
+    )
+    rows = [{"tick": 0, "body": {"position": [0.5, 1, 0.5]}, "step_follower": {}}]
+    for i in range(1, 5):
+        rows.append(
+            {
+                "tick": i * 60,
+                "body": {"position": [0.5, 1, 0.5], "inventory": []},
+                "step_follower": {
+                    "step_id": f"step-{i}",
+                    "state": "edits_ready" if confirmed else "needs_replan",
+                    "reason": "" if confirmed else "native_step_no_progress",
+                    "broken_positions": [[0, 3, 0]] if confirmed else [],
+                    "placed_positions": [],
+                },
+            }
+        )
+    it = iter(rows)
+    monkeypatch.setattr(native_driver, "policy_state", lambda _: next(it))
+    monkeypatch.setattr(native_driver.time, "sleep", lambda _: None)
+    monkeypatch.setattr(control_loop, "_running", lambda *_: None)
+    end = native_driver.drive_native(client, controller, 10)
+    if confirmed:
+        assert end == {"type": "navigation_stopped", "data": {"reason": "arrived"}}
+        assert client.last_controller_error is None
+    else:
+        assert client.last_controller_error.startswith("goal_no_progress")
