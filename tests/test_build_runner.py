@@ -1448,6 +1448,70 @@ def test_a_body_on_a_ledge_the_roof_closed_around_gets_down_then_builds_on():
     assert downs == [1]
 
 
+def _closed_in_body(own_state):
+    """A body standing in the template's own unbuilt cell (3, 0, 3), the house built
+    round it: no stance, no way down; another cell (5, 0, 3) is still to place."""
+    w = flat_world()
+    t = bp.Template.from_build(
+        make_build(
+            {(0, 0, 0): own_state, (2, 0, 0): "minecraft:oak_planks"}, (3, 1, 1)
+        ),
+        (3, 0, 3),
+    )
+    inv = {item: 100 for item in {i["item"] for i in BLOCKS.values()}}
+    body = FakeBody(w, inv, BLOCKS, pos=(3, 0, 3))
+    body.temporary_ok = frozenset({"minecraft:oak_planks", "minecraft:dirt"})
+    body.boxed_in = True
+    reach, climbs = body.goto_stance, []
+
+    def goto_stance(pos, reach_, avoid=()):
+        return not body.boxed_in and reach(pos, reach_, avoid)
+
+    def pillar_to(feet, item, n, release=None):
+        climbs.append((feet, item, n, release))
+        body.w[release] = item
+        body.inv[item] -= 1
+        body.pos, body.boxed_in = feet, False
+        return True
+
+    place = body.place_block
+
+    def place_block(pos, state, item):
+        if pos == body.pos:  # never into the cell the body stands in
+            return br.Result(False, "body_in_cell")
+        return place(pos, state, item)
+
+    body.goto_stance = goto_stance
+    body.can_place_here = lambda *a, **k: not body.boxed_in
+    body.place_block = place_block
+    body.get_down = lambda: False
+    body.pillar_to = pillar_to
+    return t, body, climbs
+
+
+def test_a_body_the_house_closed_round_climbs_out_on_its_own_cells_block():
+    # Run 20261122T045703502025Z: standing in a roof cell not yet built (planks), the
+    # roof's stairs and slabs went in all round; every plan was unreachable after one
+    # node, nothing lower was in reach, and the watchdog ended the build. A person
+    # puts that cell's own block under them and steps out: a pillar of one, placing
+    # the template's block in the template's cell.
+    t, body, climbs = _closed_in_body("minecraft:oak_planks")
+    report = br.run_build(t, body, BLOCKS)
+    assert climbs == [((3, 1, 3), "minecraft:oak_planks", 1, (3, 0, 3))]
+    assert report.stop == "done", report.stop
+    assert body.w[(3, 0, 3)] == "minecraft:oak_planks"
+
+
+def test_a_body_closed_round_in_a_cell_wanting_a_shaped_block_does_not_pillar_it():
+    # A stair placed by jumping onto it faces wherever the body looks: wrong. Only a
+    # plain full cube (an axis is upright when placed from above) is put under the body.
+    t, body, climbs = _closed_in_body(
+        "minecraft:oak_stairs[facing=north,half=bottom,shape=straight,waterlogged=false]"
+    )
+    br.run_build(t, body, BLOCKS)
+    assert climbs == []
+
+
 def test_a_drop_is_never_the_easy_way_while_the_body_can_move():
     body, t = tall_column_body()
     _no_scaffold_items(body)

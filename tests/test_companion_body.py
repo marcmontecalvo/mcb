@@ -2506,6 +2506,49 @@ def test_walkable_bfs_ranks_same_side_of_wall_before_walk_around_wall():
     assert b.walk_distance((2, 0, 2)) == 0
 
 
+def test_pillar_to_a_released_cell_places_exactly_the_item_there(monkeypatch):
+    # The build's own block put under the body in its own template cell (build_runner
+    # _climb_out): the one cell is open to the pillar, the item is the template's
+    # block, never scaffolding or a temporary swapped in for it.
+    from dataclasses import replace
+
+    b, _, _ = body()
+    own, other = (0, 5, 0), (1, 5, 0)
+    b.terrain_policy = replace(
+        b.terrain_policy,
+        allow_place=True,
+        protected_positions=(own, other),
+        scaffold_materials=("minecraft:scaffolding",),
+    )
+    b.temporary_ok = frozenset({"minecraft:dirt", "minecraft:scaffolding"})
+    b.temporary_items = lambda scaffolding=True, prop=False: (
+        ["minecraft:scaffolding", "minecraft:dirt"]
+        if scaffolding
+        else ["minecraft:dirt"]
+    )
+    seen = {}
+
+    def fake_navigate(goal, reach=None, radius=0.6, probe=False, progress=None):
+        policy = b._planner_terrain()
+        seen.update(
+            goal=goal,
+            protected=set(policy.protected_positions),
+            items=tuple(policy.material_allowlist),
+            scaffold=tuple(policy.scaffold_materials),
+        )
+        return True
+
+    monkeypatch.setattr(b, "_navigate", fake_navigate)
+    assert b.pillar_to((0, 6, 0), "minecraft:oak_planks", 1, release=own)
+    assert seen == {
+        "goal": (0, 6, 0),
+        "protected": {other},
+        "items": ("minecraft:oak_planks",),
+        "scaffold": (),
+    }
+    assert own in b.terrain_policy.protected_positions  # restored after
+
+
 def test_pillar_to_disables_partial_walk_away_from_column(monkeypatch):
     from types import SimpleNamespace
 

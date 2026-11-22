@@ -1395,7 +1395,11 @@ class CompanionBody:
         """The planner pillars and bridges with the temporaries in preference order.
         The allowlist is the solid fallback; held scaffolding rides separately and the
         planner picks it per placed cell where it will stay up (docs/SCAFFOLDING.md)."""
-        if getattr(self, "temporary_ok", None) is None or not policy.allow_place:
+        if (
+            getattr(self, "temporary_ok", None) is None
+            or not policy.allow_place
+            or getattr(self, "_exact_material", False)  # pillar_to(release=...)
+        ):
             return policy
         items = tuple(self.temporary_items(scaffolding=False))
         scaffold = (SCAFFOLDING,) if SCAFFOLDING in self.temporary_items() else ()
@@ -1904,14 +1908,21 @@ class CompanionBody:
         return max(0, held - policy.reserve_blocks)
 
     @_fresh_idle
-    def pillar_to(self, feet: Pos, item: str, n: int) -> bool:
+    def pillar_to(
+        self, feet: Pos, item: str, n: int, release: Pos | None = None
+    ) -> bool:
         """Stand at ``feet`` straight above the body by pillaring with ``item`` only
         (at most ``n`` blocks, no digging or bridging), even inside ``no_placing``: the
-        build's tower of dirt is a solid column nothing can walk or climb onto."""
+        build's tower of dirt is a solid column nothing can walk or climb onto.
+
+        ``release``: a protected cell (the template's own) the pillar may fill, with
+        exactly ``item`` (no scaffolding, no temporary in its place): the build's block
+        put under a body the house closed round (build_runner ``_climb_out``)."""
         saved = self.terrain_policy
         saved_only = getattr(self, "walk_only", False)
         saved_pillar = getattr(self, "_pillar_only", False)
-        self.terrain_policy = replace(
+        saved_exact = getattr(self, "_exact_material", False)
+        policy = replace(
             saved,
             allow_place=True,
             allow_pillar=True,
@@ -1920,6 +1931,16 @@ class CompanionBody:
             place_budget=n,
             material_allowlist=(item,),
         )
+        if release is not None:
+            policy = replace(
+                policy,
+                protected_positions=tuple(
+                    p for p in policy.protected_positions if tuple(p) != tuple(release)
+                ),
+                scaffold_materials=(),
+            )
+            self._exact_material = True
+        self.terrain_policy = policy
         self.walk_only = True
         self._pillar_only = True
         try:
@@ -1928,6 +1949,7 @@ class CompanionBody:
             # 20261120T175636584118Z: 205 near cap hits from pillar_to).
             return self._navigate(tuple(feet), reach=None, radius=0.6, probe=True)
         finally:
+            self._exact_material = saved_exact
             self._pillar_only = saved_pillar
             self.walk_only = saved_only
             self.terrain_policy = saved

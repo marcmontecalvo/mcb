@@ -155,6 +155,23 @@ public final class StepMotorTest {
                 "collision_boxes",java.util.List.of(),"properties",java.util.Map.of("distance","0","bottom","false"));
         if(StepMotor.settledScaffold(unsettled) || !StepMotor.settledScaffold(settled))
             throw new AssertionError("settledScaffold must distinguish distance=7 from distance=0"); checks++;
+        // A block is clicked onto its top face when its collision covers that face: a top stair or top slab
+        // carries a pillar like a cube (run 20261122T045703502025Z: a body shut in on a roof stair).
+        java.util.function.Function<String,java.util.Map<String,Object>> shape=boxes->java.util.Map.<String,Object>of(
+                "block","minecraft:oak_stairs","fluid","minecraft:empty","properties",java.util.Map.of(),
+                "collision_boxes",new com.google.gson.Gson().fromJson(boxes,java.util.List.class));
+        var topStair=shape.apply("[[0,0.5,0,1,1,1],[0,0,0,1,0.5,0.5]]");
+        var topSlab=shape.apply("[[0,0.5,0,1,1,1]]");
+        var bottomSlab=shape.apply("[[0,0,0,1,0.5,1]]");
+        var bottomStair=shape.apply("[[0,0,0,1,0.5,1],[0,0.5,0,1,1,0.5]]");
+        var split=shape.apply("[[0,0.5,0,0.5,1,1],[0.5,0.5,0,1,1,1]]");
+        var cubeCell=shape.apply("[[0,0,0,1,1,1]]");
+        var wet=new java.util.HashMap<>(topSlab); wet.put("fluid","minecraft:water");
+        if(!StepMotor.fullTop(topStair) || !StepMotor.fullTop(topSlab) || !StepMotor.fullTop(split) || !StepMotor.fullTop(cubeCell))
+            throw new AssertionError("a top stair, top slab, two half boxes and a cube have a full top face"); checks++;
+        if(StepMotor.fullTop(bottomSlab) || StepMotor.fullTop(bottomStair) || StepMotor.fullTop(shape.apply("[]"))
+                || StepMotor.fullTop(wet) || StepMotor.fullTop(null))
+            throw new AssertionError("a bottom slab, bottom stair, an empty or a wet cell has no full top face"); checks++;
         System.out.println("StepMotor: "+checks+" admission checks passed");
     }
 }

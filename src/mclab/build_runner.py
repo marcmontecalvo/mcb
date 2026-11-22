@@ -555,8 +555,9 @@ class _Runner:
             # Nothing leaves the spot, or the few spots, the body is on (a ledge the
             # house closed around; run 20261122T024835715542Z: a west eave of 9
             # nodes): get down first, then climb back by stairs or a tower like any
-            # other climb. Only here is a drop that hurts taken.
-            if not self._get_down():
+            # other climb. Only here is a drop that hurts taken. Standing in one of the
+            # house's own unbuilt cells, it climbs out on that cell's block instead.
+            if not (self._climb_out() or self._get_down()):
                 return False
             if self.body.goto_stance(pos, REACH, avoid):
                 return True
@@ -576,6 +577,32 @@ class _Runner:
             return False
         self.report.escapes += 1
         return self.body.goto_stance(pos, REACH, avoid)
+
+    def _climb_out(self) -> bool:
+        """The house closed round the body standing in one of its own unbuilt cells
+        (run 20261122T045703502025Z: a roof cell of planks, the roof's stairs and slabs
+        all round, nothing lower in reach): put that cell's own block under the body
+        and step out, a pillar of one, as a person does. Only a plain full cube is
+        placed so (temporary_ok: no facing or half; an axis comes out upright from
+        above), which is the template's state whichever way the body looks."""
+        pillar = getattr(self.body, "pillar_to", None)
+        plain = getattr(self.body, "temporary_ok", None)
+        if pillar is None or plain is None or self.template is None:
+            return False
+        x, y, z = self.body.position()
+        state = self.template.cells.get((x, y, z))
+        if state is None:
+            return False
+        block, props = bp.parse_state(state)
+        if (
+            block not in plain
+            or block == sc.BLOCK
+            or set(props) - {"axis"}
+            or props.get("axis", "y") != "y"
+            or self.body.inventory().get(block, 0) < 1
+        ):
+            return False
+        return bool(pillar((x, y + 1, z), block, 1, release=(x, y, z)))
 
     def _get_down(self) -> bool:
         """Boxed in on a ledge: the body's optional ``get_down`` takes the shortest
