@@ -50,7 +50,7 @@ from dataclasses import asdict, replace
 
 from mclab import place_sight
 from mclab.awareness import Awareness
-from mclab.body_search import BOXED_IN_NODES, LEDGE_NODES
+from mclab.body_search import BOXED_IN_NODES
 from mclab.bridge import REJECTIONS
 from mclab.build_runner import Result
 from mclab.collision_geometry import standable
@@ -201,13 +201,16 @@ WALK_TERRAIN = replace(
 
 
 def dead_end(last, before, after) -> tuple[bool, bool]:
-    """(boxed_in, on_ledge) after a walk that ended with plan result ``last``.
+    """(boxed_in, shut_in) after a walk that ended with plan result ``last``.
 
     Only an ``unreachable`` plan that expanded nodes ran out of them: the body's
     whole region was searched (a goal proof expands none; ``incomplete`` was
-    capped). With no move from the spot it is boxed in after a node or two (run
-    20261117T155135309814Z: an eave slab, every other stance fails the same way),
-    and on a ledge while that region is small (LEDGE_NODES)."""
+    capped). With no move from the spot the body is shut in that region, whatever
+    its size: a ledge the house closed around (run 20261122T024835715542Z: 9 nodes;
+    20261122T125350762344Z: a roof slope of 40), or a closed floor. It is boxed in
+    after a node or two (run 20261117T155135309814Z: an eave slab, every other
+    stance fails the same way). The runner picks a drop or a tower by where the
+    goal is (build_runner._stance)."""
     expanded = getattr(last, "expanded", 0) if last is not None else 0
     stuck = (
         last is not None
@@ -215,7 +218,7 @@ def dead_end(last, before, after) -> tuple[bool, bool]:
         and expanded >= 1
         and math.dist(before, after) < 0.75
     )
-    return stuck and expanded <= BOXED_IN_NODES, stuck and expanded <= LEDGE_NODES
+    return stuck and expanded <= BOXED_IN_NODES, stuck
 
 
 def _clickable(cell) -> bool:
@@ -779,7 +782,7 @@ class CompanionBody:
         # failed edges of the session, each kept while the blocks around it are unchanged
         self.edge_failures = EdgeFailures(cells=self._cells_now)
         self.boxed_in = False  # the last search from here found no move at all
-        self.on_ledge = False  # ... or searched a small closed region (dead_end)
+        self.shut_in = False  # ... or searched its whole region, no way off (dead_end)
         # building: called with the body position while a walk is under way, to
         # place what comes within reach (set by build_runner._sweep)
         # (position, route=points the motor has still to drive) -> None
@@ -931,7 +934,7 @@ class CompanionBody:
             self.movement_policy = saved
 
     def get_down(self) -> bool:
-        """Boxed in on a ledge the house closed around: take the shortest drop to a
+        """Shut in on a ledge the house closed around: take the shortest drop to a
         spot beside the body, at most :meth:`hurt_drop` (KEEP_HEALTH is kept). The
         way back up is the stairs or a tower like any other climb; a drop is never
         the planned way down while one of those exists."""
@@ -954,7 +957,7 @@ class CompanionBody:
         with self.allowing_hurt_drops():
             for spot in spots:
                 if self._navigate(spot, reach=None, radius=0.6):
-                    self.boxed_in = self.on_ledge = False
+                    self.boxed_in = self.shut_in = False
                     return True
         return False
 
@@ -1595,7 +1598,7 @@ class CompanionBody:
         self.observe()
         last = getattr(controller, "last_result", None)
         walked = controller.last_partial_walk
-        self.boxed_in, self.on_ledge = dead_end(last, before, self.position())
+        self.boxed_in, self.shut_in = dead_end(last, before, self.position())
         if (
             walked is not None
             and math.dist(before, walked[1]) <= 1.5

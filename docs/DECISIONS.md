@@ -322,7 +322,11 @@ does the next floor. `--order storeys` builds the house that way.
   the breaks instead of going first.
 - **Bodies get out.** These are fixes the storeys runs exposed:
   - A scaffolding top carries only a body that is already above it.
-  - A body on a small closed ledge gets down.
+  - A body shut in (its whole region searched, no move off it) gets down, whatever the
+    region's size. The goal decides the order: below the body, get down first; level or
+    above, tower first and get down if no tower reaches it. A size limit (32 nodes)
+    stood in for this until zones run 20261122T125350762344Z ended trapped on a roof
+    slope of 40 nodes (b98da15).
   - No scaffolding is placed from inside a scaffolding column, because the click ray hits
     the column.
   - A body shut in on its own unbuilt cell pillars that cell's block to climb out
@@ -341,6 +345,13 @@ Structure labs (`--from site_ready --until structure`, house-large, seed 3141592
 | 20261122T071747687093Z | + total asks | 18:54 | 17:09 | 1:22 | 1 |
 | 20261122T074325272877Z | + batch-mate wait | 21:19 | 17:58 | 3:11 | 1 (ridge) |
 | 20261122T081253390045Z | + structure retry (0139f61) | 18:50 | 16:10 | 2:23 | 0 |
+| 20261122T125350762344Z | zones, main (d3b27a1) | trapped | — | — | 814 placed |
+| 20261122T131804981949Z | zones, + shut-in exit (b98da15) | 21:51 | 18:29 | 2:22 | 0 |
+| 20261122T134204587491Z | storeys, + shut-in exit (b98da15) | 19:02 | 16:27 | 2:11 | 0 |
+
+Same code (b98da15), one run each: storeys 2:49 faster than zones (structure 2:03, refills
+36 s). Storeys runs on near-identical code spread from 18:50 to 21:19, so one pair does not
+settle it; the whole-build comparison is still to run.
 
 Earlier runs that found the faults: 20261122T013145553434Z (props for batch cells),
 20261122T021157007245Z (scaffolding top), 20261122T024835715542Z (closed ledge),

@@ -1442,16 +1442,16 @@ def test_a_body_on_a_ledge_the_roof_closed_around_gets_down_then_builds_on():
         make_build({(0, 0, 0): "minecraft:oak_planks"}, (1, 1, 1)), (3, 0, 3)
     )
     inv = {item: 100 for item in {i["item"] for i in BLOCKS.values()}}
-    body = FakeBody(w, inv, BLOCKS)
-    body.boxed_in, body.on_ledge = False, True
+    body = FakeBody(w, inv, BLOCKS, pos=(3, 8, 3))
+    body.boxed_in, body.shut_in = False, True
     reach, downs = body.goto_stance, []
 
     def goto_stance(pos, reach_, avoid=()):
-        return not body.on_ledge and reach(pos, reach_, avoid)
+        return not body.shut_in and reach(pos, reach_, avoid)
 
     def get_down():
         downs.append(1)
-        body.on_ledge = False
+        body.shut_in = False
         return True
 
     body.goto_stance = goto_stance
@@ -1459,6 +1459,64 @@ def test_a_body_on_a_ledge_the_roof_closed_around_gets_down_then_builds_on():
     report = br.run_build(t, body, BLOCKS)
     assert report.stop == "done" and (3, 0, 3) in report.placed
     assert downs == [1]
+
+
+def _shut_in_runner(body_pos, tower_ok):
+    """A body shut in where it stands (its whole region searched, no way off it),
+    with the order of the exits it takes recorded."""
+    w = flat_world()
+    body = FakeBody(w, {}, BLOCKS, pos=body_pos)
+    body.boxed_in, body.shut_in = False, True
+    order = []
+    reach = body.goto_stance
+
+    def goto_stance(pos, reach_, avoid=()):
+        return not body.shut_in and reach(pos, reach_, avoid)
+
+    def get_down():
+        order.append("down")
+        body.shut_in = False
+        return True
+
+    body.goto_stance = goto_stance
+    body.get_down = get_down
+    runner = br._Runner(body, br.BuildReport(), 20, BLOCKS)
+    runner.scaffolds = set()
+
+    def tower(pos, avoid):
+        order.append("tower")
+        if tower_ok:
+            body.shut_in = False
+        return tower_ok
+
+    runner._tower = tower
+    return runner, order
+
+
+def test_shut_in_above_its_goal_the_body_gets_down_first_whatever_the_region_size():
+    # Run 20261122T125350762344Z (zones): on the north roof slope at (-14,75,61), the
+    # roof east of it not built yet, every way off a drop of 5+; the search ran out
+    # after 40 nodes (over the old 32-node ledge size), so the body never got down
+    # and four stalls ended the build with ground-floor cells (y 65) still to place.
+    runner, order = _shut_in_runner((3, 10, 3), tower_ok=True)
+    assert runner._stance((3, 0, 3), ()) is True
+    assert order == ["down"]
+
+
+def test_shut_in_below_its_goal_the_body_towers_first():
+    # A closed floor with the goal above: a tower climbs to it; a drop would only
+    # take the body further away.
+    runner, order = _shut_in_runner((3, 0, 3), tower_ok=True)
+    assert runner._stance((3, 6, 3), ()) is True
+    assert order == ["tower"]
+
+
+def test_shut_in_below_its_goal_with_no_tower_the_body_still_gets_down():
+    # Run 20261122T024835715542Z had goals above and below the closed eave: when no
+    # tower reaches the one above, getting down stays the way out.
+    runner, order = _shut_in_runner((3, 3, 3), tower_ok=False)
+    assert runner._stance((3, 5, 3), ()) is True
+    assert order == ["tower", "down"]
 
 
 def _closed_in_body(own_state):
