@@ -656,6 +656,8 @@ def drive_native(client, controller, wall_timeout):
     best_distance, best_tick = (
         (progress["distance"], progress["tick"]) if progress else (math.inf, None)
     )
+    route_progress_id = None
+    route_progress_index = 1
     bans, mob_retries = {}, Counter()  # no-progress edges: expiry tick, mob retries
     remembered = False  # session edge bans (controller.edge_failures) seeded yet
     geometry_storm = 0  # consecutive route_swept_geometry kills of this drive
@@ -674,6 +676,8 @@ def drive_native(client, controller, wall_timeout):
                 )
                 active_id = active_step = active_gap = None
                 active_route = []
+                route_progress_id = None
+                route_progress_index = 1
                 confirmation_deadline = None
                 goal_revision = revision
             observation = policy_state(client)
@@ -718,13 +722,32 @@ def drive_native(client, controller, wall_timeout):
                 limit = GOTO_PROGRESS_TICKS  # one clock across a goto's stance loop
             if goal is not None and tick is not None and limit is not None:
                 distance = math.dist(observation["body"]["position"], goal)
-                if (
-                    best_tick is None
-                    or distance <= best_distance - GOAL_PROGRESS_BLOCKS
-                ):
-                    best_distance, best_tick = distance, tick
+                follower = observation.get("route_follower", {})
+                following = (
+                    active_id is not None
+                    and follower.get("route_id") == active_id
+                    and follower.get("state") in {"following", "done"}
+                )
+                route_advanced = False
+                if following:
+                    # Valid detours walk away from the goal first; advancing along
+                    # the active route counts as progress (#13), while standing
+                    # still on a route or replanning at index 1 does not.
+                    index = follower.get("next_index", 1)
+                    if route_progress_id != active_id:
+                        route_progress_id = active_id
+                        route_progress_index = 1
+                    if index > route_progress_index:
+                        route_progress_index = index
+                        route_advanced = True
+                closer = distance <= best_distance - GOAL_PROGRESS_BLOCKS
+                if best_tick is None or closer or route_advanced:
+                    if best_tick is None or closer:
+                        best_distance = distance
+                        if progress is not None:
+                            progress["distance"] = best_distance
+                    best_tick = tick
                     if progress is not None:
-                        progress["distance"] = best_distance
                         progress["tick"] = best_tick
                 elif tick - best_tick >= limit:
                     raise ControllerFailure(
@@ -756,6 +779,10 @@ def drive_native(client, controller, wall_timeout):
                 controller.air_waypoint = None
                 controller.motion_origin_height = None
                 client.record("native_gap_finished", report)
+                if tick is not None:
+                    best_tick = tick
+                    if progress is not None:
+                        progress["tick"] = best_tick
                 active_gap = None
             if active_step is not None:
                 controller._admit(observation)
@@ -831,6 +858,10 @@ def drive_native(client, controller, wall_timeout):
                 controller.route.clear()
                 controller.search = None
                 client.record("native_step_confirmed", report)
+                if tick is not None:
+                    best_tick = tick
+                    if progress is not None:
+                        progress["tick"] = best_tick
                 active_step = None
                 confirmation_deadline = None
             native = observation.get("route_follower", {})
