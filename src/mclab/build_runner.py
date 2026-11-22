@@ -374,6 +374,7 @@ class _Runner:
         # the build order (bp.ORDERS); "storeys" sweeps each column up from one stance
         self.order = bp.ORDERS[0]
         self.held: set[Pos] = set()  # storeys: cells this sweep failed (nothing over)
+        self._cleaning = False  # inside _clean_up
 
     def attempt(self, act) -> None:
         """Stance, act, record. Retries other stances while the failure says so."""
@@ -603,6 +604,8 @@ class _Runner:
         shut = boxed or getattr(self.body, "shut_in", False)
         out_first = boxed or (shut and pos[1] < self.body.position()[1])
         if out_first:
+            if self._drop_to(pos, avoid):
+                return True
             if not self._get_out():
                 return False
             if self.body.goto_stance(pos, REACH, avoid):
@@ -630,6 +633,21 @@ class _Runner:
             return False
         self.report.escapes += 1
         return self.body.goto_stance(pos, REACH, avoid)
+
+    def _drop_to(self, pos: Pos, avoid) -> bool:
+        """Shut in above the goal: walk to the goal's own stance with drops that hurt
+        allowed (the body's optional ``allowing_hurt_drops``; KEEP_HEALTH is kept),
+        so the drop lands where the work is. A spot near the body taken first could
+        be in the same pocket, or reached only by a walk down and back up (issue #11,
+        run 20261122T185137031693Z: 27 steps from (-10,71,68) to (-10,69,66))."""
+        allowing = getattr(self.body, "allowing_hurt_drops", None)
+        if allowing is None:
+            return False
+        with allowing():
+            reached = self.body.goto_stance(pos, REACH, avoid)
+        if reached and (heal := getattr(self.body, "eat_when_needed", None)):
+            heal()
+        return bool(reached)
 
     def _get_out(self) -> bool:
         """Out of a region with no way off: climb out of an own unbuilt cell, else
@@ -824,8 +842,11 @@ class _Runner:
             return self._pillar(pos, cells, item, avoid)
         item = self._scaffold_item(len(cells))
         if item is None:
-            # standing towers are taken back first; the whole stack is only 64
-            _clean_up(self, self.template, self.scaffolds)
+            # standing towers are taken back first; the whole stack is only 64.
+            # Not from inside cleanup: it is already taking them back, and a cleanup
+            # nested in its own sweep went round the same cells again.
+            if not self._cleaning:
+                _clean_up(self, self.template, self.scaffolds)
             item = self._scaffold_item(len(cells))
             if item is None:
                 # Without a tower every cell up there is one more round of failed
@@ -1880,10 +1901,19 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
     without placing new footholds. Re-adopts any footholds placed by cleanup walks
     every round so none survive into the final diff (run 20261120T175636584118Z left
     three cleanup-placed footholds inside the house). True if anything was broken."""
+    outer, runner._cleaning = runner._cleaning, True
+    try:
+        return _clean_up_rounds(runner, template, scaffolds)
+    finally:
+        runner._cleaning = outer
+
+
+def _clean_up_rounds(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
     body, broken = runner.body, False
     collect = getattr(body, "collect_drops", None)  # optional, like walk_to
     settle = getattr(body, "wait_ticks", None)  # optional
     steps: set[Pos] = set()  # placed by the planner to walk: taken back last
+    retry = True  # the first round tries every temporary, skipped or not
     for round_idx in range(CLEANUP_ROUNDS * 2):
         # dirt/scaffolding the planner placed to walk (walking_with_edits) comes down
         # with the rest — including footholds placed during earlier cleanup rounds
@@ -1892,6 +1922,8 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
         if strays:
             steps |= strays & scaffolds
             strays.clear()
+        if retry:
+            _forget_failures(runner, scaffolds)
         acts = [
             a
             for a in bp.cleanup_actions(template, body.world, scaffolds)
@@ -1923,7 +1955,22 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
             fell = [c for c in standing_before if not _standing(body, c)]
             with no_placing(body):
                 collect(fell or [a.pos for a in acts])
+        # A cell with no stance from where the body stood may have one from where
+        # this round left it (issue #12: run 20261122T185137031693Z skipped three
+        # roots for good, 23 scaffolding blocks stood). Only after a round that took
+        # something down or put ground back: otherwise nothing has changed.
+        retry = any(not _standing(body, c) for c in standing_before) or len(
+            _restores(runner, template)
+        ) < len(restores)
     return broken
+
+
+def _forget_failures(runner: _Runner, cells: Collection[Pos]) -> None:
+    """Cleanup tries these temporaries afresh: skips and stances judged elsewhere."""
+    for c in cells:
+        runner.report.skipped.pop(c, None)
+        runner.fails.pop(c, None)
+        runner.avoid.pop(c, None)
 
 
 _FACING = {"north": (0, -1), "south": (0, 1), "west": (-1, 0), "east": (1, 0)}

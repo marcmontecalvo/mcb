@@ -566,6 +566,52 @@ def test_getting_down_takes_the_shortest_drop_beside_the_body(monkeypatch):
     assert b.get_down() is False and not tried
 
 
+def test_getting_down_never_counts_a_spot_the_body_walks_to_anyway(monkeypatch):
+    # Issue #11: the nearest lower spot can lie inside the region the body is shut
+    # in. Walking there "succeeded", shut_in was cleared, and the body was as stuck
+    # as before. Only a spot the walk alone cannot reach takes the body out.
+    b, _, _ = body()
+    b._obs["body"]["position"] = [20.5, 10.0, 20.5]
+    x, y, z = b.position()
+    inside, out = (x + 1, y - 1, z), (x - 1, y - 5, z)
+    monkeypatch.setattr(cb, "standable", lambda cells, n: n in (inside, out))
+    monkeypatch.setattr(b, "_walkable", lambda cells, here: {here: 0, inside: 1})
+    monkeypatch.setattr(b, "health", lambda: 20.0)
+    tried = []
+
+    def navigate(goal, *, reach, radius, probe=False, progress=None):
+        tried.append(goal)
+        return True
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    b.shut_in = True
+    assert b.get_down() is True and not b.shut_in
+    assert tried == [out]
+
+
+def test_a_stance_tried_from_a_shut_in_region_is_not_held_against_it(monkeypatch):
+    # Issue #11, run 20261122T185137031693Z: shut in on the upper floor, every
+    # ground stance for a scaffolding root came back unreachable and was barred for
+    # STANCE_RETRY_S. Once down, only stances inside the pocket were left untried; the
+    # body walked back up into it and the root was skipped for good.
+    b, _, _ = body()
+    ground = (2, 0, 0)
+    monkeypatch.setattr(b, "stances", lambda *a, **k: [ground])
+    monkeypatch.setattr(cb, "interacts", lambda *a, **k: False)
+    shut = {"on": True}
+
+    def navigate(goal, *, reach, radius, probe=False, progress=None):
+        b.shut_in = shut["on"]
+        return not shut["on"]
+
+    monkeypatch.setattr(b, "_navigate", navigate)
+    monkeypatch.setattr(b, "_worth_searching", lambda target: False)
+    assert b.goto_stance((2, 0, 2), 4.5) is False
+    assert not b._failed_stances
+    shut["on"] = False
+    assert b.goto_stance((2, 0, 2), 4.5) is True
+
+
 def test_roof_support_top_is_not_visible_from_recorded_floor_height():
     b, _, memory = body()
     b._obs["body"]["position"] = [-19.5, 65.0, 59.31]
