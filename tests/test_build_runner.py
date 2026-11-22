@@ -288,6 +288,19 @@ def test_state_unreachable_retries_other_stances_then_skips():
     assert body.w[pane] in bp.AIR
 
 
+def test_a_skipped_structure_cell_is_retried_before_the_structure_is_done():
+    # Run 20261122T074325272877Z skipped a ridge slab after three failed stances and
+    # declared the structure done with details still to place, so the cell never got
+    # the fresh round a build's end gives skipped cells; structure_done was saved
+    # with it missing.
+    roof = (5, 4, 5)
+    body, t = small_house_body(fail={roof: ("state_unreachable", br.MAX_TRIES)})
+    seen = []
+    report = br.run_build(t, body, BLOCKS, until="structure", on_milestone=seen.append)
+    assert report.stop == "until_structure" and seen[-1] == "structure_done"
+    assert roof in report.placed and roof not in report.skipped
+
+
 def test_transient_failure_is_retried_and_not_skipped():
     pane = (1, 2, 3)
     body, t = small_house_body(fail={pane: ("out_of_reach", 2)})

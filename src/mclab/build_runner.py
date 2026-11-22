@@ -2258,9 +2258,28 @@ def _run(
                 break
             continue
         acts = [a for a in acts if a.pos not in skipped]
-        if not acts and skipped and retries < RETRY_ROUNDS:
-            # The build around a skipped cell has changed since: try it again with
-            # fresh stances rather than stopping (a cell is fixed, not skipped).
+        # The build around a skipped cell has changed since: try it again with fresh
+        # stances rather than stopping (a cell is fixed, not skipped). So too before
+        # the structure is declared done with a cell of it skipped: run
+        # 20261122T074325272877Z saved structure_done with a ridge slab missing.
+        structure_skipped = any(
+            bp.is_structure(template.cells.get(p, "minecraft:air")) for p in skipped
+        )
+        if (
+            skipped
+            and retries < RETRY_ROUNDS
+            and (
+                not acts
+                or (
+                    not structure_done
+                    and structure_skipped
+                    and not any(
+                        isinstance(a, bp.Place) and bp.is_structure(a.state)
+                        for a in acts
+                    )
+                )
+            )
+        ):
             retries += 1
             skipped.clear()
             runner.fails.clear()
