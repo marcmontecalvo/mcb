@@ -72,3 +72,25 @@ def test_the_runner_sim_builds_the_large_house_through_the_real_runner(blocks, o
     assert result.stop == "done"
     assert result.missing == 0 and result.placed == result.cells
     assert len(result.stances) == result.walks + 1
+
+
+@pytest.mark.parametrize("order", bp.ORDERS)
+def test_the_runner_sim_props_only_what_the_batch_cannot_make(blocks, order):
+    """Run 20261122T013145553434Z: the storey sweep took logs before the cells their
+    axis is clicked against, wanted a dirt prop for each and, with none held,
+    skipped 16 cells. The sim body makes a state only from a face whose click gives
+    it; the two hoppers facing each other are the house's one prop."""
+    result = sim.simulate_runner(
+        _template("house-large.build.json"), blocks, order=order
+    )
+    assert result.stop == "done"
+    assert result.props <= 1
+
+
+def test_the_sim_body_makes_a_state_only_from_a_face_that_gives_it(blocks):
+    world = sim.World(ground_y=0)
+    body = sim.SimBody(world, blocks, {"minecraft:oak_log": 4}, (0, 1, 3))
+    log = "minecraft:oak_log[axis=z]"
+    assert not body.place_block((0, 1, 1), log, "minecraft:oak_log").ok
+    world.set((0, 1, 0), "minecraft:oak_planks")
+    assert body.place_block((0, 1, 1), log, "minecraft:oak_log").ok

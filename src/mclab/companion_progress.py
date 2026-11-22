@@ -34,6 +34,34 @@ def write_progress(
     _write(Path(folder) / PROGRESS, {**value, "updated_at": time.time()})
 
 
+class Progress:
+    """progress.json for one job, each write on top of the last: a stage change
+    keeps the counts and detail, a count update keeps the stage (run
+    20261122T013145553434Z: every stage change wrote the counts as null, and a
+    watcher saw ``done=0/0`` through the whole placing stage)."""
+
+    def __init__(self, folder: Path, job: str | None = None):
+        self.folder = Path(folder)
+        self.value: dict = {
+            "job": job,
+            "stage": None,
+            "done": None,
+            "total": None,
+            "detail": None,
+        }
+
+    def write(
+        self,
+        stage: str | None = None,
+        done: float | None = None,
+        total: float | None = None,
+        detail: str | None = None,
+    ) -> None:
+        given = {"stage": stage, "done": done, "total": total, "detail": detail}
+        self.value.update({k: v for k, v in given.items() if v is not None})
+        write_progress(self.folder, **self.value)
+
+
 def write_job(folder: Path, job: str) -> None:
     """Record which job produced a results folder (shown in run history)."""
     _write(Path(folder) / JOB, {"job": job})

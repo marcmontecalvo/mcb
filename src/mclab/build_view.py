@@ -148,10 +148,18 @@ def render(
 
 
 def latest_checkpoint(run: Path) -> Path | None:
-    found = sorted(
-        (p for p in (run / "checkpoints").glob("[0-9]*.json") if p.stem.isdigit()),
-        key=lambda p: int(p.stem),
-    )
+    """The checkpoint written last: numbered ones as the build goes, then a stage's
+    (``structure_done.json``) and ``final.json`` after cleanup. Same time: the
+    higher number."""
+
+    def key(p: Path):
+        try:
+            stamp = p.stat().st_mtime
+        except OSError:
+            stamp = 0.0
+        return (stamp, int(p.stem) if p.stem.isdigit() else -1)
+
+    found = sorted((run / "checkpoints").glob("*.json"), key=key)
     return found[-1] if found else None
 
 

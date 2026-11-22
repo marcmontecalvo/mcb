@@ -1324,6 +1324,55 @@ def _on_top(runner: _Runner, a, pool) -> bool:
     ) and not any(h[0] == x and h[2] == z and h[1] < y for h in runner.held)
 
 
+def _wants_more(runner: _Runner, act, world) -> bool:
+    """Is a neighbour missing for ``act`` in ``world``: one it rests on, or a face
+    whose click makes its state (a log's axis, a stair's half)?"""
+    return bp._gate(act.pos, act.state, world, runner.blocks) is not None or bool(
+        bp.prop_cells(act.pos, act.state, world, runner.blocks)
+    )
+
+
+def _waiting(runner: _Runner, pool) -> set[Pos]:
+    """The cells of ``pool`` to be clicked against cells of it not in yet: each
+    cannot be made from the world as it stands and can once the batch cells it needs
+    are in, those in turn (a log on a log on a plank). Cells that only need each
+    other (two hoppers facing) never come in that way and do not wait: the first
+    goes in against a temporary block (run 20261122T013145553434Z: the storey order
+    offered logs with the cells their axis needs; taken first, each wanted a dirt
+    prop, and 16 cells were skipped)."""
+    world = getattr(runner.body, "world", None)
+    if world is None:
+        return set()
+    places = {
+        a.pos: a
+        for a in pool
+        if isinstance(a, bp.Place) and getattr(a, "item", None) != sc.BLOCK
+    }
+    blocked = {
+        p
+        for p, a in places.items()
+        if any(bp._add(p, v) in places for v in bp._NEIGHBOURS)
+        and _wants_more(runner, a, world)
+    }
+    if not blocked:
+        return set()
+    coming = {p: a.state for p, a in places.items() if p not in blocked}
+
+    def with_batch(x, y, z):
+        got = coming.get((x, y, z))
+        return got if got is not None else world(x, y, z)
+
+    while True:
+        fresh = {
+            p
+            for p in blocked - coming.keys()
+            if not _wants_more(runner, places[p], with_batch)
+        }
+        if not fresh:
+            return blocked & coming.keys()
+        coming.update((p, places[p].state) for p in fresh)
+
+
 def _in_place(runner: _Runner, act) -> bool:
     """Did ``act`` leave its block in (a Place only; the rest hold up nothing)?"""
     if not isinstance(act, bp.Place):
@@ -1492,13 +1541,17 @@ def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:
     runner.held = set()
     while pool and runner.report.steps < runner.max_steps and not runner.short:
         here = runner.body.position()
-        ready = [
+        standing = [
             a
             for a in pool
             if _ready(a, corners) and (not stacked or _on_top(runner, a, pool))
         ]
-        if not ready:
+        if not standing:
             return  # stacked: the rest stands over cells this sweep failed
+        # A cell clicked against one of the batch waits for it (_waiting); with
+        # nothing else left, it goes on against a prop.
+        waiting = _waiting(runner, pool)
+        ready = [a for a in standing if a.pos not in waiting] or standing
         layer = min(a.pos[1] for a in ready)
         # Reach only matters in the lowest layer: the key orders by layer first.
         near = {

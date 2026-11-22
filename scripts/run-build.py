@@ -43,7 +43,7 @@ from mclab.companion_body import (
     start_session,
 )
 from mclab.companion_jobs import build_job, load_vanilla_pack, materials_of
-from mclab.companion_progress import write_progress
+from mclab.companion_progress import Progress
 from mclab.gather_options import GatherOptions
 from mclab.gather_plan import Gather, Hunt, Shear, plan
 from mclab.gather_runner import GatherState, hydrate_containers
@@ -516,7 +516,8 @@ def run(args, config, parser):
         kit_items["minecraft:dirt"] = kit_items.get("minecraft:dirt", 0) + 20
     kit_items.update(bp.tool_needs(template, {}))
     rows: list[dict] = []
-    write_progress(folder, job="build", stage="starting")
+    progress = Progress(folder, job="build")
+    progress.write(stage="starting")
     with exclusive_arena(), companion_world(args.seed):
         bridge = open_bridge(folder)
         memory = None
@@ -626,7 +627,7 @@ def run(args, config, parser):
                 )
             if args.stage:
                 (folder / "STOP").unlink(missing_ok=True)
-                write_progress(folder, job="build", stage="staged")
+                progress.write(stage="staged")
                 print(f"STAGED {folder} - create {folder / 'STOP'} to end", flush=True)
                 while not (folder / "STOP").exists():
                     time.sleep(2)
@@ -694,14 +695,7 @@ def run(args, config, parser):
             def stage(name, done=None, total=None, detail=None):
                 nonlocal current_stage
                 current_stage = name
-                write_progress(
-                    folder,
-                    job="build",
-                    stage=name,
-                    done=done,
-                    total=total,
-                    detail=detail,
-                )
+                progress.write(stage=name, done=done, total=total, detail=detail)
 
             def recorder(report, final):
                 checkpoint(report, final)
@@ -711,9 +705,7 @@ def run(args, config, parser):
                     if current_stage not in ("starting", "clearing trees", "site prep")
                     else ("placing" if report.site else "site prep")
                 )
-                write_progress(
-                    folder,
-                    job="build",
+                progress.write(
                     stage="done" if final else live_stage,
                     done=len(report.placed),
                     total=sum(
@@ -854,7 +846,7 @@ def run(args, config, parser):
                 )
             if args.inspect:
                 (folder / "STOP").unlink(missing_ok=True)
-                write_progress(folder, job="build", stage="inspection")
+                progress.write(stage="inspection")
                 print(f"INSPECT {folder} - create {folder / 'STOP'} to end", flush=True)
                 while not (folder / "STOP").exists():
                     bridge.state()  # heartbeat while the human examines the build

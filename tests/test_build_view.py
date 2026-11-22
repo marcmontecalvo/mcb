@@ -1,6 +1,7 @@
 """A view of a live build: the template's layers drawn from the newest checkpoint."""
 
 import json
+import os
 import struct
 import zlib
 
@@ -102,6 +103,19 @@ def test_a_snapshot_reads_the_progress_and_the_newest_checkpoint(tmp_path):
     assert snap.checkpoint.name == "0010.json"
     assert snap.counts == {"correct": 4, "missing": 2, "wrong": 0, "temporary": 0}
     assert snap.body == (11.5, 65.0, 20.5)
+
+
+def test_the_newest_checkpoint_is_the_last_written_named_or_numbered(tmp_path):
+    """Run 20261122T013145553434Z: the closing look read checkpoint 0NNN with 53
+    scaffolds still up; final.json, written after cleanup, had none."""
+    run = _run_folder(tmp_path, done=4)
+    final = run / "checkpoints" / "final.json"
+    numbered = json.loads((run / "checkpoints" / "0010.json").read_text())
+    final.write_text(json.dumps({**numbered, "cells": numbered["cells"][:1]}))
+    stamp = (run / "checkpoints" / "0010.json").stat().st_mtime
+    os.utime(final, (stamp + 5, stamp + 5))
+    assert bv.latest_checkpoint(run) == final
+    assert bv.snapshot(run, position=lambda r: None).counts["correct"] == 1
 
 
 def test_a_bot_that_placed_nothing_and_barely_moved_is_sitting(tmp_path):

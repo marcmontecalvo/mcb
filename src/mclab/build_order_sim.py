@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from mclab import build_plan as bp
+from mclab import place_state
 from mclab import scaffolding as sc
 
 Pos = tuple[int, int, int]
@@ -97,6 +98,7 @@ class Result:
     swings: int = 0
     floating_stances: int = 0  # stances with nothing under them (a scaffold needed)
     scaffolds: int = 0  # Scaffold acts the planner asked for
+    props: int = 0  # temporary blocks placed to click a state against (runner sim)
     batches: int = 0
     stop: str = ""
     placements: list[Pos] = field(default_factory=list)
@@ -256,14 +258,26 @@ class SimBody:
     """A body for ``build_runner.run_build`` on a ``World``: every block in hand,
     stances are teleports ranked the way ``CompanionBody.stances`` ranks them (walking
     cost less three per upcoming sweep cell covered, ``stance_cover``), and the top
-    of a scaffolding column is a stance (the motor climbs it). It measures the
-    runner's own order (batches, sweep, towers), not the motor."""
+    of a scaffolding column is a stance (the motor climbs it). A state is made only
+    from a solid face whose click gives it (place_state: a log's axis, a slab's
+    half, a hopper's facing). It measures the runner's own order (batches, sweep,
+    towers, props), not the motor. ``keep``: the template's block cells; any other
+    block placed but scaffolding counts as a prop."""
 
-    def __init__(self, world: World, blocks: dict, inventory: dict, pos: Pos):
+    def __init__(
+        self,
+        world: World,
+        blocks: dict,
+        inventory: dict,
+        pos: Pos,
+        keep: frozenset = frozenset(),
+    ):
         self.w, self.blocks, self.inv, self.pos = world, blocks, inventory, pos
+        self.keep = keep
         self.stance_cover: dict = {}  # set by the runner's sweep
         self.stances_walked: list[Pos] = [pos]
         self.scaffold_placed = 0
+        self.props_placed = 0
         self.violations: list[str] = []
 
     # --- BuildBody ---------------------------------------------------------------
@@ -320,6 +334,10 @@ class SimBody:
         ):
             self.violations.append(f"no neighbour: {pos} {state}")
             return Result(False, "no_support_face")
+        elif not self._makes(pos, state):
+            return Result(False, "state_unreachable")
+        elif self.keep and pos not in self.keep:
+            self.props_placed += 1
         _apply(self.w, bp.Place(pos, state, item, 1), {})
         return Result(True, data={"placed": state})
 
@@ -348,6 +366,21 @@ class SimBody:
         return Result(True, data={"broken": cur})
 
     # --- helpers -------------------------------------------------------------------
+    def _makes(self, pos: Pos, state: str) -> bool:
+        """Does a click on some solid neighbour's face give ``state``?"""
+        for direction, v in bp._VEC.items():
+            n = bp._add(pos, v)
+            if not (
+                _solid(self.w, n, self.blocks)
+                or bp.parse_state(self.w(*n))[0] == sc.BLOCK
+            ):
+                continue
+            face = place_state.OPPOSITE[direction]
+            fracs = (0.5,) if place_state.AXIS[face] == "y" else (0.25, 0.75)
+            if any(place_state.click_gives(state, face, f) for f in fracs):
+                return True
+        return False
+
     def _scaffolds(self) -> set[Pos]:
         return {p for p, s in self.w.cells.items() if bp.parse_state(s)[0] == sc.BLOCK}
 
@@ -378,8 +411,10 @@ def simulate_runner(
 
     world = World(ground_y=template.origin[1] - 1)
     start = (template.origin[0] - 3, template.origin[1], template.origin[2] - 3)
-    body = SimBody(world, blocks, _inventory(template, blocks), start)
     want = {p for p, s in template.cells.items() if bp.parse_state(s)[0] not in bp.AIR}
+    body = SimBody(
+        world, blocks, _inventory(template, blocks), start, keep=frozenset(want)
+    )
     report = br.run_build(
         template,
         body,
@@ -397,6 +432,7 @@ def simulate_runner(
         missing=counts["missing"],
         stances=body.stances_walked,
         scaffolds=body.scaffold_placed,
+        props=body.props_placed,
         batches=report.steps,
         stop=report.stop,
         placements=list(report.placed),

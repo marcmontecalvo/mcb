@@ -2793,3 +2793,92 @@ def test_a_storey_sweep_builds_nothing_over_a_cell_it_failed():
     assert (2, 0, 0) not in report.placed
     assert (2, 1, 0) not in report.placed and (2, 2, 0) not in report.placed
     assert (1, 2, 0) in report.placed and (3, 2, 0) in report.placed
+
+
+Z_LOG = "minecraft:oak_log[axis=z]"
+
+
+class _AxisBody(_CoverBody):
+    """A log takes the axis of the face it is clicked on: placed only against a
+    solid neighbour along its axis (the server's sight test names the state)."""
+
+    def _axis_face(self, pos, state):
+        axis = bp.parse_state(state)[1].get("axis")
+        if axis not in bp._AXIS_VEC:
+            return True
+        d = bp._AXIS_VEC[axis]
+        return any(
+            bp._is_solid(
+                self.w.get((pos[0] + s * d[0], pos[1] + s * d[1], pos[2] + s * d[2])),
+                self.blocks,
+            )
+            for s in (1, -1)
+        )
+
+    def can_place_here(self, pos, reach, required=None, state=None):
+        ok = super().can_place_here(pos, reach, required, state)
+        return ok and (state is None or self._axis_face(pos, state))
+
+    def place_block(self, pos, state, item):
+        if not self._axis_face(pos, state):
+            return br.Result(False, "state_unreachable")
+        return super().place_block(pos, state, item)
+
+
+@pytest.mark.parametrize("order", bp.ORDERS)
+def test_a_sweep_waits_for_the_batch_cell_a_block_is_clicked_against(order):
+    """Run 20261122T013145553434Z: the storey planner offers a log with the cell it
+    is clicked against in the same batch; the sweep walked to the nearer log first,
+    found no face that makes its axis, asked for a dirt prop it did not have and
+    skipped 16 logs, planks and stairs as no_material. The log waits for its
+    neighbour."""
+    w = flat_world(-2, 12)
+    body = _AxisBody(w, {"minecraft:oak_log": 1, PLANKS: 1}, BLOCKS, pos=(0, 0, 9))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.order = order
+    log = bp.Place((0, 0, 1), Z_LOG, "minecraft:oak_log")
+    plank = bp.Place((0, 0, 0), PLANKS, PLANKS)
+    assert bp.prop_cells(log.pos, log.state, body.world, BLOCKS)  # alone: a prop
+    br._sweep_pool(runner, [log, plank], set(), None, False)
+    assert sorted(runner.report.placed) == [(0, 0, 0), (0, 0, 1)]
+    assert not runner.report.failures and not runner.short
+    assert w[(0, 0, 1)] == Z_LOG
+
+
+def test_a_sweep_waits_down_a_chain_of_batch_cells():
+    """A log on a log on a plank: the far log waits for the near one, which waits
+    for the plank, though the near log cannot be made yet either."""
+    w = flat_world(-2, 12)
+    held = {"minecraft:oak_log": 2, PLANKS: 1}
+    body = _AxisBody(w, held, BLOCKS, pos=(0, 0, 9))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.order = "storeys"
+    pool = [
+        bp.Place((0, 0, 2), Z_LOG, "minecraft:oak_log"),
+        bp.Place((0, 0, 1), Z_LOG, "minecraft:oak_log"),
+        bp.Place((0, 0, 0), PLANKS, PLANKS),
+    ]
+    assert br._waiting(runner, pool) == {(0, 0, 1), (0, 0, 2)}
+    br._sweep_pool(runner, pool, set(), None, False)
+    assert runner.report.placed == [(0, 0, 0), (0, 0, 1), (0, 0, 2)]
+    assert not runner.report.failures and not runner.short
+
+
+def test_a_sweep_props_cells_that_wait_on_each_other():
+    """Two hoppers facing each other wait on nothing the batch can bring first:
+    neither holds the sweep up, and the first goes in against a temporary block."""
+    w = flat_world(-2, 12)
+    east = "minecraft:hopper[enabled=true,facing=east]"
+    west = "minecraft:hopper[enabled=true,facing=west]"
+    held = {"minecraft:hopper": 2, "minecraft:dirt": 4}
+    body = HopperBody(w, held, BLOCKS, pos=(1, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.order = "storeys"
+    runner.scaffolds = set()
+    pool = [
+        bp.Place((1, 0, 0), east, "minecraft:hopper", 1),
+        bp.Place((2, 0, 0), west, "minecraft:hopper", 1),
+    ]
+    br._sweep_pool(runner, pool, set(), None, False)
+    assert w[(1, 0, 0)] == east and w[(2, 0, 0)] == west
+    assert not runner.report.skipped
