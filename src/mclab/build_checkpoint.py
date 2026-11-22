@@ -12,7 +12,9 @@ Stage snapshots (``Recorder.milestone``): ``site_ready`` (site cleared and level
 house block yet) and ``structure_done`` (the structure in, the details not) cover the
 whole site box and the chests, and are published to the stage library
 (``results/stages/<build key>/<stage>.json``, newest wins) so a lab can start from
-the middle of a build: ``run-build.py --from site_ready``.
+the middle of a build: ``run-build.py --from site_ready``. A storeys build also saves
+``band_N`` as each storey band's structure is finished (``--from band_1 --until
+band_2 --order storeys`` runs one band alone).
 """
 
 from __future__ import annotations
@@ -28,6 +30,45 @@ VERSION = 2
 VERSIONS = (1, 2)  # 1: template cells and inventory only
 KIT_PLACE_MAX = 64  # LabKit.MAX_PLACE
 STAGES = ("site_ready", "structure_done")
+# A storeys build (build_plan ORDERS) also saves band_N once the structure of bands
+# 0..N (build_plan.storey_bands) is in; between site_ready and structure_done.
+BAND = re.compile(r"band_(0|[1-9][0-9]*)")
+# ``until`` names a milestone: site, structure or band_N.
+UNTIL_STAGE = {"site": "site_ready", "structure": "structure_done"}
+STAGE_PATTERN = r"site_ready|structure_done|band_(0|[1-9][0-9]*)"
+UNTIL_PATTERN = r"site|structure|band_(0|[1-9][0-9]*)"
+
+
+def band_stage(band: int) -> str:
+    return f"band_{band}"
+
+
+def is_stage(name) -> bool:
+    return isinstance(name, str) and re.fullmatch(STAGE_PATTERN, name) is not None
+
+
+def is_until(name) -> bool:
+    return isinstance(name, str) and re.fullmatch(UNTIL_PATTERN, name) is not None
+
+
+def until_stage(until: str) -> str:
+    """The stage an ``until`` milestone saves."""
+    if not is_until(until):
+        raise ValueError(f"unknown milestone {until!r}")
+    return UNTIL_STAGE.get(until, until)
+
+
+def stage_rank(stage: str) -> int:
+    """Build order of the stages: site_ready, band_0, band_1, ..., structure_done."""
+    if not is_stage(stage):
+        raise ValueError(f"unknown stage {stage!r}")
+    if stage == "site_ready":
+        return 0
+    if stage == "structure_done":
+        return 1 << 30
+    return 1 + int(BAND.fullmatch(stage).group(1))
+
+
 # Below the site's ground: site prep fills ponds and holes from their bed up.
 SITE_DEPTH = 8
 SITE_ABOVE = 4  # above the template: tree tops cleared over the site
@@ -111,8 +152,8 @@ def load(path: Path) -> dict:
 
 def stage_path(build_key: str, stage: str, root: Path) -> Path:
     """The stage library file of a build key (``run_digest.build_key``)."""
-    if stage not in STAGES:
-        raise ValueError(f"unknown stage {stage!r}; one of {STAGES}")
+    if not is_stage(stage):
+        raise ValueError(f"unknown stage {stage!r}; one of {STAGES} or band_N")
     return root / re.sub(r"[^A-Za-z0-9@,#._+-]", "_", build_key) / f"{stage}.json"
 
 
@@ -124,9 +165,10 @@ def find_stage(build_key: str, stage: str, root: Path) -> Path:
         return path
     held = sorted(p.stem for p in path.parent.glob("*.json")) or ["nothing"]
     make = {"site_ready": "--until site", "structure_done": "--until structure"}
+    how = make.get(stage, f"--until {stage} --order storeys")
     raise FileNotFoundError(
         f"no {stage} stage for {build_key} (the library holds {', '.join(held)}); "
-        f"a run with {make[stage]} saves one"
+        f"a run with {how} saves one"
     )
 
 
@@ -236,7 +278,7 @@ class Recorder:
     ) -> dict:
         """A stage snapshot of the whole site box and the containers; ``scaffolds``:
         the build's own standing scaffolding, which a run from the stage owns."""
-        if stage not in STAGES:
+        if not is_stage(stage):
             raise ValueError(f"unknown stage {stage!r}")
         data = snapshot(
             self.template,

@@ -40,6 +40,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from typing import NamedTuple, Protocol
 
+from mclab import build_checkpoint as ck
 from mclab import build_plan as bp
 from mclab import scaffolding as sc
 from mclab.build_plan import Pos
@@ -64,8 +65,38 @@ MAX_RECOVERIES = 3
 BUILD_WALL = 30.0  # seconds a build walk may take before the route is given up
 SETTLE_TICKS = 60  # wait for the sensor before calling a build blocked
 # Where a build can be told to end early: at the site_ready or structure_done
-# milestone (a stage lab, build_checkpoint.STAGES); None builds everything.
+# milestone (a stage lab, build_checkpoint.STAGES), or a storeys build's band_N
+# (build_checkpoint.BAND); None builds everything.
 UNTIL = (None, "site", "structure")
+
+
+class _BandStages:
+    """The band_N milestones of a storeys build: band N is finished once the
+    structure (no details, no doors) of bands 0..N (bp.storey_bands) is in."""
+
+    def __init__(self, template: bp.Template):
+        bands = bp.storey_bands(template)
+        cells: dict[int, list] = {}
+        for p, s in template.cells.items():
+            if bp.parse_state(s)[0] in bp.AIR or bp.is_detail(s) or bp._is_door(s):
+                continue
+            cells.setdefault(bands[p[1]], []).append((p, s))
+        top = max(bands.values(), default=-1)
+        self.cells = [cells.get(b, []) for b in range(top + 1)]
+        self.next = 0  # the lowest band not yet finished
+
+    def finished(self, world) -> list[int]:
+        """The bands finished since the last call, bottom up."""
+        out = []
+        while self.next < len(self.cells) and all(
+            bp._classify(s, world(*p), bp.DEFAULT_IGNORE, False) == "ok"
+            for p, s in self.cells[self.next]
+        ):
+            out.append(self.next)
+            self.next += 1
+        return out
+
+
 # A broken bridge root: scaffolding past distance 6 falls a tick a cell, and the
 # items then drop to the ground (a run of 6 and a few blocks of fall).
 COLLAPSE_TICKS = 12
@@ -1917,10 +1948,12 @@ def run_build(
     ``order``: the build order (``build_plan.ORDERS``) every batch is planned in.
 
     ``on_milestone(name)``: ``site_ready`` once the site is ready (after
-    ``on_site_ready``), ``structure_done`` the first time only details are left (a
-    stage snapshot is taken there). ``until``: ``site`` or ``structure`` ends the
-    build at that milestone (stop ``until_site`` / ``until_structure``); the details
-    are then left for a run that starts from the snapshot.
+    ``on_site_ready``), in the storeys order ``band_N`` once the structure of bands
+    0..N is in (``_BandStages``), ``structure_done`` the first time only details are
+    left (a stage snapshot is taken at each). ``until``: ``site``, ``band_N`` (storeys
+    only) or ``structure`` ends the build at that milestone (stop ``until_site``,
+    ``until_band_N``, ``until_structure``); the rest is then left for a run that
+    starts from the snapshot.
 
     ``site_margin``: prepare the footprint plus this many cells on every side first
     (site_prep; ``None`` skips it, negative raises ValueError). ``stall_seconds``: a
@@ -1929,10 +1962,14 @@ def run_build(
     ``on_site_ready()``: called once the site is clear and level, before the first
     block is placed (the job puts the levelling's dirt away there).
     """
-    if until not in UNTIL:
-        raise ValueError(f"until must be one of {sorted(u for u in UNTIL if u)}")
+    if until is not None and not ck.is_until(until):
+        raise ValueError(
+            f"until must be one of {sorted(u for u in UNTIL if u)} or band_N"
+        )
     if order not in bp.ORDERS:
         raise ValueError(f"order must be one of {bp.ORDERS}, not {order!r}")
+    if until is not None and ck.BAND.fullmatch(until) and order != "storeys":
+        raise ValueError("a band milestone needs the storeys order")
     report = BuildReport()
     places = getattr(body, "places", None)  # None for fakes and tests
     knowledge = Knowledge(places.archive) if places is not None else None
@@ -2098,10 +2135,21 @@ def _run(
     structure_done = False
     build_stage = "placing"
     on_stage(build_stage)
+    band_stages = _BandStages(template) if order == "storeys" else None
     while True:
         if report.steps >= max_steps:
             report.stop = "max_steps"
             break
+        if band_stages is not None:
+            stage_at = None
+            for band in band_stages.finished(body.world):
+                on_milestone(ck.band_stage(band))
+                if until == ck.band_stage(band):
+                    stage_at = until
+                    break
+            if stage_at:
+                report.stop = f"until_{stage_at}"
+                break
         skipped = report.skipped
         _adopt_footholds(body, template, scaffolds)
         _tend_hunger(body, on_need_materials, hunger)

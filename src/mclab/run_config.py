@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import types
 import urllib.parse
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from pathlib import Path
 from typing import get_args, get_origin, get_type_hints
 
+from mclab import build_checkpoint as ck
 from mclab.awareness import Awareness
 from mclab.companion_body import DIG_TERRAIN, NATURAL_MOVEMENT
 from mclab.gather_options import GatherOptions
@@ -63,8 +65,8 @@ class RunSettings:
     supply: bool = False
     coal: str = "item"
     stage: bool = False
-    start_from: str | None = None  # a stage of the library (build_checkpoint.STAGES)
-    until: str | None = None  # end the build at a milestone (build_runner.UNTIL)
+    start_from: str | None = None  # a library stage (build_checkpoint.is_stage)
+    until: str | None = None  # end the build at a milestone (build_checkpoint.is_until)
     order: str = "zones"  # the build order (build_plan.ORDERS)
     scaffolding: int | None = None
     iron: bool = False
@@ -133,14 +135,17 @@ _TUPLE_TYPES = {
 _ENUMS = {
     "operation": ["execute", "reset", "episodes"],
     "coal": ["item", "block", "ore"],
-    "start_from": ["site_ready", "structure_done"],
-    "until": ["site", "structure"],
     "order": ["zones", "storeys"],
     "tool_choice": ["lowest_sufficient", "best"],
     "ore_collect": ["greedy", "specific"],
     "preset": ["legacy", "visible", "chunk", "sections"],
     "entity_visibility": ["visible", "unoccluded"],
     "memory_mode": ["current", "session", "persistent"],
+}
+# Stage names (build_checkpoint): band_N stages make these open-ended.
+_PATTERNS = {
+    "start_from": ck.STAGE_PATTERN,
+    "until": ck.UNTIL_PATTERN,
 }
 _METADATA = {
     (MovementPolicy, "max_drop"): {"minimum": 0, "maximum": 3, "units": "blocks"},
@@ -274,6 +279,12 @@ def _validate_fields(value, cls, path):
         )
         _check(item, annotation, f"{path}.{name}")
         if name in _ENUMS and item not in _ENUMS[name] and item is not None:
+            raise ValueError(f"Invalid value for {path}.{name}")
+        if (
+            name in _PATTERNS
+            and item is not None
+            and not (isinstance(item, str) and re.fullmatch(_PATTERNS[name], item))
+        ):
             raise ValueError(f"Invalid value for {path}.{name}")
 
 
@@ -705,8 +716,18 @@ def resolve_config(
         or (run["stage"] and run["until"])
         or (run["supply"] and (run["empty"] or run["resume"]))
         or (run["start_from"] and (run["resume"] or run["supply"] or run["empty"]))
-        or (run["start_from"] == "site_ready" and run["until"] == "site")
-        or (run["start_from"] == "structure_done" and run["until"])
+        # a lab ends at a milestone after the stage it starts from
+        or (
+            run["start_from"]
+            and run["until"]
+            and ck.stage_rank(ck.until_stage(run["until"]))
+            <= ck.stage_rank(run["start_from"])
+        )
+        or (
+            run["until"]
+            and ck.BAND.fullmatch(run["until"])
+            and run["order"] != "storeys"
+        )
         or (run["coal"] != "item" and not run["supply"])
         or (run["preview_offset"] and not run["preview"])
     ):
@@ -780,6 +801,8 @@ def _class_schema(cls):
         )
         if field.name in _ENUMS:
             spec["enum"] = _ENUMS[field.name]
+        if field.name in _PATTERNS:
+            spec["pattern"] = f"^({_PATTERNS[field.name]})$"
         spec.update(_METADATA.get((cls, field.name), {}))
         props[field.name] = spec
     return {"type": "object", "properties": props, "additionalProperties": False}

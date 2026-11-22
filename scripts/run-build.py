@@ -165,7 +165,22 @@ def pack_into(items: dict[str, int], knowledge, caps: list[int]) -> list[list[di
 
 
 STAGE_LIBRARY = ROOT / "results" / "stages"
-UNTIL_STAGE = {"site": "site_ready", "structure": "structure_done"}
+
+
+def stage_arg(name: str) -> str:
+    """--from: site_ready, band_N or structure_done."""
+    if not ck.is_stage(name):
+        raise argparse.ArgumentTypeError(
+            f"{name!r}: one of site_ready, band_N (storeys), structure_done"
+        )
+    return name
+
+
+def until_arg(name: str) -> str:
+    """--until: site, band_N or structure."""
+    if not ck.is_until(name):
+        raise argparse.ArgumentTypeError(f"{name!r}: one of site, band_N, structure")
+    return name
 
 
 def _sha256(path: Path) -> str:
@@ -191,9 +206,10 @@ def build_rows(report, d, *, ticks, until=None, saved=False) -> list[dict]:
     reached = (
         report.stop == "done"
         if until is None
+        # a house finished whole has every band and the structure in it
         else (
             report.stop == f"until_{until}"
-            or (until == "structure" and report.stop == "done")
+            or (until != "site" and report.stop == "done")
         )
     )
     rows = [
@@ -209,7 +225,7 @@ def build_rows(report, d, *, ticks, until=None, saved=False) -> list[dict]:
         },
     ]
     if until is not None:
-        stage = UNTIL_STAGE[until]
+        stage = ck.until_stage(until)
         rows.append(
             {
                 "case": "stage saved",
@@ -241,16 +257,18 @@ def main() -> int:
     parser.add_argument(
         "--from",
         dest="start_from",
-        choices=ck.STAGES,
+        type=stage_arg,
         help="start from the stage library's snapshot of this build, start and seed "
-        "(results/stages/): site_ready (site cleared and level, chests as they were) "
-        "or structure_done (only the details left)",
+        "(results/stages/): site_ready (site cleared and level, chests as they were), "
+        "band_N (a storeys build with the structure of bands 0..N in) or "
+        "structure_done (only the details left)",
     )
     parser.add_argument(
         "--until",
-        choices=tuple(UNTIL_STAGE),
+        type=until_arg,
         help="end the build at a milestone and save its stage: site (cleared and "
-        "level) or structure (only the details left)",
+        "level), band_N (bands 0..N built; --order storeys) or structure (only the "
+        "details left)",
     )
     parser.add_argument(
         "--order",
@@ -680,10 +698,10 @@ def run(args, config, parser):
             # the stage's standing scaffolding is this run's own to climb and take back
             scaffolds = ck.scaffolds_of(staged) if staged else set()
             # A run from a stage does not save that stage or an earlier one again.
-            behind = ck.STAGES[: ck.STAGES.index(start_from) + 1] if start_from else ()
+            behind = ck.stage_rank(start_from) if start_from else -1
 
             def milestone(name):
-                if name in behind:
+                if ck.stage_rank(name) <= behind:
                     return
                 checkpoint.milestone(
                     name, containers=state.containers, scaffolds=scaffolds
@@ -810,7 +828,7 @@ def run(args, config, parser):
                 saved = (
                     bool(until)
                     and (
-                        folder / "checkpoints" / f"{UNTIL_STAGE[until]}.json"
+                        folder / "checkpoints" / f"{ck.until_stage(until)}.json"
                     ).is_file()
                 )
                 rows += build_rows(report, d, ticks=job.ticks, until=until, saved=saved)

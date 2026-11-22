@@ -86,6 +86,79 @@ def test_a_site_lab_stops_at_site_ready_and_a_resume_from_it_builds_the_house(
     assert seen == ["site_ready", "structure_done"]  # no details: at the end
 
 
+def test_a_storeys_build_saves_a_stage_as_each_band_is_finished(tmp_path):
+    # Built storey by storey, each finished band (bp.storey_bands) is a stage of its
+    # own, so a lab can start at the second storey instead of the floor.
+    path = small_template(tmp_path)  # band 0: the 3x3 floor; band 1: 3 cobblestone
+    seen = []
+
+    report = build_job(
+        path,
+        ORIGIN,
+        0,
+        FakeGatherBody(K, world()),
+        K,
+        order="storeys",
+        on_milestone=seen.append,
+    )
+
+    assert report.stop == "built"
+    assert seen == ["site_ready", "band_0", "band_1", "structure_done"]
+
+
+def test_a_band_lab_stops_once_its_band_is_finished(tmp_path):
+    path = small_template(tmp_path)
+    body = FakeGatherBody(K, world())
+    seen = []
+
+    report = build_job(
+        path,
+        ORIGIN,
+        0,
+        body,
+        K,
+        order="storeys",
+        until="band_0",
+        on_milestone=seen.append,
+    )
+
+    assert report.stop == "until_band_0" and seen == ["site_ready", "band_0"]
+    assert all(
+        body.w.get((4 + x, 0, 4 + z)) == PLANKS for x in range(3) for z in range(3)
+    )
+    assert all(body.w.get((4 + x, 1, 4)) != COBBLE for x in range(3))
+
+
+def test_a_zones_build_saves_no_band_stages(tmp_path):
+    seen = []
+    build_job(
+        small_template(tmp_path),
+        ORIGIN,
+        0,
+        FakeGatherBody(K, world()),
+        K,
+        on_milestone=seen.append,
+    )
+    assert seen == ["site_ready", "structure_done"]
+
+
+def test_stage_names_rank_from_the_site_through_the_bands_to_the_structure():
+    assert (
+        ck.is_stage("site_ready") and ck.is_stage("band_0") and ck.is_stage("band_12")
+    )
+    assert not ck.is_stage("band_") and not ck.is_stage("band_-1")
+    assert not ck.is_stage("../evil") and not ck.is_stage("roof")
+    ranks = [
+        ck.stage_rank(s) for s in ("site_ready", "band_0", "band_9", "structure_done")
+    ]
+    assert ranks == sorted(ranks) and len(set(ranks)) == 4
+    assert ck.until_stage("site") == "site_ready"
+    assert ck.until_stage("structure") == "structure_done"
+    assert ck.until_stage("band_3") == "band_3"
+    assert ck.is_until("band_3") and ck.is_until("site") and not ck.is_until("band_x")
+    assert not ck.is_until("site_ready")  # until names the milestone, not the stage
+
+
 def test_restore_sets_inventory_then_cells_in_chunks_skipping_the_body(tmp_path):
     cells = [[x, 0, 0, PLANKS] for x in range(-70, 0)]  # 70 cells
     cells += [[0, 0, 0, PLANKS], [0, 1, 0, PLANKS]]  # the body's own cells
@@ -233,6 +306,13 @@ def test_find_stage_names_what_the_library_holds_when_the_stage_is_missing(
         assert "site_ready" in str(error) and "--until structure" in str(error)
     else:
         raise AssertionError("a missing stage must say how to make it")
+    try:
+        ck.find_stage(key, "band_1", tmp_path)
+    except FileNotFoundError as error:
+        assert "--until band_1 --order storeys" in str(error)
+    else:
+        raise AssertionError("a missing band stage must say how to make it")
+    assert ck.stage_path(key, "band_1", tmp_path).name == "band_1.json"
 
 
 def test_a_stage_of_another_version_of_the_build_file_is_refused():
