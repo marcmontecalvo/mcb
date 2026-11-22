@@ -1,5 +1,6 @@
 import contextlib
 import math
+import types
 from dataclasses import replace
 
 import pytest
@@ -505,6 +506,36 @@ def test_a_body_with_no_move_from_its_spot_stops_trying_other_stances(monkeypatc
     monkeypatch.setattr(b, "stances", lambda *a, **k: [(2, 0, 0), (3, 0, 1)])
     assert b.goto_stance((2, 0, 2), 4.5) is False
     assert seen == [(2, 0, 0)]
+
+
+@pytest.mark.parametrize(
+    "status, expanded, moved, boxed, ledge",
+    [
+        ("unreachable", 1, 0.0, True, True),  # no move at all from the spot
+        ("unreachable", 9, 0.0, False, True),  # 20261122T024835715542Z: a closed eave
+        ("unreachable", 400, 0.0, False, False),  # a closed floor: towers, not drops
+        ("unreachable", 0, 0.0, False, False),  # a goal proof expands nothing
+        ("incomplete", 9, 0.0, False, False),  # capped: more may lie beyond
+        ("unreachable", 9, 2.0, False, False),  # it walked: not stuck where it was
+    ],
+)
+def test_a_dead_end_is_boxed_in_when_no_move_and_a_ledge_when_its_region_is_small(
+    status, expanded, moved, boxed, ledge
+):
+    last = types.SimpleNamespace(status=status, expanded=expanded)
+    assert cb.dead_end(last, (0.0, 70.0, 0.0), (moved, 70.0, 0.0)) == (boxed, ledge)
+    assert cb.dead_end(None, (0.0, 70.0, 0.0), (0.0, 70.0, 0.0)) == (False, False)
+
+
+def test_getting_down_clears_the_ledge_too(monkeypatch):
+    b, _, _ = body()
+    b._obs["body"]["position"] = [20.5, 10.0, 20.5]
+    x, y, z = b.position()
+    monkeypatch.setattr(cb, "standable", lambda cells, n: n == (x + 1, y - 5, z))
+    monkeypatch.setattr(b, "health", lambda: 20.0)
+    monkeypatch.setattr(b, "_navigate", lambda goal, **k: True)
+    b.on_ledge = True
+    assert b.get_down() is True and not b.on_ledge and not b.boxed_in
 
 
 def test_getting_down_takes_the_shortest_drop_beside_the_body(monkeypatch):
@@ -2473,6 +2504,49 @@ def test_walkable_bfs_ranks_same_side_of_wall_before_walk_around_wall():
     ranked = b.stances((2, 1, 1), 4.5)
     assert ranked.index((2, 0, 2)) < ranked.index((2, 0, 0))
     assert b.walk_distance((2, 0, 2)) == 0
+
+
+def test_pillar_to_a_released_cell_places_exactly_the_item_there(monkeypatch):
+    # The build's own block put under the body in its own template cell (build_runner
+    # _climb_out): the one cell is open to the pillar, the item is the template's
+    # block, never scaffolding or a temporary swapped in for it.
+    from dataclasses import replace
+
+    b, _, _ = body()
+    own, other = (0, 5, 0), (1, 5, 0)
+    b.terrain_policy = replace(
+        b.terrain_policy,
+        allow_place=True,
+        protected_positions=(own, other),
+        scaffold_materials=("minecraft:scaffolding",),
+    )
+    b.temporary_ok = frozenset({"minecraft:dirt", "minecraft:scaffolding"})
+    b.temporary_items = lambda scaffolding=True, prop=False: (
+        ["minecraft:scaffolding", "minecraft:dirt"]
+        if scaffolding
+        else ["minecraft:dirt"]
+    )
+    seen = {}
+
+    def fake_navigate(goal, reach=None, radius=0.6, probe=False, progress=None):
+        policy = b._planner_terrain()
+        seen.update(
+            goal=goal,
+            protected=set(policy.protected_positions),
+            items=tuple(policy.material_allowlist),
+            scaffold=tuple(policy.scaffold_materials),
+        )
+        return True
+
+    monkeypatch.setattr(b, "_navigate", fake_navigate)
+    assert b.pillar_to((0, 6, 0), "minecraft:oak_planks", 1, release=own)
+    assert seen == {
+        "goal": (0, 6, 0),
+        "protected": {other},
+        "items": ("minecraft:oak_planks",),
+        "scaffold": (),
+    }
+    assert own in b.terrain_policy.protected_positions  # restored after
 
 
 def test_pillar_to_disables_partial_walk_away_from_column(monkeypatch):

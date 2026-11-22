@@ -224,3 +224,19 @@ def test_identity_fields_match_the_fixture(tmp_path):
         run_digest.started_at(run)
         == datetime(2026, 11, 19, 13, 36, 18, 892664, tzinfo=UTC).timestamp()
     )
+
+
+def test_a_build_in_another_order_is_its_own_build_key(tmp_path):
+    # Two orders of one build are an A/B, not attempts at the same thing; the zone
+    # order (the default) keeps the keys runs already have. The stage library is
+    # shared: a stage is the same whatever order reached it.
+    run = make_run(tmp_path, STAMP, result="fail", with_events=False)
+    config = json.loads((run / "run_config.json").read_text(encoding="utf-8"))
+    config["run"] |= {"start_from": "site_ready", "order": "storeys"}
+    (run / "run_config.json").write_text(json.dumps(config), encoding="utf-8")
+
+    ident = run_digest.identity(run)
+
+    assert run_digest.build_key(ident) == KEY + "+from=site_ready+order=storeys"
+    assert run_digest.build_key(ident, segment=False) == KEY
+    assert run_digest.build_key({**ident, "order": "zones"}) == KEY + "+from=site_ready"

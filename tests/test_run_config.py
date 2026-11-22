@@ -110,9 +110,28 @@ def test_a_stage_lab_starts_from_a_stage_and_stops_at_another():
     )["run"]
     assert shown["stage"] is True  # show a saved stage without building
     props = config_schema()["properties"]["run"]["properties"]
-    assert props["start_from"]["enum"] == ["site_ready", "structure_done"]
-    assert props["until"]["enum"] == ["site", "structure"]
+    import re
+
+    for good in ("site_ready", "structure_done", "band_0", "band_11"):
+        assert re.fullmatch(props["start_from"]["pattern"], good)
+    for good in ("site", "structure", "band_2"):
+        assert re.fullmatch(props["until"]["pattern"], good)
+    assert not re.fullmatch(props["until"]["pattern"], "site_ready")
+    assert not re.fullmatch(props["start_from"]["pattern"], "band_")
     assert props["until"]["supported_tests"] == ["build"]
+
+
+def test_a_band_lab_runs_one_storey_band_of_a_storeys_build():
+    run = resolve_config(
+        "build",
+        overrides={
+            "run": {"start_from": "band_1", "until": "band_2", "order": "storeys"}
+        },
+    )["run"]
+    assert run["start_from"] == "band_1" and run["until"] == "band_2"
+    # a band stage is a world state: a zones build may start from it too
+    zones = resolve_config("build", overrides={"run": {"start_from": "band_1"}})["run"]
+    assert zones["start_from"] == "band_1" and zones["order"] == "zones"
 
 
 @pytest.mark.parametrize(
@@ -126,6 +145,12 @@ def test_a_stage_lab_starts_from_a_stage_and_stops_at_another():
         {"start_from": "site_ready", "until": "site"},  # already there
         {"start_from": "structure_done", "until": "structure"},
         {"until": "site", "stage": True, "resume": "x.json"},  # staging builds nothing
+        {"until": "band_x", "order": "storeys"},
+        {"until": "band_1"},  # a zones build has no bands to stop at
+        {"start_from": "band_2", "until": "band_1", "order": "storeys"},
+        {"start_from": "band_1", "until": "band_1", "order": "storeys"},
+        {"start_from": "band_0", "until": "site"},
+        {"start_from": "structure_done", "until": "band_3", "order": "storeys"},
     ],
 )
 def test_impossible_stage_labs_are_refused(run):
@@ -334,3 +359,14 @@ def test_planner_settings_without_planner_backend_are_rejected(tmp_path, field, 
             root=tmp_path,
             overrides={"model": {"backend": "local", "request_limit": 4, field: value}},
         )
+
+
+def test_a_build_names_its_order_and_the_zone_order_is_the_default():
+    assert resolve_config("build")["run"]["order"] == "zones"
+    run = resolve_config("build", overrides={"run": {"order": "storeys"}})["run"]
+    assert run["order"] == "storeys"
+    props = config_schema()["properties"]["run"]["properties"]
+    assert props["order"]["enum"] == ["zones", "storeys"]
+    assert props["order"]["supported_tests"] == ["build"]
+    with pytest.raises(ValueError):
+        resolve_config("build", overrides={"run": {"order": "spiral"}})

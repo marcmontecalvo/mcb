@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import time
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -151,13 +151,19 @@ def _slots_used_real(counts, items, real: dict[str, int]) -> int:
 
 
 def _load(
-    wanted: dict[str, int], body, knowledge, state: GatherState
+    wanted: dict[str, int],
+    body,
+    knowledge,
+    state: GatherState,
+    *,
+    first: Collection[str] = (),
 ) -> dict[str, int]:
     """What of ``wanted`` one trip to the chests carries: missing structure blocks
     before held structure before details (bp.is_detail), as much as the slots left
-    beside the essentials hold. Uses real occupied slots so fragmented stacks do not
-    overbook the 36-slot inventory, and prevents details from evicting already-held
-    ``wanted`` details.
+    beside the essentials hold; within each, the items in ``first`` (what the build
+    is short of now) before the rest. Uses real occupied slots so fragmented stacks
+    do not overbook the 36-slot inventory, and prevents details from evicting
+    already-held ``wanted`` details.
     Run 20261118T050156629666Z asked for the whole remaining bill at once: planks,
     lanterns, barrels and anvils filled the 36 slots and the 119 oak stairs the
     walls waited on stayed in the chest for the rest of the build."""
@@ -173,7 +179,8 @@ def _load(
         key=lambda i: (
             2
             if (held.get(i, 0) >= wanted[i] or stored[i] <= 0)
-            else (1 if held.get(i, 0) > 0 else 0)
+            else (1 if held.get(i, 0) > 0 else 0),
+            i not in first,
         )
     )
     for i in structure:
@@ -193,7 +200,9 @@ def _load(
             load[i] = take
         room -= cost
 
-    details = [i for i in wanted if bp.is_detail(i)]
+    details = sorted(
+        (i for i in wanted if bp.is_detail(i)), key=lambda i: i not in first
+    )
     reserved_detail: dict[str, int] = {}
     for i in details:
         has = held.get(i, 0)
@@ -383,13 +392,32 @@ def materials_left(
     """The materials of what the build still has to place: every template cell the
     world does not hold yet (missing, wrong or not seen). A fresh site needs the whole
     house; a half-built one only the rest."""
-    from mclab.schematic import state_materials
+    return _materials(_todo(template, world), knowledge)
 
+
+def phase_left(
+    template: bp.Template, world, knowledge: Knowledge
+) -> tuple[bool, dict[str, int]]:
+    """Whether structure (bp.is_structure) is still to place, and the materials of
+    the phase the build is in: the structure's while any of it is left, then the
+    rest (details and doors). A refill carries one phase, so the decor does not ride
+    to the roof in the structure's slots."""
+    todo = _todo(template, world)
+    structure = [s for s in todo if bp.is_structure(s)]
+    return bool(structure), _materials(structure or todo, knowledge)
+
+
+def _todo(template: bp.Template, world) -> list[str]:
     d = bp.diff(template, world)
     todo = [state for _, state in d.places]
-    todo += [template.cells[p] for p in (*d.breaks, *d.unknown)]
+    return todo + [template.cells[p] for p in (*d.breaks, *d.unknown)]
+
+
+def _materials(states, knowledge: Knowledge) -> dict[str, int]:
+    from mclab.schematic import state_materials
+
     counts: Counter[str] = Counter()
-    for state in todo:
+    for state in states:
         items, _ = state_materials(state, knowledge.blocks)
         counts.update(items)
     return dict(counts)
@@ -556,6 +584,7 @@ def build_job(
     until: str | None = None,
     on_milestone: Callable[[str], None] | None = None,
     scaffolds: set | None = None,
+    order: str = bp.ORDERS[0],
 ) -> JobReport:
     """``chests``: positions of chests known at the start. They are read first; shulker
     boxes are taken at once (they carry the gather's overflow), scaffolding stays put
@@ -566,7 +595,8 @@ def build_job(
     1; None skips site preparation). ``until`` / ``on_milestone``: as ``run_build``; a
     build ended at its ``until`` milestone stops ``until_site`` / ``until_structure``.
     ``scaffolds``: the build's own standing scaffolding (a run from a stage), kept
-    live by the build: a stage taken mid-run reads it.
+    live by the build: a stage taken mid-run reads it. ``order``: the build order
+    (``build_plan.ORDERS``), as ``run_build``.
     """
     publish_stage = on_stage or (
         lambda *a, **k: None
@@ -743,10 +773,20 @@ def build_job(
                         body, {"food": FOOD_KEEP}, before, "no_food_stored", False
                     )
                     return False
+                # One trip per phase: short of structure, the trip carries the rest of
+                # the structure and no decor; the decor comes once the structure is in,
+                # all of it at once. Run 20261121T180806599463Z refilled five times, the
+                # mid-structure ones loading barrels, smokers and bookshelves.
+                unfinished, phase = phase_left(template, body.world, knowledge)
+                if unfinished and any(bp.is_structure(i) for i in wanted):
+                    wanted = {i: n for i, n in wanted.items() if bp.is_structure(i)}
+                target = {
+                    i: max(phase.get(i, 0), wanted.get(i, 0)) for i in {*phase, *wanted}
+                }
                 # Chests first, and back to building on any gain. Run 20261110T170929838024Z
                 # was short one detector rail with the rest of the house in the chests: the
                 # full plan put the ore hunt first and walked the explore ring over a swamp.
-                load = _load(wanted, body, knowledge, state)
+                load = _load(target, body, knowledge, state, first=wanted)
                 _make_room(
                     load,
                     frozenset(load),
@@ -754,7 +794,7 @@ def build_job(
                     knowledge,
                     state,
                     gather_options,
-                    wanted=wanted,
+                    wanted=target,
                 )
                 _take(load, body, knowledge, state, gather_options, delta=True)
                 if any(body.inventory().get(i, 0) > before.get(i, 0) for i in wanted):
@@ -846,6 +886,7 @@ def build_job(
                 on_site_ready=site_ready,
                 on_milestone=on_milestone,
                 until=until,
+                order=order,
                 scaffolds=set() if scaffolds is None else scaffolds,
                 survey=survey,
                 on_progress=on_progress,

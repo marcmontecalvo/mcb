@@ -350,6 +350,39 @@ public final class RouteMotorTest {
         check(centring.status().get("state").equals("done"),"centre-only on scaffolding finishes inside its radius");
     }
     /**
+     * Vanilla scaffolding holds only a body already above its top (ScaffoldingBlock.getCollisionShape,
+     * isAbove); beside or inside the cell it has no collision. Storey run 20261122T021157007245Z: a walk
+     * from a slab (top 69.5) onto a scaffolding top (70) never jumped, so the body ended inside the cell
+     * at 69.5. The sweep then stood it on the plate it was under, lifted its box into a top stair at
+     * 71.5, and refused every route out (route_swept_geometry_unknown_or_unsafe, 61 times; trapped).
+     */
+    private static void scaffoldTopChecks() {
+        for (var shape : List.of(List.<Object>of(), List.<Object>of(List.of(0,.875,0,1,1,1)))) {
+            var cells=floor();
+            cells.put(new Key(1,1,0),Map.of("block","minecraft:oak_slab","fluid","minecraft:empty",
+                    "properties",Map.of("type","bottom"),"collision_boxes",List.of(List.of(0,0,0,1,.5,1))));
+            cells.put(new Key(2,1,0),Map.of("block","minecraft:scaffolding","fluid","minecraft:empty",
+                    "collision_boxes",shape,"properties",Map.of("bottom","false","distance","0")));
+            cells.put(new Key(1,3,1),Map.of("block","minecraft:birch_stairs","fluid","minecraft:empty",
+                    "properties",Map.of("half","top"),"collision_boxes",List.of(List.of(0,.5,0,1,1,1))));
+            var g=geometry(cells);
+            var slab=new RouteMotor.Point(1,1.5,0);
+            var plate=new RouteMotor.Point(2,2,0);
+            check(g.standable(plate),"a scaffolding top is a stance for a body on it ("+shape+")");
+            // Inside the cell, the box's corner on the slab: the plate is above the feet, not under them.
+            var inside=new RouteMotor.Pose(2.21,1.5,.88,0,0,90,true,20);
+            check(g.safe(inside,slab,1.5,.7,false,3),"a body inside scaffolding is not lifted onto its plate ("+shape+")");
+            var out=motor(List.of(slab,plate));
+            out.tick(inside,g);
+            check(out.active(),"a body inside scaffolding can still leave it ("+shape+"): "+out.status());
+            // From the slab centre the step up onto the plate is a jump: walking in only enters the cell.
+            var up=motor(List.of(slab,plate));
+            var input=up.tick(pose(1.5,1.5,.5,-90),g);
+            check(up.active() && input.forward()>0 && input.jump(),"a step up onto a scaffolding top jumps ("+shape+"): "+input);
+            check(!g.scaffoldTop(slab) && g.scaffoldTop(plate),"the plate stance is a scaffolding top, the slab is not");
+        }
+    }
+    /**
      * A body 0.6 wide climbing a 1-wide vine column must keep its box inside the column: house-large run
      * 20261119T202232979013Z hung 0.22 off centre, its box 0.02 into the next column, head under oak leaves
      * there, and stalled 25 times at the same rise ("route_no_progress", 200 s).
@@ -819,6 +852,7 @@ public final class RouteMotorTest {
                 .tick(new RouteMotor.Pose(.9,1,.5,.2,0,-90,true,20),geometry(walledCorner)).sprint(),"no sprint when the post-corner sweep clips");
         surfaceChecks(); swimAndLandingChecks(); nativeSpeedChecks(); sprintAscentChecks(); climbChecks(); diagonalChecks(); resyncAndSwimChecks();
         shapeHeightChecks(); centerOnlyClimbableChecks(); climbStaysInColumnChecks(); descentStaysInColumnChecks(); wetClimbEdgeSwimsUpChecks();
+        scaffoldTopChecks();
         System.out.println("RouteMotor: "+checks+" safety/state checks passed");
     }
 }

@@ -1220,3 +1220,118 @@ def test_next_actions_breaks_foothold_in_sealed_cavity_before_sealing_roof():
     )
     assert [type(a) for a in acts] == [bp.Break]
     assert acts[0].pos == (1, 1, 1)
+
+
+# --- storey order: floor, then a ring of walls three high, then the next floor -------
+
+
+def _two_storeys(n=6):
+    """An n x n house: floor y0, walls y1-3, floor y4, walls y5-6, roof y7."""
+    cells = {}
+    for x in range(n):
+        for z in range(n):
+            rim = x in (0, n - 1) or z in (0, n - 1)
+            for y in range(8):
+                if y in (0, 4, 7) or rim:
+                    cells[(x, y, z)] = PLANKS
+    return bp.Template.from_build(make_build(cells, (n, 8, n)), (0, 0, 0))
+
+
+def test_floors_are_bands_of_their_own_and_walls_go_up_three_at_a_time():
+    bands = bp.storey_bands(_two_storeys())
+    assert [bands[y] for y in range(8)] == [0, 1, 1, 1, 2, 3, 3, 4]
+
+
+def test_a_tall_wall_between_two_floors_is_split_into_rings_of_three():
+    cells = {(x, y, 0): PLANKS for x in range(3) for y in range(8)}
+    cells |= {(x, 0, z): PLANKS for x in range(3) for z in range(3)}
+    bands = bp.storey_bands(
+        bp.Template.from_build(make_build(cells, (3, 8, 3)), (0, 0, 0))
+    )
+    assert [bands[y] for y in range(8)] == [0, 1, 1, 1, 2, 2, 2, 3]
+
+
+def _floor_and_near_walls(n=6):
+    """The ground floor in, and the first wall layer on the columns with x < 3."""
+    t = _two_storeys(n)
+    w = flat_world(lo=-3, hi=n + 3, floor_y=-1)
+    for p, s in t.cells.items():
+        if p[1] == 0 or (p[1] == 1 and p[0] < 3 and s != AIR):
+            w[p] = s
+    return t, w
+
+
+def test_the_storey_order_builds_the_ring_nearest_first_up_to_three_high():
+    # The zone order puts the whole lowest layer of a zone in first, so the body
+    # walks the house round once per layer; the ring order finishes the wall in reach
+    # (each column bottom up) before it walks on.
+    t, w = _floor_and_near_walls()
+    near = (-1, 1, 0)
+
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 500}, near=near, order="storeys")
+
+    places = [a.pos for a in acts if isinstance(a, bp.Place)]
+    assert places and places[0][1] == 2  # over the near wall, not the far first layer
+    assert all(p[1] <= 3 for p in places)
+
+
+def test_the_storey_order_puts_nothing_of_the_next_floor_in_before_the_ring_is_done():
+    t, w = _floor_and_near_walls()
+    for p, s in t.cells.items():  # the near wall stands to its full height
+        if 1 <= p[1] <= 3 and p[0] < 3 and s != AIR:
+            w[p] = s
+    near = (0, 4, 1)  # on the wall top: the upper floor's edge is in reach
+
+    acts = bp.next_actions(t, at(w), BLOCKS, {PLANKS: 500}, near=near, order="storeys")
+
+    places = [a.pos for a in acts if isinstance(a, bp.Place)]
+    assert places and all(p[1] <= 3 for p in places)
+    assert any(p[0] >= 3 and p[1] == 1 for p in places)
+
+
+def test_the_storey_order_offers_a_column_bottom_up_in_one_batch():
+    # One stance puts the wall up three high: the cells over a gap come in the same
+    # batch, after it, so the sweep does not walk the ring once per layer.
+    t, w = _floor_and_near_walls()
+    w[(1, 1, 0)] = AIR  # a gap in the near wall's first layer
+
+    acts = bp.next_actions(
+        t, at(w), BLOCKS, {PLANKS: 500}, near=(1, 1, -1), order="storeys"
+    )
+
+    order = [a.pos for a in acts if isinstance(a, bp.Place)]
+    assert (1, 1, 0) in order and (1, 2, 0) in order and (1, 3, 0) in order
+    assert order.index((1, 1, 0)) < order.index((1, 2, 0)) < order.index((1, 3, 0))
+
+
+def test_the_storey_order_never_builds_over_a_missing_cell_in_its_column():
+    t, w = _floor_and_near_walls()
+    t.cells[(1, 1, 0)] = COBBLE  # a gap that cannot be filled now: none held
+    w[(1, 1, 0)] = AIR
+
+    acts = bp.next_actions(
+        t, at(w), BLOCKS, {PLANKS: 500}, near=(1, 1, -1), order="storeys"
+    )
+
+    places = {a.pos for a in acts if isinstance(a, bp.Place)}
+    assert places and (1, 1, 0) not in places
+    assert (1, 2, 0) not in places and (1, 3, 0) not in places
+
+
+def test_an_unknown_order_is_refused():
+    t, w = _floor_and_near_walls()
+    with pytest.raises(ValueError):
+        bp.next_actions(t, at(w), BLOCKS, {PLANKS: 5}, order="spiral")
+
+
+def test_is_structure_leaves_out_air_details_and_doors():
+    assert bp.is_structure("minecraft:oak_planks")
+    assert bp.is_structure("minecraft:oak_stairs[facing=east,half=top]")
+    for state in (
+        "minecraft:air",
+        "minecraft:lantern[hanging=true]",
+        "minecraft:glass_pane",
+        "minecraft:oak_door[half=lower]",
+        "minecraft:barrel",
+    ):
+        assert not bp.is_structure(state), state

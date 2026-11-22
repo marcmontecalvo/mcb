@@ -43,7 +43,7 @@ from mclab.companion_body import (
     start_session,
 )
 from mclab.companion_jobs import build_job, load_vanilla_pack, materials_of
-from mclab.companion_progress import write_progress
+from mclab.companion_progress import Progress
 from mclab.gather_options import GatherOptions
 from mclab.gather_plan import Gather, Hunt, Shear, plan
 from mclab.gather_runner import GatherState, hydrate_containers
@@ -165,7 +165,22 @@ def pack_into(items: dict[str, int], knowledge, caps: list[int]) -> list[list[di
 
 
 STAGE_LIBRARY = ROOT / "results" / "stages"
-UNTIL_STAGE = {"site": "site_ready", "structure": "structure_done"}
+
+
+def stage_arg(name: str) -> str:
+    """--from: site_ready, band_N or structure_done."""
+    if not ck.is_stage(name):
+        raise argparse.ArgumentTypeError(
+            f"{name!r}: one of site_ready, band_N (storeys), structure_done"
+        )
+    return name
+
+
+def until_arg(name: str) -> str:
+    """--until: site, band_N or structure."""
+    if not ck.is_until(name):
+        raise argparse.ArgumentTypeError(f"{name!r}: one of site, band_N, structure")
+    return name
 
 
 def _sha256(path: Path) -> str:
@@ -191,9 +206,10 @@ def build_rows(report, d, *, ticks, until=None, saved=False) -> list[dict]:
     reached = (
         report.stop == "done"
         if until is None
+        # a house finished whole has every band and the structure in it
         else (
             report.stop == f"until_{until}"
-            or (until == "structure" and report.stop == "done")
+            or (until != "site" and report.stop == "done")
         )
     )
     rows = [
@@ -209,7 +225,7 @@ def build_rows(report, d, *, ticks, until=None, saved=False) -> list[dict]:
         },
     ]
     if until is not None:
-        stage = UNTIL_STAGE[until]
+        stage = ck.until_stage(until)
         rows.append(
             {
                 "case": "stage saved",
@@ -241,16 +257,24 @@ def main() -> int:
     parser.add_argument(
         "--from",
         dest="start_from",
-        choices=ck.STAGES,
+        type=stage_arg,
         help="start from the stage library's snapshot of this build, start and seed "
-        "(results/stages/): site_ready (site cleared and level, chests as they were) "
-        "or structure_done (only the details left)",
+        "(results/stages/): site_ready (site cleared and level, chests as they were), "
+        "band_N (a storeys build with the structure of bands 0..N in) or "
+        "structure_done (only the details left)",
     )
     parser.add_argument(
         "--until",
-        choices=tuple(UNTIL_STAGE),
+        type=until_arg,
         help="end the build at a milestone and save its stage: site (cleared and "
-        "level) or structure (only the details left)",
+        "level), band_N (bands 0..N built; --order storeys) or structure (only the "
+        "details left)",
+    )
+    parser.add_argument(
+        "--order",
+        choices=bp.ORDERS,
+        help="the build order: zones (8x8 work zones, bottom up; the default) or "
+        "storeys (floor, then the walls all round three high, then the next floor)",
     )
     parser.add_argument("--build", type=Path, default=DEFAULT_BUILD)
     parser.add_argument("--dx", type=int, default=3)
@@ -510,7 +534,8 @@ def run(args, config, parser):
         kit_items["minecraft:dirt"] = kit_items.get("minecraft:dirt", 0) + 20
     kit_items.update(bp.tool_needs(template, {}))
     rows: list[dict] = []
-    write_progress(folder, job="build", stage="starting")
+    progress = Progress(folder, job="build")
+    progress.write(stage="starting")
     with exclusive_arena(), companion_world(args.seed):
         bridge = open_bridge(folder)
         memory = None
@@ -620,7 +645,7 @@ def run(args, config, parser):
                 )
             if args.stage:
                 (folder / "STOP").unlink(missing_ok=True)
-                write_progress(folder, job="build", stage="staged")
+                progress.write(stage="staged")
                 print(f"STAGED {folder} - create {folder / 'STOP'} to end", flush=True)
                 while not (folder / "STOP").exists():
                     time.sleep(2)
@@ -673,10 +698,10 @@ def run(args, config, parser):
             # the stage's standing scaffolding is this run's own to climb and take back
             scaffolds = ck.scaffolds_of(staged) if staged else set()
             # A run from a stage does not save that stage or an earlier one again.
-            behind = ck.STAGES[: ck.STAGES.index(start_from) + 1] if start_from else ()
+            behind = ck.stage_rank(start_from) if start_from else -1
 
             def milestone(name):
-                if name in behind:
+                if ck.stage_rank(name) <= behind:
                     return
                 checkpoint.milestone(
                     name, containers=state.containers, scaffolds=scaffolds
@@ -688,14 +713,7 @@ def run(args, config, parser):
             def stage(name, done=None, total=None, detail=None):
                 nonlocal current_stage
                 current_stage = name
-                write_progress(
-                    folder,
-                    job="build",
-                    stage=name,
-                    done=done,
-                    total=total,
-                    detail=detail,
-                )
+                progress.write(stage=name, done=done, total=total, detail=detail)
 
             def recorder(report, final):
                 checkpoint(report, final)
@@ -705,9 +723,7 @@ def run(args, config, parser):
                     if current_stage not in ("starting", "clearing trees", "site prep")
                     else ("placing" if report.site else "site prep")
                 )
-                write_progress(
-                    folder,
-                    job="build",
+                progress.write(
                     stage="done" if final else live_stage,
                     done=len(report.placed),
                     total=sum(
@@ -739,6 +755,7 @@ def run(args, config, parser):
                 until=until,
                 on_milestone=milestone,
                 scaffolds=scaffolds,
+                order=config["run"]["order"],
             )
             audit_started = time.monotonic()
             report = job.build
@@ -764,6 +781,7 @@ def run(args, config, parser):
                     "source": staged.get("source"),
                 },
                 "until": until,
+                "order": config["run"]["order"],
                 "coal_form": args.coal if args.supply else None,
                 "job_stop": job.stop,
                 "ticks": job.ticks,
@@ -810,7 +828,7 @@ def run(args, config, parser):
                 saved = (
                     bool(until)
                     and (
-                        folder / "checkpoints" / f"{UNTIL_STAGE[until]}.json"
+                        folder / "checkpoints" / f"{ck.until_stage(until)}.json"
                     ).is_file()
                 )
                 rows += build_rows(report, d, ticks=job.ticks, until=until, saved=saved)
@@ -846,7 +864,7 @@ def run(args, config, parser):
                 )
             if args.inspect:
                 (folder / "STOP").unlink(missing_ok=True)
-                write_progress(folder, job="build", stage="inspection")
+                progress.write(stage="inspection")
                 print(f"INSPECT {folder} - create {folder / 'STOP'} to end", flush=True)
                 while not (folder / "STOP").exists():
                     bridge.state()  # heartbeat while the human examines the build

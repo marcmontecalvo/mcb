@@ -616,6 +616,18 @@ public final class RoutePlannerTest {
         check(drop.status().equals("reached") && !through,
                 "no drop through a hanging scaffolding cell's bottom plate: " + drop.status() + " " + route);
 
+        // Inside a scaffolding column: holding scaffolding, each scaffolding cell's outline is a full block
+        // (ScaffoldingBlock.getShape), so a click ray from an eye in the column starts inside the head cell and hits
+        // it, never the planned face. No scaffolding place starts there; the body climbs out of the column first
+        // (zones run 20261122T034141954170Z: 197 sideways scaffolding steps from inside the north column, none placed).
+        var column = floor(12);
+        for (int y = 1; y <= 5; y++) column.put(new Key(5, y, 5), scaffold());
+        var out = scaffoldRun(column, new RoutePlanner.Node(5, 3, 5), new RoutePlanner.Node(4, 3, 5), 64);
+        var inside = out.steps().stream().filter(e -> !e.scaffold().isEmpty() && e.source().x() == 5 && e.source().z() == 5
+                && e.source().y() + 1 <= 5).toList();
+        check(out.status().equals("reached") && inside.isEmpty(),
+                "no scaffolding is placed from inside a scaffolding column: " + out.status() + " " + inside);
+
         // Bridge off a scaffolding tower: the walkway is scaffolding while its distance is at most 6, solid beyond.
         var world = new HashMap<Key, Map<String, Object>>();
         for (int x = -2; x <= 14; x++) for (int z = -3; z <= 3; z++) for (int y = -1; y <= 6; y++)

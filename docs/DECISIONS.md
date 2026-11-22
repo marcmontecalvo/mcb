@@ -285,3 +285,64 @@ A run can stop at a milestone (`--until`) or start from one (`--from`).
 - **Parts don't compete with wholes.** A stage-lab run's build key carries its segment,
   so `mclab runs`, pruning and comparisons keep parts and whole builds apart. A whole
   build stays the acceptance measure; the parts are for iterating.
+
+## Storey build order and band stages (November 22, 2026)
+
+The zones order builds one 8-block zone up to its roof before the next, so the body climbs
+each zone's scaffolding and the walls of the next zone stand open while it does. A builder
+in survival puts down the floor, takes the walls up a few layers all the way round, then
+does the next floor. `--order storeys` builds the house that way.
+
+- **Bands.** Each floor is a band of its own (`bp.storey_bands`); the walls between floors
+  go up in bands of three layers (`RING`). Within a band the nearest column goes first and
+  each column goes up from the bottom in one batch, from one stance. Nothing is built over
+  a cell the sweep failed: a skipped or given-up cell still holds its column.
+- **Zones stays the default for now.** Storeys is opt-in (`--order storeys`, run config
+  `order`). On the final code the storeys structure lab beat the zones one (table below),
+  but the whole-build comparison has not been run yet.
+- **A band is a stage.** `band_N` is saved when the structure of bands 0..N is in, with
+  the footholds standing then, so a run can start at any storey (`--from band_N`). The
+  last band of house-large holds details only, so `band_5` is the structure just before
+  cleanup.
+- **A batch waits on its own cells.** A cell whose state can only be clicked from a batch
+  cell not yet in waits for it (`_waiting`) instead of wanting a prop. A cell offered next
+  to a batch cell not yet placed (the gate says floating) waits for the next plan and
+  costs no try.
+- **Asks are totals.** `on_need_materials` asks for the total to hold, because the
+  refill tops up to it (`_hold_more`). A tower, prop or foothold ask that gave only the
+  shortfall was already held, so nothing was fetched and the cell was skipped as
+  `no_material`.
+- **One chest trip per phase.** While structure is left, a refill carries only the
+  structure (`phase_left`) and loads what was asked for first. Decor rides along only once
+  the structure is in. A decor-only ask mid-structure is still served.
+- **Skipped structure cells are retried before `structure_done`.** Once only details are
+  offered and a structure cell has been skipped, the retry round runs then, not after the
+  details.
+- **Cleanup puts dug ground back in nearest-first order.** Restores join the same sweep as
+  the breaks instead of going first.
+- **Bodies get out.** These are fixes the storeys runs exposed:
+  - A scaffolding top carries only a body that is already above it.
+  - A body on a small closed ledge gets down.
+  - No scaffolding is placed from inside a scaffolding column, because the click ray hits
+    the column.
+  - A body shut in on its own unbuilt cell pillars that cell's block to climb out
+    (StepMotor clicks the top face of top stairs and slabs).
+- **Watch, don't just count.** `mclab.build_view <run> --every 300` draws the build's
+  layers to `<run>/views/` and gives a verdict (progressing, stuck) every five minutes.
+  Every lab below was watched that way, and none sat still.
+
+Structure labs (`--from site_ready --until structure`, house-large, seed 31415926):
+
+| Run | Order, code | Job | Structure | Cleanup | Skipped |
+|---|---|---|---|---|---|
+| 20261122T060550689437Z | zones | 23:08 | 20:10 | 2:27 | — |
+| 20261122T054201856122Z | storeys, before band stages | 22:02 | 16:10 | 5:19 | — |
+| 20261122T064728624126Z | storeys, band stages | 20:58 | 17:53 | 2:31 | 2 |
+| 20261122T071747687093Z | + total asks | 18:54 | 17:09 | 1:22 | 1 |
+| 20261122T074325272877Z | + batch-mate wait | 21:19 | 17:58 | 3:11 | 1 (ridge) |
+| 20261122T081253390045Z | + structure retry (0139f61) | 18:50 | 16:10 | 2:23 | 0 |
+
+Earlier runs that found the faults: 20261122T013145553434Z (props for batch cells),
+20261122T021157007245Z (scaffolding top), 20261122T024835715542Z (closed ledge),
+20261122T031908319185Z, 20261122T034141954170Z (scaffolding place from inside a column),
+20261122T045703502025Z (shut in on its own cell), 20261122T063256626024Z.

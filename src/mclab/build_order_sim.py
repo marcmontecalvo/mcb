@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from mclab import build_plan as bp
+from mclab import place_state
 from mclab import scaffolding as sc
 
 Pos = tuple[int, int, int]
@@ -97,6 +98,7 @@ class Result:
     swings: int = 0
     floating_stances: int = 0  # stances with nothing under them (a scaffold needed)
     scaffolds: int = 0  # Scaffold acts the planner asked for
+    props: int = 0  # temporary blocks placed to click a state against (runner sim)
     batches: int = 0
     stop: str = ""
     placements: list[Pos] = field(default_factory=list)
@@ -252,6 +254,194 @@ def simulate(
     return result
 
 
+class SimBody:
+    """A body for ``build_runner.run_build`` on a ``World``: every block in hand,
+    stances are teleports ranked the way ``CompanionBody.stances`` ranks them (walking
+    cost less three per upcoming sweep cell covered, ``stance_cover``), and the top
+    of a scaffolding column is a stance (the motor climbs it). A state is made only
+    from a solid face whose click gives it (place_state: a log's axis, a slab's
+    half, a hopper's facing). It measures the runner's own order (batches, sweep,
+    towers, props), not the motor. ``keep``: the template's block cells; any other
+    block placed but scaffolding counts as a prop."""
+
+    def __init__(
+        self,
+        world: World,
+        blocks: dict,
+        inventory: dict,
+        pos: Pos,
+        keep: frozenset = frozenset(),
+    ):
+        self.w, self.blocks, self.inv, self.pos = world, blocks, inventory, pos
+        self.keep = keep
+        self.stance_cover: dict = {}  # set by the runner's sweep
+        self.stances_walked: list[Pos] = [pos]
+        self.scaffold_placed = 0
+        self.props_placed = 0
+        self.violations: list[str] = []
+
+    # --- BuildBody ---------------------------------------------------------------
+    def world(self, x, y, z):
+        return self.w(x, y, z)
+
+    def inventory(self):
+        return dict(self.inv)
+
+    def position(self):
+        return self.pos
+
+    def stances(self, target: Pos, reach: float, avoid=()):
+        tx, ty, tz = target
+        spots = (
+            (tx + dx, ty + dy, tz + dz)
+            for dx in range(-SEARCH, SEARCH + 1)
+            for dz in range(-SEARCH, SEARCH + 1)
+            for dy in range(-SEARCH, 2)
+        )
+        found = [s for s in spots if s not in avoid and self._stance_ok(s, target)]
+        here = self.pos
+        return sorted(
+            found,
+            key=lambda s: (_cost(here, s) - 3.0 * self._covered(s), _cost(here, s), s),
+        )
+
+    def goto_stance(self, target: Pos, reach: float, avoid=()) -> bool:
+        if self.pos not in avoid and self._stance_ok(self.pos, target):
+            return True
+        found = self.stances(target, reach, avoid)
+        if not found:
+            return False
+        self.pos = found[0]
+        self.stances_walked.append(self.pos)
+        return True
+
+    def place_block(self, pos, state, item):
+        from mclab.build_runner import Result
+
+        if not in_reach(self.pos, pos):
+            return Result(False, "out_of_reach")
+        if pos in (self.pos, bp._add(self.pos, (0, 1, 0))):
+            return Result(False, "occupied")
+        if bp.parse_state(self.w(*pos))[0] not in bp.REPLACEABLE:
+            return Result(False, "occupied")
+        ident, props = bp.parse_state(state)
+        if ident == sc.BLOCK:
+            if not sc.can_place(pos, self._scaffolds(), self._sturdy_below):
+                return Result(False, "unstable")
+            self.scaffold_placed += 1
+        elif not any(
+            _solid(self.w, bp._add(pos, v), self.blocks) for v in bp._NEIGHBOURS
+        ):
+            self.violations.append(f"no neighbour: {pos} {state}")
+            return Result(False, "no_support_face")
+        elif not self._makes(pos, state):
+            return Result(False, "state_unreachable")
+        elif self.keep and pos not in self.keep:
+            self.props_placed += 1
+        _apply(self.w, bp.Place(pos, state, item, 1), {})
+        return Result(True, data={"placed": state})
+
+    def use_block(self, pos, item=None):
+        from mclab.build_runner import Result
+
+        if not in_reach(self.pos, pos):
+            return Result(False, "out_of_reach")
+        _apply(self.w, bp.Use(pos, item), {})
+        return Result(True)
+
+    def break_block(self, pos, tool=None):
+        from mclab.build_runner import Result
+
+        if not in_reach(self.pos, pos):
+            return Result(False, "out_of_reach")
+        cur = self.w(*pos)
+        if bp.parse_state(cur)[0] in bp.AIR:
+            return Result(False, "no_block")
+        scaffolds = self._scaffolds()
+        self.w.set(pos, "minecraft:air")
+        if pos in scaffolds:  # what hung from it drops with it
+            stand = sc.survivors(scaffolds, self._sturdy_below, [pos])
+            for p in scaffolds - stand - {pos}:
+                self.w.set(p, "minecraft:air")
+        return Result(True, data={"broken": cur})
+
+    # --- helpers -------------------------------------------------------------------
+    def _makes(self, pos: Pos, state: str) -> bool:
+        """Does a click on some solid neighbour's face give ``state``?"""
+        for direction, v in bp._VEC.items():
+            n = bp._add(pos, v)
+            if not (
+                _solid(self.w, n, self.blocks)
+                or bp.parse_state(self.w(*n))[0] == sc.BLOCK
+            ):
+                continue
+            face = place_state.OPPOSITE[direction]
+            fracs = (0.5,) if place_state.AXIS[face] == "y" else (0.25, 0.75)
+            if any(place_state.click_gives(state, face, f) for f in fracs):
+                return True
+        return False
+
+    def _scaffolds(self) -> set[Pos]:
+        return {p for p, s in self.w.cells.items() if bp.parse_state(s)[0] == sc.BLOCK}
+
+    def _sturdy_below(self, p: Pos) -> bool:
+        below = self.w(p[0], p[1] - 1, p[2])
+        return bp._is_solid(below, self.blocks) and bp.parse_state(below)[0] != sc.BLOCK
+
+    def _covered(self, s: Pos) -> int:
+        body = (s, (s[0], s[1] + 1, s[2]))
+        return sum(in_reach(s, p) and p not in body for p in self.stance_cover)
+
+    def _stance_ok(self, s: Pos, target: Pos) -> bool:
+        head = (s[0], s[1] + 1, s[2])
+        if target in (s, head) or not in_reach(s, target):
+            return False
+        if bp.parse_state(self.w(*s))[0] == sc.BLOCK:  # on top of a column
+            return bp.parse_state(self.w(*head))[0] in bp.AIR
+        return standable(self.w, s, self.blocks)
+
+
+def simulate_runner(
+    template: bp.Template, blocks: dict, max_steps: int = 20_000, **build
+) -> Result:
+    """Build ``template`` on flat ground through ``build_runner.run_build`` and a
+    ``SimBody``: the runner's real batches, sweep and towers. ``build`` is passed on
+    to ``run_build`` (``order`` to compare orders)."""
+    from mclab import build_runner as br
+
+    world = World(ground_y=template.origin[1] - 1)
+    start = (template.origin[0] - 3, template.origin[1], template.origin[2] - 3)
+    want = {p for p, s in template.cells.items() if bp.parse_state(s)[0] not in bp.AIR}
+    body = SimBody(
+        world, blocks, _inventory(template, blocks), start, keep=frozenset(want)
+    )
+    report = br.run_build(
+        template,
+        body,
+        blocks,
+        max_steps=max_steps,
+        on_need_materials=lambda items: True,
+        site_margin=None,
+        stall_seconds=None,
+        **build,
+    )
+    counts = bp.progress(template, world)
+    result = Result(
+        cells=len(want),
+        placed=counts["correct"],
+        missing=counts["missing"],
+        stances=body.stances_walked,
+        scaffolds=body.scaffold_placed,
+        props=body.props_placed,
+        batches=report.steps,
+        stop=report.stop,
+        placements=list(report.placed),
+    )
+    for key, value in measure(result.stances).items():
+        setattr(result, key, value)
+    return result
+
+
 def main(argv=None) -> int:
     from mclab.companion_jobs import load_vanilla_pack
 
@@ -259,10 +449,11 @@ def main(argv=None) -> int:
     parser.add_argument("build", type=Path)
     parser.add_argument("--rotation", type=int, default=0)
     parser.add_argument("--stances", type=Path, help="write the stance list here")
+    parser.add_argument("--order", choices=bp.ORDERS, default=bp.ORDERS[0])
     args = parser.parse_args(argv)
     build = json.loads(args.build.read_text())
     template = bp.Template.from_build(build, (0, 1, 0), args.rotation)
-    result = simulate(template, load_vanilla_pack().blocks)
+    result = simulate(template, load_vanilla_pack().blocks, order=args.order)
     print(json.dumps(result.summary()))
     if args.stances:
         args.stances.write_text(json.dumps(result.stances))

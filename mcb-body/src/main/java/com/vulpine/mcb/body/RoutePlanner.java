@@ -1884,6 +1884,11 @@ final class RoutePlanner {
                 || overHead(source, cuts))
             return null;
         var scaffold = scaffoldCells(places);
+        // Holding scaffolding, each scaffolding cell's outline is a full block (ScaffoldingBlock.getShape): with the
+        // head cell scaffolding the click ray starts inside it and hits it, never the planned face. Inside a column
+        // the body climbs out first (zones run 20261122T034141954170Z: 197 sideways scaffolding steps from inside
+        // the north column, none placed, each failing as no progress, a lost stance or a displaced body).
+        if (!scaffold.isEmpty() && scaffolding(cell(x, y + 1, z))) return null;
         if (!scaffold.isEmpty() && scaffolding(cell(x, y - 1, z))) {
             var placedScaffold = new HashSet<Long>(scaffold.size());
             for (var s : scaffold) placedScaffold.add(key(s[0], s[1], s[2]));

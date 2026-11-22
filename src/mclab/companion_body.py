@@ -50,7 +50,7 @@ from dataclasses import asdict, replace
 
 from mclab import place_sight
 from mclab.awareness import Awareness
-from mclab.body_search import BOXED_IN_NODES
+from mclab.body_search import BOXED_IN_NODES, LEDGE_NODES
 from mclab.bridge import REJECTIONS
 from mclab.build_runner import Result
 from mclab.collision_geometry import standable
@@ -198,6 +198,24 @@ WALK_TERRAIN = replace(
     allow_pillar=False,
     heuristic_weight=1,  # no digs: keep walking routes optimal
 )
+
+
+def dead_end(last, before, after) -> tuple[bool, bool]:
+    """(boxed_in, on_ledge) after a walk that ended with plan result ``last``.
+
+    Only an ``unreachable`` plan that expanded nodes ran out of them: the body's
+    whole region was searched (a goal proof expands none; ``incomplete`` was
+    capped). With no move from the spot it is boxed in after a node or two (run
+    20261117T155135309814Z: an eave slab, every other stance fails the same way),
+    and on a ledge while that region is small (LEDGE_NODES)."""
+    expanded = getattr(last, "expanded", 0) if last is not None else 0
+    stuck = (
+        last is not None
+        and last.status == "unreachable"
+        and expanded >= 1
+        and math.dist(before, after) < 0.75
+    )
+    return stuck and expanded <= BOXED_IN_NODES, stuck and expanded <= LEDGE_NODES
 
 
 def _clickable(cell) -> bool:
@@ -761,6 +779,7 @@ class CompanionBody:
         # failed edges of the session, each kept while the blocks around it are unchanged
         self.edge_failures = EdgeFailures(cells=self._cells_now)
         self.boxed_in = False  # the last search from here found no move at all
+        self.on_ledge = False  # ... or searched a small closed region (dead_end)
         # building: called with the body position while a walk is under way, to
         # place what comes within reach (set by build_runner._sweep)
         # (position, route=points the motor has still to drive) -> None
@@ -935,7 +954,7 @@ class CompanionBody:
         with self.allowing_hurt_drops():
             for spot in spots:
                 if self._navigate(spot, reach=None, radius=0.6):
-                    self.boxed_in = False
+                    self.boxed_in = self.on_ledge = False
                     return True
         return False
 
@@ -1376,7 +1395,11 @@ class CompanionBody:
         """The planner pillars and bridges with the temporaries in preference order.
         The allowlist is the solid fallback; held scaffolding rides separately and the
         planner picks it per placed cell where it will stay up (docs/SCAFFOLDING.md)."""
-        if getattr(self, "temporary_ok", None) is None or not policy.allow_place:
+        if (
+            getattr(self, "temporary_ok", None) is None
+            or not policy.allow_place
+            or getattr(self, "_exact_material", False)  # pillar_to(release=...)
+        ):
             return policy
         items = tuple(self.temporary_items(scaffolding=False))
         scaffold = (SCAFFOLDING,) if SCAFFOLDING in self.temporary_items() else ()
@@ -1572,16 +1595,7 @@ class CompanionBody:
         self.observe()
         last = getattr(controller, "last_result", None)
         walked = controller.last_partial_walk
-        # Unreachable after a node or two: the start itself has no move (a goal
-        # proof expands none). Every other stance from here fails the same way
-        # (run 20261117T155135309814Z: four 28 s stance loops on an eave slab).
-        expanded = getattr(last, "expanded", 0) if last is not None else 0
-        self.boxed_in = (
-            last is not None
-            and last.status == "unreachable"
-            and 1 <= expanded <= BOXED_IN_NODES
-            and math.dist(before, self.position()) < 0.75
-        )
+        self.boxed_in, self.on_ledge = dead_end(last, before, self.position())
         if (
             walked is not None
             and math.dist(before, walked[1]) <= 1.5
@@ -1894,14 +1908,21 @@ class CompanionBody:
         return max(0, held - policy.reserve_blocks)
 
     @_fresh_idle
-    def pillar_to(self, feet: Pos, item: str, n: int) -> bool:
+    def pillar_to(
+        self, feet: Pos, item: str, n: int, release: Pos | None = None
+    ) -> bool:
         """Stand at ``feet`` straight above the body by pillaring with ``item`` only
         (at most ``n`` blocks, no digging or bridging), even inside ``no_placing``: the
-        build's tower of dirt is a solid column nothing can walk or climb onto."""
+        build's tower of dirt is a solid column nothing can walk or climb onto.
+
+        ``release``: a protected cell (the template's own) the pillar may fill, with
+        exactly ``item`` (no scaffolding, no temporary in its place): the build's block
+        put under a body the house closed round (build_runner ``_climb_out``)."""
         saved = self.terrain_policy
         saved_only = getattr(self, "walk_only", False)
         saved_pillar = getattr(self, "_pillar_only", False)
-        self.terrain_policy = replace(
+        saved_exact = getattr(self, "_exact_material", False)
+        policy = replace(
             saved,
             allow_place=True,
             allow_pillar=True,
@@ -1910,6 +1931,16 @@ class CompanionBody:
             place_budget=n,
             material_allowlist=(item,),
         )
+        if release is not None:
+            policy = replace(
+                policy,
+                protected_positions=tuple(
+                    p for p in policy.protected_positions if tuple(p) != tuple(release)
+                ),
+                scaffold_materials=(),
+            )
+            self._exact_material = True
+        self.terrain_policy = policy
         self.walk_only = True
         self._pillar_only = True
         try:
@@ -1918,6 +1949,7 @@ class CompanionBody:
             # 20261120T175636584118Z: 205 near cap hits from pillar_to).
             return self._navigate(tuple(feet), reach=None, radius=0.6, probe=True)
         finally:
+            self._exact_material = saved_exact
             self._pillar_only = saved_pillar
             self.walk_only = saved_only
             self.terrain_policy = saved

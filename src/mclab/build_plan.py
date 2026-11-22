@@ -1043,6 +1043,16 @@ def _is_door(state: str) -> bool:
     return parse_state(state)[0].endswith("_door")
 
 
+def is_structure(state: str) -> bool:
+    """A block of the house's structure: not air, not a detail, not a door. What
+    ``structure_done`` and the storey bands wait on."""
+    return (
+        parse_state(state)[0] not in AIR
+        and not is_detail(state)
+        and not _is_door(state)
+    )
+
+
 def inside_corner(template: Template, pos: Pos) -> bool:
     """Two template blocks beside ``pos`` at right angles. Placed after them it is a
     pocket whose faces show only from inside it (run 20261102T223417173633Z), so it
@@ -1075,6 +1085,49 @@ def zone_of(template: Template, pos: Pos) -> tuple[int, int]:
     return (min(max(zx, 0), hx), min(max(zz, 0), hz))
 
 
+# Build orders (``next_actions(order=...)``):
+#   zones   - one 8x8 work zone at a time, bottom up inside it (``zone_of``).
+#   storeys - the way a person builds a house: the floor, then the walls all round in
+#             rings of up to RING layers (what one stance reaches), then the next
+#             floor, then the roof. Nearest first inside a band; nothing is built over
+#             a missing cell of its own column.
+ORDERS = ("zones", "storeys")
+RING = 3  # wall layers built together: from the floor the body reaches three up
+# A layer covering this share of the footprint's inner columns is a floor. Inner: the
+# outer walls alone cover more than half of a small house's columns. House-large:
+# floors 0.96-0.97, wall layers 0.32-0.46, the widest roof layer 0.59.
+FLOOR_SHARE = 0.75
+
+
+def storey_bands(template: Template) -> dict[int, int]:
+    """Band index of every layer of ``template``, bottom up: each floor (a layer that
+    covers FLOOR_SHARE of the footprint's inner columns) is a band of its own, and the
+    layers between two floors, or above the last one, go up in bands of RING."""
+    layers: dict[int, set] = {}
+    for p, s in template.cells.items():
+        if parse_state(s)[0] not in AIR:
+            layers.setdefault(p[1], set()).add((p[0], p[2]))
+    columns = set().union(*layers.values()) if layers else set()
+    inner = {
+        (x, z)
+        for x, z in columns
+        if {(x + 1, z), (x - 1, z), (x, z + 1), (x, z - 1)} <= columns
+    } or columns
+    bands: dict[int, int] = {}
+    band = run = 0  # run: layers in the open wall band
+    for y in sorted({p[1] for p in template.cells}):
+        if len(layers.get(y, set()) & inner) >= FLOOR_SHARE * max(1, len(inner)):
+            band += run > 0  # a floor closes the wall band under it
+            bands[y] = band
+            band, run = band + 1, 0
+            continue
+        bands[y] = band
+        run += 1
+        if run == RING:
+            band, run = band + 1, 0
+    return bands
+
+
 def next_actions(
     template: Template,
     world,
@@ -1087,14 +1140,19 @@ def next_actions(
     near: Pos | None = None,
     fetch_first: bool = False,
     focus: Pos | None = None,
+    order: str = "zones",
 ):
     """Next legal actions, or [] when nothing can be done now.
+
+    ``order`` (ORDERS): ``zones`` (the default) or ``storeys`` (``storey_bands``).
 
     ``near`` also scopes the placements to one work zone (``zone_of``): the zone of
     ``focus`` (a cell of the zone worked last) while it has placeable work, else the
     zone the body stands in, else the one with the placeable cell nearest the body.
     Inside a zone the layer rule holds per zone; the column rule (nothing over a
-    missing cell in its column) holds everywhere.
+    missing cell in its column) holds everywhere. With ``order="storeys"`` there are
+    no zones: the lowest band with work is built, nearest the body first, each column
+    bottom up.
 
     ``fetch_first``: ask for materials (NeedMaterials) while a placeable cell below
     the working layer is only short of its item, instead of building on above it.
@@ -1106,6 +1164,10 @@ def next_actions(
     the house), and the global inside-corner-first rule gives way to the runner's
     local one (a wall waits for the corner it would close in).
     """
+    if order not in ORDERS:
+        raise ValueError(f"order must be one of {ORDERS}, not {order!r}")
+    storeys = order == "storeys"
+    bands = storey_bands(template) if storeys else {}
     scaffolds = set() if scaffolds is None else scaffolds
     d = diff(template, world, ignore_props)
 
@@ -1113,6 +1175,11 @@ def next_actions(
         if near is None:
             return 0
         return sum((a - b) ** 2 for a, b in zip(p, near, strict=False))
+
+    def flat(p):  # squared distance to the body's column; 0 without ``near``
+        if near is None:
+            return 0
+        return (p[0] - near[0]) ** 2 + (p[2] - near[2]) ** 2
 
     def _in_reach(p):  # from where the body stands, without walking
         return near is not None and far(p) <= WORK_REACH**2
@@ -1193,9 +1260,15 @@ def next_actions(
         below = world(pos[0], pos[1] - 1, pos[2])
         return _is_solid(below, blocks)
 
+    def band(p) -> int:  # storeys: the band of a cell (the layer itself otherwise)
+        return bands.get(p[1], p[1]) if storeys else p[1]
+
     todo.sort(
         key=lambda t: (
             parse_state(t[1])[0] in FLUIDS,
+            band(t[0]),
+            # storeys: nearest column first across the band's layers, bottom up
+            flat(t[0]) if storeys else 0,
             t[0][1],
             not _ground_supported(t[0]),
             not inside_corner(template, t[0]) if near is None else far(t[0]),
@@ -1322,6 +1395,42 @@ def next_actions(
     def _short_below(pos):
         return short_below.get((pos[0], pos[2]), pos[1]) < pos[1]
 
+    # storeys: the column rule is the layer rule. Only a cell that holds up what is
+    # over it holds its column: not a detail or a door (placed last, and nothing
+    # stands on them), nor one waiting on a cell above it (a lantern under a ceiling
+    # would hold the ceiling for good).
+    # A cell offered earlier in the same batch counts as in: the batch carries a
+    # column up from one stance, bottom first (the sweep keeps that order).
+    column_low: dict = {}  # column -> the cells in it that hold what is over them
+    chosen: set = set()
+    band_low = None
+    if storeys:
+        for t in todo_open:
+            pos, state = t[0], t[1]
+            if (
+                is_detail(state)
+                or _is_door(state)
+                or parse_state(state)[0] in FLUIDS
+                or (skipped is not None and pos in skipped)
+                or pos in given_up
+                or _gate(pos, state, world, blocks)
+                in ("support", "floating", "unknown")
+            ):
+                continue
+            column_low.setdefault((pos[0], pos[2]), []).append(pos)
+        band_low = min((band(p) for p in waiting), default=None)
+
+    planned: dict = {}  # storeys: the batch's cells so far, which later ones stand on
+
+    def planned_world(x, y, z):
+        got = planned.get((x, y, z))
+        return got if got is not None else world(x, y, z)
+
+    def _column_open(pos) -> bool:  # storeys: nothing missing under it but the batch
+        return all(
+            p[1] >= pos[1] or p in chosen for p in column_low.get((pos[0], pos[2]), ())
+        )
+
     left = dict(inventory)
     out: list = []
     # ponytail: run 20261110T150634125260Z built walls to y 69 with the staircase and
@@ -1342,7 +1451,14 @@ def next_actions(
             return False
         if _short_below(pos):
             return False
-        low = lowest if near is None else zone_lowest.get(zone(pos))
+        if storeys:
+            if band_low is not None and band(pos) > band_low:
+                return False
+            if not _column_open(pos):
+                return False
+            low = None  # the band and column rules stand in for the layer rule
+        else:
+            low = lowest if near is None else zone_lowest.get(zone(pos))
         if (
             low is not None
             and pos[1] > low
@@ -1360,11 +1476,11 @@ def next_actions(
             return False
         return (
             all(held.get(i, 0) >= c for i, c in cost.items())
-            and _gate(pos, state, world, blocks) is None
+            and _gate(pos, state, planned_world, blocks) is None
         )
 
     active = None  # the work zone, with a body position
-    if near is not None and not starved:
+    if near is not None and not starved and not storeys:
         ready = [t[0] for t in todo if offerable(t[0], t[1], t[2], inventory)]
         zones = {zone(p) for p in ready}
         if focus is not None and zone(focus) in zones:
@@ -1382,6 +1498,9 @@ def next_actions(
             for i, c in cost.items():
                 left[i] -= c
             out.append(Place(pos, state, item, n))
+            if storeys:
+                chosen.add(pos)
+                planned[pos] = state
     if breaks:  # none in reach: place what is in reach here, then walk to the breaks
         out = [a for a in out if _in_reach(a.pos)]
         return out or [Break(p) for p in breaks[:limit]]

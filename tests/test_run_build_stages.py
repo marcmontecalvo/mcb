@@ -71,6 +71,31 @@ def test_a_stage_lab_passes_at_its_milestone_with_the_stage_saved(program):
     assert cases == {"build stop": True, "no unknown cells": True, "stage saved": True}
 
 
+def test_a_band_lab_passes_at_its_band_or_with_the_house_done(program):
+    for stop in ("until_band_1", "done"):
+        rows = program["build_rows"](
+            _report(stop), LEFT, ticks=9, until="band_1", saved=True
+        )
+        assert all(r["pass"] for r in rows), (stop, rows)
+        assert rows[-1]["detail"] == "checkpoints/band_1.json"
+    rows = program["build_rows"](
+        _report("until_band_0"), LEFT, ticks=9, until="band_1", saved=True
+    )
+    assert not rows[0]["pass"]
+
+
+def test_stage_and_until_arguments_take_band_names(program):
+    import argparse
+
+    assert program["stage_arg"]("band_2") == "band_2"
+    assert program["stage_arg"]("site_ready") == "site_ready"
+    assert program["until_arg"]("band_0") == "band_0"
+    assert program["until_arg"]("structure") == "structure"
+    for bad, parse in (("roof", "stage_arg"), ("site_ready", "until_arg")):
+        with pytest.raises(argparse.ArgumentTypeError):
+            program[parse](bad)
+
+
 @pytest.mark.parametrize(
     ("stop", "saved"), [("until_site", False), ("stalled", True), ("done", True)]
 )

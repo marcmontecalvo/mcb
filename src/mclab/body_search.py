@@ -41,6 +41,11 @@ BODY_NODE_LIMIT = 4000  # past the 3,000-node commit floor; ~10 ms of body time 
 # at 4.9k-9.5k nodes with heuristic_weight 4 (34k+ at weight 1, same route cost).
 EDIT_NODE_LIMIT = 10_000
 BOXED_IN_NODES = 5  # a dead plan this small with banned exits is boxed in by them
+# A forward search that ran out of nodes (``unreachable``) walked the body's whole
+# region. One this small is a ledge the house closed around, not a floor (run
+# 20261122T024835715542Z: a west eave 8 above the ground, 9 nodes); a closed floor
+# of a storey is hundreds.
+LEDGE_NODES = 32
 # Live-terrain plans read the world within this (horizontal, vertical) radius of the
 # body (LiveTerrain.java); None means the session's awareness radius.
 LIVE_TERRAIN_RADIUS = None

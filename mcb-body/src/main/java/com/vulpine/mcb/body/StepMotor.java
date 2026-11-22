@@ -342,6 +342,23 @@ final class StepMotor {
     }
     /** Something to click a block onto: a full cube or scaffolding (supported: the planner only counts it so). */
     static boolean sturdy(Map<String,Object> c) { return cube(c) || scaffolding(c); }
+    /** A dry cell whose collision covers its whole top face (a cube, a top slab, a top stair): vanilla places
+     *  a block clicked onto that face, so a pillar may stand on it. Sampled on a 5x5 grid of the face. */
+    static boolean fullTop(Map<String,Object> c) {
+        if(c==null || !"minecraft:empty".equals(c.getOrDefault("fluid","minecraft:empty"))
+                || !(c.get("collision_boxes") instanceof List<?> boxes) || boxes.isEmpty()) return false;
+        for(int i=0;i<5;i++) for(int k=0;k<5;k++) {
+            double x=(i+.5)/5, z=(k+.5)/5; boolean covered=false;
+            for(Object o:boxes) {
+                if(!(o instanceof List<?> b) || b.size()!=6) return false;
+                double[] v=new double[6];
+                for(int j=0;j<6;j++) { if(!(b.get(j) instanceof Number n)) return false; v[j]=n.doubleValue(); }
+                if(v[4]>=1-1e-6 && v[0]<=x && x<=v[3] && v[2]<=z && z<=v[5]) { covered=true; break; }
+            }
+            if(!covered) return false;
+        }
+        return true;
+    }
     /** Sneaking in or on scaffolding drops the body through it. */
     private boolean inScaffold(RouteGeometry.Reader reader) {
         return scaffolding(read(reader,source)) || scaffolding(read(reader,source.below()));
@@ -646,7 +663,8 @@ final class StepMotor {
             aim=directReplace
                     ? new Vec3(op.point.getX()+.5,op.point.getY()+.05,op.point.getZ()+.5)
                     : new Vec3(op.point.getX()+.5,op.point.getY()-.001,op.point.getZ()+.5);
-            boolean below=sturdy(read(reader,expected)), redirect=false;
+            // A top stair or top slab carries a pillar like a cube (run 20261122T045703502025Z).
+            boolean below=sturdy(read(reader,expected)) || fullTop(read(reader,expected)), redirect=false;
             int hor=Math.abs(dx)+Math.abs(dz);
             boolean sourceScaffold=scaffolding(read(reader,source.below()));
             boolean bridgeOnScaffold=!pillar && bridge && scaffold && sourceScaffold

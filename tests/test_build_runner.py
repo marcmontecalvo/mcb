@@ -288,6 +288,19 @@ def test_state_unreachable_retries_other_stances_then_skips():
     assert body.w[pane] in bp.AIR
 
 
+def test_a_skipped_structure_cell_is_retried_before_the_structure_is_done():
+    # Run 20261122T074325272877Z skipped a ridge slab after three failed stances and
+    # declared the structure done with details still to place, so the cell never got
+    # the fresh round a build's end gives skipped cells; structure_done was saved
+    # with it missing.
+    roof = (5, 4, 5)
+    body, t = small_house_body(fail={roof: ("state_unreachable", br.MAX_TRIES)})
+    seen = []
+    report = br.run_build(t, body, BLOCKS, until="structure", on_milestone=seen.append)
+    assert report.stop == "until_structure" and seen[-1] == "structure_done"
+    assert roof in report.placed and roof not in report.skipped
+
+
 def test_transient_failure_is_retried_and_not_skipped():
     pane = (1, 2, 3)
     body, t = small_house_body(fail={pane: ("out_of_reach", 2)})
@@ -532,7 +545,7 @@ def test_runner_places_from_here_when_the_body_says_the_server_would_accept_it()
 
     class Reaches(_Pit):
         def world(self, *pos):
-            return "minecraft:air"
+            return "minecraft:stone" if pos[1] <= 0 else "minecraft:air"  # the floor
 
         def __init__(self):
             super().__init__(can_escape=False)
@@ -1420,6 +1433,98 @@ def test_a_body_boxed_in_on_a_ledge_gets_down_then_builds_on():
     assert downs == [1]
 
 
+def test_a_body_on_a_ledge_the_roof_closed_around_gets_down_then_builds_on():
+    # Run 20261122T024835715542Z: on the west eave 8 above the ground, the roof band
+    # placed round it; every plan was unreachable after 9 nodes (more than a boxed-in
+    # spot's 5), so the body never got down and the watchdog ended the build.
+    w = flat_world()
+    t = bp.Template.from_build(
+        make_build({(0, 0, 0): "minecraft:oak_planks"}, (1, 1, 1)), (3, 0, 3)
+    )
+    inv = {item: 100 for item in {i["item"] for i in BLOCKS.values()}}
+    body = FakeBody(w, inv, BLOCKS)
+    body.boxed_in, body.on_ledge = False, True
+    reach, downs = body.goto_stance, []
+
+    def goto_stance(pos, reach_, avoid=()):
+        return not body.on_ledge and reach(pos, reach_, avoid)
+
+    def get_down():
+        downs.append(1)
+        body.on_ledge = False
+        return True
+
+    body.goto_stance = goto_stance
+    body.get_down = get_down
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done" and (3, 0, 3) in report.placed
+    assert downs == [1]
+
+
+def _closed_in_body(own_state):
+    """A body standing in the template's own unbuilt cell (3, 0, 3), the house built
+    round it: no stance, no way down; another cell (5, 0, 3) is still to place."""
+    w = flat_world()
+    t = bp.Template.from_build(
+        make_build(
+            {(0, 0, 0): own_state, (2, 0, 0): "minecraft:oak_planks"}, (3, 1, 1)
+        ),
+        (3, 0, 3),
+    )
+    inv = {item: 100 for item in {i["item"] for i in BLOCKS.values()}}
+    body = FakeBody(w, inv, BLOCKS, pos=(3, 0, 3))
+    body.temporary_ok = frozenset({"minecraft:oak_planks", "minecraft:dirt"})
+    body.boxed_in = True
+    reach, climbs = body.goto_stance, []
+
+    def goto_stance(pos, reach_, avoid=()):
+        return not body.boxed_in and reach(pos, reach_, avoid)
+
+    def pillar_to(feet, item, n, release=None):
+        climbs.append((feet, item, n, release))
+        body.w[release] = item
+        body.inv[item] -= 1
+        body.pos, body.boxed_in = feet, False
+        return True
+
+    place = body.place_block
+
+    def place_block(pos, state, item):
+        if pos == body.pos:  # never into the cell the body stands in
+            return br.Result(False, "body_in_cell")
+        return place(pos, state, item)
+
+    body.goto_stance = goto_stance
+    body.can_place_here = lambda *a, **k: not body.boxed_in
+    body.place_block = place_block
+    body.get_down = lambda: False
+    body.pillar_to = pillar_to
+    return t, body, climbs
+
+
+def test_a_body_the_house_closed_round_climbs_out_on_its_own_cells_block():
+    # Run 20261122T045703502025Z: standing in a roof cell not yet built (planks), the
+    # roof's stairs and slabs went in all round; every plan was unreachable after one
+    # node, nothing lower was in reach, and the watchdog ended the build. A person
+    # puts that cell's own block under them and steps out: a pillar of one, placing
+    # the template's block in the template's cell.
+    t, body, climbs = _closed_in_body("minecraft:oak_planks")
+    report = br.run_build(t, body, BLOCKS)
+    assert climbs == [((3, 1, 3), "minecraft:oak_planks", 1, (3, 0, 3))]
+    assert report.stop == "done", report.stop
+    assert body.w[(3, 0, 3)] == "minecraft:oak_planks"
+
+
+def test_a_body_closed_round_in_a_cell_wanting_a_shaped_block_does_not_pillar_it():
+    # A stair placed by jumping onto it faces wherever the body looks: wrong. Only a
+    # plain full cube (an axis is upright when placed from above) is put under the body.
+    t, body, climbs = _closed_in_body(
+        "minecraft:oak_stairs[facing=north,half=bottom,shape=straight,waterlogged=false]"
+    )
+    br.run_build(t, body, BLOCKS)
+    assert climbs == []
+
+
 def test_a_drop_is_never_the_easy_way_while_the_body_can_move():
     body, t = tall_column_body()
     _no_scaffold_items(body)
@@ -1467,12 +1572,13 @@ def test_footholds_spent_mid_build_are_topped_up_and_a_dry_chest_is_not_pestered
 
     runner, asks, stock = Runner(), [], {}
 
-    def refill(items):  # the chests hand over what is asked
+    def refill(items):  # the chests bring the body up to what is asked
         asks.append(dict(items))
-        runner.held["minecraft:dirt"] += items.get("minecraft:dirt", 0)
+        dirt = runner.held["minecraft:dirt"]
+        runner.held["minecraft:dirt"] = max(dirt, items.get("minecraft:dirt", 0))
 
     br._keep_footholds(runner, refill, lambda _m: None, stock)
-    assert asks == [{"minecraft:dirt": br.FOOTHOLD_STOCK - 3}]
+    assert asks == [{"minecraft:dirt": br.FOOTHOLD_STOCK}]  # a total, like every ask
     br._keep_footholds(runner, refill, lambda _m: None, stock)
     assert len(asks) == 1  # stocked: nothing more to ask
 
@@ -1509,7 +1615,7 @@ def test_scaffolding_is_the_foothold_stock_when_the_build_carries_it():
 
     runner.held[scaffold] = 5  # spent down: top up with scaffolding, not dirt
     br._stock_footholds(runner, asks.append, lambda _m: None)
-    assert asks == [{scaffold: br.FOOTHOLD_STOCK - 5}]
+    assert asks == [{scaffold: br.FOOTHOLD_STOCK}]  # the total to hold
 
     runner.held[scaffold] = 0  # all of it out in the world: still scaffolding
     br._stock_footholds(runner, asks.append, lambda _m: None)
@@ -2438,6 +2544,22 @@ def test_a_cell_that_needs_a_prop_asks_for_one_block_when_none_is_held():
     assert not runner.report.scaffolded
 
 
+def test_a_cell_offered_beside_a_batch_mate_not_yet_in_waits_for_it():
+    # Run 20261122T071747687093Z: a roof plank was offered with a neighbour planned in
+    # the same batch. That neighbour was not in when the plank's turn came; the plank
+    # read as a prop case, was given up (no_prop_block), the slab above it went in
+    # over the released column, and the plank ended no_stance, walled in.
+    w = flat_world(hi=8)
+    body = FakeBody(w, {PLANKS: 4, SCAFFOLDING: 64}, BLOCKS, pos=(1, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.scaffolds = set()
+    pos = (2, 3, 0)  # nothing solid round it in the world yet
+    runner.attempt(bp.Place(pos, PLANKS, PLANKS, 1))
+    assert not runner.short and runner.short_for is None
+    assert pos not in runner.fails and pos not in runner.report.skipped
+    assert not runner.report.scaffolded  # no tower for it either
+
+
 def test_a_build_that_climbs_on_scaffolding_gets_its_prop_block_and_places_both():
     # The whole loop: the prop block asked for comes, both hoppers go in.
     east = "minecraft:hopper[enabled=true,facing=east]"
@@ -2660,6 +2782,89 @@ def test_cleanup_sweeps_nearest_first_while_keeping_columns_top_down():
     assert runner.report.broken[2:] == [(12, y, 12) for y in range(4, -1, -1)]
 
 
+def test_a_band_stage_lists_the_footholds_placed_finishing_that_band():
+    # Run 20261122T063256626024Z started from band_5 and stopped site_not_ready: the
+    # last walk of the band had put a scaffolding foothold on the ridge, the stage was
+    # saved before the loop adopted it, and the resumed site prep took it for a
+    # stranger's block it could not reach.
+    cells = {(x, 0, z): PLANKS for x in range(3) for z in range(3)}
+    cells |= {(x, 1, 0): PLANKS for x in range(3)}
+    t = bp.Template.from_build(make_build(cells, (3, 2, 3)), (0, 0, 0))
+    w = flat_world(hi=8)
+    body = FakeBody(w, {PLANKS: 20}, BLOCKS, pos=(1, 0, 4))
+    body.stray_footholds = set()
+    foothold = (4, 0, 1)
+    place = body.place_block
+    floor = {p for p in cells if p[1] == 0}
+
+    def placing(pos, state, item):
+        out = place(pos, state, item)
+        if floor <= {p for p in floor if w.get(p) == PLANKS}:
+            w[foothold] = sc.BLOCK  # a walk placed it while the band was finished
+            body.stray_footholds.add(foothold)
+        return out
+
+    body.place_block = placing
+    scaffolds: set = set()
+    held = {}
+    br.run_build(
+        t,
+        body,
+        BLOCKS,
+        order="storeys",
+        scaffolds=scaffolds,
+        on_milestone=lambda name: held.setdefault(name, set(scaffolds)),
+    )
+    assert foothold in held["band_0"]
+
+
+@pytest.mark.parametrize("found", [[], [(1, 0, 0), (1, 1, 0), (1, 2, 0)]])
+def test_a_tower_short_of_dirt_asks_for_the_total_to_hold(monkeypatch, found):
+    # An ask is what the body should hold in all (refill tops up to it). Run
+    # 20261122T064728624126Z held 1 dirt and asked for "1 more" for a roof stair:
+    # the refill saw 1 held, brought nothing, and the stair was skipped no_material.
+    w = flat_world(hi=12)
+    body = FakeBody(w, {"minecraft:dirt": 1}, BLOCKS, pos=(0, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.scaffolds = set()
+    monkeypatch.setattr(
+        bp,
+        "tower_cells",
+        lambda *a, scaffolding=True, **k: [] if scaffolding else found,
+    )
+    assert runner._tower((0, 3, 0), set()) is False
+    assert runner.short == {"minecraft:dirt": 3} and runner.short_for == (0, 3, 0)
+
+
+def test_cleanup_puts_dug_ground_back_in_its_nearest_first_turn():
+    # Run 20261122T054201856122Z ended the structure on the roof ridge. Cleanup first
+    # walked to the ground to put back a dug cell at the far corner, then, nearest
+    # first from there, left the ridge scaffolding for last: three trips back up,
+    # each placing a new foothold to reach the last one (cleanup 5:19, zones 2:27).
+    w = flat_world(hi=16)
+    for y in (0, 1):
+        w[(1, y, 1)] = "minecraft:dirt"  # near the body
+    dug = (12, -1, 12)  # far: ground a route dug out
+    w[dug] = AIR
+    t = bp.Template.from_build(make_build({(0, 0, 0): PLANKS}, (14, 6, 14)), (0, 0, 0))
+    w[(0, 0, 0)] = PLANKS
+    body = FakeBody(w, {"minecraft:dirt": 1}, BLOCKS, pos=(1, 0, 2))
+    body.stray_breaks = {dug: "minecraft:dirt"}
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.template = t
+    scaffolds = {(1, 0, 1), (1, 1, 1)}
+    runner.scaffolds = scaffolds
+    done = []
+    attempt = runner.attempt
+    runner.attempt = lambda act: (done.append(act.pos), attempt(act))[1]
+
+    br._clean_up(runner, t, scaffolds)
+
+    assert done.index((1, 0, 1)) < done.index(dug)
+    assert w[dug] == "minecraft:dirt" and dug in runner.report.restored
+    assert not body.stray_breaks
+
+
 def test_cleanup_takes_a_walking_foothold_back_after_the_work_above_it():
     # Run 20261121T154048852669Z: the planner put a dirt step in the stairwell to
     # climb to the upper floor. Cleanup, nearest first, broke the step while
@@ -2714,3 +2919,171 @@ def test_structure_to_details_clears_indoor_strays_while_keeping_exterior_towers
     br._clear_indoor_strays(runner, t, scaffolds)
     assert w[(2, 0, 2)] == AIR  # indoor stray cleared
     assert all(w[(8, y, 8)] == SCAFF for y in range(3))  # exterior tower kept
+
+
+@pytest.mark.parametrize("order", bp.ORDERS)
+def test_every_build_order_finishes_the_small_house(order):
+    body, t = small_house_body()
+    report = br.run_build(t, body, BLOCKS, order=order)
+    assert report.stop == "done"
+    assert report.counts["missing"] == 0 and not body.violations
+
+
+def test_every_batch_is_planned_in_the_order_the_build_was_given(monkeypatch):
+    seen = []
+    real = bp.next_actions
+
+    def spy(*a, **kw):
+        seen.append(kw.get("order"))
+        return real(*a, **kw)
+
+    monkeypatch.setattr(bp, "next_actions", spy)
+    body, t = small_house_body()
+    br.run_build(t, body, BLOCKS, order="storeys")
+    assert seen and set(seen) == {"storeys"}
+
+
+def test_an_unknown_build_order_is_refused():
+    body, t = small_house_body()
+    with pytest.raises(ValueError):
+        br.run_build(t, body, BLOCKS, order="spiral")
+
+
+def _wall_stack_sweep(fail=None, order="storeys", length=5):
+    """A storey-order batch: a wall ``length`` long, three high, offered bottom up."""
+    w = flat_world(-2, 16)
+    w[(0, 0, 1)] = "minecraft:stone"  # something to click for the first block
+    body = _CoverBody(w, {PLANKS: 64}, BLOCKS, pos=(2, 0, 3), fail=fail)
+    runner = br._Runner(body, br.BuildReport(), 500, BLOCKS)
+    runner.order = order
+    pool = [
+        bp.Place((x, y, 0), PLANKS, PLANKS)
+        for x in range(length)
+        for y in range(3)  # column by column, as next_actions offers them
+    ]
+    moves = []
+    goto = body.goto_stance
+
+    def counting(target, reach, avoid=()):
+        before = body.pos
+        ok = goto(target, reach, avoid)
+        moves.extend([body.pos] if body.pos != before else [])
+        return ok
+
+    body.goto_stance = counting
+    br._sweep_pool(runner, pool, set(), None, False)
+    return body, runner.report, moves
+
+
+def test_a_storey_sweep_puts_each_column_up_bottom_first():
+    body, report, _ = _wall_stack_sweep()
+    assert sorted(report.placed) == sorted(
+        (x, y, 0) for x in range(5) for y in range(3)
+    )
+    for x in range(5):
+        ys = [p[1] for p in report.placed if p[0] == x]
+        assert ys == sorted(ys)
+    assert not body.violations
+
+
+def test_a_storey_sweep_walks_a_long_wall_once_not_once_a_layer():
+    _, report, moves = _wall_stack_sweep(length=14)
+    _, layered, layer_moves = _wall_stack_sweep(length=14, order="zones")
+    assert len(report.placed) == len(layered.placed) == 42
+    assert len(moves) < len(layer_moves)
+
+
+def test_a_storey_sweep_builds_nothing_over_a_cell_it_failed():
+    body, report, _ = _wall_stack_sweep(fail={(2, 0, 0): ("blocked", 99)})
+    assert (2, 0, 0) not in report.placed
+    assert (2, 1, 0) not in report.placed and (2, 2, 0) not in report.placed
+    assert (1, 2, 0) in report.placed and (3, 2, 0) in report.placed
+
+
+Z_LOG = "minecraft:oak_log[axis=z]"
+
+
+class _AxisBody(_CoverBody):
+    """A log takes the axis of the face it is clicked on: placed only against a
+    solid neighbour along its axis (the server's sight test names the state)."""
+
+    def _axis_face(self, pos, state):
+        axis = bp.parse_state(state)[1].get("axis")
+        if axis not in bp._AXIS_VEC:
+            return True
+        d = bp._AXIS_VEC[axis]
+        return any(
+            bp._is_solid(
+                self.w.get((pos[0] + s * d[0], pos[1] + s * d[1], pos[2] + s * d[2])),
+                self.blocks,
+            )
+            for s in (1, -1)
+        )
+
+    def can_place_here(self, pos, reach, required=None, state=None):
+        ok = super().can_place_here(pos, reach, required, state)
+        return ok and (state is None or self._axis_face(pos, state))
+
+    def place_block(self, pos, state, item):
+        if not self._axis_face(pos, state):
+            return br.Result(False, "state_unreachable")
+        return super().place_block(pos, state, item)
+
+
+@pytest.mark.parametrize("order", bp.ORDERS)
+def test_a_sweep_waits_for_the_batch_cell_a_block_is_clicked_against(order):
+    """Run 20261122T013145553434Z: the storey planner offers a log with the cell it
+    is clicked against in the same batch; the sweep walked to the nearer log first,
+    found no face that makes its axis, asked for a dirt prop it did not have and
+    skipped 16 logs, planks and stairs as no_material. The log waits for its
+    neighbour."""
+    w = flat_world(-2, 12)
+    body = _AxisBody(w, {"minecraft:oak_log": 1, PLANKS: 1}, BLOCKS, pos=(0, 0, 9))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.order = order
+    log = bp.Place((0, 0, 1), Z_LOG, "minecraft:oak_log")
+    plank = bp.Place((0, 0, 0), PLANKS, PLANKS)
+    assert bp.prop_cells(log.pos, log.state, body.world, BLOCKS)  # alone: a prop
+    br._sweep_pool(runner, [log, plank], set(), None, False)
+    assert sorted(runner.report.placed) == [(0, 0, 0), (0, 0, 1)]
+    assert not runner.report.failures and not runner.short
+    assert w[(0, 0, 1)] == Z_LOG
+
+
+def test_a_sweep_waits_down_a_chain_of_batch_cells():
+    """A log on a log on a plank: the far log waits for the near one, which waits
+    for the plank, though the near log cannot be made yet either."""
+    w = flat_world(-2, 12)
+    held = {"minecraft:oak_log": 2, PLANKS: 1}
+    body = _AxisBody(w, held, BLOCKS, pos=(0, 0, 9))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.order = "storeys"
+    pool = [
+        bp.Place((0, 0, 2), Z_LOG, "minecraft:oak_log"),
+        bp.Place((0, 0, 1), Z_LOG, "minecraft:oak_log"),
+        bp.Place((0, 0, 0), PLANKS, PLANKS),
+    ]
+    assert br._waiting(runner, pool) == {(0, 0, 1), (0, 0, 2)}
+    br._sweep_pool(runner, pool, set(), None, False)
+    assert runner.report.placed == [(0, 0, 0), (0, 0, 1), (0, 0, 2)]
+    assert not runner.report.failures and not runner.short
+
+
+def test_a_sweep_props_cells_that_wait_on_each_other():
+    """Two hoppers facing each other wait on nothing the batch can bring first:
+    neither holds the sweep up, and the first goes in against a temporary block."""
+    w = flat_world(-2, 12)
+    east = "minecraft:hopper[enabled=true,facing=east]"
+    west = "minecraft:hopper[enabled=true,facing=west]"
+    held = {"minecraft:hopper": 2, "minecraft:dirt": 4}
+    body = HopperBody(w, held, BLOCKS, pos=(1, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.order = "storeys"
+    runner.scaffolds = set()
+    pool = [
+        bp.Place((1, 0, 0), east, "minecraft:hopper", 1),
+        bp.Place((2, 0, 0), west, "minecraft:hopper", 1),
+    ]
+    br._sweep_pool(runner, pool, set(), None, False)
+    assert w[(1, 0, 0)] == east and w[(2, 0, 0)] == west
+    assert not runner.report.skipped
