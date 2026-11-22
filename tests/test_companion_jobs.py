@@ -2,8 +2,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from test_build_plan import make_build
 
+from mclab import build_plan as bp
 from mclab import companion_jobs
 from mclab.companion_jobs import FOOD_KEEP, _food_topup, build_job
 from mclab.gather_fake import FakeGatherBody
@@ -629,3 +631,25 @@ def test_protect_keeps_sealed_attic_cavities_out_of_build_air():
     assert (2, 4, 2) in body.terrain_policy.protected_positions
     assert (2, 4, 2) not in body.build_air
     assert (2, 1, 2) in body.build_air
+
+
+@pytest.mark.parametrize("order", [None, "storeys"])
+def test_a_build_job_builds_in_the_order_it_was_given(tmp_path, monkeypatch, order):
+    from mclab import companion_jobs
+
+    cells = {(0, 0, 0): PLANKS}
+    path = tmp_path / "mini.build.json"
+    path.write_text(json.dumps(make_build(cells, (1, 1, 1))), encoding="utf-8")
+    body = FakeGatherBody(K, world(), {PLANKS: 1})
+    seen = {}
+
+    def fake_run_build(template, b, blocks, **kw):
+        seen.update(kw)
+        return companion_jobs.BuildReport(stop="done")
+
+    monkeypatch.setattr(companion_jobs, "run_build", fake_run_build)
+    extra = {} if order is None else {"order": order}
+    build_job(
+        path, (4, 0, 4), 0, body, K, state=GatherState(), build_only=True, **extra
+    )
+    assert seen["order"] == (order or bp.ORDERS[0])

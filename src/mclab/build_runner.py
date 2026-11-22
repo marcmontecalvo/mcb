@@ -340,6 +340,9 @@ class _Runner:
         self.short: dict[str, int] = {}
         self.short_for: Pos | None = None  # the cell the short tower was for
         self.propped: set[Pos] = set()  # cells a temporary block was put beside
+        # the build order (bp.ORDERS); "storeys" sweeps each column up from one stance
+        self.order = bp.ORDERS[0]
+        self.held: set[Pos] = set()  # storeys: cells this sweep failed (nothing over)
 
     def attempt(self, act) -> None:
         """Stance, act, record. Retries other stances while the failure says so."""
@@ -1308,6 +1311,27 @@ def _ready(a, corners) -> bool:
     )
 
 
+def _stacked(runner: _Runner) -> bool:
+    return runner.order == "storeys"
+
+
+def _on_top(runner: _Runner, a, pool) -> bool:
+    """Storeys: nothing of the batch is still missing under ``a`` in its column, nor
+    a cell of it this sweep failed (the wall is not built over a hole)."""
+    x, y, z = a.pos
+    return not any(
+        b.pos[0] == x and b.pos[2] == z and b.pos[1] < y for b in pool
+    ) and not any(h[0] == x and h[2] == z and h[1] < y for h in runner.held)
+
+
+def _in_place(runner: _Runner, act) -> bool:
+    """Did ``act`` leave its block in (a Place only; the rest hold up nothing)?"""
+    if not isinstance(act, bp.Place):
+        return True
+    got = runner.body.world(*act.pos)
+    return got is not None and bp.parse_state(got)[0] == bp.parse_state(act.state)[0]
+
+
 BODY_HALF_WIDTH = 0.3  # the body's hitbox is 0.6 wide
 BODY_HEIGHT = 1.8
 JUMP_ROOM = 3.0  # head room a step up needs above the take-off (RouteGeometry.sweep)
@@ -1378,6 +1402,7 @@ def _passing(runner: _Runner, pool: list, corners: set):
             and a.pos not in refused
             and _dist2(a.pos, position) <= (REACH - 1.0) ** 2
             and _ready(a, corners)
+            and (not _stacked(runner) or _on_top(runner, a, pool))
         ]
         if not near:
             return
@@ -1435,11 +1460,13 @@ def _in_reach(runner: _Runner, act, here: Pos) -> bool:
 
 
 def _cover(runner: _Runner, act, ready: list) -> dict:
-    """The sweep's next cells after ``act`` (same layer, nearest to it first) with
-    their required support and state: the stance for ``act`` should place them
+    """The sweep's next cells after ``act`` (same layer, nearest to it first; any
+    layer of the batch in the storey order, which puts the column up from there)
+    with their required support and state: the stance for ``act`` should place them
     too (CompanionBody.stance_cover)."""
     scaffold = getattr(act, "item", None) == sc.BLOCK
     world = getattr(runner.body, "world", None)
+    stacked = _stacked(runner)
     near = sorted(
         (
             b
@@ -1447,7 +1474,7 @@ def _cover(runner: _Runner, act, ready: list) -> dict:
             if b is not act
             and isinstance(b, bp.Place)
             and (getattr(b, "item", None) == sc.BLOCK) == scaffold
-            and b.pos[1] == act.pos[1]
+            and (stacked or b.pos[1] == act.pos[1])
             and _dist2(b.pos, act.pos) <= COVER_SPAN**2
         ),
         key=lambda b: (_dist2(b.pos, act.pos), b.pos),
@@ -1459,13 +1486,25 @@ def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:
     prev = None  # the cell worked last: in reach, the next one goes on beside it
     covers = hasattr(runner.body, "stance_cover")
     walk_dist = getattr(runner.body, "walk_distance", None)
+    # Storeys: no layer first. Every cell in reach whose column is in under it goes
+    # on, so one stance puts the wall up as high as the batch carries it.
+    stacked = _stacked(runner)
+    runner.held = set()
     while pool and runner.report.steps < runner.max_steps and not runner.short:
         here = runner.body.position()
-        ready = [a for a in pool if _ready(a, corners)]
+        ready = [
+            a
+            for a in pool
+            if _ready(a, corners) and (not stacked or _on_top(runner, a, pool))
+        ]
+        if not ready:
+            return  # stacked: the rest stands over cells this sweep failed
         layer = min(a.pos[1] for a in ready)
         # Reach only matters in the lowest layer: the key orders by layer first.
         near = {
-            id(a) for a in ready if a.pos[1] == layer and _in_reach(runner, a, here)
+            id(a)
+            for a in ready
+            if (stacked or a.pos[1] == layer) and _in_reach(runner, a, here)
         }
         walk_cache: dict[Pos, int | None] = {}
 
@@ -1489,14 +1528,14 @@ def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:
             along = _dist2(a.pos, prev) if reached and prev is not None else d2
             if reached:
                 travel = 0
-            elif walk_dist is not None and a.pos[1] == layer:
+            elif walk_dist is not None and (stacked or a.pos[1] == layer):
                 if a.pos not in walk_cache:
                     walk_cache[a.pos] = walk_dist(a.pos)
                 wd = walk_cache[a.pos]
                 travel = wd if wd is not None else 1000 + d2
             else:
                 travel = d2
-            return (a.pos[1], not reached, travel, same, along, d2)
+            return (0 if stacked else a.pos[1], not reached, travel, same, along, d2)
 
         act = min(ready, key=key)
         if tried and _dist2(act.pos, here) > (REACH + STALE_MARGIN) ** 2:
@@ -1510,12 +1549,15 @@ def _sweep_pool(runner: _Runner, pool: list, corners: set, last, tried) -> None:
         # reach too: nearest-first stood at the edge of reach, one walk per block
         # (run 20261119T225430670386Z: 119 walks, 195 s).
         if covers and id(act) not in near:
-            runner.body.stance_cover = _cover(runner, act, ready)
+            upcoming = [a for a in pool if _ready(a, corners)] if stacked else ready
+            runner.body.stance_cover = _cover(runner, act, upcoming)
         try:
             runner.attempt(act)
         finally:
             if covers:
                 runner.body.stance_cover = {}
+        if stacked and not _in_place(runner, act):
+            runner.held.add(act.pos)
         last, tried, prev = getattr(act, "item", None), True, act.pos
 
 
@@ -1785,8 +1827,11 @@ def run_build(
     on_site_ready: Callable[[], None] | None = None,
     on_milestone: Callable[[str], None] | None = None,
     until: str | None = None,
+    order: str = bp.ORDERS[0],
 ) -> BuildReport:
     """Build ``template`` through ``body``; see the module docstring.
+
+    ``order``: the build order (``build_plan.ORDERS``) every batch is planned in.
 
     ``on_milestone(name)``: ``site_ready`` once the site is ready (after
     ``on_site_ready``), ``structure_done`` the first time only details are left (a
@@ -1803,6 +1848,8 @@ def run_build(
     """
     if until not in UNTIL:
         raise ValueError(f"until must be one of {sorted(u for u in UNTIL if u)}")
+    if order not in bp.ORDERS:
+        raise ValueError(f"order must be one of {bp.ORDERS}, not {order!r}")
     report = BuildReport()
     places = getattr(body, "places", None)  # None for fakes and tests
     knowledge = Knowledge(places.archive) if places is not None else None
@@ -1851,6 +1898,7 @@ def run_build(
             on_site_ready or (lambda: None),
             on_milestone or (lambda name: None),
             until,
+            order=order,
         )
     except StallError as exc:
         report.stop, report.stall_reason = "stalled", str(exc)
@@ -1887,6 +1935,7 @@ def _run(
     on_site_ready=lambda: None,
     on_milestone=lambda name: None,
     until=None,
+    order=bp.ORDERS[0],
 ) -> None:
     on_stage("clearing trees")
     if survey:
@@ -1895,6 +1944,7 @@ def _run(
 
     scaffolds = set() if scaffolds is None else scaffolds
     runner = _Runner(body, report, max_steps, blocks)
+    runner.order = order
     if site_margin is not None:
         from mclab import site_prep
 
@@ -1986,6 +2036,7 @@ def _run(
             near=body.position(),
             fetch_first=True,
             focus=focus,
+            order=order,
         )
         fetching = False
         if acts and isinstance(acts[0], bp.NeedMaterials) and not acts[0].scaffold:
@@ -2004,6 +2055,7 @@ def _run(
                     skipped=skipped,
                     near=body.position(),
                     focus=focus,
+                    order=order,
                 )
             else:
                 fetching = True

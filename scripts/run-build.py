@@ -252,6 +252,12 @@ def main() -> int:
         help="end the build at a milestone and save its stage: site (cleared and "
         "level) or structure (only the details left)",
     )
+    parser.add_argument(
+        "--order",
+        choices=bp.ORDERS,
+        help="the build order: zones (8x8 work zones, bottom up; the default) or "
+        "storeys (floor, then the walls all round three high, then the next floor)",
+    )
     parser.add_argument("--build", type=Path, default=DEFAULT_BUILD)
     parser.add_argument("--dx", type=int, default=3)
     parser.add_argument("--dz", type=int, default=2)
@@ -739,6 +745,7 @@ def run(args, config, parser):
                 until=until,
                 on_milestone=milestone,
                 scaffolds=scaffolds,
+                order=config["run"]["order"],
             )
             audit_started = time.monotonic()
             report = job.build
@@ -764,6 +771,7 @@ def run(args, config, parser):
                     "source": staged.get("source"),
                 },
                 "until": until,
+                "order": config["run"]["order"],
                 "coal_form": args.coal if args.supply else None,
                 "job_stop": job.stop,
                 "ticks": job.ticks,

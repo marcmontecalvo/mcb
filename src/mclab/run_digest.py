@@ -201,6 +201,7 @@ def _argv_identity(argv) -> dict:
     resume = after("--resume")
     start_from = after("--from")
     until = after("--until")
+    order = after("--order")
     return {
         "build": build[0].replace("\\", "/") if build else DEFAULT_BUILD,
         "start": [int(v) for v in start] if start else None,
@@ -208,6 +209,7 @@ def _argv_identity(argv) -> dict:
         "resume": resume[0] if resume else None,
         "start_from": start_from[0] if start_from else None,
         "until": until[0] if until else None,
+        "order": order[0] if order else None,
         "mode": "supply"
         if "--supply" in argv
         else "empty"
@@ -249,6 +251,7 @@ def identity(run: Path) -> dict:
             "resume": config.get("resume"),
             "start_from": config.get("start_from"),
             "until": config.get("until"),
+            "order": config.get("order"),
             "source": "run_config",
         }
     job = job_name(run)
@@ -277,8 +280,9 @@ def build_key(ident: dict, segment: bool = True) -> str | None:
     """What makes two runs attempts at "the same build": the job, the build file
     (or the gather target), the start cell and the world seed, then the segment of a
     stage lab (``+from=site_ready+until=structure``: not comparable with a whole
-    build). ``segment=False``: the whole build's key, as the stage library files
-    it. None when the run does not say (prune then leaves it alone)."""
+    build), then a build order other than the default (``+order=storeys``: an A/B).
+    ``segment=False``: the whole build's key, as the stage library files it. None
+    when the run does not say (prune then leaves it alone)."""
     job, start = ident.get("job"), ident.get("start")
     if not job or not isinstance(start, list) or len(start) != 3:
         return None
@@ -294,6 +298,8 @@ def build_key(ident: dict, segment: bool = True) -> str | None:
         for name, label in (("start_from", "from"), ("until", "until")):
             if ident.get(name):
                 key += f"+{label}={ident[name]}"
+        if ident.get("order") not in (None, "zones"):
+            key += f"+order={ident['order']}"
     return key
 
 

@@ -2714,3 +2714,82 @@ def test_structure_to_details_clears_indoor_strays_while_keeping_exterior_towers
     br._clear_indoor_strays(runner, t, scaffolds)
     assert w[(2, 0, 2)] == AIR  # indoor stray cleared
     assert all(w[(8, y, 8)] == SCAFF for y in range(3))  # exterior tower kept
+
+
+@pytest.mark.parametrize("order", bp.ORDERS)
+def test_every_build_order_finishes_the_small_house(order):
+    body, t = small_house_body()
+    report = br.run_build(t, body, BLOCKS, order=order)
+    assert report.stop == "done"
+    assert report.counts["missing"] == 0 and not body.violations
+
+
+def test_every_batch_is_planned_in_the_order_the_build_was_given(monkeypatch):
+    seen = []
+    real = bp.next_actions
+
+    def spy(*a, **kw):
+        seen.append(kw.get("order"))
+        return real(*a, **kw)
+
+    monkeypatch.setattr(bp, "next_actions", spy)
+    body, t = small_house_body()
+    br.run_build(t, body, BLOCKS, order="storeys")
+    assert seen and set(seen) == {"storeys"}
+
+
+def test_an_unknown_build_order_is_refused():
+    body, t = small_house_body()
+    with pytest.raises(ValueError):
+        br.run_build(t, body, BLOCKS, order="spiral")
+
+
+def _wall_stack_sweep(fail=None, order="storeys", length=5):
+    """A storey-order batch: a wall ``length`` long, three high, offered bottom up."""
+    w = flat_world(-2, 16)
+    w[(0, 0, 1)] = "minecraft:stone"  # something to click for the first block
+    body = _CoverBody(w, {PLANKS: 64}, BLOCKS, pos=(2, 0, 3), fail=fail)
+    runner = br._Runner(body, br.BuildReport(), 500, BLOCKS)
+    runner.order = order
+    pool = [
+        bp.Place((x, y, 0), PLANKS, PLANKS)
+        for x in range(length)
+        for y in range(3)  # column by column, as next_actions offers them
+    ]
+    moves = []
+    goto = body.goto_stance
+
+    def counting(target, reach, avoid=()):
+        before = body.pos
+        ok = goto(target, reach, avoid)
+        moves.extend([body.pos] if body.pos != before else [])
+        return ok
+
+    body.goto_stance = counting
+    br._sweep_pool(runner, pool, set(), None, False)
+    return body, runner.report, moves
+
+
+def test_a_storey_sweep_puts_each_column_up_bottom_first():
+    body, report, _ = _wall_stack_sweep()
+    assert sorted(report.placed) == sorted(
+        (x, y, 0) for x in range(5) for y in range(3)
+    )
+    for x in range(5):
+        ys = [p[1] for p in report.placed if p[0] == x]
+        assert ys == sorted(ys)
+    assert not body.violations
+
+
+def test_a_storey_sweep_walks_a_long_wall_once_not_once_a_layer():
+    _, report, moves = _wall_stack_sweep(length=14)
+    _, layered, layer_moves = _wall_stack_sweep(length=14, order="zones")
+    assert len(report.placed) == len(layered.placed) == 42
+    assert len(moves) < len(layer_moves)
+
+
+def test_a_storey_sweep_builds_nothing_over_a_cell_it_failed():
+    body, report, _ = _wall_stack_sweep(fail={(2, 0, 0): ("blocked", 99)})
+    assert (2, 0, 0) not in report.placed
+    assert (2, 1, 0) not in report.placed and (2, 2, 0) not in report.placed
+    assert (1, 2, 0) in report.placed and (3, 2, 0) in report.placed

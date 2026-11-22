@@ -334,3 +334,14 @@ def test_planner_settings_without_planner_backend_are_rejected(tmp_path, field, 
             root=tmp_path,
             overrides={"model": {"backend": "local", "request_limit": 4, field: value}},
         )
+
+
+def test_a_build_names_its_order_and_the_zone_order_is_the_default():
+    assert resolve_config("build")["run"]["order"] == "zones"
+    run = resolve_config("build", overrides={"run": {"order": "storeys"}})["run"]
+    assert run["order"] == "storeys"
+    props = config_schema()["properties"]["run"]["properties"]
+    assert props["order"]["enum"] == ["zones", "storeys"]
+    assert props["order"]["supported_tests"] == ["build"]
+    with pytest.raises(ValueError):
+        resolve_config("build", overrides={"run": {"order": "spiral"}})

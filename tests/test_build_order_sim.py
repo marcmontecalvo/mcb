@@ -55,3 +55,20 @@ def test_the_report_names_the_big_swings():
     assert m["walks"] == 3
     assert m["climb"] == 8 and m["descent"] == 8
     assert m["swings"] == 2  # two level changes of 3 or more
+
+
+@pytest.mark.parametrize("order", bp.ORDERS)
+def test_every_order_builds_the_large_house_whole(blocks, order):
+    result = sim.simulate(_template("house-large.build.json"), blocks, order=order)
+    assert result.stop == "done"
+    assert result.missing == 0 and result.placed == result.cells
+
+
+@pytest.mark.parametrize("order", bp.ORDERS)
+def test_the_runner_sim_builds_the_large_house_through_the_real_runner(blocks, order):
+    result = sim.simulate_runner(
+        _template("house-large.build.json"), blocks, order=order
+    )
+    assert result.stop == "done"
+    assert result.missing == 0 and result.placed == result.cells
+    assert len(result.stances) == result.walks + 1

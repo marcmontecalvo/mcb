@@ -65,6 +65,7 @@ class RunSettings:
     stage: bool = False
     start_from: str | None = None  # a stage of the library (build_checkpoint.STAGES)
     until: str | None = None  # end the build at a milestone (build_runner.UNTIL)
+    order: str = "zones"  # the build order (build_plan.ORDERS)
     scaffolding: int | None = None
     iron: bool = False
     raw_iron: int | None = None
@@ -134,6 +135,7 @@ _ENUMS = {
     "coal": ["item", "block", "ore"],
     "start_from": ["site_ready", "structure_done"],
     "until": ["site", "structure"],
+    "order": ["zones", "storeys"],
     "tool_choice": ["lowest_sufficient", "best"],
     "ore_collect": ["greedy", "specific"],
     "preset": ["legacy", "visible", "chunk", "sections"],
@@ -380,6 +382,7 @@ def resolve_config(
         "stage",
         "start_from",
         "until",
+        "order",
         "scaffolding",
         "origin",
         "show_markers",
@@ -906,6 +909,7 @@ def config_schema() -> dict:
         "stage",
         "start_from",
         "until",
+        "order",
         "scaffolding",
         "origin",
     ):

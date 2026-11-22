@@ -556,6 +556,7 @@ def build_job(
     until: str | None = None,
     on_milestone: Callable[[str], None] | None = None,
     scaffolds: set | None = None,
+    order: str = bp.ORDERS[0],
 ) -> JobReport:
     """``chests``: positions of chests known at the start. They are read first; shulker
     boxes are taken at once (they carry the gather's overflow), scaffolding stays put
@@ -566,7 +567,8 @@ def build_job(
     1; None skips site preparation). ``until`` / ``on_milestone``: as ``run_build``; a
     build ended at its ``until`` milestone stops ``until_site`` / ``until_structure``.
     ``scaffolds``: the build's own standing scaffolding (a run from a stage), kept
-    live by the build: a stage taken mid-run reads it.
+    live by the build: a stage taken mid-run reads it. ``order``: the build order
+    (``build_plan.ORDERS``), as ``run_build``.
     """
     publish_stage = on_stage or (
         lambda *a, **k: None
@@ -846,6 +848,7 @@ def build_job(
                 on_site_ready=site_ready,
                 on_milestone=on_milestone,
                 until=until,
+                order=order,
                 scaffolds=set() if scaffolds is None else scaffolds,
                 survey=survey,
                 on_progress=on_progress,
