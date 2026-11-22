@@ -53,6 +53,8 @@ final class RouteMotor {
         default boolean climbable(Point point) { return false; }
         /** The body cell is scaffolding (it senses as a plate and posts, but a body inside it is not blocked). */
         default boolean scaffolding(Point point) { return false; }
+        /** The stance stands on a scaffolding top: only a body already above it rests there, so getting up is a jump. */
+        default boolean scaffoldTop(Point point) { return false; }
         default boolean swimSafe(Pose pose, Point target, double originY, double distance, boolean jumping) { return false; }
         /** Known water or air from the head cell up to the target's cell: the body can rise to the stance here. */
         default boolean openAbove(Pose pose, Point target) { return true; }
@@ -325,9 +327,14 @@ final class RouteMotor {
         double jumpRange = sprintAscent && Math.hypot(pose.vx, pose.vz) > .12 ? 1.7 : 1.2;
         // In shallow water jump must stay held after buoyancy lifts the feet off
         // the bottom. A grounded-only pulse leaves the body bobbing at the bank.
+        // A scaffolding top holds only a body already above it, so any rise onto one is a jump: a walk
+        // goes into the cell under the plate (storey run 20261122T021157007245Z, slab 69.5 to plate 70).
+        // Inside scaffolding a held jump climbs, grounded or not.
+        boolean ontoPlate = geometry.scaffoldTop(target) && target.y > pose.y + .05 && (pose.grounded
+                || geometry.scaffolding(new Point(Math.floor(pose.x), Math.floor(pose.y), Math.floor(pose.z))));
         boolean jumping = distance <= jumpRange && (pose.inWater
                 ? target.y > pose.y + .2
-                : pose.grounded && target.y > pose.y + .6);
+                : ontoPlate || (pose.grounded && target.y > pose.y + .6));
         // Brake only for the route's end or a landing the route turns at; elsewhere arrival
         // (column entry) retargets, as Baritone's PathExecutor does.
         boolean brake = targetIndex == route.size() - 1 || (target.y < source.y && !throughPoint);

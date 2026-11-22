@@ -58,18 +58,28 @@ final class RouteGeometry implements RouteMotor.Geometry {
     }
 
     private double support(double worldX, double worldZ, double low, double high) {
+        return support(worldX, worldZ, low, high, Double.POSITIVE_INFINITY);
+    }
+
+    /**
+     * The highest floor under (worldX, worldZ) topped within [low, high]. A scaffolding top carries only a
+     * body whose feet are already at or above it (vanilla ScaffoldingBlock.getCollisionShape: isAbove);
+     * beside or inside the cell it has no collision, so a body there stands on what is under it.
+     */
+    private double support(double worldX, double worldZ, double low, double high, double feet) {
         int x = (int)Math.floor(worldX), z = (int)Math.floor(worldZ);
         double found = Double.NaN;
         for (int y = (int)Math.floor(low) - 1; y <= Math.floor(high); y++) {
             var cell = cell(x, y, z);
             if (!admitted(cell)) continue;
             // Scaffolding senses with no collision, but a body above it (not sneaking) stands on its top.
-            var floor = boxes(cell).isEmpty() && "minecraft:scaffolding".equals(cell.get("block"))
-                    ? List.of(List.<Object>of(0, 0, 0, 1, 1, 1)) : boxes(cell);
+            boolean scaffold = scaffolding(cell);
+            var floor = boxes(cell).isEmpty() && scaffold ? List.of(List.<Object>of(0, 0, 0, 1, 1, 1)) : boxes(cell);
             for (var entry : floor) {
                 var box = (List<?>) entry;
                 double height = y + coordinate(box, 4);
                 if (height < low - 1e-6 || height > high + 1e-6) continue;
+                if (scaffold && height > feet + 1e-5) continue;
                 if (worldX < x + coordinate(box, 0) - 1e-6 || worldX > x + coordinate(box, 3) + 1e-6
                         || worldZ < z + coordinate(box, 2) - 1e-6 || worldZ > z + coordinate(box, 5) + 1e-6) continue;
                 if (Double.isNaN(found) || height > found) found = height;
@@ -185,6 +195,10 @@ final class RouteGeometry implements RouteMotor.Geometry {
 
     private static boolean scaffolding(Map<String, Object> cell) { return cell != null && "minecraft:scaffolding".equals(cell.get("block")); }
     @Override public boolean scaffolding(RouteMotor.Point p) { return scaffolding(cell((int) p.x(), (int) p.y(), (int) p.z())); }
+    @Override public boolean scaffoldTop(RouteMotor.Point p) {
+        return p.y() == Math.floor(p.y())
+                && scaffolding(cell((int) Math.floor(p.x()), (int) p.y() - 1, (int) Math.floor(p.z())));
+    }
 
     /** Body cell is a known ladder/vine and the cell above is known and not a hazard. */
     @Override public boolean climbable(RouteMotor.Point p) {
@@ -308,8 +322,10 @@ final class RouteGeometry implements RouteMotor.Geometry {
             double topSupport = Double.NEGATIVE_INFINITY;
             int supported = 0;
             for (double ox : new double[]{-.299999, .299999}) for (double oz : new double[]{-.299999, .299999}) {
+                // A jump lifts the feet over a scaffolding top; a walk stays under one above the feet.
                 double h = support(x + ox, z + oz,
-                        originY - maxDrop, Math.max(target.y(), originY + .6));
+                        originY - maxDrop, Math.max(target.y(), originY + .6),
+                        jumping ? Double.POSITIVE_INFINITY : pose.y());
                 if (!Double.isFinite(h)) {
                     if (cut && hazardBelow(x + ox, z + oz, originY, maxDrop)) return false;
                     continue;
