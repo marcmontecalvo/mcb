@@ -549,10 +549,13 @@ class _Runner:
         start = time.monotonic()
         if self.body.goto_stance(pos, REACH, avoid):
             return True
-        if getattr(self.body, "boxed_in", False):
-            # Nothing leaves the spot the body is on (a ledge the house closed
-            # around): get down first, then climb back by stairs or a tower like
-            # any other climb. Only here is a drop that hurts taken.
+        if getattr(self.body, "boxed_in", False) or getattr(
+            self.body, "on_ledge", False
+        ):
+            # Nothing leaves the spot, or the few spots, the body is on (a ledge the
+            # house closed around; run 20261122T024835715542Z: a west eave of 9
+            # nodes): get down first, then climb back by stairs or a tower like any
+            # other climb. Only here is a drop that hurts taken.
             if not self._get_down():
                 return False
             if self.body.goto_stance(pos, REACH, avoid):

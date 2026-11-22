@@ -1420,6 +1420,34 @@ def test_a_body_boxed_in_on_a_ledge_gets_down_then_builds_on():
     assert downs == [1]
 
 
+def test_a_body_on_a_ledge_the_roof_closed_around_gets_down_then_builds_on():
+    # Run 20261122T024835715542Z: on the west eave 8 above the ground, the roof band
+    # placed round it; every plan was unreachable after 9 nodes (more than a boxed-in
+    # spot's 5), so the body never got down and the watchdog ended the build.
+    w = flat_world()
+    t = bp.Template.from_build(
+        make_build({(0, 0, 0): "minecraft:oak_planks"}, (1, 1, 1)), (3, 0, 3)
+    )
+    inv = {item: 100 for item in {i["item"] for i in BLOCKS.values()}}
+    body = FakeBody(w, inv, BLOCKS)
+    body.boxed_in, body.on_ledge = False, True
+    reach, downs = body.goto_stance, []
+
+    def goto_stance(pos, reach_, avoid=()):
+        return not body.on_ledge and reach(pos, reach_, avoid)
+
+    def get_down():
+        downs.append(1)
+        body.on_ledge = False
+        return True
+
+    body.goto_stance = goto_stance
+    body.get_down = get_down
+    report = br.run_build(t, body, BLOCKS)
+    assert report.stop == "done" and (3, 0, 3) in report.placed
+    assert downs == [1]
+
+
 def test_a_drop_is_never_the_easy_way_while_the_body_can_move():
     body, t = tall_column_body()
     _no_scaffold_items(body)
