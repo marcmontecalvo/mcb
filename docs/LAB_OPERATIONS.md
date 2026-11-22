@@ -30,7 +30,18 @@ A whole supplied house-large build takes 40–50 minutes. Its three parts can be
 | Structure only, from a cleared site | `--from site_ready --until structure` |
 | The rest of the build, from a cleared site | `--from site_ready` |
 | Details only, from a finished structure | `--from structure_done` |
+| One storey band of a storeys build | `--from band_1 --until band_2 --order storeys` |
 | Show a saved stage, no build | `--from <stage> --stage` |
+
+A storeys build (`--order storeys`) also saves `band_N` once the structure of storey
+bands 0..N (`build_plan.storey_bands`: each floor is a band, the walls between floors go
+up in bands of three layers) is in. Details and doors don't count towards a band. The
+stages rank `site_ready` < `band_0` < `band_1` < … < `structure_done`, and a lab must end
+after the stage it starts from. A `band_N` milestone needs `--order storeys`, but a zones
+build may start from a band stage. house-large's bands, with their structure cells:
+the ground floor `band_0` (173), walls y+1..3 `band_1` (195), the upper floor `band_2`
+(178), walls y+5..7 `band_3` (206), y+8..10 `band_4` (279), y+11..13 `band_5` (88). Its
+top layer, `band_6`, holds details only.
 
 Every build run saves a stage snapshot when it reaches `site_ready` (site cleared and
 level, no house block yet) or `structure_done` (only details and doors left). The snapshot

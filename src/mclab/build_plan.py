@@ -1043,6 +1043,16 @@ def _is_door(state: str) -> bool:
     return parse_state(state)[0].endswith("_door")
 
 
+def is_structure(state: str) -> bool:
+    """A block of the house's structure: not air, not a detail, not a door. What
+    ``structure_done`` and the storey bands wait on."""
+    return (
+        parse_state(state)[0] not in AIR
+        and not is_detail(state)
+        and not _is_door(state)
+    )
+
+
 def inside_corner(template: Template, pos: Pos) -> bool:
     """Two template blocks beside ``pos`` at right angles. Placed after them it is a
     pocket whose faces show only from inside it (run 20261102T223417173633Z), so it

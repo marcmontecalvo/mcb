@@ -568,6 +568,71 @@ def test_refill_skips_gather_when_chests_cover_wanted_and_only_gathers_missing(
     assert body1.inv.get(COBBLE, 0) >= 3
 
 
+def _captured_refill(tmp_path, monkeypatch, body, state, cells):
+    from mclab import companion_jobs
+
+    path = tmp_path / "phases.build.json"
+    path.write_text(json.dumps(make_build(cells, (2, 2, 1))), encoding="utf-8")
+    captured = {}
+
+    def fake_run_build(template, b, blocks, *, on_need_materials, **kw):
+        captured["refill"] = on_need_materials
+        return companion_jobs.BuildReport(stop="done")
+
+    monkeypatch.setattr(companion_jobs, "run_build", fake_run_build)
+    build_job(path, (4, 0, 4), 0, body, K, state=state, build_only=True)
+    return captured["refill"]
+
+
+def test_a_refill_while_the_structure_is_unfinished_carries_no_decor(
+    tmp_path, monkeypatch
+):
+    # One trip to the chests for the structure and one for the decor. Run
+    # 20261121T180806599463Z went five times: short of cobblestone mid-structure, a
+    # refill took barrels, smokers and bookshelves, which then rode along to the roof.
+    from mclab import gather_plan as gp
+
+    lantern, chest = M + "lantern", (2, 0, 2)
+    cells = {(0, 0, 0): PLANKS, (1, 0, 0): COBBLE, (0, 1, 0): lantern}
+    cells[(1, 1, 0)] = lantern
+    w = world()
+    w[chest] = M + "chest"
+    body = FakeGatherBody(K, w, {})
+    stock = {PLANKS: 5, lantern: 4}
+    body.boxes[chest] = dict(stock)
+    state = GatherState(containers={chest: dict(stock)})
+    refill = _captured_refill(tmp_path, monkeypatch, body, state, cells)
+    targets = []
+    real_plan = gp.plan
+    monkeypatch.setattr(
+        gp, "plan", lambda t, *a, **k: targets.append(dict(t)) or real_plan(t, *a, **k)
+    )
+
+    assert refill({PLANKS: 1, COBBLE: 1, lantern: 1}) is True
+    assert body.inv.get(PLANKS, 0) >= 1 and body.inv.get(lantern, 0) == 0
+    assert body.boxes[chest][lantern] == 4
+    assert all(lantern not in t for t in targets)  # no lantern hunt either
+
+    # The structure is in: the decor trip.
+    body.w |= {(4, 0, 4): PLANKS, (5, 0, 4): COBBLE}
+    assert refill({lantern: 1}) is True
+    assert body.inv.get(lantern, 0) == 2  # all the decor left: no second trip
+
+
+def test_a_decor_only_request_mid_structure_is_still_served(tmp_path, monkeypatch):
+    # A detail the build places now (a door, a torch on a finished wall) is fetched.
+    lantern, chest = M + "lantern", (2, 0, 2)
+    cells = {(0, 0, 0): PLANKS, (0, 1, 0): lantern}
+    w = world()
+    w[chest] = M + "chest"
+    body = FakeGatherBody(K, w, {})
+    body.boxes[chest] = {lantern: 4}
+    state = GatherState(containers={chest: {lantern: 4}})
+    refill = _captured_refill(tmp_path, monkeypatch, body, state, cells)
+
+    assert refill({lantern: 1}) is True and body.inv.get(lantern, 0) >= 1
+
+
 def test_phase_clock_tracks_phases_and_stages():
     from mclab.companion_jobs import PhaseClock
 

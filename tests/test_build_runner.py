@@ -2752,6 +2752,71 @@ def test_cleanup_sweeps_nearest_first_while_keeping_columns_top_down():
     assert runner.report.broken[2:] == [(12, y, 12) for y in range(4, -1, -1)]
 
 
+def test_a_band_stage_lists_the_footholds_placed_finishing_that_band():
+    # Run 20261122T063256626024Z started from band_5 and stopped site_not_ready: the
+    # last walk of the band had put a scaffolding foothold on the ridge, the stage was
+    # saved before the loop adopted it, and the resumed site prep took it for a
+    # stranger's block it could not reach.
+    cells = {(x, 0, z): PLANKS for x in range(3) for z in range(3)}
+    cells |= {(x, 1, 0): PLANKS for x in range(3)}
+    t = bp.Template.from_build(make_build(cells, (3, 2, 3)), (0, 0, 0))
+    w = flat_world(hi=8)
+    body = FakeBody(w, {PLANKS: 20}, BLOCKS, pos=(1, 0, 4))
+    body.stray_footholds = set()
+    foothold = (4, 0, 1)
+    place = body.place_block
+    floor = {p for p in cells if p[1] == 0}
+
+    def placing(pos, state, item):
+        out = place(pos, state, item)
+        if floor <= {p for p in floor if w.get(p) == PLANKS}:
+            w[foothold] = sc.BLOCK  # a walk placed it while the band was finished
+            body.stray_footholds.add(foothold)
+        return out
+
+    body.place_block = placing
+    scaffolds: set = set()
+    held = {}
+    br.run_build(
+        t,
+        body,
+        BLOCKS,
+        order="storeys",
+        scaffolds=scaffolds,
+        on_milestone=lambda name: held.setdefault(name, set(scaffolds)),
+    )
+    assert foothold in held["band_0"]
+
+
+def test_cleanup_puts_dug_ground_back_in_its_nearest_first_turn():
+    # Run 20261122T054201856122Z ended the structure on the roof ridge. Cleanup first
+    # walked to the ground to put back a dug cell at the far corner, then, nearest
+    # first from there, left the ridge scaffolding for last: three trips back up,
+    # each placing a new foothold to reach the last one (cleanup 5:19, zones 2:27).
+    w = flat_world(hi=16)
+    for y in (0, 1):
+        w[(1, y, 1)] = "minecraft:dirt"  # near the body
+    dug = (12, -1, 12)  # far: ground a route dug out
+    w[dug] = AIR
+    t = bp.Template.from_build(make_build({(0, 0, 0): PLANKS}, (14, 6, 14)), (0, 0, 0))
+    w[(0, 0, 0)] = PLANKS
+    body = FakeBody(w, {"minecraft:dirt": 1}, BLOCKS, pos=(1, 0, 2))
+    body.stray_breaks = {dug: "minecraft:dirt"}
+    runner = br._Runner(body, br.BuildReport(), 100, BLOCKS)
+    runner.template = t
+    scaffolds = {(1, 0, 1), (1, 1, 1)}
+    runner.scaffolds = scaffolds
+    done = []
+    attempt = runner.attempt
+    runner.attempt = lambda act: (done.append(act.pos), attempt(act))[1]
+
+    br._clean_up(runner, t, scaffolds)
+
+    assert done.index((1, 0, 1)) < done.index(dug)
+    assert w[dug] == "minecraft:dirt" and dug in runner.report.restored
+    assert not body.stray_breaks
+
+
 def test_cleanup_takes_a_walking_foothold_back_after_the_work_above_it():
     # Run 20261121T154048852669Z: the planner put a dirt step in the stairwell to
     # climb to the upper floor. Cleanup, nearest first, broke the step while

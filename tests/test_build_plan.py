@@ -1322,3 +1322,16 @@ def test_an_unknown_order_is_refused():
     t, w = _floor_and_near_walls()
     with pytest.raises(ValueError):
         bp.next_actions(t, at(w), BLOCKS, {PLANKS: 5}, order="spiral")
+
+
+def test_is_structure_leaves_out_air_details_and_doors():
+    assert bp.is_structure("minecraft:oak_planks")
+    assert bp.is_structure("minecraft:oak_stairs[facing=east,half=top]")
+    for state in (
+        "minecraft:air",
+        "minecraft:lantern[hanging=true]",
+        "minecraft:glass_pane",
+        "minecraft:oak_door[half=lower]",
+        "minecraft:barrel",
+    ):
+        assert not bp.is_structure(state), state

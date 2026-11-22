@@ -78,7 +78,7 @@ class _BandStages:
         bands = bp.storey_bands(template)
         cells: dict[int, list] = {}
         for p, s in template.cells.items():
-            if bp.parse_state(s)[0] in bp.AIR or bp.is_detail(s) or bp._is_door(s):
+            if not bp.is_structure(s):
                 continue
             cells.setdefault(bands[p[1]], []).append((p, s))
         top = max(bands.values(), default=-1)
@@ -1689,18 +1689,27 @@ def _drop_items(block: str) -> tuple[str, ...]:
     )
 
 
-def _restore_breaks(runner: _Runner, template: bp.Template) -> None:
-    """Put back the non-template blocks the planner broke to walk,
+def _restore(runner: _Runner, act: bp.Place) -> None:
+    report = runner.report
+    runner.attempt(act)
+    if act.pos in report.placed:
+        report.restored.append(act.pos)
+    else:
+        report.unrestored[act.pos] = "place failed"
+
+
+def _restores(runner: _Runner, template: bp.Template) -> list[bp.Place]:
+    """The places that put back the non-template blocks the planner broke to walk,
     with the drop the body picked up; a cell whose item is not held is reported in
-    ``unrestored``. Done before the footholds come down so the body keeps its way
-    out."""
+    ``unrestored``. Takes the breaks (``stray_breaks``) so none is restored twice."""
     body, report = runner.body, runner.report
     lost = getattr(body, "stray_breaks", None)
     if not lost:
-        return
+        return []
     pending = dict(lost)
     lost.clear()
     held = dict(body.inventory())
+    out = []
     for pos, state in sorted(pending.items(), key=lambda kv: (kv[0][1], kv[0])):
         if pos in template.cells:
             continue  # the build owns it
@@ -1717,11 +1726,8 @@ def _restore_breaks(runner: _Runner, template: bp.Template) -> None:
         held[item] -= 1
         if item != ident:
             state = item  # the stand-in is placed as itself
-        runner.attempt(bp.Place(pos, state, item))
-        if pos in report.placed:
-            report.restored.append(pos)
-        else:
-            report.unrestored[pos] = "place failed"
+        out.append(bp.Place(pos, state, item))
+    return out
 
 
 def _adopt_footholds(body, template: bp.Template, scaffolds: set) -> None:
@@ -1737,7 +1743,10 @@ def _adopt_footholds(body, template: bp.Template, scaffolds: set) -> None:
 
 
 def _sweep_cleanup(
-    runner: _Runner, acts: list, steps: Collection[Pos] = frozenset()
+    runner: _Runner,
+    acts: list,
+    steps: Collection[Pos] = frozenset(),
+    restores: Collection[bp.Place] = (),
 ) -> None:
     """Break cleanup targets nearest-first (walking distance when available),
     always taking the highest remaining block of any solid column first so the
@@ -1747,18 +1756,25 @@ def _sweep_cleanup(
     ``steps`` (blocks the planner placed to walk) come down only once nothing above
     them is left, the way a person takes the step away on the way down: run
     20261121T154048852669Z broke a stairwell step with footholds upstairs still to
-    clear, walked up through the gap placing it again, twice, and left the last."""
+    clear, walked up through the gap placing it again, twice, and left the last.
+
+    ``restores`` (ground the planner dug out, ``_restores``) are put back in their
+    nearest-first turn too: run 20261122T054201856122Z ended the structure on the
+    roof ridge, restored a far ground cell first and, nearest first from there, left
+    the ridge for last (three climbs back, cleanup 5:19 against 2:27 for zones)."""
     pool = list(acts)
+    fills = list(restores)
     walk_dist = getattr(runner.body, "walk_distance", None)
-    while pool and runner.report.steps < runner.max_steps:
+    while (pool or fills) and runner.report.steps < runner.max_steps:
         here = runner.body.position()
         by_col: dict[tuple[int, int], int] = {}
         for a in pool:
             col = a.pos[::2]
             by_col[col] = max(by_col.get(col, a.pos[1]), a.pos[1])
         ready = [a for a in pool if a.pos[1] == by_col[a.pos[::2]]]
-        top = max(a.pos[1] for a in pool)
-        ready = [a for a in ready if a.pos not in steps or a.pos[1] == top] or ready
+        if pool:
+            top = max(a.pos[1] for a in pool)
+            ready = [a for a in ready if a.pos not in steps or a.pos[1] == top] or ready
 
         def key(a, here=here):
             d2 = _dist2(a.pos, here)
@@ -1766,7 +1782,13 @@ def _sweep_cleanup(
             dist = wd if wd is not None else (1000 + d2 if walk_dist else d2)
             return (dist, d2, -a.pos[1], a.pos)
 
-        act = min(ready, key=key)
+        act = min(ready + fills, key=key)
+        if isinstance(act, bp.Place):
+            fills.remove(act)
+            current = runner.body.world(*act.pos)
+            if current is None or bp.parse_state(current)[0] in bp.AIR:
+                _restore(runner, act)
+            continue
         pool.remove(act)
         if not _standing(runner.body, act.pos):
             continue
@@ -1810,7 +1832,6 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
     every round so none survive into the final diff (run 20261120T175636584118Z left
     three cleanup-placed footholds inside the house). True if anything was broken."""
     body, broken = runner.body, False
-    _restore_breaks(runner, template)
     collect = getattr(body, "collect_drops", None)  # optional, like walk_to
     settle = getattr(body, "wait_ticks", None)  # optional
     steps: set[Pos] = set()  # placed by the planner to walk: taken back last
@@ -1827,7 +1848,9 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
             for a in bp.cleanup_actions(template, body.world, scaffolds)
             if a.pos not in runner.report.skipped
         ]
-        if not acts:
+        # ground dug out by the build's walks, and by this cleanup's own
+        restores = _restores(runner, template)
+        if not acts and not restores:
             break
         standing_before = [c for c in scaffolds if _standing(body, c)]
         scaff_roots = {a.pos for a in acts if bp._scaffolding(body.world(*a.pos))}
@@ -1843,8 +1866,8 @@ def _clean_up(runner: _Runner, template: bp.Template, scaffolds: set) -> bool:
                 prev_towering = runner._towering
                 runner._towering = True
                 stack.callback(setattr, runner, "_towering", prev_towering)
-            _sweep_cleanup(runner, acts, steps)
-        broken = True
+            _sweep_cleanup(runner, acts, steps, restores)
+        broken = broken or bool(acts)
         if has_collapse and settle:
             settle(COLLAPSE_TICKS)
         if collect:
@@ -2140,6 +2163,9 @@ def _run(
         if report.steps >= max_steps:
             report.stop = "max_steps"
             break
+        skipped = report.skipped
+        # adopted first: a stage lists the footholds placed finishing its band
+        _adopt_footholds(body, template, scaffolds)
         if band_stages is not None:
             stage_at = None
             for band in band_stages.finished(body.world):
@@ -2150,8 +2176,6 @@ def _run(
             if stage_at:
                 report.stop = f"until_{stage_at}"
                 break
-        skipped = report.skipped
-        _adopt_footholds(body, template, scaffolds)
         _tend_hunger(body, on_need_materials, hunger)
         _keep_footholds(runner, on_need_materials, log, stock)
         # the zone of the last block placed is finished before the next one is begun
