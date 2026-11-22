@@ -199,17 +199,23 @@ def _argv_identity(argv) -> dict:
     seed = after("--seed")
     build = after("--build")
     resume = after("--resume")
+    start_from = after("--from")
+    until = after("--until")
     return {
         "build": build[0].replace("\\", "/") if build else DEFAULT_BUILD,
         "start": [int(v) for v in start] if start else None,
         "seed": int(seed[0]) if seed else None,
         "resume": resume[0] if resume else None,
+        "start_from": start_from[0] if start_from else None,
+        "until": until[0] if until else None,
         "mode": "supply"
         if "--supply" in argv
         else "empty"
         if "--empty" in argv
         else "resume"
         if resume
+        else "from"
+        if start_from
         else "kit",
     }
 
@@ -233,12 +239,16 @@ def identity(run: Path) -> dict:
             "seed": config.get("seed"),
             "mode": "resume"
             if config.get("resume")
+            else "from"
+            if config.get("start_from")
             else "supply"
             if config.get("supply")
             else "empty"
             if config.get("empty")
             else "kit",
             "resume": config.get("resume"),
+            "start_from": config.get("start_from"),
+            "until": config.get("until"),
             "source": "run_config",
         }
     job = job_name(run)
@@ -263,10 +273,12 @@ def identity(run: Path) -> dict:
     return {"job": job, "start": None, "source": None}
 
 
-def build_key(ident: dict) -> str | None:
+def build_key(ident: dict, segment: bool = True) -> str | None:
     """What makes two runs attempts at "the same build": the job, the build file
-    (or the gather target), the start cell and the world seed. None when the run
-    does not say (prune then leaves it alone)."""
+    (or the gather target), the start cell and the world seed, then the segment of a
+    stage lab (``+from=site_ready+until=structure``: not comparable with a whole
+    build). ``segment=False``: the whole build's key, as the stage library files
+    it. None when the run does not say (prune then leaves it alone)."""
     job, start = ident.get("job"), ident.get("start")
     if not job or not isinstance(start, list) or len(start) != 3:
         return None
@@ -276,7 +288,13 @@ def build_key(ident: dict) -> str | None:
         what = Path(str(ident.get("build") or "?")).name.removesuffix(".build.json")
     seed = ident.get("seed")
     key = f"{job}:{what}@{start[0]},{start[1]},{start[2]}"
-    return key if seed is None else f"{key}#{seed}"
+    if seed is not None:
+        key += f"#{seed}"
+    if segment:
+        for name, label in (("start_from", "from"), ("until", "until")):
+            if ident.get(name):
+                key += f"+{label}={ident[name]}"
+    return key
 
 
 # ---- what happened ---------------------------------------------------------

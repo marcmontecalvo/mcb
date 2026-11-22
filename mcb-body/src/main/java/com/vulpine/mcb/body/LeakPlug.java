@@ -12,7 +12,6 @@ import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.FallingBlock;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,7 +28,9 @@ final class LeakPlug {
     /** Ticks a finished break_block waits for a fluid beside the cell to arrive before it reports done. */
     static final int SETTLE = 8;
 
+    /** Cobblestone first: a plug is under the surface, where stone belongs (dirt is the surface layer). */
     private static final List<String> PREFERRED = List.of("minecraft:cobblestone", "minecraft:dirt");
+    private static final int MAX_KEEP_KINDS = 512;
     /** Never spent on a plug: gravity blocks fall out of the hole, and these are worth keeping. */
     private static final List<String> VALUABLE = List.of("_ore", "diamond_block", "iron_block", "gold_block",
             "emerald_block", "netherite_block", "lapis_block", "redstone_block", "coal_block", "copper_block",
@@ -38,14 +39,35 @@ final class LeakPlug {
 
     private LeakPlug() {}
 
-    /** The item to plug with: cobblestone, then dirt, then any other held block that {@code solid} accepts. */
-    static String choose(List<String> held, Predicate<String> solid) {
-        for (String id : PREFERRED) if (held.contains(id)) return id;
-        for (String id : held) {
+    /**
+     * The item to plug with: cobblestone, then dirt, then any other held block that {@code solid} accepts, each
+     * only when more is held than {@code keep} (what the build still has to place) holds back. Run
+     * 20261121T180806599463Z plugged site-prep water with 21 of the house's 54 cobblestone and ran short.
+     */
+    static String choose(Map<String, Integer> held, Map<String, Integer> keep, Predicate<String> solid) {
+        Predicate<String> spare = id -> held.getOrDefault(id, 0) > keep.getOrDefault(id, 0);
+        for (String id : PREFERRED) if (spare.test(id)) return id;
+        for (String id : held.keySet()) {
             if (GRAVITY.contains(id) || VALUABLE.stream().anyMatch(id::contains)) continue;
-            if (solid.test(id)) return id;
+            if (spare.test(id) && solid.test(id)) return id;
         }
         return null;
+    }
+
+    /** A {@code plug_keep} request's {@code items}: block id -> count the plug must not spend. */
+    static Map<String, Integer> keep(JsonObject request) {
+        if (!request.has("items") || !request.get("items").isJsonObject())
+            throw new IllegalArgumentException("plug_keep_items");
+        var items = request.getAsJsonObject("items");
+        if (items.size() > MAX_KEEP_KINDS) throw new IllegalArgumentException("plug_keep_items");
+        var out = new LinkedHashMap<String, Integer>();
+        for (var e : items.entrySet()) {
+            int n = BodyRuntime.exactInt(e.getValue(), "plug_keep_items");
+            if (!e.getKey().startsWith("minecraft:") || n < 0 || n > 1_000_000)
+                throw new IllegalArgumentException("plug_keep_items");
+            out.put(e.getKey(), n);
+        }
+        return Map.copyOf(out);
     }
 
     /** A full solid block that is neither a gravity block nor a block entity (chest, furnace, ...). */
@@ -71,20 +93,20 @@ final class LeakPlug {
     }
 
     /** Places the best held block into pos; the event data, ok=false with a reason when it cannot. */
-    static Map<String, Object> plug(ServerPlayer player, BlockPos pos) {
+    static Map<String, Object> plug(ServerPlayer player, BlockPos pos, Map<String, Integer> keep) {
         var data = new LinkedHashMap<String, Object>();
         data.put("pos", List.of(pos.getX(), pos.getY(), pos.getZ()));
         data.put("fluid", fluidName(player, pos));
-        var held = new ArrayList<String>();
+        var held = new LinkedHashMap<String, Integer>();
         var inventory = player.getInventory();
         for (int i = 0; i < 36; i++) {
             var stack = inventory.getItem(i);
             if (!stack.isEmpty() && stack.getItem() instanceof BlockItem)
-                held.add(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString());
+                held.merge(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(), stack.getCount(), Integer::sum);
         }
-        String item = choose(held, LeakPlug::solidBlock);
-        data.put("item", item);
+        String item = choose(held, keep, LeakPlug::solidBlock);
         if (item == null) { data.put("ok", false); data.put("reason", "no_block"); return data; }
+        data.put("item", item);
         var request = new JsonObject();
         var at = new JsonArray();
         at.add(pos.getX()); at.add(pos.getY()); at.add(pos.getZ());

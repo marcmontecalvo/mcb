@@ -23,6 +23,7 @@ Pass: build stop == done, no unknown cells, and the diff against the delivered m
 """
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -33,6 +34,7 @@ from live_common import digest_on_exit, finish, kit, record_crash, results_folde
 
 from mclab import build_checkpoint as ck
 from mclab import build_plan as bp
+from mclab import run_digest
 from mclab.build_debug import place_preview, preview_cells, write_walkthrough
 from mclab.companion_body import (
     companion_world,
@@ -44,6 +46,7 @@ from mclab.companion_jobs import build_job, load_vanilla_pack, materials_of
 from mclab.companion_progress import write_progress
 from mclab.gather_options import GatherOptions
 from mclab.gather_plan import Gather, Hunt, Shear, plan
+from mclab.gather_runner import GatherState, hydrate_containers
 from mclab.gather_tasks import item_stack
 from mclab.markers import run_switch
 from mclab.paths import ROOT
@@ -66,13 +69,16 @@ COAL_FORMS = {
 }
 # containers west and north of the start (the house stands east and south of it);
 # a container's slots are what limits it, and the server splits any stack it writes
-# at the item's own limit, so a cap counts slots: bin 0 gives three to BIN_TOOLS
-# (a scaffolding stack and two single-stack shulker boxes)
-CAPS = [24, 27, 27, 27, 27, 27, 27, 27]
+# at the item's own limit, so a cap counts slots: bin 0 gives four to BIN_TOOLS
+# (two scaffolding stacks, the body carries both, and two single-stack shulker boxes)
 BIN_TOOLS = [
     {"item": "minecraft:scaffolding", "count": 64},
+    {"item": "minecraft:scaffolding", "count": 64},
     {"item": "minecraft:shulker_box", "count": 2},
-]  # the first bin's three spare slots: what the build works with, not its materials
+]  # what the build works with, not its materials
+TOOL_SLOTS = 4  # BIN_TOOLS as slots: a shulker box stacks to 1
+CHEST_SLOTS = 27
+CAPS = [CHEST_SLOTS - TOOL_SLOTS] + [CHEST_SLOTS] * 7
 OFFSETS = [
     [-2, 0, 0],
     [-2, 0, -1],
@@ -158,6 +164,71 @@ def pack_into(items: dict[str, int], knowledge, caps: list[int]) -> list[list[di
     return [b for b in bins if b]
 
 
+STAGE_LIBRARY = ROOT / "results" / "stages"
+UNTIL_STAGE = {"site": "site_ready", "structure": "structure_done"}
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def stage_start(build: Path, start, seed, stage: str, library: Path = STAGE_LIBRARY):
+    """The library file and data of ``stage`` for this build, start and seed.
+    FileNotFoundError: none saved yet; ValueError: taken from another build file."""
+    key = run_digest.build_key(
+        {"job": "build", "build": str(build), "start": list(start), "seed": seed},
+        segment=False,
+    )
+    path = ck.find_stage(key, stage, library)
+    data = ck.load(path)
+    ck.check_build(data, _sha256(build))
+    return path, data
+
+
+def build_rows(report, d, *, ticks, until=None, saved=False) -> list[dict]:
+    """The build's summary rows. A stage lab (``until``) passes at its milestone with
+    its stage saved; the rest of the house is left unbuilt on purpose."""
+    reached = (
+        report.stop == "done"
+        if until is None
+        else (
+            report.stop == f"until_{until}"
+            or (until == "structure" and report.stop == "done")
+        )
+    )
+    rows = [
+        {
+            "case": "build stop",
+            "pass": reached,
+            "detail": f"{report.stop} steps={report.steps} counts={report.counts} ticks={ticks}",
+        },
+        {
+            "case": "no unknown cells",
+            "pass": not report.unknown,
+            "detail": f"{len(report.unknown)} unknown",
+        },
+    ]
+    if until is not None:
+        stage = UNTIL_STAGE[until]
+        rows.append(
+            {
+                "case": "stage saved",
+                "pass": saved,
+                "detail": f"checkpoints/{stage}.json" if saved else f"no {stage}",
+            }
+        )
+        return rows
+    clean = not (d.breaks or d.places or d.unknown or d.uses)
+    rows.append(
+        {
+            "case": "empty diff",
+            "pass": clean,
+            "detail": f"breaks={len(d.breaks)} places={len(d.places)} unknown={len(d.unknown)} uses={len(d.uses)}",
+        }
+    )
+    return rows
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", nargs=3, type=int)
@@ -166,6 +237,20 @@ def main() -> int:
         type=Path,
         help="a checkpoint (results/companion/<run>/checkpoints/NNN.json): set the world "
         "up as it was then and run only the build",
+    )
+    parser.add_argument(
+        "--from",
+        dest="start_from",
+        choices=ck.STAGES,
+        help="start from the stage library's snapshot of this build, start and seed "
+        "(results/stages/): site_ready (site cleared and level, chests as they were) "
+        "or structure_done (only the details left)",
+    )
+    parser.add_argument(
+        "--until",
+        choices=tuple(UNTIL_STAGE),
+        help="end the build at a milestone and save its stage: site (cleared and "
+        "level) or structure (only the details left)",
     )
     parser.add_argument("--build", type=Path, default=DEFAULT_BUILD)
     parser.add_argument("--dx", type=int, default=3)
@@ -214,8 +299,8 @@ def main() -> int:
     parser.add_argument(
         "--stage",
         action="store_true",
-        help="with --resume: set the world up, then wait (join at 127.0.0.1:25575) "
-        "until the run folder gets a file named STOP; no build",
+        help="with --resume or --from: set the world up, then wait (join at "
+        "127.0.0.1:25575) until the run folder gets a file named STOP; no build",
     )
     parser.add_argument(
         "--scaffolding",
@@ -350,8 +435,10 @@ def run(args, config, parser):
     if args.margin < 0:
         parser.error("--margin must be >= 0")
 
-    if args.stage and not args.resume:
-        parser.error("--stage requires --resume")
+    start_from = getattr(args, "start_from", None)
+    until = getattr(args, "until", None)
+    if args.stage and not (args.resume or start_from):
+        parser.error("--stage requires --resume or --from")
     if args.supply and (args.empty or args.resume):
         parser.error("--supply is an empty-hands mode: not with --empty or --resume")
     if args.coal != "item" and not args.supply:
@@ -359,6 +446,20 @@ def run(args, config, parser):
     if args.preview_offset and not args.preview:
         parser.error("--preview-offset requires --preview")
     resume = ck.load(args.resume) if args.resume else None
+    stage_file = staged = None
+    if start_from:
+        try:
+            stage_file, staged = stage_start(
+                args.build, args.start, args.seed, start_from
+            )
+        except (FileNotFoundError, ValueError) as error:
+            parser.error(str(error))
+        origin_asked = [args.start[0] + args.dx, args.start[1], args.start[2] + args.dz]
+        if (staged["origin"], staged["rotation"]) != (origin_asked, args.rotation):
+            parser.error(
+                f"the {start_from} stage was built at origin {staged['origin']} "
+                f"rotation {staged['rotation']}, not {origin_asked} {args.rotation}"
+            )
     if resume:
         args.start, args.seed, args.rotation = (
             resume["start"],
@@ -424,16 +525,28 @@ def run(args, config, parser):
             )
             body.places.remember("build_site", args.start)
             chests = []
-            if resume:
+            restored = resume or staged
+            if restored:
                 body.observe()
                 feet = body.position()
-                n = ck.restore(resume, feet, lambda **f: kit(bridge, **f))
+                began = time.monotonic()
+                n = ck.restore(
+                    restored,
+                    feet,
+                    lambda **f: kit(bridge, **f),
+                    stack=lambda item: item_stack(knowledge.items, item),
+                )
                 bridge.ticks(60)  # let the sensor deliver the restored cells
+                chests = ck.chests_of(restored)
+                source = args.resume.name if resume else f"{start_from} {stage_file}"
+                if staged:  # the library stage may be replaced later: keep this one
+                    ck.save(folder / "checkpoints" / f"from_{start_from}.json", staged)
                 rows.append(
                     {
-                        "case": "resumed",
+                        "case": "resumed" if resume else "restored",
                         "pass": True,
-                        "detail": f"{n} cells from {args.resume.name}",
+                        "detail": f"{n} cells, {len(chests)} chests from {source} "
+                        f"in {time.monotonic() - began:.1f}s",
                     }
                 )
             elif args.empty:
@@ -512,9 +625,25 @@ def run(args, config, parser):
                 while not (folder / "STOP").exists():
                     time.sleep(2)
                 rows.append(
-                    {"case": "staged", "pass": True, "detail": args.resume.name}
+                    {
+                        "case": "staged",
+                        "pass": True,
+                        "detail": args.resume.name if resume else start_from,
+                    }
                 )
                 return finish(folder, rows, "run-build")
+            key = run_digest.build_key(
+                {
+                    "job": "build",
+                    "build": str(args.build),
+                    "start": list(args.start),
+                    "seed": args.seed,
+                },
+                segment=False,
+            )
+            git = json.loads(
+                (folder / "provenance.json").read_text(encoding="utf-8")
+            ).get("git", {})
             checkpoint = ck.Recorder(
                 folder,
                 template,
@@ -523,11 +652,36 @@ def run(args, config, parser):
                     "seed": args.seed,
                     "start": list(args.start),
                     "build": args.build.resolve().relative_to(ROOT).as_posix(),
+                    "build_sha256": _sha256(args.build),
                     "origin": list(origin),
                     "rotation": args.rotation,
                 },
                 every=5,
+                area=ck.site_box(template, args.margin),
+                # a resumed checkpoint may not hold the site the way a stage does
+                library=None
+                if resume
+                else ck.stage_path(key, ck.STAGES[0], STAGE_LIBRARY).parent,
+                source={
+                    "run": folder.name,
+                    "commit": git.get("commit"),
+                    "dirty": git.get("dirty"),
+                },
             )
+            state = GatherState()
+            hydrate_containers(body, state)
+            # the stage's standing scaffolding is this run's own to climb and take back
+            scaffolds = ck.scaffolds_of(staged) if staged else set()
+            # A run from a stage does not save that stage or an earlier one again.
+            behind = ck.STAGES[: ck.STAGES.index(start_from) + 1] if start_from else ()
+
+            def milestone(name):
+                if name in behind:
+                    return
+                checkpoint.milestone(
+                    name, containers=state.containers, scaffolds=scaffolds
+                )
+                print(f"STAGE {name} saved", flush=True)
 
             current_stage = "starting"
 
@@ -574,11 +728,17 @@ def run(args, config, parser):
                 knowledge,
                 gather_options=GatherOptions(**config["run"]["gather"]),
                 clock=lambda: int(body.observe()["tick"]),
+                state=state,
                 chests=chests,
+                # a stage holds the chests: read and withdraw from them as a supply
+                # run does; a plain checkpoint holds the inventory only
                 build_only=bool(resume),
                 on_progress=recorder,
                 on_stage=stage,
                 site_margin=args.margin,
+                until=until,
+                on_milestone=milestone,
+                scaffolds=scaffolds,
             )
             audit_started = time.monotonic()
             report = job.build
@@ -596,6 +756,14 @@ def run(args, config, parser):
                 "diagnostic_preview": bool(args.preview),
                 "argv": sys.argv[1:],
                 "supplied": bool(args.supply),
+                "from_stage": None
+                if not staged
+                else {
+                    "stage": start_from,
+                    "library": str(stage_file),
+                    "source": staged.get("source"),
+                },
+                "until": until,
                 "coal_form": args.coal if args.supply else None,
                 "job_stop": job.stop,
                 "ticks": job.ticks,
@@ -639,24 +807,13 @@ def run(args, config, parser):
                         "uses": len(d.uses),
                     },
                 }
-                clean = not (d.breaks or d.places or d.unknown or d.uses)
-                rows += [
-                    {
-                        "case": "build stop",
-                        "pass": report.stop == "done",
-                        "detail": f"{report.stop} steps={report.steps} counts={report.counts} ticks={job.ticks}",
-                    },
-                    {
-                        "case": "no unknown cells",
-                        "pass": not report.unknown,
-                        "detail": f"{len(report.unknown)} unknown",
-                    },
-                    {
-                        "case": "empty diff",
-                        "pass": clean,
-                        "detail": f"breaks={len(d.breaks)} places={len(d.places)} unknown={len(d.unknown)} uses={len(d.uses)}",
-                    },
-                ]
+                saved = (
+                    bool(until)
+                    and (
+                        folder / "checkpoints" / f"{UNTIL_STAGE[until]}.json"
+                    ).is_file()
+                )
+                rows += build_rows(report, d, ticks=job.ticks, until=until, saved=saved)
             if args.scaffolding:
                 left = body.inventory().get("minecraft:scaffolding", 0)
                 rows.append(

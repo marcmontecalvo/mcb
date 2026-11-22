@@ -1,8 +1,10 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from test_build_plan import make_build
 
+from mclab import companion_jobs
 from mclab.companion_jobs import FOOD_KEEP, _food_topup, build_job
 from mclab.gather_fake import FakeGatherBody
 from mclab.gather_runner import GatherState
@@ -31,6 +33,36 @@ def world():
     w |= {(12, 0, i * 2): M + "oak_log" for i in range(10)}
     w |= {(i * 2, 0, 14): M + "stone" for i in range(10)}
     return w
+
+
+def test_a_half_built_house_needs_only_what_is_left_to_place(tmp_path):
+    # Live, a details lab started from a finished structure went strip-mining for
+    # 287 oak planks: the whole house's materials were compared with what it held.
+    w = world() | {(x, 0, z): PLANKS for x in range(4, 7) for z in range(4, 7)}
+    body = FakeGatherBody(K, w, {COBBLE: 3})
+
+    report = build_job(small_template(tmp_path), (4, 0, 4), 0, body, K)
+
+    assert report.needed == {COBBLE: 3}
+    assert report.gather is None and report.starter is None  # nothing gathered
+    assert report.stop == "built"
+
+
+def test_the_job_hands_its_scaffolds_set_to_the_build(tmp_path, monkeypatch):
+    seen = {}
+
+    def run_build(*args, **kwargs):
+        seen["scaffolds"] = kwargs["scaffolds"]
+        return SimpleNamespace(stop="done", placed=[], failures=[], skipped={})
+
+    monkeypatch.setattr(companion_jobs, "run_build", run_build)
+    owned = {(9, 9, 9)}
+    w = world() | {(x, 0, z): PLANKS for x in range(4, 7) for z in range(4, 7)}
+    body = FakeGatherBody(K, w, {COBBLE: 3})
+
+    build_job(small_template(tmp_path), (4, 0, 4), 0, body, K, scaffolds=owned)
+
+    assert seen["scaffolds"] is owned  # live: a stage taken mid-run sees it
 
 
 def test_empty_inventory_to_a_finished_small_template(tmp_path):
@@ -174,6 +206,46 @@ def test_junk_is_what_the_build_does_not_want_and_never_tools_or_scaffolding():
     }
     # dirt stays: it is the fallback scaffold and the fill under a cell over water
     assert junk(held, {"minecraft:oak_planks": 287}) == {"minecraft:orange_tulip": 34}
+    # once the site is level and scaffolding is the foothold, dirt the build does
+    # not place goes too
+    assert junk(held, {"minecraft:oak_planks": 287}, stow_dirt=True) == {
+        "minecraft:orange_tulip": 34,
+        "minecraft:dirt": 29,
+    }
+    assert junk(
+        held, {"minecraft:oak_planks": 287, "minecraft:dirt": 20}, stow_dirt=True
+    ) == {"minecraft:orange_tulip": 34, "minecraft:dirt": 9}
+
+
+def test_site_prep_dirt_goes_to_the_chests_and_two_scaffolding_stacks_come_out(
+    tmp_path,
+):
+    # A supplied build: the body is to build from what the chests hold, not carry
+    # site-prep dirt around to put down as steps (run 20261121T180806599463Z left a
+    # dirt step on the roof and tunnelled through a wall to reach it).
+    dirt, scaffold = M + "dirt", M + "scaffolding"
+    w = world()
+    w[(2, 0, 2)] = M + "chest"
+    body = FakeGatherBody(K, w, {dirt: 40})
+    stock = {PLANKS: 9, COBBLE: 3, scaffold: 128}
+    body.boxes[(2, 0, 2)] = dict(stock)
+    state = GatherState(containers={(2, 0, 2): dict(stock)})
+    modes = set()
+    place = body.place_block
+
+    def watched(pos, state, item):  # scaffolding only, for the whole build
+        modes.add(getattr(body, "scaffold_only", None))
+        return place(pos, state, item)
+
+    body.place_block = watched
+
+    report = build_job(small_template(tmp_path), (4, 0, 4), 0, body, K, state=state)
+
+    assert report.stop == "built", report
+    assert body.inv.get(dirt, 0) == 0
+    assert body.boxes[(2, 0, 2)].get(dirt, 0) >= 40
+    assert body.inv.get(scaffold) == 128
+    assert modes == {True} and body.scaffold_only is False
 
 
 def test_a_refill_records_what_was_asked_gained_and_still_short():
@@ -262,7 +334,7 @@ def test_a_refill_gather_never_puts_the_builds_scaffolding_or_blocks_away():
 
 
 def test_scaffolding_spent_mid_build_is_taken_back_from_the_chests():
-    from mclab.companion_jobs import SCAFFOLD_STACK, _scaffold_topup
+    from mclab.companion_jobs import SCAFFOLD_CARRY, _scaffold_topup
 
     scaffolding = M + "scaffolding"
 
@@ -273,10 +345,13 @@ def test_scaffolding_spent_mid_build_is_taken_back_from_the_chests():
         def inventory(self):
             return {scaffolding: self.held}
 
-    state = GatherState(containers={(2, 0, 2): {scaffolding: 51}})
-    assert _scaffold_topup(Body(0), state) == {scaffolding: 51}
-    assert _scaffold_topup(Body(20), state) == {scaffolding: SCAFFOLD_STACK - 20}
-    assert _scaffold_topup(Body(SCAFFOLD_STACK // 2), state) == {}
+    assert SCAFFOLD_CARRY == 128  # two stacks
+    state = GatherState(containers={(2, 0, 2): {scaffolding: 151}})
+    assert _scaffold_topup(Body(0), state) == {scaffolding: 128}
+    assert _scaffold_topup(Body(20), state) == {scaffolding: SCAFFOLD_CARRY - 20}
+    assert _scaffold_topup(Body(SCAFFOLD_CARRY // 2), state) == {}
+    few = GatherState(containers={(2, 0, 2): {scaffolding: 51}})
+    assert _scaffold_topup(Body(0), few) == {scaffolding: 51}
     assert _scaffold_topup(Body(0), GatherState(containers={})) == {}
 
 

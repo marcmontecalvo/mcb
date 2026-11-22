@@ -1665,6 +1665,95 @@ def test_the_planner_footholds_are_dirt_then_cobblestone_then_spare_plain_blocks
     )
 
 
+def test_the_water_plug_is_told_what_the_build_still_needs(monkeypatch):
+    # Run 20261121T180806599463Z: the body's plug spent 21 of the house's cobblestone
+    # on site-prep water and the foundation ran short.
+    b, bridge, _ = body()
+    cobble = "minecraft:cobblestone"
+    built = set()
+    monkeypatch.setattr(
+        b, "world", lambda *p: cobble if p in built else "minecraft:air"
+    )
+    bridge.reply["break_block"] = ("done", {})
+    b.break_block((9, 0, 9))
+    assert [op for op, _ in bridge.sent] == ["break_block"]  # no build: no keep
+
+    b.build_cells = {(0, 0, 0): cobble, (1, 0, 0): cobble}
+    b.sync_plug_keep()
+    b.break_block((9, 0, 9))
+    keeps = [f for op, f in bridge.sent if op == "plug_keep"]
+    assert keeps == [{"items": {cobble: 2}}]  # sent once, unchanged since
+
+    built.add((0, 0, 0))
+    b.place_block((5, 0, 5), "minecraft:dirt", "minecraft:dirt")
+    keeps = [f for op, f in bridge.sent if op == "plug_keep"]
+    assert keeps[-1] == {"items": {cobble: 1}}
+    assert bridge.sent[-2][0] == "plug_keep" and bridge.sent[-1][0] == "place_block"
+
+
+def test_a_build_carrying_scaffolding_climbs_on_scaffolding_only(monkeypatch):
+    # With scaffolding on hand, dirt and cobblestone are never footholds, steps or
+    # bridges: a place scaffolding cannot make is a rule to fix, not a dirt step left
+    # on the roof (run 20261121T180806599463Z).
+    from dataclasses import replace
+
+    from mclab import body_search
+    from mclab import temporary_blocks as tb
+    from mclab.companion_jobs import load_vanilla_pack
+
+    b, _, _ = body()
+    held = {
+        "minecraft:scaffolding": 128,
+        "minecraft:dirt": 40,
+        "minecraft:cobblestone": 60,
+    }
+    monkeypatch.setattr(b, "inventory", lambda: held)
+    monkeypatch.setattr(b, "world", lambda *p: "minecraft:air")
+    b.build_cells = {(0, y, 0): "minecraft:cobblestone" for y in range(39)}
+    b.temporary_ok = tb.eligible(load_vanilla_pack())
+    b.terrain_policy = replace(cb.DIG_TERRAIN, allow_place=True)
+    b.scaffold_only = True
+    assert b.temporary_items() == ["minecraft:scaffolding"]
+    assert b.temporary_items(scaffolding=False) == []
+    policy = b._with_temporaries(b.terrain_policy)
+    assert policy.material_allowlist == ()
+    assert policy.scaffold_materials == ("minecraft:scaffolding",)
+    rows = [{"slot": i, "item": k, "count": n} for i, (k, n) in enumerate(held.items())]
+    edits = body_search.edit_payload(policy, rows, ())
+    assert edits["materials"] == []
+    assert edits["place_supply"] == edits["scaffold_supply"] == 128  # no solid places
+
+    held["minecraft:scaffolding"] = 0  # all of it out in the world: still none
+    assert b.temporary_items() == [] and b.temporary_items(scaffolding=False) == []
+
+
+def test_a_prop_may_be_a_solid_block_while_the_build_steps_on_scaffolding_only(
+    monkeypatch,
+):
+    # Run 20261121T222050257793Z: two hoppers facing each other each need a block
+    # to click against. Scaffolding with a rail under it does not place, and under
+    # scaffold_only the dirt held was no temporary, so both were skipped. A prop is
+    # put down and taken back in the same placement: nothing is left behind.
+    from mclab import temporary_blocks as tb
+    from mclab.companion_jobs import load_vanilla_pack
+
+    b, _, _ = body()
+    held = {"minecraft:scaffolding": 64, "minecraft:dirt": 2}
+    monkeypatch.setattr(b, "inventory", lambda: held)
+    monkeypatch.setattr(b, "world", lambda *p: "minecraft:air")
+    b.build_cells = {}
+    b.temporary_ok = tb.eligible(load_vanilla_pack())
+    b.scaffold_only = True
+    assert b.temporary_items(scaffolding=False) == []
+    assert b.temporary_items(scaffolding=False, prop=True) == ["minecraft:dirt"]
+
+
+def test_plug_keep_is_a_body_op():
+    from mclab.bridge import BODY_OPS
+
+    assert "plug_keep" in BODY_OPS
+
+
 def test_a_hurt_drop_keeps_three_hearts_and_is_put_back(monkeypatch):
     b, _, _ = body()
     cases = ((20.0, 12), (15.0, 12), (12.0, 9), (9.0, 6), (6.0, 3), (4.0, 3))

@@ -184,6 +184,58 @@ def small_house_body(**kw):
     return FakeBody(w, inv, BLOCKS, **kw), bp.Template.from_build(HOUSE, (1, 0, 1))
 
 
+def test_a_full_build_marks_both_milestones_in_order():
+    body, t = small_house_body()
+    seen = []
+    report = br.run_build(t, body, BLOCKS, on_milestone=seen.append)
+    assert report.stop == "done"
+    assert seen == ["site_ready", "structure_done"]
+
+
+def test_until_site_stops_once_the_site_is_ready_before_any_house_block():
+    body, t = small_house_body()
+    seen = []
+    report = br.run_build(t, body, BLOCKS, until="site", on_milestone=seen.append)
+    assert report.stop == "until_site" and seen == ["site_ready"]
+    assert report.placed == []
+
+
+def test_until_structure_stops_with_only_the_details_left():
+    body, t = small_house_body()
+    seen = []
+    report = br.run_build(t, body, BLOCKS, until="structure", on_milestone=seen.append)
+    assert report.stop == "until_structure"
+    assert seen == ["site_ready", "structure_done"]
+    left = [s for _, s in bp.diff(t, body.world).places]
+    assert left and all(bp.is_detail(s) or bp._is_door(s) for s in left)
+
+
+def test_scaffolding_the_run_already_owns_survives_site_prep_and_is_taken_back():
+    # A details lab starts from a structure_done stage with the structure's
+    # scaffolding standing. Run 20261121T222050257793Z did not know it as its own:
+    # site prep tore down 141 blocks of it (171 s) before the first detail.
+    body, t = small_house_body()
+    rope = (0, 0, 1)  # the site margin, west of the footprint
+    body.w[rope] = sc.BLOCK
+    body.inv[sc.BLOCK] = body.inv.get(sc.BLOCK, 0)
+    at_site = {}
+
+    def milestone(name):
+        at_site.setdefault(name, body.w.get(rope))
+
+    owned = {rope}
+    report = br.run_build(t, body, BLOCKS, scaffolds=owned, on_milestone=milestone)
+
+    assert at_site["site_ready"] == sc.BLOCK
+    assert report.stop == "done" and bp.parse_state(body.w[rope])[0] != sc.BLOCK
+
+
+def test_an_unknown_until_is_refused():
+    body, t = small_house_body()
+    with pytest.raises(ValueError):
+        br.run_build(t, body, BLOCKS, until="roof")
+
+
 def test_small_house_reaches_empty_diff_with_the_expected_materials():
     body, t = small_house_body()
     report = br.run_build(t, body, BLOCKS)
@@ -1329,7 +1381,7 @@ def test_without_scaffolding_dirt_or_cobblestone_a_tower_is_of_a_spare_plain_blo
     allowed = tb.eligible(load_vanilla_pack())
     body.temporary_ok = allowed
     body.still_needed = lambda: {"minecraft:oak_planks": 100}  # none spare
-    body.temporary_items = lambda scaffolding=True: tb.order(
+    body.temporary_items = lambda scaffolding=True, prop=False: tb.order(
         body.inv, body.still_needed(), allowed
     )
     used = []
@@ -1431,6 +1483,37 @@ def test_footholds_spent_mid_build_are_topped_up_and_a_dry_chest_is_not_pestered
     assert len(asks) == 2  # one dry ask, then a wait of FOOTHOLD_RETRY actions
     br._keep_footholds(runner, dry, lambda _m: None, stock)
     assert len(asks) == 3
+
+
+def test_scaffolding_is_the_foothold_stock_when_the_build_carries_it():
+    # A supplied build carries two stacks of scaffolding: it climbs on those, and
+    # the foothold stock never sends it to the chests for dirt.
+    scaffold, dirt = "minecraft:scaffolding", "minecraft:dirt"
+
+    class Runner:
+        def __init__(self, held):
+            self.held = held
+            self.body = self
+
+        def inventory(self):
+            return dict(self.held)
+
+        def _temporaries(self, scaffolding=True):
+            items = [scaffold, dirt] if scaffolding else [dirt]
+            return [i for i in items if self.held.get(i, 0) > 0]
+
+    asks = []
+    runner = Runner({scaffold: 128})
+    assert br._stock_footholds(runner, asks.append, lambda _m: None) is None
+    assert asks == []
+
+    runner.held[scaffold] = 5  # spent down: top up with scaffolding, not dirt
+    br._stock_footholds(runner, asks.append, lambda _m: None)
+    assert asks == [{scaffold: br.FOOTHOLD_STOCK - 5}]
+
+    runner.held[scaffold] = 0  # all of it out in the world: still scaffolding
+    br._stock_footholds(runner, asks.append, lambda _m: None)
+    assert asks[-1] == {scaffold: br.FOOTHOLD_STOCK}
 
 
 def test_a_starving_body_with_no_food_goes_to_the_chests_once():
@@ -1945,7 +2028,9 @@ class _StateBody(_CoverBody):
 
 
 def test_the_runner_asks_for_a_stance_that_makes_the_state_it_places():
-    body = _StateBody(flat_world(-2, 12), {SLAB: 4}, BLOCKS, pos=(0, 0, 8))
+    w = flat_world(-2, 12)
+    w[(1, 0, 0)] = PLANKS  # a side face whose upper half makes a top slab
+    body = _StateBody(w, {SLAB: 4}, BLOCKS, pos=(0, 0, 8))
     runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
     runner.attempt(bp.Place((0, 0, 0), TOP_SLAB, SLAB))
     assert ((0, 0, 0), TOP_SLAB) in body.asked  # the direct check
@@ -2309,6 +2394,69 @@ def test_upfront_prop_places_mutual_hoppers_with_zero_towers():
     assert not runner.report.scaffolded  # zero towers built
     assert not runner.report.failures
     assert not runner.report.skipped
+
+
+class ScaffoldOnlyHopperBody(HopperBody):
+    """A body carrying scaffolding: it climbs on nothing else, while a prop (put
+    down and taken back at once) may be any solid block held (CompanionBody)."""
+
+    temporary_ok = True
+
+    def temporary_items(self, scaffolding=True, prop=False):
+        if prop:
+            return [i for i in ("minecraft:dirt",) if self.inv.get(i, 0) > 0]
+        return [SCAFFOLDING] if scaffolding and self.inv.get(SCAFFOLDING, 0) else []
+
+
+def test_mutual_hoppers_are_propped_with_dirt_while_the_build_climbs_on_scaffolding():
+    # Run 20261121T222050257793Z: under scaffold_only the 2 dirt held counted as no
+    # temporary, the prop was never tried, and both hoppers ended no_material.
+    w = flat_world()
+    east = "minecraft:hopper[enabled=true,facing=east]"
+    west = "minecraft:hopper[enabled=true,facing=west]"
+    held = {"minecraft:hopper": 2, "minecraft:dirt": 2, SCAFFOLDING: 64}
+    body = ScaffoldOnlyHopperBody(w, held, BLOCKS, pos=(1, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.attempt(bp.Place((1, 0, 0), east, "minecraft:hopper", 1))
+    runner.attempt(bp.Place((2, 0, 0), west, "minecraft:hopper", 1))
+    assert w[(1, 0, 0)] == east and w[(2, 0, 0)] == west
+    assert body.inv["minecraft:dirt"] == 2  # the prop was taken back
+    assert not runner.report.skipped and not runner.report.scaffolded
+
+
+def test_a_cell_that_needs_a_prop_asks_for_one_block_when_none_is_held():
+    # Without a solid block a prop cannot be had by climbing: ask for one directly,
+    # not after a failed stance search and a tower nobody can use.
+    w = flat_world()
+    west = "minecraft:hopper[enabled=true,facing=west]"
+    held = {"minecraft:hopper": 1, SCAFFOLDING: 64}
+    body = ScaffoldOnlyHopperBody(w, held, BLOCKS, pos=(1, 0, 2))
+    runner = br._Runner(body, br.BuildReport(), 50, BLOCKS)
+    runner.scaffolds = set()
+    runner.attempt(bp.Place((2, 0, 0), west, "minecraft:hopper", 1))
+    assert runner.short == {"minecraft:dirt": 1} and runner.short_for == (2, 0, 0)
+    assert not runner.report.scaffolded
+
+
+def test_a_build_that_climbs_on_scaffolding_gets_its_prop_block_and_places_both():
+    # The whole loop: the prop block asked for comes, both hoppers go in.
+    east = "minecraft:hopper[enabled=true,facing=east]"
+    west = "minecraft:hopper[enabled=true,facing=west]"
+    t = bp.Template({(1, 0, 0): east, (2, 0, 0): west}, (2, 1, 1), (1, 0, 0))
+    w = flat_world()
+    held = {"minecraft:hopper": 2, SCAFFOLDING: 64}
+    body = ScaffoldOnlyHopperBody(w, held, BLOCKS, pos=(1, 0, 2))
+    asked = []
+
+    def bring(need):
+        asked.append(dict(need))
+        for item, n in need.items():
+            body.inv[item] = body.inv.get(item, 0) + n
+        return True
+
+    report = br.run_build(t, body, BLOCKS, on_need_materials=bring)
+    assert report.stop == "done", (report.stop, report.skipped)
+    assert {"minecraft:dirt": 1} in asked
 
 
 def test_hanging_lantern_requires_support_above_so_eye_stays_below_down_face():

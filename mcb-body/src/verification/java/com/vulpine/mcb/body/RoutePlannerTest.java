@@ -646,6 +646,20 @@ public final class RoutePlannerTest {
         check(!sevenOnly.status().equals("reached")
                         && sevenOnly.steps().stream().allMatch(e -> e.scaffold().size() == e.places().size()),
                 "scaffolding only: no solid place 7 out: " + sevenOnly.status() + " " + sevenOnly.steps());
+        // Leaves have a full collision box but no sturdy top (LeavesBlock sides shape is empty): scaffolding on them
+        // gets distance 7 and does not place. Run 20261121T224929134438Z planned 13 scaffolding steps onto a tree
+        // beside the house, each failed native_placement_not_observed, and the body hopped on the tree for minutes.
+        var canopy = floor(12);
+        var leaves = Map.<String, Object>of("block", "minecraft:oak_leaves",
+                "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1)), "fluid", "minecraft:empty");
+        for (var k : List.copyOf(canopy.keySet())) if (k.y() == 0) canopy.put(k, leaves);
+        var onLeaves = new RoutePlanner((x, y, z) -> canopy.get(new Key(x, y, z)), new RoutePlanner.Node(0, 1, 0),
+                new RoutePlanner.Node(0, 3, 0), 0, 3, true).withMoves(false, true).withEdits(only).search(100_000);
+        check(!onLeaves.status().equals("reached"),
+                "scaffolding only: no scaffolding pillar on leaves: " + onLeaves.status() + " " + onLeaves.steps());
+        var dirtOnLeaves = scaffoldRun(canopy, new RoutePlanner.Node(0, 1, 0), new RoutePlanner.Node(0, 3, 0), 64);
+        check(dirtOnLeaves.status().equals("reached") && !isScaffold(dirtOnLeaves.steps().get(0), 0),
+                "on leaves the first pillar block is solid, not scaffolding: " + dirtOnLeaves.steps());
         // A bridge beside a scaffolding pillar on solid ground.
         var beside = new HashMap<Key, Map<String, Object>>();
         for (int x = -2; x <= 4; x++) for (int z = -3; z <= 3; z++) for (int y = -1; y <= 6; y++)

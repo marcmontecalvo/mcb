@@ -897,12 +897,52 @@ def test_cutting_a_hill_is_worked_through_without_back_and_forth_hops():
     assert max(hops) < 8  # no cross-hill jumps
 
 
-def test_fill_stock_is_any_dug_up_solid_the_house_does_not_use():
+def test_fill_stock_is_any_dug_up_solid_beyond_what_the_house_places():
     template = bp.Template({(0, 64, 0): "minecraft:cobblestone"}, (1, 1, 1), (0, 64, 0))
     held = {"minecraft:cobblestone": 9, "minecraft:stone": 3, "minecraft:dirt": 2}
     held["minecraft:gravel"] = 5  # falls: never fill
 
-    assert sp.fill_stock(held, template) == {"minecraft:dirt": 2, "minecraft:stone": 3}
+    # the house's one cobblestone is held back, the other 8 fill
+    assert sp.fill_stock(held, template) == {
+        "minecraft:dirt": 2,
+        "minecraft:stone": 3,
+        "minecraft:cobblestone": 8,
+    }
+    held["minecraft:cobblestone"] = 1
+    assert "minecraft:cobblestone" not in sp.fill_stock(held, template)
+
+
+def test_fill_puts_stone_low_and_dirt_on_top():
+    # Cobblestone showing in levelled ground looks wrong: stone goes in the lower
+    # layers and the ground layer is dirt, each as long as any is held.
+    stock = {"minecraft:dirt": 2, "minecraft:cobblestone": 5, "minecraft:stone": 1}
+    assert sp.fill_item(stock, 63, 63) == "minecraft:dirt"
+    assert sp.fill_item(stock, 62, 63) in {"minecraft:cobblestone", "minecraft:stone"}
+    assert sp.fill_item({"minecraft:dirt": 2}, 60, 63) == "minecraft:dirt"
+    assert sp.fill_item({"minecraft:cobblestone": 2}, 63, 63) == "minecraft:cobblestone"
+    assert sp.fill_item({"minecraft:dirt": 0}, 63, 63) is None
+
+
+def test_a_pond_is_filled_with_stone_below_and_dirt_at_the_ground_layer():
+    floors = {(x, z): 60 for x in (1, 2, 3) for z in (-1, 0, 1)}
+
+    class Pond(_Pond):
+        def __init__(self, floors):
+            super().__init__(floors)
+            self.items = {}
+
+        def place_block(self, pos, state, item):
+            result = super().place_block(pos, state, item)
+            if result.ok:
+                self.items[pos] = item
+            return result
+
+    body = Pond(floors)
+    fills = _pond_fills(body, floors)
+    stock = {"minecraft:dirt": 30, "minecraft:cobblestone": 30}
+    assert sp._fill_sweep(body, _Runner(), fills, 60, 63, stock) == len(fills)
+    assert {i for p, i in body.items.items() if p[1] == 63} == {"minecraft:dirt"}
+    assert {i for p, i in body.items.items() if p[1] < 63} == {"minecraft:cobblestone"}
 
 
 def test_fill_walk_from_a_pit_may_place_blocks_to_get_out():

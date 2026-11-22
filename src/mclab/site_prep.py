@@ -28,7 +28,8 @@ from mclab.tree_removal import clear_trees_in_footprint, is_log
 
 FILL = "minecraft:dirt"
 # Anything solid the clearing dug up fills a hole as well as dirt does. Full cubes
-# without gravity only; an item the house itself is built from is never spent.
+# without gravity only; of an item the house is built from, only what it does not
+# place is spent.
 FILLERS = (
     FILL,
     "minecraft:cobblestone",
@@ -47,14 +48,33 @@ FILLERS = (
 )
 
 
+# The ground layer of levelled land shows: it is soil. Below it, stone first.
+SOILS = frozenset(
+    {FILL, "minecraft:coarse_dirt", "minecraft:rooted_dirt", "minecraft:mud"}
+)
+
+
 def fill_stock(inventory: dict[str, int], template: bp.Template) -> dict[str, int]:
-    """Held fill material by item, dirt first."""
-    wanted = {_ident(state) for state in template.cells.values()}
-    return {
-        item: inventory[item]
-        for item in FILLERS
-        if inventory.get(item, 0) > 0 and item not in wanted
-    }
+    """Held fill material by item, dirt first; of a block the house is built from,
+    only what is held beyond the house's own count (run 20261121T180806599463Z: the
+    house's cobblestone must be there when its foundation is laid)."""
+    house: dict[str, int] = {}
+    for state in template.cells.values():
+        house[_ident(state)] = house.get(_ident(state), 0) + 1
+    stock = {item: inventory.get(item, 0) - house.get(item, 0) for item in FILLERS}
+    return {item: n for item, n in stock.items() if n > 0}
+
+
+def fill_item(stock: dict[str, int], y: int, ground: int) -> str | None:
+    """The filler for a cell at height ``y``: soil on the ground layer, stone in the
+    layers under it, each while any is held, else whatever is."""
+    held = [i for i, n in stock.items() if n > 0]
+    if not held:
+        return None
+    soil = [i for i in held if i in SOILS]
+    stone = [i for i in held if i not in SOILS]
+    first, then = (soil, stone) if y >= ground else (stone, soil)
+    return (first or then)[0]
 
 
 MAX_CELL_STALLS = 6  # cells given up on after a >5 s stall before the whole site fails
@@ -217,12 +237,19 @@ class _Plan:
 
 
 def plan_site(
-    site: Site, template: bp.Template, world, protected=frozenset(), face=None
+    site: Site,
+    template: bp.Template,
+    world,
+    protected=frozenset(),
+    face=None,
+    keep=frozenset(),
 ) -> _Plan:
     """What is still wrong in the area, from the delivered world (pure). ``face(x, y,
     z)`` judges support by real collision boxes: seagrass under a pond is not
     REPLACEABLE by name but has nothing to click (run 20261117T031430547551Z: 63
-    no_support_face fills over it, then the fill stalled)."""
+    no_support_face fills over it, then the fill stalled). ``keep``: the build's own
+    standing scaffolding (a run resumed from a stage), as good as empty here: the
+    builder climbs it and takes it back."""
     plan = _Plan()
     for x, z in site.columns():
         for y in range(site.top_y, site.ground_y, -1):
@@ -233,8 +260,8 @@ def plan_site(
                 continue
             target = template.cells.get(pos)
             wanted = _ident(target) if target else None
-            if ident in bp.AIR or ident == wanted:
-                continue  # empty, or already what the house wants
+            if ident in bp.AIR or ident == wanted or pos in keep:
+                continue  # empty, already what the house wants, or the build's own
             if wanted and wanted not in bp.AIR:
                 # A house block goes here, so whatever stands in it comes out anyway.
                 # Cut ground and vegetation now: its dirt is the fill. Leaving it to
@@ -289,19 +316,22 @@ def prepare_site(
     site: Site,
     *,
     protected: Iterable[Pos] = (),
+    keep: Iterable[Pos] = (),
     on_need_materials: Callable[[dict[str, int]], bool] | None = None,
     max_rounds: int = 400,
     cut_only: bool = False,
     log: Callable[[str], None] = lambda m: None,
 ) -> SiteReport:
     """Clear, cut and fill the area through ``runner.attempt`` (stances, retries,
-    escapes, step budget and failure records are the builder's own)."""
+    escapes, step budget and failure records are the builder's own). ``keep``: the
+    build's own standing scaffolding, left alone (``plan_site``)."""
     rep = SiteReport(
         margin=site.margin,
         area=(site.x0, site.x1, site.z0, site.z1),
         ground_y=site.ground_y,
     )
     protected = frozenset(map(tuple, protected))
+    keep = frozenset(map(tuple, keep))
     report = runner.report
     walk = getattr(body, "walk_to", None)
     collect = getattr(body, "collect_drops", None)
@@ -316,7 +346,7 @@ def prepare_site(
         if report.steps >= runner.max_steps:
             rep.stop = "max_steps"
             return rep
-        plan = _round_plan(site, template, body, protected, report.skipped)
+        plan = _round_plan(site, template, body, protected, report.skipped, keep)
         rep.unknown, rep.blocked = plan.unknown, plan.blocked
         logs, cuts, leaves = _phases(plan.breaks, body.world)
         log(
@@ -395,7 +425,12 @@ def prepare_site(
             # Audit the delivered world without the skip filter before declaring
             # readiness. Failed work remains visible even after a bounded retry.
             audit = plan_site(
-                site, template, body.world, protected, getattr(body, "has_face", None)
+                site,
+                template,
+                body.world,
+                protected,
+                getattr(body, "has_face", None),
+                keep,
             )
             remaining = audit.breaks + audit.fills
             rep.blocked.update(audit.blocked)
@@ -460,7 +495,8 @@ def prepare_site(
                     # the sweep could not see it to break it; dirt on a flower is
                     # refused "occupied" (run 20261110T033057553889Z, 11 times)
                     runner.attempt(bp.Break(pos))
-                item = next(iter(fill_stock(body.inventory(), template)), FILL)
+                stock = fill_stock(body.inventory(), template)
+                item = fill_item(stock, pos[1], site.ground_y) or FILL
                 runner.attempt(bp.Place(pos, item, item))
             except StallError as err:
                 # a fill cell the body cannot work: report it, do not retry it
@@ -944,7 +980,7 @@ def _fill_sweep(
                 if plug:
                     filled(pos, bp.parse_state(plug)[0])
                     continue
-            item = next(i for i, n in stock.items() if n > 0)
+            item = fill_item(stock, pos[1], ground)
             if body.place_block(pos, item, item).ok:
                 filled(pos, item)
             else:
@@ -1027,9 +1063,9 @@ def _solid(state) -> bool:
     )
 
 
-def _round_plan(site, template, body, protected, skipped) -> _Plan:
+def _round_plan(site, template, body, protected, skipped, keep=frozenset()) -> _Plan:
     plan = plan_site(
-        site, template, body.world, protected, getattr(body, "has_face", None)
+        site, template, body.world, protected, getattr(body, "has_face", None), keep
     )
     plan.breaks = [p for p in plan.breaks if p not in skipped]
     # A fill over a skipped fill would bury it: no face, no retry ever reaches it

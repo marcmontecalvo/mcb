@@ -194,7 +194,17 @@ public final class BodyRuntime implements AutoCloseable {
     private synchronized void emit(String type, String phase, Map<String, Object> data) {
         if (events.size() == 2048) events.removeFirst();
         events.addLast(new Event(1, launchId, runId, episodeId, bodyId, ++eventSequence,
-                server.getTickCount(), phase, type, Map.copyOf(data)));
+                server.getTickCount(), phase, type, eventData(data)));
+    }
+
+    /**
+     * An event's immutable data with null values left out (absent, not null). emit runs on the server tick, so a
+     * Map.copyOf null throw there crashes the server (run 20261121T194310764564Z: a plug with no spare block).
+     */
+    static Map<String, Object> eventData(Map<String, Object> data) {
+        var out = new LinkedHashMap<String, Object>();
+        data.forEach((key, value) -> { if (value != null) out.put(key, value); });
+        return Map.copyOf(out);
     }
 
     /**
@@ -218,7 +228,7 @@ public final class BodyRuntime implements AutoCloseable {
         return value;
     }
 
-    private static int exactInt(com.google.gson.JsonElement value, String field) {
+    static int exactInt(com.google.gson.JsonElement value, String field) {
         if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber())
             throw new IllegalArgumentException(field);
         double number = value.getAsDouble();
@@ -834,6 +844,10 @@ public final class BodyRuntime implements AutoCloseable {
         }
         switch (op) {
             case "heartbeat" -> { }
+            case "plug_keep" -> {
+                plugKeep = LeakPlug.keep(request);
+                emit("plug_keep_accepted", "fabric_start", Map.of("request_sequence", sequence, "kinds", plugKeep.size()));
+            }
             case "route_policy" -> {
                 if (!readyState.equals("ready") || courseLimits || !extendedObservation || nativeMode)
                     throw new IllegalStateException("route_policy_requires_development_body");
@@ -1160,11 +1174,14 @@ public final class BodyRuntime implements AutoCloseable {
     private final Set<net.minecraft.core.BlockPos> leakSeen = new HashSet<>();
     private StepMotor leakStep;
 
+    /** Blocks the plug must not spend (what the build still has to place), set by {@code plug_keep}. */
+    private Map<String, Integer> plugKeep = Map.of();
+
     private void watchLeak(net.minecraft.core.BlockPos pos, int tick) { leakWatch.put(pos, tick + LeakPlug.WINDOW); }
 
     /** Plugs the cell of a finished break; the break reports the fluid as its failure reason. */
     private String plugBreak(ServerPlayer player, BreakTask task) {
-        var result = LeakPlug.plug(player, task.pos);
+        var result = LeakPlug.plug(player, task.pos, plugKeep);
         leakWatch.remove(task.pos);
         emit("leak_plugged", "fabric_start", result);
         return (String) result.get("fluid");
@@ -1189,7 +1206,7 @@ public final class BodyRuntime implements AutoCloseable {
         wet.sort(Comparator.comparing(pos -> LeakPlug.fluidName(player, pos).equals("lava") ? 0 : 1));
         for (var pos : wet) {
             leakWatch.remove(pos);
-            var result = LeakPlug.plug(player, pos);
+            var result = LeakPlug.plug(player, pos, plugKeep);
             emit("leak_plugged", "fabric_start", result);
             // The edit is not done: stop what is running so Python replans from the real position.
             if ((routeMotor != null && routeMotor.active()) || (stepMotor != null && stepMotor.active())

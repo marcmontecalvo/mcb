@@ -62,6 +62,17 @@ def main() -> None:
             text=True,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
+        # In-game /mcb replies for as long as the server is up (no second process to
+        # remember to start): run 20261121T180806599463Z's /mcb status got "Sent."
+        # and nothing else.
+        from mclab import companion_service
+
+        threading.Thread(
+            target=companion_service.run,
+            kwargs={"stop": closing},
+            name="companion-service",
+            daemon=True,
+        ).start()
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_args):

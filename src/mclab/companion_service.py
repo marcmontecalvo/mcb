@@ -18,6 +18,7 @@ from mclab.paths import ROOT, config, read_json
 from mclab.server import STATE
 
 CONFIG = ROOT / "config/companion.json"
+RUNS = ROOT / "results/companion"
 POLL_SECONDS = 1.0
 ITEM = re.compile(r"[a-z0-9_]{1,64}")
 BUILD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
@@ -80,17 +81,21 @@ def _kill():
     return dashboard.request_kill()
 
 
-def _status(tail):
-    from mclab import dashboard
+def _status(tail, now=None):
+    """The dashboard's session when one is active; otherwise the newest run, live
+    when it still writes or holds for inspection (run-build.py has no session)."""
+    from mclab import dashboard, run_digest
 
+    now = time.time() if now is None else now
     sessions = sorted(dashboard.SESSIONS.glob("*/session.json"))
     session = read_json(sessions[-1]) if sessions else None
-    folders = sorted(
-        (ROOT / "results/companion").glob("*/progress.json"),
-        key=lambda p: p.stat().st_mtime,
-    )
-    progress = companion_progress.read_progress(folders[-1].parent) if folders else None
-    return companion_status.explain(progress, session, list(tail), time.time())
+    folders = sorted(RUNS.glob("*/progress.json"), key=lambda p: p.stat().st_mtime)
+    run = folders[-1].parent if folders else None
+    progress = companion_progress.read_progress(run) if run else None
+    if (session or {}).get("status") not in companion_status.ACTIVE:
+        live = run is not None and run_digest.activity(run, now) == "running"
+        session = {"status": "running"} if live else None
+    return companion_status.explain(progress, session, list(tail), now)
 
 
 def handle(event, tail=()):
@@ -102,7 +107,8 @@ def handle(event, tail=()):
         command, args = parse(data)
         if command == "stop":
             return (
-                "Stopped." if "Kill requested" in _kill()["status"]
+                "Stopped."
+                if "Kill requested" in _kill()["status"]
                 else "Nothing to stop."
             )
         if command == "status":
@@ -138,9 +144,20 @@ def _call(path, payload=None):
         return json.loads(response.read())
 
 
-def poll(state, fetch=_call, tell=None):
+def notable(kind):
+    """Kept in the status tail: work, failures and commands. Samples and receipts
+    (three quarters of the body's events) would push recent work out of it."""
+    return (
+        kind == "player_command"
+        or companion_status.is_work(kind)
+        or companion_status.is_failure(kind)
+    )
+
+
+def poll(state, fetch=_call, tell=None, now=time.time):
     """One poll: advance state's cursor, reply to each player_command.
-    A ring gap skips forward."""
+    A ring gap skips forward. Each kept event is stamped ``at`` when read (the
+    bridge gives ticks, not times) so the stall answer counts recent work."""
     batch = fetch(f"/events?after={state['cursor']}")
     if batch["launch_id"] != state.get("launch_id"):
         # server restarted: sequences restart
@@ -151,6 +168,9 @@ def poll(state, fetch=_call, tell=None):
         print("companion-service: event ring gap, some events were lost", flush=True)
     for event in batch["events"]:
         state["cursor"] = event["sequence"]
+        if not notable(event["type"]):
+            continue
+        event.setdefault("at", now())
         state["tail"].append(event)
         if event["type"] == "player_command":
             reply = handle(event, state["tail"])
@@ -160,21 +180,27 @@ def poll(state, fetch=_call, tell=None):
     state["cursor"] = max(state["cursor"], batch["latest_sequence"])
 
 
-def run():
-    if not CONFIG.is_file():
-        text = json.dumps({"owners": [], "allowlist": []}, indent=2) + "\n"
-        CONFIG.write_text(text, encoding="utf-8")
+def run(stop=None, call=None, pause=None):
+    """Reply to /mcb until ``stop`` is set. The lab supervisor runs this for the
+    server's whole life; `mclab companion-service` runs it alone. While the bridge
+    is not up (the server starting) each poll fails; a failure is logged once."""
+    call = call or _call
+    wait = pause or (stop.wait if stop is not None else time.sleep)
     state = {"cursor": 2**62, "launch_id": None, "tail": deque(maxlen=50)}
-    first = True
-    while True:
+    first, last_error = True, None
+    while stop is None or not stop.is_set():
         try:
             if first:  # start at the head: old commands are not replayed
-                head = _call(f"/events?after={2**62}")
+                head = call(f"/events?after={2**62}")
                 state.update(
                     cursor=head["latest_sequence"], launch_id=head["launch_id"]
                 )
                 first = False
-            poll(state)
+            poll(state, fetch=call)
+            last_error = None
         except (OSError, ValueError, KeyError) as error:
-            print(f"companion-service: {type(error).__name__}: {error}", flush=True)
-        time.sleep(POLL_SECONDS)
+            text = f"companion-service: {type(error).__name__}: {error}"
+            if text != last_error:
+                print(text, flush=True)
+            last_error = text
+        wait(POLL_SECONDS)

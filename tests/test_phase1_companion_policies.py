@@ -17,6 +17,9 @@ class _Body:
     def inventory(self):
         return dict(self._inventory)
 
+    def world(self, x, y, z):
+        return None  # nothing seen: the build needs the whole template
+
 
 def test_session_archive_respects_memory_mode_and_fresh_world_isolation(
     tmp_path, monkeypatch
@@ -150,7 +153,10 @@ def test_build_job_propagates_gather_options_to_planning_and_execution(
     monkeypatch.setattr(
         companion_jobs.bp.Template,
         "from_build",
-        lambda *args: SimpleNamespace(cells=()),
+        # what is left to place: two stone, none of it in the world yet
+        lambda *args: SimpleNamespace(
+            cells={(0, 0, 0): "minecraft:stone", (1, 0, 0): "minecraft:stone"}
+        ),
     )
     monkeypatch.setattr(companion_jobs.bp, "tool_needs", lambda *args: {})
     monkeypatch.setattr(

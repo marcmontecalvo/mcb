@@ -104,6 +104,9 @@ LEG, LEG_RADIUS, MIN_PROGRESS, MAX_STALLS = 48.0, 4.0, 4.0, 2
 START_NEAR = 16.0  # go_to starts from a place only when standing this close
 OP_TIMEOUT_S = 20.0
 OP_TIMEOUTS = {"break_block": 45.0, "attack_entity": 30.0, "eat": 20.0}
+# Ops after which the build's remaining needs may have changed: the plug's keep is
+# brought up to date before each (a step edit's plug uses the last one sent).
+PLUG_KEEP_OPS = frozenset({"break_block", "place_block", "use_block"})
 STAND_SEARCH = 6  # walk_to: vertical search for a standable cell in the column
 WALK_CELLS = 2500  # bound on the stance-ranking flood fill
 MAX_CANDIDATES = (
@@ -1062,7 +1065,20 @@ class CompanionBody:
         self.bridge.wait(done, timeout=timeout)
         return find()
 
+    def sync_plug_keep(self) -> None:
+        """Tell the body's water plug what the build still has to place, so it plugs
+        with spare blocks only (sent when it changed). Run 20261121T180806599463Z
+        plugged site-prep water with 21 of the house's cobblestone."""
+        if not getattr(self, "build_cells", None):
+            return
+        keep = self.still_needed()
+        if keep != getattr(self, "_plug_keep_sent", None):
+            self.bridge.send("plug_keep", items=keep)
+            self._plug_keep_sent = keep
+
     def op(self, name: str, **fields) -> Result:
+        if name in PLUG_KEEP_OPS:
+            self.sync_plug_keep()
         payload = self.bridge.send(name, **fields)
         try:
             event = self._await(name, payload, OP_TIMEOUTS.get(name, OP_TIMEOUT_S))
@@ -1322,16 +1338,27 @@ class CompanionBody:
             policy, protected_positions=tuple(keep), costly_positions=tuple(costly)
         )
 
-    def temporary_items(self, scaffolding: bool = True) -> list[str]:
+    def temporary_items(
+        self, scaffolding: bool = True, prop: bool = False
+    ) -> list[str]:
         """Held blocks the body may put down to climb or bridge and take back, best
         first (mclab.temporary_blocks): scaffolding, dirt, cobblestone, then spare
         plain blocks that drop themselves. Spare means beyond what the build still
-        has to place. Without a build job: the policy's own materials."""
+        has to place. Without a build job: the policy's own materials. ``prop``: a
+        block to click against, taken back in the same placement, so scaffold_only
+        does not apply (scaffolding over a rail does not place: run
+        20261121T222050257793Z left two facing hoppers out)."""
         allowed = getattr(self, "temporary_ok", None)
         if allowed is None:
             items = list(self.terrain_policy.material_allowlist)
             held = self.inventory()
             return [i for i in items if held.get(i, 0) > 0]
+        if getattr(self, "scaffold_only", False) and not prop:
+            # A build that carries scaffolding climbs, bridges and steps on nothing
+            # else: a place scaffolding cannot make is a rule to fix, not a dirt step
+            # left behind (run 20261121T180806599463Z).
+            held = self.inventory().get(SCAFFOLDING, 0) > 0
+            return [SCAFFOLDING] if scaffolding and held else []
         items = temporary_order(self.inventory(), self.still_needed(), allowed)
         return items if scaffolding else [i for i in items if i != SCAFFOLDING]
 
@@ -1353,14 +1380,15 @@ class CompanionBody:
             return policy
         items = tuple(self.temporary_items(scaffolding=False))
         scaffold = (SCAFFOLDING,) if SCAFFOLDING in self.temporary_items() else ()
-        if (not items and not scaffold) or (items, scaffold) == (
-            policy.material_allowlist,
-            policy.scaffold_materials,
-        ):
+        only = getattr(self, "scaffold_only", False)
+        if not only and not items and not scaffold:
+            return policy
+        if (items, scaffold) == (policy.material_allowlist, policy.scaffold_materials):
             return policy
         return replace(
             policy,
-            material_allowlist=items or policy.material_allowlist,
+            # scaffold_only: no solid fallback at all, not the policy's default list
+            material_allowlist=items if only else items or policy.material_allowlist,
             scaffold_materials=scaffold,
         )
 

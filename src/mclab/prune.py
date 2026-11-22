@@ -22,7 +22,8 @@ progress). Of the others, anywhere inside the run folder:
   keeps its event log (``events.jsonl`` is gzipped) and its episode ledger; its
   other ``*.sqlite3`` (map memory, derived from the same events) is deleted;
 - any other run loses every raw file: ``events.*`` and ``*.sqlite3`` (+ sidecars).
-Small result files (summary.json, ...) always stay.
+Small result files (summary.json, ...) always stay. The stage library
+(``results/stages/``) is never touched.
 
 Episode ledgers (``results/episodes.sqlite3`` and ``results/navigation/<run>/
 episodes.sqlite3``, ``trim_ledgers``) keep every run, episode and event row, but
@@ -65,6 +66,7 @@ RUN_ID = re.compile(r"\d{8}T\d{12}Z")
 SIDECARS = ("-wal", "-shm", "-journal")
 LEDGER = ("docs", "README.md", "CLAUDE.md")
 SUPERSEDE = ("companion",)  # families kept per build key (plan_superseded)
+NEVER = ("stages",)  # the stage library (build_checkpoint.stage_path): not runs
 
 
 @dataclass(frozen=True)
@@ -147,7 +149,7 @@ def plan(root: Path = ROOT, now: float | None = None) -> list[Action]:
     actions: list[Action] = []
     results = root / "results"
     for family in sorted(p for p in results.iterdir() if p.is_dir()):
-        if family.name in SUPERSEDE:
+        if family.name in SUPERSEDE or family.name in NEVER:
             continue
         runs = sorted(
             p for p in family.iterdir() if p.is_dir() and RUN_ID.fullmatch(p.name)

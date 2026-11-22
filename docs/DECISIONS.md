@@ -235,3 +235,53 @@ water (`eye_in_water`, falling back to `in_water`), not at 90 % air.
 - **The agent ends inspection holds.** The user never creates `<run>/STOP`; when they
   say they are done looking, the agent running the session creates it. A stop
   button on the lab page is planned (B6).
+
+## Materials on hand for build-speed work (November 21, 2026)
+
+B2b measures building, not gathering or crafting: a `--supply` run must hold every
+block of the house between the bot and the chests.
+
+- **The house's blocks are never spent on anything else.** Cobblestone and dirt stay
+  free to use for levelling and plugs, in any order, but only beyond what the build
+  still has to place. The body's water plug now gets that count (`plug_keep`); site
+  prep fills with any dug-up solid beyond the house's own count (before, a block the
+  house used was never fill at all). Run 20261121T180806599463Z plugged site-prep
+  water with 21 of the house's 54 cobblestone, and the foundation waited 8 minutes
+  for more.
+- **Levelled ground is stone below, soil on top.** Fill puts cobblestone and other
+  stone in the lower layers and dirt in the ground layer; exposed cobblestone in the
+  ground looks wrong unless it is a path. The water plug, always under the surface,
+  uses cobblestone first.
+- **A build that carries scaffolding climbs on scaffolding only.** No dirt,
+  cobblestone or other solid footholds, steps, pillars or bridges (`scaffold_only`:
+  the planner gets no solid material at all). A place scaffolding cannot make is a
+  fault in our rules to fix, not a reason for a solid fallback. The supply holds two
+  stacks and the bot carries both (`SCAFFOLD_CARRY`); the foothold stock tops up
+  scaffolding.
+- **Dirt goes to the chests after site prep.** Once the site is level, the bot keeps
+  only the dirt the house places; the rest goes into the chests then and at every
+  refill. Run 20261121T180806599463Z carried dirt into the build, left a dirt step on
+  the roof and tunnelled through a wall to reach it.
+
+## Stage labs (November 21, 2026)
+
+A whole house-large run takes 40–50 minutes, which is too slow to iterate on one part of
+it. The build is split at two milestones:
+
+- `site_ready`: the site is cleared and level, and no house block is placed yet.
+- `structure_done`: only details and doors are left.
+
+A run can stop at a milestone (`--until`) or start from one (`--from`).
+
+- **A stage is a world snapshot, not a replayed log.** It holds the cells of the site
+  box, the inventory and the chests with their contents. It is restored with the lab
+  kit into a fresh copy of the seed's world. Gathering outside the site (cut trees,
+  stations) is not kept: nothing after site prep depends on it.
+- **The library is newest-wins per build key, and every run feeds it.** Any build that
+  passes a milestone republishes that stage, with the run and commit it came from. A
+  run from a stage doesn't republish that stage or any earlier one.
+- **A stage is tied to its build file** (sha256). An edited template refuses an old stage
+  rather than build on cells that no longer match.
+- **Parts don't compete with wholes.** A stage-lab run's build key carries its segment,
+  so `mclab runs`, pruning and comparisons keep parts and whole builds apart. A whole
+  build stays the acceptance measure; the parts are for iterating.

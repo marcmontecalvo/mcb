@@ -63,6 +63,8 @@ class RunSettings:
     supply: bool = False
     coal: str = "item"
     stage: bool = False
+    start_from: str | None = None  # a stage of the library (build_checkpoint.STAGES)
+    until: str | None = None  # end the build at a milestone (build_runner.UNTIL)
     scaffolding: int | None = None
     iron: bool = False
     raw_iron: int | None = None
@@ -130,6 +132,8 @@ _TUPLE_TYPES = {
 _ENUMS = {
     "operation": ["execute", "reset", "episodes"],
     "coal": ["item", "block", "ore"],
+    "start_from": ["site_ready", "structure_done"],
+    "until": ["site", "structure"],
     "tool_choice": ["lowest_sufficient", "best"],
     "ore_collect": ["greedy", "specific"],
     "preset": ["legacy", "visible", "chunk", "sections"],
@@ -267,7 +271,7 @@ def _validate_fields(value, cls, path):
             _TUPLE_TYPES.get(name, hints[name]) if cls is TerrainPolicy else hints[name]
         )
         _check(item, annotation, f"{path}.{name}")
-        if name in _ENUMS and item not in _ENUMS[name]:
+        if name in _ENUMS and item not in _ENUMS[name] and item is not None:
             raise ValueError(f"Invalid value for {path}.{name}")
 
 
@@ -374,6 +378,8 @@ def resolve_config(
         "supply",
         "coal",
         "stage",
+        "start_from",
+        "until",
         "scaffolding",
         "origin",
         "show_markers",
@@ -692,8 +698,12 @@ def resolve_config(
         raise ValueError("Protected positions must contain three coordinates")
     if (
         run["margin"] < 0
-        or (run["stage"] and not run["resume"])
+        or (run["stage"] and not (run["resume"] or run["start_from"]))
+        or (run["stage"] and run["until"])
         or (run["supply"] and (run["empty"] or run["resume"]))
+        or (run["start_from"] and (run["resume"] or run["supply"] or run["empty"]))
+        or (run["start_from"] == "site_ready" and run["until"] == "site")
+        or (run["start_from"] == "structure_done" and run["until"])
         or (run["coal"] != "item" and not run["supply"])
         or (run["preview_offset"] and not run["preview"])
     ):
@@ -894,6 +904,8 @@ def config_schema() -> dict:
         "supply",
         "coal",
         "stage",
+        "start_from",
+        "until",
         "scaffolding",
         "origin",
     ):

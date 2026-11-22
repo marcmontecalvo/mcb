@@ -63,6 +63,9 @@ CLEANUP_ROUNDS = 3
 MAX_RECOVERIES = 3
 BUILD_WALL = 30.0  # seconds a build walk may take before the route is given up
 SETTLE_TICKS = 60  # wait for the sensor before calling a build blocked
+# Where a build can be told to end early: at the site_ready or structure_done
+# milestone (a stage lab, build_checkpoint.STAGES); None builds everything.
+UNTIL = (None, "site", "structure")
 # A broken bridge root: scaffolding past distance 6 falls a tick a cell, and the
 # items then drop to the ground (a run of 6 and a few blocks of fall).
 COLLAPSE_TICKS = 12
@@ -71,6 +74,7 @@ STANCE_BUDGET_S = 5.0  # a pause longer than this reads as a broken bot
 FOOTHOLD_STOCK = 32  # spare blocks to climb or step down on, held from the start
 FOOTHOLD_LOW = 8  # fewer spare than this mid-build: top the stock back up
 FOOTHOLD_RETRY = 40  # build actions before a refill that brought none is tried again
+PROP_BLOCK = "minecraft:dirt"  # asked for when a cell needs a prop and none is held
 FOOTHOLD_ITEM = "minecraft:dirt"
 # Taking an idle column down for its blocks (_reclaim_cost), in blocks of sprinting.
 # A climb goes at the vanilla ladder/scaffolding limit, 0.12 blocks/tick up and 0.15
@@ -391,16 +395,21 @@ class _Runner:
             # When no currently solid neighbour can produce ``act.state`` (e.g.
             # mutually facing hoppers), plan the temporary prop up front instead of
             # letting stance search fail and raise a useless tower.
-            if (
-                isinstance(act, bp.Place)
-                and bp.prop_cells(
-                    pos, act.state, getattr(self.body, "world", None), self.blocks
-                )
-                and any(
-                    self.body.inventory().get(i, 0) > 0
-                    for i in self._temporaries(False)
-                )
+            if isinstance(act, bp.Place) and bp.prop_cells(
+                pos, act.state, getattr(self.body, "world", None), self.blocks
             ):
+                if self._prop_item() is None:
+                    # No block to prop with: ask for one. Climbing cannot make the
+                    # click face, so a stance search and a tower here only ended in a
+                    # refused dirt ask (run 20261121T222050257793Z, two hoppers).
+                    self.short = {PROP_BLOCK: 1}
+                    self.short_for = pos
+                    self.report.failures.append(
+                        (pos, "no_prop_block", self.body.position(), {})
+                    )
+                    if self.template is not None:
+                        self.fails[pos] = MAX_TRIES
+                    return self._fail(pos, "no_material")
                 if self._propped(act, avoid):
                     _take_back(self, act)
                     return _record(self.report, act)
@@ -463,8 +472,7 @@ class _Runner:
             return False
         self.propped.add(act.pos)
         ident, props = bp.parse_state(act.state)
-        held = self.body.inventory()
-        item = next((i for i in self._temporaries(False) if held.get(i, 0) > 0), None)
+        item = self._prop_item()
         if item is None:
             return False
         candidates = bp.prop_cells(act.pos, act.state, self.body.world, self.blocks)
@@ -1154,6 +1162,18 @@ class _Runner:
         items = list(bp.SCAFFOLD_ITEMS)
         return items if scaffolding else [i for i in items if i != sc.BLOCK]
 
+    def _prop_item(self) -> str | None:
+        """A held solid block to put beside a cell as its click face and take back
+        straight away. Never scaffolding (it does not place over a rail or a slab),
+        and allowed while the build otherwise climbs on scaffolding only."""
+        pick = getattr(self.body, "temporary_items", None)
+        if pick is not None and getattr(self.body, "temporary_ok", None) is not None:
+            items = pick(False, prop=True)
+        else:
+            items = self._temporaries(False)
+        held = self.body.inventory()
+        return next((i for i in items if held.get(i, 0) > 0), None)
+
     def _fail(self, pos: Pos, reason: str) -> None:
         self.fails[pos] = self.fails.get(pos, 0) + 1
         if self.fails[pos] >= MAX_TRIES:
@@ -1199,17 +1219,23 @@ def _stock_footholds(runner, on_need_materials, log, low=FOOTHOLD_STOCK) -> bool
         return None
     held = runner.body.inventory()
     need = _still_needed(runner.body)
+    # A build that carries scaffolding climbs on it: that is its stock, and dirt is
+    # not fetched for it (the dirt goes back to the chests after site prep).
+    scaffolding = held.get(sc.BLOCK, 0) > 0 or getattr(runner, "scaffold_run", False)
+    if scaffolding:
+        runner.scaffold_run = True
+    item = sc.BLOCK if scaffolding else FOOTHOLD_ITEM
     have = sum(
         max(0, held.get(i, 0) - need.get(i, 0))
-        for i in runner._temporaries(scaffolding=False)
+        for i in runner._temporaries(scaffolding=scaffolding)
     )
     if have >= low:
         return None
-    ask = {FOOTHOLD_ITEM: FOOTHOLD_STOCK - have}
+    ask = {item: FOOTHOLD_STOCK - have}
     log(f"stocking footholds: {ask} (holding {have} spare)")
-    before = runner.body.inventory().get(FOOTHOLD_ITEM, 0)
+    before = runner.body.inventory().get(item, 0)
     on_need_materials(ask)  # best effort: the build goes on without them
-    return runner.body.inventory().get(FOOTHOLD_ITEM, 0) > before
+    return runner.body.inventory().get(item, 0) > before
 
 
 def _keep_footholds(runner, on_need_materials, log, stock: dict) -> None:
@@ -1756,14 +1782,27 @@ def run_build(
     stall_seconds: float | None = STALL_SECONDS,
     clock: Callable[[], float] | None = None,
     log: Callable[[str], None] | None = None,
+    on_site_ready: Callable[[], None] | None = None,
+    on_milestone: Callable[[str], None] | None = None,
+    until: str | None = None,
 ) -> BuildReport:
     """Build ``template`` through ``body``; see the module docstring.
+
+    ``on_milestone(name)``: ``site_ready`` once the site is ready (after
+    ``on_site_ready``), ``structure_done`` the first time only details are left (a
+    stage snapshot is taken there). ``until``: ``site`` or ``structure`` ends the
+    build at that milestone (stop ``until_site`` / ``until_structure``); the details
+    are then left for a run that starts from the snapshot.
 
     ``site_margin``: prepare the footprint plus this many cells on every side first
     (site_prep; ``None`` skips it, negative raises ValueError). ``stall_seconds``: a
     stationary retry loop longer than this is recovered, then stopped as ``stalled``
     (progress_watch; ``None`` disables). Stops: ``site_not_ready``, ``stalled``.
+    ``on_site_ready()``: called once the site is clear and level, before the first
+    block is placed (the job puts the levelling's dirt away there).
     """
+    if until not in UNTIL:
+        raise ValueError(f"until must be one of {sorted(u for u in UNTIL if u)}")
     report = BuildReport()
     places = getattr(body, "places", None)  # None for fakes and tests
     knowledge = Knowledge(places.archive) if places is not None else None
@@ -1787,6 +1826,13 @@ def run_build(
                 watch.progress(body.position())
                 return ok
 
+        if on_site_ready:
+            ready = on_site_ready
+
+            def on_site_ready(_ready=ready):
+                _ready()  # a walk to the chests and back
+                watch.progress(body.position())
+
     try:
         _run(
             template,
@@ -1802,6 +1848,9 @@ def run_build(
             protected,
             log or (lambda m: None),
             on_stage or (lambda *a, **k: None),
+            on_site_ready or (lambda: None),
+            on_milestone or (lambda name: None),
+            until,
         )
     except StallError as exc:
         report.stop, report.stall_reason = "stalled", str(exc)
@@ -1835,6 +1884,9 @@ def _run(
     protected,
     log,
     on_stage=lambda *a, **k: None,
+    on_site_ready=lambda: None,
+    on_milestone=lambda name: None,
+    until=None,
 ) -> None:
     on_stage("clearing trees")
     if survey:
@@ -1867,6 +1919,7 @@ def _run(
             runner,
             site,
             protected=protected,
+            keep=set(scaffolds),  # the run's own scaffolding (a resumed stage)
             on_need_materials=on_need_materials,
             log=site_log,
         )
@@ -1886,6 +1939,11 @@ def _run(
             body, template.cells, template=template
         )
         on_stage("placing")
+    on_site_ready()
+    on_milestone("site_ready")
+    if until == "site":
+        report.stop = "until_site"
+        return
     runner.scaffolds, runner.template = scaffolds, template
     runner.reserved = frozenset(
         p for p, s in template.cells.items() if bp.parse_state(s)[0] not in bp.AIR
@@ -1904,6 +1962,7 @@ def _run(
     hunger: dict = {}
     stock: dict = {}
     indoor_cleared = False
+    structure_done = False
     build_stage = "placing"
     on_stage(build_stage)
     while True:
@@ -2020,6 +2079,12 @@ def _run(
         if has_structure:
             build_stage = "placing"
         elif has_details:
+            if not structure_done:
+                structure_done = True
+                on_milestone("structure_done")
+                if until == "structure":
+                    report.stop = "until_structure"
+                    break
             if build_stage == "placing" and has_non_door_details and not indoor_cleared:
                 indoor_cleared = True
                 with calm():
@@ -2109,6 +2174,8 @@ def _run(
             report.stop = "blocked"
         else:
             report.stop = "done"
+    if report.stop == "done" and not structure_done:
+        on_milestone("structure_done")  # a house with no details: its end
     report.counts = bp.progress(template, body.world)
     report.unknown = bp.diff(template, body.world).unknown
 
