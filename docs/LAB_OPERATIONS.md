@@ -36,8 +36,9 @@ A whole supplied house-large build takes 40–50 minutes. Its three parts can be
 House-large stage library state (Nov 22): `site_ready` comes from site lab
 20261122T151804484862Z (b02b1a2). `structure_done` comes from zones run
 20261122T185137031693Z (d07edfc) and still has 23 scaffolding
-blocks standing that cleanup could not reach (#11, #12), so a details lab from it starts
-with them. `band_0`..`band_6` come from storeys run 20261122T182906280327Z. Typical times
+blocks standing that cleanup could not reach before #11 / #12 were fixed, so a details
+lab from it starts with them (details lab 20261122T212004328372Z on b3717f6 took them
+all down). `band_0`..`band_6` come from storeys run 20261122T182906280327Z. Typical times
 on d07edfc: site lab about 8:30, structure lab 19–25 min.
 
 A storeys build (`--order storeys`) also saves `band_N` once the structure of storey

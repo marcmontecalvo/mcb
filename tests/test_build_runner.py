@@ -1519,6 +1519,113 @@ def test_shut_in_below_its_goal_with_no_tower_the_body_still_gets_down():
     assert order == ["tower", "down"]
 
 
+def test_shut_in_above_its_goal_the_body_drops_to_the_goal_itself_first():
+    # Issue #11: a nearby lower spot can be inside the same pocket, or reached only
+    # by a 27-step walk down and back up (run 20261122T185137031693Z, (-10,71,68) to
+    # (-10,69,66)). The goal's own stance, walked to with hurting drops allowed, is
+    # where the body has to go; get_down is the fallback.
+    runner, order = _shut_in_runner((3, 10, 3), tower_ok=True)
+    body = runner.body
+    allowed = {"on": False}
+    reach = body.goto_stance
+
+    @contextlib.contextmanager
+    def allowing_hurt_drops():
+        allowed["on"] = True
+        try:
+            yield 12
+        finally:
+            allowed["on"] = False
+
+    def goto_stance(pos, reach_, avoid=()):
+        if allowed["on"]:
+            order.append("drop")
+            body.shut_in = False
+        return not body.shut_in and reach(pos, reach_, avoid)
+
+    body.allowing_hurt_drops = allowing_hurt_drops
+    body.goto_stance = goto_stance
+    assert runner._stance((3, 0, 3), ()) is True
+    assert order == ["drop"]
+    assert not allowed["on"]
+
+
+def test_shut_in_above_its_goal_with_no_drop_to_it_the_body_still_gets_down():
+    runner, order = _shut_in_runner((3, 10, 3), tower_ok=True)
+
+    @contextlib.contextmanager
+    def allowing_hurt_drops():
+        order.append("drop")
+        yield 12
+
+    runner.body.allowing_hurt_drops = allowing_hurt_drops
+    assert runner._stance((3, 0, 3), ()) is True
+    assert order == ["drop", "down"]
+
+
+def _cleanup_runner(reachable):
+    """Two scaffolding blocks standing on the ground after the build: A (5,0,5) is
+    the nearest, B (-8,0,5) far off. A has a stance only once ``reachable(body)``
+    (the body was shut in when it first came to A); B always has one."""
+    w = flat_world(-12, 12)
+    a, b = (5, 0, 5), (-8, 0, 5)
+    w[a] = w[b] = "minecraft:scaffolding"
+    t = bp.Template.from_build(make_build({(0, 0, 0): PLANKS}, (1, 1, 1)), (0, 0, 0))
+    w[(0, 0, 0)] = PLANKS
+
+    class CleanupBody(FakeBody):
+        def goto_stance(self, target_pos, reach, avoid=()):
+            if target_pos == a and not reachable(self):
+                return False
+            return super().goto_stance(target_pos, reach, avoid)
+
+    body = CleanupBody(w, {}, BLOCKS, pos=(5, 0, -6))
+    runner = br._Runner(body, br.BuildReport(), 200, BLOCKS)
+    runner.template = t
+    runner.scaffolds = {a, b}
+    return runner, t, a, b
+
+
+def _no_stance_rounds(runner, pos) -> int:
+    return sum(1 for f in runner.report.failures if f[0] == pos)
+
+
+def test_cleanup_retries_a_temporary_it_could_not_reach_once_the_body_has_moved():
+    # Issue #12: a cleanup cell with no stance was skipped for good on the first
+    # try, though the body went on to break others and could reach it from there
+    # (run 20261122T185137031693Z left 23 scaffolding blocks standing).
+    def reachable(body):
+        return body.world(-8, 0, 5) != "minecraft:scaffolding"  # once B is down
+
+    runner, t, a, b = _cleanup_runner(reachable)
+    br._clean_up(runner, t, runner.scaffolds)
+    assert runner.body.world(*b) in (None, "minecraft:air")
+    assert runner.body.world(*a) in (None, "minecraft:air")
+    assert a not in runner.report.skipped
+    assert _no_stance_rounds(runner, a) == 1
+
+
+def test_cleanup_stops_retrying_once_a_round_takes_nothing_down():
+    # A cell no round can reach is tried again only after a round that changed
+    # something, and stays reported as skipped.
+    runner, t, a, b = _cleanup_runner(lambda body: False)
+    br._clean_up(runner, t, runner.scaffolds)
+    assert runner.body.world(*b) in (None, "minecraft:air")
+    assert runner.report.skipped.get(a) == "no_stance"
+    assert _no_stance_rounds(runner, a) == 2
+
+
+def test_cleanup_gives_a_temporary_skipped_during_the_build_another_try():
+    # A tower root skipped while the structure went up (reclaimed from far away)
+    # is cleanup's work too.
+    runner, t, a, b = _cleanup_runner(lambda body: True)
+    runner.report.skipped[a] = "no_stance"
+    runner.fails[a] = br.MAX_TRIES
+    br._clean_up(runner, t, runner.scaffolds)
+    assert runner.body.world(*a) in (None, "minecraft:air")
+    assert a not in runner.report.skipped
+
+
 def _closed_in_body(own_state):
     """A body standing in the template's own unbuilt cell (3, 0, 3), the house built
     round it: no stance, no way down; another cell (5, 0, 3) is still to place."""

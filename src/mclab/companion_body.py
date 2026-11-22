@@ -953,12 +953,17 @@ class CompanionBody:
         """Shut in on a ledge the house closed around: take the shortest drop to a
         spot beside the body, at most :meth:`hurt_drop` (KEEP_HEALTH is kept). The
         way back up is the stairs or a tower like any other climb; a drop is never
-        the planned way down while one of those exists."""
+        the planned way down while one of those exists.
+
+        A spot the body walks to without the drop is in the region it is shut in, so
+        it is never the way out (issue #11: the nearest lower spot was one block down
+        in the same pocket, and getting there cleared ``shut_in`` for nothing)."""
         x, y, z = self.position()
         drop = self.hurt_drop()
         if drop <= 3:
             return False
         cells = self._cells_now()
+        walk = self._walkable(cells, (x, y, z))
         spots = sorted(
             (
                 (x + dx, y - h, z + dz)
@@ -969,7 +974,8 @@ class CompanionBody:
             ),
             key=lambda n: (y - n[1], abs(n[0] - x) + abs(n[2] - z)),
         )
-        spots = [n for n in spots if standable(cells, n)][:GET_DOWN_TRIES]
+        spots = [n for n in spots if standable(cells, n) and n not in walk]
+        spots = spots[:GET_DOWN_TRIES]
         with self.allowing_hurt_drops():
             for spot in spots:
                 if self._navigate(spot, reach=None, radius=0.6):
@@ -2614,7 +2620,11 @@ class CompanionBody:
                 ):
                     return True
                 return self._chosen_again(target, reach, avoid, node)
-            self._failed_stances[(target, node)] = time.monotonic() + STANCE_RETRY_S
+            # Shut in, the region failed, not the stance: once the body is out it is
+            # the one to try (issue #11, run 20261122T185137031693Z: the ground
+            # stances barred from the pocket, the body went back up into it).
+            if not self.shut_in:
+                self._failed_stances[(target, node)] = time.monotonic() + STANCE_RETRY_S
             if self.boxed_in:
                 return False
             if getattr(self, "walk_only", False) and self.position() == here:
