@@ -159,18 +159,20 @@ def decide(s: Situation, policy: DefensePolicy) -> Action:
         else None
     )
     low = s.health <= policy.floor_health
+    near = f"{_a(seen[0])} near"  # every reason says what the bot reacts to
 
     if low:
+        hurt = f"hurt, {near}"
         if ally is not None:  # an ally can fight for us: stay with them
             return Action(
-                "regroup", f"hurt: staying with {ally.name}", where=ally.position,
+                "regroup", f"{hurt}: staying with {ally.name}", where=ally.position,
                 threats=seen,
             )  # fmt: skip
         if base is not None:
-            return Action("shelter", "hurt: going home", where=base, threats=seen)
+            return Action("shelter", f"{hurt}: going home", where=base, threats=seen)
         if s.can_burrow and (s.night or s.can_heal):
-            return Action("burrow", "hurt: hiding in a hole", threats=seen)
-        return Action("flee", "hurt and nowhere to hide: running", threats=seen)
+            return Action("burrow", f"{hurt}: hiding in a hole", threats=seen)
+        return Action("flee", f"{hurt} and nowhere to hide: running", threats=seen)
 
     if not fightable:
         return Action("avoid", f"keeping away from the {_name(seen[0])}", threats=seen)
@@ -199,21 +201,22 @@ def decide(s: Situation, policy: DefensePolicy) -> Action:
                 stocked, key=lambda c: (WEAPONS.index(c[1]), _dist(c[0], s.position))
             )
             return Action(
-                "arm", f"fetching the {_short(item)} from the base", item=item,
-                where=tuple(pos), threats=seen,
+                "arm", f"{near}: fetching the {_short(item)} from the base",
+                item=item, where=tuple(pos), threats=seen,
             )  # fmt: skip
+    unarmed = f"{near} and no weapon"
     if ally is not None:
         return Action(
-            "regroup", f"no weapon: staying with {ally.name}", where=ally.position,
+            "regroup", f"{unarmed}: staying with {ally.name}", where=ally.position,
             threats=seen,
         )  # fmt: skip
     if base is not None:
-        return Action("shelter", "no weapon: going home", where=base, threats=seen)
+        return Action("shelter", f"{unarmed}: going home", where=base, threats=seen)
     if not s.night:
-        return Action("flee", "no weapon: walking away", threats=seen)
+        return Action("flee", f"{unarmed}: walking away", threats=seen)
     if s.can_burrow:
-        return Action("burrow", "no weapon: hiding in a hole", threats=seen)
-    return Action("flee", "no weapon and nowhere to hide: running", threats=seen)
+        return Action("burrow", f"{unarmed}: hiding in a hole", threats=seen)
+    return Action("flee", f"{unarmed} and nowhere to hide: running", threats=seen)
 
 
 def _short(item: str) -> str:
@@ -222,3 +225,8 @@ def _short(item: str) -> str:
 
 def _name(threat: Threat) -> str:
     return _short(threat.type)
+
+
+def _a(threat: Threat) -> str:
+    name = _name(threat)
+    return ("an " if name[:1] in "aeiou" else "a ") + name

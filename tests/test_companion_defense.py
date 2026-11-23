@@ -228,6 +228,25 @@ def test_a_fight_skips_the_creeper_and_takes_the_zombie():
     assert (action.kind, action.target) == ("fight", "z")
 
 
+def test_every_reason_names_the_nearest_mob():
+    # live, Nov 23: "No weapon: walking away." left the owner asking from what
+    for s in (
+        situation(),
+        situation(night=False),
+        situation(health=4.0),
+        situation(health=4.0, can_burrow=False),
+        situation(can_burrow=False),
+        situation(base=(20, 64, 0)),
+        situation(health=4.0, base=(20, 64, 0)),
+        situation(entities=(mob(), player())),
+        situation(health=4.0, entities=(mob(), player())),
+        situation(base=(20, 64, 0), base_weapons=(((21, 64, 0), M + "iron_axe"),)),
+    ):
+        assert "a zombie" in cd.decide(s, POLICY).reason
+    evoker = situation(entities=(mob("evoker"),))
+    assert "an evoker" in cd.decide(evoker, POLICY).reason
+
+
 def test_every_action_says_why():
     for s in (
         situation(),
