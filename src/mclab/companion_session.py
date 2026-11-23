@@ -788,6 +788,8 @@ class Session:
     def trial(self, spec: dict) -> dict:
         """Set the scene for an operator's combat trial (the body's trial op). The
         body checks every field; a refusal raises ValueError with its reason."""
+        if self.body is None:  # respawning after a lost fight
+            raise ValueError("trial failed: body_not_ready")
         result = self.body.trial(**spec)
         if not result.ok:
             raise ValueError(f"trial failed: {result.reason}")

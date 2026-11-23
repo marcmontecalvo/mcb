@@ -1450,6 +1450,9 @@ def test_trial_sets_the_scene_through_the_body(guard):
     assert _logged(body, "trial") == [("trial", spec)]
     with pytest.raises(ValueError, match="unknown_item"):
         session.trial({"give": [{"item": "minecraft:nope", "count": 1}]})
+    session.body = None  # respawning: refused, not a 500
+    with pytest.raises(ValueError, match="body_not_ready"):
+        session.trial(spec)
 
 
 def test_a_target_the_body_refuses_is_fought_as_the_nearest_instead(guard):

@@ -293,6 +293,17 @@ def test_the_trial_waits_for_a_quiet_bot_before_setting_the_scene():
     assert out["settled"] is True and out["settle"] == pytest.approx(client.trial_at)
 
 
+def test_the_trial_waits_for_a_dead_bot_to_respawn():
+    # live: the scene after a lost fight was refused (the body was respawning)
+    clock = FakeClock()
+    respawning = {**QUIET, "body_state": "spawning"}
+    client = FakeClient(clock, statuses=[respawning, respawning])
+
+    out = ct.run_one(client, "sword", "zombie", timeout=5, clock=clock)
+
+    assert len(client.status_at) == 3 and out["settled"] is True
+
+
 def test_a_bot_that_will_not_settle_is_stopped_once_then_the_trial_goes_on():
     clock = FakeClock()
     busy = _status(job={"id": "j0", "state": "running"})

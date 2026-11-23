@@ -258,10 +258,12 @@ def _hunt(client, mob: str, started: float, timeout: float, clock) -> dict:
 
 
 def _quiet(state: dict) -> tuple[bool, float]:
-    """Whether the bot is idle with its guard awake, and how long a rest has left."""
+    """Whether the bot is idle with its guard awake and its body in the world (not
+    respawning after a lost fight), and how long a rest has left."""
     defense = state.get("defense") or {}
     resting = defense.get("resting") or 0.0
-    busy = bool(state.get("job") or state.get("queue") or defense.get("active"))
+    away = state.get("body_state", "ready") != "ready"
+    busy = bool(state.get("job") or state.get("queue") or defense.get("active") or away)
     return not busy and resting <= 0, resting
 
 
