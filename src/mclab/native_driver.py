@@ -352,7 +352,7 @@ def prefetch_while_following(controller, route, native=None):
         end = tuple(route[min(len(route) - 1, max(index, 1) + REFRESH_AHEAD - 1)])
         full = getattr(controller, "route", None) or ()
         goal = tuple(controller.goal) if controller.goal is not None else None
-        complete = bool(full) and goal is not None and tuple(full[-1]) == goal
+        complete = bool(full) and goal is not None and _reaches_goal(controller, full)
         goal_rev = getattr(controller, "goal_revision", 0)
         last = getattr(controller, "refreshed", None)
         if last is not None and (
@@ -387,6 +387,30 @@ def prefetch_while_following(controller, route, native=None):
                 "goal_revision": controller.goal_revision,
             },
         )
+    )
+
+
+def _reaches_goal(controller, route):
+    """The route's last cell already satisfies the goal (within its reach radius).
+
+    A walk to a stance ends where the planner says ``reached``: inside the radius,
+    not on the goal cell. Comparing against the goal cell alone made every such
+    route look unfinished and re-planned it on each map revision (companion host
+    run 20261123T211058112992Z: 12 plans in 5 s, all dropped)."""
+    end = tuple(route[-1])
+    goal = controller.goal
+    if goal is None:
+        return False
+    goal = tuple(goal)
+    if end == goal:
+        return True
+    if getattr(controller, "interact_reach", None) is not None:
+        at_goal = getattr(controller, "_at_goal", None)
+        return bool(at_goal and at_goal(end, controller._planning_snapshot()[1]))
+    return (
+        end[1] == goal[1]
+        and math.hypot(end[0] - goal[0], end[2] - goal[2])
+        <= getattr(controller, "radius", 0)
     )
 
 

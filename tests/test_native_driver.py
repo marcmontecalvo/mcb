@@ -1430,6 +1430,51 @@ def test_complete_route_does_not_replan_on_each_step_when_map_unchanged():
     assert len(started) == 1
 
 
+def test_route_ending_within_the_goal_radius_is_complete_and_not_replanned():
+    # Companion host run 20261123T211058112992Z: a goto with radius 1.8 adopted a
+    # route ending one cell off the goal; ``route[-1] == goal`` never held, so every
+    # map revision (and every step of the advancing start) fired a full re-plan that
+    # finished "reached", was dropped as nothing new, and was cancelled.
+    from types import SimpleNamespace
+
+    from mclab.native_driver import prefetch_while_following
+
+    route = [(x, 1, 0) for x in range(25)]
+    air = {"block": "minecraft:air", "collision_boxes": []}
+    stone = {"block": "minecraft:stone", "collision_boxes": [[0, 0, 0, 1, 1, 1]]}
+    floor = {
+        (x, y, z): dict(air)
+        for x in range(-2, 28)
+        for y in range(0, 4)
+        for z in range(-3, 3)
+    }
+    c = _refresh_controller(None, ())
+    c.route = list(route)
+    c.goal = (25, 1, 1)  # the route stops short: within the reach radius
+    c.radius = 1.8
+    c.interact_reach = None
+    c.prefetch = None
+    c.prefetch_started = 0
+    started = []
+    snapshot = {"value": (7, floor)}
+    c._planning_snapshot = lambda: snapshot["value"]
+    c._new_search = lambda cells, start, revision: started.append(start) or object()
+    for rev, idx in enumerate((1, 2, 3, 4, 5, 6), start=8):
+        snapshot["value"] = (rev, floor)
+        prefetch_while_following(c, route, {"next_index": idx})
+    assert started == []
+    # A real change on the way ahead still re-plans.
+    snapshot["value"] = (20, {**floor, (18, 1, 0): stone})
+    prefetch_while_following(c, route, {"next_index": 7})
+    assert len(started) == 1
+    # A route that stops outside the radius is not complete: it keeps extending.
+    far = SimpleNamespace(**{**vars(c), "goal": (40, 1, 0), "refreshed": None})
+    far.prefetch = None
+    started.clear()
+    prefetch_while_following(far, route, {"next_index": 3})
+    assert len(started) == 1
+
+
 def _single_route_client(sent, records, current, reject=lambda n: None):
     count = {"n": 0}
 
