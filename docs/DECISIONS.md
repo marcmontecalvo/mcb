@@ -413,6 +413,19 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
 - **Stopping the host politely.** On Windows `terminate()` is a hard kill, so the
   supervisor first asks over `POST /shutdown` (the host halts and despawns the
   body, a logout that saves) and only then terminates.
+- **Where the bot comes back (live, Nov 23).** A first start uses the world spawn
+  from `level.dat`, never a guessed column (one over the ocean drowned it). Later
+  starts use the last good position, which must be a dry, healthy stance on the
+  ground; a start that fails there forgets it, so the host's retry uses the world
+  spawn. A bot that *died* respawns at the world spawn like a vanilla player, not
+  beside what killed it; the spot becomes the place `death`.
+- **A body adapter owns one entity.** mcb-body adapters bind the entity they
+  spawned; a retired adapter never touches a later body of the same name (it killed
+  the respawned companion every tick), and retired adapters whose entity is gone
+  are dropped, so dying for hours never reaches `MAX_RETIRED_BODIES`.
 - **Open:** LAN access for a second PC (the game port binds loopback for now),
-  rotating a long session's `events.sqlite3`, and night shelter (B5) before the bot
-  is left alone for hours.
+  rotating a long session's `events.sqlite3`, and night shelter and defence (B5)
+  before the bot is left alone for hours: the first live gather ended "slain by
+  Zombie" at night. A "wood" request names one log type; in a spruce-only biome
+  `oak_log` is honestly `not_found` after a 7-minute sweep, so the talker and skill
+  should pick the log type the bot has seen (or gather any log).

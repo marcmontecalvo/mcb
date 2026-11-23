@@ -1,7 +1,12 @@
 # Companion LLM wiring (Nov 23, 2026)
 
-Status: **code and unit tests done, live verification next** on
-`feat/companion-llm` (section 7). This is phase 4 of
+Status: **live verification in progress** on `feat/companion-llm` (section 7).
+Verified on the play server (Nov 23): spawn at the world spawn and idle without
+release, `status`/`list_places` over the real MCP stdio server, `goto` 30 blocks
+(6.5 s), `stop` mid-route (cancelled in about 0.3 s), a failed start at a bad saved
+spot falling back to the world spawn. Still to do with a player in the world:
+`follow`, chat "come here", a deliberate death (`/kill MCBot`) and respawn, stop with
+the model unreachable, and a daytime gather. This is phase 4 of
 [LAB_COMPANION_PLAN_2026-11-15.md](LAB_COMPANION_PLAN_2026-11-15.md) ("Companion
 v0 and MCP: one bot"), done with two decisions from Nov 23:
 
