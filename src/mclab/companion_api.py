@@ -33,7 +33,7 @@ RUNTIME_FILE = "companion-host.json"
 DEFAULT_INSTANCE = "play"
 HOST_DOWN = (
     "companion host is not running; start the play server with "
-    "`uv run --locked mcplay server start`"
+    "`uv run --env-file .env --locked mcplay server start`"
 )
 
 

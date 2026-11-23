@@ -12,7 +12,8 @@ body does the walking, mining and placing. Never try to steer it step by step.
 
 Copy `.mcp.json.example` to `.mcp.json`, replace `<REPO_PATH>` with the repo
 checkout (absolute path, forward slashes) and restart the client. The play server
-must be running (`uv run --locked mcplay server start`). If a tool says "companion
+must be running (`uv run --env-file .env --locked mcplay server start`; the
+`.env` gives the in-game chat model its `ATOM_API_KEY`). If a tool says "companion
 host is not running", start it and retry; do not retry in a loop.
 
 ## Tools

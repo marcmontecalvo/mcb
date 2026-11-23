@@ -56,7 +56,11 @@ its runtime files under `runtime/instances/<name>/` (`server/`,
 `supervisor.json`, `launch.lock`, `supervisor.log`, `server-console.log`,
 `companion-host.json`). Toolchains and downloads stay shared in `runtime/`.
 The arena lock is per instance. A `mcplay` console script sets the instance to
-`play` and runs the normal CLI, so `uv run --locked mcplay server start` works.
+`play` and runs the normal CLI. Start it with
+`uv run --env-file .env --locked mcplay server start`: the supervisor and the
+companion host inherit that environment, which is where the talker finds
+`ATOM_API_KEY` (without it the bot answers chat with "I can't think right now";
+jobs, MCP and stop still work).
 
 The play instance config has its own ports (game 25565, bridge 8775,
 supervisor 8776, companion 8777), `"lab_mod": false`, a normal (not flat) world,
