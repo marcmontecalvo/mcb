@@ -88,17 +88,17 @@ def test_allies_are_other_players_near():
     assert [a.name for a in found] == ["Marc"]
 
 
-def test_best_weapon_prefers_a_sword_then_an_axe_by_tier():
+def test_best_weapon_is_the_most_damage_per_second():
     assert cd.best_weapon({}) is None
     assert cd.best_weapon({M + "stick": 3}) is None
     assert cd.best_weapon({M + "stone_axe": 1}) == M + "stone_axe"
-    assert (
-        cd.best_weapon({M + "iron_axe": 1, M + "wooden_sword": 1}) == M + "wooden_sword"
-    )
+    # iron axe crit 13.5 per 22 ticks beats wooden sword crit 6 per 12.5
+    assert cd.best_weapon({M + "iron_axe": 1, M + "wooden_sword": 1}) == M + "iron_axe"
     assert (
         cd.best_weapon({M + "stone_sword": 1, M + "diamond_sword": 1})
         == M + "diamond_sword"
     )
+    assert cd.best_weapon({M + "bow": 1, M + "arrow": 9}) is None  # not for melee
 
 
 # --- decisions ----------------------------------------------------------------------
@@ -119,6 +119,34 @@ def test_armed_and_healthy_fights_the_nearest():
         M + "stone_sword",
     )
     assert action.anchor is None
+    assert action.tactic.style == "melee" and action.tactic.crit
+
+
+def test_the_fight_uses_the_targets_tactic():
+    skeleton = mob("skeleton", uuid="s")
+    kit = {M + "bow": 1, M + "arrow": 20, M + "iron_sword": 1}
+    action = cd.decide(situation(entities=(skeleton,), inventory=kit), POLICY)
+    assert (action.kind, action.item, action.tactic.style) == (
+        "fight",
+        M + "bow",
+        "snipe",
+    )
+
+
+def test_an_evoker_is_fought_before_nearer_mobs():
+    evoker = mob("evoker", at=(9.5, 64.0, 0.5), uuid="e")
+    action = cd.decide(
+        situation(entities=(mob(), evoker), inventory={M + "iron_sword": 1}), POLICY
+    )
+    assert action.target == "e"
+
+
+def test_a_mob_it_cannot_fight_with_what_it_holds_counts_as_unarmed():
+    phantom = mob("phantom", uuid="p")
+    sword = {M + "iron_sword": 1}
+    action = cd.decide(situation(entities=(phantom,), inventory=sword), POLICY)
+    assert action.kind == "burrow"  # at night, nothing to shoot it with
+    assert "no weapon for it" in action.reason
 
 
 def test_an_axe_is_a_weapon():
@@ -188,43 +216,69 @@ def test_the_floor_is_adjustable():
     assert cd.decide(situation(health=12.0, inventory=armed), POLICY).kind == "fight"
 
 
-def test_low_with_nowhere_to_dig_flees():
+def test_low_with_nowhere_to_dig_escapes():
     action = cd.decide(situation(health=4.0, can_burrow=False), POLICY)
-    assert action.kind == "flee"
+    assert action.kind == "escape"
 
 
 def test_by_day_an_unarmed_bot_walks_away_instead_of_digging_in():
     # by day a healthy bot may leave its hole at once, the mob is still there, and it
     # would dig in three blocks deeper every round
-    action = cd.decide(situation(night=False), POLICY)
-    assert action.kind == "flee" and action.reason
+    far = mob(at=(8.5, 64.0, 0.5))
+    action = cd.decide(situation(entities=(far,), night=False), POLICY)
+    assert action.kind == "walk_away" and action.reason
+
+
+@pytest.mark.parametrize(
+    "entities, why",
+    [
+        ((mob(at=(4.5, 64.0, 0.5)),), "a mob within 6 blocks"),
+        ((mob(at=(8.5, 64.0, 0.5)), mob(at=(0.5, 64.0, 9.5), uuid="b")), "two mobs"),
+        ((mob("skeleton", at=(11.5, 64.0, 0.5)),), "an archer in view"),
+        ((mob("creeper", at=(6.8, 64.0, 0.5)),), "a creeper inside its 7 blocks"),
+    ],
+)
+def test_by_day_it_escapes_instead_of_walking_when_it_is_pressed(entities, why):
+    action = cd.decide(situation(entities=entities, night=False), POLICY)
+    assert action.kind == "escape", why
 
 
 def test_hurt_by_day_it_hides_only_while_it_can_heal():
     assert cd.decide(situation(health=4.0, night=False), POLICY).kind == "burrow"
     starving = situation(health=4.0, night=False, can_heal=False)
-    assert cd.decide(starving, POLICY).kind == "flee"
+    assert cd.decide(starving, POLICY).kind == "escape"
     # at night the hole waits for day, healing or not
     assert cd.decide(situation(health=4.0, can_heal=False), POLICY).kind == "burrow"
 
 
-def test_creepers_and_wardens_are_avoided_not_fought():
+def test_a_creeper_is_hit_and_left_with_a_sword():
     armed = {M + "netherite_sword": 1}
     creeper = mob("creeper", at=(3.5, 64.0, 0.5), uuid="c")
     action = cd.decide(situation(entities=(creeper,), inventory=armed), POLICY)
-    assert action.kind == "avoid"
+    assert (action.kind, action.target) == ("fight", "c")
+    assert action.tactic.style == "hit_and_back"
+
+
+def test_an_unarmed_bot_escapes_a_creeper_rather_than_digging_beside_it():
+    creeper = mob("creeper", at=(3.5, 64.0, 0.5), uuid="c")
+    action = cd.decide(situation(entities=(creeper,)), POLICY)
+    assert action.kind == "escape"
     assert [t.uuid for t in action.threats] == ["c"]
-    warden = mob("warden", uuid="w")
-    assert cd.decide(situation(entities=(warden,), inventory=armed), POLICY).kind == (
-        "avoid"
-    )
 
 
-def test_a_fight_skips_the_creeper_and_takes_the_zombie():
+def test_a_warden_or_boss_in_view_means_escape_whatever_it_holds():
+    armed = {M + "netherite_sword": 1}
+    warden = mob("warden", at=(10.5, 64.0, 0.5), uuid="w")
+    both = situation(entities=(mob(), warden), inventory=armed)
+    action = cd.decide(both, POLICY)
+    assert action.kind == "escape" and "warden" in action.reason
+
+
+def test_the_fight_takes_the_nearest_target_it_can_fight():
     armed = {M + "iron_sword": 1}
-    creeper = mob("creeper", at=(2.5, 64.0, 0.5), uuid="c")
+    phantom = mob("phantom", at=(2.5, 64.0, 0.5), uuid="p")  # needs a bow
     zombie = mob(at=(5.5, 64.0, 0.5), uuid="z")
-    action = cd.decide(situation(entities=(creeper, zombie), inventory=armed), POLICY)
+    action = cd.decide(situation(entities=(phantom, zombie), inventory=armed), POLICY)
     assert (action.kind, action.target) == ("fight", "z")
 
 
@@ -233,6 +287,7 @@ def test_every_reason_names_the_nearest_mob():
     for s in (
         situation(),
         situation(night=False),
+        situation(night=False, entities=(mob(at=(9.5, 64.0, 0.5)),)),
         situation(health=4.0),
         situation(health=4.0, can_burrow=False),
         situation(can_burrow=False),

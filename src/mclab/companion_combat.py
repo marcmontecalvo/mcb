@@ -1,0 +1,203 @@
+"""Combat technique: which tactic and weapon for which target (pure).
+
+Python picks the tactic; the mod's ``fight`` op carries it out tick by tick (crit
+timing, cooldowns, aim). Weapon numbers are from the 26.3 bytecode
+(docs/COMBAT_MECHANICS_26.3.md); the plan is docs/COMPANION_COMBAT_PLAN_2026-11-23.md.
+"""
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+
+M = "minecraft:"
+CRIT = 1.5  # base damage multiplier of a falling, non-sprinting strike
+CRIT_CYCLE = 12  # ticks from one jump to the next: crits cannot come faster
+POKE_KEEP = (2.5, 4.0)  # spear jab reaches 2.0 to 4.5 from the eye
+SNIPE_KEEP = (8.0, 15.0)  # outside a skeleton's comfort, inside its 15-block range
+ARROWS = frozenset({M + "arrow", M + "spectral_arrow", M + "tipped_arrow"})
+MELEE_KINDS = ("sword", "axe", "trident", "spear")
+
+
+@dataclass(frozen=True)
+class Weapon:
+    item: str
+    kind: str  # sword, axe, spear, trident or bow
+    damage: float  # per hit, the player's base 1 included; bow: a full-draw arrow
+    cooldown: float  # ticks to full strength (bow: the full draw)
+
+    @property
+    def crits(self) -> bool:
+        return self.kind in ("sword", "axe", "trident")
+
+    def hit(self) -> float:
+        return self.damage * (CRIT if self.crits else 1)
+
+    def dps(self) -> float:
+        """Damage per tick with the best technique (crits where they apply)."""
+        return self.hit() / max(self.cooldown, CRIT_CYCLE if self.crits else 1)
+
+
+def _table() -> dict[str, Weapon]:
+    out = {}
+    swords = {"wooden": 4, "golden": 4, "stone": 5, "copper": 5, "iron": 6}
+    swords |= {"diamond": 7, "netherite": 8}
+    for tier, damage in swords.items():
+        out[f"{tier}_sword"] = ("sword", damage, 12.5)
+    axes = {
+        "wooden": (7, 0.8), "golden": (7, 1.0), "stone": (9, 0.8), "copper": (9, 0.8),
+        "iron": (9, 0.9), "diamond": (9, 1.0), "netherite": (10, 1.0),
+    }  # fmt: skip
+    for tier, (damage, speed) in axes.items():
+        out[f"{tier}_axe"] = ("axe", damage, 20 / speed)
+    spears = {
+        "wooden": (1, 0.65), "golden": (1, 0.95), "stone": (2, 0.75),
+        "copper": (2, 0.85), "iron": (3, 0.95), "diamond": (4, 1.05),
+        "netherite": (5, 1.15),
+    }  # fmt: skip
+    for tier, (damage, swing) in spears.items():
+        out[f"{tier}_spear"] = ("spear", damage, swing * 20)
+    out["trident"] = ("trident", 9, 20 / 1.1)
+    out["bow"] = ("bow", 6, 20.0)
+    return {M + k: Weapon(M + k, *v) for k, v in out.items()}
+
+
+WEAPONS = _table()
+MELEE_RANKED = tuple(
+    w.item
+    for w in sorted(WEAPONS.values(), key=lambda w: -w.dps())
+    if w.kind in MELEE_KINDS
+)
+
+
+def weapon(item: str) -> Weapon | None:
+    return WEAPONS.get(item)
+
+
+@dataclass(frozen=True)
+class Tactic:
+    """What the mod's fight op does; ``wire()`` is its ``tactic`` field.
+
+    style: melee, poke, hit_and_back, snipe, hunt or avoid (never engaged).
+    """
+
+    style: str
+    weapon: str | None = None
+    crit: bool = False  # time strikes on the way down from a jump
+    sweep: bool = True  # a grounded sword hit may sweep what stands near the target
+    keep: tuple[float, float] | None = None  # stand-off distance (min, max)
+    melee: str | None = None  # snipe: the weapon for a target that closes in
+    no_gaze: bool = False  # never look at its eyes (enderman)
+
+    def wire(self) -> dict:
+        out = {"style": self.style, "crit": self.crit, "sweep": self.sweep}
+        if self.keep is not None:
+            out["keep"] = list(self.keep)
+        if self.melee is not None:
+            out["melee"] = self.melee
+        if self.no_gaze:
+            out["no_gaze"] = True
+        return out
+
+
+AVOID = Tactic("avoid")
+
+
+@dataclass(frozen=True)
+class Profile:
+    styles: tuple[str, ...]  # preference order; empty: never engaged
+    no_gaze: bool = False
+    first: bool = False  # fought before nearer mobs (the evoker, before its vexes)
+
+
+def _profiles() -> dict[str, Profile]:
+    melee = Profile(("melee",))
+    out = {}
+    groups = {
+        melee: "zombie husk drowned zombie_villager spider cave_spider silverfish "
+        "endermite slime magma_cube witch vindicator hoglin zoglin "
+        "piglin_brute wither_skeleton vex breeze",  # the breeze deflects arrows
+        Profile(("melee",), first=True): "evoker",
+        Profile(("snipe", "melee")): "skeleton stray bogged pillager",
+        Profile(("snipe", "hit_and_back")): "creeper",
+        Profile(("snipe",)): "phantom blaze ghast",
+        Profile(("melee",), no_gaze=True): "enderman",
+        Profile(()): "warden ravager guardian elder_guardian ender_dragon wither",
+    }
+    for profile, names in groups.items():
+        for name in names.split():
+            out[M + name] = profile
+    return out
+
+
+PROFILES = _profiles()
+HUNT = Profile(("hunt",))  # anything without a profile: an animal
+# Hurt from range: walking calmly away from them only gets the bot shot in the back.
+RANGED = frozenset(
+    M + n
+    for n in "skeleton stray bogged pillager witch blaze ghast breeze evoker".split()
+)
+
+
+def never_engaged(target: str) -> bool:
+    return not PROFILES.get(target, HUNT).styles
+
+
+def first(target: str) -> bool:
+    return PROFILES.get(target, HUNT).first
+
+
+def _held(inventory: Mapping[str, int], kinds) -> list[Weapon]:
+    return [
+        w
+        for item, n in inventory.items()
+        if n > 0 and (w := WEAPONS.get(item)) is not None and w.kind in kinds
+    ]
+
+
+def _best(inventory, kinds) -> Weapon | None:
+    held = _held(inventory, kinds)
+    return max(held, key=lambda w: (w.dps(), w.item)) if held else None
+
+
+def tactic(target: str, inventory: Mapping[str, int]) -> Tactic:
+    """The first style in the target's profile that the held weapons allow."""
+    profile = PROFILES.get(target, HUNT)
+    for style in profile.styles:
+        chosen = _style(style, inventory)
+        if chosen is not None:
+            return (
+                Tactic(**{**chosen.__dict__, "no_gaze": True})
+                if profile.no_gaze
+                else chosen
+            )
+    return AVOID
+
+
+def _style(style: str, inventory) -> Tactic | None:
+    if style == "snipe":
+        bow = _best(inventory, ("bow",))
+        if bow is None or not any(inventory.get(a, 0) > 0 for a in ARROWS):
+            return None
+        backup = _best(inventory, MELEE_KINDS)
+        return Tactic(
+            "snipe", bow.item, keep=SNIPE_KEEP, melee=backup.item if backup else None
+        )
+    if style == "melee":
+        best = _best(inventory, MELEE_KINDS)
+        if best is None:
+            return None
+        if best.kind == "spear":
+            return Tactic("poke", best.item, keep=POKE_KEEP)
+        return Tactic("melee", best.item, crit=True)
+    if style == "hit_and_back":
+        best = _best(inventory, ("sword", "axe", "trident"))
+        return Tactic("hit_and_back", best.item) if best else None
+    if style == "hunt":
+        held = _held(inventory, MELEE_KINDS)
+        best = max(held, key=lambda w: (w.hit(), w.dps())) if held else None
+        return Tactic(
+            "hunt",
+            best.item if best else None,
+            crit=best is None or best.crits,
+            sweep=False,
+        )
+    raise ValueError(f"unknown combat style: {style}")

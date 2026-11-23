@@ -2701,3 +2701,14 @@ def test_fight_sends_only_the_given_fields_and_waits_long_enough():
     assert bridge.sent[-1][1]["entity"] == "u-1" and bridge.sent[-1][1]["leash"] == 6
     # the longest fight the body accepts (2400 ticks) must not time out the op
     assert cb.OP_TIMEOUTS["fight"] >= 2400 / 20
+    b.fight(radius=12, floor=6, max_ticks=200, tactic={"style": "melee", "crit": True})
+    assert bridge.sent[-1][1]["tactic"] == {"style": "melee", "crit": True}
+
+
+def test_escape_sends_its_fields_and_waits_long_enough():
+    b, bridge, _ = body()
+    bridge.reply["escape"] = ("done", {"end": "clear", "ticks": 60})
+    result = b.escape(radius=24, clear=16, max_ticks=200)
+    assert result.ok and result.data["end"] == "clear"
+    assert bridge.sent[-1] == ("escape", {"radius": 24, "clear": 16, "max_ticks": 200})
+    assert cb.OP_TIMEOUTS["escape"] >= 1200 / 20

@@ -70,6 +70,9 @@ DEFEND_WAIT_TICKS = 10  # a step that could do nothing waits this long
 FLEE_DISTANCE = 12  # blocks: one flee step
 FLEE_RADIUS = 3.0
 FLEE_TURNS = (0, 45, -45, 90, -90)  # degrees off straight away, tried in order
+ESCAPE_SCAN = 24  # the escape steers around every hostile this close, new ones too
+ESCAPE_CLEAR = 16  # and ends once none is this close
+ESCAPE_TICKS = 200  # one step; the guard decides again after it
 REGROUP_NEAR = 3.0  # beside an ally
 BASE_NEAR = 2.0  # at the base place
 BASE_EXTENT = 16.0  # known containers this close to the base place are the base's
@@ -747,8 +750,8 @@ class Session:
         self.knowledge()  # body.foods: eat_when_needed knows what is food
         step = {
             "fight": self._fight,
-            "avoid": self._flee,
-            "flee": self._flee,
+            "walk_away": self._walk_away,
+            "escape": self._escape,
             "regroup": self._regroup,
             "shelter": self._shelter,
             "arm": self._arm,
@@ -774,6 +777,7 @@ class Session:
                 max_ticks=FIGHT_TICKS,
                 anchor=action.anchor,
                 leash=int(action.leash) if action.leash is not None else None,
+                tactic=action.tactic.wire() if action.tactic is not None else None,
             )
 
         result = once(action.target)
@@ -786,7 +790,15 @@ class Session:
         if spent < DEFEND_WAIT_TICKS:  # nothing in reach yet: let the mob come
             self.body.wait_ticks(DEFEND_WAIT_TICKS - spent)
 
-    def _flee(self, action: defense.Action) -> None:
+    def _escape(self, action: defense.Action) -> None:
+        """Sprint-jump away from every hostile around (the body steers each tick)."""
+        result = self.body.escape(
+            radius=ESCAPE_SCAN, clear=ESCAPE_CLEAR, max_ticks=ESCAPE_TICKS
+        )
+        if not result.ok and result.reason == "cornered":
+            self._walk_away(action)  # the route planner sees past the next cell
+
+    def _walk_away(self, action: defense.Action) -> None:
         """Walk FLEE_DISTANCE straight away from the threats, else off to a side."""
         x, y, z = self._feet()
         dx, dz = 1.0, 0.0

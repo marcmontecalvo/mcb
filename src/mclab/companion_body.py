@@ -108,6 +108,7 @@ OP_TIMEOUTS = {
     "attack_entity": 30.0,
     "eat": 20.0,
     "fight": 2400 / 20 + 10.0,  # the longest fight the body accepts, and a margin
+    "escape": 1200 / 20 + 10.0,  # the longest escape the body accepts, and a margin
 }
 # Ops after which the build's remaining needs may have changed: the plug's keep is
 # brought up to date before each (a step edit's plug uses the last one sent).
@@ -1341,20 +1342,29 @@ class CompanionBody:
         weapon: str | None = None,
         anchor=None,
         leash: int | None = None,
+        tactic: dict | None = None,
     ) -> Result:
-        """The body's melee motor (BODY_ACTION_OPS ``fight``): hostiles within
+        """The body's fight motor (BODY_ACTION_OPS ``fight``): hostiles within
         ``radius`` until none is left, health is at ``floor``, a creeper comes close
-        or ``max_ticks`` pass. ``anchor`` and ``leash`` keep it beside an ally."""
+        or ``max_ticks`` pass. ``anchor`` and ``leash`` keep it beside an ally;
+        ``tactic`` (``companion_combat.Tactic.wire``) says how to fight."""
         fields = {
             "entity": entity,
             "weapon": weapon,
             "anchor": list(anchor) if anchor is not None else None,
             "leash": leash,
+            "tactic": tactic,
         }
         extra = {k: v for k, v in fields.items() if v is not None}
         return self.op(
             "fight", radius=radius, floor=floor, max_ticks=max_ticks, **extra
         )
+
+    def escape(self, *, radius: int, clear: int, max_ticks: int) -> Result:
+        """The body's escape motor (BODY_ACTION_OPS ``escape``): sprint-jump away
+        from every hostile within ``radius`` (new ones too) until none is within
+        ``clear``; fails ``cornered`` when no safe heading is left."""
+        return self.op("escape", radius=radius, clear=clear, max_ticks=max_ticks)
 
     def use_entity(self, entity: str, item: str | None = None) -> Result:
         extra = {"item": item} if item else {}

@@ -1,28 +1,29 @@
 """Auto-defence: what the companion does about hostile mobs (pure decisions).
 
-Fight when armed and healthy (beside an ally when one is near), fetch a weapon from
-the base, stay with an ally, go home, or burrow into a sealed hole; at or below the
-health floor never fight. Creepers and wardens are avoided, never fought. The host's
-guard calls ``decide`` with the latest observation and carries the action out.
-Docs: COMPANION_DEFENSE_PLAN_2026-11-23.md.
+Fight when the held weapons suit the target (``companion_combat`` picks the tactic;
+beside an ally when one is near), fetch a weapon from the base, stay with an ally, go
+home, burrow into a sealed hole, or get away: a calm ``walk_away`` from a lone mob
+that is not pressing, a sprinting ``escape`` otherwise. At or below the health floor
+never fight. Wardens and bosses in view always mean escape. The host's guard calls
+``decide`` with the latest observation and carries the action out.
+Docs: COMPANION_DEFENSE_PLAN_2026-11-23.md, COMPANION_COMBAT_PLAN_2026-11-23.md.
 """
 
 import math
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 
+from mclab import companion_combat as combat
 from mclab.profiles import HOSTILE
 
 M = "minecraft:"
-AVOID = frozenset({M + "creeper", M + "warden"})  # never in melee
 PLAYER = M + "player"
 THREAT_DY = 6.0  # hostiles further above or below are in another cave or tunnel
 ALLY_LEASH = 6.0  # a fight beside an ally stays this close to them
-TIERS = ("wooden", "golden", "stone", "copper", "iron", "diamond", "netherite")
-# Best first: any sword beats any axe (axes swing slowly), then by tier.
-WEAPONS = tuple(
-    M + f"{tier}_{kind}" for kind in ("sword", "axe") for tier in reversed(TIERS)
-)
+ESCAPE_NEAR = 6.0  # a mob closer than this is pressing: escape, don't stroll
+CREEPER = M + "creeper"
+CREEPER_SWELL = 7.0  # a started swell runs down only past 7 blocks
+WEAPONS = combat.MELEE_RANKED  # best first, by damage per second with crits
 
 # field: (low, high) inclusive
 _BOUNDS = {
@@ -98,7 +99,7 @@ class Situation:
 
 @dataclass(frozen=True)
 class Action:
-    """``kind``: none, fight, avoid, arm, regroup, shelter, burrow or flee."""
+    """``kind``: none, fight, arm, regroup, shelter, burrow, walk_away or escape."""
 
     kind: str
     reason: str = ""
@@ -108,6 +109,7 @@ class Action:
     anchor: tuple | None = None  # fight: stay within `leash` of this (an ally)
     leash: float | None = None
     threats: tuple[Threat, ...] = field(default=())
+    tactic: combat.Tactic | None = None  # fight: how (companion_combat)
 
 
 def _dist(a, b) -> float:
@@ -146,11 +148,22 @@ def best_weapon(inventory: Mapping[str, int]) -> str | None:
     return next((w for w in WEAPONS if inventory.get(w, 0) > 0), None)
 
 
+def _pressed(s: Situation, seen: tuple[Threat, ...]) -> bool:
+    """True when a calm walk would not do: escape at a sprint instead."""
+    nearest = seen[0]
+    return (
+        s.night
+        or len(seen) > 1
+        or nearest.distance < ESCAPE_NEAR
+        or nearest.type in combat.RANGED
+        or (nearest.type == CREEPER and nearest.distance < CREEPER_SWELL)
+    )
+
+
 def decide(s: Situation, policy: DefensePolicy) -> Action:
     seen = tuple(threats(s.entities, s.position, policy))
     if not seen:
         return Action("none", "no threat near")
-    fightable = [t for t in seen if t.type not in AVOID]
     friends = allies(s.entities, s.name, s.position, policy)
     ally = friends[0] if friends else None
     base = (
@@ -172,23 +185,29 @@ def decide(s: Situation, policy: DefensePolicy) -> Action:
             return Action("shelter", f"{hurt}: going home", where=base, threats=seen)
         if s.can_burrow and (s.night or s.can_heal):
             return Action("burrow", f"{hurt}: hiding in a hole", threats=seen)
-        return Action("flee", f"{hurt} and nowhere to hide: running", threats=seen)
+        return Action("escape", f"{hurt} and nowhere to hide: running", threats=seen)
 
-    if not fightable:
-        return Action("avoid", f"keeping away from the {_name(seen[0])}", threats=seen)
+    boss = next((t for t in seen if combat.never_engaged(t.type)), None)
+    if boss is not None:
+        return Action("escape", f"getting away from {_a(boss)}", threats=seen)
 
-    weapon = best_weapon(s.inventory)
-    if weapon is not None:
-        target = fightable[0]
+    able = [
+        (t, plan)
+        for t in seen
+        if (plan := combat.tactic(t.type, s.inventory)).style != "avoid"
+    ]
+    if able:
+        target, plan = min(able, key=lambda tp: (not combat.first(tp[0].type),))
         return Action(
             "fight",
             f"fighting the {_name(target)}"
             + (f" beside {ally.name}" if ally is not None else ""),
             target=target.uuid,
-            item=weapon,
+            item=plan.weapon,
             anchor=ally.position if ally is not None else None,
             leash=ALLY_LEASH if ally is not None else None,
             threats=seen,
+            tactic=plan,
         )
     if base is not None:
         stocked = [
@@ -204,7 +223,7 @@ def decide(s: Situation, policy: DefensePolicy) -> Action:
                 "arm", f"{near}: fetching the {_short(item)} from the base",
                 item=item, where=tuple(pos), threats=seen,
             )  # fmt: skip
-    unarmed = f"{near} and no weapon"
+    unarmed = f"{near} and no weapon" + (" for it" if best_weapon(s.inventory) else "")
     if ally is not None:
         return Action(
             "regroup", f"{unarmed}: staying with {ally.name}", where=ally.position,
@@ -212,11 +231,14 @@ def decide(s: Situation, policy: DefensePolicy) -> Action:
         )  # fmt: skip
     if base is not None:
         return Action("shelter", f"{unarmed}: going home", where=base, threats=seen)
+    pressed = _pressed(s, seen)
     if not s.night:
-        return Action("flee", f"{unarmed}: walking away", threats=seen)
-    if s.can_burrow:
+        if pressed:
+            return Action("escape", f"{unarmed}: running", threats=seen)
+        return Action("walk_away", f"{unarmed}: walking away", threats=seen)
+    if s.can_burrow and not (seen[0].type == CREEPER and pressed):
         return Action("burrow", f"{unarmed}: hiding in a hole", threats=seen)
-    return Action("flee", f"{unarmed} and nowhere to hide: running", threats=seen)
+    return Action("escape", f"{unarmed} and nowhere to hide: running", threats=seen)
 
 
 def _short(item: str) -> str:

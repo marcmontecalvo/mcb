@@ -9,6 +9,7 @@ from mclab import companion_session as cs
 from mclab import follow as follow_mod
 from mclab import navigation_segmented
 from mclab.build_runner import Result
+from mclab.companion_combat import Tactic
 from mclab.companion_defense import Action, DefensePolicy, Threat
 from mclab.companion_intents import Actor
 from mclab.follow import PLAYER, FollowTarget
@@ -1188,13 +1189,17 @@ class Plan:
 class DefenseBody(FakeBody):
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
-        self.fights, self.containers = [], []
+        self.fights, self.containers, self.escapes = [], [], []
         self.stance_ok = True
         self.ate = 0
 
     def fight(self, **fields):
         self.log.append(("fight", fields))
         return self.fights.pop(0) if self.fights else Result(True, None, {"ticks": 200})
+
+    def escape(self, **fields):
+        self.log.append(("escape", fields))
+        return self.escapes.pop(0) if self.escapes else Result(True, None, {})
 
     def goto_stance(self, pos, reach, avoid=()):
         self.log.append(("stance", tuple(pos), reach))
@@ -1267,7 +1272,7 @@ def test_the_spawn_home_is_no_base_but_a_named_home_or_base_is(guard, monkeypatc
     session, bridge, places = guard()
     monkeypatch.setattr(cs.burrow, "plan_burrow", lambda *a: "open floor: a cave")
     _seen_now(bridge, _mob(), health=4, tick=10)
-    assert session.threat().kind == "flee"  # home is only where it first spawned
+    assert session.threat().kind == "escape"  # home is only where it first spawned
     places.add("home", (-20, 64, 0), kind="home", provenance="named")
     _seen_now(bridge, _mob(), health=4, tick=11)
     assert session.threat().where == (-20, 64, 0)
@@ -1295,17 +1300,19 @@ def test_threat_knows_the_day_and_whether_the_bot_can_heal(guard, monkeypatch):
     session, bridge, _ = guard()
     monkeypatch.setattr(cs.burrow, "plan_burrow", lambda *a: Plan())
     monkeypatch.setattr(cs.burrow, "Burrow", Plan)
-    _seen_now(bridge, _mob(), tick=10, time=DAY)
-    assert session.threat().kind == "flee"  # by day: walk away, no hole
+    _seen_now(bridge, _mob(pos=(9.5, 64.0, 0.5)), tick=10, time=DAY)
+    assert session.threat().kind == "walk_away"  # by day: walk away, no hole
     _seen_now(bridge, _mob(), tick=11, time=DAY, health=4, food=10)
-    assert session.threat().kind == "flee"  # hungry with no food: a hole heals nothing
+    assert (
+        session.threat().kind == "escape"
+    )  # hungry with no food: a hole heals nothing
     bread = [{"slot": 1, "item": "minecraft:bread", "count": 2}]
     _seen_now(bridge, _mob(), tick=12, time=DAY, health=4, food=10, inv=bread)
     assert session.threat().kind == "burrow"
     row = _day_row(_mob(), tick=13, health=4, food=10)
     del row["body"]["time_of_day"]  # an older body: no clock, taken as day
     bridge.samples.append(row)
-    assert session.threat().kind == "flee"
+    assert session.threat().kind == "escape"
 
 
 def test_a_weapon_in_a_chest_at_the_base_is_fetched(guard):
@@ -1338,6 +1345,16 @@ def test_defend_fights_with_the_policys_floor_and_radius(guard):
     assert not _logged(session.body, "wait")
 
 
+def test_defend_passes_the_tactic_to_the_body(guard):
+    session, _, _ = guard()
+    plan = Tactic("snipe", "minecraft:bow", keep=(8.0, 15.0), melee=SWORD)
+    session.defend(
+        Action("fight", "fighting", target="s1", item=plan.weapon, tactic=plan)
+    )
+    ((_, fields),) = _logged(session.body, "fight")
+    assert fields["tactic"] == plan.wire() and fields["weapon"] == "minecraft:bow"
+
+
 def test_a_fight_that_ends_at_once_waits_but_low_health_does_not(guard):
     session, _, _ = guard()
     body = session.body
@@ -1364,19 +1381,47 @@ def test_a_target_the_body_refuses_is_fought_as_the_nearest_instead(guard):
     assert fights[0]["entity"] == "z1" and fights[1]["entity"] is None
 
 
-def test_flee_walks_away_from_the_threats_and_tries_other_headings(guard):
+def test_walk_away_walks_from_the_threats_and_tries_other_headings(guard):
     session, _, _ = guard()
     body = session.body  # feet (0, 64, 0)
     threat = Threat("z1", ZOMBIE, (5.5, 64.0, 0.5), 5.0)
-    session.defend(Action("flee", "running", threats=(threat,)))
+    session.defend(Action("walk_away", "walking away", threats=(threat,)))
     ((_, goal, radius, _),) = _logged(body, "walk_to")
     assert goal == (-cs.FLEE_DISTANCE, 64, 0) and radius == cs.FLEE_RADIUS
     body.log.clear()
     body.walk_ok = False
-    session.defend(Action("avoid", "keeping away", threats=(threat,)))
+    session.defend(Action("walk_away", "walking away", threats=(threat,)))
     goals = [g for _, g, _, _ in _logged(body, "walk_to")]
     assert len(goals) == len(cs.FLEE_TURNS) == len(set(goals))
     assert _logged(body, "wait") == [("wait", cs.DEFEND_WAIT_TICKS)]
+    assert not _logged(body, "escape")
+
+
+def test_escape_runs_the_bodys_sprinting_escape(guard):
+    session, _, _ = guard(defense=DefensePolicy(threat_radius=10))
+    threat = Threat("z1", ZOMBIE, (5.5, 64.0, 0.5), 5.0)
+    session.defend(Action("escape", "running", threats=(threat,)))
+    ((_, fields),) = _logged(session.body, "escape")
+    assert fields == {
+        "radius": cs.ESCAPE_SCAN,
+        "clear": cs.ESCAPE_CLEAR,
+        "max_ticks": cs.ESCAPE_TICKS,
+    }
+    assert not _logged(session.body, "walk_to")
+
+
+def test_a_cornered_escape_falls_back_to_a_planned_walk(guard):
+    # the per-tick escape only looks one cell ahead; the route planner sees further
+    session, _, _ = guard()
+    body = session.body
+    body.escapes = [Result(False, "cornered", {})]
+    threat = Threat("z1", ZOMBIE, (5.5, 64.0, 0.5), 5.0)
+    session.defend(Action("escape", "running", threats=(threat,)))
+    assert [g for _, g, _, _ in _logged(body, "walk_to")][0] == (
+        -cs.FLEE_DISTANCE,
+        64,
+        0,
+    )
 
 
 def test_regroup_walks_to_the_ally_then_stays_beside_them(guard):
@@ -1507,7 +1552,7 @@ def test_a_burrow_that_failed_is_not_planned_at_that_spot_again(guard, monkeypat
     )
     session.defend(Action("burrow", "hiding"))
     _seen_now(bridge, _mob(), health=4, tick=20)
-    assert session.threat().kind == "flee"
+    assert session.threat().kind == "escape"
     _seen_now(bridge, _mob(), health=4, tick=21)  # somewhere else may still do
     bridge.samples[-1]["body"]["position"] = [5.5, 64.0, 5.5]
     assert session.threat().kind == "burrow"
