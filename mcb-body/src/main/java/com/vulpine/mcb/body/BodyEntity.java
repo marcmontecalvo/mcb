@@ -96,6 +96,34 @@ final class BodyEntity {
                 && (!player.onGround() || player.level().noCollision(player, player.getBoundingBox().move(0, .5, 0)));
     }
 
+    /**
+     * The line from the body to the target for CritForecast: gaps, the target's box, both velocities
+     * along it, and the target's intent and reach. step: the target's move over the last tick, or null.
+     */
+    static CritForecast.Scene critScene(ServerPlayer player, LivingEntity target, double[] step) {
+        double dx = target.getX() - player.getX(), dz = target.getZ() - player.getZ();
+        double gap = Math.hypot(dx, dz), ux = gap > 1e-6 ? dx / gap : 1, uz = gap > 1e-6 ? dz / gap : 0;
+        var box = target.getBoundingBox();
+        var eye = player.getEyePosition();
+        double hx = Math.max(0, Math.max(box.minX - eye.x, eye.x - box.maxX));
+        double hz = Math.max(0, Math.max(box.minZ - eye.z, eye.z - box.maxZ));
+        double half = gap - Math.hypot(hx, hz);
+        var v = player.getDeltaMovement();
+        boolean chasing = target instanceof net.minecraft.world.entity.Mob mob && mob.getTarget() == player;
+        boolean archer = target instanceof net.minecraft.world.entity.monster.RangedAttackMob
+                && target.getMainHandItem().getItem() instanceof net.minecraft.world.item.ProjectileWeaponItem;
+        double seen = step == null ? Double.NaN : step[0] * ux + step[1] * uz;
+        double speed = target.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED);
+        double intent = CritForecast.intent(chasing, archer, gap, Double.isNaN(seen) ? 0 : seen, speed);
+        if (Double.isNaN(seen)) seen = intent;  // a new target: as it heads
+        boolean melees = target instanceof net.minecraft.world.entity.monster.Enemy && !archer;
+        double reach = melees ? CritForecast.mobReach(target.getBbWidth() / 2, ux, uz) : 0;
+        float scale = player.getAttackStrengthScale(0.5f);
+        double toFull = Math.max(0, (1 - scale) * player.getCurrentItemAttackStrengthDelay());
+        return new CritForecast.Scene(gap, half, box.minY - player.getY(), box.maxY - player.getY(),
+                v.x * ux + v.z * uz, seen, intent, target.onGround(), reach, toFull, player.entityInteractionRange());
+    }
+
     /** A grounded sword hit would sweep a non-hostile living thing beside the target. */
     private static boolean bystanders(ServerPlayer player, LivingEntity target) {
         for (var e : player.level().getEntitiesOfClass(LivingEntity.class, target.getBoundingBox().inflate(1, .25, 1))) {
@@ -116,6 +144,22 @@ final class BodyEntity {
         final String type;
         int ticks, hits, crits;
         private boolean jump;
+        /** The target's feet {x, z} a tick ago. */
+        private double[] at;
+
+        /**
+         * On the ground, the body stays put: jump when a jump in place lands the crit where the target
+         * will be (CritForecast), wait while one will once the cooldown is back, and with none to come
+         * (it backs off, or is upon the body) take the plain full-strength hit instead.
+         */
+        private static CombatLogic.Act standAct(ServerPlayer player, LivingEntity target, double[] step) {
+            var plan = CritForecast.plan(critScene(player, target, step), false, false, false);
+            if (plan.hop() == CritForecast.Hop.STAND) return CombatLogic.Act.JUMP;
+            if (plan.step() == CritForecast.Step.HOLD && plan.strikeIn() >= 0) return CombatLogic.Act.NONE;
+            if (player.getAttackStrengthScale(0.5f) <= CombatLogic.STRONG) return CombatLogic.Act.NONE;
+            // a grounded sword hit would sweep the herd round a hunted animal: sprint it
+            return bystanders(player, target) ? CombatLogic.Act.SPRINT_STRIKE : CombatLogic.Act.STRIKE;
+        }
 
         private AttackTask(long sequence, Entity target) {
             this.sequence = sequence; this.target = target; this.type = typeId(target);
@@ -149,7 +193,10 @@ final class BodyEntity {
                 if (ActionLogic.shouldSwing(player.getAttackStrengthScale(0.5f))) { player.attack(target); hits++; }
                 return target.isAlive() ? null : "done";
             }
-            var act = meleeAct(player, living, true, true, false);
+            double[] step = at == null ? null : new double[] {living.getX() - at[0], living.getZ() - at[1]};
+            at = new double[] {living.getX(), living.getZ()};
+            var act = player.onGround() && CombatLogic.kind(heldId(player)).crits() && critHere(player)
+                    ? standAct(player, living, step) : meleeAct(player, living, true, true, false);
             switch (act) {
                 case JUMP -> jump = true;
                 case STRIKE, SPRINT_STRIKE -> {
@@ -232,6 +279,10 @@ final class BodyEntity {
         /** Set by step for controls: forward (-1 back, 0, 1), jump, sprint. A draw is an item use of its own. */
         private double forward;
         private boolean jump, sprint;
+        /** The crit hop taken (CritForecast), its input held until it lands; null on the ground. */
+        private CritForecast.Hop hop;
+        /** The tracked target's feet {x, z} a tick ago (null: new target), and its step since ({dx, dz}). */
+        private double[] targetAt, targetStep;
 
         private FightTask(long sequence, FightLogic.Params params, CombatLogic.Tactic tactic, UUID requested,
                           java.util.function.Function<ServerPlayer, RouteGeometry.Reader> reader) {
@@ -256,10 +307,14 @@ final class BodyEntity {
         }
 
         private void track(LivingEntity target) {
-            if (target == tracked) return;
-            tracked = target;
-            trackedHealth = target.getHealth();
-            lastEye = Double.NaN;
+            if (target != tracked) {
+                tracked = target;
+                trackedHealth = target.getHealth();
+                lastEye = Double.NaN;
+                targetAt = null;
+            }
+            targetStep = targetAt == null ? null : new double[] {target.getX() - targetAt[0], target.getZ() - targetAt[1]};
+            targetAt = new double[] {target.getX(), target.getZ()};
         }
 
         static FightTask start(ServerPlayer player, JsonObject request, long sequence,
@@ -358,11 +413,22 @@ final class BodyEntity {
             return player.isWithinEntityInteractionRange(target, 0) && player.hasLineOfSight(target);
         }
 
-        /** Crit melee: jump so the cooldown is full as the fall starts, strike on the way down. */
+        /**
+         * Crit melee: jump so the strike on the way down lands where the target will be (CritForecast:
+         * in place, backward from a mob walking in, walking or sprinting at one backing off), and step
+         * on the ground until a hop will land. Round an obstacle or out of sight, it walks in as before.
+         */
         private void melee(ServerPlayer player, LivingEntity target, String weapon) {
             holdWeapon(player, weapon);
             aim(player, target);
             boolean reach = inReach(player, target);
+            if (tactic.crit() && CombatLogic.kind(heldId(player)).crits() && critHere(player) && chase == null
+                    && player.hasLineOfSight(target)) {
+                forecastMelee(player, target, reach);
+                if (reach) noPathSince = -1;
+                return;
+            }
+            hop = null;
             var act = meleeAct(player, target, reach, tactic.crit(), tactic.sweep());
             switch (act) {
                 case JUMP -> jump = true;
@@ -373,6 +439,38 @@ final class BodyEntity {
             // sprint in: the strike itself drops the sprint when it wants the crit
             if (!reach) { approach(player, target); sprint = true; }
             else noPathSince = -1;
+        }
+
+        private void forecastMelee(ServerPlayer player, LivingEntity target, boolean reach) {
+            if (!player.onGround()) {  // mid-hop: keep its input, strike on the way down
+                if (hop != null) { forward = hop.forward; sprint = hop.sprint; }
+                if (reach && falling(player) && player.getAttackStrengthScale(0.5f) > CombatLogic.STRONG) {
+                    player.setSprinting(false);
+                    strike(player, target);
+                }
+                return;
+            }
+            hop = null;
+            boolean ahead = stepCode(player, target.getX() - player.getX(), target.getZ() - player.getZ()) != 0;
+            boolean behind = stepCode(player, player.getX() - target.getX(), player.getZ() - target.getZ()) != 0;
+            boolean run = player.getFoodData().getFoodLevel() > EscapeLogic.SPRINT_FOOD;
+            var plan = CritForecast.plan(critScene(player, target, targetStep), ahead, behind, run);
+            if (plan.hop() != null) {
+                hop = plan.hop();
+                jump = true; forward = hop.forward; sprint = hop.sprint;
+                return;
+            }
+            switch (plan.step()) {
+                case APPROACH -> { approach(player, target); sprint = true; }
+                case RETREAT -> walk(player, target, -1);
+                case STRIKE -> {  // upon the body with no crit landing safely: a sprint hit knocks it back
+                    if (reach && player.getAttackStrengthScale(0.5f) > CombatLogic.STRONG) {
+                        player.setSprinting(true);
+                        strike(player, target);
+                    }
+                }
+                case HOLD -> { }
+            }
         }
 
         /** A flee's start, the evidence of why it fled: tick, cause, gaps, and a creeper's swell state. */
