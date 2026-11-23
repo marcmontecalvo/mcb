@@ -99,13 +99,54 @@ final class CombatLogic {
         return sweepRisk && !sweepOk ? Act.SPRINT_STRIKE : Act.STRIKE;
     }
 
-    enum Move { HOLD, APPROACH, RETREAT }
+    /** FLEE: sprint away, facing away (outrunning a creeper's swell). */
+    enum Move { HOLD, APPROACH, RETREAT, FLEE }
 
     /** Stay inside the stand-off band [min, max]. */
     static Move keep(double distance, double min, double max) {
         if (distance < min) return Move.RETREAT;
         if (distance > max) return Move.APPROACH;
         return Move.HOLD;
+    }
+
+    /** A draining swell at least this far on (of the fuse) is still kept off: re-lit, it would blow too soon. */
+    static final double LIT_RESIDUAL = .5;
+
+    /**
+     * Creeper.tick explodes when the swell reaches its maximum, and it climbs only while the swell
+     * direction is up (SwellGoal: the target's feet within 3 blocks). A draining swell (direction -1)
+     * is not lit: a jab leaves a one-tick flicker that drains at once.
+     */
+    static boolean lit(int swellDir, double swelling) {
+        return swellDir > 0 || swelling >= LIT_RESIDUAL;
+    }
+
+    /** Ticks a poke leads the gap by: the body takes about five to turn from walking in to backing off. */
+    static final int POKE_LEAD = 6;
+
+    /**
+     * Spear: hold the band (eye to box) judged where the gap will be POKE_LEAD ticks on at
+     * {@code closing} (blocks a tick it shrank by; an opening gap is not led), so the body
+     * backs off before a target walking in is inside the band's near edge. A swelling
+     * creeper, or one still being fled from, is outrun past CREEPER_SAFE (feet to feet)
+     * before the band is taken again.
+     */
+    static Move poke(double eye, double closing, double distance, double min, double max, boolean swelling,
+                     boolean fleeing) {
+        if (swelling || fleeing && distance <= CREEPER_SAFE) return Move.FLEE;
+        return keep(eye - Math.max(0, closing) * POKE_LEAD, min, max);
+    }
+
+    /**
+     * Creeper.SwellGoal lights with the target's feet inside 3 blocks of its own; a box edge is
+     * a half-width nearer than the feet, so a poke whose whole band (eye to box) keeps the feet
+     * past the fuse may fight one, as hit-and-back does.
+     */
+    static final double CREEPER_FUSE = 3.0, CREEPER_HALF_WIDTH = 0.3;
+
+    static boolean fightsCreepers(Tactic t) {
+        if (t.style().equals("hit_and_back")) return true;
+        return t.style().equals("poke") && t.keepMin() + CREEPER_HALF_WIDTH > CREEPER_FUSE;
     }
 
     static boolean jabReach(double eyeDistance) { return eyeDistance >= JAB_MIN && eyeDistance <= JAB_MAX; }

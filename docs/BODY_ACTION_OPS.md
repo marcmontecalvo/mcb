@@ -163,9 +163,18 @@ A per-tick combat motor (`busy` while it or another task runs). `radius` 2..32, 
 - `melee` (default; crit `true`, sweep `true`): the jump-crit cycle, sprinting in when out of reach.
 - `hunt`: the same swing, for a target with no mob profile (an animal); sweep `false`.
 - `poke` (spear): hold the `keep` band (eye to box, default 2.5..4) and jab through the item's
-  `PiercingWeapon.attack` (the server's stab path) at full charge, 2..4.5 blocks from the eye.
-- `hit_and_back` (creeper): a sprint hit (extra knockback), then face away and sprint until it is more than
-  7.5 blocks off and no longer swelling; then in again. Creepers do not end this fight with `avoid`.
+  `PiercingWeapon.attack` (the server's stab path) at full charge, 2..4.5 blocks from the eye. The band is
+  judged where the gap will be `POKE_LEAD` (6) ticks on at its closing speed, so the body backs off before a
+  target walking in is inside it; a back step that is blocked is stepped round (the flee below). Against a
+  creeper Python sends the band 3.6..4.4, which keeps the body's feet past the 3-block fuse; a creeper that
+  is lit anyway (swell climbing, or a draining swell at least half on: `CombatLogic.lit`; a jab leaves a
+  one-tick flicker that is not) is outrun as `hit_and_back` does, then the band is taken again
+  (`CombatLogic.poke`).
+- `hit_and_back` (creeper): a sprint hit (extra knockback), then flee until it is more than
+  7.5 blocks off and its swell has drained fully; then in again. A flee steers as the `escape` op does
+  (`EscapeTask.steer`: each grounded tick the safe heading with the least pressure from every mob around,
+  sprint-jumping over level ground), so a blocked straight line is stepped round, never stood in. Creepers do not end this fight with `avoid`, nor a
+  poke whose band's near edge plus a creeper's half-width (0.3) is past 3 (`CombatLogic.fightsCreepers`).
 - `snipe` (bow): hold the `keep` band (default 8..15), draw for 20 ticks while in sight (a draw is held while
   sight is lost), aim with gravity, drag and the target's lead (`CombatLogic.aim`), release. Inside 4 blocks it
   fights `melee` with the `melee` item when one is given.
@@ -177,7 +186,7 @@ engaged first while it is alive and within `radius`; it must pass the `attack_en
 blocks off would otherwise back out of a radius of 12 and end `done` with its target alive.
 `weapon` defaults to the best sword/axe held and is re-picked mid-fight when it breaks.
 Each tick, in order: health <= `floor` ends `low_health`; more than `max_ticks` ticks ends `timeout`; a
-creeper (except under `hit_and_back`) or a warden within 3.5 blocks ends `avoid` (Python decides what to
+creeper (except under a tactic that fights creepers, above) or a warden within 3.5 blocks ends `avoid` (Python decides what to
 do); no target left ends `done`. Then the style above runs. Every step toward or away from the target is
 one cell at a time (through the body controls, 2-tick expiry, released when the task ends) and only if
 that cell is standable and safe per `RouteGeometry` (drop up to 3, a one-block step up with a jump) and
@@ -191,11 +200,14 @@ searches again every 10 ticks; a target that has come 1 block nearer than when t
 walking up) restarts the wait from there, and one that has not after 40 ticks (2 s) ends the fight
 `unreachable` (`FightLogic.noPath`; live trial: an axe stood under a skeleton two blocks up for 200 ticks).
 Sprinting needs food above 6.
-`_done`: `{"kills", "hits", "crits", "shots", "damage", "style", "ticks", "health", "end": "clear",
-"inventory"}`, and with `entity` also `killed` (that target died) and `at` (where, for its drops); `damage`
-is the health the targets lost while targeted (read each tick, so arrows that land later count; a kill
-counts what the target had left). `kills` counts each target that died with the body as its killer
-(vanilla kill credit), once, whether a swing, a jab or an arrow that landed later killed it.
+`_done`: `{"kills", "hits", "crits", "shots", "damage", "style", "ticks", "health", "flees", "end": "clear",
+"inventory"}`, `closest` (the nearest the target came, feet to feet) once there was a target, `flee_log` (the
+first 8 flee starts: `tick`, `cause` swell/blocked/after_hit, `distance`, `eye`, and for a creeper
+`swell_dir`, `swelling`, `ignited`) when it fled, and with `entity` also `killed` (that target died) and `at`
+(where, for its drops); `damage` is the health the targets lost while targeted (read each tick, so arrows
+that land later count; a kill counts what the target had left). `kills` counts each target that died (its
+health at or below 0) with the body as its killer (vanilla kill credit), once, whether a swing, a jab or an
+arrow that landed later killed it; a creeper that blew up is removed with health left and is no kill.
 `_failed`: `{"reason"}` of `low_health`, `timeout`, `avoid`, `unreachable`, `bad_request`, `not_allowed`,
 `not_found`, `busy`, `cancelled:<why>`, plus the `_done` counters but `end` (`Task.failure`), and after a
 failed path search `chase`: `{"from":[x,y,z], "to":[x,y,z], "expanded":cells, "exits":[feet y or null for

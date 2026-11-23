@@ -83,6 +83,36 @@ public final class CombatLogicTest {
         check(CombatLogic.keep(3.0, 2.5, 4) == CombatLogic.Move.HOLD, "in the band");
         check(CombatLogic.jabReach(3.0) && CombatLogic.jabReach(4.4) && !CombatLogic.jabReach(1.9) && !CombatLogic.jabReach(4.6), "jab reach");
 
+        // --- spear poke: the band, and a creeper's fuse outrun first
+        check(CombatLogic.poke(4.0, 0, 4.3, 3.6, 4.4, false, false) == CombatLogic.Move.HOLD, "poke: in the band");
+        check(CombatLogic.poke(3.4, 0, 3.7, 3.6, 4.4, false, false) == CombatLogic.Move.RETREAT, "poke: too close");
+        check(CombatLogic.poke(5.0, 0, 5.3, 3.6, 4.4, false, false) == CombatLogic.Move.APPROACH, "poke: too far");
+        check(CombatLogic.poke(4.0, 0, 4.3, 3.6, 4.4, true, false) == CombatLogic.Move.FLEE, "poke: a swelling creeper is outrun");
+        check(CombatLogic.poke(6.0, 0, 6.3, 3.6, 4.4, false, true) == CombatLogic.Move.FLEE, "poke: fled until past the swell's reach");
+        check(CombatLogic.poke(7.4, 0, 7.7, 3.6, 4.4, false, true) == CombatLogic.Move.APPROACH, "poke: swell gone, out there: go again");
+        check(CombatLogic.poke(7.4, 0, 7.7, 3.6, 4.4, true, true) == CombatLogic.Move.FLEE, "poke: still swelling out there");
+        // the band is judged where the gap will be a few ticks on: walking in at 0.2 a tick while a
+        // creeper walks in at 0.13, the body needs about five ticks to turn round (live 20261123T205225Z:
+        // a 3.3 near edge let the creeper inside its 3-block fuse after every jab)
+        check(CombatLogic.poke(4.6, .33, 4.9, 3.6, 4.4, false, false) == CombatLogic.Move.RETREAT, "poke: closing fast: back off early");
+        check(CombatLogic.poke(4.5, .13, 4.8, 3.6, 4.4, false, false) == CombatLogic.Move.HOLD, "poke: a creeper walking in: wait in the band");
+        check(CombatLogic.poke(4.0, -.2, 4.3, 3.6, 4.4, false, false) == CombatLogic.Move.HOLD, "poke: a gap opening is not led");
+        check(CombatLogic.poke(5.2, .1, 5.5, 3.6, 4.4, false, false) == CombatLogic.Move.APPROACH, "poke: still far: close in");
+        check(CombatLogic.POKE_LEAD >= 5, "poke: led by at least the body's turn-round time");
+
+        // --- a creeper is lit when its swell climbs, or a draining swell is far on; a flicker is not
+        // (live 20261123T210731Z: every jab left swell 1 of 28 draining, swell_dir -1, and the poke fled)
+        check(CombatLogic.lit(1, 0), "lit: the swell climbs");
+        check(!CombatLogic.lit(-1, .04), "a draining flicker is not lit");
+        check(!CombatLogic.lit(-1, 0), "no swell");
+        check(CombatLogic.lit(-1, .6), "a draining swell far on: still kept off");
+
+        // --- which tactics may fight a creeper: hit-and-back, or a poke whose band stays past its fuse
+        check(CombatLogic.fightsCreepers(new CombatLogic.Tactic("hit_and_back", false, true, 0, 0, null, false)), "hit and back fights creepers");
+        check(CombatLogic.fightsCreepers(new CombatLogic.Tactic("poke", false, true, 3.6, 4.4, null, false)), "a fuse-clear poke fights creepers");
+        check(!CombatLogic.fightsCreepers(new CombatLogic.Tactic("poke", false, true, 2.5, 4.0, null, false)), "a zombie's poke band is inside the fuse");
+        check(!CombatLogic.fightsCreepers(CombatLogic.DEFAULT), "crit melee leaves creepers");
+
         // --- creeper hit and back
         check(CombatLogic.hitAndBack(false, 2.8, false, true, 1).equals("strike"), "full and in reach: sprint hit");
         check(CombatLogic.hitAndBack(false, 5, false, false, 1).equals("approach"), "close in");

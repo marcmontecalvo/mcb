@@ -67,7 +67,27 @@ final class EscapeTask implements BodyEntity.Task {
         }
         if (!player.onGround()) return null;  // mid-jump: hold the heading taken off on
 
-        var geometry = new RouteGeometry(reader.apply(player));
+        var steer = steer(player, new RouteGeometry(reader.apply(player)), mobs, heading);
+        heading = steer.heading();
+        if (heading < 0) { corneredTicks++; forward = false; sprint = false; return null; }
+        corneredTicks = 0;
+        forward = true;
+        sprint = steer.sprint();
+        jump = steer.jump();
+        if (jump) jumps++;
+        return null;
+    }
+
+    /** One steering decision; heading -1 when no heading is safe (cornered). */
+    record Steer(int heading, boolean sprint, boolean jump) {}
+
+    /**
+     * Turns a grounded body to the safe heading with the least pressure from {@code mobs} ({x, z} each;
+     * EscapeLogic.heading, keeping {@code current} on a tie) and says whether to sprint and jump: a step
+     * up always jumps, a sprint jumps over level ground with headroom. Shared by escape and the fight's
+     * flee from a swelling creeper.
+     */
+    static Steer steer(ServerPlayer player, RouteGeometry geometry, java.util.List<double[]> mobs, int current) {
         var velocity = player.getDeltaMovement();
         var pose = new RouteMotor.Pose(player.getX(), player.getY(), player.getZ(), velocity.x, velocity.z,
                 player.getYRot(), true, player.getFoodData().getFoodLevel());
@@ -80,24 +100,18 @@ final class EscapeTask implements BodyEntity.Task {
             safe[h] = offset != null;
             rise[h] = offset == null ? 0 : offset;
         }
-        heading = EscapeLogic.heading(player.getX(), player.getZ(), mobs, safe, heading);
-        if (heading < 0) { corneredTicks++; forward = false; sprint = false; return null; }
-        corneredTicks = 0;
+        int heading = EscapeLogic.heading(player.getX(), player.getZ(), mobs, safe, current);
+        if (heading < 0) return new Steer(-1, false, false);
         int dx = EscapeLogic.DX[heading], dz = EscapeLogic.DZ[heading];
         BodyBuild.aim(player, (float) Math.toDegrees(Math.atan2(-dx, dz)), 0);
-        forward = true;
-        sprint = EscapeLogic.sprint(player.getFoodData().getFoodLevel());
-        if (rise[heading] > 0) jump = true;  // a step up needs a jump at any pace
-        else {
-            // sprint-jump only over level ground: the landing is two cells on
-            boolean room = geometry.clear(player.getX(), player.getZ(), y + 1.8, y + 1.8 + JUMP_ROOM)
-                    && geometry.clear(bx + dx + .5, bz + dz + .5, y + 1.8, y + 1.8 + JUMP_ROOM);
-            boolean level = rise[heading] == 0
-                    && geometry.standable(new RouteMotor.Point(bx + 2 * dx, y, bz + 2 * dz));
-            jump = EscapeLogic.jump(true, sprint, room, level);
-        }
-        if (jump) jumps++;
-        return null;
+        boolean sprint = EscapeLogic.sprint(player.getFoodData().getFoodLevel());
+        if (rise[heading] > 0) return new Steer(heading, sprint, true);  // a step up needs a jump at any pace
+        // sprint-jump only over level ground: the landing is two cells on
+        boolean room = geometry.clear(player.getX(), player.getZ(), y + 1.8, y + 1.8 + JUMP_ROOM)
+                && geometry.clear(bx + dx + .5, bz + dz + .5, y + 1.8, y + 1.8 + JUMP_ROOM);
+        boolean level = rise[heading] == 0
+                && geometry.standable(new RouteMotor.Point(bx + 2 * dx, y, bz + 2 * dz));
+        return new Steer(heading, sprint, EscapeLogic.jump(true, sprint, room, level));
     }
 
     /**

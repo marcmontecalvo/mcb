@@ -53,7 +53,7 @@ ANIMAL_DROPS = {
     "rabbit": "rabbit",
 }
 _NAME = re.compile(r"[a-z][a-z_]{0,31}")
-STEP_SUMS = ("kills", "hits", "crits", "shots", "damage", "jumps", "ticks")
+STEP_SUMS = ("kills", "hits", "crits", "shots", "damage", "jumps", "ticks", "flees")
 
 
 def kit(weapon: str, *, tier: str = "iron") -> list[dict]:
@@ -99,7 +99,7 @@ def summarize(events: list[dict]) -> dict:
     """The defence a trial saw: its actions in order and the steps' totals."""
     actions, ends, failures = [], [], []
     totals = dict.fromkeys(STEP_SUMS, 0)
-    steps, health = 0, None
+    steps, health, closest = 0, None, None
     for event in events:
         data = event.get("data") or {}
         if event.get("type") == "defense":
@@ -112,6 +112,9 @@ def summarize(events: list[dict]) -> dict:
                     totals[key] += value
             if data.get("health") is not None:
                 health = data["health"]
+            near = data.get("closest")  # the nearest a fight let its target come
+            if isinstance(near, (int, float)) and not isinstance(near, bool):
+                closest = near if closest is None else min(closest, near)
             if data.get("end") is not None:
                 ends.append(data["end"])
             if data.get("ok") is False:
@@ -120,6 +123,7 @@ def summarize(events: list[dict]) -> dict:
         "actions": actions,
         "steps": steps,
         **totals,
+        "closest": closest,
         "health": health,
         "ends": ends,
         "failures": failures,
@@ -346,7 +350,7 @@ def run_matrix(
 COLUMNS = (
     ("weapon", 6), ("mob", 9), ("end", 15), ("actions", 22), ("kills", 5),
     ("hits", 4), ("crits", 5), ("shots", 5), ("damage", 6), ("health", 6),
-    ("seconds", 7),
+    ("flees", 5), ("closest", 7), ("seconds", 7),
 )  # fmt: skip
 
 

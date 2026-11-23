@@ -230,9 +230,12 @@ final class FightLogic {
     static final class Kills {
         private final java.util.Set<String> dead = new java.util.HashSet<>();
 
-        /** Counts the target when it is dead and ours and not yet counted; true when this call counted it. */
-        boolean credit(String uuid, boolean alive, boolean ours) {
-            return !alive && ours && dead.add(uuid);
+        /**
+         * Counts the target when it is dead (health at or below 0) and ours and not yet counted; true when this
+         * call counted it. A creeper that blew up, or a mob discarded, is removed with health left: no kill.
+         */
+        boolean credit(String uuid, float health, boolean ours) {
+            return health <= 0 && ours && dead.add(uuid);
         }
 
         int count() { return dead.size(); }

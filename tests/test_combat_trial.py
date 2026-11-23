@@ -54,10 +54,10 @@ def test_summary_adds_the_steps_and_keeps_the_order_of_actions():
     events = [
         _event(1, "defense", action="fight", reason="fighting the zombie"),
         _event(2, "defense_step", action="fight", ok=True, kills=0, hits=2, crits=1,
-               ticks=40, health=18.0, damage=12.5),
+               ticks=40, health=18.0, damage=12.5, flees=1, closest=3.4),
         _event(3, "chat_out", text="hi"),
         _event(4, "defense_step", action="fight", ok=True, kills=1, hits=1, crits=1,
-               ticks=25, health=17.0, end="clear", damage=7.5),
+               ticks=25, health=17.0, end="clear", damage=7.5, flees=1, closest=4.1),
     ]  # fmt: skip
 
     s = ct.summarize(events)
@@ -72,6 +72,8 @@ def test_summary_adds_the_steps_and_keeps_the_order_of_actions():
         "damage": 20.0,
         "jumps": 0,
         "ticks": 65,
+        "flees": 2,
+        "closest": 3.4,  # the nearest any step let its target come
         "health": 17.0,
         "ends": ["clear"],
         "failures": [],
@@ -92,6 +94,7 @@ def test_summary_records_failed_steps_and_escape_jumps():
     assert s["actions"] == ["escape", "walk_away"]
     assert s["failures"] == ["escape: cornered"]
     assert (s["jumps"], s["ticks"], s["health"]) == (3, 30, None)
+    assert s["closest"] is None  # no fight step reported one
 
 
 def _status(job=None, queue=(), active=None, resting=0.0, position=None):

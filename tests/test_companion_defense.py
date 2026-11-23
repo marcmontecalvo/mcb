@@ -281,6 +281,14 @@ def test_a_creeper_is_hit_and_left_with_a_sword():
     assert action.tactic.style == "hit_and_back"
 
 
+def test_a_creeper_is_jabbed_from_past_its_fuse_with_a_lone_spear():
+    creeper = mob("creeper", at=(8.5, 64.0, 0.5), uuid="c")
+    spear = {M + "iron_spear": 1}
+    action = cd.decide(situation(entities=(creeper,), inventory=spear), POLICY)
+    assert (action.kind, action.target, action.item) == ("fight", "c", M + "iron_spear")
+    assert action.tactic.style == "poke"
+
+
 def test_an_unarmed_bot_escapes_a_creeper_rather_than_digging_beside_it():
     creeper = mob("creeper", at=(3.5, 64.0, 0.5), uuid="c")
     action = cd.decide(situation(entities=(creeper,)), POLICY)

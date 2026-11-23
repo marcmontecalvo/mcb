@@ -94,13 +94,29 @@ def test_archers_are_shot_back_with_a_bow_and_arrows():
     assert (t.style, t.weapon) == ("melee", M + "iron_sword")
 
 
-def test_a_creeper_is_shot_else_hit_and_left_else_avoided():
+def test_a_creeper_is_shot_else_hit_and_left_else_outreached_else_avoided():
     assert cc.tactic(M + "creeper", inv("bow", arrows=5)).style == "snipe"
     t = cc.tactic(M + "creeper", inv("stone_sword"))
     assert (t.style, t.weapon) == ("hit_and_back", M + "stone_sword")
     assert t.crit is False  # the sprint hit's knockback is the point
-    assert cc.tactic(M + "creeper", inv("iron_spear")).style == "avoid"
+    # a sword's sprint hit lands sooner than a jab's long charge
+    assert cc.tactic(M + "creeper", inv("iron_spear", "stone_sword")).style == (
+        "hit_and_back"
+    )
     assert cc.tactic(M + "creeper", {}).style == "avoid"
+
+
+def test_a_lone_spear_jabs_a_creeper_from_past_its_fuse():
+    t = cc.tactic(M + "creeper", inv("iron_spear"))
+    assert (t.style, t.weapon, t.crit) == ("poke", M + "iron_spear", False)
+    assert t.keep == cc.FUSE_KEEP
+    near, far = cc.FUSE_KEEP
+    # measured eye to box: the creeper's feet are a half-width (0.3) farther still,
+    # and it lights only with the body's feet inside 3 blocks; room is left for the
+    # body to drift on while it turns round (live 20261123T205225Z)
+    assert near + 0.3 - cc.CREEPER_FUSE >= 0.8
+    assert far < cc.JAB_REACH  # every held distance is within a jab
+    assert t.wire()["keep"] == [near, far]
 
 
 def test_fliers_and_ghasts_need_a_bow():

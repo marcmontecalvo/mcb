@@ -216,8 +216,19 @@ final class BodyEntity {
         private double noPathAt;
         /** The last failed search, for the failure's evidence: from, to, cells reached, the start's four exits. */
         private Map<String, Object> lostPath;
-        /** hit_and_back: backing off after a hit until the creeper's swell is gone. */
+        /** hit_and_back after a hit, poke from a swelling creeper: backing off until its swell is gone. */
         private boolean retreating;
+        /** Flee: the escape's heading kept between ticks, the tick of the last flee step, flees begun. */
+        private int fleeHeading = -1, fleeTick = -2, flees;
+        /** The first FLEE_LOG flee starts (fleeStart), reported as the result's flee_log. */
+        static final int FLEE_LOG = 8;
+        private final java.util.List<Map<String, Object>> fleeLog = new java.util.ArrayList<>();
+        /** The mobs this tick ({x, z}), steered away from by a flee. */
+        private final java.util.List<double[]> around = new java.util.ArrayList<>();
+        /** Poke: the eye-to-box gap a tick ago (NaN for a new target), to lead the band by its closing. */
+        private double lastEye = Double.NaN;
+        /** The nearest the target came (feet to feet), the fuse margin's evidence. */
+        private double closest = Double.POSITIVE_INFINITY;
         /** Set by step for controls: forward (-1 back, 0, 1), jump, sprint, hold use (bow draw). */
         private double forward;
         private boolean jump, sprint, useHold;
@@ -239,7 +250,7 @@ final class BodyEntity {
         }
 
         private void credit(ServerPlayer player, LivingEntity target) {
-            if (kills.credit(target.getUUID().toString(), target.isAlive(), target.getKillCredit() == player)
+            if (kills.credit(target.getUUID().toString(), target.getHealth(), target.getKillCredit() == player)
                     && target.getUUID().equals(requested))
                 diedAt = java.util.List.of(target.getX(), target.getY(), target.getZ());
         }
@@ -248,6 +259,7 @@ final class BodyEntity {
             if (target == tracked) return;
             tracked = target;
             trackedHealth = target.getHealth();
+            lastEye = Double.NaN;
         }
 
         static FightTask start(ServerPlayer player, JsonObject request, long sequence,
@@ -313,12 +325,15 @@ final class BodyEntity {
             if (requested != null && !entities.containsKey(requested.toString())
                     && player.level().getEntity(requested) instanceof LivingEntity living && living.isAlive())
                 addMob(player, living, typeId(living), candidates, entities);
-            if (FightLogic.avoid(candidates, tactic.style().equals("hit_and_back"))) return "avoid";
+            if (FightLogic.avoid(candidates, CombatLogic.fightsCreepers(tactic))) return "avoid";
             var pick = FightLogic.pick(requested == null ? null : requested.toString(), candidates, reach);
             if (pick == null) { stopDraw(); return "done"; }
             LivingEntity target = entities.get(pick.uuid());
             track(target);
+            around.clear();
+            for (var e : entities.values()) around.add(new double[] {e.getX(), e.getZ()});
             double distance = Math.sqrt(player.distanceToSqr(target));
+            closest = Math.min(closest, distance);
             if (noPathSince >= 0) {
                 // no walk to it: hold and let it come; one that keeps off is left to the guard
                 String call = FightLogic.noPath(noPathSince, noPathAt, ticks, distance);
@@ -360,14 +375,78 @@ final class BodyEntity {
             else noPathSince = -1;
         }
 
-        /** Spear: hold the band just past the target's reach and jab at full charge. */
+        /** A flee's start, the evidence of why it fled: tick, cause, gaps, and a creeper's swell state. */
+        private Map<String, Object> fleeStart(ServerPlayer player, LivingEntity target, String cause) {
+            var out = new LinkedHashMap<String, Object>();
+            out.put("tick", ticks);
+            out.put("cause", cause);
+            out.put("distance", round1(Math.sqrt(player.distanceToSqr(target))));
+            out.put("eye", round1(Math.sqrt(target.getBoundingBox().distanceToSqr(player.getEyePosition()))));
+            if (target instanceof net.minecraft.world.entity.monster.Creeper c) {
+                out.put("swell_dir", c.getSwellDir());
+                out.put("swelling", Math.round(c.getSwelling(0) * 100) / 100.0);
+                out.put("ignited", c.isIgnited());
+            }
+            return out;
+        }
+
+        private static boolean swelling(LivingEntity target) {
+            return target instanceof net.minecraft.world.entity.monster.Creeper c && CombatLogic.lit(c.getSwellDir(), c.getSwelling(0));
+        }
+
+        /** Any swell left: hit-and-back walks back inside the fuse, so it waits for the swell to drain fully. */
+        private static boolean swollen(LivingEntity target) {
+            return target instanceof net.minecraft.world.entity.monster.Creeper c
+                    && (c.getSwellDir() > 0 || c.getSwelling(0) > 0);
+        }
+
+        /**
+         * Face away and sprint as the escape op does: each grounded tick the safe heading with the least
+         * pressure from every mob around (EscapeTask.steer), jumping where a sprint-jump lands level, so a
+         * blocked straight line is stepped round instead of stood in. Walking backwards is too slow to
+         * outrun a swell. Cornered (no safe heading): it holds.
+         */
+        private void flee(ServerPlayer player, LivingEntity target, String cause) {
+            if (ticks - fleeTick > 1) {  // a new flee: its heading is picked afresh, and its start recorded
+                flees++;
+                fleeHeading = -1;
+                if (fleeLog.size() < FLEE_LOG) fleeLog.add(fleeStart(player, target, cause));
+            }
+            fleeTick = ticks;
+            if (!player.onGround()) {  // mid-jump: hold the heading taken off on
+                forward = fleeHeading < 0 ? 0 : 1;
+                sprint = forward != 0;
+                return;
+            }
+            var steer = EscapeTask.steer(player, new RouteGeometry(reader.apply(player)), around, fleeHeading);
+            fleeHeading = steer.heading();
+            if (fleeHeading < 0) return;
+            forward = 1;
+            sprint = steer.sprint();
+            jump = steer.jump();
+        }
+
+        /**
+         * Spear: hold the band just past the target's reach and jab at full charge. The band is
+         * judged a few ticks ahead at the gap's closing speed (CombatLogic.poke), so the body backs off
+         * before a target walking in is inside it. A creeper's band (FUSE_KEEP) keeps it from lighting;
+         * one that lights anyway is outrun first. A back step that is blocked is stepped round (flee).
+         */
         private void poke(ServerPlayer player, LivingEntity target) {
             holdWeapon(player, params.weapon());
-            aim(player, target);
             double eye = Math.sqrt(target.getBoundingBox().distanceToSqr(player.getEyePosition()));
-            var move = CombatLogic.keep(eye, tactic.keepMin(), tactic.keepMax());
+            double closing = Double.isNaN(lastEye) ? 0 : lastEye - eye;
+            lastEye = eye;
+            var move = CombatLogic.poke(eye, closing, Math.sqrt(player.distanceToSqr(target)), tactic.keepMin(),
+                    tactic.keepMax(), swelling(target), retreating);
+            retreating = move == CombatLogic.Move.FLEE;
+            if (retreating) { flee(player, target, "swell"); return; }
+            aim(player, target);
             if (move == CombatLogic.Move.APPROACH) approach(player, target);
-            else if (move == CombatLogic.Move.RETREAT) walk(player, target, -1);
+            else if (move == CombatLogic.Move.RETREAT) {
+                walk(player, target, -1);
+                if (forward == 0) { flee(player, target, "blocked"); return; }  // the back step is blocked: round it
+            }
             if (move != CombatLogic.Move.APPROACH) noPathSince = -1;  // in its band: reached
             var stack = player.getMainHandItem();
             var spear = stack.get(DataComponents.PIERCING_WEAPON);
@@ -384,20 +463,11 @@ final class BodyEntity {
         /** Creeper: a sprint hit knocks it back, then keep off until its swell is gone. */
         private void hitAndBack(ServerPlayer player, LivingEntity target, double distance) {
             holdWeapon(player, params.weapon());
-            boolean swelling = target instanceof net.minecraft.world.entity.monster.Creeper c
-                    && (c.getSwellDir() > 0 || c.getSwelling(0) > 0);
             boolean reach = inReach(player, target);
-            String plan = CombatLogic.hitAndBack(retreating, distance, swelling, reach, player.getAttackStrengthScale(0.5f));
+            String plan = CombatLogic.hitAndBack(retreating, distance, swollen(target), reach, player.getAttackStrengthScale(0.5f));
             switch (plan) {
                 case "strike" -> { aim(player, target); player.setSprinting(true); strike(player, target); retreating = true; }
-                case "retreat" -> {
-                    // face away and sprint: walking backwards is too slow to outrun a swell
-                    float away = (float) Math.toDegrees(Math.atan2(target.getX() - player.getX(), -(target.getZ() - player.getZ())));
-                    BodyBuild.aim(player, away, 0);
-                    walk(player, target, -1);
-                    if (forward != 0) forward = 1;  // facing away: a backward step is forward
-                    sprint = forward != 0;
-                }
+                case "retreat" -> flee(player, target, "after_hit");
                 default -> {
                     retreating = false; aim(player, target); approach(player, target); sprint = true;
                     if (reach) noPathSince = -1;
@@ -539,6 +609,9 @@ final class BodyEntity {
             out.put("style", tactic.style());
             out.put("ticks", ticks);
             out.put("health", player.getHealth());
+            out.put("flees", flees);
+            if (!fleeLog.isEmpty()) out.put("flee_log", fleeLog);
+            if (Double.isFinite(closest)) out.put("closest", round1(closest));
             if (requested != null) {
                 out.put("killed", kills.has(requested.toString()));
                 if (diedAt != null) out.put("at", diedAt);

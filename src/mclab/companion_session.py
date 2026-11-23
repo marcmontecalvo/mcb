@@ -72,7 +72,7 @@ OUT_OF_REACH_S = 30.0  # a mob no walk reached is fought only from range this lo
 # A defence step's outcome (host event defense_step): the fight and escape ops' scalars.
 OUTCOME_FIELDS = (
     "kills", "hits", "crits", "shots", "damage", "style", "ticks", "health", "end",
-    "jumps",
+    "jumps", "flees", "closest",
     "distance", "nearest",
 )  # fmt: skip
 DEFEND_WAIT_TICKS = 10  # a step that could do nothing waits this long

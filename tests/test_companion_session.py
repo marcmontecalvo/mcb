@@ -1396,14 +1396,14 @@ def test_defend_reports_the_fight_outcome_without_the_inventory(guard):
     session.body.fights = [
         Result(True, None, {"kills": 1, "hits": 3, "crits": 2, "shots": 0,
                             "damage": 20.0, "style": "melee", "ticks": 80,
-                            "health": 18.0, "end": "clear",
-                            "inventory": [{"slot": 0}]})
+                            "health": 18.0, "end": "clear", "flees": 1,
+                            "closest": 3.9, "inventory": [{"slot": 0}]})
     ]  # fmt: skip
     outcome = session.defend(Action("fight", "fighting", target="z1", item=SWORD))
     assert outcome == {
         "action": "fight", "ok": True, "reason": None, "kills": 1, "hits": 3,
         "crits": 2, "shots": 0, "damage": 20.0, "style": "melee", "ticks": 80,
-        "health": 18.0, "end": "clear",
+        "health": 18.0, "end": "clear", "flees": 1, "closest": 3.9,
     }  # fmt: skip
 
 

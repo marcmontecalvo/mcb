@@ -128,11 +128,13 @@ public final class FightLogicTest {
         // Kills: a target that died with the body as its killer counts once, however it died (live trial
         // 20261123T201313Z: three arrows took a zombie's 20 health and the fight reported no kill)
         var kills = new FightLogic.Kills();
-        check(!kills.credit("a", true, false) && kills.count() == 0, "alive: no kill");
-        check(!kills.credit("a", false, false) && kills.count() == 0, "killed by someone else");
-        check(kills.credit("a", false, true) && kills.count() == 1, "our kill");
-        check(!kills.credit("a", false, true) && kills.count() == 1, "the same kill seen again (hit, then look)");
-        check(kills.credit("b", false, true) && kills.count() == 2, "a second target");
+        check(!kills.credit("a", 4f, false) && kills.count() == 0, "alive: no kill");
+        check(!kills.credit("a", 0f, false) && kills.count() == 0, "killed by someone else");
+        // a creeper that blew up is removed with its health left (live 20261123T205225Z: 5 of 20)
+        check(!kills.credit("a", 5f, true) && kills.count() == 0, "removed, not killed: no kill");
+        check(kills.credit("a", 0f, true) && kills.count() == 1, "our kill");
+        check(!kills.credit("a", 0f, true) && kills.count() == 1, "the same kill seen again (hit, then look)");
+        check(kills.credit("b", -2f, true) && kills.count() == 2, "a second target (overkill)");
         // a hunt asks whether its own animal died, not whether anything did
         check(kills.has("a") && kills.has("b") && !kills.has("c") && !kills.has(null), "which died");
 

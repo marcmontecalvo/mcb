@@ -60,7 +60,7 @@ blocks, animals and pets included.
 | style | what the mod does |
 |---|---|
 | `melee` | close in. Jump when the cooldown will be full at the jump's apex, strike on the way down (crit). Where a jump cannot crit (low ceiling, water, ladder), strike at full cooldown. |
-| `poke` | spear: hold 2.5 to 4 blocks off and jab at full charge; back off when the target closes inside 2.5. |
+| `poke` | spear: hold 2.5 to 4 blocks off and jab at full charge; back off when the target closes inside 2.5. Against a creeper (`outreach`) the band is 3.3 to 4.2, past its fuse; one that swells anyway is outrun first. |
 | `hit_and_back` | sprint hit (extra knockback), then back off past 7 blocks while the creeper's swell runs down; again when the swell is back to zero. |
 | `snipe` | bow: keep 8 to 15 blocks off, draw 20 ticks, aim with drop and lead, release. Switch to a melee weapon if the target closes within 4. |
 | `hunt` | animals: chase at a sprint and take the biggest single hit (one-shot). No sweep while another animal stands within 3 blocks of the target. Never the bow (arrows are wasted on food). |
@@ -73,7 +73,7 @@ blocks, animals and pets included.
 | zombie, husk, drowned, zombie_villager, spider, cave_spider, silverfish, endermite, slime, magma_cube, witch, vindicator, hoglin, zoglin, piglin_brute, wither_skeleton | `melee` (sword > axe > trident > spear-poke), else `snipe` with a bow | crit melee; spear pokes outreach them; a bow alone shoots rather than runs |
 | vex | `melee` | too small and quick to shoot |
 | skeleton, stray, bogged, pillager | `snipe` with a bow, else `melee` | archers: duel from range or close fast; an escape from them is always a sprint |
-| creeper | `snipe` with a bow, else `hit_and_back` with a melee weapon, else `avoid` | the swell starts within 3 blocks and runs down past 7 |
+| creeper | `snipe` with a bow, else `hit_and_back` with a sword, axe or trident, else `outreach` (a spear's poke from past the fuse), else `avoid` | the swell starts within 3 blocks (feet to feet) and runs down past 7; a jab reaches 4.5 |
 | evoker | `melee`, else `snipe`; first in line | kill it before its vexes |
 | enderman | not a threat until it targets the bot; then `melee` | never stare at it (provoked by gaze); a carved pumpkin on the head prevents it |
 | phantom, blaze, ghast | `snipe` with a bow, else `avoid` | the ghast cannot be reached for melee |
@@ -193,9 +193,47 @@ and 3 shots). The hunt's fight killed its pig in 9 to 165 ticks (axe 3.1 s, spea
 |---|---|---|
 | the sword killed its pig at 5 s, then hunted a second one (18 s) | the porkchop lay in a one-layer snow cover; the entity ray aimed at its box centre, level with the snow's outline, so the drop went unseen for 4 s and the hunt moved on | a development awareness preset also aims a ray just under the box's top; legacy is frozen (`AWARENESS_MODES.md`) |
 
-Expected, not faults: the spear with a creeper walks away and escapes (a creeper is
-fought only by hit-and-back with a sword, axe or trident); hit-and-back strikes sprinting
-for knockback, so it never crits.
+Hit-and-back strikes sprinting for knockback, so it never crits (expected).
+
+### 10. Fifth live matrix (Nov 23): what it showed and what changed
+
+Fifteen of sixteen trials killed. The sword's pig hunt took 5.1 s, down from 18.2 s:
+the porkchop in the snow was seen and no second pig was hunted. The sword and axe
+crit every zombie and skeleton hit; the bow killed all three mobs in 3 to 4 shots.
+
+| seen | cause | change |
+|---|---|---|
+| a lone spear walked away from a creeper four times over 32 s until it lost it | a creeper was fought only by hit-and-back (sword, axe, trident) | `outreach`: a jab reaches 4.5 blocks and a creeper lights inside 3 (feet to feet), so a spear pokes it from a band (eye to box) that never lights it; a swell that starts anyway is outrun as in hit-and-back (`CombatLogic.poke`, `fightsCreepers`). A sword, axe or trident still comes first. |
+
+The first outreach trials, and what they changed:
+
+| seen | cause | change |
+|---|---|---|
+| an exploded creeper was counted a kill | the kill credit read only "removed" | a kill is a target removed at health 0 (`FightLogic.Kills.credit`); an explosion removes the creeper with health left |
+| the band 3.3 to 4.2 let a walking creeper light | the body takes about five ticks to turn from walking in to backing off, and a box edge is 0.3 nearer than the feet | the band is 3.6 to 4.4, and the poke judges the gap `POKE_LEAD` (6) ticks on at the rate it is closing |
+| the bot fled after every jab | a jab leaves the creeper at swell 1, draining (direction −1): a flicker, not a lit fuse | a creeper is lit while its swell climbs, or while a draining swell is still half its fuse or more (`CombatLogic.lit`) |
+| a flee in a straight line froze against a wall | the flee only faced away | every flee (poke, hit-and-back, a blocked back-off) steers as the escape op does, sprint-jumping round other mobs (`EscapeTask.steer`) |
+
+The fight's result now reports `flees`, the `closest` it let the target come and,
+for each flee, its cause, distance and swell (`flee_log`). Three spear trials then
+killed their creeper in 7.2 to 8.8 s without one flee, never closer than 4.2 blocks.
+
+### 11. Sixth live matrix (Nov 23): what it showed and what changed
+
+All sixteen trials killed. Only the skeletons hurt the bot (it ended at 17.5 with the
+axe, 18.3 with the bow and 7.7 with the spear).
+
+| weapon | zombie | skeleton | creeper | pig |
+|---|---|---|---|---|
+| sword | 2.9 s | 10.2 s | 5.3 s, 6 flees | 13.8 s |
+| axe | 2.9 s | 2.5 s | 5.0 s, 3 flees | 3.3 s |
+| spear | 8.0 s | 12.9 s, health 7.7 | 7.2 s, no flee | 6.7 s |
+| bow | 3.5 s | 3.5 s | 2.4 s | 10.3 s |
+
+| seen | cause | change |
+|---|---|---|
+| the sword killed its pig in 3.4 s, but the trial ran 13.8 s | the guard's threat check looks the base up on every poll; that opened the world archive, and one open waited 8.9 s inside sqlite while terrain was being written, freezing the motor loop | the place graph reads its places once and keeps them in memory, written through on every change: no poll touches storage (`PlaceGraph`) |
+| the spear lost 12 health to a skeleton | a skeleton backs off inside about 7.5 blocks, out of a 4.5-block jab | open: a spear needs the charge, or the bow when one is carried |
 
 ## Slices (TDD each; one commit each)
 
@@ -209,7 +247,7 @@ for knockback, so it never crits.
    `defense_step`/`defense_end` events, `scripts/combat-trial.py`.
 6. Done: Session: `escape` and `walk_away` steps; `fight` passes the tactic.
 7. In progress: Live trials: sword, axe, spear and bow against a zombie, skeleton, creeper
-   and pig. Four matrices ran; their fixes (sections 6 to 9) are built and
-   unit-tested. The fourth killed in 15 of 16 trials (the 16th, a spear with a
-   creeper, walks away by design); the matrix runs again for the drop sight.
+   and pig. Six matrices ran; their fixes (sections 6 to 11) are built and
+   unit-tested. The sixth killed in all 16 trials. Open: a spear against a
+   skeleton.
 8. Later: spear charge, trident throw with Loyalty, shield blocking, the dragon.

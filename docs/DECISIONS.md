@@ -463,8 +463,15 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   development awareness presets see an entity by its box top as well as its
   centre (a drop sunk in snow or grass is in plain view); the frozen legacy
   preset and the awareness payload (and so the world-memory namespace) are
-  unchanged. Plan:
+  unchanged. A creeper is fought by each weapon's own way of staying out of its
+  fuse: an arrow from range, a sword or axe hit then a sprint away, a spear's
+  jab from past its 3-block fuse (`outreach`); only bare hands walk away. Plan:
   [COMPANION_COMBAT_PLAN_2026-11-23.md](COMPANION_COMBAT_PLAN_2026-11-23.md).
+- **Nothing in a poll touches storage (Nov 23).** The guard runs inside the motor
+  loop, so its threat check reads only memory. The place graph reads its places
+  once and writes every change through; one graph owns a world's places in a
+  process. A fresh archive connection in the guard once froze the body 8.9 s
+  while sqlite waited (combat matrix 20261123T211141Z).
 - **Open:** LAN access for a second PC (the game port binds loopback for now),
   rotating a long session's `events.sqlite3`, and the live night test of the
   defence (built, not yet run against real mobs).

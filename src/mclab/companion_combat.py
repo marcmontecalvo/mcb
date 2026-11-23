@@ -11,7 +11,13 @@ from dataclasses import dataclass
 M = "minecraft:"
 CRIT = 1.5  # base damage multiplier of a falling, non-sprinting strike
 CRIT_CYCLE = 12  # ticks from one jump to the next: crits cannot come faster
-POKE_KEEP = (2.5, 4.0)  # spear jab reaches 2.0 to 4.5 from the eye
+JAB_REACH = 4.5  # a spear jab reaches 2.0 to 4.5 from the eye to the target's box
+POKE_KEEP = (2.5, 4.0)
+# A creeper lights with the body's feet inside 3 blocks of its own; its box edge is a
+# half-width (0.3) nearer. Jabbing from 3.6 to 4.4 (eye to box) leaves almost a block
+# for the body to drift on while it turns round as the creeper walks in.
+CREEPER_FUSE = 3.0
+FUSE_KEEP = (3.6, 4.4)
 SNIPE_KEEP = (8.0, 15.0)  # outside a skeleton's comfort, inside its 15-block range
 ARROWS = frozenset({M + "arrow", M + "spectral_arrow", M + "tipped_arrow"})
 MELEE_KINDS = ("sword", "axe", "trident", "spear")
@@ -76,7 +82,8 @@ def weapon(item: str) -> Weapon | None:
 class Tactic:
     """What the mod's fight op does; ``wire()`` is its ``tactic`` field.
 
-    style: melee, poke, hit_and_back, snipe, hunt or avoid (never engaged).
+    style: melee, poke, hit_and_back, snipe, hunt or avoid (never engaged). A
+    profile's ``outreach`` is a poke from past a creeper's fuse (``FUSE_KEEP``).
     """
 
     style: str
@@ -120,7 +127,7 @@ def _profiles() -> dict[str, Profile]:
         Profile(("melee",)): "breeze vex",
         Profile(("melee", "snipe"), first=True): "evoker",
         Profile(("snipe", "melee")): "skeleton stray bogged pillager",
-        Profile(("snipe", "hit_and_back")): "creeper",
+        Profile(("snipe", "hit_and_back", "outreach")): "creeper",
         Profile(("snipe",)): "phantom blaze ghast",
         Profile(("melee",), no_gaze=True): "enderman",
         Profile(()): "warden ravager guardian elder_guardian ender_dragon wither",
@@ -194,6 +201,9 @@ def _style(style: str, inventory) -> Tactic | None:
     if style == "hit_and_back":
         best = _best(inventory, ("sword", "axe", "trident"))
         return Tactic("hit_and_back", best.item) if best else None
+    if style == "outreach":  # a spear's reach beyond a creeper's fuse
+        best = _best(inventory, ("spear",))
+        return Tactic("poke", best.item, keep=FUSE_KEEP) if best else None
     if style == "hunt":
         held = _held(inventory, MELEE_KINDS)
         best = max(held, key=lambda w: (w.hit(), w.dps())) if held else None
