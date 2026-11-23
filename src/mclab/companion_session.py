@@ -12,7 +12,8 @@ the bridge have thread affinity). Docs: COMPANION_LLM_PLAN_2026-11-23.md, sectio
 - Cancel: the host sets ``poll_hook``; the bridge runs it first in every ``state()``
   poll, and the host raises ``JobCancelled`` from it.
 - Death (Carpet drops the items and disconnects the body): ``respawn`` remembers the
-  place ``death`` and spawns the same name again with ``keep_state``.
+  place ``death`` and spawns the same name again with ``keep_state`` at the world
+  spawn (vanilla), not beside what killed it.
 """
 
 from __future__ import annotations
@@ -284,6 +285,7 @@ class Session:
         self.poll_hook = None  # set by the host: runs first in every bridge poll
         self.bridge = self.memory = self.places = self.body = None
         self.last_good: tuple[int, int, int] | None = None
+        self._died_event = self._handled_death = None  # respawn: body_died seen
         self._saved_at = -math.inf
         self._saved: tuple[int, int, int] | None = None
         self._observed_at = -math.inf
@@ -291,6 +293,7 @@ class Session:
     # --- lifecycle ---------------------------------------------------------------
     def start(self) -> None:
         self.folder.mkdir(parents=True, exist_ok=True)
+        position = None
         try:
             if self._awareness is None:
                 self._awareness = load_awareness()
@@ -300,8 +303,13 @@ class Session:
             self.bridge.cancel_check = self._on_poll
             self.memory = self._open_memory(self.bridge, self.folder, self._awareness)
             self.places = self._make_places(self.memory)
-            self._spawn(self.spawn_position())
+            position = self.spawn_position()
+            self._spawn(position)
         except BaseException:
+            if position is not None and position == self._saved_position():
+                # the host retries a failed start: not at the same spot (it drowned
+                # the bot at every retry), at the world spawn
+                self._forget_saved()
             self.close(despawn=False)
             raise
 
@@ -309,9 +317,22 @@ class Session:
         if self.poll_hook is not None:
             self.poll_hook()
 
-    def spawn_position(self) -> tuple[int, int, int]:
+    def _saved_position(self) -> tuple[int, int, int] | None:
         saved = read_state(self.state_file)
-        if saved.get("bot") == self.bot_name and (cell := _cell(saved.get("position"))):
+        return (
+            _cell(saved.get("position")) if saved.get("bot") == self.bot_name else None
+        )
+
+    def _forget_saved(self) -> None:
+        saved = read_state(self.state_file)
+        saved.pop("position", None)
+        try:
+            write_atomic(self.state_file, saved)
+        except OSError as error:
+            log.warning("could not forget the saved position: %s", error)
+
+    def spawn_position(self) -> tuple[int, int, int]:
+        if (cell := self._saved_position()) is not None:
             return cell
         spawn = self._world_spawn()
         if spawn is None:
@@ -357,10 +378,11 @@ class Session:
         self._save(feet, force=True)
 
     def respawn(self) -> dict:
-        """The body died (its items lie where it died) or left the world: remember
-        that spot as the place ``death`` and spawn the same name again at the last
-        good position. The one place to change how a companion comes back."""
-        death = self._death_cell()
+        """Bring the same name back. One that died (its items lie where it died; the
+        spot becomes the place ``death``) comes back at the world spawn like a vanilla
+        player, not beside what killed it; one that left the world without dying
+        comes back where it was. The one place to change how a companion returns."""
+        death = self._new_death()
         if death is not None:
             self.places.remove("death")
             self.places.add("death", death, kind="death", provenance="died")
@@ -368,18 +390,30 @@ class Session:
             self.body.follow = None
             self.body._drop_ahead()
         self.body = None
-        self._spawn(self.last_good or self.spawn_position())
+        if self._died_event is not None:
+            self._spawn(self._world_spawn() or self.last_good or self.spawn_position())
+        else:
+            self._spawn(self.last_good or self.spawn_position())
         return {
             "death": list(death) if death is not None else None,
             "position": list(self.body.position()),
         }
 
-    def _death_cell(self):
+    def _new_death(self):
+        """Where the body died, from the newest ``body_died`` not yet handled (else
+        the last sample); sets ``_died_event``. None when it did not die."""
+        self._died_event = None
         for event in reversed(getattr(self.bridge, "events", None) or ()):
+            if event is self._handled_death:
+                break
             if event.get("type") == "body_died":
-                cell = _cell((event.get("data") or {}).get("position"))
-                if cell is not None:
-                    return cell
+                self._died_event = self._handled_death = event
+                break
+        if self._died_event is None:
+            return None
+        cell = _cell((self._died_event.get("data") or {}).get("position"))
+        if cell is not None:
+            return cell
         for sample in reversed(getattr(self.bridge, "samples", None) or ()):
             cell = _cell((sample.get("body") or {}).get("position"))
             if cell is not None:
@@ -451,12 +485,16 @@ class Session:
         )
 
     def _keep_position(self, state: dict) -> None:
+        """Only a healthy, dry stance on the ground is a place to come back to: a
+        shallow-water spot saved as good drowned the bot at every later start."""
         body = state.get("body") or {}
         cell = _cell(body.get("position"))
         if (
             cell is None
             or state.get("body_state", state.get("state")) != "ready"
             or float(body.get("health", 20.0)) < SAFE_HEALTH
+            or body.get("on_ground") is False
+            or (body.get("survival") or {}).get("in_water") is True
         ):
             return
         self.last_good = cell

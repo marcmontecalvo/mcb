@@ -425,6 +425,50 @@ def test_an_unsafe_position_is_not_remembered(make):
     assert session.last_good == (0, 64, 0)
 
 
+def test_a_wet_or_airborne_position_is_not_remembered(make):
+    """The play bot saved a spot in shallow water as good; every later start there
+    drowned (Nov 23, 2026). Only a dry stance on the ground is a place to return to."""
+    session, bridge, *_ = _started(make)
+    wet = _row(pos=(30.5, 62, 0.5))
+    wet["body"]["survival"] = {"in_water": True, "eye_in_water": False}
+    falling = _row(pos=(31.5, 70, 0.5))
+    falling["body"]["on_ground"] = False
+    for row in (wet, falling):
+        bridge.rows = [row]
+        session.idle()
+        assert session.last_good == (0, 64, 0)
+    dry = _row(pos=(32.5, 64, 0.5))
+    dry["body"].update(on_ground=True, survival={"in_water": False})
+    bridge.rows = [dry]
+    session.idle()
+    assert session.last_good == (32, 64, 0)
+
+
+def test_a_failed_start_from_the_saved_position_forgets_it(make, monkeypatch):
+    """The host retries a failed start; the same saved spot failed the same way
+    every time. The next start uses the world spawn."""
+    session, *_ = make(state={"bot": "MCBot", "position": [-175, 63, -62]})
+
+    def boom(*_a, **_k):
+        raise RuntimeError("stream never sampled")
+
+    monkeypatch.setattr(cs, "await_sampled_stream", boom)
+    with pytest.raises(RuntimeError):
+        session.start()
+    assert "position" not in json.loads(session.state_file.read_text())
+    assert session.spawn_position() == (0, 80, 0)
+
+
+def test_a_failed_start_from_the_world_spawn_writes_no_state(make, monkeypatch):
+    session, *_ = make()
+    monkeypatch.setattr(
+        cs, "await_sampled_stream", lambda *a, **k: (_ for _ in ()).throw(OSError())
+    )
+    with pytest.raises(OSError):
+        session.start()
+    assert not session.state_file.exists()
+
+
 def test_health_classifies_the_bridge(make):
     session, bridge, *_ = _started(make)
     assert session.health() == "ok"
@@ -516,9 +560,34 @@ def test_respawn_remembers_death_from_the_body_died_event(make):
     assert places.named("death").kind == "death"
     assert old.follow is None and ("drop_ahead",) in old.log
     op, fields = bridge.sent[0]
-    assert op == "spawn" and fields["position"] == [4.5, 64, 4.5]
+    # vanilla: a dead player comes back at the world spawn, not beside what killed
+    # it (play world, Nov 23, 2026: respawned at the death spot next to the zombie)
+    assert op == "spawn" and fields["position"] == [0.5, 80, 0.5]
     assert fields["keep_state"] is True
     assert session.body is not old
+
+
+def test_a_body_that_left_without_dying_comes_back_where_it_was(make):
+    session, bridge, places, *_ = _started(make)
+    session.last_good = (4, 64, 4)
+    bridge.samples.append(_row(pos=(4.5, 64, 4.5)))
+    bridge.sent.clear()
+    info = session.respawn()
+    assert info["death"] is None and places.named("death") is None
+    assert bridge.sent[0][1]["position"] == [4.5, 64, 4.5]
+
+
+def test_a_handled_death_is_not_counted_again(make):
+    session, bridge, places, *_ = _started(make)
+    session.last_good = (4, 64, 4)
+    bridge.events.append({"type": "body_died", "data": {"position": [9, 64, 9]}})
+    session.respawn()
+    places.remove("death")
+    session.last_good = (4, 64, 4)  # the respawn set it to the new feet
+    bridge.sent.clear()
+    assert session.respawn()["death"] is None  # the old event is still in the log
+    assert places.named("death") is None
+    assert bridge.sent[0][1]["position"] == [4.5, 64, 4.5]
 
 
 def test_respawn_falls_back_to_the_last_sample(make):

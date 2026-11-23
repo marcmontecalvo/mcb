@@ -49,6 +49,12 @@ public final class CarpetBodyAdapter {
     private boolean using;
     private boolean guardInteractions;
     private boolean keepState;
+    /**
+     * The entity this adapter spawned, bound on first sight. A later body by the same name (the
+     * companion respawning under its stable name) is never this adapter's to drive or kill: a
+     * retired adapter that looked players up by name killed the respawned companion every tick.
+     */
+    private ServerPlayer own;
 
     public CarpetBodyAdapter(MinecraftServer server, Vec3 spawnAt, String name, float yaw, float pitch) {
         if (!Float.isFinite(yaw) || !Float.isFinite(pitch) || yaw < -180 || yaw >= 180
@@ -67,14 +73,26 @@ public final class CarpetBodyAdapter {
 
     public ServerPlayer player() {
         var player = server.getPlayerList().getPlayerByName(name);
-        return player instanceof EntityPlayerMPFake ? player : null;
+        if (!(player instanceof EntityPlayerMPFake)) return null;
+        // Unbound and retired: a spawn that resolved after retirement is still ours to remove.
+        if (own == null && !retired) own = player;
+        return own == null || player == own ? player : null;
+    }
+
+    /** Whether this adapter has seen the entity it spawned. */
+    public boolean bound() { return own != null; }
+
+    /** Retired, and the entity it spawned has left the server: nothing is left to remove. */
+    public boolean finished() {
+        return retired && own != null && server.getPlayerList().getPlayerByName(name) != own;
     }
 
     /** Whether the player is any Carpet fake player (a body), not a connected human. */
     static boolean isFakePlayer(ServerPlayer player) { return player instanceof EntityPlayerMPFake; }
 
     public boolean owns(ServerPlayer player) {
-        return name.equals(player.getName().getString()) && player instanceof EntityPlayerMPFake;
+        return name.equals(player.getName().getString()) && player instanceof EntityPlayerMPFake
+                && (own == null || player == own);
     }
 
     private EntityPlayerActionPack pack() {

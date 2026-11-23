@@ -330,7 +330,9 @@ public final class BodyRuntime implements AutoCloseable {
 
     public void preTick() {
         if (body != null && traceEnabled) emit("phase", "fabric_start", Map.of());
-        for (var previous : retired) previous.pollReady();
+        // A retired body whose entity is gone is done: a companion that dies and respawns for
+        // hours must not run into MAX_RETIRED_BODIES.
+        retired.removeIf(previous -> { previous.pollReady(); return previous.finished(); });
         if (body != null && readyState.equals("spawn_timeout")) body.pollReady();
         int tick = server.getTickCount();
         if (traceEnabled && tick >= traceEnd) traceEnabled = false;
@@ -1324,6 +1326,9 @@ public final class BodyRuntime implements AutoCloseable {
         var candidate = new CarpetBodyAdapter(server, at, name, yaw, pitch);
         candidate.keepState(keepState);
         retireBody();
+        // A retired body of this name that never saw its entity cannot tell it from the new
+        // one; the name is the new body's now.
+        retired.removeIf(previous -> previous.name().equals(name) && !previous.bound());
         plannerMap = new PlannerMap();
         leakWatch.clear();
         planData = new PlanData();
