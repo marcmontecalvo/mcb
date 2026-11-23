@@ -85,6 +85,19 @@ INTENTS = {
         {},
         [],
     ),
+    "defense": (
+        "Read or change how the bot defends itself from hostile mobs (it always "
+        "does: fights when armed, else hides or goes home). floor_hearts: at or "
+        "below this health it stops fighting and escapes (default 3). Radii in "
+        "blocks: threats, allies to stay with, a base to run to. No arguments: read.",
+        {
+            "floor_hearts": {"type": "number", "minimum": 0.5, "maximum": 9.5},
+            "threat_radius": {"type": "integer", "minimum": 2, "maximum": 32},
+            "ally_radius": {"type": "integer", "minimum": 0, "maximum": 64},
+            "base_radius": {"type": "integer", "minimum": 0, "maximum": 256},
+        },
+        [],
+    ),
     "goto": (
         "Walk to a block position, a named place, or a player (come here). Give "
         "exactly one of: x/y/z, place, player.",
@@ -252,10 +265,30 @@ def _say(args):
     return {"text": text, "to": None if to is None else _player(args, "to")}
 
 
+def _defense(args):
+    """Changes to the defence settings; hearts become health points."""
+    out = {}
+    hearts = args.get("floor_hearts")
+    if hearts is not None:
+        if (
+            type(hearts) not in (int, float)
+            or not 0.5 <= hearts <= 9.5
+            or (hearts * 2) % 1
+        ):
+            raise ValueError("floor_hearts must be 0.5 to 9.5 in half hearts")
+        out["floor_health"] = int(hearts * 2)
+    for key, high in (("threat_radius", 32), ("ally_radius", 64), ("base_radius", 256)):
+        value = _int(args, key, 2 if key == "threat_radius" else 0, high)
+        if value is not None:
+            out[key] = value
+    return out
+
+
 _VALIDATORS = {
     "status": lambda a: {},
     "list_places": lambda a: {},
     "stop": lambda a: {},
+    "defense": _defense,
     "say": _say,
     "remember_place": lambda a: {"name": _place_name(a, "name"), "pos": _pos(a)},
     "job_status": lambda a: {"job_id": _text(a, "job_id", JOB_ID, "a job id")},

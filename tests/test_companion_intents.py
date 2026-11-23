@@ -106,6 +106,23 @@ def test_the_gather_tool_tells_a_model_about_groups():
     assert "#minecraft:logs" in gather["description"]
 
 
+def test_defense_takes_hearts_and_radii():
+    assert ci.validate("defense", {}) == {}
+    assert ci.validate("defense", {"floor_hearts": 5}) == {"floor_health": 10}
+    assert ci.validate("defense", {"floor_hearts": 2.5}) == {"floor_health": 5}
+    assert ci.validate("defense", {"threat_radius": 16, "base_radius": 0}) == {
+        "threat_radius": 16,
+        "base_radius": 0,
+    }
+    for bad in ({"floor_hearts": 0}, {"floor_hearts": 10}, {"floor_hearts": 2.2}):
+        with pytest.raises(ValueError, match="floor_hearts"):
+            ci.validate("defense", bad)
+    with pytest.raises(ValueError, match="threat_radius"):
+        ci.validate("defense", {"threat_radius": 99})
+    assert "defense" in ci.INSTANT_INTENTS
+    assert "defense" not in ci.UNTRUSTED_INTENTS
+
+
 def test_follow_defaults_and_bounds():
     assert ci.validate("follow", {"player": "Marc"}) == {
         "player": "Marc",

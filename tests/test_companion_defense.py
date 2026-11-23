@@ -26,6 +26,8 @@ def situation(**kw):
         "base": None,
         "base_weapons": (),
         "can_burrow": True,
+        "night": True,
+        "can_heal": True,
     }
     return cd.Situation(**{**base, **kw})
 
@@ -189,6 +191,21 @@ def test_the_floor_is_adjustable():
 def test_low_with_nowhere_to_dig_flees():
     action = cd.decide(situation(health=4.0, can_burrow=False), POLICY)
     assert action.kind == "flee"
+
+
+def test_by_day_an_unarmed_bot_walks_away_instead_of_digging_in():
+    # by day a healthy bot may leave its hole at once, the mob is still there, and it
+    # would dig in three blocks deeper every round
+    action = cd.decide(situation(night=False), POLICY)
+    assert action.kind == "flee" and action.reason
+
+
+def test_hurt_by_day_it_hides_only_while_it_can_heal():
+    assert cd.decide(situation(health=4.0, night=False), POLICY).kind == "burrow"
+    starving = situation(health=4.0, night=False, can_heal=False)
+    assert cd.decide(starving, POLICY).kind == "flee"
+    # at night the hole waits for day, healing or not
+    assert cd.decide(situation(health=4.0, can_heal=False), POLICY).kind == "burrow"
 
 
 def test_creepers_and_wardens_are_avoided_not_fought():

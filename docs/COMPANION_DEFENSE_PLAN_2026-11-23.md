@@ -1,6 +1,7 @@
 # Companion auto-defence (Nov 23, 2026)
 
-Status: **plan, in progress** on `feat/companion-llm`. Requested by the owner on
+Status: **built, not yet tested live** on `feat/companion-llm` (slices 1-5; slice 6
+is the live night test). Requested by the owner on
 Nov 23 after the first live gather ended "slain by Zombie" at night. This replaces
 the Nov 7 nightfall protocol's "no combat, no reactive flight" (DECISION_MATRIX):
 the bot now fights when it can, and hides or runs when it cannot.
@@ -29,17 +30,24 @@ talker can change the settings, but defence runs in code.
 | `floor_health` | 6 (3 hearts) | At or below: never fight; escape. |
 | `threat_radius` | 12 | Hostiles nearer than this (and within 6 vertically) are threats. |
 | `ally_radius` | 32 | Players or other bots within this count as allies near. |
-| `base_radius` | 64 | A base (place `home` or `base`) within this is nearby. |
+| `base_radius` | 64 | A base within this is nearby: the place `base`, else `home` unless that is only where the bot first spawned. |
 
 The `defense` intent reads and changes them (`floor_hearts` for people, who count
-hearts). Changes persist in the host state file. Defence itself is always on
+hearts). Changes persist in `companion-defense.json` beside the host state file
+(over the `bot.json` values; a bad saved file is ignored and logged; a bad
+`bot.json` key stops the host at start). Defence itself is always on
 (abilities are never switched off per task).
 
 ### 2. Decision (`companion_defense.decide`, pure)
 
 From the situation: health, position, hostiles seen (type, position, uuid), the best
 weapon held, allies (visible players, and bodies of other bots), the base place, base
-containers known to hold a weapon, and whether the ground here can be burrowed.
+containers known to hold a weapon (known containers within 16 blocks of the base
+place), and whether the ground here can be burrowed (`plan_burrow` from the known
+cells; a spot where a burrow failed this defence does not count). Hostiles come from
+the observation's `visible_entities`, which the companion's awareness config
+(`entity_visibility: visible`) limits to entities in line of sight, so a mob in a
+sealed cave is no threat.
 
 - No threat: nothing.
 - Only creepers or a warden: **avoid** (move out of their range; never melee).
@@ -48,9 +56,16 @@ containers known to hold a weapon, and whether the ground here can be burrowed.
   - a base chest holds a weapon: **arm** (fetch it), then decide again;
   - an ally near: **regroup** beside the ally and fight what comes within reach;
   - a base near: **shelter** (go inside the base);
-  - else **burrow**.
+  - by day: **flee** (walk away; zombies burn and none spawn in the light);
+  - at night **burrow**, else **flee**.
 - At or below the floor: **regroup** with an ally (they can fight for it), else
-  **shelter** at the base, else **burrow**, else **flee** (run from the threats).
+  **shelter** at the base, else **burrow** (at night, or by day while it can heal:
+  fed to 18 or food held), else **flee** (run from the threats).
+
+A hole is only worth it while waiting gets something (day, or health back). By day
+a healthy bot would leave at once, see the same mob and dig in three blocks deeper,
+round after round, so the decision takes `night` and `can_heal` from the
+observation.
 
 ### 3. The fight motor (mcb-body `fight` op)
 
@@ -74,9 +89,11 @@ Dig the cell under the feet three times (the body drops into the hole), then pla
 a held block (dirt, cobblestone, planks, ...) in the cell above the head. Checked
 first from known terrain: no fluid, cave or air beside or below the 1x2 pocket,
 diggable with the tools held, and a block to seal (the dug blocks count). The bot
-waits sealed, eating, until it is day or no threat has been seen for 30 s and its
-health is back above the floor plus 4. Then it unseals and the job resumes; getting
-out is ordinary navigation (the planner digs or pillars).
+waits sealed, eating, until its health is back to the floor plus 4 (or it cannot
+heal: hungry with no food held) and it is armed or it is day (`time_of_day` below
+12000). "No threat seen for a while" cannot work: sealed in, it sees nothing. Then
+it unseals and the guard decides again; getting out is ordinary navigation (the
+planner digs or pillars). A failed dig-in marks that spot for this defence.
 
 ### 5. The guard (host)
 
@@ -90,6 +107,25 @@ out is ordinary navigation (the planner digs or pillars).
 - `stop` still wins: it cancels a defence routine like any job.
 - Chat: the bot says what it does ("Zombie! fighting", "hiding in a hole", "going
   home").
+
+### 6. One step at a time (`Session.defend`)
+
+The host calls `defend(action)` and then `threat()` again, so every step is short:
+
+- **fight:** the `fight` op for at most 200 ticks; a fight that ends at once (no
+  target in reach, `busy`) waits 10 ticks so the loop does not spin; a uuid the body
+  refuses is fought as "the nearest" instead.
+- **avoid / flee:** walk 12 blocks straight away from the threats' centre, else 45
+  or 90 degrees off it; none walkable: wait 10 ticks.
+- **regroup:** walk to within 3 of the ally, then eat and wait beside them.
+- **shelter:** walk to the base place, then eat and wait there.
+- **arm:** stand within reach of the chest and withdraw one weapon; the chest's
+  contents are learned from the result (a stale record is not fetched twice); a
+  chest that cannot be reached or opened is left until the threat is gone.
+- **burrow:** as section 4, in one step (a stop or a death still ends it).
+
+`threat()` runs inside every guarded bridge poll, so it reads the newest sample
+and never polls; it decides once per server tick.
 
 ## Slices (TDD each; one commit each)
 
@@ -106,3 +142,7 @@ out is ordinary navigation (the planner digs or pillars).
 - Ranged mobs (skeletons) are fought by closing in; a shield and bow come later.
 - Armour: wearing what is held is a separate step (it changes who wins).
 - Sleeping in a bed instead of hiding (B5 step 4).
+- A mob in view that neither side can reach (behind a fence, across a ravine):
+  the fight motor holds still until its step ends, and the guard keeps choosing
+  fight, so the job waits. Watch for it in the live test; a `fight` end reason
+  `unreachable` would let the guard ignore that mob.

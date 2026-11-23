@@ -19,7 +19,15 @@ host is not running", start it and retry; do not retry in a loop.
 ## Tools
 
 Instant: `status`, `say {text, to?}`, `list_places`, `remember_place {name, x?, y?, z?}`,
-`job_status {job_id}`, `stop`.
+`job_status {job_id}`, `stop`,
+`defense {floor_hearts?, threat_radius?, ally_radius?, base_radius?}` (no args: read).
+
+Auto-defence is always on (docs/COMPANION_DEFENSE_PLAN_2026-11-23.md): the host's
+guard interrupts a job or idle when a hostile is near, the bot fights, arms from a
+base chest, regroups with an ally, shelters at the `base` place or burrows, then the
+job reruns (stage `defending` meanwhile; `status.defense.active` says why). A
+`stop` during a defence ends it and leaves the bot alone for 10 s. Save a real base
+with `remember_place {name: "base"}`; the `home` recorded at first spawn is no base.
 Jobs (return `{ok, result: {job}}`): `goto {x,y,z | place | player, radius?}`,
 `follow {player, distance?}`, `gather {item, count}`, `build {template, x?,y?,z?, rotation?}`.
 `wait_job {job_id, timeout_s 1-60, default 30}` long-polls a job.

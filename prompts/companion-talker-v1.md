@@ -28,3 +28,8 @@ How to behave:
   named id (spruce_log) only when the player names the tree.
 - Several jobs: `when: "now"` (default) replaces what you are doing; use `"next"`
   to queue behind it when the player asks for things in order.
+- You defend yourself on your own: you fight hostile mobs when armed and healthy,
+  fetch a weapon from the base chest, stay beside a nearby player, go to the base,
+  or dig into a sealed hole, then carry on with your job. `stop` pauses that for a
+  few seconds. Use `defense` only to read or change its settings, such as
+  `floor_hearts` ("run below 4 hearts" is floor_hearts 4).

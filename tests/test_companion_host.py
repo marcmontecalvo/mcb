@@ -6,6 +6,7 @@ import time
 import pytest
 
 from mclab import companion_host, companion_intents
+from mclab.companion_defense import Action, DefensePolicy
 from mclab.companion_host import Host
 from mclab.companion_intents import Actor
 from mclab.companion_protocol import TERMINAL_STATES
@@ -43,9 +44,31 @@ class FakeSession:
         self.behaviour = {}
         self.place_threads = []
         self.progress_records = []
+        self.threats = []  # actions threat() hands out, one per call
+        self.threat_gate = threading.Event()  # threats are seen only once it is set
+        self.threat_gate.set()
+        self.defended = []
+        self.defend_hook = None  # called inside defend (after a poll)
+        self.defense = DefensePolicy()
 
     def start(self):
         self.started = True
+
+    def threat(self):
+        if self.threats and self.threat_gate.is_set():
+            return self.threats.pop(0)
+        return Action("none", "no threat near")
+
+    def defend(self, action):
+        self.defended.append(action.kind)
+        self.poll()
+        if self.defend_hook is not None:
+            self.defend_hook(self, action)
+
+    def defense_settings(self, changes):
+        if changes:
+            self.defense = self.defense.changed(**changes)
+        return self.defense.as_dict()
 
     def poll(self):
         if self.poll_hook is not None:
@@ -259,6 +282,130 @@ def test_a_cancel_never_reaches_the_next_job(host, made):
     made[0].gate.set()
     after = submit(host)
     assert host.wait_job(after["id"], 5)["state"] == "succeeded"
+
+
+# --- defence -------------------------------------------------------------------------
+
+FIGHT = Action("fight", "fighting the zombie", target="z1", item="minecraft:iron_sword")
+
+
+def _until(condition, timeout=5):
+    deadline = time.monotonic() + timeout
+    while not condition() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    return condition()
+
+
+def test_a_threat_interrupts_the_job_which_then_carries_on(host, made):
+    session = made[0]
+    runs = []
+
+    def walk(session, args, actor, progress):
+        runs.append(1)
+        if len(runs) == 1:
+            session.threats.append(FIGHT)
+            session.poll()  # the guard sees the zombie here
+            raise AssertionError("the guard did not interrupt the job")
+        return {"arrived": True}
+
+    session.behaviour["goto"] = walk
+    job = submit(host)
+    done = host.wait_job(job["id"], 5)
+    assert done["state"] == "succeeded" and done["result"] == {"arrived": True}
+    assert session.defended == ["fight"]
+    assert len(runs) == 2  # the job ran again from the world as it is now
+    assert session.halts >= 1  # the job's motion stopped before the fight
+    stages = [e["data"]["progress"]["stage"] for e in host.events()["events"]
+              if e["type"] == "job_progress"]  # fmt: skip
+    assert "defending" in stages
+
+
+def test_the_guard_keeps_going_until_nothing_threatens(host, made):
+    session = made[0]
+    burrow = Action("burrow", "hurt: hiding in a hole")
+    session.threats.extend([FIGHT, burrow])  # seen while idle, then after the fight
+    assert _until(lambda: session.defended == ["fight", "burrow"])
+    said = [text for text, _ in session.said]
+    assert _until(lambda: len(session.said) >= 2)
+    said = [text for text, _ in session.said]
+    assert "fighting the zombie" in said[0].lower()
+    assert "hiding in a hole" in said[1].lower()
+    kinds = [e["data"]["action"] for e in host.events()["events"]
+             if e["type"] == "defense"]  # fmt: skip
+    assert kinds == ["fight", "burrow"]
+
+
+def test_the_same_action_again_is_announced_once(host, made):
+    session = made[0]
+    session.threats.extend([FIGHT, FIGHT, FIGHT])
+    assert _until(lambda: len(session.defended) == 3)
+    assert _until(lambda: not session.threats)
+    assert len(session.said) == 1
+
+
+def test_stop_ends_a_defence_and_the_guard_rests_a_while(host, made):
+    session = made[0]
+    entered = threading.Event()
+
+    def hold(session, action):
+        entered.set()
+        while True:  # a long fight: only a stop ends it
+            session.poll()
+            time.sleep(0.002)
+
+    session.defend_hook = hold
+    session.threats.append(FIGHT)
+    assert entered.wait(5)
+    host.call("stop", {}, OPERATOR)
+    assert _until(lambda: host.status()["defense"]["active"] is None)
+    session.defend_hook = None
+    session.threats.append(FIGHT)
+    time.sleep(0.1)
+    assert session.defended == ["fight"]  # resting after the stop
+    assert session.threats == [FIGHT]
+
+
+def test_status_shows_the_defence_under_way(host, made):
+    session = made[0]
+    entered, release = threading.Event(), threading.Event()
+
+    def hold(session, action):
+        entered.set()
+        while not release.is_set():
+            session.poll()
+            time.sleep(0.002)
+
+    session.defend_hook = hold
+    session.threats.append(FIGHT)
+    assert entered.wait(5)
+    status = host.status()
+    assert status["defense"]["active"] == "fighting the zombie"
+    assert "fighting the zombie" in status["explanation"].lower()
+    release.set()
+    assert _until(lambda: host.status()["defense"]["active"] is None)
+
+
+def test_death_in_a_fight_respawns(host, made):
+    session = made[0]
+
+    def die(session, action):
+        session.dead = True
+        raise BodyDied("observation has no position: the body is dead")
+
+    session.defend_hook = die
+    session.threats.append(FIGHT)
+    assert _until(lambda: session.respawns == 1)
+
+
+def test_the_defense_intent_reads_and_changes_the_settings(host, made):
+    reply = host.call("defense", {}, OPERATOR)
+    assert reply["ok"] and reply["result"]["defense"]["floor_health"] == 6
+    reply = host.call("defense", {"floor_hearts": 5, "threat_radius": 16}, OPERATOR)
+    assert reply["ok"], reply
+    assert reply["result"]["defense"]["floor_health"] == 10
+    assert made[0].defense.threat_radius == 16
+    bad = host.call("defense", {"floor_hearts": 50}, OPERATOR)
+    assert bad["ok"] is False and "floor_hearts" in bad["error"]
 
 
 # --- authority and validation -----------------------------------------------------
@@ -833,6 +980,20 @@ def test_session_factory_makes_sessions_sharing_one_gather_state(tmp_path):
     assert first.gather_state is second.gather_state
     assert first.state_file == tmp_path / "rt" / "companion-state.json"
     assert first.folder.parent == tmp_path / "results"
+
+
+def test_session_factory_applies_the_bots_defense_settings(tmp_path):
+    make = companion_host.session_factory(
+        {"name": "MCBot", "defense": {"floor_health": 8}},
+        results=tmp_path / "results",
+        runtime=tmp_path / "rt",
+    )
+    session = make()
+    assert session.defense_policy.floor_health == 8
+    assert session.defense_file == tmp_path / "rt" / "companion-defense.json"
+    # a typo in bot.json stops the host at start, not at the first zombie
+    with pytest.raises(ValueError, match="unknown defense"):
+        companion_host.session_factory({"name": "MCBot", "defense": {"hearts": 3}})
 
 
 class Adapter:

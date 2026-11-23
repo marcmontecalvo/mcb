@@ -1684,7 +1684,9 @@ def test_an_observation_older_than_the_op_does_not_replace_it(monkeypatch):
     b, bridge, _ = body()
     bridge.tick = 190
     bridge.reply["craft"] = (
-        "done", {"inventory": [{"slot": 0, "item": "minecraft:stick", "count": 4}]})
+        "done",
+        {"inventory": [{"slot": 0, "item": "minecraft:stick", "count": 4}]},
+    )
     assert b.craft("minecraft:stick", 1).ok
     from mclab import companion_body
 
@@ -2673,3 +2675,29 @@ def test_pillar_to_disables_partial_walk_away_from_column(monkeypatch):
     )
     ctrl.goal = (0, 10, 0)
     assert ctrl._probe_verdict() == "unreachable"
+
+
+def test_fight_sends_only_the_given_fields_and_waits_long_enough():
+    b, bridge, _ = body()
+    bridge.reply["fight"] = (
+        "done",
+        {"kills": 1, "hits": 3, "ticks": 80, "end": "clear"},
+    )
+    result = b.fight(radius=12, floor=6, max_ticks=200, weapon="minecraft:iron_sword")
+    assert result.ok and result.data["kills"] == 1
+    assert bridge.sent[-1] == (
+        "fight",
+        {"radius": 12, "floor": 6, "max_ticks": 200, "weapon": "minecraft:iron_sword"},
+    )
+    b.fight(
+        entity="u-1",
+        radius=12,
+        floor=6,
+        max_ticks=200,
+        anchor=(1.5, 64.0, 2.5),
+        leash=6,
+    )
+    assert bridge.sent[-1][1]["anchor"] == [1.5, 64.0, 2.5]
+    assert bridge.sent[-1][1]["entity"] == "u-1" and bridge.sent[-1][1]["leash"] == 6
+    # the longest fight the body accepts (2400 ticks) must not time out the op
+    assert cb.OP_TIMEOUTS["fight"] >= 2400 / 20

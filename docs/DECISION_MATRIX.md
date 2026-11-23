@@ -15,7 +15,8 @@ open decisions.
 | External-agent interface | MCP is the integration endpoint for external agents. The first release supports one bot and validated jobs; it does not expose direct motor control. | [LAB_COMPANION_PLAN_2026-11-15.md](LAB_COMPANION_PLAN_2026-11-15.md) |
 | Companion runtime (Nov 23, 2026) | The companion plays on a separate play server (its own world and ports, mcb-body only) through one persistent host process; MCP and in-game chat (local Atom Qwen) are built together on one validated intent path. A model picks tasks, never motor actions; `stop` is handled in code. | [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md), [DECISIONS.md](DECISIONS.md) |
 | Companion planner overrides | Gather and build accept planner profile overrides and record effective settings. | [LAB_COMPANION_PLAN_2026-11-15.md](LAB_COMPANION_PLAN_2026-11-15.md), [RUN_CONFIG.md](RUN_CONFIG.md) |
-| Night survival for now | Use the nightfall shelter protocol; route-weight changes and reactive flight were rejected for the current direction. | Historical decision recorded in [ROADMAP_HISTORY_2026-11-15.md](ROADMAP_HISTORY_2026-11-15.md). |
+| Night survival for now | Lab episodes: the nightfall shelter protocol; route-weight changes and reactive flight were rejected for the lab direction. The companion (Nov 23, 2026) defends itself instead: fight when armed above the health floor, else arm, regroup, shelter or burrow (row below). | Historical decision recorded in [ROADMAP_HISTORY_2026-11-15.md](ROADMAP_HISTORY_2026-11-15.md). |
+| Companion auto-defence (Nov 23, 2026) | Always on; Python decides (fight, arm, regroup, shelter, burrow, avoid, flee) and the mod's `fight` op does the melee. The host guard interrupts a job, defends, then reruns the job. Floor (default 3 hearts) and radii are settings, never an off switch. | [COMPANION_DEFENSE_PLAN_2026-11-23.md](COMPANION_DEFENSE_PLAN_2026-11-23.md), [DECISIONS.md](DECISIONS.md) |
 
 ## Open decisions
 

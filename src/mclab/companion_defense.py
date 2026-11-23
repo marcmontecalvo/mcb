@@ -90,6 +90,10 @@ class Situation:
     base: tuple | None = None  # the base place
     base_weapons: tuple = ()  # ((container pos, weapon item), ...) at the base
     can_burrow: bool = True  # the ground here can be dug and sealed
+    # A hole is worth it only while waiting gets something: day (mobs burn, no new
+    # ones) or health back. By day a healthy bot would leave at once and dig in again.
+    night: bool = False
+    can_heal: bool = True  # fed enough to regenerate, or food held
 
 
 @dataclass(frozen=True)
@@ -164,7 +168,7 @@ def decide(s: Situation, policy: DefensePolicy) -> Action:
             )  # fmt: skip
         if base is not None:
             return Action("shelter", "hurt: going home", where=base, threats=seen)
-        if s.can_burrow:
+        if s.can_burrow and (s.night or s.can_heal):
             return Action("burrow", "hurt: hiding in a hole", threats=seen)
         return Action("flee", "hurt and nowhere to hide: running", threats=seen)
 
@@ -205,6 +209,8 @@ def decide(s: Situation, policy: DefensePolicy) -> Action:
         )  # fmt: skip
     if base is not None:
         return Action("shelter", "no weapon: going home", where=base, threats=seen)
+    if not s.night:
+        return Action("flee", "no weapon: walking away", threats=seen)
     if s.can_burrow:
         return Action("burrow", "no weapon: hiding in a hole", threats=seen)
     return Action("flee", "no weapon and nowhere to hide: running", threats=seen)

@@ -28,6 +28,7 @@ EVENT_TYPES = (
     "chat_in",  # data: {"actor": {...}, "text": ...}  a player's line the bot saw
     "chat_out",  # data: {"text": ..., "to": name | None}  what the bot said
     "session",  # data: {"state": "starting" | "ready" | "died" | "lost", "detail"}
+    "defense",  # data: {"action": "fight" | "burrow" | ..., "reason", "job": id | None}
 )
 
 

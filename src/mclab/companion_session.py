@@ -25,18 +25,24 @@ import logging
 import math
 import os
 import time
+from dataclasses import replace
 from pathlib import Path
 
+from mclab import companion_burrow as burrow
+from mclab import companion_defense as defense
 from mclab import paths
 from mclab.companion_body import (
     DIG_TERRAIN,
     NATURAL_MOVEMENT,
+    REGEN_FOOD,
     CompanionBody,
     await_sampled_stream,
     open_bridge,
     session_archive,
 )
+from mclab.companion_defense import DefensePolicy
 from mclab.follow import PLAYER, FollowTarget, feet_cell, find_player
+from mclab.gather_runner import STATION_REACH, flush_containers
 from mclab.progress_watch import BodyDied
 
 log = logging.getLogger(__name__)
@@ -56,6 +62,22 @@ FOLLOW_SLACK = 1.0  # follow: walk again once this much beyond the distance
 FOLLOW_WAIT_TICKS = 5  # follow: look again this often while close
 FOLLOW_RETRY_TICKS = 20  # follow: a walk that failed waits this long before the next
 HALT_TIMEOUT_S = 5.0
+# defence (COMPANION_DEFENSE_PLAN_2026-11-23.md): one ``defend`` call is one step,
+# and the host's guard decides again after each
+FIGHT_TICKS = 200  # one fight step: the guard decides again at least this often
+FIGHT_ENDS = frozenset({"low_health", "avoid", "timeout"})  # decide again at once
+DEFEND_WAIT_TICKS = 10  # a step that could do nothing waits this long
+FLEE_DISTANCE = 12  # blocks: one flee step
+FLEE_RADIUS = 3.0
+FLEE_TURNS = (0, 45, -45, 90, -90)  # degrees off straight away, tried in order
+REGROUP_NEAR = 3.0  # beside an ally
+BASE_NEAR = 2.0  # at the base place
+BASE_EXTENT = 16.0  # known containers this close to the base place are the base's
+BASE_PLACES = ("base", "home")  # a home recorded at the first spawn is no base
+HEAL_MARGIN = 4  # leave a burrow at the floor plus this much health
+BURROW_WAIT_TICKS = 20
+DUSK = 12000  # time_of_day from here to the end of the day: night, mobs about
+NO_THREAT = defense.Action("none", "no threat near")
 
 
 class JobCancelled(BaseException):
@@ -65,6 +87,16 @@ class JobCancelled(BaseException):
 
 class JobFailed(Exception):
     """A job ended without reaching its goal; the message is for a player or model."""
+
+
+class Defend(BaseException):
+    """Raised from ``Bridge.state()`` when a threat needs the bot now: the job unwinds
+    (like a stop), the host defends, then runs the job again. ``action`` is the
+    ``companion_defense.Action`` that was decided."""
+
+    def __init__(self, action):
+        super().__init__(action.reason)
+        self.action = action
 
 
 # --- files ----------------------------------------------------------------------------
@@ -247,6 +279,21 @@ def _where(pos) -> str:
     return " ".join(str(int(math.floor(v))) for v in pos)
 
 
+def _night(body: dict) -> bool:
+    """Mobs about: from dusk to the end of the day. A body without a clock (an older
+    mcb-body) counts as day."""
+    time_of_day = body.get("time_of_day")
+    return time_of_day is not None and int(time_of_day) >= DUSK
+
+
+def _counts(stacks) -> dict[str, int]:
+    """Item counts from a list of ``{item, count}`` stacks."""
+    counts: dict[str, int] = {}
+    for stack in stacks or ():
+        counts[stack["item"]] = counts.get(stack["item"], 0) + int(stack["count"])
+    return counts
+
+
 # --- the session -------------------------------------------------------------------
 
 
@@ -268,6 +315,8 @@ class Session:
         knowledge=vanilla_knowledge,
         clock=time.monotonic,
         world_spawn=level_spawn,
+        defense: DefensePolicy | None = None,
+        defense_file: Path | None = None,
     ):
         from mclab.gather_options import GatherOptions
         from mclab.gather_runner import GatherState
@@ -290,6 +339,19 @@ class Session:
         self._saved_at = -math.inf
         self._saved: tuple[int, int, int] | None = None
         self._observed_at = -math.inf
+        # defence: bot.json settings, then the ones changed in play (saved apart:
+        # _save rewrites the state file whole)
+        self._defense_base = defense or DefensePolicy()
+        self.defense_file = (
+            Path(defense_file)
+            if defense_file is not None
+            else self.state_file.with_name("companion-defense.json")
+        )
+        self.defense_policy = self._load_defense()
+        self._threat: defense.Action | None = None
+        self._threat_tick = None
+        self._spent_chests: set = set()  # this defence: a chest that failed
+        self._burrow_failed = None  # this defence: feet where a burrow failed
 
     # --- lifecycle ---------------------------------------------------------------
     def start(self) -> None:
@@ -519,9 +581,7 @@ class Session:
             state = samples[-1] if samples else {}
         body = state.get("body") or {}
         position = body.get("position")
-        inventory: dict[str, int] = {}
-        for stack in body.get("inventory") or ():
-            inventory[stack["item"]] = inventory.get(stack["item"], 0) + stack["count"]
+        inventory = _counts(body.get("inventory"))
         players = [
             {
                 "name": e.get("name"),
@@ -576,6 +636,247 @@ class Session:
             "kind": place.kind,
             "position": list(place.position),
         }
+
+    # --- defence (the host's guard; COMPANION_DEFENSE_PLAN_2026-11-23.md) ----------
+    def _load_defense(self) -> DefensePolicy:
+        saved = read_state(self.defense_file)
+        try:
+            return self._defense_base.changed(**saved) if saved else self._defense_base
+        except (TypeError, ValueError) as error:
+            log.warning(
+                "ignoring saved defense settings %s: %s", self.defense_file, error
+            )
+            return self._defense_base
+
+    def defense_settings(self, changes: dict) -> dict:
+        """The defence settings, after ``changes`` (validated ``defense`` intent
+        args) are applied and saved. Empty ``changes``: just the current ones."""
+        if changes:
+            policy = self.defense_policy.changed(**changes)
+            saved = read_state(self.defense_file)
+            saved.update(changes)
+            write_atomic(self.defense_file, saved)
+            self.defense_policy = policy
+            self._threat = None  # decide again with the new settings
+        policy = self.defense_policy
+        return {**policy.as_dict(), "floor_hearts": policy.floor_health / 2}
+
+    def threat(self) -> defense.Action:
+        """What to do about hostiles now, from the newest sample. Runs inside every
+        guarded ``bridge.state()`` poll, so it never polls itself; decided once per
+        server tick."""
+        samples = getattr(self.bridge, "samples", None) or ()
+        state = samples[-1] if samples else {}
+        tick = state.get("tick")
+        if self._threat is not None and tick is not None and tick == self._threat_tick:
+            return self._threat
+        action = self._decide(state)
+        self._threat, self._threat_tick = action, tick
+        if action.kind == "none":  # this defence is over: what failed may work next
+            self._spent_chests.clear()
+            self._burrow_failed = None
+        return action
+
+    def _decide(self, state: dict) -> defense.Action:
+        body = state.get("body") or {}
+        position = body.get("position")
+        if self.body is None or position is None:
+            return NO_THREAT
+        inventory = _counts(body.get("inventory"))
+        base = self._base()
+        situation = defense.Situation(
+            health=float(body.get("health", 20.0)),
+            position=tuple(position),
+            entities=tuple(state.get("visible_entities") or ()),
+            inventory=inventory,
+            name=self.bot_name,
+            base=base,
+            base_weapons=self._base_weapons(base),
+            night=_night(body),
+            can_heal=self._can_heal(body, inventory),
+        )
+        action = defense.decide(situation, self.defense_policy)
+        if action.kind == "burrow":
+            plan = self._burrow_plan(_cell(position), inventory)
+            if not isinstance(plan, burrow.Burrow):
+                situation = replace(situation, can_burrow=False)
+                action = defense.decide(situation, self.defense_policy)
+        return action
+
+    def _base(self) -> tuple | None:
+        """The place named base, else home unless it is only where the bot first
+        spawned (an open field is no shelter)."""
+        for name in BASE_PLACES:
+            place = self.places.named(name) if self.places is not None else None
+            if place is not None and place.provenance != "spawn":
+                return tuple(place.position)
+        return None
+
+    def _base_weapons(self, base) -> tuple:
+        """(container, weapon) for every weapon known to be in a chest at the base."""
+        if base is None:
+            return ()
+        found = []
+        for pos, contents in self.gather_state.containers.items():
+            if pos in self._spent_chests or math.dist(pos, base) > BASE_EXTENT:
+                continue
+            found.extend(
+                (tuple(pos), item)
+                for item in defense.WEAPONS
+                if contents.get(item, 0) > 0
+            )
+        return tuple(found)
+
+    def _burrow_plan(self, feet, inventory):
+        if feet == self._burrow_failed:
+            return "a burrow here already failed"
+        return burrow.plan_burrow(self.memory.cells, feet, inventory, self.knowledge())
+
+    def _feet(self) -> tuple[int, int, int]:
+        """The feet cell from the newest sample (the body's own snapshot can be
+        seconds old when a job is cut short)."""
+        samples = getattr(self.bridge, "samples", None) or ()
+        if samples:
+            cell = _cell((samples[-1].get("body") or {}).get("position"))
+            if cell is not None:
+                return cell
+        return tuple(self.body.position())
+
+    def defend(self, action: defense.Action) -> None:
+        """One step of ``action``; the host's guard decides again after it."""
+        self.knowledge()  # body.foods: eat_when_needed knows what is food
+        step = {
+            "fight": self._fight,
+            "avoid": self._flee,
+            "flee": self._flee,
+            "regroup": self._regroup,
+            "shelter": self._shelter,
+            "arm": self._arm,
+            "burrow": self._burrow,
+        }.get(action.kind)
+        if step is not None:
+            step(action)
+
+    def _rest(self) -> None:
+        """Nothing to move for: eat if hungry or hurt, and let a few ticks pass."""
+        self.body.eat_when_needed()
+        self.body.wait_ticks(DEFEND_WAIT_TICKS)
+
+    def _fight(self, action: defense.Action) -> None:
+        policy = self.defense_policy
+
+        def once(entity):
+            return self.body.fight(
+                entity=entity,
+                weapon=action.item,
+                radius=int(policy.threat_radius),
+                floor=int(policy.floor_health),
+                max_ticks=FIGHT_TICKS,
+                anchor=action.anchor,
+                leash=int(action.leash) if action.leash is not None else None,
+            )
+
+        result = once(action.target)
+        if not result.ok and action.target is not None:
+            if result.reason in ("not_allowed", "not_found"):
+                result = once(None)  # the nearest the body will fight instead
+        if not result.ok and result.reason in FIGHT_ENDS:
+            return
+        spent = int((result.data or {}).get("ticks", 0)) if result.ok else 0
+        if spent < DEFEND_WAIT_TICKS:  # nothing in reach yet: let the mob come
+            self.body.wait_ticks(DEFEND_WAIT_TICKS - spent)
+
+    def _flee(self, action: defense.Action) -> None:
+        """Walk FLEE_DISTANCE straight away from the threats, else off to a side."""
+        x, y, z = self._feet()
+        dx, dz = 1.0, 0.0
+        if action.threats:
+            n = len(action.threats)
+            cx = sum(t.position[0] for t in action.threats) / n
+            cz = sum(t.position[2] for t in action.threats) / n
+            if math.hypot(x + 0.5 - cx, z + 0.5 - cz) > 1e-6:
+                dx, dz = x + 0.5 - cx, z + 0.5 - cz
+        heading = math.atan2(dz, dx)
+        for turn in FLEE_TURNS:
+            angle = heading + math.radians(turn)
+            goal = (
+                x + round(FLEE_DISTANCE * math.cos(angle)),
+                y,
+                z + round(FLEE_DISTANCE * math.sin(angle)),
+            )
+            if self.body.walk_to(goal, FLEE_RADIUS):
+                return
+        self.body.wait_ticks(DEFEND_WAIT_TICKS)
+
+    def _regroup(self, action: defense.Action) -> None:
+        x, y, z = self._feet()
+        if math.dist((x + 0.5, y, z + 0.5), action.where) > REGROUP_NEAR:
+            if self.body.walk_to(_cell(action.where), REGROUP_NEAR):
+                return
+        self._rest()
+
+    def _shelter(self, action: defense.Action) -> None:
+        base = _cell(action.where)
+        if math.dist(self._feet(), base) > BASE_NEAR:
+            if self.body.walk_far(base, BASE_NEAR):
+                return
+        self._rest()
+
+    def _arm(self, action: defense.Action) -> None:
+        """Take the weapon from the base chest; what the chest holds is learned from
+        the result, so a stale record is not fetched from twice."""
+        chest, item = tuple(action.where), action.item
+        if not self.body.goto_stance(chest, STATION_REACH):
+            self._spent_chests.add(chest)
+            return
+        result = self.body.container(chest, "withdraw", [{"item": item, "count": 1}])
+        if result.ok:
+            self.gather_state.containers[chest] = _counts(result.data.get("contents"))
+        elif result.reason == "not_a_container":
+            self.gather_state.containers.pop(chest, None)
+        else:
+            self._spent_chests.add(chest)
+        self._flush(flush_containers)
+
+    def _burrow(self, action: defense.Action) -> None:
+        """Dig in and seal, wait until healed (and armed or day), dig out. A stop or
+        a death still ends it: every wait is a bridge poll."""
+        feet = self._feet()
+        plan = self._burrow_plan(feet, self.body.inventory())
+        if not isinstance(plan, burrow.Burrow):
+            self._burrow_failed = feet
+            return
+        result = burrow.dig_in(self.body, plan)
+        if not result.ok:
+            log.info("burrow at %s failed: %s", feet, result.reason)
+            self._burrow_failed = feet
+            return
+        while True:
+            state = self.bridge.state()
+            if state.get("body_state", state.get("state")) in GONE_STATES:
+                raise BodyDied("died in the burrow")
+            if self._may_leave(state.get("body") or {}):
+                break
+            self.body.eat_when_needed()
+            self.body.wait_ticks(BURROW_WAIT_TICKS)
+        burrow.dig_out(self.body, plan)
+
+    def _may_leave(self, body: dict) -> bool:
+        """Healed (or unable to heal: hungry with no food), and armed or day."""
+        inventory = _counts(body.get("inventory"))
+        floor = self.defense_policy.floor_health
+        healed = float(body.get("health", 20.0)) >= min(20, floor + HEAL_MARGIN)
+        armed = defense.best_weapon(inventory) is not None
+        return (healed or not self._can_heal(body, inventory)) and (
+            armed or not _night(body)
+        )
+
+    def _can_heal(self, body: dict, inventory: dict) -> bool:
+        """Health regenerates: the food bar is high enough, or food is held."""
+        foods = getattr(self.knowledge(), "foods", None) or {}
+        return int(body.get("food", 20)) >= REGEN_FOOD or any(
+            inventory.get(item, 0) > 0 for item in foods
+        )
 
     # --- jobs ------------------------------------------------------------------------
     def run(self, intent: str, args: dict, actor, progress) -> dict:

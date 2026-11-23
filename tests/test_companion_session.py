@@ -8,6 +8,8 @@ import pytest
 from mclab import companion_session as cs
 from mclab import follow as follow_mod
 from mclab import navigation_segmented
+from mclab.build_runner import Result
+from mclab.companion_defense import Action, DefensePolicy, Threat
 from mclab.companion_intents import Actor
 from mclab.follow import PLAYER, FollowTarget
 from mclab.gather_runner import GatherReport, GatherState
@@ -143,6 +145,7 @@ class FakeBody:
 
 class FakeMemory:
     closed = False
+    cells: dict = {}
 
     def close(self):
         self.closed = True
@@ -165,7 +168,16 @@ class FakeSay:
 def make(tmp_path, monkeypatch):
     monkeypatch.setattr(cs, "await_sampled_stream", lambda bridge, timeout: {})
 
-    def build(bridge=None, *, state=None, knowledge=None, clock=None, spawn=(0, 80, 0)):
+    def build(
+        bridge=None,
+        *,
+        state=None,
+        knowledge=None,
+        clock=None,
+        spawn=(0, 80, 0),
+        body=FakeBody,
+        **extra,
+    ):
         bridge = bridge or FakeBridge()
         memory, places, say = FakeMemory(), FakePlaces(), FakeSay()
         state_file = tmp_path / "runtime" / "companion-state.json"
@@ -180,13 +192,14 @@ def make(tmp_path, monkeypatch):
             open_bridge=lambda folder: bridge,
             open_memory=lambda b, folder, awareness: memory,
             make_places=lambda m: places,
-            make_body=FakeBody,
+            make_body=body,
             awareness=FakeAwareness(),
             say_client=say,
             knowledge=knowledge
             or (lambda: SimpleNamespace(foods={"minecraft:bread": 5})),
             clock=clock or (lambda: 0.0),
             world_spawn=lambda: spawn,
+            **extra,
         )
         return session, bridge, places, say, memory
 
@@ -1140,3 +1153,389 @@ def test_native_driver_updates_the_follow_goal_before_the_stop_check(monkeypatch
     follows = [tick for kind, tick in seen if kind == "follow"]
     assert follows and follows[-1] == 3
     assert seen.index(("follow", 3)) < seen.index(("stop?", 3))
+
+
+# --- defence ------------------------------------------------------------------------
+
+ZOMBIE = "minecraft:zombie"
+SWORD = "minecraft:iron_sword"
+NIGHT, DAY = 18000, 1000
+
+
+def _mob(uuid="z1", pos=(4.5, 64.0, 0.5), kind=ZOMBIE):
+    return {"type": kind, "uuid": uuid, "position": list(pos)}
+
+
+def _sword():
+    return [{"slot": 0, "item": SWORD, "count": 1}]
+
+
+def _day_row(*entities, health=20.0, inv=(), tick=10, time=NIGHT, food=18):
+    row = _row(health=health, entities=entities, tick=tick, inv=inv)
+    row["body"].update(time_of_day=time, food=food)
+    return row
+
+
+def _seen_now(bridge, *entities, **kw):
+    """The sample the guard reads: the newest one the bridge holds."""
+    bridge.samples.append(_day_row(*entities, **kw))
+
+
+class Plan:
+    """A stand-in burrow plan (``companion_burrow.Burrow`` is patched to this)."""
+
+
+class DefenseBody(FakeBody):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.fights, self.containers = [], []
+        self.stance_ok = True
+        self.ate = 0
+
+    def fight(self, **fields):
+        self.log.append(("fight", fields))
+        return self.fights.pop(0) if self.fights else Result(True, None, {"ticks": 200})
+
+    def goto_stance(self, pos, reach, avoid=()):
+        self.log.append(("stance", tuple(pos), reach))
+        return self.stance_ok
+
+    def container(self, pos, action, items=None):
+        self.log.append(("container", tuple(pos), action, items))
+        return self.containers.pop(0)
+
+    def eat_when_needed(self):
+        self.ate += 1
+        return False
+
+
+@pytest.fixture
+def guard(make):
+    def build(**kw):
+        session, bridge, places, _, _ = make(body=DefenseBody, **kw)
+        session.start()
+        session.body.log.clear()
+        return session, bridge, places
+
+    return build
+
+
+def _logged(body, kind):
+    return [e for e in body.log if e[0] == kind]
+
+
+def test_no_hostile_means_no_threat(guard):
+    session, bridge, _ = guard()
+    _seen_now(bridge, _player("Marc", (3, 64, 0)))
+    assert session.threat().kind == "none"
+
+
+def test_no_threat_while_the_body_is_not_in_the_world(guard):
+    session, bridge, _ = guard()
+    row = _day_row(_mob())
+    row["body"]["position"] = None
+    bridge.samples.append(row)
+    assert session.threat().kind == "none"
+
+
+def test_threat_reads_the_newest_sample_and_never_polls(guard):
+    # the guard runs inside bridge.state(): a poll from threat() would recurse
+    session, bridge, _ = guard()
+    _seen_now(bridge, _mob(), inv=_sword())
+    count = len(bridge.samples)
+    action = session.threat()
+    assert (action.kind, action.target, action.item) == ("fight", "z1", SWORD)
+    assert len(bridge.samples) == count
+
+
+def test_threat_is_decided_once_per_tick(guard, monkeypatch):
+    session, bridge, _ = guard()
+    calls = []
+    real = cs.defense.decide
+    monkeypatch.setattr(
+        cs.defense, "decide", lambda s, p: calls.append(1) or real(s, p)
+    )
+    _seen_now(bridge, _mob(), inv=_sword(), tick=10)
+    session.threat()
+    session.threat()
+    _seen_now(bridge, _mob(), inv=_sword(), tick=11)
+    session.threat()
+    assert len(calls) == 2
+
+
+def test_the_spawn_home_is_no_base_but_a_named_home_or_base_is(guard, monkeypatch):
+    session, bridge, places = guard()
+    monkeypatch.setattr(cs.burrow, "plan_burrow", lambda *a: "open floor: a cave")
+    _seen_now(bridge, _mob(), health=4, tick=10)
+    assert session.threat().kind == "flee"  # home is only where it first spawned
+    places.add("home", (-20, 64, 0), kind="home", provenance="named")
+    _seen_now(bridge, _mob(), health=4, tick=11)
+    assert session.threat().where == (-20, 64, 0)
+    places.add("base", (20, 64, 0))
+    _seen_now(bridge, _mob(), health=4, tick=12)
+    action = session.threat()
+    assert (action.kind, action.where) == ("shelter", (20, 64, 0))
+
+
+def test_low_health_burrows_where_the_ground_allows(guard, monkeypatch):
+    session, bridge, _ = guard()
+    seen = []
+    monkeypatch.setattr(
+        cs.burrow,
+        "plan_burrow",
+        lambda cells, feet, inv, k: seen.append(feet) or Plan(),
+    )
+    monkeypatch.setattr(cs.burrow, "Burrow", Plan)
+    _seen_now(bridge, _mob(), health=4, tick=10)
+    assert session.threat().kind == "burrow"
+    assert seen == [(0, 64, 0)]
+
+
+def test_threat_knows_the_day_and_whether_the_bot_can_heal(guard, monkeypatch):
+    session, bridge, _ = guard()
+    monkeypatch.setattr(cs.burrow, "plan_burrow", lambda *a: Plan())
+    monkeypatch.setattr(cs.burrow, "Burrow", Plan)
+    _seen_now(bridge, _mob(), tick=10, time=DAY)
+    assert session.threat().kind == "flee"  # by day: walk away, no hole
+    _seen_now(bridge, _mob(), tick=11, time=DAY, health=4, food=10)
+    assert session.threat().kind == "flee"  # hungry with no food: a hole heals nothing
+    bread = [{"slot": 1, "item": "minecraft:bread", "count": 2}]
+    _seen_now(bridge, _mob(), tick=12, time=DAY, health=4, food=10, inv=bread)
+    assert session.threat().kind == "burrow"
+    row = _day_row(_mob(), tick=13, health=4, food=10)
+    del row["body"]["time_of_day"]  # an older body: no clock, taken as day
+    bridge.samples.append(row)
+    assert session.threat().kind == "flee"
+
+
+def test_a_weapon_in_a_chest_at_the_base_is_fetched(guard):
+    session, bridge, places = guard()
+    places.add("base", (20, 64, 0))
+    session.gather_state.containers[(21, 64, 1)] = {SWORD: 1}
+    # a better sword, near the bot but not at the base: not the base's
+    session.gather_state.containers[(-40, 64, 0)] = {"minecraft:diamond_sword": 1}
+    _seen_now(bridge, _mob(), tick=10)
+    action = session.threat()
+    assert (action.kind, action.where, action.item) == ("arm", (21, 64, 1), SWORD)
+
+
+def test_defend_fights_with_the_policys_floor_and_radius(guard):
+    session, _, _ = guard(defense=DefensePolicy(floor_health=8, threat_radius=10))
+    session.defend(
+        Action("fight", "fighting", target="z1", item=SWORD, anchor=(3.5, 64, 0.5),
+               leash=6.0)
+    )  # fmt: skip
+    ((_, fields),) = _logged(session.body, "fight")
+    assert {k: v for k, v in fields.items() if v is not None} == {
+        "entity": "z1",
+        "weapon": SWORD,
+        "radius": 10,
+        "floor": 8,
+        "max_ticks": cs.FIGHT_TICKS,
+        "anchor": (3.5, 64, 0.5),
+        "leash": 6,
+    }
+    assert not _logged(session.body, "wait")
+
+
+def test_a_fight_that_ends_at_once_waits_but_low_health_does_not(guard):
+    session, _, _ = guard()
+    body = session.body
+    body.fights = [
+        Result(True, None, {"ticks": 2}),
+        Result(False, "busy", {}),
+        Result(False, "low_health", {}),
+        Result(False, "avoid", {}),
+    ]
+    for _ in range(4):
+        session.defend(Action("fight", "fighting", target="z1", item=SWORD))
+    assert _logged(body, "wait") == [
+        ("wait", cs.DEFEND_WAIT_TICKS - 2),
+        ("wait", cs.DEFEND_WAIT_TICKS),
+    ]
+
+
+def test_a_target_the_body_refuses_is_fought_as_the_nearest_instead(guard):
+    session, _, _ = guard()
+    body = session.body
+    body.fights = [Result(False, "not_allowed", {}), Result(True, None, {"ticks": 50})]
+    session.defend(Action("fight", "fighting", target="z1", item=SWORD))
+    fights = [fields for _, fields in _logged(body, "fight")]
+    assert fights[0]["entity"] == "z1" and fights[1]["entity"] is None
+
+
+def test_flee_walks_away_from_the_threats_and_tries_other_headings(guard):
+    session, _, _ = guard()
+    body = session.body  # feet (0, 64, 0)
+    threat = Threat("z1", ZOMBIE, (5.5, 64.0, 0.5), 5.0)
+    session.defend(Action("flee", "running", threats=(threat,)))
+    ((_, goal, radius, _),) = _logged(body, "walk_to")
+    assert goal == (-cs.FLEE_DISTANCE, 64, 0) and radius == cs.FLEE_RADIUS
+    body.log.clear()
+    body.walk_ok = False
+    session.defend(Action("avoid", "keeping away", threats=(threat,)))
+    goals = [g for _, g, _, _ in _logged(body, "walk_to")]
+    assert len(goals) == len(cs.FLEE_TURNS) == len(set(goals))
+    assert _logged(body, "wait") == [("wait", cs.DEFEND_WAIT_TICKS)]
+
+
+def test_regroup_walks_to_the_ally_then_stays_beside_them(guard):
+    session, _, _ = guard()
+    body = session.body
+    ally = Action("regroup", "staying with Marc", where=(10.5, 64.0, 0.5))
+    session.defend(ally)
+    assert _logged(body, "walk_to") == [("walk_to", (10, 64, 0), cs.REGROUP_NEAR, None)]
+    body.log.clear()
+    body.pos = (9, 64, 0)
+    session.defend(ally)
+    assert body.log == [("wait", cs.DEFEND_WAIT_TICKS)] and body.ate == 1
+
+
+def test_shelter_walks_home_then_waits_there(guard):
+    session, _, _ = guard()
+    body = session.body
+    home = Action("shelter", "going home", where=(30, 64, 0))
+    session.defend(home)
+    assert body.log == [("walk_far", (30, 64, 0), cs.BASE_NEAR)]
+    body.log.clear()
+    session.defend(home)  # the walk put it there
+    assert body.log == [("wait", cs.DEFEND_WAIT_TICKS)] and body.ate == 1
+
+
+def test_arm_takes_the_weapon_and_learns_what_the_chest_holds(guard):
+    session, _, places = guard()
+    body = session.body
+    chest = (21, 64, 1)
+    session.gather_state.containers[chest] = {SWORD: 1}
+    left = [{"slot": 0, "item": "minecraft:bread", "count": 2}]
+    body.containers = [Result(True, None, {"contents": left})]
+    session.defend(Action("arm", "fetching", item=SWORD, where=chest))
+    assert _logged(body, "stance") == [("stance", chest, cs.STATION_REACH)]
+    assert _logged(body, "container") == [
+        ("container", chest, "withdraw", [{"item": SWORD, "count": 1}])
+    ]
+    assert session.gather_state.containers[chest] == {"minecraft:bread": 2}
+    assert places.saved[chest] == {"minecraft:bread": 2}
+
+
+def test_a_chest_that_failed_is_left_until_the_threat_is_gone(guard):
+    session, bridge, places = guard()
+    body = session.body
+    places.add("base", (20, 64, 0))
+    chest = (21, 64, 1)
+    session.gather_state.containers[chest] = {SWORD: 1}
+    body.containers = [Result(False, "cannot_open", {})]
+    _seen_now(bridge, _mob(), tick=10)
+    session.defend(session.threat())
+    _seen_now(bridge, _mob(), tick=11)
+    assert session.threat().kind == "shelter"
+    _seen_now(bridge, tick=12)  # gone: the next defence may try that chest again
+    assert session.threat().kind == "none"
+    _seen_now(bridge, _mob(), tick=13)
+    assert session.threat().kind == "arm"
+    body.containers = [Result(False, "not_a_container", {})]
+    session.defend(session.threat())
+    assert chest not in session.gather_state.containers
+
+
+def test_arm_that_cannot_reach_the_chest_leaves_it(guard):
+    session, bridge, places = guard()
+    body = session.body
+    body.stance_ok = False
+    places.add("base", (20, 64, 0))
+    session.gather_state.containers[(21, 64, 1)] = {SWORD: 1}
+    _seen_now(bridge, _mob(), tick=10)
+    session.defend(session.threat())
+    assert not _logged(body, "container")
+    _seen_now(bridge, _mob(), tick=11)
+    assert session.threat().kind == "shelter"
+
+
+@pytest.fixture
+def hole(monkeypatch):
+    steps = []
+    monkeypatch.setattr(cs.burrow, "plan_burrow", lambda cells, feet, inv, k: Plan())
+    monkeypatch.setattr(cs.burrow, "Burrow", Plan)
+    monkeypatch.setattr(
+        cs.burrow, "dig_in", lambda body, plan: steps.append("in") or Result(True)
+    )
+    monkeypatch.setattr(
+        cs.burrow, "dig_out", lambda body, plan: steps.append("out") or Result(True)
+    )
+    return steps
+
+
+def test_burrow_waits_sealed_until_healed_and_day(guard, hole):
+    session, bridge, _ = guard()
+    bridge.rows = [
+        _day_row(health=4),
+        _day_row(health=14),  # healed, but unarmed at night: stay
+        _day_row(health=14, time=DAY),
+    ]
+    session.defend(Action("burrow", "hiding"))
+    assert hole == ["in", "out"]
+    assert len(_logged(session.body, "wait")) == 2 and session.body.ate == 2
+
+
+def test_an_armed_bot_leaves_the_hole_once_healed_even_at_night(guard, hole):
+    session, bridge, _ = guard()
+    bridge.rows = [_day_row(health=14, inv=_sword())]
+    session.defend(Action("burrow", "hiding"))
+    assert hole == ["in", "out"] and not _logged(session.body, "wait")
+
+
+def test_a_bot_that_cannot_heal_leaves_at_day_anyway(guard, hole):
+    session, bridge, _ = guard()
+    bridge.rows = [_day_row(health=4, food=10, time=DAY)]  # hungry, no food held
+    session.defend(Action("burrow", "hiding"))
+    assert hole == ["in", "out"]
+
+
+def test_a_body_that_dies_in_the_hole_raises(guard, hole):
+    session, bridge, _ = guard()
+    bridge.rows = [_row(state="dead")]
+    with pytest.raises(BodyDied):
+        session.defend(Action("burrow", "hiding"))
+
+
+def test_a_burrow_that_failed_is_not_planned_at_that_spot_again(guard, monkeypatch):
+    session, bridge, _ = guard()
+    monkeypatch.setattr(cs.burrow, "plan_burrow", lambda cells, feet, inv, k: Plan())
+    monkeypatch.setattr(cs.burrow, "Burrow", Plan)
+    monkeypatch.setattr(
+        cs.burrow, "dig_in", lambda body, plan: Result(False, "did_not_drop")
+    )
+    session.defend(Action("burrow", "hiding"))
+    _seen_now(bridge, _mob(), health=4, tick=20)
+    assert session.threat().kind == "flee"
+    _seen_now(bridge, _mob(), health=4, tick=21)  # somewhere else may still do
+    bridge.samples[-1]["body"]["position"] = [5.5, 64.0, 5.5]
+    assert session.threat().kind == "burrow"
+
+
+def test_defense_settings_change_persist_and_reload(make, tmp_path):
+    saved = tmp_path / "defense.json"
+    session, *_ = make(defense=DefensePolicy(threat_radius=16), defense_file=saved)
+    assert session.defense_settings({}) == {
+        "floor_health": 6,
+        "floor_hearts": 3.0,
+        "threat_radius": 16,
+        "ally_radius": 32,
+        "base_radius": 64,
+    }
+    assert session.defense_settings({"floor_health": 10})["floor_hearts"] == 5.0
+    assert session.defense_policy.floor_health == 10
+    again, *_ = make(defense=DefensePolicy(threat_radius=16), defense_file=saved)
+    assert again.defense_policy == DefensePolicy(floor_health=10, threat_radius=16)
+
+
+def test_defense_settings_default_file_and_bad_saved_settings(make):
+    session, *_ = make()
+    assert session.defense_file == session.state_file.with_name(
+        "companion-defense.json"
+    )
+    for bad in ("{not json", '{"hearts": 3}', '{"floor_health": 99}'):
+        session.defense_file.parent.mkdir(parents=True, exist_ok=True)
+        session.defense_file.write_text(bad)
+        again, *_ = make()
+        assert again.defense_policy == DefensePolicy()

@@ -41,7 +41,7 @@ from mclab.companion_intents import (
     validate,
 )
 from mclab.companion_protocol import EVENT_TYPES, TERMINAL_STATES
-from mclab.companion_session import JobCancelled, JobFailed
+from mclab.companion_session import Defend, JobCancelled, JobFailed
 from mclab.companion_status import STALL_SECONDS
 from mclab.progress_watch import BodyDied
 
@@ -56,6 +56,7 @@ PROGRESS_EVENT_S = 1.0  # job_progress events at most this often (a stage change
 STOP_WAIT_S = 2.0  # stop waits this long for the running job to unwind
 RETRY_S = (1.0, 30.0)  # session (re)start backoff, doubling
 QUIET_STAGES = {"waiting", "lost sight"}  # standing still is the job (follow)
+DEFENSE_REST_S = 10.0  # after a stop the guard leaves the bot alone this long
 BOT_NAME = re.compile(r"[A-Za-z0-9_]{3,16}")
 DEFAULT_BOT = {"name": "MCBot"}
 
@@ -107,6 +108,12 @@ class Host:
         self._stopping = threading.Event()
         self._ready = threading.Event()
         self._in_hook = False
+        # the guard: Defend may be raised only inside a job's or the idle poll's own
+        # bridge polls (never in a halt or cleanup), and not while defending
+        self._guarded = False
+        self._defending: str | None = None  # the reason, while a defence runs
+        self._defense_cancel = False  # a stop with no job ends the defence
+        self._rest_until = -math.inf  # monotonic: the guard rests after a stop
         self._session = None
         self._thread: threading.Thread | None = None
 
@@ -204,6 +211,7 @@ class Host:
                 "job": copy.deepcopy(job),
                 "queue": [self._brief(self._jobs[i]) for i in self._queue],
                 "last_failure": self._last_failure,
+                "defense": {"active": self._defending},
             }
             value["explanation"] = self._explain(value, job)
         return value
@@ -230,6 +238,8 @@ class Host:
                 return {"job": copy.deepcopy(job)}
         if intent == "stop":
             return self._stop()
+        if intent == "defense":
+            return {"defense": self._on_worker(lambda s: s.defense_settings(args))}
         if intent in JOB_INTENTS:
             return {"job": self._submit(intent, args, actor, key)}
         raise HostError(
@@ -284,6 +294,10 @@ class Host:
     def _stop(self) -> dict:
         with self._cond:
             running, cancelled = self._cancel_all_locked("stopped")
+            # "stop" means stand still, a fight included: the guard rests a while
+            self._rest_until = time.monotonic() + DEFENSE_REST_S
+            if running is None and self._defending is not None:
+                self._defense_cancel = True
         self._wake.set()
         if running is not None:
             self.wait_job(running, STOP_WAIT_S)
@@ -419,6 +433,9 @@ class Host:
             return f"Lost the body ({value['session_detail']}); reconnecting."
         if state == "stopped":
             return "Not running."
+        if self._defending is not None:
+            paused = f" ({job['intent']} paused)" if job is not None else ""
+            return f"Defending: {self._defending}{paused}."
         failure = (
             f" Last failure: {value['last_failure']}." if value["last_failure"] else ""
         )
@@ -471,14 +488,74 @@ class Host:
                 )
                 if cancel:
                     self._cancel_raised = True  # cleanup polls after it must work
+                end_defense = self._defense_cancel and self._defending is not None
+                if end_defense:
+                    self._defense_cancel = False
             if cancel:
                 raise JobCancelled(self._cancel_id)
+            if end_defense:
+                raise JobCancelled("defense")
             self._service_mailbox()
             session = self._session
+            if session is not None and self._guarded:
+                self._guard(session)
             if session is not None and time.monotonic() - self._snap_at >= self.idle_s:
                 self._publish(session.snapshot())
         finally:
             self._in_hook = False
+
+    def _guard(self, session) -> None:
+        """Raise ``Defend`` when a threat needs the bot (inside a guarded poll)."""
+        if self._defending is not None or time.monotonic() < self._rest_until:
+            return
+        action = session.threat()
+        if action.kind != "none":
+            self._guarded = False  # the job's cleanup polls must not raise it again
+            raise Defend(action)
+
+    def _guarded_call(self, fn, *args):
+        self._guarded = True
+        try:
+            return fn(*args)
+        finally:
+            self._guarded = False
+
+    def _defend(self, session, action, job_id: str | None = None) -> None:
+        """Carry out ``action`` and whatever the guard decides next, until nothing
+        threatens. A stop (JobCancelled) and a death (BodyDied) end it early and
+        reach the caller."""
+        try:
+            session.halt()  # the job's walk or dig stops first
+        except Exception as error:  # noqa: BLE001 - the defence goes on
+            log.warning("halt before defending failed: %s", error)
+        last = None
+        try:
+            while action.kind != "none":
+                with self._cond:
+                    self._defending = action.reason
+                    if action.kind != last:
+                        self._emit_locked(
+                            "defense",
+                            {"action": action.kind, "reason": action.reason,
+                             "job": job_id},
+                        )  # fmt: skip
+                if action.kind != last:
+                    last = action.kind
+                    self._announce(action.reason)
+                    if job_id is not None:
+                        self._progress(job_id, stage="defending", detail=action.reason)
+                session.defend(action)
+                action = session.threat()
+        finally:
+            with self._cond:
+                self._defending = None
+                self._defense_cancel = False
+
+    def _announce(self, reason: str) -> None:
+        try:
+            self._say(reason[:1].upper() + reason[1:] + ".", None)
+        except Exception as error:  # noqa: BLE001 - chat is not essential
+            log.warning("could not say: %s", error)
 
     def _work(self) -> None:
         retry = self.retry_s[0]
@@ -571,9 +648,19 @@ class Host:
         self._record_progress(copy.deepcopy(job))
         state, result, error, health = "succeeded", None, None, "ok"
         try:
-            result = session.run(
-                intent, args, actor, lambda **kw: self._progress(job_id, **kw)
-            )
+            while True:
+                try:
+                    result = self._guarded_call(
+                        session.run,
+                        intent,
+                        args,
+                        actor,
+                        lambda **kw: self._progress(job_id, **kw),
+                    )
+                    break
+                except Defend as threat:
+                    # then the job runs again: jobs re-plan from the world as it is
+                    self._defend(session, threat.action, job_id)
         except JobCancelled:
             state, error = "cancelled", "stopped"
         except BodyDied:
@@ -619,7 +706,12 @@ class Host:
     def _idle_tick(self) -> None:
         session = self._session
         try:
-            self._publish(session.idle())
+            try:
+                self._publish(self._guarded_call(session.idle))
+            except Defend as threat:
+                self._defend(session, threat.action)
+        except JobCancelled:
+            return  # a stop ended the defence
         except BodyDied as error:
             self._recover(session, str(error))
         except Exception as error:  # noqa: BLE001 - classified below
@@ -676,6 +768,7 @@ def load_bot(settings: dict, root=None) -> dict:
 def session_factory(bot: dict, *, results=None, runtime=None):
     """New Session per (re)connect: its own results folder; one GatherState for the
     host's life (stations and containers it learns)."""
+    from mclab.companion_defense import DefensePolicy
     from mclab.companion_session import Session, instance_runtime
     from mclab.gather_runner import GatherState
     from mclab.paths import ROOT
@@ -683,6 +776,7 @@ def session_factory(bot: dict, *, results=None, runtime=None):
     results = results or ROOT / "results/companion-host"
     runtime = runtime or instance_runtime()
     gather_state = GatherState()
+    defense = DefensePolicy.from_config(bot.get("defense"))  # a typo fails here
 
     def make():
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
@@ -691,6 +785,8 @@ def session_factory(bot: dict, *, results=None, runtime=None):
             folder=results / stamp,
             state_file=runtime / "companion-state.json",
             gather_state=gather_state,
+            defense=defense,
+            defense_file=runtime / "companion-defense.json",
         )
 
     return make

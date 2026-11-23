@@ -431,7 +431,19 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   crafted group (planks) takes any log in its recipe slot. The member planned is one
   seen nearby, else the cheapest by the planner's cost (held ingredients, then the
   oak preference). A named id (`spruce_log`) still means exactly that log.
+- **Auto-defence replaces "no combat" for the companion (Nov 23).** The first live
+  gather ended "slain by Zombie" at night, and Marc asked the bot to run, fight or
+  hide on its own. This overrides the Nov 7 nightfall protocol's "no combat, no
+  reactive flight" for the companion (the lab's episodes still clear mobs). Python
+  decides (`companion_defense.decide`: fight when armed above the health floor,
+  arm from a base chest, regroup with an ally, shelter at the base, burrow into a
+  sealed hole, avoid creepers and wardens, flee); the mod's per-tick `fight` op
+  does the melee. The host's guard runs in every bridge poll of a job or idle and
+  raises `Defend` (a `BaseException`, like `JobCancelled`); the job unwinds, the
+  defence runs a step at a time until nothing threatens, then the job runs again.
+  The floor (default 3 hearts) and radii are settings (`bot.json` `defense`, the
+  `defense` intent), never a switch: defence is always on. Plan:
+  [COMPANION_DEFENSE_PLAN_2026-11-23.md](COMPANION_DEFENSE_PLAN_2026-11-23.md).
 - **Open:** LAN access for a second PC (the game port binds loopback for now),
-  rotating a long session's `events.sqlite3`, and night shelter and defence (B5)
-  before the bot is left alone for hours: the first live gather ended "slain by
-  Zombie" at night.
+  rotating a long session's `events.sqlite3`, and the live night test of the
+  defence (built, not yet run against real mobs).

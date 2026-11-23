@@ -103,7 +103,12 @@ RECORDED_BLOCKS = ("crafting_table", "furnace", "chest", "barrel")
 LEG, LEG_RADIUS, MIN_PROGRESS, MAX_STALLS = 48.0, 4.0, 4.0, 2
 START_NEAR = 16.0  # go_to starts from a place only when standing this close
 OP_TIMEOUT_S = 20.0
-OP_TIMEOUTS = {"break_block": 45.0, "attack_entity": 30.0, "eat": 20.0}
+OP_TIMEOUTS = {
+    "break_block": 45.0,
+    "attack_entity": 30.0,
+    "eat": 20.0,
+    "fight": 2400 / 20 + 10.0,  # the longest fight the body accepts, and a margin
+}
 # Ops after which the build's remaining needs may have changed: the plug's keep is
 # brought up to date before each (a step edit's plug uses the last one sent).
 PLUG_KEEP_OPS = frozenset({"break_block", "place_block", "use_block"})
@@ -1325,6 +1330,31 @@ class CompanionBody:
     def attack_entity(self, entity: str, weapon: str | None = None) -> Result:
         extra = {"weapon": weapon} if weapon else {}
         return self.op("attack_entity", entity=entity, **extra)
+
+    def fight(
+        self,
+        *,
+        radius: int,
+        floor: int,
+        max_ticks: int,
+        entity: str | None = None,
+        weapon: str | None = None,
+        anchor=None,
+        leash: int | None = None,
+    ) -> Result:
+        """The body's melee motor (BODY_ACTION_OPS ``fight``): hostiles within
+        ``radius`` until none is left, health is at ``floor``, a creeper comes close
+        or ``max_ticks`` pass. ``anchor`` and ``leash`` keep it beside an ally."""
+        fields = {
+            "entity": entity,
+            "weapon": weapon,
+            "anchor": list(anchor) if anchor is not None else None,
+            "leash": leash,
+        }
+        extra = {k: v for k, v in fields.items() if v is not None}
+        return self.op(
+            "fight", radius=radius, floor=floor, max_ticks=max_ticks, **extra
+        )
 
     def use_entity(self, entity: str, item: str | None = None) -> Result:
         extra = {"item": item} if item else {}
