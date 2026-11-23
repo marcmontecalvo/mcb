@@ -32,8 +32,12 @@ public final class LanceLogicTest {
         // it (live: closest 1.0, 15 health lost); the ground run, after which the body stops at once
         var a = LanceLogic.decide(view(3.6, SPRINTING, ZOMBIE, READY, false));
         check(a.move() == Move.CHARGE && a.use() == Use.KEEP, "zombie at 3.6, running in: the run lands " + a);
-        a = LanceLogic.decide(view(3.6, 0, ZOMBIE, READY, false));
+        a = LanceLogic.decide(view(3.6, 0, ZOMBIE, READY, true));
         check(a.move() == Move.BACK, "zombie at 3.6, standing: no room to get up speed, back " + a);
+        // a lone spear does not back off for a run-up: backing opens only 0.1 b/tick on a zombie walking
+        // in (live: 250 back ticks a kill, 22 s); its jab is in reach (2.0..4.5) and kills in 7 s
+        a = LanceLogic.decide(view(3.6, 0, ZOMBIE, READY, false));
+        check(a.move() == Move.JAB && a.inMelee() && a.use() == Use.STOP, "zombie at 3.6, spear alone: jab " + a);
         check(LanceLogic.decide(view(4.7, 0, ZOMBIE, READY, false)).move() == Move.CHARGE, "zombie at 4.7: run-up room");
         // backing off then turning in: the run is kept while it gathers speed, not cut back to a back-off
         check(LanceLogic.decide(view(4.12, 0.005, ZOMBIE, READY, false)).move() == Move.CHARGE, "turned in: keep running");
@@ -47,9 +51,15 @@ public final class LanceLogicTest {
         // the burst would overshoot inside the band, the plain sprint lands in it
         check(LanceLogic.decide(view(2.85, SPRINTING, ZOMBIE, READY, false)).move() == Move.CHARGE,
                 "zombie at 2.85 sprinting: the ground tick lands");
-        // too near to land a charge tick, nothing to swap to: open the gap holding the charge
+        // too near to land a charge tick, nothing to swap to: the spear's own jab
         a = LanceLogic.decide(view(2.2, 0, ZOMBIE, READY, false));
-        check(a.move() == Move.BACK && !a.inMelee(), "zombie at 2.2, spear alone: back " + a);
+        check(a.move() == Move.JAB && a.inMelee(), "zombie at 2.2, spear alone: jab " + a);
+        // the jab hands back to the charge only far out, as the sword does (a skeleton backing off)
+        var jabbing = new View(4.5, 4.8, 0, SKELETON, true, false, 0, DELAY, WINDOW, false, false, false, false, false, true, false);
+        check(LanceLogic.decide(jabbing).move() == Move.JAB, "jabbing at 4.5: the jab stays");
+        var gone = new View(6.5, 6.8, 0, SKELETON, true, false, 0, DELAY, WINDOW, false, false, false, false, false, true, false);
+        a = LanceLogic.decide(gone);
+        check(!a.inMelee() && a.use() == Use.START, "backed off to 6.5: the charge again " + a);
         // in the air the run is kept on (the burst was the jump)
         var air = new View(3.0, 3.3, 0.3, ZOMBIE, false, true, READY, DELAY, WINDOW, false, false, false, false, false, false, false);
         check(LanceLogic.decide(air).move() == Move.CHARGE, "airborne: keep running");
@@ -64,7 +74,7 @@ public final class LanceLogicTest {
         a = LanceLogic.decide(view(7.6, 0, ZOMBIE, 0, false));
         check(a.move() == Move.HOLD, "zombie at 7.6, delay to run: hold " + a);
         check(LanceLogic.decide(view(10, 0, ZOMBIE, 0, false)).move() == Move.CHARGE, "zombie at 10: run in during the delay");
-        check(LanceLogic.decide(view(3.0, 0, ZOMBIE, 0, false)).move() == Move.BACK, "it would walk inside the band first: back");
+        check(LanceLogic.decide(view(3.0, 0, ZOMBIE, 0, false)).move() == Move.JAB, "it would walk inside the band first: jab");
 
         // --- a melee weapon takes over inside the charge's reach and hands back only far out
         a = LanceLogic.decide(view(2.2, 0, ZOMBIE, READY, true));

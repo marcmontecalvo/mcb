@@ -550,12 +550,17 @@ final class BodyEntity {
          * one that lights anyway is outrun first. A back step that is blocked is stepped round (flee).
          */
         private void poke(ServerPlayer player, LivingEntity target) {
-            holdWeapon(player, params.weapon());
+            poke(player, target, params.weapon(), tactic.keepMin(), tactic.keepMax());
+        }
+
+        /** The jab held in keepMin..keepMax (eye to box) with the given spear; the lance's close technique too. */
+        private void poke(ServerPlayer player, LivingEntity target, String weapon, double keepMin, double keepMax) {
+            holdWeapon(player, weapon);
             double eye = Math.sqrt(target.getBoundingBox().distanceToSqr(player.getEyePosition()));
             double closing = Double.isNaN(lastEye) ? 0 : lastEye - eye;
             lastEye = eye;
-            var move = CombatLogic.poke(eye, closing, Math.sqrt(player.distanceToSqr(target)), tactic.keepMin(),
-                    tactic.keepMax(), swelling(target), retreating);
+            var move = CombatLogic.poke(eye, closing, Math.sqrt(player.distanceToSqr(target)), keepMin,
+                    keepMax, swelling(target), retreating);
             retreating = move == CombatLogic.Move.FLEE;
             if (retreating) { flee(player, target, "swell"); return; }
             aim(player, target);
@@ -595,7 +600,8 @@ final class BodyEntity {
          * Spear charge (LanceLogic): hold the use and sprint at the target so its box crosses the look 2.3 to
          * 4.2 from the eye on a fast tick, sprint-jumping when the ground run is too slow for it (a skeleton
          * backing off). Inside the charge's reach the melee weapon, when carried, takes over until the target
-         * is far out again; a creeper is outrun after each hit. Without a spear it is the melee fight.
+         * is far out again; a lone spear jabs there instead of backing off for a run-up; a creeper is outrun
+         * after each hit. Without a spear it is the melee fight.
          */
         private void lance(ServerPlayer player, LivingEntity target, double distance) {
             var stack = spearStack(player);
@@ -623,15 +629,18 @@ final class BodyEntity {
             }
             int window = kinetic.damageConditions().map(KineticWeapon.Condition::maxDurationTicks).orElse(0);
             var act = LanceLogic.decide(new LanceLogic.View(eye, distance, bodyV, closing, player.onGround(), using,
-                    using ? player.getTicksUsingItem() : 0, kinetic.delayTicks(), window, tactic.melee() != null, creeper,
-                    swelling(target), swollen(target), retreating, lanceMelee, hit));
+                    using ? player.getTicksUsingItem() : 0, kinetic.delayTicks(), window, tactic.melee() != null,
+                    creeper, swelling(target), swollen(target), retreating, lanceMelee, hit));
             retreating = act.fleeing();
             lanceMelee = act.inMelee();
             lanceMoves.merge(act.move().name().toLowerCase(), 1, Integer::sum);
             lastLance = act.move();
-            if (act.move() == LanceLogic.Move.MELEE) {
+            if (act.move() == LanceLogic.Move.MELEE || act.move() == LanceLogic.Move.JAB) {
                 if (using) player.stopUsingItem();
-                melee(player, target, tactic.melee());
+                if (act.move() == LanceLogic.Move.JAB) {
+                    poke(player, target, spear, LanceLogic.JAB_KEEP_MIN, LanceLogic.JAB_KEEP_MAX);
+                }
+                else melee(player, target, tactic.melee());
                 return;
             }
             hop = null;
@@ -654,7 +663,7 @@ final class BodyEntity {
                     walk(player, target, -1);
                     if (forward == 0) { flee(player, target, "blocked"); return; }
                 }
-                case HOLD, FLEE, MELEE -> { }
+                case HOLD, FLEE, MELEE, JAB -> { }
             }
             if (eye <= LanceLogic.FAR + 1) noPathSince = -1;
         }

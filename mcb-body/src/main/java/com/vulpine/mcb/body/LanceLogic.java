@@ -22,6 +22,12 @@ final class LanceLogic {
     static final double CLOSE = 2.4;
     /** The melee weapon hands back to the spear only past this: the charge's delay is waited out first. */
     static final double RETURN = 6.0;
+    /**
+     * A lone spear's close technique is its jab, held in this band (eye to box) just past a zombie's
+     * reach: backing off holding the charge for a run-up opens only 0.1 b/tick on a mob walking in
+     * (live: 250 ticks of it a kill, against the jab's 7.2 s kill with no damage).
+     */
+    static final double JAB_KEEP_MIN = 2.5, JAB_KEEP_MAX = 4.0;
     /** The damage condition's relative speed (4.6 b/s every tier), per tick, and a margin over it. */
     static final double MIN_REL = 4.6 / 20, REL_MARGIN = 0.02;
     /** A sprinting ground tick's thrust, and the steady sprint per tick. */
@@ -32,8 +38,11 @@ final class LanceLogic {
     /** A creeper lights with the body's feet inside 3 blocks: a charge tick keeps them this far. */
     static final double CREEPER_KEEP = CombatLogic.CREEPER_FUSE + 0.3;
 
-    /** BURST: sprint-jump at it; CHARGE: sprint at it; MELEE: the melee weapon's own technique. */
-    enum Move { HOLD, CHARGE, BURST, BACK, FLEE, MELEE }
+    /**
+     * BURST: sprint-jump at it; CHARGE: sprint at it; MELEE: the melee weapon's own technique; JAB: a lone
+     * spear's close technique, its own attack held in the JAB_KEEP band.
+     */
+    enum Move { HOLD, CHARGE, BURST, BACK, FLEE, MELEE, JAB }
     /** KEEP: leave the use as it is. */
     enum Use { KEEP, START, RESTART, STOP }
 
@@ -58,12 +67,17 @@ final class LanceLogic {
         }
         // ticks until a move made now would be read past the delay (the damage reads it next tick)
         int wait = v.using() ? Math.max(0, v.delay() - 1 - v.ticksUsing()) : v.delay() - 1;
-        if (v.hasMelee() && !v.creeper()) {
-            boolean melee = v.inMelee() ? v.eye() < RETURN
-                    : v.eye() < CLOSE || v.eye() - Math.max(0, v.closing()) * wait < CLOSE;
-            if (melee) return new Act(Move.MELEE, v.using() ? Use.STOP : Use.KEEP, true, false);
-        }
-        return new Act(move(v, wait), use, false, false);
+        if (v.creeper()) return new Act(move(v, wait), use, false, false);
+        Move close = v.hasMelee() ? Move.MELEE : Move.JAB;
+        Act closeAct = new Act(close, v.using() ? Use.STOP : Use.KEEP, true, false);
+        boolean near = v.inMelee() ? v.eye() < RETURN
+                : v.eye() < CLOSE || v.eye() - Math.max(0, v.closing()) * wait < CLOSE;
+        if (near) return closeAct;
+        Move move = move(v, wait);
+        // a lone spear never backs off for a run-up while its jab reaches: backing opens 0.1 b/tick at
+        // best on a mob walking in, so the run-up costs more than the charge's extra damage
+        if (move == Move.BACK && !v.hasMelee() && v.eye() <= FAR) return closeAct;
+        return new Act(move, use, false, false);
     }
 
     private static Move move(View v, int wait) {
