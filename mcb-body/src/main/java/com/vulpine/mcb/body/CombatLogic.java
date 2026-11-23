@@ -20,7 +20,7 @@ final class CombatLogic {
     static final double SNIPE_CLOSE = 4.0;  // a target this close is fought with the melee weapon
     static final int FULL_DRAW = 20;  // BowItem.getPowerForTime reaches 1.0
     static final double ARROW_SPEED = 3.0, ARROW_DRAG = .99, ARROW_GRAVITY = .05;
-    private static final Set<String> STYLES = Set.of("melee", "poke", "hit_and_back", "snipe", "hunt");
+    private static final Set<String> STYLES = Set.of("melee", "poke", "lance", "hit_and_back", "snipe", "hunt");
 
     enum Kind {
         SWORD, AXE, SPEAR, TRIDENT, BOW, OTHER;
@@ -145,7 +145,7 @@ final class CombatLogic {
     static final double CREEPER_FUSE = 3.0, CREEPER_HALF_WIDTH = 0.3;
 
     static boolean fightsCreepers(Tactic t) {
-        if (t.style().equals("hit_and_back")) return true;
+        if (t.style().equals("hit_and_back") || t.style().equals("lance")) return true;  // lance: LanceLogic flees after a hit
         return t.style().equals("poke") && t.keepMin() + CREEPER_HALF_WIDTH > CREEPER_FUSE;
     }
 

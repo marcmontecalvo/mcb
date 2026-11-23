@@ -76,12 +76,33 @@ def test_a_zombie_gets_crit_melee_with_the_best_damage_per_second():
     assert (t.style, t.weapon, t.crit) == ("melee", M + "iron_sword", True)
 
 
-def test_a_lone_spear_pokes_from_outside_a_zombies_reach():
+def test_a_spear_charges_in_and_hands_over_to_the_best_swing_weapon():
+    # The owner's rule: open with the charge from range, then swap to what hits
+    # hardest up close (the mod hands back to the spear once the target is far out).
     t = cc.tactic(M + "zombie", inv("iron_spear"))
-    assert (t.style, t.weapon, t.crit) == ("poke", M + "iron_spear", False)
-    assert t.keep == cc.POKE_KEEP
-    # a sword still out-damages it
-    assert cc.tactic(M + "zombie", inv("iron_spear", "wooden_sword")).style == "melee"
+    assert (t.style, t.weapon, t.melee) == ("lance", M + "iron_spear", None)
+    t = cc.tactic(M + "zombie", inv("iron_spear", "wooden_sword"))
+    assert t == cc.Tactic(
+        "lance", M + "iron_spear", crit=True, melee=M + "wooden_sword"
+    )
+    t = cc.tactic(M + "skeleton", inv("iron_spear", "iron_axe", "iron_sword"))
+    assert (t.style, t.melee, t.crit) == ("lance", M + "iron_sword", True)
+    assert t.wire() == {
+        "style": "lance",
+        "crit": True,
+        "sweep": True,
+        "melee": M + "iron_sword",
+    }
+
+
+def test_a_spear_charge_is_modelled_by_its_speed_not_its_jab():
+    # 1 + floor(5.6 b/s sprint x the tier's multiplier) once a pass (contact cooldown
+    # 10 ticks, then closing in again); the jab's 3 is the item's attack damage
+    iron = cc.weapon(M + "iron_spear")
+    assert iron.damage == 3 and iron.hit() == 6
+    assert iron.cycle() == cc.CHARGE_CYCLE
+    assert cc.weapon(M + "netherite_spear").hit() == 7
+    assert cc.weapon(M + "wooden_spear").hit() == 4
 
 
 def test_archers_are_shot_back_with_a_bow_and_arrows():
@@ -94,29 +115,18 @@ def test_archers_are_shot_back_with_a_bow_and_arrows():
     assert (t.style, t.weapon) == ("melee", M + "iron_sword")
 
 
-def test_a_creeper_is_shot_else_hit_and_left_else_outreached_else_avoided():
-    assert cc.tactic(M + "creeper", inv("bow", arrows=5)).style == "snipe"
+def test_a_creeper_is_shot_else_charged_else_hit_and_left_else_avoided():
+    # The owner's order: the bow, then the spear's charge from past its fuse, and
+    # only then in close with a sword or axe.
+    assert cc.tactic(M + "creeper", inv("bow", "iron_spear", arrows=5)).style == "snipe"
+    t = cc.tactic(M + "creeper", inv("iron_spear", "stone_sword"))
+    # never handed to the sword: the mod outruns it after each charge hit
+    assert (t.style, t.weapon, t.melee) == ("lance", M + "iron_spear", None)
+    assert cc.tactic(M + "creeper", inv("iron_spear")) == t
     t = cc.tactic(M + "creeper", inv("stone_sword"))
     assert (t.style, t.weapon) == ("hit_and_back", M + "stone_sword")
     assert t.crit is False  # the sprint hit's knockback is the point
-    # a sword's sprint hit lands sooner than a jab's long charge
-    assert cc.tactic(M + "creeper", inv("iron_spear", "stone_sword")).style == (
-        "hit_and_back"
-    )
     assert cc.tactic(M + "creeper", {}).style == "avoid"
-
-
-def test_a_lone_spear_jabs_a_creeper_from_past_its_fuse():
-    t = cc.tactic(M + "creeper", inv("iron_spear"))
-    assert (t.style, t.weapon, t.crit) == ("poke", M + "iron_spear", False)
-    assert t.keep == cc.FUSE_KEEP
-    near, far = cc.FUSE_KEEP
-    # measured eye to box: the creeper's feet are a half-width (0.3) farther still,
-    # and it lights only with the body's feet inside 3 blocks; room is left for the
-    # body to drift on while it turns round (live 20261123T205225Z)
-    assert near + 0.3 - cc.CREEPER_FUSE >= 0.8
-    assert far < cc.JAB_REACH  # every held distance is within a jab
-    assert t.wire()["keep"] == [near, far]
 
 
 def test_fliers_and_ghasts_need_a_bow():
@@ -193,9 +203,12 @@ def test_a_hunt_spares_a_weapon_the_kill_would_break():
     assert gone.weapon is None
 
 
-def test_a_spear_alone_hunts_with_its_jab():
+def test_a_spear_alone_hunts_with_its_charge():
     t = cc.tactic(M + "pig", inv("iron_spear"))
-    assert (t.style, t.weapon, t.keep) == ("poke", M + "iron_spear", cc.POKE_KEEP)
+    assert t == cc.Tactic("lance", M + "iron_spear")
+    # a sword crit (9) kills a pig in as many hits, and sooner (12.5 ticks, not 20)
+    t = cc.tactic(M + "pig", inv("iron_spear", "iron_sword"))
+    assert (t.style, t.weapon) == ("hunt", M + "iron_sword")
 
 
 def test_a_hunt_weapon_is_picked_for_a_generic_animal():

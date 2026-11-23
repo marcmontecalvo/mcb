@@ -20,6 +20,18 @@ def test_kits_hold_one_weapon_and_a_bow_gets_arrows():
         ct.kit("club")
 
 
+def test_a_kit_may_carry_several_weapons():
+    # the spear's charge hands over to the sword: measured as its own cell
+    assert ct.kit("spear+sword") == [
+        {"item": M + "iron_spear", "count": 1},
+        {"item": M + "iron_sword", "count": 1},
+    ]
+    assert ct.kit("bow+sword") == ct.kit("bow") + ct.kit("sword")
+    for bad in ("spear+club", "spear+spear", "fist+sword", "+sword"):
+        with pytest.raises(ValueError, match="weapon"):
+            ct.kit(bad)
+
+
 def test_scene_clears_heals_arms_and_summons_at_a_distance():
     spec = ct.scene("sword", "zombie", distance=9, time=6000)
 

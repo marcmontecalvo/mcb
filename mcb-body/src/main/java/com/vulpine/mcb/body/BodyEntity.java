@@ -12,6 +12,7 @@ import net.minecraft.world.entity.OwnableEntity;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.animal.sheep.Sheep;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.KineticWeapon;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.LinkedHashMap;
@@ -283,6 +284,12 @@ final class BodyEntity {
         private CritForecast.Hop hop;
         /** The tracked target's feet {x, z} a tick ago (null: new target), and its step since ({dx, dz}). */
         private double[] targetAt, targetStep;
+        /** Health the tracked target lost since the last tick (a charge hit lands in the player's own tick). */
+        private double dealtNow;
+        /** The body's feet a tick ago: its move, given to the server as the known movement a charge reads. */
+        private Vec3 lastPos;
+        /** Lance: the melee weapon has the target (LanceLogic hands back only far out). */
+        private boolean lanceMelee;
 
         private FightTask(long sequence, FightLogic.Params params, CombatLogic.Tactic tactic, UUID requested,
                           java.util.function.Function<ServerPlayer, RouteGeometry.Reader> reader) {
@@ -293,8 +300,10 @@ final class BodyEntity {
 
         /** Adds what the tracked target lost since the last look; a dead one is counted (an arrow's kill) and let go. */
         private void account(ServerPlayer player) {
+            dealtNow = 0;
             if (tracked == null) return;
-            damage += FightLogic.dealt(trackedHealth, tracked.getHealth());
+            dealtNow = FightLogic.dealt(trackedHealth, tracked.getHealth());
+            damage += dealtNow;
             trackedHealth = tracked.getHealth();
             credit(player, tracked);
             if (!tracked.isAlive()) tracked = null;
@@ -365,6 +374,11 @@ final class BodyEntity {
         @Override public String step(ServerPlayer player) {
             ticks++;
             forward = 0; jump = false; sprint = false;
+            // A client reports each move, and the server keeps it as the known movement a spear's charge
+            // reads (KineticWeapon.getMotion); the body has no client, so its last move is given here.
+            Vec3 pos = player.position();
+            if (lastPos != null) player.setKnownMovement(pos.subtract(lastPos));
+            lastPos = pos;
             account(player);
             String end = FightLogic.endReason(player.getHealth(), params.floor(), ticks, params.maxTicks());
             if (end != null) return end;
@@ -401,6 +415,7 @@ final class BodyEntity {
                     else snipe(player, target, distance);
                 }
                 case "poke" -> poke(player, target);
+                case "lance" -> lance(player, target, distance);
                 case "hit_and_back" -> hitAndBack(player, target, distance);
                 default -> melee(player, target, params.weapon());  // melee and hunt
             }
@@ -556,6 +571,95 @@ final class BodyEntity {
                 if (target.getHealth() < before || !target.isAlive()) hits++;
                 credit(player, target);
             }
+        }
+
+        /** The carried spear the lance charges with: the requested one, else any; null when none is carried. */
+        private ItemStack spearStack(ServerPlayer player) {
+            var inv = player.getInventory();
+            ItemStack any = null;
+            for (int i = 0; i < 36; i++) {
+                var stack = inv.getItem(i);
+                if (stack.isEmpty() || stack.get(DataComponents.KINETIC_WEAPON) == null) continue;
+                String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+                if (id.equals(params.weapon())) return stack;
+                if (any == null) any = stack;
+            }
+            return any;
+        }
+
+        /**
+         * Spear charge (LanceLogic): hold the use and sprint at the target so its box crosses the look 2.3 to
+         * 4.2 from the eye on a fast tick, sprint-jumping when the ground run is too slow for it (a skeleton
+         * backing off). Inside the charge's reach the melee weapon, when carried, takes over until the target
+         * is far out again; a creeper is outrun after each hit. Without a spear it is the melee fight.
+         */
+        private void lance(ServerPlayer player, LivingEntity target, double distance) {
+            var stack = spearStack(player);
+            var kinetic = stack == null ? null : stack.get(DataComponents.KINETIC_WEAPON);
+            if (kinetic == null) { lanceMelee = false; melee(player, target, tactic.melee()); return; }
+            String spear = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+            boolean creeper = target instanceof net.minecraft.world.entity.monster.Creeper;
+            double eye = Math.sqrt(target.getBoundingBox().distanceToSqr(player.getEyePosition()));
+            double dx = target.getX() - player.getX(), dz = target.getZ() - player.getZ(), across = Math.hypot(dx, dz);
+            double ux = across > 1e-6 ? dx / across : 0, uz = across > 1e-6 ? dz / across : 0;
+            var velocity = player.getDeltaMovement();
+            double bodyV = velocity.x * ux + velocity.z * uz;
+            double closing = targetStep == null ? 0 : -(targetStep[0] * ux + targetStep[1] * uz);
+            boolean using = player.isUsingItem() && player.getUseItem().get(DataComponents.KINETIC_WEAPON) != null;
+            boolean hit = using && dealtNow > 0;
+            if (hit) { hits++; credit(player, target); }
+            int window = kinetic.damageConditions().map(KineticWeapon.Condition::maxDurationTicks).orElse(0);
+            var act = LanceLogic.decide(new LanceLogic.View(eye, distance, bodyV, closing, player.onGround(), using,
+                    using ? player.getTicksUsingItem() : 0, kinetic.delayTicks(), window, tactic.melee() != null, creeper,
+                    swelling(target), swollen(target), retreating, lanceMelee, hit));
+            retreating = act.fleeing();
+            lanceMelee = act.inMelee();
+            if (act.move() == LanceLogic.Move.MELEE) {
+                if (using) player.stopUsingItem();
+                melee(player, target, tactic.melee());
+                return;
+            }
+            hop = null;
+            holdWeapon(player, spear);
+            switch (act.use()) {
+                case START -> useHeld(player);
+                case RESTART -> { player.stopUsingItem(); useHeld(player); }
+                case STOP -> player.stopUsingItem();
+                case KEEP -> { }
+            }
+            if (act.move() == LanceLogic.Move.FLEE) { flee(player, target, hit ? "after_hit" : "swell"); return; }
+            aimLevel(player, target);
+            switch (act.move()) {
+                case CHARGE -> { approach(player, target); sprint = true; }
+                case BURST -> {
+                    if (stepCode(player, dx, dz) != 0) { jump = true; forward = 1; sprint = true; }
+                    else { approach(player, target); sprint = true; }  // the way ahead is blocked: round it
+                }
+                case BACK -> {
+                    walk(player, target, -1);
+                    if (forward == 0) { flee(player, target, "blocked"); return; }
+                }
+                case HOLD, FLEE, MELEE -> { }
+            }
+            if (eye <= LanceLogic.FAR + 1) noPathSince = -1;
+        }
+
+        private static void useHeld(ServerPlayer player) {
+            player.gameMode.useItem(player, player.level(), player.getMainHandItem(), InteractionHand.MAIN_HAND);
+        }
+
+        /**
+         * The charge hits along the look, and its speed is the move along it: look level (at the target's
+         * box where the eye's height crosses it), so the run is not spent climbing the look. An enderman's
+         * legs, never its eyes.
+         */
+        private void aimLevel(ServerPlayer player, LivingEntity target) {
+            if (tactic.noGaze()) { aim(player, target); return; }
+            var box = target.getBoundingBox();
+            Vec3 eye = player.getEyePosition();
+            double y = Math.clamp(eye.y, box.minY + .2, Math.max(box.minY + .2, box.maxY - .2));
+            BodyBuild.aim(player, (float) Math.toDegrees(Math.atan2(-(target.getX() - eye.x), target.getZ() - eye.z)),
+                    PlacementLogic.pitchTo(target.getX() - eye.x, y - eye.y, target.getZ() - eye.z));
         }
 
         /** Creeper: a sprint hit knocks it back, then keep off until its swell is gone. */

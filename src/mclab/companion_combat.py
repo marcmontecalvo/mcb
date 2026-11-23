@@ -12,19 +12,19 @@ from dataclasses import dataclass
 M = "minecraft:"
 CRIT = 1.5  # base damage multiplier of a falling, non-sprinting strike
 CRIT_CYCLE = 12  # ticks from one jump to the next: crits cannot come faster
-JAB_REACH = 4.5  # a spear jab reaches 2.0 to 4.5 from the eye to the target's box
-POKE_KEEP = (2.5, 4.0)
-# A creeper lights with the body's feet inside 3 blocks of its own; its box edge is a
-# half-width (0.3) nearer. Jabbing from 3.6 to 4.4 (eye to box) leaves almost a block
-# for the body to drift on while it turns round as the creeper walks in.
-CREEPER_FUSE = 3.0
-FUSE_KEEP = (3.6, 4.4)
+# A spear's charge (the mod's lance; its jab is the mod's poke, no longer picked) hits
+# 2.0 to 4.5 from the eye for 1 + floor(relative b/s x the tier's multiplier): a
+# ground sprint at a still target is 5.6 b/s. A pass is the 10-tick contact cooldown
+# and the closing in again after the knockback.
+CHARGE_SPEED = 5.6
+CHARGE_CYCLE = 20
 SNIPE_KEEP = (8.0, 15.0)  # outside a skeleton's comfort, inside its 15-block range
 # An animal never fights back: shoot it from wherever, closing in past 8 blocks
 # (a panicked animal zigzags, and the nearer shot lands more often).
 HUNT_KEEP = (0.0, 8.0)
 ARROWS = frozenset({M + "arrow", M + "spectral_arrow", M + "tipped_arrow"})
 MELEE_KINDS = ("sword", "axe", "trident", "spear")
+SWING_KINDS = ("sword", "axe", "trident")  # swung through Player.attack: they crit
 # Max health of the animals hunted for drops (LivingEntity attributes, 26.3);
 # an animal not listed is taken as a pig's.
 ANIMAL_HEALTH = {
@@ -45,12 +45,16 @@ class Weapon:
     kind: str  # sword, axe, spear, trident or bow
     damage: float  # per hit, the player's base 1 included; bow: a full-draw arrow
     cooldown: float  # ticks to full strength (bow: the full draw)
+    charge: float = 0.0  # a spear's KineticWeapon damage multiplier
 
     @property
     def crits(self) -> bool:
         return self.kind in ("sword", "axe", "trident")
 
     def hit(self) -> float:
+        """The hit of its best technique: a crit, or a spear's charge."""
+        if self.charge:
+            return 1 + math.floor(CHARGE_SPEED * self.charge)
         return self.damage * (CRIT if self.crits else 1)
 
     @property
@@ -59,7 +63,10 @@ class Weapon:
         return 2 if self.kind == "axe" else 1
 
     def cycle(self) -> float:
-        """Ticks between full-strength hits (a crit waits for its jump)."""
+        """Ticks between full-strength hits (a crit waits for its jump, a charge
+        for its next pass)."""
+        if self.charge:
+            return CHARGE_CYCLE
         return max(self.cooldown, CRIT_CYCLE if self.crits else 1)
 
     def dps(self) -> float:
@@ -82,13 +89,14 @@ def _table() -> dict[str, Weapon]:
     }  # fmt: skip
     for tier, (damage, speed) in axes.items():
         out[f"{tier}_axe"] = ("axe", damage, 20 / speed)
+    # jab damage, swing seconds, charge damage multiplier (COMBAT_MECHANICS section 4)
     spears = {
-        "wooden": (1, 0.65), "golden": (1, 0.95), "stone": (2, 0.75),
-        "copper": (2, 0.85), "iron": (3, 0.95), "diamond": (4, 1.05),
-        "netherite": (5, 1.15),
+        "wooden": (1, 0.65, 0.7), "golden": (1, 0.95, 0.7), "stone": (2, 0.75, 0.82),
+        "copper": (2, 0.85, 0.82), "iron": (3, 0.95, 0.95),
+        "diamond": (4, 1.05, 1.075), "netherite": (5, 1.15, 1.2),
     }  # fmt: skip
-    for tier, (damage, swing) in spears.items():
-        out[f"{tier}_spear"] = ("spear", damage, swing * 20)
+    for tier, (damage, swing, charge) in spears.items():
+        out[f"{tier}_spear"] = ("spear", damage, swing * 20, charge)
     out["trident"] = ("trident", 9, 20 / 1.1)
     out["bow"] = ("bow", 6, 20.0)
     return {M + k: Weapon(M + k, *v) for k, v in out.items()}
@@ -110,8 +118,8 @@ def weapon(item: str) -> Weapon | None:
 class Tactic:
     """What the mod's fight op does; ``wire()`` is its ``tactic`` field.
 
-    style: melee, poke, hit_and_back, snipe, hunt or avoid (never engaged). A
-    profile's ``outreach`` is a poke from past a creeper's fuse (``FUSE_KEEP``).
+    style: melee, lance (a spear's charge), poke (its jab), hit_and_back, snipe,
+    hunt or avoid (never engaged).
     """
 
     style: str
@@ -119,7 +127,7 @@ class Tactic:
     crit: bool = False  # time strikes on the way down from a jump
     sweep: bool = True  # a grounded sword hit may sweep what stands near the target
     keep: tuple[float, float] | None = None  # stand-off distance (min, max)
-    melee: str | None = None  # snipe: the weapon for a target that closes in
+    melee: str | None = None  # snipe, lance: the weapon for a target that closes in
     no_gaze: bool = False  # never look at its eyes (enderman)
 
     def wire(self) -> dict:
@@ -155,7 +163,8 @@ def _profiles() -> dict[str, Profile]:
         Profile(("melee",)): "breeze vex",
         Profile(("melee", "snipe"), first=True): "evoker",
         Profile(("snipe", "melee")): "skeleton stray bogged pillager",
-        Profile(("snipe", "hit_and_back", "outreach")): "creeper",
+        # the owner's order: the bow, the spear's charge past its fuse, then close in
+        Profile(("snipe", "charge", "hit_and_back")): "creeper",
         Profile(("snipe",)): "phantom blaze ghast",
         Profile(("melee",), no_gaze=True): "enderman",
         Profile(()): "warden ravager guardian elder_guardian ender_dragon wither",
@@ -251,24 +260,27 @@ def _style(style: str, inventory, target: str = "", wear=None) -> Tactic | None:
             "snipe", bow.item, keep=SNIPE_KEEP, melee=backup.item if backup else None
         )
     if style == "melee":
-        best = _best(inventory, MELEE_KINDS)
-        if best is None:
-            return None
-        if best.kind == "spear":
-            return Tactic("poke", best.item, keep=POKE_KEEP)
-        return Tactic("melee", best.item, crit=True)
+        # The owner's rule: a carried spear opens with its charge from range, and the
+        # best swing weapon takes over up close (the mod hands back once it is far out).
+        spear = _best(inventory, ("spear",))
+        swing = _best(inventory, SWING_KINDS)
+        if spear is not None:
+            backup = swing.item if swing else None
+            return Tactic("lance", spear.item, crit=swing is not None, melee=backup)
+        return Tactic("melee", swing.item, crit=True) if swing else None
+    if style == "charge":
+        # a creeper: never handed to a swing weapon, outrun after each hit
+        spear = _best(inventory, ("spear",))
+        return Tactic("lance", spear.item) if spear else None
     if style == "hit_and_back":
-        best = _best(inventory, ("sword", "axe", "trident"))
+        best = _best(inventory, SWING_KINDS)
         return Tactic("hit_and_back", best.item) if best else None
-    if style == "outreach":  # a spear's reach beyond a creeper's fuse
-        best = _best(inventory, ("spear",))
-        return Tactic("poke", best.item, keep=FUSE_KEEP) if best else None
     if style == "hunt":
         best = hunt_weapon(target, inventory, wear)
         if best is not None and best.kind == "bow":
             return Tactic("snipe", best.item, keep=HUNT_KEEP)
         if best is not None and best.kind == "spear":
-            return Tactic("poke", best.item, keep=POKE_KEEP)
+            return Tactic("lance", best.item)
         return Tactic(
             "hunt",
             best.item if best else None,

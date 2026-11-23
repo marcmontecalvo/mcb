@@ -112,6 +112,10 @@ public final class CombatLogicTest {
         check(CombatLogic.fightsCreepers(new CombatLogic.Tactic("poke", false, true, 3.6, 4.4, null, false)), "a fuse-clear poke fights creepers");
         check(!CombatLogic.fightsCreepers(new CombatLogic.Tactic("poke", false, true, 2.5, 4.0, null, false)), "a zombie's poke band is inside the fuse");
         check(!CombatLogic.fightsCreepers(CombatLogic.DEFAULT), "crit melee leaves creepers");
+        // the spear charge: hits from 2.0 to 4.5 and outruns a creeper after each (LanceLogic)
+        var lance = tactic("{\"tactic\":{\"style\":\"lance\",\"crit\":true,\"melee\":\"minecraft:iron_sword\"}}");
+        check(lance.style().equals("lance") && "minecraft:iron_sword".equals(lance.melee()) && lance.crit(), "lance parses");
+        check(CombatLogic.fightsCreepers(lance), "a lance fights creepers (never in melee)");
 
         // --- creeper hit and back
         check(CombatLogic.hitAndBack(false, 2.8, false, true, 1).equals("strike"), "full and in reach: sprint hit");

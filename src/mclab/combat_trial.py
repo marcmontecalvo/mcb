@@ -59,14 +59,21 @@ STEP_SUMS = ("kills", "hits", "crits", "shots", "damage", "jumps", "ticks", "fle
 
 
 def kit(weapon: str, *, tier: str = "iron") -> list[dict]:
-    """The give entries for a weapon: one of it, and arrows for a bow."""
-    if weapon not in WEAPONS:
-        raise ValueError(f"weapon must be one of {', '.join(WEAPONS)}")
-    if weapon == "fist":
-        return []
-    if weapon == "bow":
-        return [{"item": M + "bow", "count": 1}, {"item": M + "arrow", "count": 64}]
-    return [{"item": f"{M}{tier}_{weapon}", "count": 1}]
+    """The give entries for a weapon, or several joined by ``+`` (``spear+sword``):
+    one of each, and arrows for a bow. The fist is an empty kit of its own."""
+    parts = weapon.split("+")
+    known = len(parts) == len(set(parts)) and all(p in WEAPONS for p in parts)
+    if not known or (len(parts) > 1 and "fist" in parts):
+        raise ValueError(
+            f"weapon must be one of {', '.join(WEAPONS)}, or several joined by +"
+        )
+    out = []
+    for part in parts:
+        if part == "bow":
+            out += [{"item": M + "bow", "count": 1}, {"item": M + "arrow", "count": 64}]
+        elif part != "fist":
+            out.append({"item": f"{M}{tier}_{part}", "count": 1})
+    return out
 
 
 MAX_GROUP = 8  # mobs of one kind in a group cell
