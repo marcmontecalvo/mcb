@@ -75,6 +75,7 @@ public final class BodyRuntime implements AutoCloseable {
     private String episodeId = "none";
     private String bodyId = "none";
     private CarpetBodyAdapter body;
+    private boolean diedReported; // body_died is emitted once per spawned body
     private String readyState = "idle";
     private int expiryTick = -1;
     private boolean traceEnabled;
@@ -171,6 +172,16 @@ public final class BodyRuntime implements AutoCloseable {
                 respond(exchange, 202, Map.of("status", "queued", "launch_id", launchId));
                 return;
             }
+            if (exchange.getRequestMethod().equals("POST") && path.equals("/say")) {
+                var request = JsonParser.parseString(new String(
+                        exchange.getRequestBody().readNBytes(4096), StandardCharsets.UTF_8)).getAsJsonObject();
+                var text = CompanionChat.requireText(request.get("text").getAsString());
+                var target = request.has("to") && !request.get("to").isJsonNull()
+                        ? CompanionChat.requireTarget(request.get("to").getAsString()) : null;
+                say(text, target);
+                respond(exchange, 202, Map.of("status", "queued", "launch_id", launchId));
+                return;
+            }
             respond(exchange, 404, Map.of("error", "not_found"));
         } catch (RuntimeException error) {
             respond(exchange, 400, Map.of("error", "invalid_request"));
@@ -218,8 +229,64 @@ public final class BodyRuntime implements AutoCloseable {
         data.put("player_uuid", player.getUUID().toString());
         data.put("player_name", player.getName().getString());
         data.put("command", sub);
+        addSender(data, player);
         runtime.emit("player_command", "fabric_start", data);
         if (sub.equals("stop")) runtime.cancelRoute("player_stop"); // no body spawned: nothing is active, a no-op
+    }
+
+    /**
+     * The current body's player died (Fabric AFTER_DEATH, server thread). Carpet then removes the fake player, so
+     * the state afterwards reads disconnected_or_dead; this carries the cause, once per spawned body.
+     */
+    static void bodyDied(net.minecraft.world.entity.LivingEntity entity) {
+        var runtime = active;
+        if (runtime == null || !(entity instanceof ServerPlayer player)) return;
+        var body = runtime.body;
+        if (body == null || runtime.diedReported || !body.owns(player)) return;
+        runtime.diedReported = true;
+        var data = new HashMap<String, Object>();
+        data.put("name", player.getName().getString());
+        data.put("cause", player.getCombatTracker().getDeathMessage().getString());
+        addSender(data, player);
+        runtime.emit("body_died", "fabric_start", data);
+    }
+
+    /** The sender's position and dimension, shared by player_command and player_chat. */
+    private static void addSender(Map<String, Object> data, ServerPlayer player) {
+        data.put("position", List.of(player.getX(), player.getY(), player.getZ()));
+        data.put("dimension", player.level().dimension().identifier().toString());
+    }
+
+    /**
+     * A chat line from a real player, on the server thread. Carpet fake players are skipped so the bot never hears
+     * itself. The text is the plain signed content, cut to 256 characters.
+     */
+    static void playerChat(ServerPlayer player, String text) {
+        var runtime = active;
+        if (runtime == null || !CompanionChat.heard(CarpetBodyAdapter.isFakePlayer(player))) return;
+        var data = new HashMap<String, Object>();
+        data.put("player_uuid", player.getUUID().toString());
+        data.put("player_name", player.getName().getString());
+        data.put("text", CompanionChat.truncate(text));
+        addSender(data, player);
+        runtime.emit("player_chat", "fabric_start", data);
+    }
+
+    /** /say: speaks as the body (or MCB with none), to one online player or to everyone. World work on the server thread. */
+    private void say(String text, String to) {
+        server.execute(() -> {
+            String speaker = CompanionChat.speaker(body == null ? null : body.name());
+            if (to == null) {
+                server.getPlayerList().broadcastSystemMessage(
+                        net.minecraft.network.chat.Component.literal(CompanionChat.broadcast(speaker, text)), false);
+                return;
+            }
+            var player = server.getPlayerList().getPlayerByName(to);
+            if (player == null) return; // offline or unknown: accepted, nothing emitted
+            player.sendSystemMessage(net.minecraft.network.chat.Component
+                    .literal(CompanionChat.whisper(speaker, text))
+                    .withStyle(net.minecraft.ChatFormatting.GRAY, net.minecraft.ChatFormatting.ITALIC));
+        });
     }
 
     private static String text(JsonObject request, String key) {
@@ -1253,7 +1320,9 @@ public final class BodyRuntime implements AutoCloseable {
         String name = request.has("name") ? request.get("name").getAsString()
                 : "Lab" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
         if (!name.matches("[A-Za-z0-9_]{3,16}")) throw new IllegalArgumentException("invalid_name");
+        boolean keepState = BodyReset.parseKeepState(request);
         var candidate = new CarpetBodyAdapter(server, at, name, yaw, pitch);
+        candidate.keepState(keepState);
         retireBody();
         plannerMap = new PlannerMap();
         leakWatch.clear();
@@ -1270,6 +1339,7 @@ public final class BodyRuntime implements AutoCloseable {
         extendedObservation = request.has("extended_observation") && request.get("extended_observation").getAsBoolean();
         courseLimits = limits.equals("course");
         body = candidate;
+        diedReported = false;
         readyState = "preparing";
         everReady = false;
         long started = System.nanoTime();

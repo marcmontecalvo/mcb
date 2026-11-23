@@ -76,6 +76,8 @@ public final class PolicySensor {
             if(entity instanceof net.minecraft.world.entity.animal.sheep.Sheep sheep) entry.put("sheared",sheep.isSheared());
             if(entity instanceof net.minecraft.world.entity.animal.Animal animal) entry.put("baby",animal.isBaby());
             if(entity.hasCustomName()) entry.put("named",true);
+            // Players carry their name: the companion follows a named player.
+            if(entity instanceof net.minecraft.world.entity.player.Player player) entry.put("name",player.getName().getString());
             if(entity instanceof net.minecraft.world.entity.item.ItemEntity item) {
                 entry.put("item",BuiltInRegistries.ITEM.getKey(item.getItem().getItem()).toString());
                 entry.put("count",item.getItem().getCount());

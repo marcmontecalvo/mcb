@@ -34,6 +34,16 @@ final class McbCommand {
                                         run(context.getSource(), "gather", Map.of(
                                                 "item", StringArgumentType.getString(context, "item"),
                                                 "count", IntegerArgumentType.getInteger(context, "count")))))))
+                .then(Commands.literal("ask")
+                        .then(Commands.argument("text", StringArgumentType.greedyString()).executes(context -> {
+                            String text;
+                            try { text = CompanionChat.requireText(StringArgumentType.getString(context, "text")); }
+                            catch (IllegalArgumentException error) {
+                                context.getSource().sendFailure(Component.literal("Ask 1 to 256 characters."));
+                                return 0;
+                            }
+                            return run(context.getSource(), "ask", Map.of("text", text));
+                        })))
                 .then(Commands.literal("build")
                         .then(Commands.argument("name", StringArgumentType.word()).executes(context ->
                                 run(context.getSource(), "build", Map.of(

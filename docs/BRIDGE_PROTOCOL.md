@@ -429,3 +429,69 @@ JSONL events, source inputs, provenance and expected/observed checks under
 
 This suite does not replace human mechanics references or advance G1. Reports
 label it `supplementary_protocol_v1` separately from body mechanics attempts.
+
+## Companion chat and player commands (Nov 23, 2026)
+
+Body-bridge additions for the companion track (see
+[COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md) section 6). All
+events go through the same 2048-entry body event ring as every other body event
+(`phase: fabric_start`), recorded on the server thread; null values are left out.
+
+**`player_chat`** (Fabric `ServerMessageEvents.CHAT_MESSAGE`): one per chat line from a
+real player. Carpet fake players (`EntityPlayerMPFake`, any body) are skipped, so the
+bot never hears itself.
+
+```json
+{"player_uuid": "…", "player_name": "Marc", "text": "Fennel, come here",
+ "position": [x, y, z], "dimension": "minecraft:overworld"}
+```
+
+`text` is the plain signed content, truncated to 256 characters (never splitting a
+surrogate pair). `position` is three doubles at the moment of the message.
+
+**`player_command`** now also carries the sender's `position` (`[x, y, z]` doubles) and
+`dimension` (`minecraft:overworld`, `minecraft:the_nether`, …) beside `player_uuid`,
+`player_name`, `command` and the command's own arguments.
+
+**`/mcb ask <text...>`**: greedy string, 1 to 256 characters without control characters.
+Emits `player_command` with `command: "ask"` and `text`. Open to every player like the
+other subcommands; the Python service owns authority. Existing subcommands
+(`status`, `stop`, `goto`, `gather`, `build`) are unchanged.
+
+**`POST /say`** (same bearer auth as `/tell`; body up to 4 KiB):
+
+```json
+{"text": "On my way.", "to": "Marc"}
+```
+
+| Field | Rule |
+| --- | --- |
+| `text` | required, 1 to 256 characters, no control characters (ISO control, including newline and DEL) |
+| `to` | optional player name, `[A-Za-z0-9_]{1,16}`; absent or `null` broadcasts |
+
+Any violation (or malformed JSON) returns `400 {"error": "invalid_request"}`. Otherwise
+the response is `202 {"status": "queued", "launch_id": …}`; admission is not delivery.
+The speaker is the current body's name, or `MCB` when no body is spawned. World work
+runs on the server thread:
+
+- With `to`: the online player receives the system message
+  `<Speaker> whispers to you: <text>` styled gray italic. An unknown or offline name
+  still returns 202 and delivers nothing.
+- Without `to`: `<Speaker> text` is broadcast with the player list's system-message
+  broadcast, not signed chat (a fake player cannot sign).
+
+**Visible player entities** in `visible_entities` (state and policy) carry `name`.
+
+**`spawn` `keep_state`** (optional boolean, default `false`; any non-boolean is rejected
+as `invalid_keep_state`). The default is the lab behavior: the first-poll reset overwrites
+what Carpet restored from playerdata. With `keep_state: true` the body keeps its saved
+inventory, equipment, selected slot, health, food, XP, effects, attributes, fire and
+freeze. It still gets survival mode, `stopRiding`, sane abilities (no flying,
+instabuild or invulnerability; `mayBuild`; default walk/fly speed), standing pose, held
+controls released, and the spawn request's position and heading.
+
+**`body_died`** (`fabric_start`): emitted once per spawned body when its player dies
+(Fabric `ServerLivingEntityEvents.AFTER_DEATH`, filtered to the current body):
+`{name, cause, position, dimension}`, `cause` being the death message string. Carpet then
+disconnects the fake player (no respawn), so `body_state` follows with
+`disconnected_or_dead`. Before this event no explicit death event existed.

@@ -48,6 +48,7 @@ public final class CarpetBodyAdapter {
     private boolean mining;
     private boolean using;
     private boolean guardInteractions;
+    private boolean keepState;
 
     public CarpetBodyAdapter(MinecraftServer server, Vec3 spawnAt, String name, float yaw, float pitch) {
         if (!Float.isFinite(yaw) || !Float.isFinite(pitch) || yaw < -180 || yaw >= 180
@@ -59,12 +60,18 @@ public final class CarpetBodyAdapter {
         this.initialPitch = pitch;
     }
 
+    /** Opt in before spawn: the first-poll reset then keeps the saved inventory, health, food and effects. */
+    public void keepState(boolean keep) { this.keepState = keep; }
+
     public String name() { return name; }
 
     public ServerPlayer player() {
         var player = server.getPlayerList().getPlayerByName(name);
         return player instanceof EntityPlayerMPFake ? player : null;
     }
+
+    /** Whether the player is any Carpet fake player (a body), not a connected human. */
+    static boolean isFakePlayer(ServerPlayer player) { return player instanceof EntityPlayerMPFake; }
 
     public boolean owns(ServerPlayer player) {
         return name.equals(player.getName().getString()) && player instanceof EntityPlayerMPFake;
@@ -141,32 +148,41 @@ public final class CarpetBodyAdapter {
         var player = player();
         if (player == null) throw new IllegalStateException("body_not_registered");
         release();
-        resetPlayer(player);
-        player.getInventory().setSelectedSlot(0);
+        var steps = BodyReset.steps(keepState);
+        resetPlayer(player, steps);
+        if (steps.contains(BodyReset.Step.SELECT_FIRST_SLOT)) player.getInventory().setSelectedSlot(0);
         player.onUpdateAbilities();
         stableTicks = 0;
         ready = false;
         lastPosition = null;
     }
 
-    /** Ordinary survival player state at the spawn pose; overwrites anything Carpet restored. */
-    private void resetPlayer(ServerPlayer player) {
+    /**
+     * Survival player at the spawn pose. Steps outside keep_state also overwrite what Carpet restored
+     * (inventory, equipment, effects, attributes, health, food); keep_state leaves all of that as saved.
+     */
+    private void resetPlayer(ServerPlayer player, Set<BodyReset.Step> steps) {
         player.stopRiding();
         player.gameMode.changeGameModeForPlayer(GameType.SURVIVAL);
-        player.getInventory().clearContent();
-        for (var slot : EquipmentSlot.values()) player.setItemSlot(slot, ItemStack.EMPTY);
-        player.removeAllEffects();
-        var defaults = Player.createAttributes().build();
-        for (var value : BuiltInRegistries.ATTRIBUTE) {
-            var attribute = BuiltInRegistries.ATTRIBUTE.wrapAsHolder(value);
-            var instance = player.getAttribute(attribute);
-            if (instance != null) {
-                instance.removeModifiers();
-                instance.setBaseValue(defaults.getBaseValue(attribute));
+        if (steps.contains(BodyReset.Step.CLEAR_INVENTORY)) player.getInventory().clearContent();
+        if (steps.contains(BodyReset.Step.CLEAR_EQUIPMENT))
+            for (var slot : EquipmentSlot.values()) player.setItemSlot(slot, ItemStack.EMPTY);
+        if (steps.contains(BodyReset.Step.CLEAR_EFFECTS)) player.removeAllEffects();
+        if (steps.contains(BodyReset.Step.RESET_ATTRIBUTES)) {
+            var defaults = Player.createAttributes().build();
+            for (var value : BuiltInRegistries.ATTRIBUTE) {
+                var attribute = BuiltInRegistries.ATTRIBUTE.wrapAsHolder(value);
+                var instance = player.getAttribute(attribute);
+                if (instance != null) {
+                    instance.removeModifiers();
+                    instance.setBaseValue(defaults.getBaseValue(attribute));
+                }
             }
         }
-        player.setHealth(player.getMaxHealth());
-        ((PlayerStateAccessor) player).mcbbody$setFoodData(new FoodData());
+        if (steps.contains(BodyReset.Step.RESET_HEALTH_AND_FOOD)) {
+            player.setHealth(player.getMaxHealth());
+            ((PlayerStateAccessor) player).mcbbody$setFoodData(new FoodData());
+        }
         player.getAbilities().flying = false;
         player.getAbilities().mayfly = false;
         player.getAbilities().instabuild = false;
@@ -176,8 +192,10 @@ public final class CarpetBodyAdapter {
         player.getAbilities().setFlyingSpeed(0.05F);
         player.setPermanentlyInvulnerable(false);
         player.setPose(Pose.STANDING);
-        player.clearFire();
-        player.clearFreeze();
+        if (steps.contains(BodyReset.Step.CLEAR_FIRE_AND_FREEZE)) {
+            player.clearFire();
+            player.clearFreeze();
+        }
         player.fallDistance = 0;
         player.hurtTime = 0;
         player.setInvulnerableTime(0);
