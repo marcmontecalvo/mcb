@@ -92,6 +92,25 @@ def test_summary_adds_the_steps_and_keeps_the_order_of_actions():
     }
 
 
+def test_summary_keeps_the_charges_evidence():
+    # a lance fight reports its moves (ticks each) and its first charge hits
+    hit = {"tick": 31, "eye": 3.9, "dealt": 8.0, "speed": 5.6, "after": "charge"}
+    events = [
+        _event(1, "defense", action="fight", reason="engage"),
+        _event(2, "defense_step", action="fight", ok=False, reason="low_health",
+               lance={"back": 20, "charge": 9}, charge_log=[hit]),
+        _event(3, "defense", action="fight", reason="engage"),
+        _event(4, "defense_step", action="fight", kills=1,
+               lance={"charge": 5, "melee": 12}, charge_log=[hit]),
+    ]  # fmt: skip
+
+    s = ct.summarize(events)
+
+    assert s["lance"] == {"back": 20, "charge": 14, "melee": 12}
+    assert s["charge_log"] == [hit, hit]
+    assert "lance" not in ct.summarize(events[:1])  # only a lance fight has one
+
+
 def test_summary_records_failed_steps_and_escape_jumps():
     events = [
         _event(1, "defense", action="escape", reason="running"),

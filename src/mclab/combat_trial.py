@@ -56,6 +56,7 @@ ANIMAL_DROPS = {
 }
 _NAME = re.compile(r"[a-z][a-z_]{0,31}")
 STEP_SUMS = ("kills", "hits", "crits", "shots", "damage", "jumps", "ticks", "flees")
+CHARGE_LOG = 8  # a fight's charge hits kept (the mod reports its first eight)
 
 
 def kit(weapon: str, *, tier: str = "iron") -> list[dict]:
@@ -132,6 +133,8 @@ def summarize(events: list[dict]) -> dict:
     actions, ends, failures = [], [], []
     totals = dict.fromkeys(STEP_SUMS, 0)
     steps, health, closest = 0, None, None
+    lance: Counter = Counter()  # a spear charge's ticks per move, over its fights
+    charge_log: list = []  # its first hits, fight by fight
     for event in events:
         data = event.get("data") or {}
         if event.get("type") == "defense":
@@ -151,7 +154,11 @@ def summarize(events: list[dict]) -> dict:
                 ends.append(data["end"])
             if data.get("ok") is False:
                 failures.append(f"{data.get('action')}: {data.get('reason')}")
-    return {
+            if isinstance(data.get("lance"), dict):
+                lance.update({k: v for k, v in data["lance"].items() if _number(v)})
+            if isinstance(data.get("charge_log"), list):
+                charge_log += data["charge_log"][:CHARGE_LOG]
+    out = {
         "actions": actions,
         "steps": steps,
         **totals,
@@ -160,6 +167,10 @@ def summarize(events: list[dict]) -> dict:
         "ends": ends,
         "failures": failures,
     }
+    if lance:
+        out["lance"] = dict(sorted(lance.items()))
+        out["charge_log"] = charge_log[: 2 * CHARGE_LOG]
+    return out
 
 
 def _stop(client) -> None:

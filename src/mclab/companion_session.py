@@ -74,6 +74,7 @@ OUTCOME_FIELDS = (
     "kills", "hits", "crits", "shots", "damage", "style", "ticks", "health", "end",
     "jumps", "flees", "closest",
     "distance", "nearest",
+    "lance", "charge_log",  # a spear charge's ticks per move and first hits (small)
 )  # fmt: skip
 DEFEND_WAIT_TICKS = 10  # a step that could do nothing waits this long
 FLEE_DISTANCE = 12  # blocks: one flee step

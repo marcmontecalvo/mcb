@@ -6,7 +6,8 @@ package com.vulpine.mcb.body;
  * 1 + floor(relative b/s x the tier's multiplier) (docs/COMBAT_MECHANICS_26.3.md section 4). The
  * speed is the body's last move (ServerPlayer known movement), so a tick's move hits on the next.
  * A ground sprint at a mob walking in is fast enough (iron: 8); one backing off (a skeleton) is not,
- * and only the sprint-jump's first tick (+0.2 b/tick) beats it. Inside the near end nothing hits:
+ * and only the sprint-jump's first tick (+0.2 b/tick) beats it. The hop then carries the body on
+ * 3.6 blocks, so it is never taken at a target walking in. Inside the near end nothing hits:
  * a melee weapon, when carried, takes over and hands back only once the target is far out again
  * (the charge waits out its delay first); a creeper is never met in melee and is outrun after a hit.
  */
@@ -26,6 +27,8 @@ final class LanceLogic {
     /** A sprinting ground tick's thrust, and the steady sprint per tick. */
     static final double RUN = CritForecast.SPRINT * CritForecast.INPUT;
     static final double STEADY = RUN / (1 - CritForecast.GROUND_DRAG);
+    /** A target closing faster than this (b/tick) is walking in: no sprint-jump at it. */
+    static final double CLOSING = 0.02;
     /** A creeper lights with the body's feet inside 3 blocks: a charge tick keeps them this far. */
     static final double CREEPER_KEEP = CombatLogic.CREEPER_FUSE + 0.3;
 
@@ -64,12 +67,18 @@ final class LanceLogic {
     }
 
     private static Move move(View v, int wait) {
-        if (!v.onGround()) return Move.CHARGE;  // the burst was the jump: keep the run on
+        if (!v.onGround()) return v.eye() < LOW ? Move.HOLD : Move.CHARGE;  // after a burst: keep the run on
         double run = v.bodyV() + RUN, burst = run + CritForecast.SPRINT_JUMP;
+        boolean closing = v.closing() > CLOSING;
         if (wait == 0) {
-            if (lands(v, run)) return Move.CHARGE;  // a ground tick: the body can still stop after it
-            if (lands(v, burst)) return Move.BURST;
-            return v.eye() - burst - v.closing() > HIGH ? Move.CHARGE : Move.BACK;
+            if (lands(v, run)) return Move.CHARGE;  // a ground tick: the body can stop right after it
+            // the hop carries the body 3.6 blocks on: never at a target walking in (it lands on it)
+            if (!closing && lands(v, burst)) return Move.BURST;
+            double next = v.eye() - run - v.closing();
+            if (next < LOW || v.creeper() && v.feet() - run - v.closing() < CREEPER_KEEP) return Move.BACK;
+            // too near a target walking in to get up speed from a stand: back off for a run-up first
+            if (closing && v.bodyV() <= 0 && next <= HIGH) return Move.BACK;
+            return Move.CHARGE;
         }
         // not ready: be at the band's far edge as the delay ends, not inside it before
         if (v.eye() - Math.max(0, v.closing()) * wait < LOW) return Move.BACK;

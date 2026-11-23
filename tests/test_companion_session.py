@@ -1407,6 +1407,18 @@ def test_defend_reports_the_fight_outcome_without_the_inventory(guard):
     }  # fmt: skip
 
 
+def test_defend_reports_a_spear_charges_evidence(guard):
+    session, _, _ = guard()
+    hit = {"tick": 31, "eye": 3.9, "dealt": 8.0, "speed": 5.6, "after": "charge"}
+    session.body.fights = [
+        Result(True, None, {"kills": 1, "style": "lance", "lance": {"charge": 9},
+                            "charge_log": [hit], "flee_log": [{"tick": 1}]})
+    ]  # fmt: skip
+    outcome = session.defend(Action("fight", "fighting", target="z1", item=SWORD))
+    assert (outcome["lance"], outcome["charge_log"]) == ({"charge": 9}, [hit])
+    assert "flee_log" not in outcome  # the step event stays small
+
+
 def test_defend_reports_an_escape_and_a_step_with_no_body_op(guard):
     session, _, _ = guard()
     data = {"end": "clear", "jumps": 9, "distance": 21.5, "nearest": 17.0, "ticks": 90}

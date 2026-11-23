@@ -290,6 +290,10 @@ final class BodyEntity {
         private Vec3 lastPos;
         /** Lance: the melee weapon has the target (LanceLogic hands back only far out). */
         private boolean lanceMelee;
+        /** Lance evidence: ticks per move, and the first FLEE_LOG charge hits (tick, eye gap, last move). */
+        private final Map<String, Integer> lanceMoves = new java.util.TreeMap<>();
+        private final java.util.List<Map<String, Object>> chargeLog = new java.util.ArrayList<>();
+        private LanceLogic.Move lastLance;
 
         private FightTask(long sequence, FightLogic.Params params, CombatLogic.Tactic tactic, UUID requested,
                           java.util.function.Function<ServerPlayer, RouteGeometry.Reader> reader) {
@@ -607,13 +611,24 @@ final class BodyEntity {
             double closing = targetStep == null ? 0 : -(targetStep[0] * ux + targetStep[1] * uz);
             boolean using = player.isUsingItem() && player.getUseItem().get(DataComponents.KINETIC_WEAPON) != null;
             boolean hit = using && dealtNow > 0;
-            if (hit) { hits++; credit(player, target); }
+            if (hit) {
+                hits++;
+                credit(player, target);
+                if (chargeLog.size() < FLEE_LOG) {
+                    var known = player.getKnownMovement();
+                    chargeLog.add(new LinkedHashMap<>(Map.of("tick", ticks, "eye", round1(eye),
+                            "dealt", round1(dealtNow), "speed", round1(Math.hypot(known.x, known.z) * 20),
+                            "after", lastLance == null ? "none" : lastLance.name().toLowerCase())));
+                }
+            }
             int window = kinetic.damageConditions().map(KineticWeapon.Condition::maxDurationTicks).orElse(0);
             var act = LanceLogic.decide(new LanceLogic.View(eye, distance, bodyV, closing, player.onGround(), using,
                     using ? player.getTicksUsingItem() : 0, kinetic.delayTicks(), window, tactic.melee() != null, creeper,
                     swelling(target), swollen(target), retreating, lanceMelee, hit));
             retreating = act.fleeing();
             lanceMelee = act.inMelee();
+            lanceMoves.merge(act.move().name().toLowerCase(), 1, Integer::sum);
+            lastLance = act.move();
             if (act.move() == LanceLogic.Move.MELEE) {
                 if (using) player.stopUsingItem();
                 melee(player, target, tactic.melee());
@@ -821,6 +836,8 @@ final class BodyEntity {
             out.put("flees", flees);
             if (!fleeLog.isEmpty()) out.put("flee_log", fleeLog);
             if (Double.isFinite(closest)) out.put("closest", round1(closest));
+            if (!lanceMoves.isEmpty()) out.put("lance", new LinkedHashMap<>(lanceMoves));
+            if (!chargeLog.isEmpty()) out.put("charge_log", chargeLog);
             if (requested != null) {
                 out.put("killed", kills.has(requested.toString()));
                 if (diedAt != null) out.put("at", diedAt);

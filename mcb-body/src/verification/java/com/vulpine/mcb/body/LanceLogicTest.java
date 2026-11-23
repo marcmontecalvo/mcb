@@ -28,11 +28,17 @@ public final class LanceLogicTest {
         check(Math.abs(LanceLogic.MIN_REL - 0.23) < 1e-9, "4.6 b/s relative is 0.23 b/tick");
         check(LanceLogic.LOW > LanceLogic.NEAR && LanceLogic.HIGH < LanceLogic.FAR, "the band sits inside the reach");
 
-        // --- ready: a standing sprint-jump at a zombie walking in lands 3.16 off at 8.9 b/s relative
-        var a = LanceLogic.decide(view(3.6, 0, ZOMBIE, READY, false));
-        check(a.move() == Move.BURST && a.use() == Use.KEEP, "zombie at 3.6, ready: burst " + a);
+        // --- ready, a zombie walking in: never the sprint-jump, whose hop carries the body 3.6 blocks on, onto
+        // it (live: closest 1.0, 15 health lost); the ground run, after which the body stops at once
+        var a = LanceLogic.decide(view(3.6, SPRINTING, ZOMBIE, READY, false));
+        check(a.move() == Move.CHARGE && a.use() == Use.KEEP, "zombie at 3.6, running in: the run lands " + a);
+        a = LanceLogic.decide(view(3.6, 0, ZOMBIE, READY, false));
+        check(a.move() == Move.BACK, "zombie at 3.6, standing: no room to get up speed, back " + a);
+        check(LanceLogic.decide(view(4.7, 0, ZOMBIE, READY, false)).move() == Move.CHARGE, "zombie at 4.7: run-up room");
+        // backing off then turning in: the run is kept while it gathers speed, not cut back to a back-off
+        check(LanceLogic.decide(view(4.12, 0.005, ZOMBIE, READY, false)).move() == Move.CHARGE, "turned in: keep running");
         // one tick short of the delay is ready: the damage reads this tick's move next tick
-        check(LanceLogic.decide(view(3.6, 0, ZOMBIE, DELAY - 1, false)).move() == Move.BURST, "delay-1 is ready");
+        check(LanceLogic.decide(view(3.6, SPRINTING, SKELETON, DELAY - 1, false)).move() == Move.BURST, "delay-1 is ready");
         // a skeleton backing off: a ground sprint is 4.2 b/s relative (no damage), the burst lands
         a = LanceLogic.decide(view(3.6, SPRINTING, SKELETON, READY, false));
         check(a.move() == Move.BURST, "skeleton at 3.6: burst " + a);

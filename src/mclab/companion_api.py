@@ -18,6 +18,7 @@ Docs: COMPANION_LLM_PLAN_2026-11-23.md section 4.
 
 import hmac
 import json
+import logging
 import os
 import threading
 import urllib.error
@@ -28,6 +29,7 @@ from pathlib import Path
 
 from mclab.companion_intents import Actor
 
+log = logging.getLogger(__name__)
 MAX_BODY = 64 * 1024
 MAX_DISCARD = 1024 * 1024  # an oversize body read and dropped so the 413 arrives
 MAX_WAIT = 60.0
@@ -112,6 +114,8 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             handler()
         except Exception as error:  # the host must never take the API down
+            # the caller gets the type only; the host log keeps the traceback
+            log.exception("control API %s %s failed", self.command, self.path)
             self.close_connection = True
             self._fail(500, f"internal error: {type(error).__name__}")
 

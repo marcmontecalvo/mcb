@@ -278,6 +278,22 @@ def test_host_exception_is_500_without_leak(server, host):
     host.call = boom
     status, body = raw(server, "POST", "/call", {"intent": "stop"})
     assert status == 500 and body["ok"] is False
+    assert "internal detail" not in json.dumps(body)
+
+
+def test_host_exception_traceback_goes_to_the_host_log(server, host, caplog):
+    # the caller sees the type only; without the log, a 500 could not be traced
+    def boom(*a, **k):
+        raise AttributeError("'NoneType' object has no attribute 'trial'")
+
+    host.trial = boom
+    with caplog.at_level("ERROR", logger="mclab.companion_api"):
+        status, _ = raw(server, "POST", "/trial", {"give": []})
+    assert status == 500
+    assert any(
+        r.exc_info and "no attribute 'trial'" in str(r.exc_info[1])
+        for r in caplog.records
+    )
 
 
 def test_shutdown_stops_serving(host):
