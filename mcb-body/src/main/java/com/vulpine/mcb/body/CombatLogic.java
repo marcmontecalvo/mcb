@@ -163,6 +163,17 @@ final class CombatLogic {
 
     static boolean snipeClose(double distance, boolean hasMelee) { return hasMelee && distance < SNIPE_CLOSE; }
 
+    enum Draw { NONE, START, HOLD, RELEASE }
+
+    /**
+     * One tick of a bow (or trident) draw the fight runs itself: start with the target in sight,
+     * release at full draw with it in sight and a shot solved, else hold the draw.
+     */
+    static Draw draw(boolean using, int ticksUsing, int fullDraw, boolean sight, boolean aimed) {
+        if (!using) return sight ? Draw.START : Draw.NONE;
+        return ticksUsing >= fullDraw && sight && aimed ? Draw.RELEASE : Draw.HOLD;
+    }
+
     /**
      * {yaw, pitch} in degrees (Minecraft: yaw 0 = +z, pitch up negative) for a full-draw arrow
      * from (0,0,0) to hit a target at (dx,dy,dz) moving (vx,vy,vz) per tick; null out of range.

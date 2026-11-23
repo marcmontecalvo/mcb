@@ -229,9 +229,9 @@ final class BodyEntity {
         private double lastEye = Double.NaN;
         /** The nearest the target came (feet to feet), the fuse margin's evidence. */
         private double closest = Double.POSITIVE_INFINITY;
-        /** Set by step for controls: forward (-1 back, 0, 1), jump, sprint, hold use (bow draw). */
+        /** Set by step for controls: forward (-1 back, 0, 1), jump, sprint. A draw is an item use of its own. */
         private double forward;
-        private boolean jump, sprint, useHold;
+        private boolean jump, sprint;
 
         private FightTask(long sequence, FightLogic.Params params, CombatLogic.Tactic tactic, UUID requested,
                           java.util.function.Function<ServerPlayer, RouteGeometry.Reader> reader) {
@@ -327,7 +327,7 @@ final class BodyEntity {
                 addMob(player, living, typeId(living), candidates, entities);
             if (FightLogic.avoid(candidates, CombatLogic.fightsCreepers(tactic))) return "avoid";
             var pick = FightLogic.pick(requested == null ? null : requested.toString(), candidates, reach);
-            if (pick == null) { stopDraw(); return "done"; }
+            if (pick == null) { stopDraw(player); return "done"; }
             LivingEntity target = entities.get(pick.uuid());
             track(target);
             around.clear();
@@ -338,11 +338,11 @@ final class BodyEntity {
                 // no walk to it: hold and let it come; one that keeps off is left to the guard
                 String call = FightLogic.noPath(noPathSince, noPathAt, ticks, distance);
                 if ("closing".equals(call)) { noPathSince = ticks; noPathAt = distance; }
-                else if ("unreachable".equals(call)) { stopDraw(); return "unreachable"; }
+                else if ("unreachable".equals(call)) { stopDraw(player); return "unreachable"; }
             }
             switch (tactic.style()) {
                 case "snipe" -> {
-                    if (CombatLogic.snipeClose(distance, tactic.melee() != null)) { stopDraw(); melee(player, target, tactic.melee()); }
+                    if (CombatLogic.snipeClose(distance, tactic.melee() != null)) { stopDraw(player); melee(player, target, tactic.melee()); }
                     else snipe(player, target, distance);
                 }
                 case "poke" -> poke(player, target);
@@ -491,12 +491,18 @@ final class BodyEntity {
             else if (move == CombatLogic.Move.APPROACH || shot == null) walk(player, target, 1);
             else if (move == CombatLogic.Move.RETREAT) walk(player, target, -1);
             if (sight) noPathSince = -1;
-            boolean drawn = player.isUsingItem() && player.getTicksUsingItem() >= CombatLogic.FULL_DRAW;
-            if (drawn && sight && shot != null) { useHold = false; shots++; }  // released with the controls
-            else useHold = sight || player.isUsingItem();  // start in sight; hold a draw while it is lost
+            // The draw is an item use run here, as a client sends use-item when no entity is in its reach;
+            // through the click helper, its entity-reach guard cancelled the draw whenever a mob stood 3 to
+            // 4.5 blocks along the aim (CombatLogic.draw).
+            switch (CombatLogic.draw(player.isUsingItem(), player.getTicksUsingItem(), CombatLogic.FULL_DRAW, sight, shot != null)) {
+                case START -> player.gameMode.useItem(player, player.level(), player.getMainHandItem(), InteractionHand.MAIN_HAND);
+                case RELEASE -> { player.releaseUsingItem(); shots++; }
+                case HOLD, NONE -> { }
+            }
         }
 
-        private void stopDraw() { useHold = false; }
+        /** Ends a draw without loosing the arrow (the fight turns to its melee weapon). */
+        private void stopDraw(ServerPlayer player) { if (player.isUsingItem()) player.stopUsingItem(); }
 
         private void strike(ServerPlayer player, LivingEntity target) {
             if (BodyEntity.strike(player, target)) crits++;
@@ -590,10 +596,11 @@ final class BodyEntity {
         private static double round1(double v) { return Math.round(v * 10) / 10.0; }
 
         @Override public BodyRuntime.Controls controls(ServerPlayer player, int tick) {
-            if (forward == 0 && !jump && !useHold && !player.isUsingItem()) return null;
+            // an item in use (a draw) keeps the body held, so a release of the controls cannot end it
+            if (forward == 0 && !jump && !player.isUsingItem()) return null;
             boolean run = sprint && forward > 0 && player.getFoodData().getFoodLevel() > EscapeLogic.SPRINT_FOOD;
             return new BodyRuntime.Controls("native-fight", tick, tick, tick + 2, 2, forward, 0, 0, 0, jump,
-                    false, run, false, false, useHold, false, player.getInventory().getSelectedSlot());
+                    false, run, false, false, false, false, player.getInventory().getSelectedSlot());
         }
 
         @Override public void stop(ServerPlayer player) { if (player.isUsingItem()) player.stopUsingItem(); }

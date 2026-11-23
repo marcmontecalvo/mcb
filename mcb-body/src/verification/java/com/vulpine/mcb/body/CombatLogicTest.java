@@ -123,6 +123,15 @@ public final class CombatLogicTest {
 
         // --- bow: full draw, aim with drop and lead
         check(CombatLogic.FULL_DRAW == 20, "full draw");
+        // the draw is an item use the fight runs itself (a client with no mob in reach sends use-item):
+        // through the click helper's entity-reach guard, a mob 3 to 4.5 blocks along the aim cancelled
+        // every draw tick after tick (host run 20261123T211058112992Z: 9 rejections in a row)
+        check(CombatLogic.draw(false, 0, 20, true, true) == CombatLogic.Draw.START, "draw: start in sight");
+        check(CombatLogic.draw(false, 0, 20, false, false) == CombatLogic.Draw.NONE, "draw: nothing to aim at");
+        check(CombatLogic.draw(true, 12, 20, true, true) == CombatLogic.Draw.HOLD, "draw: not full yet");
+        check(CombatLogic.draw(true, 20, 20, true, true) == CombatLogic.Draw.RELEASE, "draw: full, in sight, aimed");
+        check(CombatLogic.draw(true, 25, 20, false, true) == CombatLogic.Draw.HOLD, "draw: hold while sight is lost");
+        check(CombatLogic.draw(true, 25, 20, true, false) == CombatLogic.Draw.HOLD, "draw: hold while out of range");
         double[] still = CombatLogic.aim(0, 0, 20, 0, 0, 0);
         check(still != null && still[1] < 0 && still[1] > -10, "level shot aims a little up");
         check(missBy(still, 0, 0, 20, 0, 0, 0) < .3, "level shot hits");
