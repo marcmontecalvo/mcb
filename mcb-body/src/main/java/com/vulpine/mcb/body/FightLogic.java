@@ -223,6 +223,24 @@ final class FightLogic {
         return x << 38 | y << 26 | z;
     }
 
+    /**
+     * The fight's kills: each target that died with the body as its killer (vanilla kill credit), once, whether a
+     * swing, a jab or an arrow that landed later killed it, and wherever the death is seen first.
+     */
+    static final class Kills {
+        private final java.util.Set<String> dead = new java.util.HashSet<>();
+
+        /** Counts the target when it is dead and ours and not yet counted; true when this call counted it. */
+        boolean credit(String uuid, boolean alive, boolean ours) {
+            return !alive && ours && dead.add(uuid);
+        }
+
+        int count() { return dead.size(); }
+
+        /** Whether this target was counted (null: no target named). */
+        boolean has(String uuid) { return uuid != null && dead.contains(uuid); }
+    }
+
     /** Damage the target took between two ticks: the health it lost, never negative, a kill counting what it had. */
     static double dealt(double before, double after) {
         return Math.max(0, before - Math.max(0, after));

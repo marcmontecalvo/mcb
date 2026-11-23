@@ -35,6 +35,7 @@ from itertools import product
 from typing import Protocol
 
 from mclab import build_plan as bp
+from mclab import companion_combat as combat
 from mclab import gather_plan as gp
 from mclab.build_runner import REACH, STANCE_REASONS, BuildBody, Result
 from mclab.gather_dig import Digger
@@ -51,6 +52,13 @@ Pos = tuple[int, int, int]
 EAT_BELOW = 14
 HUNT_BELOW = 10
 STATION_REACH = 3.5
+# A hunt fights its animal with the body's fight motor (tactic "hunt"), which chases
+# it tick by tick: within HUNT_RADIUS blocks, for at most HUNT_TICKS, and never below
+# HUNT_FLOOR health (3 hearts; the guard decides what a hurt bot does).
+HUNT_RADIUS = 16
+HUNT_TICKS = 400
+HUNT_FLOOR = 6
+HUNT_SKIP = ("unreachable", "not_allowed")  # that animal, not the hunt, is the problem
 # Beyond this to a placed crafting table, crafting where the body stands beats
 # a walk the planner may never price (see _Exec.craft).
 LOCAL_CRAFT_DIST = 8.0
@@ -120,6 +128,19 @@ class GatherBody(BuildBody, Protocol):
     def equip(self, item: str) -> Result: ...
 
     def attack_entity(self, entity: str, weapon: str | None = None) -> Result: ...
+
+    def fight(
+        self,
+        *,
+        radius: int,
+        floor: int,
+        max_ticks: int,
+        entity: str | None = None,
+        weapon: str | None = None,
+        anchor=None,
+        leash: int | None = None,
+        tactic: dict | None = None,
+    ) -> Result: ...
 
     def use_entity(self, entity: str, item: str | None = None) -> Result: ...
 
@@ -1044,7 +1065,9 @@ class _Exec:
                 shears = _held(body.inventory(), "shears")
                 result = body.use_entity(e["uuid"], shears)
             else:
-                result = body.attack_entity(e["uuid"], getattr(t, "weapon", None))
+                result = self.hunt(e, getattr(t, "weapon", None))
+                if result.reason == "low_health":
+                    return Result(done > 0, None if done else "low_health")
             if result.ok:
                 done += 1
                 used.add(e["uuid"])
@@ -1059,6 +1082,29 @@ class _Exec:
                 used.add(e["uuid"])
                 fails += 1
         return Result(done > 0, None if done else "no_target")
+
+    def hunt(self, e: dict, weapon: str | None) -> Result:
+        """Fight one animal to its death with the fight motor's hunt tactic (the
+        biggest single hit, crits, no sweep). Ok only for a kill; a fight that ends
+        with the animal alive (it ran past the radius) is ``out_of_reach``, and one
+        with no way to it is ``unreachable``."""
+        plan = combat.tactic(e["type"], self.body.inventory())
+        result = self.body.fight(
+            entity=e["uuid"],
+            weapon=weapon or plan.weapon,
+            tactic=plan.wire(),
+            radius=HUNT_RADIUS,
+            floor=HUNT_FLOOR,
+            max_ticks=HUNT_TICKS,
+        )
+        data = result.data or {}
+        if result.ok and data.get("killed"):
+            return result
+        if result.ok:
+            return Result(False, "out_of_reach", data)
+        if result.reason in HUNT_SKIP:
+            return Result(False, "unreachable", data)
+        return result
 
     def place_container(self, t) -> Result:
         item = "minecraft:" + t.kind

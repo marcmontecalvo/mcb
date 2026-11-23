@@ -149,8 +149,10 @@ the entity dies or after 200 ticks.
 entity ended up (its drops lie there: a hunted animal runs between the look and the kill). `_failed`:
 `out_of_reach`, `no_line_of_sight`, `not_allowed`, `not_found`, `timeout`,
 `cancelled:<why>`.
-Drops stay where they fall; the gather hunt collects them round `at`, looking again for up to 20 ticks when
-the kill's receipt arrives before its drop shows.
+The gather hunt does not use this op: it fights the animal with `fight` (`entity`, tactic `hunt`), whose
+per-tick chase follows an animal that walks off (a strike in place failed `out_of_reach` over and over).
+Drops stay where they fall; the hunt collects them round the fight's `at`, looking again for up to 20 ticks
+when the kill's receipt arrives before its drop shows.
 
 ### `fight`
 Request: `{"entity":"<uuid>"?, "radius":12?, "floor":6?, "max_ticks":600?, "anchor":[x,y,z]?, "leash":6?, "weapon":"<item>"?, "tactic":{...}?}`.
@@ -190,8 +192,10 @@ walking up) restarts the wait from there, and one that has not after 40 ticks (2
 `unreachable` (`FightLogic.noPath`; live trial: an axe stood under a skeleton two blocks up for 200 ticks).
 Sprinting needs food above 6.
 `_done`: `{"kills", "hits", "crits", "shots", "damage", "style", "ticks", "health", "end": "clear",
-"inventory"}`; `damage` is the health the targets lost while targeted (read each tick, so arrows that land
-later count; a kill counts what the target had left).
+"inventory"}`, and with `entity` also `killed` (that target died) and `at` (where, for its drops); `damage`
+is the health the targets lost while targeted (read each tick, so arrows that land later count; a kill
+counts what the target had left). `kills` counts each target that died with the body as its killer
+(vanilla kill credit), once, whether a swing, a jab or an arrow that landed later killed it.
 `_failed`: `{"reason"}` of `low_health`, `timeout`, `avoid`, `unreachable`, `bad_request`, `not_allowed`,
 `not_found`, `busy`, `cancelled:<why>`, plus the `_done` counters but `end` (`Task.failure`), and after a
 failed path search `chase`: `{"from":[x,y,z], "to":[x,y,z], "expanded":cells, "exits":[feet y or null for

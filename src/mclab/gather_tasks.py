@@ -43,7 +43,7 @@ class Gather:
 
 @dataclass(frozen=True)
 class Hunt:
-    """Kill `count` passive animals of `entity_type` (body op attack_entity)."""
+    """Kill `count` passive animals of `entity_type` (body op fight, tactic hunt)."""
 
     entity_type: str
     count: int

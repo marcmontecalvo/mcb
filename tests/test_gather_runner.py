@@ -129,6 +129,83 @@ def test_shearing_and_hunting_collect_the_drops_and_reapproach():
     assert len(walks) >= 4  # approach, collect, re-approach after drift, collect
 
 
+def test_a_hunt_chases_its_animal_with_the_fight_motor():
+    # An animal walks off between the look and the swing; a strike in place then
+    # failed out_of_reach again and again (live trial 20261123T201313Z: a sword
+    # took 73 s over one pig). The fight op chases it tick by tick instead.
+    cow = {"uuid": "c1", "type": M + "cow", "position": [5.5, 0, 4.5]}
+    body = FakeGatherBody(
+        K, floor(), {M + "iron_sword": 1}, entities=[cow], drift={"c1": 5}
+    )
+    tasks = PlanResult((Hunt(M + "cow", 1, weapon=M + "iron_sword"),), (), 0.0)
+
+    report = run_gather(tasks, body, K)
+
+    assert report.stop == "done", report
+    assert body.inventory()[M + "beef"] >= 1
+    fights = [c for c in body.log if c[0] == "fight"]
+    assert fights == [("fight", "c1", "hunt", M + "iron_sword")]
+
+
+def test_a_hunt_whose_animal_outran_the_fight_approaches_it_again():
+    cow = {"uuid": "c1", "type": M + "cow", "position": [5.5, 0, 4.5]}
+    body = FakeGatherBody(K, floor(), entities=[cow])
+    fight, outran = body.fight, []
+
+    def once_out_of_radius(**kw):
+        if not outran:  # it ran out of the fight's radius: done, nothing killed
+            outran.append(1)
+            body.log.append(("fight", kw["entity"], "hunt", kw.get("weapon")))
+            return Result(True, data={"kills": 0, "killed": False})
+        return fight(**kw)
+
+    body.fight = once_out_of_radius
+    report = run_gather(PlanResult((Hunt(M + "cow", 1),), (), 0.0), body, K)
+
+    assert report.stop == "done", report
+    assert len([c for c in body.log if c[0] == "fight"]) == 2
+    assert body.inventory()[M + "beef"] >= 1
+
+
+def test_an_unreachable_animal_is_left_for_another():
+    cows = [
+        {"uuid": "c1", "type": M + "cow", "position": [3.5, 0, 3.5]},
+        {"uuid": "c2", "type": M + "cow", "position": [6.5, 0, 3.5]},
+    ]
+    body = FakeGatherBody(K, floor(), entities=cows)
+    fight = body.fight
+
+    def ledge(**kw):
+        if kw["entity"] == "c1":  # on a ledge the fight finds no way up to
+            body.log.append(("fight", "c1", "hunt", None))
+            return Result(False, "unreachable", {"kills": 0})
+        return fight(**kw)
+
+    body.fight = ledge
+    report = run_gather(PlanResult((Hunt(M + "cow", 1),), (), 0.0), body, K)
+
+    assert report.stop == "done", report
+    assert [c[1] for c in body.log if c[0] == "fight"] == ["c1", "c2"]
+
+
+def test_a_hunt_at_its_health_floor_stops():
+    cows = [
+        {"uuid": f"c{i}", "type": M + "cow", "position": [3.5 + i, 0, 3.5]}
+        for i in (1, 2)
+    ]
+    body = FakeGatherBody(K, floor(), entities=cows)
+    tries = []
+
+    def hurt(**kw):
+        tries.append(kw["entity"])
+        return Result(False, "low_health", {"kills": 0})
+
+    body.fight = hurt
+    run_gather(PlanResult((Hunt(M + "cow", 1),), (), 0.0), body, K)
+
+    assert len(tries) == 1, "no second animal fought at the health floor"
+
+
 class LateDropBody(FakeGatherBody):
     """The drop of a kill shows in the next observation, not the one the kill's
     receipt arrives with (live trial 20261123T185609Z: 2 porkchops seen the same
@@ -138,9 +215,9 @@ class LateDropBody(FakeGatherBody):
         super().__init__(*a, **kw)
         self.pending = []
 
-    def attack_entity(self, entity, weapon=None):
+    def fight(self, **kw):
         before = {id(e) for e in self.ents}
-        result = super().attack_entity(entity, weapon)
+        result = super().fight(**kw)
         self.pending = [e for e in self.ents if id(e) not in before]
         self.ents = [e for e in self.ents if id(e) in before]
         return result
@@ -166,12 +243,12 @@ def test_a_hunt_collects_where_the_animal_died_not_where_it_was_seen():
     cow = {"uuid": "c1", "type": M + "cow", "position": [3.5, 0, 3.5]}
     body = FakeGatherBody(K, floor(), entities=[cow])
 
-    def fled_and_died(entity, weapon=None):  # it ran 16 blocks before the last hit
-        body.ents = [e for e in body.ents if e["uuid"] != entity]
+    def fled_and_died(**kw):  # it ran 16 blocks before the last hit
+        body.ents = [e for e in body.ents if e["uuid"] != kw["entity"]]
         body._drop_item(M + "beef", 1, (20, 0, 4))
-        return Result(True, data={"killed": True, "at": [20.5, 0.0, 4.5]})
+        return Result(True, data={"kills": 1, "killed": True, "at": [20.5, 0.0, 4.5]})
 
-    body.attack_entity = fled_and_died
+    body.fight = fled_and_died
     report = run_gather(PlanResult((Hunt(M + "cow", 1),), (), 0.0), body, K)
 
     assert report.stop == "done", report

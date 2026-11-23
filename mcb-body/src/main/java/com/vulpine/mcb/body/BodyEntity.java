@@ -194,7 +194,11 @@ final class BodyEntity {
         final CombatLogic.Tactic tactic;
         final java.util.function.Function<ServerPlayer, RouteGeometry.Reader> reader;
         final UUID requested;
-        int ticks, hits, kills, crits, shots;
+        int ticks, hits, crits, shots;
+        /** Targets that died with the body as their killer (FightLogic.Kills). */
+        final FightLogic.Kills kills = new FightLogic.Kills();
+        /** Where the requested target died (its drops lie there, a hunt collects them), or null. */
+        private java.util.List<Double> diedAt;
         /** The radius the fight looks in: params.radius widened to the tactic's stand-off band (FightLogic.reach). */
         final int reach;
         /** Health the targets lost while targeted (arrows land ticks after the shot, so it is read per tick). */
@@ -225,12 +229,19 @@ final class BodyEntity {
             this.reach = FightLogic.reach(params.radius(), tactic.keepMax());
         }
 
-        /** Adds what the tracked target lost since the last look; a dead one is let go. */
-        private void account() {
+        /** Adds what the tracked target lost since the last look; a dead one is counted (an arrow's kill) and let go. */
+        private void account(ServerPlayer player) {
             if (tracked == null) return;
             damage += FightLogic.dealt(trackedHealth, tracked.getHealth());
             trackedHealth = tracked.getHealth();
+            credit(player, tracked);
             if (!tracked.isAlive()) tracked = null;
+        }
+
+        private void credit(ServerPlayer player, LivingEntity target) {
+            if (kills.credit(target.getUUID().toString(), target.isAlive(), target.getKillCredit() == player)
+                    && target.getUUID().equals(requested))
+                diedAt = java.util.List.of(target.getX(), target.getY(), target.getZ());
         }
 
         private void track(LivingEntity target) {
@@ -287,7 +298,7 @@ final class BodyEntity {
         @Override public String step(ServerPlayer player) {
             ticks++;
             forward = 0; jump = false; sprint = false;
-            account();
+            account(player);
             String end = FightLogic.endReason(player.getHealth(), params.floor(), ticks, params.maxTicks());
             if (end != null) return end;
             var candidates = new java.util.ArrayList<FightLogic.Mob>();
@@ -366,7 +377,7 @@ final class BodyEntity {
                 float before = target.getHealth();
                 spear.attack(player, net.minecraft.world.entity.EquipmentSlot.MAINHAND);  // the server's STAB path
                 if (target.getHealth() < before || !target.isAlive()) hits++;
-                if (!target.isAlive()) kills++;
+                credit(player, target);
             }
         }
 
@@ -420,7 +431,7 @@ final class BodyEntity {
         private void strike(ServerPlayer player, LivingEntity target) {
             if (BodyEntity.strike(player, target)) crits++;
             hits++;
-            if (!target.isAlive()) kills++;
+            credit(player, target);
         }
 
         /** Aim at the target; an enderman's legs, never its eyes (looking at them provokes it). */
@@ -518,16 +529,20 @@ final class BodyEntity {
         @Override public void stop(ServerPlayer player) { if (player.isUsingItem()) player.stopUsingItem(); }
 
         @Override public Map<String, Object> result(ServerPlayer player) {
+            account(player);  // a last look: an arrow may have landed since the step
             var out = new LinkedHashMap<String, Object>();
-            out.put("kills", kills);
+            out.put("kills", kills.count());
             out.put("hits", hits);
             out.put("crits", crits);
             out.put("shots", shots);
-            account();
             out.put("damage", Math.round(damage * 10) / 10.0);
             out.put("style", tactic.style());
             out.put("ticks", ticks);
             out.put("health", player.getHealth());
+            if (requested != null) {
+                out.put("killed", kills.has(requested.toString()));
+                if (diedAt != null) out.put("at", diedAt);
+            }
             out.put("end", "clear");
             return out;
         }

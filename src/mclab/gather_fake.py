@@ -383,6 +383,24 @@ class FakeGatherBody:
         self._hunger()
         return Result(True, data={"killed": True})
 
+    def fight(self, *, radius, floor, max_ticks, entity=None, weapon=None,
+              anchor=None, leash=None, tactic=None):  # fmt: skip
+        """The fight motor chases per tick: a target within ``radius`` dies however
+        it runs (no drift), one past it ends the fight with nothing killed."""
+        style = (tactic or {}).get("style")
+        self.log.append(("fight", entity, style, weapon))
+        e = self._entity(entity)
+        if e is None:
+            return Result(False, "not_found", {"kills": 0})
+        if math.dist(e["position"], self.pos) > radius:
+            return Result(True, data={"kills": 0, "killed": False})
+        at = list(e["position"])
+        self.ents.remove(e)
+        for d in self.k.mob_drops(e["type"]):
+            self._drop_item(d.item, max(1, d.min), tuple(math.floor(v) for v in at))
+        self._hunger()
+        return Result(True, data={"kills": 1, "killed": True, "at": at})
+
     def use_entity(self, entity, item=None):
         e = self._entity(entity)
         if e is None:

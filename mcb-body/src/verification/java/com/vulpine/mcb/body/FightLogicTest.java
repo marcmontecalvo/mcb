@@ -125,6 +125,17 @@ public final class FightLogicTest {
         var open = FightLogic.search(foot, 4.5, 68, 0.5, 2.5, walk, 4096);
         check(open.path() != null && open.expanded() > 1, "a path and its search size");
 
+        // Kills: a target that died with the body as its killer counts once, however it died (live trial
+        // 20261123T201313Z: three arrows took a zombie's 20 health and the fight reported no kill)
+        var kills = new FightLogic.Kills();
+        check(!kills.credit("a", true, false) && kills.count() == 0, "alive: no kill");
+        check(!kills.credit("a", false, false) && kills.count() == 0, "killed by someone else");
+        check(kills.credit("a", false, true) && kills.count() == 1, "our kill");
+        check(!kills.credit("a", false, true) && kills.count() == 1, "the same kill seen again (hit, then look)");
+        check(kills.credit("b", false, true) && kills.count() == 2, "a second target");
+        // a hunt asks whether its own animal died, not whether anything did
+        check(kills.has("a") && kills.has("b") && !kills.has("c") && !kills.has(null), "which died");
+
         check("minecraft:stone_sword".equals(FightLogic.desiredWeapon("minecraft:stone_sword", true, "minecraft:iron_sword")), "requested weapon carried");
         check("minecraft:iron_sword".equals(FightLogic.desiredWeapon("minecraft:stone_sword", false, "minecraft:iron_sword")), "requested broke, best instead");
         check(FightLogic.desiredWeapon(null, false, null) == null, "empty hand when nothing");

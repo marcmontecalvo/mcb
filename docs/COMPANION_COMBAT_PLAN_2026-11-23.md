@@ -170,6 +170,23 @@ Open: a sword fight on the frozen pond found no path to a zombie; a synthetic co
 the pond finds one, so the next occurrence's `chase` evidence decides the cause. The
 axe landed no crits on the skeleton or the creeper (0 of 3).
 
+### 8. Third live matrix (Nov 23, arena -281,77,-37): what it showed and what changed
+
+The bot walked back to the arena before most trials (from 4 to 64 blocks). The sword
+and axe killed every zombie and skeleton with every hit a crit (3 of 3, 2 of 2), and
+the creeper by hit-and-back with no harm taken. The spear killed the zombie and the
+skeleton in 8 jabs each (a jab cannot crit: the charge is its big hit, slice 8). The
+axe crits of the second matrix are no longer missing.
+
+| seen | cause | change |
+|---|---|---|
+| each bow trial dealt 20 damage in 3 shots but reported no kill | kills were counted at a melee swing only; an arrow kills ticks after the release | a target that dies with the body as its killer (kill credit) counts once, however it died (`FightLogic.Kills`) |
+| a sword took 73 s over one pig (the axe's stood still: 4 s) | the hunt walked to where the pig had been and struck in place; the pig had walked on, `out_of_reach`, again | the hunt fights its animal with `fight` (tactic `hunt`), which chases it per tick; the result says `killed` and `at` |
+
+Expected, not faults: the spear with a creeper walks away and escapes (a creeper is
+fought only by hit-and-back with a sword, axe or trident); hit-and-back strikes sprinting
+for knockback, so it never crits.
+
 ## Slices (TDD each; one commit each)
 
 1. Done: `companion_combat.py`: weapons, profiles, tactic and weapon choice.
@@ -182,6 +199,7 @@ axe landed no crits on the skeleton or the creeper (0 of 3).
    `defense_step`/`defense_end` events, `scripts/combat-trial.py`.
 6. Done: Session: `escape` and `walk_away` steps; `fight` passes the tactic.
 7. In progress: Live trials: sword, axe, spear and bow against a zombie, skeleton, creeper
-   and pig. Two matrices ran; their fixes (sections 6 and 7) are built and
-   unit-tested; the matrix runs again on a fixed arena.
+   and pig. Three matrices ran; their fixes (sections 6 to 8) are built and
+   unit-tested. Melee kills every zombie and skeleton with crits; the matrix runs
+   again for the bow's kill count and the chased hunt.
 8. Later: spear charge, trident throw with Loyalty, shield blocking, the dragon.
