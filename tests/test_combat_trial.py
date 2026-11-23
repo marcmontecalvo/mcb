@@ -155,8 +155,13 @@ class FakeClient:
         self.statuses = list(statuses)  # each status call takes the next; then quiet
         self.trials, self.calls, self.waits = [], [], []
         self.status_at, self.trial_at = [], None
+        self.order = []  # trial and call requests, in the order sent
 
     def trial(self, spec):
+        self.order.append("clear" if set(spec) == {"clear"} else "scene")
+        if set(spec) == {"clear"}:
+            self.trials.append(spec)
+            return {"ok": True, "result": {"cleared": 2}}
         self.trial_at = self.clock.now
         self.trials.append(spec)
         if not self.trial_ok:
@@ -179,6 +184,7 @@ class FakeClient:
             self.status_at.append(self.clock.now)
             state = self.statuses.pop(0) if self.statuses else QUIET
             return {"ok": True, "result": state}
+        self.order.append(intent)
         self.calls.append((intent, args, source))
         return {"ok": True, "result": {"job": {"id": "j1", "state": "queued"}}}
 
@@ -220,6 +226,49 @@ def test_a_hostile_trial_ends_with_the_defence_when_nothing_is_killed():
     assert out["killed"] is False and out["end"] == "defense_clear"
     assert out["actions"] == ["escape"] and out["jumps"] == 6
     assert out["seconds"] == pytest.approx(3.1)
+
+
+def test_a_mob_left_alive_is_cleared_at_once():
+    # live: a skeleton a spear escaped from shot the bot dead during the next
+    # trial's walk back to the arena
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (1.0, _event(1, "defense", action="fight")),
+        (3.0, _event(2, "defense_end", end="clear", steps=1, job=None)),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "spear", "skeleton", timeout=60, clock=clock)
+
+    assert client.trials == [ct.scene("spear", "skeleton"), {"clear": ct.CLEANUP}]
+    assert out["cleanup"] == {"cleared": 2}
+
+
+def test_a_trial_past_its_time_clears_its_mobs_after_the_stop():
+    clock = FakeClock()
+    client = FakeClient(clock)
+
+    out = ct.run_one(client, "sword", "zombie", timeout=5, clock=clock)
+
+    assert client.order == ["scene", "stop", "clear"]
+    assert out["cleanup"] == {"cleared": 2}
+
+
+def test_a_cleanup_the_body_refuses_is_recorded():
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (0.5, _event(1, "defense", action="fight")),
+        (2.0, _event(2, "defense_end", end="died", steps=0, job=None)),
+    ])  # fmt: skip
+    scene = client.trial
+    client.trial = lambda spec: (
+        {"ok": False, "error": "trial failed: body_not_ready"}
+        if set(spec) == {"clear"}
+        else scene(spec)
+    )
+
+    out = ct.run_one(client, "sword", "creeper", timeout=60, clock=clock)
+
+    assert out["cleanup"] == {"error": "trial failed: body_not_ready"}
 
 
 def test_a_kill_reported_in_the_last_step_wins_over_the_defence_end():
@@ -304,6 +353,18 @@ def test_the_trial_waits_for_a_dead_bot_to_respawn():
     assert len(client.status_at) == 3 and out["settled"] is True
 
 
+def test_a_dead_bot_is_waited_for_though_its_last_snapshot_says_ready():
+    # status merges the last published body snapshot ("ready") with the session
+    # state, which turns "died" at once and "ready" only once the body is back
+    clock = FakeClock()
+    dead = {**QUIET, "body_state": "ready", "session": "died"}
+    client = FakeClient(clock, statuses=[dead, dead, {**QUIET, "session": "ready"}])
+
+    out = ct.run_one(client, "sword", "zombie", timeout=5, clock=clock)
+
+    assert len(client.status_at) == 3 and out["settled"] is True
+
+
 def test_a_bot_that_will_not_settle_is_stopped_once_then_the_trial_goes_on():
     clock = FakeClock()
     busy = _status(job={"id": "j0", "state": "running"})
@@ -372,6 +433,8 @@ def test_an_animal_trial_that_fails_reports_the_error():
     assert client.calls[0][1] == {"item": M + "beef", "count": 1}
     assert out["killed"] is False and out["end"] == "failed"
     assert out["job"]["error"] == "I can't find a pig"
+    assert client.trials == [ct.scene("sword", "cow")]  # an animal left is harmless
+    assert "cleanup" not in out
 
 
 def test_a_hunt_past_its_time_is_stopped():
@@ -423,9 +486,11 @@ def test_a_bot_away_from_the_arena_walks_back_before_the_scene():
 
     gotos = [c for c in client.calls if c[0] == "goto"]
     assert gotos == [("goto", {"x": 100, "y": 64, "z": -20}, "api")]
-    # measured across, from the arena block's centre
+    # measured across, from the arena block's centre; any trial mob still about
+    # is cleared before the walk, so none shoots the bot on the way
     assert out["arena"] == {"from": pytest.approx(9.97, abs=0.01),
-                            "end": "succeeded"}  # fmt: skip
+                            "end": "succeeded", "cleared": 2}  # fmt: skip
+    assert client.order[:2] == ["clear", "goto"]
     assert client.trial_at is not None and client.trial_at >= 3.0  # after the walk
 
 
@@ -451,7 +516,7 @@ def test_a_walk_back_that_fails_is_recorded_and_the_trial_goes_on():
                      arena=(100, 64, -20))  # fmt: skip
 
     assert out["arena"]["end"] == "failed"
-    assert client.trials == [ct.scene("sword", "zombie")]
+    assert client.trials[1] == ct.scene("sword", "zombie")
 
 
 def test_a_walk_back_past_its_time_is_stopped():

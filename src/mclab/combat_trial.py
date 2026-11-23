@@ -28,6 +28,10 @@ from pathlib import Path
 
 M = "minecraft:"
 CLEAR = 24  # blocks around the bot cleared of mobs, drops and earlier trial mobs
+# A trial's mobs left alive (an escape, a timeout, a death) are cleared at once and
+# again before a walk back: live, a skeleton a spear escaped from shot the bot dead
+# on its way to the next scene. The body clears trial mobs anywhere loaded.
+CLEANUP = 48
 DISTANCE = 8  # the mob is summoned about this far from the bot, in its sight
 DAY = 6000  # noon: no natural spawns joining in
 POLL = 5.0  # seconds per events long-poll
@@ -224,13 +228,22 @@ def home(client, arena, clock=time.monotonic) -> dict:
     away = math.hypot(where[0] - (arena[0] + 0.5), where[2] - (arena[2] + 0.5))
     if away <= ARENA_SLACK:
         return {"from": away, "end": "there"}
+    head = {"from": away, **_cleanup(client)}
     reply = client.call("goto", dict(zip("xyz", arena, strict=True)), source="api")
     if not reply.get("ok"):
-        return {"from": away, "end": "refused", "error": reply.get("error")}
+        return {**head, "end": "refused", "error": reply.get("error")}
     job = _wait(client, reply["result"]["job"]["id"], clock() + ARENA_WAIT, clock)
     if job == "timeout":
-        return {"from": away, "end": "timeout"}
-    return {"from": away, "end": "lost_job" if job is None else job["state"]}
+        return {**head, "end": "timeout"}
+    return {**head, "end": "lost_job" if job is None else job["state"]}
+
+
+def _cleanup(client) -> dict:
+    """Clear every trial mob still about: {"cleared": n}, or the refusal."""
+    reply = client.trial({"clear": CLEANUP})
+    if not reply.get("ok"):
+        return {"error": reply.get("error")}
+    return {"cleared": (reply.get("result") or {}).get("cleared", 0)}
 
 
 def _hunt(client, mob: str, started: float, timeout: float, clock) -> dict:
@@ -259,10 +272,15 @@ def _hunt(client, mob: str, started: float, timeout: float, clock) -> dict:
 
 def _quiet(state: dict) -> tuple[bool, float]:
     """Whether the bot is idle with its guard awake and its body in the world (not
-    respawning after a lost fight), and how long a rest has left."""
+    respawning after a lost fight), and how long a rest has left. The body's state
+    is its last published snapshot, still "ready" while it lies dead: the session's
+    state turns at the death."""
     defense = state.get("defense") or {}
     resting = defense.get("resting") or 0.0
-    away = state.get("body_state", "ready") != "ready"
+    away = (
+        state.get("body_state", "ready") != "ready"
+        or state.get("session", "ready") != "ready"
+    )
     busy = bool(state.get("job") or state.get("queue") or defense.get("active") or away)
     return not busy and resting <= 0, resting
 
@@ -368,7 +386,10 @@ def run_one(
     if mob in ANIMAL_DROPS:
         return {**head, **_hunt(client, mob, started, timeout, clock)}
     need = len(group(mob))
-    return {**head, **_defend(client, after, started, timeout, clock, need)}
+    row = {**head, **_defend(client, after, started, timeout, clock, need)}
+    if not row["killed"]:
+        row["cleanup"] = _cleanup(client)
+    return row
 
 
 def run_matrix(

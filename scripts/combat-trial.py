@@ -9,7 +9,8 @@ never an MCP tool), so the mod's request sequence stays the host's.
     uv run --locked python scripts/combat-trial.py --weapons sword,bow \
         --mobs zombie,creeper,skeleton*2,zombie*2+skeleton --repeat 5 \
         --baseline results/companion/trials/<earlier>.json
-    uv run --locked python scripts/combat-trial.py --weapons spear+sword --arena=-281,77,-37
+    uv run --locked python scripts/combat-trial.py --weapons spear+sword \
+        --arena=-281,77,-37
 
 Give --arena with "=" when a coordinate is negative (argparse reads "-281" as a flag).
 A weapon cell may join several (``spear+sword``: the charge hands over to the sword).

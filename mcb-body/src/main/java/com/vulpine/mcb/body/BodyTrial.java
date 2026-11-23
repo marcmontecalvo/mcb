@@ -143,18 +143,21 @@ final class BodyTrial {
         throw new BodyActions.Fail("no_spot");
     }
 
-    /** Removes, within the radius: what an earlier trial summoned, hostile mobs, drops and projectiles. */
+    /**
+     * Removes what an earlier trial summoned anywhere loaded (one left alive by an escape or a death
+     * waits where the bot was, not where it respawns), and within the radius hostile mobs, drops
+     * and projectiles.
+     */
     private static int clear(ServerPlayer player, int radius) {
         var box = player.getBoundingBox().inflate(radius);
-        int cleared = 0;
-        List<Entity> found = player.level().getEntities(player, box);
-        for (var e : found) {
+        var found = new ArrayList<Entity>();
+        for (var e : player.level().getAllEntities()) {
+            if (e instanceof ServerPlayer) continue;
             boolean ours = e.entityTags().contains(TAG);
             boolean litter = e instanceof ItemEntity || e instanceof ExperienceOrb || e instanceof Projectile;
-            if (!ours && !litter && !(e instanceof Enemy) || e instanceof ServerPlayer) continue;
-            e.discard();
-            cleared++;
+            if (ours || (litter || e instanceof Enemy) && box.intersects(e.getBoundingBox())) found.add(e);
         }
-        return cleared;
+        found.forEach(Entity::discard);  // after the walk: never discard while iterating the level
+        return found.size();
     }
 }
