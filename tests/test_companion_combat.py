@@ -109,6 +109,21 @@ def test_fliers_and_ghasts_need_a_bow():
         assert cc.tactic(M + kind, inv("diamond_sword")).style == "avoid"
 
 
+def test_a_bow_alone_shoots_a_melee_mob_rather_than_running():
+    t = cc.tactic(M + "zombie", inv("bow", arrows=16))
+    assert (t.style, t.weapon, t.melee) == ("snipe", M + "bow", None)
+    for kind in ("spider", "witch", "vindicator", "slime"):
+        assert cc.tactic(M + kind, inv("bow", arrows=16)).style == "snipe"
+    # a melee weapon held: melee stays first
+    assert cc.tactic(M + "zombie", inv("bow", "iron_sword", arrows=16)).style == "melee"
+
+
+def test_arrows_never_go_at_a_breeze_or_an_enderman():
+    # the breeze deflects them; an enderman teleports out of their way
+    for kind in ("breeze", "enderman"):
+        assert cc.tactic(M + kind, inv("bow", arrows=16)).style == "avoid"
+
+
 def test_a_breeze_deflects_arrows_so_it_is_fought_in_melee():
     t = cc.tactic(M + "breeze", inv("bow", "stone_axe", arrows=8))
     assert (t.style, t.weapon) == ("melee", M + "stone_axe")

@@ -325,6 +325,17 @@ def test_a_held_sword_is_equipped_for_the_hunt_and_discounts_it():
     assert armed.estimated_cost < bare.estimated_cost
 
 
+def test_the_hunt_takes_the_weapon_with_the_biggest_single_hit():
+    # Animals rule (companion_combat hunt): fewest strikes per kill, not damage per
+    # second. An iron axe crit (13.5) kills a cow (10 HP) at once; an iron sword's
+    # (9) does not, though the sword is quicker against a mob that fights back.
+    inv = {M + "iron_sword": 1, M + "iron_axe": 1}
+
+    armed = _ok(plan({M + "leather": 3}, inv, K), inv)
+
+    assert _of(armed, Hunt)[0].weapon == M + "iron_axe"
+
+
 def test_known_mob_entities_are_cheaper_to_find():
     known = plan({M + "leather": 3}, {}, K, known_blocks={M + "cow"})
 

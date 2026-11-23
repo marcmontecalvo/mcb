@@ -14,6 +14,7 @@ from collections import Counter
 from collections.abc import Collection, Iterable, Mapping
 from typing import Any, NamedTuple
 
+from mclab import companion_combat as combat
 from mclab.gather_check import Replay, check_order, summarize
 from mclab.gather_kit import kit_targets
 from mclab.gather_options import GatherOptions
@@ -235,18 +236,28 @@ class _Model:
         return self.inv.get(tool.item, 0) * tool.dur
 
     def _find_weapon(self) -> tuple[str | None, float]:
-        best: tuple[int, bool, str] | None = None
+        """The hunt weapon by the animal rule (companion_combat ``hunt``): the biggest
+        single hit, so the fewest strikes per kill, then damage per second; the
+        tier sets the cost discount."""
+        best: tuple[float, float, int, str] | None = None
         for item, n in self.inv.items():
             tool = self.k.items.get(item, {}).get("tool")
             if n > 0 and tool and tool["kind"] in WEAPON_KINDS:
                 if item in self.wear and not any(self.wear[item]):
                     continue
-                key = (self.tier_rank(tool.get("tier", "")), tool["kind"] == "sword")
-                if best is None or key > best[:2]:
-                    best = (*key, item)
+                known = combat.weapon(item)
+                rank = self.tier_rank(tool.get("tier", ""))
+                key = (
+                    known.hit() if known else 0.0,
+                    known.dps() if known else 0.0,
+                    rank,
+                    item,
+                )
+                if best is None or key > best:
+                    best = key
         if best is None:
             return None, 1.0
-        return best[2], max(MIN_WEAPON_FACTOR, 1 - WEAPON_DISCOUNT_PER_RANK * best[0])
+        return best[3], max(MIN_WEAPON_FACTOR, 1 - WEAPON_DISCOUNT_PER_RANK * best[2])
 
     def _index_mobs(self, sourced: set[str]) -> dict[str, list[_Mob]]:
         out: dict[str, list[_Mob]] = {}

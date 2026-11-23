@@ -109,13 +109,16 @@ class Profile:
 
 
 def _profiles() -> dict[str, Profile]:
-    melee = Profile(("melee",))
+    # A bow alone beats running from a mob best met in melee: shoot it as it comes.
+    melee = Profile(("melee", "snipe"))
     out = {}
     groups = {
         melee: "zombie husk drowned zombie_villager spider cave_spider silverfish "
         "endermite slime magma_cube witch vindicator hoglin zoglin "
-        "piglin_brute wither_skeleton vex breeze",  # the breeze deflects arrows
-        Profile(("melee",), first=True): "evoker",
+        "piglin_brute wither_skeleton",
+        # the breeze deflects arrows; a vex is too small and quick to shoot
+        Profile(("melee",)): "breeze vex",
+        Profile(("melee", "snipe"), first=True): "evoker",
         Profile(("snipe", "melee")): "skeleton stray bogged pillager",
         Profile(("snipe", "hit_and_back")): "creeper",
         Profile(("snipe",)): "phantom blaze ghast",

@@ -1,0 +1,359 @@
+"""The combat trial runner (scripts/combat-trial.py) against a fake control API."""
+
+import pytest
+
+from mclab import combat_trial as ct
+
+M = "minecraft:"
+
+
+def test_kits_hold_one_weapon_and_a_bow_gets_arrows():
+    assert ct.kit("sword") == [{"item": M + "iron_sword", "count": 1}]
+    assert ct.kit("axe", tier="diamond") == [{"item": M + "diamond_axe", "count": 1}]
+    assert ct.kit("spear") == [{"item": M + "iron_spear", "count": 1}]
+    assert ct.kit("bow") == [
+        {"item": M + "bow", "count": 1},
+        {"item": M + "arrow", "count": 64},
+    ]
+    assert ct.kit("fist") == []
+    with pytest.raises(ValueError, match="weapon"):
+        ct.kit("club")
+
+
+def test_scene_clears_heals_arms_and_summons_at_a_distance():
+    spec = ct.scene("sword", "zombie", distance=9, time=6000)
+
+    assert spec == {
+        "clear": ct.CLEAR,
+        "clear_inventory": True,
+        "heal": True,
+        "time": 6000,
+        "give": [{"item": M + "iron_sword", "count": 1}],
+        "summon": [{"type": M + "zombie", "offset": [9, 0, 0], "helmet": True}],
+    }
+
+
+def test_only_undead_that_burn_get_a_helmet():
+    assert ct.scene("axe", "skeleton")["summon"][0]["helmet"] is True
+    assert ct.scene("axe", "creeper")["summon"][0]["helmet"] is False
+    assert ct.scene("axe", "pig")["summon"][0]["helmet"] is False
+
+
+def test_unknown_mob_names_are_refused():
+    with pytest.raises(ValueError, match="mob"):
+        ct.scene("sword", "Zombie!")
+
+
+def _event(seq, type, **data):
+    return {"seq": seq, "at": 0, "type": type, "data": data}
+
+
+def test_summary_adds_the_steps_and_keeps_the_order_of_actions():
+    events = [
+        _event(1, "defense", action="fight", reason="fighting the zombie"),
+        _event(2, "defense_step", action="fight", ok=True, kills=0, hits=2, crits=1,
+               ticks=40, health=18.0),
+        _event(3, "chat_out", text="hi"),
+        _event(4, "defense_step", action="fight", ok=True, kills=1, hits=1, crits=1,
+               ticks=25, health=17.0, end="clear"),
+    ]  # fmt: skip
+
+    s = ct.summarize(events)
+
+    assert s == {
+        "actions": ["fight"],
+        "steps": 2,
+        "kills": 1,
+        "hits": 3,
+        "crits": 2,
+        "shots": 0,
+        "jumps": 0,
+        "ticks": 65,
+        "health": 17.0,
+        "ends": ["clear"],
+        "failures": [],
+    }
+
+
+def test_summary_records_failed_steps_and_escape_jumps():
+    events = [
+        _event(1, "defense", action="escape", reason="running"),
+        _event(2, "defense_step", action="escape", ok=False, reason="cornered",
+               jumps=3, ticks=30),
+        _event(3, "defense", action="walk_away", reason="walking"),
+        _event(4, "defense_step", action="walk_away"),
+    ]  # fmt: skip
+
+    s = ct.summarize(events)
+
+    assert s["actions"] == ["escape", "walk_away"]
+    assert s["failures"] == ["escape: cornered"]
+    assert (s["jumps"], s["ticks"], s["health"]) == (3, 30, None)
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+class FakeClient:
+    """Plays back a scripted event feed; each events() call is one wait."""
+
+    def __init__(self, clock, feed=(), job=None, trial_ok=True):
+        self.clock = clock
+        self.feed = list(feed)  # [(at_time, event)]
+        self.job = job
+        self.trial_ok = trial_ok
+        self.trials, self.calls, self.waits = [], [], []
+
+    def trial(self, spec):
+        self.trials.append(spec)
+        if not self.trial_ok:
+            return {"ok": False, "error": "trial failed: unknown_entity"}
+        return {"ok": True, "result": {"summoned": [{"type": "x", "uuid": "u1"}]}}
+
+    def events(self, after=0, wait=0.0):
+        ready = [e for at, e in self.feed if at <= self.clock.now + wait]
+        out = [e for e in ready if e["seq"] > after]
+        if not out:
+            self.clock.now += wait
+        else:
+            self.clock.now = max(self.clock.now, max(
+                at for at, e in self.feed if e in out))  # fmt: skip
+        latest = max([after] + [e["seq"] for e in ready])
+        return {"latest": latest, "events": out}
+
+    def call(self, intent, args=None, key=None, source="mcp"):
+        self.calls.append((intent, args, source))
+        return {"ok": True, "result": {"job": {"id": "j1", "state": "queued"}}}
+
+    def wait_job(self, job_id, wait=0.0):
+        self.waits.append((job_id, wait))
+        self.clock.now += 3.0
+        return self.job
+
+
+def test_a_hostile_trial_ends_at_the_kill():
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (0.5, _event(1, "defense", action="fight", reason="fighting the zombie")),
+        (2.0, _event(2, "defense_step", action="fight", ok=True, kills=1, hits=3,
+                     crits=2, ticks=50, health=19.0, end="clear")),
+        (9.0, _event(3, "defense_step", action="fight", ok=True, kills=0)),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "sword", "zombie", timeout=60, clock=clock)
+
+    assert client.trials == [ct.scene("sword", "zombie")]
+    assert out["weapon"] == "sword" and out["mob"] == "zombie"
+    assert out["killed"] is True and out["end"] == "killed"
+    assert (out["kills"], out["crits"], out["steps"]) == (1, 2, 1)
+    assert out["seconds"] == pytest.approx(2.0)
+
+
+def test_a_hostile_trial_ends_with_the_defence_when_nothing_is_killed():
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (1.0, _event(1, "defense", action="escape", reason="running")),
+        (3.0, _event(2, "defense_step", action="escape", ok=True, end="clear",
+                     jumps=6)),
+        (3.1, _event(3, "defense_end", end="clear", steps=1, job=None)),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "bow", "zombie", timeout=60, clock=clock)
+
+    assert out["killed"] is False and out["end"] == "defense_clear"
+    assert out["actions"] == ["escape"] and out["jumps"] == 6
+    assert out["seconds"] == pytest.approx(3.1)
+
+
+def test_a_kill_reported_in_the_last_step_wins_over_the_defence_end():
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (1.0, _event(1, "defense_step", action="fight", ok=True, kills=1)),
+        (1.0, _event(2, "defense_end", end="clear", steps=1, job=None)),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "sword", "zombie", timeout=60, clock=clock)
+
+    assert out["killed"] is True and out["end"] == "killed"
+
+
+def test_a_death_in_the_trial_is_its_end():
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (2.0, _event(1, "defense_end", end="died", steps=0, job=None)),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "sword", "creeper", timeout=60, clock=clock)
+
+    assert out["end"] == "defense_died" and out["killed"] is False
+
+
+def test_a_hostile_trial_with_no_reaction_times_out():
+    clock = FakeClock()
+    client = FakeClient(clock)
+
+    out = ct.run_one(client, "sword", "zombie", timeout=20, clock=clock)
+
+    assert out["end"] == "timeout" and out["steps"] == 0
+    assert clock.now >= 20
+
+
+def test_events_before_the_trial_are_not_counted():
+    clock = FakeClock()
+    old = _event(7, "defense_step", action="fight", ok=True, kills=5)
+    client = FakeClient(clock, feed=[
+        (-1.0, old),
+        (1.0, _event(8, "defense_step", action="fight", ok=True, kills=1)),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "axe", "skeleton", timeout=30, clock=clock)
+
+    assert out["kills"] == 1
+
+
+def test_an_animal_trial_hunts_through_gather():
+    clock = FakeClock()
+    job = {"id": "j1", "state": "succeeded", "result": {"gathered": 1},
+           "error": None, "started_at": 10.0, "finished_at": 14.5}  # fmt: skip
+    client = FakeClient(clock, job=job)
+
+    out = ct.run_one(client, "axe", "pig", timeout=60, clock=clock)
+
+    assert client.calls == [("gather", {"item": M + "porkchop", "count": 1}, "api")]
+    assert client.waits == [("j1", 60)]
+    assert out["killed"] is True and out["end"] == "succeeded"
+    assert out["seconds"] == pytest.approx(4.5)
+    assert out["job"] == {"state": "succeeded", "result": {"gathered": 1},
+                          "error": None}  # fmt: skip
+
+
+def test_an_animal_trial_that_fails_reports_the_error():
+    clock = FakeClock()
+    job = {
+        "id": "j1",
+        "state": "failed",
+        "result": None,
+        "error": "I can't find a pig",
+        "started_at": 1.0,
+        "finished_at": 2.0,
+    }
+    client = FakeClient(clock, job=job)
+
+    out = ct.run_one(client, "sword", "cow", timeout=60, clock=clock)
+
+    assert client.calls[0][1] == {"item": M + "beef", "count": 1}
+    assert out["killed"] is False and out["end"] == "failed"
+    assert out["job"]["error"] == "I can't find a pig"
+
+
+def test_a_hunt_past_its_time_is_stopped():
+    clock = FakeClock()
+    client = FakeClient(clock, job={"id": "j1", "state": "running"})
+
+    out = ct.run_one(client, "sword", "pig", timeout=10, clock=clock)
+
+    assert out["end"] == "timeout" and out["killed"] is False
+    assert [w for _, w in client.waits] == [10, 7, 4, 1]
+    assert client.calls[-1] == ("stop", {}, "api")
+
+
+def test_a_hostile_trial_past_its_time_is_stopped():
+    clock = FakeClock()
+    client = FakeClient(clock)
+
+    ct.run_one(client, "sword", "zombie", timeout=5, clock=clock)
+
+    assert client.calls == [("stop", {}, "api")]
+
+
+def test_a_refused_hunt_reports_why():
+    clock = FakeClock()
+    client = FakeClient(clock)
+    client.call = lambda *a, **k: {"ok": False, "error": "busy"}
+
+    out = ct.run_one(client, "axe", "cow", timeout=10, clock=clock)
+
+    assert (out["end"], out["error"]) == ("refused", "busy")
+
+
+def test_a_hunt_whose_job_vanished_says_so():
+    clock = FakeClock()
+    client = FakeClient(clock, job=None)
+
+    assert ct.run_one(client, "axe", "sheep", timeout=10, clock=clock)["end"] == (
+        "lost_job"
+    )
+
+
+def test_the_matrix_echoes_a_header_once_then_rows(tmp_path):
+    printed = []
+
+    def one(client, weapon, mob, timeout, clock):
+        return {"weapon": weapon, "mob": mob, "end": "killed"}
+
+    ct.run_matrix(object(), ["sword"], ["zombie", "skeleton"], out_dir=tmp_path,
+                  timeout=5, run_one=one, echo=printed.append)  # fmt: skip
+
+    assert [len(p.splitlines()) for p in printed] == [3, 1]
+
+
+def test_a_refused_scene_is_reported_and_nothing_is_watched():
+    clock = FakeClock()
+    client = FakeClient(clock, trial_ok=False)
+
+    out = ct.run_one(client, "sword", "zombie", timeout=60, clock=clock)
+
+    assert out["end"] == "scene_refused"
+    assert out["error"] == "trial failed: unknown_entity"
+    assert client.calls == [] and clock.now == 0
+
+
+def test_the_matrix_runs_every_pair_and_writes_one_file(tmp_path):
+    clock = FakeClock()
+    seen = []
+
+    def one(client, weapon, mob, timeout, clock):
+        seen.append((weapon, mob))
+        return {"weapon": weapon, "mob": mob, "end": "killed", "killed": True}
+
+    path = ct.run_matrix(
+        object(),
+        ["sword", "bow"],
+        ["zombie", "pig"],
+        out_dir=tmp_path,
+        timeout=5,
+        clock=clock,
+        run_one=one,
+    )
+
+    assert seen == [("sword", "zombie"), ("sword", "pig"), ("bow", "zombie"),
+                    ("bow", "pig")]  # fmt: skip
+    import json
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert [r["weapon"] + "/" + r["mob"] for r in data["trials"]] == [
+        "sword/zombie", "sword/pig", "bow/zombie", "bow/pig"
+    ]  # fmt: skip
+    assert path.parent == tmp_path
+
+
+def test_the_table_has_a_row_per_trial():
+    rows = [
+        {"weapon": "sword", "mob": "zombie", "end": "killed", "killed": True,
+         "actions": ["fight"], "kills": 1, "hits": 3, "crits": 2, "shots": 0,
+         "health": 18.0, "seconds": 4.2},
+        {"weapon": "bow", "mob": "pig", "end": "failed", "killed": False,
+         "seconds": 1.0},
+    ]  # fmt: skip
+
+    text = ct.table(rows)
+
+    lines = text.splitlines()
+    assert len(lines) == 4  # header, rule, two rows
+    assert "sword" in lines[2] and "fight" in lines[2] and "4.2" in lines[2]
+    assert "failed" in lines[3]
