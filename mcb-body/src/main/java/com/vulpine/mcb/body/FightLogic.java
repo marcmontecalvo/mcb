@@ -102,6 +102,82 @@ final class FightLogic {
         return best;
     }
 
+    /** Blocks past a stand-off band's far edge the fight still holds its target (a strafe, a step back). */
+    static final int KEEP_MARGIN = 3;
+    /** The radius bound of the request: the op never scans a wider box. */
+    static final int MAX_REACH = 32;
+
+    /**
+     * The radius the fight looks in: the requested one, widened to the stand-off band's far edge plus KEEP_MARGIN.
+     * A bow keeping 8 to 15 blocks off would otherwise back out of a radius of 12 and end the fight with the target
+     * alive.
+     */
+    static int reach(int radius, double keepMax) {
+        return Math.min(MAX_REACH, Math.max(radius, (int) Math.ceil(keepMax) + KEEP_MARGIN));
+    }
+
+    /**
+     * The feet y of the stance one cardinal step (dx, dz) from the stance at column (x, z), feet y, or null when it
+     * cannot be walked. y is in half blocks (a slab is a stance), as the fight motor's own step reads it.
+     */
+    @FunctionalInterface
+    interface Steps { Double next(int x, double y, int z, int dx, int dz); }
+
+    /** A chase path never leaves this square round its start (blocks each way). */
+    static final int CHASE_SPAN = 16;
+    /** Cells a chase search may expand. */
+    static final int CHASE_NODES = 4096;
+    private static final int[][] CARDINALS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+
+    /**
+     * The shortest walk (breadth first, one cardinal step at a time, as the fight motor walks) from the feet cell
+     * {@code start} to a cell whose centre is within {@code range} blocks across and 1.5 up or down of the target
+     * (tx, ty, tz): the cells after the start, in order. Empty when the start is in range already; null when no such
+     * cell is within CHASE_SPAN and maxNodes (a cliff: the caller says unreachable).
+     */
+    static List<double[]> chase(double[] start, double tx, double ty, double tz, double range, Steps steps,
+                                int maxNodes) {
+        java.util.function.Predicate<double[]> goal = c -> Math.hypot(c[0] + .5 - tx, c[2] + .5 - tz) <= range
+                && Math.abs(c[1] - ty) <= 1.5;
+        if (goal.test(start)) return List.of();
+        var parent = new java.util.HashMap<Long, double[]>();
+        var queue = new java.util.ArrayDeque<double[]>();
+        parent.put(cellKey(start), null);
+        queue.add(start);
+        while (!queue.isEmpty() && parent.size() <= maxNodes) {
+            double[] at = queue.poll();
+            for (int[] d : CARDINALS) {
+                int x = (int) at[0], z = (int) at[2], nx = x + d[0], nz = z + d[1];
+                if (Math.abs(nx - start[0]) > CHASE_SPAN || Math.abs(nz - start[2]) > CHASE_SPAN) continue;
+                Double ny = steps.next(x, at[1], z, d[0], d[1]);
+                if (ny == null) continue;
+                double[] next = {nx, ny, nz};
+                long key = cellKey(next);
+                if (parent.containsKey(key)) continue;
+                parent.put(key, at);
+                if (goal.test(next)) {
+                    var path = new java.util.ArrayList<double[]>();
+                    for (double[] c = next; c != start; c = parent.get(cellKey(c))) path.add(c);
+                    java.util.Collections.reverse(path);
+                    return path;
+                }
+                queue.add(next);
+            }
+        }
+        return null;
+    }
+
+    /** A stance's key: column x and z, feet y in half blocks. */
+    private static long cellKey(double[] c) {
+        long x = (long) c[0] & 0x3ffffff, z = (long) c[2] & 0x3ffffff, y = Math.round(c[1] * 2) & 0xfff;
+        return x << 38 | y << 26 | z;
+    }
+
+    /** Damage the target took between two ticks: the health it lost, never negative, a kill counting what it had. */
+    static double dealt(double before, double after) {
+        return Math.max(0, before - Math.max(0, after));
+    }
+
     /** Cardinal unit step (dominant axis) from the body toward the target: {sx, sz}. */
     static int[] direction(double dx, double dz) {
         return Math.abs(dx) >= Math.abs(dz) ? new int[]{dx >= 0 ? 1 : -1, 0} : new int[]{0, dz >= 0 ? 1 : -1};

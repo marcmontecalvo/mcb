@@ -92,11 +92,8 @@ final class BodyTrial {
             var type = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(summon.type()));
             Entity entity = type.create(level, EntitySpawnReason.COMMAND);
             if (entity == null) throw new BodyActions.Fail("cannot_create_entity");
-            int x = feet.getX() + summon.dx(), z = feet.getZ() + summon.dz();
-            int y = TrialLogic.summonY(trial.surface(), feet.getY(), summon.dy(),
-                    level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z));
-            entity.snapTo(x + .5, y, z + .5, level.getRandom().nextFloat() * 360f, 0f);
-            if (!level.noCollision(entity)) throw new BodyActions.Fail("no_room");
+            BlockPos at = summon.distance() != null ? inSight(player, feet, entity, summon.distance())
+                    : atOffset(player, feet, entity, summon, trial.surface());
             entity.addTag(TAG);
             if (entity instanceof Mob mob) {
                 // as a natural spawn: a skeleton gets its bow, a zombie maybe a sword
@@ -107,12 +104,43 @@ final class BodyTrial {
                 }
             }
             level.addFreshEntity(entity);
-            summoned.add(Map.of("type", summon.type(), "uuid", entity.getUUID().toString()));
+            summoned.add(Map.of("type", summon.type(), "uuid", entity.getUUID().toString(),
+                    "at", List.of(at.getX(), at.getY(), at.getZ())));
         }
         out.put("given", given);
         out.put("summoned", summoned);
         out.put("health", player.getHealth());
         return out;
+    }
+
+    private static BlockPos atOffset(ServerPlayer player, BlockPos feet, Entity entity, TrialLogic.Summon summon,
+                                     boolean surface) {
+        var level = player.level();
+        int x = feet.getX() + summon.dx(), z = feet.getZ() + summon.dz();
+        int y = TrialLogic.summonY(surface, feet.getY(), summon.dy(),
+                level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z));
+        entity.snapTo(x + .5, y, z + .5, level.getRandom().nextFloat() * 360f, 0f);
+        if (!level.noCollision(entity)) throw new BodyActions.Fail("no_room");
+        return new BlockPos(x, y, z);
+    }
+
+    /**
+     * The first cell of TrialLogic.ring(distance) where the mob stands on dry ground level with the body, has room,
+     * and the body can see it: a trial measures the fight, not whether the guard noticed a mob behind a hill.
+     */
+    private static BlockPos inSight(ServerPlayer player, BlockPos feet, Entity entity, int distance) {
+        var level = player.level();
+        float yaw = level.getRandom().nextFloat() * 360f;
+        for (int[] cell : TrialLogic.ring(distance)) {
+            int x = feet.getX() + cell[0], z = feet.getZ() + cell[1];
+            int ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+            if (!TrialLogic.level(feet.getY(), ground)) continue;
+            var pos = new BlockPos(x, ground, z);
+            if (!level.getFluidState(pos).isEmpty() || !level.getFluidState(pos.below()).isEmpty()) continue;
+            entity.snapTo(x + .5, ground, z + .5, yaw, 0f);
+            if (level.noCollision(entity) && player.hasLineOfSight(entity)) return pos;
+        }
+        throw new BodyActions.Fail("no_spot");
     }
 
     /** Removes, within the radius: what an earlier trial summoned, hostile mobs, drops and projectiles. */

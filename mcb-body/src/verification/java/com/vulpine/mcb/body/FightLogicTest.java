@@ -58,6 +58,48 @@ public final class FightLogicTest {
         check(FightLogic.pick("cow", mobs, 12).uuid().equals("cow"), "requested need not be on the hostile list");
         check(FightLogic.pick(null, List.of(), 12) == null, "empty is clear");
 
+        // a stand-off band past the radius widens it: a bow never backs out of its own fight
+        check(FightLogic.reach(12, 0) == 12, "no band: the radius");
+        check(FightLogic.reach(12, 15) == 15 + FightLogic.KEEP_MARGIN, "band max plus a margin");
+        check(FightLogic.reach(24, 15) == 24, "a wider radius stands");
+        check(FightLogic.reach(12, 30.5) == FightLogic.MAX_REACH, "capped at the box the op may scan");
+
+        // a chase path round a ledge the straight step cannot climb (live trial: an axe stood under a
+        // skeleton two blocks up for 200 ticks)
+        java.util.function.IntBinaryOperator ledge = (x, z) -> x >= 1 && x <= 6 ? (x == 1 && z == 4 ? 67 : 68) : 66;
+        FightLogic.Steps walk = (x, y, z, dx, dz) -> {
+            int ny = ledge.applyAsInt(x + dx, z + dz);
+            return ny - y <= 1 && y - ny <= FightLogic.MAX_DROP ? Double.valueOf(ny) : null;
+        };
+        var path = FightLogic.chase(new double[] {0, 66, 0}, 4.5, 68, 0.5, 2.5, walk, 4096);
+        check(path != null && !path.isEmpty(), "a way round by the ramp");
+        check(path.get(0)[0] == 0 && path.get(0)[2] == 1, "first step along the ledge toward the ramp");
+        var last = path.get(path.size() - 1);
+        check(Math.hypot(last[0] + .5 - 4.5, last[2] + .5 - 0.5) <= 2.5 && Math.abs(last[1] - 68) <= 1.5,
+                "ends in reach of the target");
+        for (int i = 1; i < path.size(); i++)
+            check(Math.abs(path.get(i)[0] - path.get(i - 1)[0]) + Math.abs(path.get(i)[2] - path.get(i - 1)[2]) == 1,
+                    "one cardinal step at a time");
+        java.util.function.IntBinaryOperator cliff = (x, z) -> x >= 1 ? 68 : 66;
+        FightLogic.Steps blocked = (x, y, z, dx, dz) -> {
+            int ny = cliff.applyAsInt(x + dx, z + dz);
+            return ny - y <= 1 && y - ny <= FightLogic.MAX_DROP ? Double.valueOf(ny) : null;
+        };
+        double[] foot = {0, 66, 0};
+        check(FightLogic.chase(foot, 4.5, 68, 0.5, 2.5, blocked, 4096) == null, "a cliff: no way up");
+        check(FightLogic.chase(foot, 1.5, 66, 0.5, 2.5, walk, 4096).isEmpty(), "in reach: no steps");
+        check(FightLogic.chase(foot, 4.5, 68, 0.5, 2.5, walk, 3) == null, "a node cap gives up");
+        FightLogic.Steps flat = (x, y, z, dx, dz) -> 66.0;
+        check(FightLogic.chase(foot, 40.5, 66, 0.5, 2.5, flat, 100000) == null, "never past CHASE_SPAN from the start");
+        FightLogic.Steps slab = (x, y, z, dx, dz) -> x + dx == 1 ? 66.5 : x + dx >= 2 ? 67.0 : 66.0;
+        var up = FightLogic.chase(foot, 4.5, 67, 0.5, 1.0, slab, 4096);
+        check(up != null && up.get(0)[1] == 66.5, "a slab is a half-block stance on the way");
+
+        // damage dealt to the target between two ticks: a drop in health, never a heal, never below zero
+        check(FightLogic.dealt(20, 14) == 6, "a hit");
+        check(FightLogic.dealt(5, -2) == 5, "a kill counts the health it had");
+        check(FightLogic.dealt(10, 12) == 0, "a heal is not negative damage");
+
         check(FightLogic.direction(3, 1)[0] == 1 && FightLogic.direction(3, 1)[1] == 0, "east");
         check(FightLogic.direction(-3, 1)[0] == -1, "west");
         check(FightLogic.direction(1, 3)[1] == 1 && FightLogic.direction(1, -3)[1] == -1, "south and north");

@@ -129,6 +129,55 @@ def test_shearing_and_hunting_collect_the_drops_and_reapproach():
     assert len(walks) >= 4  # approach, collect, re-approach after drift, collect
 
 
+class LateDropBody(FakeGatherBody):
+    """The drop of a kill shows in the next observation, not the one the kill's
+    receipt arrives with (live trial 20261123T185609Z: 2 porkchops seen the same
+    tick, the hunt looked before them and went exploring for another pig)."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.pending = []
+
+    def attack_entity(self, entity, weapon=None):
+        before = {id(e) for e in self.ents}
+        result = super().attack_entity(entity, weapon)
+        self.pending = [e for e in self.ents if id(e) not in before]
+        self.ents = [e for e in self.ents if id(e) in before]
+        return result
+
+    def wait_ticks(self, ticks):
+        super().wait_ticks(ticks)
+        self.ents += self.pending
+        self.pending = []
+
+
+def test_a_hunt_waits_for_the_drop_of_its_kill_to_show():
+    cow = {"uuid": "c1", "type": M + "cow", "position": [3.5, 0, 3.5]}
+    body = LateDropBody(K, floor(), entities=[cow])
+
+    report = run_gather(PlanResult((Hunt(M + "cow", 1),), (), 0.0), body, K)
+
+    assert report.stop == "done", report
+    assert body.inventory()[M + "beef"] >= 1
+    assert not [c for c in body.log if c[0] == "walk" and abs(c[1][0]) > 8]
+
+
+def test_a_hunt_collects_where_the_animal_died_not_where_it_was_seen():
+    cow = {"uuid": "c1", "type": M + "cow", "position": [3.5, 0, 3.5]}
+    body = FakeGatherBody(K, floor(), entities=[cow])
+
+    def fled_and_died(entity, weapon=None):  # it ran 16 blocks before the last hit
+        body.ents = [e for e in body.ents if e["uuid"] != entity]
+        body._drop_item(M + "beef", 1, (20, 0, 4))
+        return Result(True, data={"killed": True, "at": [20.5, 0.0, 4.5]})
+
+    body.attack_entity = fled_and_died
+    report = run_gather(PlanResult((Hunt(M + "cow", 1),), (), 0.0), body, K)
+
+    assert report.stop == "done", report
+    assert body.inventory()[M + "beef"] == 1
+
+
 def test_eats_when_hungry_and_holding_food():
     body = FakeGatherBody(K, trees_and_stone(), {M + "cooked_beef": 2}, food=12)
 
@@ -564,6 +613,7 @@ def test_pure_gather_smelt_mines_the_next_plan_item_while_waiting():
     assert body.inventory().get(M + "cobblestone", 0) >= 2
     assert report.done == ["Smelt:x"]  # the gather ran inside the smelt's wait
 
+
 def test_pure_gather_smelt_mines_spares_when_no_plan_item_is_left():
     # iron run 20261112T045003403293Z: only the pickaxe followed the smelt, so the
     # bot stood 10 s; it now mines spares of what the plan already gathered
@@ -612,7 +662,8 @@ def test_empty_smelt_work_is_retried_for_a_later_batch():
 
     furnace = (0, 0, -3)
     body = FakeGatherBody(
-        K, floor() | {furnace: M + "furnace"},
+        K,
+        floor() | {furnace: M + "furnace"},
         {M + "raw_iron": 2, M + "coal": 2},
     )
     smelt = Smelt("x", 1, M + "coal", 1, "furnace", M + "iron_ingot", M + "raw_iron")
@@ -623,8 +674,11 @@ def test_empty_smelt_work_is_retried_for_a_later_batch():
         return len(calls) == 2
 
     report = run_gather(
-        PlanResult((smelt, smelt), (), 0.0), body, K,
-        state=GatherState(stations={"furnace": furnace}), idle_work=work,
+        PlanResult((smelt, smelt), (), 0.0),
+        body,
+        K,
+        state=GatherState(stations={"furnace": furnace}),
+        idle_work=work,
     )
 
     assert report.stop == "done"
@@ -639,20 +693,23 @@ def test_smelt_partial_ahead_gather_keeps_remaining_task():
     furnace = (0, 0, -3)
     near, far = (5, 0, 0), (30, 0, 0)
     body = FakeGatherBody(
-        K, floor() | {furnace: M + "furnace", near: M + "oak_log", far: M + "oak_log"},
-        {M + "raw_iron": 1, M + "coal": 1}, sight=100,
+        K,
+        floor() | {furnace: M + "furnace", near: M + "oak_log", far: M + "oak_log"},
+        {M + "raw_iron": 1, M + "coal": 1},
+        sight=100,
     )
     smelt = Smelt("x", 1, M + "coal", 1, "furnace", M + "iron_ingot", M + "raw_iron")
     gather = Gather(M + "oak_log", 2, None, "hand", M + "oak_log", 2)
 
     report = run_gather(
-        PlanResult((smelt, gather), (), 0.0), body, K,
+        PlanResult((smelt, gather), (), 0.0),
+        body,
+        K,
         state=GatherState(stations={"furnace": furnace}),
     )
 
     assert report.stop == "done"
     assert body.inventory()[M + "oak_log"] == 2
-
 
 
 def test_ore_found_while_exploring_is_mined_though_far_from_the_table():
@@ -667,9 +724,7 @@ def test_ore_found_while_exploring_is_mined_though_far_from_the_table():
     state.stations["crafting_table"] = (0, 0, 0)
     ex = _Exec(body, K, state, 48)
 
-    result = ex.gather(
-        Gather(M + "iron_ore", 2, "pickaxe", "stone", M + "raw_iron", 2)
-    )
+    result = ex.gather(Gather(M + "iron_ore", 2, "pickaxe", "stone", M + "raw_iron", 2))
 
     assert result.ok, result
     assert body.inventory()[M + "raw_iron"] == 2
@@ -836,8 +891,6 @@ def test_explore_skips_tree_canopy():
     assert all(p[1] <= 1 for p in walked)
 
 
-
-
 def test_a_new_state_knows_the_chests_a_gather_placed(tmp_path):
     from test_spatial_memory import identity
 
@@ -893,6 +946,7 @@ def test_a_second_gather_walks_to_the_stored_sighting_instead_of_exploring(
 
     assert report.stop == "done", report
     assert body.inventory()[M + "oak_log"] >= 1
+
 
 def test_a_sighting_already_within_reach_is_forgotten_not_walked_to(
     tmp_path, monkeypatch

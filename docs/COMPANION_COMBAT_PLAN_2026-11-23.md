@@ -1,7 +1,7 @@
 # Companion combat technique (Nov 23, 2026)
 
 Status: slices 1 to 6 **built** on `feat/companion-llm` (unit-tested; Java `check`
-green); slice 7 (live trials) is next. It builds on the auto-defence
+green); slice 7 (live trials) is under way: the first matrix's fixes are in (section 6). It builds on the auto-defence
 (`COMPANION_DEFENSE_PLAN_2026-11-23.md`). Every game rule used below comes from the
 26.3 bytecode, collected in `COMBAT_MECHANICS_26.3.md`; no number is taken from
 wiki memory.
@@ -110,7 +110,8 @@ crits, so hunting gets better too. Both report `crits`, `hits` and `kills`.
 ### 5. Trials (play instance only)
 
 The body op `trial` (`BODY_ACTION_OPS.md`) clears the area and the inventory, heals,
-gives listed items, sets the time and summons a mob at an offset from the bot. It uses
+gives listed items, sets the time and summons a mob at a distance from the bot, on level
+ground the bot can see (or at a fixed offset). It uses
 structured fields, never a free command, and refuses bosses. It reaches the body only
 through the host's control API (`POST /trial`, operator only, never an MCP tool), so
 the mod's request sequence stays the host's.
@@ -121,8 +122,28 @@ companion's own guard acts. The host reports each step (`defense_step`: kills, h
 crits, shots, jumps, health, end) and the defence's end (`defense_end`: clear,
 stopped, died). A trial ends at the first kill, at `defense_end` or at its timeout
 (then `stop`). For an animal it asks `gather` for the raw drop and times the job. Each
-row (kills, crits, hits, shots, health, seconds, actions) goes to
+row (kills, crits, hits, shots, damage, health, seconds, actions) goes to
 `results/companion/trials/<UTC stamp>.json`.
+
+Before each trial the runner waits (up to 30 s, then one `stop` and 30 s more) for a
+quiet bot: no job, no defence, the guard not resting. The trial's clock starts with the
+guard's own `defense` event, and a `defense_end` that is not a death or a stop is given
+3 s for the guard to engage again (it re-decides every observation), so a fight that
+pauses to switch weapons or to walk round a ledge is followed to its kill.
+
+### 6. First live matrix (Nov 23): what it showed and what changed
+
+Sixteen trials (sword, axe, spear, bow × zombie, skeleton, creeper, pig) on the play
+instance; diagnosed from the host's event log before any change:
+
+| seen | cause | change |
+|---|---|---|
+| three mobs summoned 6 blocks east stood on a rise out of sight; the guard never reacted | an offset summon ignores the terrain | `trial` `distance`: a level, dry, roomy cell in the bot's sight |
+| an axe stood two blocks under a skeleton for 200 ticks, knocked back by arrows | a fight step climbs one block; a mob on a ledge is never reached | the fight's chase path (`FightLogic.chase`), `unreachable` after three failed searches; Python then fights it only from range for 30 s (a bow) or walks away / escapes |
+| a bow fight ended `done` with the skeleton alive | the fight radius (12) was inside the bow's keep band (8 to 15) | the radius widens to the keep maximum + 3 |
+| a pig was killed at 30 s, but the gather explored 60 s more | the drop showed a tick after the kill's receipt, and collect looked where the pig had been seen | `attack_entity` reports where the target died; the hunt waits up to 20 ticks for the drop there |
+| arrow hits could not be told from misses | `shots` counts releases | the fight reports `damage` (health its targets lost) |
+| the next trial began while the guard still rested after the last one's `stop` | a stop with no defence under way also rested the guard | only a stop during a defence rests it |
 
 ## Slices (TDD each; one commit each)
 
@@ -135,5 +156,7 @@ row (kills, crits, hits, shots, health, seconds, actions) goes to
 5. Done: the `trial` body op (`TrialLogic`, `BodyTrial`), the host's `/trial` route,
    `defense_step`/`defense_end` events, `scripts/combat-trial.py`.
 6. Done: Session: `escape` and `walk_away` steps; `fight` passes the tactic.
-7. Next: Live trials: sword, axe, spear and bow against a zombie, skeleton, creeper and pig.
+7. In progress: Live trials: sword, axe, spear and bow against a zombie, skeleton, creeper
+   and pig. The first matrix ran; its fixes (section 6) are built and unit-tested; the
+   matrix runs again with them.
 8. Later: spear charge, trident throw with Loyalty, shield blocking, the dragon.

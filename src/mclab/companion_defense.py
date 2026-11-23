@@ -10,7 +10,7 @@ Docs: COMPANION_DEFENSE_PLAN_2026-11-23.md, COMPANION_COMBAT_PLAN_2026-11-23.md.
 """
 
 import math
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import asdict, dataclass, field, fields, replace
 
 from mclab import companion_combat as combat
@@ -24,6 +24,7 @@ ESCAPE_NEAR = 6.0  # a mob closer than this is pressing: escape, don't stroll
 CREEPER = M + "creeper"
 CREEPER_SWELL = 7.0  # a started swell runs down only past 7 blocks
 WEAPONS = combat.MELEE_RANKED  # best first, by damage per second with crits
+RANGED_STYLES = frozenset({"snipe"})  # tactics that reach a mob no walk gets to
 
 # field: (low, high) inclusive
 _BOUNDS = {
@@ -95,6 +96,8 @@ class Situation:
     # ones) or health back. By day a healthy bot would leave at once and dig in again.
     night: bool = False
     can_heal: bool = True  # fed enough to regenerate, or food held
+    # uuids a hand-to-hand fight found no way to (a ledge): fought only from range
+    out_of_reach: Collection[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -195,6 +198,7 @@ def decide(s: Situation, policy: DefensePolicy) -> Action:
         (t, plan)
         for t in seen
         if (plan := combat.tactic(t.type, s.inventory)).style != "avoid"
+        and (t.uuid not in s.out_of_reach or plan.style in RANGED_STYLES)
     ]
     if able:
         target, plan = min(able, key=lambda tp: (not combat.first(tp[0].type),))
@@ -223,7 +227,12 @@ def decide(s: Situation, policy: DefensePolicy) -> Action:
                 "arm", f"{near}: fetching the {_short(item)} from the base",
                 item=item, where=tuple(pos), threats=seen,
             )  # fmt: skip
-    unarmed = f"{near} and no weapon" + (" for it" if best_weapon(s.inventory) else "")
+    if seen[0].uuid in s.out_of_reach:
+        unarmed = f"{near} but out of reach"
+    else:
+        unarmed = f"{near} and no weapon" + (
+            " for it" if best_weapon(s.inventory) else ""
+        )
     if ally is not None:
         return Action(
             "regroup", f"{unarmed}: staying with {ally.name}", where=ally.position,

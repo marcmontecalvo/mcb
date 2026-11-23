@@ -66,10 +66,13 @@ HALT_TIMEOUT_S = 5.0
 # defence (COMPANION_DEFENSE_PLAN_2026-11-23.md): one ``defend`` call is one step,
 # and the host's guard decides again after each
 FIGHT_TICKS = 200  # one fight step: the guard decides again at least this often
-FIGHT_ENDS = frozenset({"low_health", "avoid", "timeout"})  # decide again at once
+# decide again at once
+FIGHT_ENDS = frozenset({"low_health", "avoid", "timeout", "unreachable"})
+OUT_OF_REACH_S = 30.0  # a mob no walk reached is fought only from range this long
 # A defence step's outcome (host event defense_step): the fight and escape ops' scalars.
 OUTCOME_FIELDS = (
-    "kills", "hits", "crits", "shots", "style", "ticks", "health", "end", "jumps",
+    "kills", "hits", "crits", "shots", "damage", "style", "ticks", "health", "end",
+    "jumps",
     "distance", "nearest",
 )  # fmt: skip
 DEFEND_WAIT_TICKS = 10  # a step that could do nothing waits this long
@@ -361,6 +364,7 @@ class Session:
         self._threat_tick = None
         self._spent_chests: set = set()  # this defence: a chest that failed
         self._burrow_failed = None  # this defence: feet where a burrow failed
+        self._out_of_reach: dict[str, float] = {}  # uuid -> clock() until
 
     # --- lifecycle ---------------------------------------------------------------
     def start(self) -> None:
@@ -703,6 +707,7 @@ class Session:
             base_weapons=self._base_weapons(base),
             night=_night(body),
             can_heal=self._can_heal(body, inventory),
+            out_of_reach=self._still_out_of_reach(),
         )
         action = defense.decide(situation, self.defense_policy)
         if action.kind == "burrow":
@@ -711,6 +716,12 @@ class Session:
                 situation = replace(situation, can_burrow=False)
                 action = defense.decide(situation, self.defense_policy)
         return action
+
+    def _still_out_of_reach(self) -> frozenset[str]:
+        now = self.clock()
+        for uuid in [u for u, until in self._out_of_reach.items() if until <= now]:
+            del self._out_of_reach[uuid]
+        return frozenset(self._out_of_reach)
 
     def _base(self) -> tuple | None:
         """The place named base, else home unless it is only where the bot first
@@ -806,6 +817,10 @@ class Session:
             if result.reason in ("not_allowed", "not_found"):
                 result = once(None)  # the nearest the body will fight instead
         if not result.ok and result.reason in FIGHT_ENDS:
+            if result.reason == "unreachable" and action.target is not None:
+                # the body found no walk to it (a ledge): from range only, a while
+                self._out_of_reach[action.target] = self.clock() + OUT_OF_REACH_S
+                self._threat = None  # decide again with it out of reach
             return result
         spent = int((result.data or {}).get("ticks", 0)) if result.ok else 0
         if spent < DEFEND_WAIT_TICKS:  # nothing in reach yet: let the mob come

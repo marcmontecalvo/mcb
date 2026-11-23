@@ -418,11 +418,22 @@ def test_stop_ends_a_defence_and_the_guard_rests_a_while(host, made):
     assert _until(lambda: host.status()["defense"]["active"] is None)
     ends = [e["data"] for e in host.events()["events"] if e["type"] == "defense_end"]
     assert ends == [{"end": "stopped", "steps": 0, "job": None}]
+    resting = host.status()["defense"]["resting"]
+    assert 0 < resting <= companion_host.DEFENSE_REST_S
     session.defend_hook = None
     session.threats.append(FIGHT)
     time.sleep(0.1)
     assert session.defended == ["fight"]  # resting after the stop
     assert session.threats == [FIGHT]
+
+
+def test_a_stop_with_no_defence_under_way_leaves_the_guard_awake(host, made):
+    session = made[0]
+    assert host.wait_ready(5)
+    host.call("stop", {}, OPERATOR)  # stops a job, or nothing: not a fight
+    assert host.status()["defense"] == {"active": None, "resting": 0.0}
+    session.threats.append(FIGHT)
+    assert _until(lambda: session.defended == ["fight"])
 
 
 def test_status_shows_the_defence_under_way(host, made):

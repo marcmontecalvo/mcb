@@ -41,6 +41,27 @@ public final class TrialLogicTest {
         check(TrialLogic.summonY(false, 71, 0, 77) == 71, "no surface: the body's feet level");
         check(TrialLogic.summonY(false, 71, -1, 77) == 70, "no surface: dy from the feet");
 
+        // distance instead of an offset: anywhere about that far, in sight, on ground level with the body
+        var seen = parse("{\"summon\":[{\"type\":\"minecraft:skeleton\",\"distance\":8}]}").summon().get(0);
+        check(seen.distance() == 8 && seen.dx() == 0 && seen.dz() == 0, "a distance summon has no offset");
+        check(full.summon().get(0).distance() == null, "an offset summon has no distance");
+        rejects("{\"summon\":[{\"type\":\"minecraft:zombie\",\"distance\":8,\"offset\":[8,0,0]}]}", "bad_request");
+        rejects("{\"summon\":[{\"type\":\"minecraft:zombie\",\"distance\":1}]}", "bad_request");
+        rejects("{\"summon\":[{\"type\":\"minecraft:zombie\",\"distance\":33}]}", "bad_request");
+        var ring = TrialLogic.ring(8);
+        check(ring.get(0)[0] == 8 && ring.get(0)[1] == 0, "east first, where an offset summon stood");
+        var keys = new java.util.HashSet<Long>();
+        for (int[] c : ring) {
+            check(keys.add(((long) c[0] << 32) ^ (c[1] & 0xffffffffL)), "no cell twice");
+            double r = Math.hypot(c[0], c[1]);
+            check(r >= 5.5 && r <= 10.5, "every cell within two blocks of the distance: " + r);
+        }
+        check(ring.size() >= 48, "several rings of headings: " + ring.size());
+        check(Math.abs(Math.hypot(ring.get(15)[0], ring.get(15)[1]) - 8) <= 0.75, "the exact distance all round first");
+        check(TrialLogic.ring(2).stream().allMatch(c -> Math.hypot(c[0], c[1]) >= 1.5), "never on the body");
+        check(TrialLogic.level(71, 71) && TrialLogic.level(71, 72) && TrialLogic.level(71, 70), "a step is level");
+        check(!TrialLogic.level(71, 73) && !TrialLogic.level(71, 69), "a rise or a drop is not");
+
         // structured fields only: never a command string
         rejects("{\"clear\":-1}", "bad_request"); rejects("{\"clear\":49}", "bad_request");
         rejects("{\"time\":24000}", "bad_request"); rejects("{\"time\":-1}", "bad_request");

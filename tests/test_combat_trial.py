@@ -30,7 +30,8 @@ def test_scene_clears_heals_arms_and_summons_at_a_distance():
         "heal": True,
         "time": 6000,
         "give": [{"item": M + "iron_sword", "count": 1}],
-        "summon": [{"type": M + "zombie", "offset": [9, 0, 0], "helmet": True}],
+        # anywhere about 9 blocks off, in sight, on ground level with the bot
+        "summon": [{"type": M + "zombie", "distance": 9, "helmet": True}],
     }
 
 
@@ -53,10 +54,10 @@ def test_summary_adds_the_steps_and_keeps_the_order_of_actions():
     events = [
         _event(1, "defense", action="fight", reason="fighting the zombie"),
         _event(2, "defense_step", action="fight", ok=True, kills=0, hits=2, crits=1,
-               ticks=40, health=18.0),
+               ticks=40, health=18.0, damage=12.5),
         _event(3, "chat_out", text="hi"),
         _event(4, "defense_step", action="fight", ok=True, kills=1, hits=1, crits=1,
-               ticks=25, health=17.0, end="clear"),
+               ticks=25, health=17.0, end="clear", damage=7.5),
     ]  # fmt: skip
 
     s = ct.summarize(events)
@@ -68,6 +69,7 @@ def test_summary_adds_the_steps_and_keeps_the_order_of_actions():
         "hits": 3,
         "crits": 2,
         "shots": 0,
+        "damage": 20.0,
         "jumps": 0,
         "ticks": 65,
         "health": 17.0,
@@ -92,6 +94,14 @@ def test_summary_records_failed_steps_and_escape_jumps():
     assert (s["jumps"], s["ticks"], s["health"]) == (3, 30, None)
 
 
+def _status(job=None, queue=(), active=None, resting=0.0):
+    return {"job": job, "queue": list(queue),
+            "defense": {"active": active, "resting": resting}}  # fmt: skip
+
+
+QUIET = _status()
+
+
 class FakeClock:
     def __init__(self):
         self.now = 0.0
@@ -103,14 +113,17 @@ class FakeClock:
 class FakeClient:
     """Plays back a scripted event feed; each events() call is one wait."""
 
-    def __init__(self, clock, feed=(), job=None, trial_ok=True):
+    def __init__(self, clock, feed=(), job=None, trial_ok=True, statuses=()):
         self.clock = clock
         self.feed = list(feed)  # [(at_time, event)]
         self.job = job
         self.trial_ok = trial_ok
+        self.statuses = list(statuses)  # each status call takes the next; then quiet
         self.trials, self.calls, self.waits = [], [], []
+        self.status_at, self.trial_at = [], None
 
     def trial(self, spec):
+        self.trial_at = self.clock.now
         self.trials.append(spec)
         if not self.trial_ok:
             return {"ok": False, "error": "trial failed: unknown_entity"}
@@ -128,6 +141,10 @@ class FakeClient:
         return {"latest": latest, "events": out}
 
     def call(self, intent, args=None, key=None, source="mcp"):
+        if intent == "status":
+            self.status_at.append(self.clock.now)
+            state = self.statuses.pop(0) if self.statuses else QUIET
+            return {"ok": True, "result": state}
         self.calls.append((intent, args, source))
         return {"ok": True, "result": {"job": {"id": "j1", "state": "queued"}}}
 
@@ -174,8 +191,9 @@ def test_a_hostile_trial_ends_with_the_defence_when_nothing_is_killed():
 def test_a_kill_reported_in_the_last_step_wins_over_the_defence_end():
     clock = FakeClock()
     client = FakeClient(clock, feed=[
-        (1.0, _event(1, "defense_step", action="fight", ok=True, kills=1)),
-        (1.0, _event(2, "defense_end", end="clear", steps=1, job=None)),
+        (0.5, _event(1, "defense", action="fight")),
+        (1.0, _event(2, "defense_step", action="fight", ok=True, kills=1)),
+        (1.0, _event(3, "defense_end", end="clear", steps=1, job=None)),
     ])  # fmt: skip
 
     out = ct.run_one(client, "sword", "zombie", timeout=60, clock=clock)
@@ -183,15 +201,73 @@ def test_a_kill_reported_in_the_last_step_wins_over_the_defence_end():
     assert out["killed"] is True and out["end"] == "killed"
 
 
-def test_a_death_in_the_trial_is_its_end():
+def test_a_death_in_the_trial_is_its_end_at_once():
     clock = FakeClock()
     client = FakeClient(clock, feed=[
-        (2.0, _event(1, "defense_end", end="died", steps=0, job=None)),
+        (0.5, _event(1, "defense", action="fight")),
+        (2.0, _event(2, "defense_end", end="died", steps=0, job=None)),
+        (8.0, _event(3, "defense", action="fight")),  # never waited for
     ])  # fmt: skip
 
     out = ct.run_one(client, "sword", "creeper", timeout=60, clock=clock)
 
     assert out["end"] == "defense_died" and out["killed"] is False
+    assert out["seconds"] == pytest.approx(2.0) and clock.now == pytest.approx(2.0)
+
+
+def test_the_end_of_a_defence_begun_before_the_trial_is_not_its_end():
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (0.2, _event(1, "defense_end", end="clear", steps=3, job=None)),
+        (6.0, _event(2, "defense", action="fight")),  # a later poll than the end
+        (7.0, _event(3, "defense_step", action="fight", ok=True, kills=1)),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "sword", "skeleton", timeout=60, clock=clock)
+
+    assert out["end"] == "killed" and out["actions"] == ["fight"]
+
+
+def test_a_defence_taken_up_again_after_its_end_is_followed_to_the_kill():
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (0.5, _event(1, "defense", action="fight")),
+        (2.0, _event(2, "defense_step", action="fight", ok=True, kills=0, shots=4)),
+        (2.1, _event(3, "defense_end", end="clear", steps=1, job=None)),
+        (3.0, _event(4, "defense", action="fight")),  # the mob came back in sight
+        (6.0, _event(5, "defense_step", action="fight", ok=True, kills=1, shots=3)),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "bow", "zombie", timeout=60, clock=clock)
+
+    assert out["end"] == "killed" and out["actions"] == ["fight", "fight"]
+    assert out["shots"] == 7 and out["seconds"] == pytest.approx(6.0)
+
+
+def test_the_trial_waits_for_a_quiet_bot_before_setting_the_scene():
+    clock = FakeClock()
+    client = FakeClient(clock, statuses=[
+        _status(job={"id": "j0", "state": "running"}),
+        _status(active="fighting the zombie"),
+        _status(resting=4.0),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "sword", "zombie", timeout=5, clock=clock)
+
+    assert len(client.status_at) == 4  # three busy, then quiet
+    assert client.trial_at == client.status_at[-1] > client.status_at[2] + 3.9
+    assert out["settled"] is True and out["settle"] == pytest.approx(client.trial_at)
+
+
+def test_a_bot_that_will_not_settle_is_stopped_once_then_the_trial_goes_on():
+    clock = FakeClock()
+    busy = _status(job={"id": "j0", "state": "running"})
+    client = FakeClient(clock, statuses=[busy] * 1000)
+
+    out = ct.run_one(client, "sword", "zombie", timeout=5, clock=clock)
+
+    assert client.calls[0] == ("stop", {}, "api")
+    assert out["settled"] is False and client.trials  # measured, flagged
 
 
 def test_a_hostile_trial_with_no_reaction_times_out():
@@ -209,7 +285,8 @@ def test_events_before_the_trial_are_not_counted():
     old = _event(7, "defense_step", action="fight", ok=True, kills=5)
     client = FakeClient(clock, feed=[
         (-1.0, old),
-        (1.0, _event(8, "defense_step", action="fight", ok=True, kills=1)),
+        (0.5, _event(8, "defense", action="fight")),
+        (1.0, _event(9, "defense_step", action="fight", ok=True, kills=1)),
     ])  # fmt: skip
 
     out = ct.run_one(client, "axe", "skeleton", timeout=30, clock=clock)

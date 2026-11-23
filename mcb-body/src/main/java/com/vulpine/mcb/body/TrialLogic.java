@@ -26,7 +26,8 @@ final class TrialLogic {
     private static final Pattern ID = Pattern.compile("[a-z0-9_.-]+:[a-z0-9_./-]+");
 
     record Give(String item, int count) {}
-    record Summon(String type, int dx, int dy, int dz, boolean helmet) {}
+    /** An offset summon stands at (dx, dy, dz); a distance summon (offset 0) at a cell BodyTrial picks from ring(). */
+    record Summon(String type, int dx, int dy, int dz, boolean helmet, Integer distance) {}
     /** surface: the body moves to the top of its column first and summons stand on their columns' ground. */
     record Trial(int clear, boolean clearInventory, boolean heal, Integer time, List<Give> give, List<Summon> summon,
                  boolean surface) {}
@@ -37,6 +38,36 @@ final class TrialLogic {
      */
     static int summonY(boolean surface, int feetY, int dy, int groundY) {
         return (surface ? groundY : feetY) + dy;
+    }
+
+    static final int MIN_DISTANCE = 2, HEADINGS = 16;
+
+    /**
+     * The cells a distance summon may stand on, best first: the exact distance all round before one block nearer or
+     * farther, then two; on each ring east first (where an offset summon stood), then turning both ways. Rounded to
+     * whole cells, no cell twice, none on the body.
+     */
+    static List<int[]> ring(int distance) {
+        var cells = new ArrayList<int[]>();
+        var taken = new java.util.HashSet<Long>();
+        for (int step : new int[] {0, -1, 1, -2, 2}) {
+            int r = distance + step;
+            if (r < MIN_DISTANCE) continue;
+            for (int i = 0; i <= HEADINGS / 2; i++) {
+                for (int k : i == 0 || i == HEADINGS / 2 ? new int[] {i} : new int[] {i, -i}) {
+                    double a = k * 2 * Math.PI / HEADINGS;
+                    int dx = (int) Math.round(r * Math.cos(a)), dz = (int) Math.round(r * Math.sin(a));
+                    if (Math.hypot(dx, dz) < 1.5 || !taken.add(((long) dx << 32) ^ (dz & 0xffffffffL))) continue;
+                    cells.add(new int[] {dx, dz});
+                }
+            }
+        }
+        return cells;
+    }
+
+    /** A summon's ground is level with the body's feet within a step: no rise to hide behind, no drop to fall off. */
+    static boolean level(int feetY, int groundY) {
+        return Math.abs(groundY - feetY) <= 1;
     }
 
     private static BodyActions.Fail bad() { return new BodyActions.Fail("bad_request"); }
@@ -88,15 +119,21 @@ final class TrialLogic {
         }
         var summon = new ArrayList<Summon>();
         for (var e : array(request, "summon", MAX_SUMMON)) {
-            var o = entry(e, Set.of("type", "offset", "helmet"));
+            var o = entry(e, Set.of("type", "offset", "distance", "helmet"));
             String type = id(o.get("type"));
+            if (o.has("distance") == o.has("offset")) throw bad();  // exactly one way to place it
+            if (BOSSES.contains(type)) throw new BodyActions.Fail("not_allowed");
+            if (o.has("distance")) {
+                int distance = integer(o.get("distance"), MIN_DISTANCE, MAX_OFFSET);
+                summon.add(new Summon(type, 0, 0, 0, flag(o, "helmet"), distance));
+                continue;
+            }
             var offset = o.get("offset");
-            if (offset == null || !offset.isJsonArray() || offset.getAsJsonArray().size() != 3) throw bad();
+            if (!offset.isJsonArray() || offset.getAsJsonArray().size() != 3) throw bad();
             var xyz = offset.getAsJsonArray();
             int dx = integer(xyz.get(0), -MAX_OFFSET, MAX_OFFSET), dy = integer(xyz.get(1), -MAX_OFFSET, MAX_OFFSET),
                     dz = integer(xyz.get(2), -MAX_OFFSET, MAX_OFFSET);
-            if (BOSSES.contains(type)) throw new BodyActions.Fail("not_allowed");
-            summon.add(new Summon(type, dx, dy, dz, flag(o, "helmet")));
+            summon.add(new Summon(type, dx, dy, dz, flag(o, "helmet"), null));
         }
         return new Trial(clear, flag(request, "clear_inventory"), flag(request, "heal"), time, List.copyOf(give),
                 List.copyOf(summon), flag(request, "surface"));

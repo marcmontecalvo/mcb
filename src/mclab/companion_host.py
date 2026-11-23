@@ -56,7 +56,7 @@ PROGRESS_EVENT_S = 1.0  # job_progress events at most this often (a stage change
 STOP_WAIT_S = 2.0  # stop waits this long for the running job to unwind
 RETRY_S = (1.0, 30.0)  # session (re)start backoff, doubling
 QUIET_STAGES = {"waiting", "lost sight"}  # standing still is the job (follow)
-DEFENSE_REST_S = 10.0  # after a stop the guard leaves the bot alone this long
+DEFENSE_REST_S = 10.0  # after a stop ends a fight the guard rests this long
 BOT_NAME = re.compile(r"[A-Za-z0-9_]{3,16}")
 DEFAULT_BOT = {"name": "MCBot"}
 
@@ -221,7 +221,11 @@ class Host:
                 "job": copy.deepcopy(job),
                 "queue": [self._brief(self._jobs[i]) for i in self._queue],
                 "last_failure": self._last_failure,
-                "defense": {"active": self._defending},
+                "defense": {
+                    "active": self._defending,
+                    # seconds the guard still rests after a stop ended a fight
+                    "resting": round(max(0.0, self._rest_until - time.monotonic()), 1),
+                },
             }
             value["explanation"] = self._explain(value, job)
         return value
@@ -304,10 +308,12 @@ class Host:
     def _stop(self) -> dict:
         with self._cond:
             running, cancelled = self._cancel_all_locked("stopped")
-            # "stop" means stand still, a fight included: the guard rests a while
-            self._rest_until = time.monotonic() + DEFENSE_REST_S
-            if running is None and self._defending is not None:
-                self._defense_cancel = True
+            if self._defending is not None:
+                # "stop" in a fight means stand still: the guard rests a while.
+                # A stop of a job alone leaves the guard awake.
+                self._rest_until = time.monotonic() + DEFENSE_REST_S
+                if running is None:
+                    self._defense_cancel = True
         self._wake.set()
         if running is not None:
             self.wait_job(running, STOP_WAIT_S)

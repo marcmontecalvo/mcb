@@ -149,6 +149,28 @@ def test_a_mob_it_cannot_fight_with_what_it_holds_counts_as_unarmed():
     assert "no weapon for it" in action.reason
 
 
+def test_a_mob_its_melee_could_not_reach_is_not_fought_hand_to_hand_again():
+    up = mob("skeleton", uuid="s1")  # on a ledge the fight found no way up to
+    sword = {M + "iron_sword": 1}
+    action = cd.decide(
+        situation(entities=(up,), inventory=sword, night=False, out_of_reach={"s1"}),
+        POLICY,
+    )
+    assert action.kind == "escape"  # by day, a skeleton shooting: get out of its sight
+    assert "out of reach" in action.reason
+    bow = {M + "bow": 1, M + "arrow": 16, **sword}
+    shot = cd.decide(
+        situation(entities=(up,), inventory=bow, night=False, out_of_reach={"s1"}),
+        POLICY,
+    )
+    assert shot.kind == "fight" and shot.tactic.style == "snipe"  # arrows reach it
+    other = mob("zombie", at=(3.5, 64.0, 0.5), uuid="z1")
+    both = cd.decide(
+        situation(entities=(up, other), inventory=sword, out_of_reach={"s1"}), POLICY
+    )
+    assert both.kind == "fight" and both.target == "z1"  # the one it can reach
+
+
 def test_an_axe_is_a_weapon():
     assert cd.decide(situation(inventory={M + "wooden_axe": 1}), POLICY).kind == "fight"
 

@@ -63,7 +63,7 @@ IDLE_RADIUS = 24  # smelt idle work: only blocks this close to the furnace
 SMELT_TICKS_PER_ITEM = 200
 MAX_TRIES = 3
 CLIMB_MIN = 4  # explore climbs to the surface when the goal is this far above the body
-SCAN_BATCH = 8 # candidates tried per map scan in gather
+SCAN_BATCH = 8  # candidates tried per map scan in gather
 # A candidate with no reachable stance skips its whole patch (live run
 # 20261102T140212509088Z: 12 stuck gotos at one lake-shore sand patch while dry sand
 # lay 20 blocks away).
@@ -75,6 +75,8 @@ MAX_DIGS = 3  # dig-down macros per gather task
 FALL_RETRIES = 2  # collect: waits for a still-falling drop before it is given up
 DROP_WAIT_TICKS = 40  # one wait for a falling drop to land (2 s)
 DROP_ABOVE = 2  # collect: drops higher above the feet than this are not walked to
+KILL_DROP_TICKS = 20  # a kill's or a shearing's drop shows within this (1 s)
+APPEAR_POLL_TICKS = 4  # collect: look for an expected drop this often
 BURIED_DEPTH = 12  # dig_to_stone: buried stone down to this many blocks below the feet
 DIG_CANDIDATES = 3  # buried stone tops offered to the planner, nearest first
 DEEP_BELOW = 8  # ore further under the feet than this: staircase down first, no plan
@@ -305,7 +307,6 @@ def _held(inv: dict[str, int], suffix: str) -> str | None:
     )
 
 
-
 _FACING = {
     "up": (0, 1, 0),
     "down": (0, -1, 0),
@@ -455,7 +456,11 @@ class _Exec:
         at a time and stops at the need. Logs left standing are noted and skipped."""
         body = self.body
         tree = tree_at(body.world, pos)
-        if tree is None or is_huge(tree) or (len(tree.all_logs) <= 1 and not tree.leaves):
+        if (
+            tree is None
+            or is_huge(tree)
+            or (len(tree.all_logs) <= 1 and not tree.leaves)
+        ):
             return None
         logs = tree.all_logs
         TreeFeller(body).fell(tree, tool)
@@ -527,11 +532,28 @@ class _Exec:
         items: Collection[str] | None,
         near,
         enough: Callable[[], bool] | None = None,
+        appear_ticks: int = 0,
     ) -> None:
-        """Walk onto the dropped item entities near ``near`` (None: any item)."""
+        """Walk onto the dropped item entities near ``near`` (None: any item).
+        ``appear_ticks``: a drop is expected (a kill) and may take this long to show."""
         skipped: set[str] = set()
         falling: dict[str, int] = {}  # uuid -> pickup tries lost to its fall
         later: set[str] = set()  # still falling: other drops first, then a wait
+
+        def any_near() -> bool:
+            return any(
+                e.get("item")
+                and (items is None or e["item"] in items)
+                and _dist(e["position"], near) <= DROP_RADIUS
+                for e in self.body.entities()
+            )
+
+        # a kill's drop can show an observation after its receipt: look again a
+        # few times before calling it nothing (live trial 20261123T185609Z)
+        for _ in range(0, appear_ticks, APPEAR_POLL_TICKS):
+            if any_near():
+                break
+            self.body.wait_ticks(APPEAR_POLL_TICKS)
         for _ in range(8):
             if enough is not None and enough():  # no pit-digging for spare drops
                 return
@@ -566,7 +588,9 @@ class _Exec:
             elif not got:
                 skipped.add(uuid)
 
-    def free_spot(self, skip: Collection[Pos] = (), *, center: Pos | None = None) -> Pos | None:
+    def free_spot(
+        self, skip: Collection[Pos] = (), *, center: Pos | None = None
+    ) -> Pos | None:
         here = self.body.position()
         x, y, z = center if center is not None else here
         offsets = sorted(
@@ -659,7 +683,9 @@ class _Exec:
             for item, n in self.body.inventory().items()
         )
 
-    def gather(self, t, *, near: Pos | None = None, radius: float = IDLE_RADIUS) -> Result:
+    def gather(
+        self, t, *, near: Pos | None = None, radius: float = IDLE_RADIUS
+    ) -> Result:
         body = self.body
         self.start_y = int(body.position()[1])
         self.dig_skip = set()
@@ -715,11 +741,11 @@ class _Exec:
                     and (near is None or _dist(p, near) <= radius)
                     and (
                         (not underground and here[1] - p[1] <= SURFACE_BELOW)
-                        or underground and (
+                        or underground
+                        and (
                             _seen_near(p, home, self.start_y, radius_v)
                             if vision
-                            else _near(p, home)
-                            or (seen is not None and _near(p, seen))
+                            else _near(p, home) or (seen is not None and _near(p, seen))
                         )
                     ),
                     [(near, radius)]
@@ -752,7 +778,9 @@ class _Exec:
             # walked-to start (run 20261113T172130173999Z: never logged a leg).
             if not known and ore and not vision and self.cap:
                 if stripped >= MAX_DIGS:
-                    return Result(False, f"descent_failed:{self.last_dig}", {"broken": broken})
+                    return Result(
+                        False, f"descent_failed:{self.last_dig}", {"broken": broken}
+                    )
                 stripped += 1
                 from mclab.gather_strip import Strip
 
@@ -767,15 +795,24 @@ class _Exec:
                     if body.inventory().get(t.item, 0) < target:
                         # no fallback to planned digs or surface rings after a strip;
                         # a strip that dug no tunnel says why, not "leg_limit"
-                        why = "leg_limit" if res.data.get("tunnelled") else res.data["stop"]
+                        why = (
+                            "leg_limit"
+                            if res.data.get("tunnelled")
+                            else res.data["stop"]
+                        )
                         return Result(False, why, {"broken": broken})
                     continue
                 # Already under the surface (run 20261116T135356630645Z): resume from
                 # here; surface rings would walk the descent back up.
-                if strip_ty is not None and body.position()[1] <= self.start_y - STRIP_UNDERGROUND:
+                if (
+                    strip_ty is not None
+                    and body.position()[1] <= self.start_y - STRIP_UNDERGROUND
+                ):
                     continue
                 if not self.explore(lambda: True):  # a short walk to another start
-                    return Result(False, f"descent_failed:{self.last_dig}", {"broken": broken})
+                    return Result(
+                        False, f"descent_failed:{self.last_dig}", {"broken": broken}
+                    )
                 continue
             # cap 0 (a build's refill) stays home: no mine under the site, no ring walk
             if not known and underground and digs < MAX_DIGS and self.cap:
@@ -835,7 +872,9 @@ class _Exec:
                 if ore and self.cap and not self.stair_down(pos):
                     skip.update(p for p in known if _dist(p, pos) <= PATCH)
                     continue
-                tool = pick_tool(self.k, body.inventory(), t.block, self.opts.tool_choice)
+                tool = pick_tool(
+                    self.k, body.inventory(), t.block, self.opts.tool_choice
+                )
                 if is_log(body.world(*pos)):
                     # a log is a whole tree: fell it all before any other candidate
                     # (live run: six trees, a floating top left at each)
@@ -858,7 +897,9 @@ class _Exec:
                     if underground and craft_underground(self, t):
                         break
                     return result
-        return Result(broken > 0, None if broken else "nothing_mined", {"broken": broken})
+        return Result(
+            broken > 0, None if broken else "nothing_mined", {"broken": broken}
+        )
 
     def craft(self, t) -> Result:
         table = None
@@ -1000,7 +1041,9 @@ class _Exec:
             if result.ok:
                 done += 1
                 used.add(e["uuid"])
-                self.collect(None, e["position"])
+                # where it died: a hunted animal runs between the look and the kill
+                at = (result.data or {}).get("at") or e["position"]
+                self.collect(None, at, appear_ticks=KILL_DROP_TICKS)
             elif result.reason == "no_effect":
                 used.add(e["uuid"])  # already sheared
             elif result.reason in ("out_of_reach", "no_line_of_sight", "not_found"):
@@ -1196,7 +1239,16 @@ def run_gather(
         hydrate_containers(body, state)
     report = GatherReport(state=state)
     stall = STALL_S if stall_s is None else stall_s
-    ex = _Exec(body, knowledge, state, explore_cap, stall, clock, idle_work=idle_work, opts=opts)
+    ex = _Exec(
+        body,
+        knowledge,
+        state,
+        explore_cap,
+        stall,
+        clock,
+        idle_work=idle_work,
+        opts=opts,
+    )
     targets = dict(targets) if targets is not None else None
     tasks = list(plan_result.tasks)
 
@@ -1258,13 +1310,18 @@ def run_gather(
 
     if idle_work is None:
         ex.idle_work = _gather_ahead
+
     def _note_plan() -> None:
         names = {type(t).__name__ for t in tasks}
         ex.plan_ores = {
-            t.block for t in tasks if type(t).__name__ == "Gather" and t.block.endswith("_ore")
+            t.block
+            for t in tasks
+            if type(t).__name__ == "Gather" and t.block.endswith("_ore")
         }
         if "Smelt" in names:
-            ex.plan_ores.add("minecraft:coal_ore")  # the furnace's fuel, taken along the strip
+            ex.plan_ores.add(
+                "minecraft:coal_ore"
+            )  # the furnace's fuel, taken along the strip
 
     _note_plan()
     try:

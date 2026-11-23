@@ -1376,18 +1376,34 @@ def test_a_fight_that_ends_at_once_waits_but_low_health_does_not(guard):
     ]
 
 
+def test_a_mob_the_fight_could_not_reach_is_left_alone_for_a_while(guard):
+    session, bridge, _ = guard()
+    now = [100.0]
+    session.clock = lambda: now[0]
+    session.body.fights = [Result(False, "unreachable", {})]
+    session.defend(Action("fight", "fighting", target="z1", item=SWORD))
+    assert not _logged(session.body, "wait")  # decide again at once
+    _seen_now(bridge, _mob(), inv=_sword(), tick=11)
+    action = session.threat()
+    assert action.kind != "fight" and "out of reach" in action.reason
+    now[0] += cs.OUT_OF_REACH_S + 1  # it may have come down since
+    _seen_now(bridge, _mob(), inv=_sword(), tick=12)
+    assert session.threat().kind == "fight"
+
+
 def test_defend_reports_the_fight_outcome_without_the_inventory(guard):
     session, _, _ = guard()
     session.body.fights = [
         Result(True, None, {"kills": 1, "hits": 3, "crits": 2, "shots": 0,
-                            "style": "melee", "ticks": 80, "health": 18.0,
-                            "end": "clear", "inventory": [{"slot": 0}]})
+                            "damage": 20.0, "style": "melee", "ticks": 80,
+                            "health": 18.0, "end": "clear",
+                            "inventory": [{"slot": 0}]})
     ]  # fmt: skip
     outcome = session.defend(Action("fight", "fighting", target="z1", item=SWORD))
     assert outcome == {
         "action": "fight", "ok": True, "reason": None, "kills": 1, "hits": 3,
-        "crits": 2, "shots": 0, "style": "melee", "ticks": 80, "health": 18.0,
-        "end": "clear",
+        "crits": 2, "shots": 0, "damage": 20.0, "style": "melee", "ticks": 80,
+        "health": 18.0, "end": "clear",
     }  # fmt: skip
 
 

@@ -145,10 +145,12 @@ hit that would sweep a non-hostile beside the target (the rest of a herd, a pet)
 struck sprinting, which never sweeps. It only jumps: if the animal walks out of reach
 the op fails with `out_of_reach` once landed, and Python re-approaches. It ends when
 the entity dies or after 200 ticks.
-`_done`: `{"entity", "type", "killed": true, "ticks", "hits", "crits"}`. `_failed`:
+`_done`: `{"entity", "type", "killed": true, "at": [x,y,z], "ticks", "hits", "crits"}`; `at` is where the
+entity ended up (its drops lie there: a hunted animal runs between the look and the kill). `_failed`:
 `out_of_reach`, `no_line_of_sight`, `not_allowed`, `not_found`, `timeout`,
 `cancelled:<why>`.
-Drops stay where they fall.
+Drops stay where they fall; the gather hunt collects them round `at`, looking again for up to 20 ticks when
+the kill's receipt arrives before its drop shows.
 
 ### `fight`
 Request: `{"entity":"<uuid>"?, "radius":12?, "floor":6?, "max_ticks":600?, "anchor":[x,y,z]?, "leash":6?, "weapon":"<item>"?, "tactic":{...}?}`.
@@ -169,17 +171,27 @@ A per-tick combat motor (`busy` while it or another task runs). `radius` 2..32, 
 engaged first while it is alive and within `radius`; it must pass the `attack_entity` target rules
 (`not_allowed`, `not_found` at start). Otherwise the target is the nearest living entity of
 `RouteReflex.HOSTILES` minus creeper and warden, within `radius`, `|dy| <= 6`, with line of sight.
+`radius` is widened to the tactic's `keep` maximum plus 3 (`FightLogic.reach`, at most 32): a bow keeping 8..15
+blocks off would otherwise back out of a radius of 12 and end `done` with its target alive.
 `weapon` defaults to the best sword/axe held and is re-picked mid-fight when it breaks.
 Each tick, in order: health <= `floor` ends `low_health`; more than `max_ticks` ticks ends `timeout`; a
 creeper (except under `hit_and_back`) or a warden within 3.5 blocks ends `avoid` (Python decides what to
 do); no target left ends `done`. Then the style above runs. Every step toward or away from the target is
 one cell at a time (through the body controls, 2-tick expiry, released when the task ends) and only if
 that cell is standable and safe per `RouteGeometry` (drop up to 3, a one-block step up with a jump) and
-within `leash` of `anchor` (no leash without `anchor`); otherwise it holds still and lets the mob come.
-Sprinting needs food above 6.
-`_done`: `{"kills", "hits", "crits", "shots", "style", "ticks", "health", "end": "clear", "inventory"}`.
-`_failed`: `{"reason"}` of `low_health`, `timeout`, `avoid`, `bad_request`, `not_allowed`, `not_found`,
-`busy`, `cancelled:<why>`.
+within `leash` of `anchor` (no leash without `anchor`). When the straight step toward the target is blocked
+(a ledge two up, a wall) an approach (melee, hunt, poke, hit-and-back, and a snipe out of sight) walks a chase
+path instead: `FightLogic.chase`, breadth first over the same one-cell steps, to a stance within 2.5 blocks
+across and 1.5 up or down of the target, inside 16 blocks of the body and 4096 cells. It is planned again
+every 20 ticks, when the target moves 1.5 blocks, or when the body is knocked off it. No path three searches
+running (10 ticks apart) ends the fight `unreachable` (live trial: an axe stood under a skeleton two blocks
+up for 200 ticks). Sprinting needs food above 6.
+`_done`: `{"kills", "hits", "crits", "shots", "damage", "style", "ticks", "health", "end": "clear",
+"inventory"}`; `damage` is the health the targets lost while targeted (read each tick, so arrows that land
+later count; a kill counts what the target had left).
+`_failed`: `{"reason"}` of `low_health`, `timeout`, `avoid`, `unreachable`, `bad_request`, `not_allowed`,
+`not_found`, `busy`, `cancelled:<why>`. Python fights an `unreachable` target only from range for 30 s
+(`companion_session.OUT_OF_REACH_S`).
 
 ### `escape`
 Request: `{"radius":24?, "clear":16?, "max_ticks":200?}`; `radius` 4..32, `clear` 4..`radius`, `max_ticks`
@@ -199,7 +211,8 @@ Sets the scene for a combat trial on the play server (`scripts/combat-trial.py` 
 control API, `POST /trial`, which keeps the mod's request sequence). Structured fields only, never a
 command string; any other key is `bad_request`:
 `{"surface":bool?, "clear":0..48?, "clear_inventory":bool?, "give":[{"item","count":1..256}]? (max 36),
-"heal":bool?, "time":0..23999?, "summon":[{"type","offset":[dx,dy,dz] (each -32..32),"helmet":bool?}]? (max 8)}`.
+"heal":bool?, "time":0..23999?, "summon":[{"type", "offset":[dx,dy,dz] (each -32..32) | "distance":2..32,
+"helmet":bool?}]? (max 8)}`; each summon has exactly one of `offset` and `distance`.
 Order: check every item and entity id against the registries first (`unknown_item`, `unknown_entity`;
 nothing changes on a bad id), then `surface` (the body moves to the top of its column, the first free
 cell over the top non-leaf block, so a trial never starts in a hole or a cave), then `clear` (discards earlier trial mobs (tag `mcb_trial`), hostiles,
@@ -208,12 +221,17 @@ dropped items, XP orbs and projectiles within that radius; never players), `clea
 `time` (moves the clock forward to that day time, never back), then `summon` (at the feet cell plus the
 offset; with `surface`, dy counts from the ground of the summon's own column instead; tagged `mcb_trial`,
 spawned as by a command; `helmet` adds a leather helmet that never drops, so undead do not burn by day).
-A summon whose box would overlap blocks fails `no_room` (a mob put into a hillside suffocates unseen). The Ender Dragon and the Wither are `not_allowed`.
+An offset summon whose box would overlap blocks fails `no_room` (a mob put into a hillside suffocates unseen).
+A `distance` summon stands on the first cell of `TrialLogic.ring(distance)` (16 headings, east first, the exact
+distance all round, then one and two blocks nearer or farther) whose ground is within a block of the body's
+feet, is dry, has room for the mob, and is in the body's line of sight; none fails `no_spot`. The combat trials
+use it: an offset summon east of the bot stood on a rise out of its sight in three of sixteen trials, and the
+guard, which reacts to what it sees, never knew it was there. The Ender Dragon and the Wither are `not_allowed`.
 A summoned mob is finalized as a natural spawn (a skeleton gets its bow, a zombie may get gear).
-`_done`: `{"surface": y?, "cleared": n?, "time"?, "given": n (give entries), "summoned":[{type,uuid}],
+`_done`: `{"surface": y?, "cleared": n?, "time"?, "given": n (give entries), "summoned":[{type,uuid,at}],
 "health"}`.
 `_failed`: `bad_request`, `not_allowed`, `unknown_item`, `unknown_entity`, `inventory_full`,
-`cannot_create_entity`, `no_room`, `busy`.
+`cannot_create_entity`, `no_room`, `no_spot`, `busy`.
 
 ### `use_entity`
 Request: `{"entity":"<uuid>", "item":"<item>"?}`. A single normal use on the

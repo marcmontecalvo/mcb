@@ -444,6 +444,19 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   The floor (default 3 hearts) and radii are settings (`bot.json` `defense`, the
   `defense` intent), never a switch: defence is always on. Plan:
   [COMPANION_DEFENSE_PLAN_2026-11-23.md](COMPANION_DEFENSE_PLAN_2026-11-23.md).
+- **Combat technique per target, carried out by the mod (Nov 23).** Marc asked for
+  an escape that looks unlike a walk (sprint-jumping, steering from every mob,
+  new spawns included), proper use of the sword, axe, spear and bow (no click
+  spam; jump crits), and different methods for animals and for each mob.
+  `companion_combat` maps each target type to a tactic and picks the weapon; the
+  mod times crits, cooldowns, bow draws and footwork per tick, since no Python
+  poll is fast enough. A fight that finds no walkable way to its target (a mob on
+  a ledge) ends `unreachable` and the target is fought only from range for 30 s;
+  this is a fact about the terrain fed back to the decision, not a cap on
+  attempts. Trials run through an operator-only `trial` op (never an intent or
+  MCP tool) that summons on level ground in the bot's sight, so a trial measures
+  the fight, not the terrain. Plan:
+  [COMPANION_COMBAT_PLAN_2026-11-23.md](COMPANION_COMBAT_PLAN_2026-11-23.md).
 - **Open:** LAN access for a second PC (the game port binds loopback for now),
   rotating a long session's `events.sqlite3`, and the live night test of the
   defence (built, not yet run against real mobs).

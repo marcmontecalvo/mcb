@@ -25,10 +25,13 @@ from pathlib import Path
 
 M = "minecraft:"
 CLEAR = 24  # blocks around the bot cleared of mobs, drops and earlier trial mobs
-DISTANCE = 8  # the mob is summoned this far east of the bot
+DISTANCE = 8  # the mob is summoned about this far from the bot, in its sight
 DAY = 6000  # noon: no natural spawns joining in
 POLL = 5.0  # seconds per events long-poll
 JOB_WAIT = 60.0  # the control API caps a job long-poll at this
+SETTLE = 30.0  # seconds for a busy bot to go quiet before a trial (twice, with a stop)
+GRACE = 3.0  # after a defence ends, this long for the guard to take it up again
+FINAL = ("died", "stopped")  # defence ends nothing takes up again
 WEAPONS = ("sword", "axe", "spear", "bow", "fist")
 # Undead that burn by day get a helmet so a day trial is a fight, not a sunburn.
 BURNS = frozenset(
@@ -43,7 +46,7 @@ ANIMAL_DROPS = {
     "rabbit": "rabbit",
 }
 _NAME = re.compile(r"[a-z][a-z_]{0,31}")
-STEP_SUMS = ("kills", "hits", "crits", "shots", "jumps", "ticks")
+STEP_SUMS = ("kills", "hits", "crits", "shots", "damage", "jumps", "ticks")
 
 
 def kit(weapon: str, *, tier: str = "iron") -> list[dict]:
@@ -80,9 +83,8 @@ def scene(
         "heal": True,
         "time": time,
         "give": kit(weapon, tier=tier),
-        "summon": [
-            {"type": M + mob, "offset": [distance, 0, 0], "helmet": mob in BURNS}
-        ],
+        # the trial op picks a cell about this far off, in sight and level with the bot
+        "summon": [{"type": M + mob, "distance": distance, "helmet": mob in BURNS}],
     }
 
 
@@ -157,46 +159,90 @@ def _hunt(client, mob: str, started: float, timeout: float, clock) -> dict:
     }
 
 
+def _quiet(state: dict) -> tuple[bool, float]:
+    """Whether the bot is idle with its guard awake, and how long a rest has left."""
+    defense = state.get("defense") or {}
+    resting = defense.get("resting") or 0.0
+    busy = bool(state.get("job") or state.get("queue") or defense.get("active"))
+    return not busy and resting <= 0, resting
+
+
+def settle(client, clock=time.monotonic) -> tuple[bool, float]:
+    """Wait for an idle bot whose guard is awake, so a trial never inherits the
+    last one's job, fight or rest. A bot still busy after ``SETTLE`` seconds is
+    stopped once and given ``SETTLE`` more. Returns (settled, seconds)."""
+    start = clock()
+    deadline, stopped = start + SETTLE, False
+    after = int(client.events(0, wait=0).get("latest", 0))
+    while True:
+        reply = client.call("status", {}, source="api")
+        state = reply.get("result") if reply.get("ok") else None
+        quiet, resting = _quiet(state) if isinstance(state, dict) else (False, 0.0)
+        now = clock()
+        if quiet:
+            return True, now - start
+        if now >= deadline:
+            if stopped:
+                return False, now - start
+            _stop(client)
+            deadline, stopped = now + SETTLE, True
+            continue
+        wait = min(POLL, deadline - now)
+        if resting > 0 and state.get("job") is None and not state.get("queue"):
+            wait = min(wait, resting)
+        # a job or a fight ending is an event: the long-poll wakes for it
+        after = int(client.events(after, wait=wait).get("latest", after))
+
+
 def _defend(client, after: int, started: float, timeout: float, clock) -> dict:
+    """Follow the defence this trial set off until a kill, a death or stop, or an
+    end the guard does not take up again within ``GRACE`` (a sniper's target
+    walking back into sight is the same fight, not a new trial)."""
     deadline = started + timeout
     seen: list[dict] = []
-    end = "timeout"
-    while (left := deadline - clock()) > 0:
-        batch = client.events(after, wait=min(POLL, left))
-        killed, ended = False, None
+    begun, ended, ended_at, killed_at = False, None, None, None
+    while killed_at is None and ended not in FINAL:
+        now = clock()
+        limit = deadline if ended is None else min(deadline, ended_at + GRACE)
+        if now >= limit:
+            break
+        batch = client.events(after, wait=min(POLL, limit - now))
         for event in batch.get("events", ()):
             after = max(after, event.get("seq", after))
+            kind, data = event.get("type"), event.get("data") or {}
+            if kind == "defense":
+                begun, ended = True, None
+            elif not begun:
+                continue  # the tail of a defence from before this trial
             seen.append(event)
-            data = event.get("data") or {}
-            if event.get("type") == "defense_step" and (data.get("kills") or 0) > 0:
-                killed = True
-            elif event.get("type") == "defense_end":
-                ended = data.get("end")
-        if killed:
-            end = "killed"
-            break
-        if ended is not None:
-            end = f"defense_{ended}"
-            break
-    if end == "timeout":
+            if kind == "defense_step" and (data.get("kills") or 0) > 0:
+                killed_at = clock()
+                break
+            if kind == "defense_end":
+                ended, ended_at = data.get("end"), clock()
+                if ended in FINAL:
+                    break
+    if killed_at is not None:
+        end, at = "killed", killed_at
+    elif ended is not None:
+        end, at = f"defense_{ended}", ended_at
+    else:
+        end, at = "timeout", clock()
         _stop(client)
-    return {
-        "end": end,
-        "killed": end == "killed",
-        "seconds": clock() - started,
-        **summarize(seen),
-    }
+    return {"end": end, "killed": end == "killed", "seconds": at - started,
+            **summarize(seen)}  # fmt: skip
 
 
 def run_one(
     client, weapon: str, mob: str, timeout: float, clock=time.monotonic
 ) -> dict:
-    """Set the scene, let the bot act, and measure it."""
+    """Wait for a quiet bot, set the scene, let the bot act, and measure it."""
     spec = scene(weapon, mob)
+    settled, waited = settle(client, clock)
     after = int(client.events(0, wait=0).get("latest", 0))
     started = clock()
     reply = client.trial(spec)
-    head = {"weapon": weapon, "mob": mob}
+    head = {"weapon": weapon, "mob": mob, "settled": settled, "settle": waited}
     if not reply.get("ok"):
         return {**head, "end": "scene_refused", "killed": False,
                 "error": reply.get("error")}  # fmt: skip
@@ -236,7 +282,8 @@ def run_matrix(
 
 COLUMNS = (
     ("weapon", 6), ("mob", 9), ("end", 15), ("actions", 22), ("kills", 5),
-    ("hits", 4), ("crits", 5), ("shots", 5), ("health", 6), ("seconds", 7),
+    ("hits", 4), ("crits", 5), ("shots", 5), ("damage", 6), ("health", 6),
+    ("seconds", 7),
 )  # fmt: skip
 
 
