@@ -20,7 +20,9 @@ from __future__ import annotations
 import json
 import math
 import re
+import statistics
 import time
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -67,10 +69,26 @@ def kit(weapon: str, *, tier: str = "iron") -> list[dict]:
     return [{"item": f"{M}{tier}_{weapon}", "count": 1}]
 
 
+MAX_GROUP = 8  # mobs of one kind in a group cell
+
+
 def _mob(mob: str) -> str:
     if not isinstance(mob, str) or not _NAME.fullmatch(mob):
         raise ValueError("mob must be an entity name such as zombie")
     return mob
+
+
+def group(cell: str) -> list[str]:
+    """The mobs of a matrix cell: ``zombie``, ``zombie*3``, ``zombie*2+skeleton``."""
+    out = []
+    for part in cell.split("+"):
+        name, star, count = part.partition("*")
+        count = count if star else "1"
+        n = int(count) if re.fullmatch(r"\d", count) else 0
+        if not 1 <= n <= MAX_GROUP:
+            raise ValueError(f"a group is mob or mob*N (N 1..{MAX_GROUP}): {cell!r}")
+        out += [_mob(name)] * n
+    return out
 
 
 def scene(
@@ -81,8 +99,12 @@ def scene(
     distance: int = DISTANCE,
     time: int = DAY,
 ) -> dict:
-    """The trial op's request for one weapon against one mob."""
-    mob = _mob(mob)
+    """The trial op's request for one weapon against one mob or a group of them
+    (``group``); each further mob of a group stands a block further off, so they
+    come at the bot in a file rather than stacked in one cell."""
+    mobs = group(mob)
+    if len(mobs) > 1 and any(m in ANIMAL_DROPS for m in mobs):
+        raise ValueError(f"an animal is hunted alone: {mob!r}")
     return {
         "surface": True,
         "clear": CLEAR,
@@ -91,7 +113,10 @@ def scene(
         "time": time,
         "give": kit(weapon, tier=tier),
         # the trial op picks a cell about this far off, in sight and level with the bot
-        "summon": [{"type": M + mob, "distance": distance, "helmet": mob in BURNS}],
+        "summon": [
+            {"type": M + m, "distance": distance + i, "helmet": m in BURNS}
+            for i, m in enumerate(mobs)
+        ],
     }
 
 
@@ -249,13 +274,18 @@ def settle(client, clock=time.monotonic) -> tuple[bool, float]:
         after = int(client.events(after, wait=wait).get("latest", after))
 
 
-def _defend(client, after: int, started: float, timeout: float, clock) -> dict:
-    """Follow the defence this trial set off until a kill, a death or stop, or an
-    end the guard does not take up again within ``GRACE`` (a sniper's target
-    walking back into sight is the same fight, not a new trial)."""
+def _defend(
+    client, after: int, started: float, timeout: float, clock, need: int = 1
+) -> dict:
+    """Follow the defence this trial set off until ``need`` kills (every mob of
+    the scene), a death or stop, or an end the guard does not take up again within
+    ``GRACE`` (a sniper's target walking back into sight is the same fight, not a
+    new trial). ``seconds`` is the time to the last kill, ``first_kill`` to the
+    first."""
     deadline = started + timeout
     seen: list[dict] = []
     begun, ended, ended_at, killed_at = False, None, None, None
+    kills, first = 0, None
     while killed_at is None and ended not in FINAL:
         now = clock()
         limit = deadline if ended is None else min(deadline, ended_at + GRACE)
@@ -271,8 +301,11 @@ def _defend(client, after: int, started: float, timeout: float, clock) -> dict:
                 continue  # the tail of a defence from before this trial
             seen.append(event)
             if kind == "defense_step" and (data.get("kills") or 0) > 0:
-                killed_at = clock()
-                break
+                kills += data["kills"]
+                first = clock() if first is None else first
+                if kills >= need:
+                    killed_at = clock()
+                    break
             if kind == "defense_end":
                 ended, ended_at = data.get("end"), clock()
                 if ended in FINAL:
@@ -285,6 +318,7 @@ def _defend(client, after: int, started: float, timeout: float, clock) -> dict:
         end, at = "timeout", clock()
         _stop(client)
     return {"end": end, "killed": end == "killed", "seconds": at - started,
+            "first_kill": None if first is None else first - started,
             **summarize(seen)}  # fmt: skip
 
 
@@ -313,7 +347,8 @@ def run_one(
     head["scene"] = reply.get("result")
     if mob in ANIMAL_DROPS:
         return {**head, **_hunt(client, mob, started, timeout, clock)}
-    return {**head, **_defend(client, after, started, timeout, clock)}
+    need = len(group(mob))
+    return {**head, **_defend(client, after, started, timeout, clock, need)}
 
 
 def run_matrix(
@@ -327,24 +362,143 @@ def run_matrix(
     run_one=run_one,
     echo=None,
     arena=None,
+    repeat: int = 1,
+    baseline: dict | None = None,
 ) -> Path:
-    """Every weapon against every mob, in order, each on ``arena`` when given; the
-    file is rewritten after each trial so a stopped run keeps what it measured."""
+    """Every weapon against every mob (or group), ``repeat`` times round the whole
+    matrix (so drift over the run spreads over every cell), each on ``arena`` when
+    given. The file is rewritten after each trial, with the per-cell ``summary``
+    and the ``regressions`` against a ``baseline`` summary, so a stopped run keeps
+    what it measured."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = out_dir / f"{stamp}.json"
-    record = {"started": stamp, "timeout": timeout,
+    record = {"started": stamp, "timeout": timeout, "repeat": repeat,
               "arena": list(arena) if arena is not None else None,
-              "trials": []}  # fmt: skip
-    for weapon in weapons:
-        for mob in mobs:
-            row = run_one(client, weapon, mob, timeout, clock, arena=arena)
-            record["trials"].append(row)
-            path.write_text(json.dumps(record, indent=2), encoding="utf-8")
-            if echo is not None:
-                echo(table([row], header=not record["trials"][:-1]))
+              "summary": {}, "regressions": [], "trials": []}  # fmt: skip
+    for n in range(1, repeat + 1):
+        for weapon in weapons:
+            for mob in mobs:
+                row = run_one(client, weapon, mob, timeout, clock, arena=arena)
+                record["trials"].append({**row, "repeat": n})
+                record["summary"] = summary(record["trials"])
+                if baseline is not None:
+                    record["regressions"] = compare(record["summary"], baseline)
+                path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+                if echo is not None:
+                    echo(table([row], header=len(record["trials"]) == 1))
     return path
+
+
+def _number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _spread(values: list[float]) -> dict | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    p90 = ordered[max(0, math.ceil(0.9 * len(ordered)) - 1)]
+    return {"median": statistics.median(ordered), "mean": statistics.fmean(ordered),
+            "min": ordered[0], "max": ordered[-1], "p90": p90}  # fmt: skip
+
+
+def _mean(rows: list[dict], key: str) -> float | None:
+    values = [r[key] for r in rows if _number(r.get(key))]
+    return statistics.fmean(values) if values else None
+
+
+def summary(trials: list[dict]) -> dict:
+    """Per ``weapon/mob`` cell: trials, kills and kill rate; the spread of the
+    time to kill (kills only) and of the health left; mean hits, crits, shots and
+    flees; the crit rate (crits over hits); and how the trials ended and failed."""
+    cells: dict[str, list[dict]] = {}
+    for row in trials:
+        cells.setdefault(f"{row.get('weapon')}/{row.get('mob')}", []).append(row)
+    out = {}
+    for cell, rows in cells.items():
+        killed = [r for r in rows if r.get("killed")]
+        hits = sum(r["hits"] for r in rows if _number(r.get("hits")))
+        crits = sum(r["crits"] for r in rows if _number(r.get("crits")))
+        failures = Counter(f for r in rows for f in r.get("failures") or ())
+        out[cell] = {
+            "n": len(rows),
+            "killed": len(killed),
+            "kill_rate": len(killed) / len(rows),
+            "seconds": _spread(
+                [r["seconds"] for r in killed if _number(r.get("seconds"))]
+            ),
+            "health": _spread([r["health"] for r in rows if _number(r.get("health"))]),
+            **{
+                key: _mean(rows, key)
+                for key in ("hits", "crits", "shots", "flees", "damage")
+            },
+            "crit_rate": crits / hits if hits else None,
+            "ends": dict(Counter(str(r.get("end")) for r in rows)),
+            "failures": dict(failures),
+        }
+    return out
+
+
+# A cell is worse than its baseline past these: a kill rate this much lower, a
+# median time to kill this much longer (by both the share and the seconds), or
+# the lowest health left this much lower.
+WORSE_KILL_RATE = 0.2
+WORSE_SECONDS = (0.25, 1.0)
+WORSE_HEALTH = 4.0
+
+
+def compare(now: dict, base: dict) -> list[dict]:
+    """The cells of ``now`` worse than in ``base`` (both ``summary`` results)."""
+    out = []
+
+    def flag(cell, metric, was, is_):
+        out.append({"cell": cell, "metric": metric, "was": was, "now": is_})
+
+    for cell, c in now.items():
+        b = base.get(cell)
+        if b is None:
+            continue
+        if b["kill_rate"] - c["kill_rate"] >= WORSE_KILL_RATE:
+            flag(cell, "kill_rate", b["kill_rate"], c["kill_rate"])
+        if c["seconds"] and b["seconds"]:
+            was, is_ = b["seconds"]["median"], c["seconds"]["median"]
+            share, seconds = WORSE_SECONDS
+            if is_ > was * (1 + share) and is_ - was > seconds:
+                flag(cell, "seconds.median", was, is_)
+        if c["health"] and b["health"]:
+            was, is_ = b["health"]["min"], c["health"]["min"]
+            if was - is_ >= WORSE_HEALTH:
+                flag(cell, "health.min", was, is_)
+    return out
+
+
+SUMMARY_COLUMNS = (
+    ("cell", 22), ("n", 3), ("kill%", 5), ("med_s", 6), ("p90_s", 6),
+    ("min_hp", 6), ("hits", 5), ("crit%", 5), ("shots", 5), ("flees", 5),
+)  # fmt: skip
+
+
+def summary_table(cells: dict) -> str:
+    """A plain-text table, one row per cell of a ``summary``."""
+
+    def pct(v):
+        return "-" if v is None else f"{100 * v:.0f}"
+
+    def num(v):
+        return "-" if v is None else f"{v:.1f}"
+
+    lines = [" ".join(n.ljust(w) for n, w in SUMMARY_COLUMNS),
+             " ".join("-" * w for _, w in SUMMARY_COLUMNS)]  # fmt: skip
+    for cell, c in cells.items():
+        s, h = c["seconds"] or {}, c["health"] or {}
+        values = (cell, str(c["n"]), pct(c["kill_rate"]), num(s.get("median")),
+                  num(s.get("p90")), num(h.get("min")), num(c["hits"]),
+                  pct(c["crit_rate"]), num(c["shots"]), num(c["flees"]))  # fmt: skip
+        cols = zip(values, SUMMARY_COLUMNS, strict=True)
+        lines.append(" ".join(v.ljust(w) for v, (_, w) in cols))
+    return "\n".join(lines)
 
 
 COLUMNS = (

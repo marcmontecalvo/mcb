@@ -5,15 +5,22 @@ Needs the play server and its companion host running
 control API only (the scene goes through `POST /trial`, an operator route that is
 never an MCP tool), so the mod's request sequence stays the host's.
 
-    uv run --locked python scripts/combat-trial.py
+    uv run --locked python scripts/combat-trial.py --repeat 10
     uv run --locked python scripts/combat-trial.py --weapons sword,bow \
-        --mobs zombie,creeper
+        --mobs zombie,creeper,skeleton*2,zombie*2+skeleton --repeat 5 \
+        --baseline results/companion/trials/<earlier>.json
 
-Writes results/companion/trials/<UTC stamp>.json. Docs:
+A mob cell is a mob or a group (``zombie*3``, ``zombie*2+skeleton``); a group trial
+is a kill once every mob of it is dead. The repeats go round the whole matrix.
+Writes results/companion/trials/<UTC stamp>.json: every trial, the per-cell
+``summary`` (kill rate, time-to-kill spread, health left, hits, crit rate, flees,
+ends, failures) and the ``regressions`` against --baseline. Prints the summary
+table and `TRIALS <path>` at the end. Docs:
 docs/COMPANION_COMBAT_PLAN_2026-11-23.md section 5.
 """
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -31,6 +38,10 @@ def main(argv=None) -> int:
     parser.add_argument("--weapons", default=DEFAULT_WEAPONS)
     parser.add_argument("--mobs", default=DEFAULT_MOBS)
     parser.add_argument("--timeout", type=float, default=90.0, help="seconds per trial")
+    parser.add_argument("--repeat", type=int, default=10, help="times round the matrix")
+    parser.add_argument(
+        "--baseline", help="an earlier trials file to flag regressions against"
+    )
     parser.add_argument("--out", default=str(ROOT / "results" / "companion" / "trials"))
     parser.add_argument(
         "--arena",
@@ -46,6 +57,12 @@ def main(argv=None) -> int:
         ct.kit(weapon)  # refuse an unknown weapon before anything runs
     for mob in mobs:
         ct.scene("fist", mob)
+    if args.repeat < 1:
+        parser.error("--repeat must be at least 1")
+    baseline = None
+    if args.baseline:
+        base = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
+        baseline = base.get("summary") or ct.summary(base.get("trials", []))
     try:
         client = ApiClient.from_runtime()
         client.events(0, wait=0)
@@ -66,7 +83,14 @@ def main(argv=None) -> int:
         timeout=args.timeout,
         echo=print,
         arena=arena,
+        repeat=args.repeat,
+        baseline=baseline,
     )
+    record = json.loads(path.read_text(encoding="utf-8"))
+    print()
+    print(ct.summary_table(record["summary"]))
+    for r in record["regressions"]:
+        print(f"REGRESSION {r['cell']} {r['metric']}: {r['was']} -> {r['now']}")
     print(f"TRIALS {path}")
     return 0
 

@@ -545,3 +545,131 @@ def test_the_table_has_a_row_per_trial():
     assert len(lines) == 4  # header, rule, two rows
     assert "sword" in lines[2] and "fight" in lines[2] and "4.2" in lines[2]
     assert "failed" in lines[3]
+
+
+# --- groups of mobs, repeats, the per-cell summary and the baseline compare
+
+
+def test_a_group_names_each_mob_and_counts():
+    assert ct.group("zombie") == ["zombie"]
+    assert ct.group("zombie*3") == ["zombie"] * 3
+    assert ct.group("zombie*2+skeleton") == ["zombie", "zombie", "skeleton"]
+    for bad in ("zombie*0", "zombie*9", "+zombie", "zombie**2", "Zombie"):
+        with pytest.raises(ValueError):
+            ct.group(bad)
+
+
+def test_a_group_scene_summons_each_a_block_further_off():
+    spec = ct.scene("sword", "zombie*2+creeper")
+    assert spec["summon"] == [
+        {"type": M + "zombie", "distance": ct.DISTANCE, "helmet": True},
+        {"type": M + "zombie", "distance": ct.DISTANCE + 1, "helmet": True},
+        {"type": M + "creeper", "distance": ct.DISTANCE + 2, "helmet": False},
+    ]
+
+
+def test_an_animal_is_hunted_alone():
+    with pytest.raises(ValueError, match="alone"):
+        ct.scene("sword", "pig+zombie")
+
+
+def test_a_group_trial_ends_when_every_mob_is_killed():
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (0.5, _event(1, "defense", action="fight")),
+        (2.0, _event(2, "defense_step", action="fight", ok=True, kills=1)),
+        (2.1, _event(3, "defense_end", end="clear", steps=1, job=None)),
+        (2.5, _event(4, "defense", action="fight")),
+        (6.0, _event(5, "defense_step", action="fight", ok=True, kills=1)),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "sword", "zombie*2", timeout=60, clock=clock)
+
+    assert out["killed"] is True and out["kills"] == 2
+    assert out["seconds"] == pytest.approx(6.0)
+    # timed when its batch of events arrives, as the last kill is
+    assert 2.0 <= out["first_kill"] < out["seconds"]
+
+
+def test_a_group_trial_with_one_left_alive_is_not_a_kill():
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (0.5, _event(1, "defense", action="fight")),
+        (2.0, _event(2, "defense_step", action="fight", ok=True, kills=1)),
+        (2.1, _event(3, "defense_end", end="died", steps=1, job=None)),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "sword", "zombie+skeleton", timeout=60, clock=clock)
+
+    assert out["killed"] is False and out["end"] == "defense_died"
+    assert out["kills"] == 1
+
+
+def test_repeats_go_round_the_whole_matrix_each_time(tmp_path):
+    seen = []
+
+    def one(client, weapon, mob, timeout, clock, arena=None):
+        seen.append((weapon, mob))
+        return {"weapon": weapon, "mob": mob, "end": "killed", "killed": True,
+                "seconds": 3.0}  # fmt: skip
+
+    path = ct.run_matrix(object(), ["sword", "bow"], ["zombie"], out_dir=tmp_path,
+                         timeout=5, run_one=one, repeat=2)  # fmt: skip
+
+    import json
+
+    assert seen == [("sword", "zombie"), ("bow", "zombie")] * 2
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert [r["repeat"] for r in data["trials"]] == [1, 1, 2, 2]
+    assert data["repeat"] == 2
+    assert data["summary"]["sword/zombie"]["n"] == 2
+
+
+def _row(weapon, mob, killed=True, seconds=3.0, health=20.0, **more):
+    end = "killed" if killed else "timeout"
+    return {"weapon": weapon, "mob": mob, "killed": killed, "seconds": seconds,
+            "health": health, "end": end, **more}  # fmt: skip
+
+
+def test_a_cell_summary_has_the_rates_and_spreads():
+    rows = [
+        _row("sword", "zombie", seconds=s, health=h, hits=4, crits=c, flees=0)
+        for s, h, c in ((2.0, 20, 4), (3.0, 18, 2), (4.0, 16, 3), (10.0, 12, 0))
+    ] + [_row("sword", "zombie", killed=False, seconds=90.0, health=4.0,
+              failures=["fight: unreachable"])]  # fmt: skip
+
+    cell = ct.summary(rows)["sword/zombie"]
+
+    assert (cell["n"], cell["killed"]) == (5, 4)
+    assert cell["kill_rate"] == pytest.approx(0.8)
+    # time to kill, over the kills only
+    assert cell["seconds"]["median"] == pytest.approx(3.5)
+    assert cell["seconds"]["min"] == 2.0 and cell["seconds"]["max"] == 10.0
+    assert cell["seconds"]["p90"] == pytest.approx(10.0)
+    assert cell["health"]["min"] == 4.0
+    assert cell["crit_rate"] == pytest.approx(9 / 16)
+    assert cell["ends"] == {"killed": 4, "timeout": 1}
+    assert cell["failures"] == {"fight: unreachable": 1}
+
+
+def test_a_regression_is_flagged_against_the_baseline():
+    base = ct.summary([_row("sword", "zombie", seconds=s) for s in (2.0, 2.0, 2.0)]
+                      + [_row("bow", "pig", seconds=5.0)] * 3)  # fmt: skip
+    now = ct.summary(
+        [_row("sword", "zombie", seconds=s) for s in (4.0, 4.0, 4.0)]
+        + [_row("bow", "pig", killed=False, seconds=90.0)] * 3
+    )
+
+    flagged = {(r["cell"], r["metric"]) for r in ct.compare(now, base)}
+
+    assert ("sword/zombie", "seconds.median") in flagged
+    assert ("bow/pig", "kill_rate") in flagged
+    # within the noise: nothing
+    same = ct.summary([_row("sword", "zombie", seconds=s) for s in (2.0, 2.2, 2.1)])
+    assert ct.compare(same, base) == []
+
+
+def test_the_summary_table_has_a_row_per_cell():
+    text = ct.summary_table(ct.summary([_row("sword", "zombie"), _row("bow", "pig")]))
+
+    assert len(text.splitlines()) == 4 and "sword" in text and "pig" in text
