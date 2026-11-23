@@ -7,8 +7,8 @@ method except ``say`` and ``snapshot`` runs on the host's worker thread (SQLite 
 the bridge have thread affinity). Docs: COMPANION_LLM_PLAN_2026-11-23.md, section 2.
 
 - Spawn position: the last good position saved in ``companion-state.json`` (instance
-  runtime), else the world spawn when ``/state`` exposes ``world_spawn``, else
-  FALLBACK_SPAWN (the body falls and settles).
+  runtime), else the world spawn from the server's ``level.dat``. Never a guessed
+  column: one over the ocean drowned the bot, and a body in water never settles.
 - Cancel: the host sets ``poll_hook``; the bridge runs it first in every ``state()``
   poll, and the host raises ``JobCancelled`` from it.
 - Death (Carpet drops the items and disconnects the body): ``respawn`` remembers the
@@ -41,7 +41,7 @@ from mclab.progress_watch import BodyDied
 log = logging.getLogger(__name__)
 
 AWARENESS = paths.ROOT / "config/stepc/awareness-sections-64.json"
-FALLBACK_SPAWN = (0, 80, 0)
+OVERWORLD = "minecraft:overworld"
 DIED_STATES = frozenset({"dead", "disconnected_or_dead"})
 # a body that is no longer in the world: spawn it again
 GONE_STATES = DIED_STATES | {"idle", "retired", "spawn_timeout"}
@@ -98,6 +98,31 @@ def _cell(value) -> tuple[int, int, int] | None:
     ):
         return tuple(int(math.floor(v)) for v in value)
     return None
+
+
+def world_spawn(level_dir) -> tuple[int, int, int] | None:
+    """The overworld spawn point saved in ``level.dat``: ``Data.spawn {pos,
+    dimension}`` (Minecraft 26.x) or ``Data.SpawnX/Y/Z`` (older). None when the file
+    is missing or unreadable, or the spawn is in another dimension."""
+    from mclab import nbt
+
+    try:
+        data = nbt.load(Path(level_dir) / "level.dat").get("Data", {})
+    except (OSError, ValueError, KeyError, IndexError, EOFError, AttributeError):
+        return None
+    spawn = data.get("spawn")
+    if isinstance(spawn, dict):
+        if spawn.get("dimension", OVERWORLD) != OVERWORLD:
+            return None
+        return _cell(spawn.get("pos"))
+    return _cell([data.get(k) for k in ("SpawnX", "SpawnY", "SpawnZ")])
+
+
+def level_spawn() -> tuple[int, int, int] | None:
+    """The play server's world spawn (its level folder from server.properties)."""
+    from mclab.companion_body import _level_dir
+
+    return world_spawn(_level_dir())
 
 
 # --- chat out ---------------------------------------------------------------------
@@ -240,6 +265,7 @@ class Session:
         say_client=None,
         knowledge=vanilla_knowledge,
         clock=time.monotonic,
+        world_spawn=level_spawn,
     ):
         from mclab.gather_options import GatherOptions
         from mclab.gather_runner import GatherState
@@ -253,6 +279,7 @@ class Session:
         self._make_places, self._make_body = make_places, make_body
         self._awareness, self._say_client = awareness, say_client
         self._knowledge = knowledge
+        self._world_spawn = world_spawn
         self.clock = clock
         self.poll_hook = None  # set by the host: runs first in every bridge poll
         self.bridge = self.memory = self.places = self.body = None
@@ -286,12 +313,13 @@ class Session:
         saved = read_state(self.state_file)
         if saved.get("bot") == self.bot_name and (cell := _cell(saved.get("position"))):
             return cell
-        try:
-            spawn = _cell(self.bridge.http("/state").get("world_spawn"))
-        except Exception as error:  # noqa: BLE001 - only a fallback is lost
-            log.warning("no world spawn from /state: %s", error)
-            spawn = None
-        return spawn or FALLBACK_SPAWN
+        spawn = self._world_spawn()
+        if spawn is None:
+            raise JobFailed(
+                "No saved position and no world spawn in level.dat; "
+                "is the play server's world created?"
+            )
+        return spawn
 
     def _spawn(self, position) -> None:
         x, y, z = position

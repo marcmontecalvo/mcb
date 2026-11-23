@@ -165,7 +165,7 @@ class FakeSay:
 def make(tmp_path, monkeypatch):
     monkeypatch.setattr(cs, "await_sampled_stream", lambda bridge, timeout: {})
 
-    def build(bridge=None, *, state=None, knowledge=None, clock=None):
+    def build(bridge=None, *, state=None, knowledge=None, clock=None, spawn=(0, 80, 0)):
         bridge = bridge or FakeBridge()
         memory, places, say = FakeMemory(), FakePlaces(), FakeSay()
         state_file = tmp_path / "runtime" / "companion-state.json"
@@ -186,6 +186,7 @@ def make(tmp_path, monkeypatch):
             knowledge=knowledge
             or (lambda: SimpleNamespace(foods={"minecraft:bread": 5})),
             clock=clock or (lambda: 0.0),
+            world_spawn=lambda: spawn,
         )
         return session, bridge, places, say, memory
 
@@ -215,7 +216,7 @@ def test_spawn_sends_the_kept_body_and_records_home(make):
     assert fields["extended_observation"] is True
     assert fields["terrain_encoding"] == "sections-v1"
     assert fields["awareness"] == {"radius": 64}
-    assert fields["position"] == [0.5, 80, 0.5]  # no saved state, no world spawn
+    assert fields["position"] == [0.5, 80, 0.5]  # no saved state: the world spawn
     assert ("spawn", "spawn_requested") in bridge.acks
     assert places.named("home").position == (0, 64, 0)
     assert places.named("home").kind == "home"
@@ -228,16 +229,66 @@ def test_spawn_sends_the_kept_body_and_records_home(make):
 
 def test_spawn_position_prefers_the_saved_state_then_the_world_spawn(make):
     session, *_ = make(state={"bot": "MCBot", "position": [10.7, 70, -3.2]})
-    session.bridge = FakeBridge(http_state={"world_spawn": [1, 2, 3]})
     assert session.spawn_position() == (10, 70, -4)
 
-    other, *_ = make(state={"bot": "Someone", "position": [10, 70, 3]})
-    other.bridge = FakeBridge(http_state={"world_spawn": [1.2, 65, 3.9]})
+    other, *_ = make(
+        state={"bot": "Someone", "position": [10, 70, 3]}, spawn=(1, 65, 3)
+    )
     assert other.spawn_position() == (1, 65, 3)
 
-    broken, *_ = make(state={"bot": "MCBot", "position": ["x", 1, 2]})
-    broken.bridge = FakeBridge(http_state=OSError("down"))
-    assert broken.spawn_position() == cs.FALLBACK_SPAWN
+    broken, *_ = make(state={"bot": "MCBot", "position": ["x", 1, 2]}, spawn=(4, 70, 4))
+    assert broken.spawn_position() == (4, 70, 4)
+
+
+def test_no_known_spawn_point_refuses_to_spawn_instead_of_guessing(make):
+    """A guessed column dropped the bot into the ocean, where a body never settles
+    and the session start timed out (play world, Nov 23, 2026). The host retries a
+    failed start with backoff."""
+    session, bridge, *_ = make(spawn=None)
+    with pytest.raises(cs.JobFailed, match="world spawn"):
+        session.start()
+    assert bridge.sent == [] and bridge.closed
+
+
+def _level(tmp_path, data):
+    from mclab import nbt
+
+    folder = tmp_path / "world"
+    folder.mkdir(exist_ok=True)
+    (folder / "level.dat").write_bytes(nbt.dumps({"Data": (nbt.COMPOUND, data)}))
+    return folder
+
+
+def test_world_spawn_reads_the_26_3_level_dat(tmp_path):
+    from mclab import nbt
+
+    spawn = {
+        "pos": (nbt.INT_ARRAY, [-272, 76, -16]),
+        "dimension": (nbt.STRING, "minecraft:overworld"),
+        "yaw": (nbt.FLOAT, 0.0),
+    }
+    level = _level(tmp_path, {"spawn": (nbt.COMPOUND, spawn)})
+    assert cs.world_spawn(level) == (-272, 76, -16)
+
+
+def test_world_spawn_reads_the_older_level_dat(tmp_path):
+    from mclab import nbt
+
+    data = {k: (nbt.INT, v) for k, v in (("SpawnX", 5), ("SpawnY", 70), ("SpawnZ", -9))}
+    assert cs.world_spawn(_level(tmp_path, data)) == (5, 70, -9)
+
+
+def test_world_spawn_is_none_when_unknown(tmp_path):
+    from mclab import nbt
+
+    assert cs.world_spawn(tmp_path / "missing") is None
+    nether = {
+        "pos": (nbt.INT_ARRAY, [1, 2, 3]),
+        "dimension": (nbt.STRING, "minecraft:the_nether"),
+    }
+    assert cs.world_spawn(_level(tmp_path, {"spawn": (nbt.COMPOUND, nether)})) is None
+    (tmp_path / "world" / "level.dat").write_bytes(b"not nbt")
+    assert cs.world_spawn(tmp_path / "world") is None
 
 
 def test_home_is_kept_when_already_known(make):

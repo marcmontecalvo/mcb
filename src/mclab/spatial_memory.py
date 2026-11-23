@@ -68,7 +68,8 @@ class MapIdentity:
 def world_archive(level_dir, awareness, folder, dimension="minecraft:overworld"):
     """The archive that outlives sessions in one saved world (opt-in, see
     companion_body.session_archive). Identity: the level folder's name and the
-    world seed from its level.dat, so another world saved under the same name
+    world seed (level.dat, or data/minecraft/world_gen_settings.dat from Minecraft
+    26), so another world saved under the same name
     gets its own namespace; a restored copy of the same world does not, which is
     why restored snapshots must not use it. Remembered cells keep their original
     session and wall-clock time: they fill unknown cells only, never fresh ones.
@@ -78,11 +79,19 @@ def world_archive(level_dir, awareness, folder, dimension="minecraft:overworld")
     from mclab import nbt
 
     level_dir = Path(level_dir)
+    unreadable = (OSError, ValueError, KeyError, IndexError, EOFError, AttributeError)
     try:
         data = nbt.load(level_dir / "level.dat").get("Data", {})
         seed = data.get("WorldGenSettings", {}).get("seed", data.get("RandomSeed"))
-    except (OSError, ValueError, KeyError, IndexError, EOFError):
+    except unreadable:
         seed = None
+    if seed is None:
+        # Minecraft 26.x keeps the generator settings beside level.dat.
+        try:
+            settings = nbt.load(level_dir / "data/minecraft/world_gen_settings.dat")
+            seed = settings.get("data", {}).get("seed")
+        except unreadable:
+            seed = None
     if type(seed) is not int:
         return None  # no identity: unreadable worlds must not share one archive
     name = "".join(c if c.isalnum() or c in "-_" else "_" for c in level_dir.name)

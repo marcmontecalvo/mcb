@@ -15,6 +15,32 @@ def level(tmp_path, seed, name="world"):
     return folder
 
 
+def level_26(tmp_path, seed, name="world"):
+    """Minecraft 26.3 layout: the seed lives in data/minecraft/world_gen_settings.dat
+    and level.dat has none (play world seen Nov 23, 2026)."""
+    folder = tmp_path / name
+    (folder / "data/minecraft").mkdir(parents=True, exist_ok=True)
+    (folder / "level.dat").write_bytes(
+        nbt.dumps({"Data": (nbt.COMPOUND, {"LevelName": (nbt.STRING, name)})})
+    )
+    settings = {"seed": (nbt.LONG, seed)}
+    (folder / "data/minecraft/world_gen_settings.dat").write_bytes(
+        nbt.dumps({"data": (nbt.COMPOUND, settings), "DataVersion": (nbt.INT, 1)})
+    )
+    return folder
+
+
+def test_world_archive_reads_the_seed_where_26_3_keeps_it(tmp_path):
+    store = tmp_path / "memory"
+    archive = world_archive(level_26(tmp_path, 20261123), Awareness(), store)
+    assert archive is not None
+    assert archive.identity.generation == "seed:20261123"
+    # the same world in the old layout keeps the same identity
+    (tmp_path / "old").mkdir()
+    old = world_archive(level(tmp_path / "old", 20261123), Awareness(), store)
+    assert old.identity.generation == archive.identity.generation
+
+
 def at(*position, tick):
     obs = observation(position, tick=tick)
     obs["body"] = {"position": [position[0] + 0.5, position[1] + 1, position[2] + 0.5]}

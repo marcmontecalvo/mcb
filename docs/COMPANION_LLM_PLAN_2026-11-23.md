@@ -79,7 +79,9 @@ second player on another PC) is a later, explicit switch.
 - **Session:** spawn the body by its stable name (`bots/<id>/bot.json`, `name`)
   with `stream`, `extended_observation`, the sections awareness profile and
   `sections-v1` terrain, with **no** `natural_start`. The spawn position is the
-  last saved position (host state file), else the world spawn. The body keeps
+  last saved position (host state file), else the world spawn from the server's
+  `level.dat` (never a guessed column: a body in water never settles, so the
+  session start fails and the host retries with backoff). The body keeps
   its saved inventory between sessions (Carpet player data). World memory and
   places are persistent (`session_archive` with the real level).
 - **Bridge:** body-only when the instance has no lab mod (no `/lab/...` calls,
