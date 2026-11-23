@@ -303,6 +303,15 @@ def test_client_wrong_token_is_error(server):
         bad.call("status")
 
 
+def test_a_refusal_reads_the_body_so_the_client_sees_the_reply(server):
+    # A refused request's unread body reset the connection under the 401 on
+    # Windows: the client said "host is not running" for a wrong token.
+    big = {"intent": "status", "args": {"pad": "x" * 60_000}}
+    for _ in range(100):
+        assert raw(server, "POST", "/call", big, token="bad")[0] == 401
+        assert raw(server, "PUT", "/call", big)[0] == 405
+
+
 def test_client_http_timeout_covers_wait(server):
     c = ApiClient(server.port, TOKEN, timeout=10)
     assert c._timeout_for(30) >= 30 + 10 - 1

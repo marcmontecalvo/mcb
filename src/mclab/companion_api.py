@@ -103,6 +103,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _guard(self, handler) -> None:
         if not self._authorized():
+            self._drain()
             self.close_connection = True
             return self._fail(401, "missing or wrong bearer token")
         try:
@@ -155,6 +156,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._guard(self._post)
 
     def _other(self):
+        self._drain()
         self.close_connection = True
         self._fail(405, "method not allowed")
 
