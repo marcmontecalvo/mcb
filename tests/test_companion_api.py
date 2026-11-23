@@ -70,6 +70,26 @@ def raw(server, method, path, body=None, token=TOKEN, headers=None):
         return err.code, json.loads(err.read() or b"null")
 
 
+def test_shutdown_route_runs_the_hook_once_authorized(host):
+    # The supervisor asks the host to stop: Windows terminate() is a hard kill
+    # that would skip halting and despawning (saving) the body.
+    asked = []
+    srv = serve(host, port=0, token=TOKEN, on_shutdown=lambda: asked.append(1))
+    try:
+        assert raw(srv, "POST", "/shutdown", {}, token="wrong")[0] == 401
+        assert asked == []
+        assert raw(srv, "POST", "/shutdown", {}) == (202, {"ok": True})
+        assert asked == [1]
+        assert ApiClient(srv.port, TOKEN).shutdown() is True
+        assert asked == [1, 1]
+    finally:
+        srv.shutdown()
+
+
+def test_shutdown_route_is_absent_without_a_hook(server):
+    assert raw(server, "POST", "/shutdown", {})[0] == 404
+
+
 def test_port_zero_binds_a_real_port(server):
     assert server.port > 0
 

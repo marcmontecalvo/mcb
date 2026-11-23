@@ -6,6 +6,8 @@ Routes (all need ``Authorization: Bearer <token>``; JSON in and out):
 - ``GET /jobs/<id>?wait=<s>``  ->  the job (long-polled, wait capped at 60 s) or 404
 - ``GET /events?after=<n>&wait=<s>``  ->  the host's events
 - ``GET /health``  ->  ``{"ok": true}``
+- ``POST /shutdown``  ->  202; the host halts and despawns the body and exits (the
+  supervisor's stop; Windows ``terminate()`` would skip that)
 
 The host publishes ``{port, token, pid}`` in its runtime file;
 ``ApiClient.from_runtime`` reads it.
@@ -71,6 +73,7 @@ class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     host = None
     token = b""
+    on_shutdown = None
 
     def log_message(self, format, *args):  # never log request lines or headers
         pass
@@ -162,6 +165,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _post(self):
         url = urllib.parse.urlsplit(self.path)
+        if url.path == "/shutdown" and self.on_shutdown is not None:
+            self.on_shutdown()  # sets a flag; the host winds down on its own thread
+            return self._send(202, {"ok": True})
         if url.path != "/call":
             return self._fail(404, "not found")
         body = self._json_body()
@@ -199,10 +205,17 @@ class Server:
         self._thread.join(timeout=5)
 
 
-def serve(host, *, port: int, token: str) -> Server:
+def serve(host, *, port: int, token: str, on_shutdown=None) -> Server:
+    """``on_shutdown``: called by ``POST /shutdown`` (the supervisor's polite stop;
+    without it the route does not exist). It must return at once."""
     if not token:
         raise ValueError("a bearer token is required")
-    handler = type("Handler", (_Handler,), {"host": host, "token": token.encode()})
+    attrs = {
+        "host": host,
+        "token": token.encode(),
+        "on_shutdown": staticmethod(on_shutdown) if on_shutdown else None,
+    }
+    handler = type("Handler", (_Handler,), attrs)
     httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
     httpd.daemon_threads = True
     return Server(httpd)
@@ -279,6 +292,10 @@ class ApiClient:
         if key is not None:
             body["key"] = key
         return self._request("POST", "/call", body)[1]
+
+    def shutdown(self) -> bool:
+        """Ask the host to wind down (halt and despawn the body, then exit)."""
+        return self._request("POST", "/shutdown", {})[0] == 202
 
     def wait_job(self, job_id: str, wait: float = 0.0) -> dict | None:
         quoted = urllib.parse.quote(str(job_id), safe="")

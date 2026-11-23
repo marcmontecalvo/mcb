@@ -63,6 +63,17 @@ HOST_MAX_EXITS = 5  # exits within HOST_WINDOW_S before the supervisor gives up
 HOST_WINDOW_S = 600.0
 HOST_BACKOFF_S = (1.0, 2.0, 5.0, 10.0)
 HOST_KILL_AFTER_S = 10.0
+# Asked to stop, the host cancels its job, halts and despawns the body (a logout
+# that saves) and exits. A hung job unwinds within the host's own 30 s join.
+HOST_GRACE_S = 35.0
+
+
+def ask_host_to_stop(runtime_file=None) -> None:
+    """``POST /shutdown`` on the instance's control API; raises if unreachable."""
+    from mclab import companion_api
+
+    path = runtime_file or INSTANCE.runtime / companion_api.RUNTIME_FILE
+    companion_api.ApiClient.from_runtime(path).shutdown()
 
 
 class HostRunner:
@@ -76,6 +87,7 @@ class HostRunner:
         command=None,
         cwd=ROOT,
         say=print,
+        ask_to_stop=ask_host_to_stop,
     ):
         self.log_path = log_path
         self.popen = popen
@@ -83,6 +95,7 @@ class HostRunner:
         self.command = command or HOST_COMMAND
         self.cwd = cwd
         self.say = say
+        self.ask_to_stop = ask_to_stop
         self.process = None
         self.exits: list[float] = []
         self.next_start = 0.0
@@ -132,6 +145,21 @@ class HostRunner:
         self.gave_up = True  # never restart after a stop
         if process is None or process.poll() is not None:
             return
+        # Politely first: on Windows terminate() is TerminateProcess, which skips
+        # the host's cleanup (halt and despawn the body).
+        try:
+            self.ask_to_stop()
+        except Exception as error:  # noqa: BLE001 - fall back to terminate
+            self.say(f"companion host not asked to stop ({error}); terminating")
+        else:
+            try:
+                process.wait(timeout=HOST_GRACE_S)
+                return
+            except subprocess.TimeoutExpired:
+                self.say(
+                    f"companion host did not exit {HOST_GRACE_S:.0f}s after being "
+                    "asked; terminating"
+                )
         process.terminate()
         try:
             process.wait(timeout=HOST_KILL_AFTER_S)

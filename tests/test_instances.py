@@ -441,8 +441,12 @@ class FakeProc:
         return self.returncode
 
 
+def _unreachable():
+    raise OSError("no control API")
+
+
 class Host:
-    def __init__(self, tmp_path):
+    def __init__(self, tmp_path, ask_to_stop=_unreachable):
         self.started = []
         self.now = 0.0
         self.messages = []
@@ -451,6 +455,7 @@ class Host:
             popen=self.popen,
             clock=lambda: self.now,
             say=self.messages.append,
+            ask_to_stop=ask_to_stop,
         )
 
     def popen(self, command, **options):
@@ -550,6 +555,49 @@ def test_stop_kills_a_host_that_ignores_terminate(tmp_path):
     host.proc.hang = True
     host.runner.stop()
     assert host.proc.terminated and host.proc.killed
+
+
+def test_stop_asks_the_host_to_shut_down_before_terminating(tmp_path):
+    # Windows terminate() is a hard kill: the host would never halt and despawn
+    # (save) the body. Ask over the control API first.
+    asked = []
+
+    def ask():
+        asked.append(1)
+        host.proc.returncode = 0  # the host exits by itself
+
+    host = Host(tmp_path, ask_to_stop=ask)
+    host.runner.tick(True)
+    host.runner.stop()
+    assert asked == [1]
+    assert not host.proc.terminated and not host.proc.killed
+
+
+def test_a_host_that_stays_up_after_asking_is_terminated(tmp_path):
+    host = Host(tmp_path, ask_to_stop=lambda: None)
+    host.runner.tick(True)
+    host.runner.stop()
+    assert host.proc.terminated
+    assert any("did not exit" in m for m in host.messages)
+
+
+def test_the_default_ask_reads_the_instance_runtime_file(tmp_path, monkeypatch):
+    seen = []
+
+    class Client:
+        @classmethod
+        def from_runtime(cls, path):
+            seen.append(path)
+            return cls()
+
+        def shutdown(self):
+            seen.append("shutdown")
+
+    from mclab import companion_api
+
+    monkeypatch.setattr(companion_api, "ApiClient", Client)
+    supervisor.ask_host_to_stop(tmp_path / "companion-host.json")
+    assert seen == [tmp_path / "companion-host.json", "shutdown"]
 
 
 def test_stop_without_a_host_or_after_it_exited_is_harmless(tmp_path):
