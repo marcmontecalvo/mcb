@@ -99,7 +99,7 @@ final class BodyEntity {
     /** A grounded sword hit would sweep a non-hostile living thing beside the target. */
     private static boolean bystanders(ServerPlayer player, LivingEntity target) {
         for (var e : player.level().getEntitiesOfClass(LivingEntity.class, target.getBoundingBox().inflate(1, .25, 1))) {
-            if (e == player || e == target || e instanceof net.minecraft.world.entity.monster.Enemy) continue;
+            if (e == player || e == target || !e.isAlive() || e instanceof net.minecraft.world.entity.monster.Enemy) continue;
             if (player.distanceToSqr(e) < 9) return true;
         }
         return false;

@@ -67,6 +67,7 @@ public final class PolicySensor {
     public static List<Map<String,Object>> entities(ServerPlayer p,AwarenessConfig config) {
         var result=new ArrayList<Map<String,Object>>();
         for(var entity:p.level().getEntities(p,p.getBoundingBox().inflate(config.entityRadius(),config.entityVerticalRadius(),config.entityRadius()))) {
+            if(!config.sensed(entity instanceof net.minecraft.world.entity.LivingEntity,entity.isAlive())) continue;
             if(config.entityVisibility().equals("visible") && !seen(p,entity,config)) continue;
             var entry=new LinkedHashMap<String,Object>();
             entry.put("uuid",entity.getUUID().toString());

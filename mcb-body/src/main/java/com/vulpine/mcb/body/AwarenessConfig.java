@@ -45,6 +45,16 @@ public record AwarenessConfig(String preset, int horizontalRadius, int verticalR
         return new double[] {centre, Math.max(centre, maxY - SIGHT_TOP_INSET)};
     }
 
+    /**
+     * Whether the entity sensor reports an entity. A living one at health 0 stays in the world for its 20-tick
+     * death animation; a development preset leaves it out of view, since reported it was fought again as a
+     * target the body could not find (matrix 20261123T211141Z: two extra fight requests after every kill).
+     * Its drops are item entities of their own, still seen for looting. Legacy reports it (frozen).
+     */
+    public boolean sensed(boolean living, boolean alive) {
+        return preset.equals("legacy") || !living || alive;
+    }
+
     /** Whole-section scanner over loaded chunks; requires the sections-v1 terrain encoding. */
     public boolean sections() { return preset.equals("sections"); }
 

@@ -81,6 +81,11 @@ public final class AwarenessConfigTest {
             throw new AssertionError("development sight: centre, then just under the top");
         double[] zombie = spineConfig.sightHeights(64.0, 65.95);
         if(!(zombie[1]>65.8 && zombie[1]<65.95)) throw new AssertionError("a tall box's top: its head");
+        // A mob in its death animation (health 0, 20 more ticks in the world) is not sensed by a development
+        // preset: reported, it was fought again after every kill (matrix 20261123T211141Z). Legacy is frozen.
+        if(spineConfig.sensed(true,false)) throw new AssertionError("development: a dying mob is out of view");
+        if(!spineConfig.sensed(true,true) || !spineConfig.sensed(false,true)) throw new AssertionError("live mobs and items seen");
+        if(!legacy.sensed(true,false)) throw new AssertionError("legacy still reports a dying mob (frozen)");
         System.out.println("Awareness configuration: profiles, bounds, types and frozen legacy verified");
     }
 }
