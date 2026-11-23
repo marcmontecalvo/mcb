@@ -236,28 +236,17 @@ class _Model:
         return self.inv.get(tool.item, 0) * tool.dur
 
     def _find_weapon(self) -> tuple[str | None, float]:
-        """The hunt weapon by the animal rule (companion_combat ``hunt``): the biggest
-        single hit, so the fewest strikes per kill, then damage per second; the
-        tier sets the cost discount."""
-        best: tuple[float, float, int, str] | None = None
-        for item, n in self.inv.items():
-            tool = self.k.items.get(item, {}).get("tool")
-            if n > 0 and tool and tool["kind"] in WEAPON_KINDS:
-                if item in self.wear and not any(self.wear[item]):
-                    continue
-                known = combat.weapon(item)
-                rank = self.tier_rank(tool.get("tier", ""))
-                key = (
-                    known.hit() if known else 0.0,
-                    known.dps() if known else 0.0,
-                    rank,
-                    item,
-                )
-                if best is None or key > best:
-                    best = key
+        """The hunt weapon by the animal rule (``companion_combat.hunt_weapon``: the
+        bow with arrows, else the quickest kill the weapon survives); a swung
+        weapon's tier sets the cost discount."""
+        best = combat.hunt_weapon(None, self.inv, self.wear)
         if best is None:
             return None, 1.0
-        return best[3], max(MIN_WEAPON_FACTOR, 1 - WEAPON_DISCOUNT_PER_RANK * best[2])
+        tool = self.k.items.get(best.item, {}).get("tool") or {}
+        if tool.get("kind") not in WEAPON_KINDS:
+            return best.item, 1.0
+        rank = self.tier_rank(tool.get("tier", ""))
+        return best.item, max(MIN_WEAPON_FACTOR, 1 - WEAPON_DISCOUNT_PER_RANK * rank)
 
     def _index_mobs(self, sourced: set[str]) -> dict[str, list[_Mob]]:
         out: dict[str, list[_Mob]] = {}

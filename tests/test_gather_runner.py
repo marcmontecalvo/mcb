@@ -126,7 +126,9 @@ def test_shearing_and_hunting_collect_the_drops_and_reapproach():
     assert body.inventory()[M + "white_wool"] == 2
     assert body.inventory()[M + "beef"] >= 1
     walks = [c for c in body.log if c[0] == "walk"]
-    assert len(walks) >= 4  # approach, collect, re-approach after drift, collect
+    # approach the sheep, collect, collect the beef: the cow, inside the fight's
+    # radius, is chased by the fight motor rather than walked to first
+    assert len(walks) >= 3
 
 
 def test_a_hunt_chases_its_animal_with_the_fight_motor():
@@ -145,6 +147,44 @@ def test_a_hunt_chases_its_animal_with_the_fight_motor():
     assert body.inventory()[M + "beef"] >= 1
     fights = [c for c in body.log if c[0] == "fight"]
     assert fights == [("fight", "c1", "hunt", M + "iron_sword")]
+
+
+def test_a_hunt_shoots_its_animal_with_the_bow_when_it_has_arrows():
+    cow = {"uuid": "c1", "type": M + "cow", "position": [5.5, 0, 4.5]}
+    held = {M + "bow": 1, M + "arrow": 8, M + "iron_axe": 1}
+    body = FakeGatherBody(K, floor(), held, entities=[cow])
+    tasks = PlanResult((Hunt(M + "cow", 1, weapon=M + "bow"),), (), 0.0)
+
+    run_gather(tasks, body, K)
+
+    assert [c for c in body.log if c[0] == "fight"] == [
+        ("fight", "c1", "snipe", M + "bow")
+    ]
+
+
+def test_a_hunt_out_of_arrows_never_swings_the_bow():
+    # planned with the bow, the arrows ran out before the fight
+    cow = {"uuid": "c1", "type": M + "cow", "position": [5.5, 0, 4.5]}
+    body = FakeGatherBody(K, floor(), {M + "bow": 1}, entities=[cow])
+    tasks = PlanResult((Hunt(M + "cow", 1, weapon=M + "bow"),), (), 0.0)
+
+    run_gather(tasks, body, K)
+
+    assert [c for c in body.log if c[0] == "fight"] == [("fight", "c1", "hunt", None)]
+
+
+def test_a_hunt_fights_at_once_an_animal_inside_its_radius():
+    # The fight motor chases what is inside its radius itself; the walk to the
+    # animal first took about 2 s of every hunt (combat matrix, Nov 23).
+    cow = {"uuid": "c1", "type": M + "cow", "position": [5.5, 0, 4.5]}
+    far = {"uuid": "c2", "type": M + "cow", "position": [30.5, 0, 0.5]}
+    body = FakeGatherBody(K, floor(), entities=[cow, far])
+    run_gather(PlanResult((Hunt(M + "cow", 2),), (), 0.0), body, K)
+
+    moves = [c[0] if c[0] != "fight" else c[1] for c in body.log]
+    moves = [m for m in moves if m in ("walk", "c1", "c2")]
+    assert moves[0] == "c1", body.log  # fought where it stood
+    assert moves[moves.index("c2") - 1] == "walk"  # the far one is walked to first
 
 
 def test_a_hunt_whose_animal_outran_the_fight_approaches_it_again():

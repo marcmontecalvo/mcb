@@ -59,6 +59,10 @@ HUNT_RADIUS = 16
 HUNT_TICKS = 400
 HUNT_FLOOR = 6
 HUNT_SKIP = ("unreachable", "not_allowed")  # that animal, not the hunt, is the problem
+# An animal farther than this is walked to (within HUNT_WALK_TO) before the fight;
+# a nearer one is fought where it stands.
+HUNT_WALK_PAST = HUNT_RADIUS - 4
+HUNT_WALK_TO = 8.0
 # Beyond this to a placed crafting table, crafting where the body stands beats
 # a walk the planner may never price (see _Exec.craft).
 LOCAL_CRAFT_DIST = 8.0
@@ -1060,7 +1064,9 @@ class _Exec:
                 continue
             here = body.position()
             e = min(near, key=lambda e: _dist(e["position"], here))
-            body.walk_to(_cell(e["position"]), 2.0)
+            # the fight motor chases what is inside its radius itself
+            if shear or _dist(e["position"], here) > HUNT_WALK_PAST:
+                body.walk_to(_cell(e["position"]), 2.0 if shear else HUNT_WALK_TO)
             if shear:
                 shears = _held(body.inventory(), "shears")
                 result = body.use_entity(e["uuid"], shears)
@@ -1087,11 +1093,15 @@ class _Exec:
         """Fight one animal to its death with the fight motor's hunt tactic (the
         biggest single hit, crits, no sweep). Ok only for a kill; a fight that ends
         with the animal alive (it ran past the radius) is ``out_of_reach``, and one
-        with no way to it is ``unreachable``."""
+        with no way to it is ``unreachable``. The planned weapon (picked with its
+        wear known) stands unless the held weapons now call for another style: a
+        bow with arrows is shot, and a bow without them is never swung."""
         plan = combat.tactic(e["type"], self.body.inventory())
+        planned = combat.weapon(weapon) if weapon else None
+        swung = planned is not None and planned.kind in ("sword", "axe", "trident")
         result = self.body.fight(
             entity=e["uuid"],
-            weapon=weapon or plan.weapon,
+            weapon=weapon if plan.style == "hunt" and swung else plan.weapon,
             tactic=plan.wire(),
             radius=HUNT_RADIUS,
             floor=HUNT_FLOOR,

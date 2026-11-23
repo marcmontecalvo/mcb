@@ -336,6 +336,25 @@ def test_the_hunt_takes_the_weapon_with_the_biggest_single_hit():
     assert _of(armed, Hunt)[0].weapon == M + "iron_axe"
 
 
+def test_the_hunt_takes_the_bow_when_it_has_arrows():
+    inv = {M + "iron_axe": 1, M + "bow": 1, M + "arrow": 16}
+
+    armed = _ok(plan({M + "leather": 3}, inv, K), inv)
+
+    assert _of(armed, Hunt)[0].weapon == M + "bow"
+
+
+def test_the_hunt_spares_an_axe_the_kill_would_break():
+    inv = [
+        {"item": M + "iron_axe", "count": 1, "damage": 249, "max_damage": 250},
+        {"item": M + "iron_sword", "count": 1, "damage": 0, "max_damage": 250},
+    ]
+
+    armed = plan({M + "leather": 3}, inv, K)
+
+    assert _of(armed, Hunt)[0].weapon == M + "iron_sword"
+
+
 def test_known_mob_entities_are_cheaper_to_find():
     known = plan({M + "leather": 3}, {}, K, known_blocks={M + "cow"})
 

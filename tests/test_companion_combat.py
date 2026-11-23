@@ -150,13 +150,58 @@ def test_an_enderman_is_fought_in_melee_and_never_stared_at():
     assert t.style == "melee" and t.no_gaze
 
 
-def test_animals_are_hunted_for_the_biggest_single_hit():
+def test_animals_are_hunted_with_the_bow_when_it_has_arrows():
+    # The owner's rule: bow and arrows first; it is shot, never swung, so a pig
+    # that wanders in close is still shot (no melee backup), and it is never fled.
     t = cc.tactic(M + "cow", inv("iron_sword", "iron_axe", "bow", arrows=8))
-    # an iron axe crit (13.5) one-shots a cow; the sword (9) does not; no arrows wasted
+    assert t == cc.Tactic("snipe", M + "bow", keep=cc.HUNT_KEEP)
+    assert t.keep[0] == 0 and t.melee is None
+
+
+def test_a_bow_without_arrows_is_never_swung_at_an_animal():
+    t = cc.tactic(M + "pig", inv("bow"))
+    assert t == cc.Tactic("hunt", None, crit=True, sweep=False)  # punch it
+    assert cc.tactic(M + "pig", {}) == t  # bare hands still hunt
+
+
+def test_animals_are_hunted_with_the_quickest_kill():
+    # an iron axe crit (13.5) one-shots a cow (10 HP); the sword's (9) does not
+    t = cc.tactic(M + "cow", inv("iron_sword", "iron_axe"))
     assert (t.style, t.weapon, t.crit) == ("hunt", M + "iron_axe", True)
     assert t.sweep is False
-    # bare hands still hunt
-    assert cc.tactic(M + "pig", {}) == cc.Tactic("hunt", None, crit=True, sweep=False)
+    # both one-shot: the sword wears one use a hit, the axe two
+    assert cc.tactic(M + "cow", inv("diamond_sword", "iron_axe")).weapon == (
+        M + "diamond_sword"
+    )
+    # a chicken (4 HP) dies to any crit: the cheapest wear wins
+    assert cc.tactic(M + "chicken", inv("wooden_sword", "iron_axe")).weapon == (
+        M + "wooden_sword"
+    )
+
+
+def test_a_hunt_spares_a_weapon_the_kill_would_break():
+    # the axe has one use left and spends two a hit
+    worn = cc.tactic(M + "pig", inv("iron_axe", "iron_sword"), {M + "iron_axe": [1]})
+    assert worn.weapon == M + "iron_sword"
+    # a piece with uses left is enough
+    fresh = {M + "iron_axe": [1, 200]}
+    assert cc.tactic(M + "pig", inv("iron_axe", "iron_sword"), fresh).weapon == (
+        M + "iron_axe"
+    )
+    # nothing that survives the kill: punch it
+    gone = cc.tactic(M + "pig", inv("iron_sword"), {M + "iron_sword": [1]})
+    assert gone.weapon is None
+
+
+def test_a_spear_alone_hunts_with_its_jab():
+    t = cc.tactic(M + "pig", inv("iron_spear"))
+    assert (t.style, t.weapon, t.keep) == ("poke", M + "iron_spear", cc.POKE_KEEP)
+
+
+def test_a_hunt_weapon_is_picked_for_a_generic_animal():
+    assert cc.hunt_weapon(None, inv("iron_sword", "iron_axe")).item == M + "iron_axe"
+    assert cc.hunt_weapon(None, inv("bow", "iron_axe", arrows=1)).item == M + "bow"
+    assert cc.hunt_weapon(None, inv("bow")) is None
 
 
 def test_unarmed_against_a_mob_has_no_tactic():

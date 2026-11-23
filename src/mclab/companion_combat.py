@@ -5,6 +5,7 @@ timing, cooldowns, aim). Weapon numbers are from the 26.3 bytecode
 (docs/COMBAT_MECHANICS_26.3.md); the plan is docs/COMPANION_COMBAT_PLAN_2026-11-23.md.
 """
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -19,8 +20,23 @@ POKE_KEEP = (2.5, 4.0)
 CREEPER_FUSE = 3.0
 FUSE_KEEP = (3.6, 4.4)
 SNIPE_KEEP = (8.0, 15.0)  # outside a skeleton's comfort, inside its 15-block range
+# An animal never fights back: shoot it from wherever, closing in past 8 blocks
+# (a panicked animal zigzags, and the nearer shot lands more often).
+HUNT_KEEP = (0.0, 8.0)
 ARROWS = frozenset({M + "arrow", M + "spectral_arrow", M + "tipped_arrow"})
 MELEE_KINDS = ("sword", "axe", "trident", "spear")
+# Max health of the animals hunted for drops (LivingEntity attributes, 26.3);
+# an animal not listed is taken as a pig's.
+ANIMAL_HEALTH = {
+    M + n: float(hp)
+    for n, hp in {
+        "pig": 10, "cow": 10, "mooshroom": 10, "sheep": 8, "chicken": 4,
+        "rabbit": 3, "goat": 10, "cod": 3, "salmon": 3, "tropical_fish": 3,
+        "pufferfish": 3, "squid": 10, "glow_squid": 10, "turtle": 30,
+        "frog": 10, "armadillo": 12, "camel": 32, "sniffer": 14,
+    }.items()
+}  # fmt: skip
+DEFAULT_ANIMAL_HEALTH = 10.0
 
 
 @dataclass(frozen=True)
@@ -37,9 +53,21 @@ class Weapon:
     def hit(self) -> float:
         return self.damage * (CRIT if self.crits else 1)
 
+    @property
+    def wear(self) -> int:
+        """Uses a hit spends (the Weapon component: axes 2, the rest 1)."""
+        return 2 if self.kind == "axe" else 1
+
+    def cycle(self) -> float:
+        """Ticks between full-strength hits (a crit waits for its jump)."""
+        return max(self.cooldown, CRIT_CYCLE if self.crits else 1)
+
     def dps(self) -> float:
         """Damage per tick with the best technique (crits where they apply)."""
-        return self.hit() / max(self.cooldown, CRIT_CYCLE if self.crits else 1)
+        return self.hit() / self.cycle()
+
+    def hits_to_kill(self, health: float) -> int:
+        return max(1, math.ceil(health / self.hit() - 1e-9))
 
 
 def _table() -> dict[str, Weapon]:
@@ -168,11 +196,42 @@ def _best(inventory, kinds) -> Weapon | None:
     return max(held, key=lambda w: (w.dps(), w.item)) if held else None
 
 
-def tactic(target: str, inventory: Mapping[str, int]) -> Tactic:
+Wear = Mapping[str, list[int]]  # remaining uses of each held piece, by item
+
+
+def _arrows(inventory: Mapping[str, int]) -> bool:
+    return any(inventory.get(a, 0) > 0 for a in ARROWS)
+
+
+def hunt_weapon(
+    target: str | None, inventory: Mapping[str, int], wear: Wear | None = None
+) -> Weapon | None:
+    """What an animal is hunted with (None: the fist). The owner's rule: the bow
+    while there are arrows (shot, never swung); else the held weapon that kills it
+    in the fewest ticks, then with the least wear, among those the kill does not
+    break. A piece's wear is known per piece (``wear``); without it, any survives."""
+    if _arrows(inventory) and (bow := _best(inventory, ("bow",))) is not None:
+        return bow
+    health = ANIMAL_HEALTH.get(target or "", DEFAULT_ANIMAL_HEALTH)
+    best, key = None, None
+    for w in _held(inventory, MELEE_KINDS):
+        hits = w.hits_to_kill(health)
+        spend = hits * w.wear
+        if wear is not None and w.item in wear and max(wear[w.item]) < spend:
+            continue  # this kill would break every piece of it
+        k = (-(hits - 1) * w.cycle(), -spend, w.hit(), w.item)
+        if key is None or k > key:
+            best, key = w, k
+    return best
+
+
+def tactic(
+    target: str, inventory: Mapping[str, int], wear: Wear | None = None
+) -> Tactic:
     """The first style in the target's profile that the held weapons allow."""
     profile = PROFILES.get(target, HUNT)
     for style in profile.styles:
-        chosen = _style(style, inventory)
+        chosen = _style(style, inventory, target, wear)
         if chosen is not None:
             return (
                 Tactic(**{**chosen.__dict__, "no_gaze": True})
@@ -182,10 +241,10 @@ def tactic(target: str, inventory: Mapping[str, int]) -> Tactic:
     return AVOID
 
 
-def _style(style: str, inventory) -> Tactic | None:
+def _style(style: str, inventory, target: str = "", wear=None) -> Tactic | None:
     if style == "snipe":
         bow = _best(inventory, ("bow",))
-        if bow is None or not any(inventory.get(a, 0) > 0 for a in ARROWS):
+        if bow is None or not _arrows(inventory):
             return None
         backup = _best(inventory, MELEE_KINDS)
         return Tactic(
@@ -205,8 +264,11 @@ def _style(style: str, inventory) -> Tactic | None:
         best = _best(inventory, ("spear",))
         return Tactic("poke", best.item, keep=FUSE_KEEP) if best else None
     if style == "hunt":
-        held = _held(inventory, MELEE_KINDS)
-        best = max(held, key=lambda w: (w.hit(), w.dps())) if held else None
+        best = hunt_weapon(target, inventory, wear)
+        if best is not None and best.kind == "bow":
+            return Tactic("snipe", best.item, keep=HUNT_KEEP)
+        if best is not None and best.kind == "spear":
+            return Tactic("poke", best.item, keep=POKE_KEEP)
         return Tactic(
             "hunt",
             best.item if best else None,
