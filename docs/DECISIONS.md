@@ -423,9 +423,15 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   spawned; a retired adapter never touches a later body of the same name (it killed
   the respawned companion every tick), and retired adapters whose entity is gone
   are dropped, so dying for hours never reaches `MAX_RETIRED_BODIES`.
+- **"Wood" is any log (Nov 23).** In a spruce-only biome an `oak_log` gather swept
+  7 minutes and found nothing. `gather` takes a group tag (`#minecraft:logs`; the
+  words "wood", "logs" and "planks" map to tags) and the planner treats it as one
+  member with every other member as a stand-in: the runner already searches
+  stand-ins together and takes the nearest, held members of any kind count, and a
+  crafted group (planks) takes any log in its recipe slot. The member planned is one
+  seen nearby, else the cheapest by the planner's cost (held ingredients, then the
+  oak preference). A named id (`spruce_log`) still means exactly that log.
 - **Open:** LAN access for a second PC (the game port binds loopback for now),
   rotating a long session's `events.sqlite3`, and night shelter and defence (B5)
   before the bot is left alone for hours: the first live gather ended "slain by
-  Zombie" at night. A "wood" request names one log type; in a spruce-only biome
-  `oak_log` is honestly `not_found` after a 7-minute sweep, so the talker and skill
-  should pick the log type the bot has seen (or gather any log).
+  Zombie" at night.

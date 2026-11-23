@@ -18,6 +18,11 @@ JOB_ID = re.compile(r"[A-Za-z0-9_-]{1,40}")
 COORD = 30_000_000
 Y_MIN, Y_MAX = -64, 320
 MAX_COUNT = 2304  # a full inventory of 64-stacks
+# Words a player says for a group of items. "wood" is any log, whichever is closest.
+GROUP_WORDS = {
+    **dict.fromkeys(("wood", "log", "logs"), "#minecraft:logs"),
+    **dict.fromkeys(("plank", "planks"), "#minecraft:planks"),
+}
 SAY_MAX = 256
 
 SOURCES = ("mcp", "api", "chat", "command")
@@ -103,7 +108,9 @@ INTENTS = {
     ),
     "gather": (
         "Collect an item: mine, chop, craft and smelt as needed until the bot holds "
-        "`count` of it. Item is a Minecraft id such as oak_log or iron_ingot.",
+        "`count` of it. Item is a Minecraft id such as oak_log or iron_ingot, or a "
+        "group tag when any kind will do: #minecraft:logs for wood (any log, the "
+        "nearest), #minecraft:planks, #minecraft:wool.",
         {
             "item": {"type": "string"},
             "count": {"type": "integer", "minimum": 1, "maximum": MAX_COUNT},
@@ -220,11 +227,19 @@ def _place_name(args, key="place"):
 
 
 def _item(args):
+    """An item id, or a group of items as a tag (``#minecraft:logs``: any wood).
+    Plain words for the common groups are taken too ("wood", "planks")."""
     value = args.get("item")
-    found = ITEM.fullmatch(value.strip().lower()) if isinstance(value, str) else None
+    said = value.strip().lower() if isinstance(value, str) else ""
+    said = GROUP_WORDS.get(said, said)
+    tag = said.startswith("#")
+    found = ITEM.fullmatch(said.removeprefix("#"))
     if not found:
-        raise ValueError("item must be a Minecraft item id such as oak_log")
-    return "minecraft:" + found.group(1)
+        raise ValueError(
+            "item must be a Minecraft item id such as oak_log, or a group such as "
+            "#minecraft:logs"
+        )
+    return ("#" if tag else "") + "minecraft:" + found.group(1)
 
 
 def _say(args):

@@ -758,7 +758,9 @@ def test_follow_an_unseen_player_fails_and_a_dead_body_raises(make):
 def gather_env(monkeypatch):
     from mclab import gather_plan, gather_runner
 
-    env = SimpleNamespace(plan=None, report=GatherReport(stop="done"), gain=0, calls=[])
+    env = SimpleNamespace(
+        plan=None, report=GatherReport(stop="done"), gain=0, adds=None, calls=[]
+    )
 
     def fake_plan(wanted, inventory, knowledge, stations, **kw):
         env.calls.append(("plan", dict(wanted), kw))
@@ -766,8 +768,8 @@ def gather_env(monkeypatch):
 
     def fake_run(plan_result, body, knowledge, wanted, *, state, opts):
         env.calls.append(("run", dict(wanted)))
-        for item in wanted:
-            body.inv[item] = body.inv.get(item, 0) + env.gain
+        for item, n in (env.adds or dict.fromkeys(wanted, env.gain)).items():
+            body.inv[item] = body.inv.get(item, 0) + n
         return env.report
 
     monkeypatch.setattr(gather_plan, "plan", fake_plan)
@@ -827,6 +829,54 @@ def test_gather_short_and_died(make, gather_env):
     gather_env.report = GatherReport(stop="died")
     with pytest.raises(BodyDied):
         session.run("gather", _gather(), Actor("api"), _progress()[1])
+
+
+LOGS = "#minecraft:logs"
+
+
+def _logs_knowledge():
+    return SimpleNamespace(
+        foods={},
+        item_tags={
+            LOGS: ("minecraft:oak_log", "minecraft:spruce_log", "minecraft:birch_log")
+        },
+    )
+
+
+def test_a_group_counts_every_member_held(make, gather_env):
+    session, *_ = _started(make, knowledge=_logs_knowledge)
+    session.body.inv = {"minecraft:spruce_log": 3, "minecraft:birch_log": 2}
+    result = session.run("gather", _gather(LOGS), Actor("api"), _progress()[1])
+    assert result == {"item": LOGS, "held": 5, "gathered": 0}
+    assert gather_env.calls == []
+
+
+def test_a_group_is_planned_as_the_group(make, gather_env):
+    session, *_ = _started(make, knowledge=_logs_knowledge)
+    session.body.inv = {"minecraft:oak_log": 1}
+    gather_env.adds = {"minecraft:spruce_log": 2, "minecraft:birch_log": 1}
+    result = session.run("gather", _gather(LOGS), Actor("api"), _progress()[1])
+    assert gather_env.calls[0][1] == {LOGS: 4}
+    assert gather_env.calls[1] == ("run", {LOGS: 4})
+    assert result["held"] == 4
+    assert result["gathered"] == 3
+
+
+def test_a_group_short_reads_as_words(make, gather_env):
+    session, *_ = _started(make, knowledge=_logs_knowledge)
+    gather_env.adds = {"minecraft:spruce_log": 1}
+    gather_env.report = GatherReport(stop="stalled", failures=[("t", "none left")])
+    with pytest.raises(cs.JobFailed, match=r"I have 1/4 logs; "):
+        session.run("gather", _gather(LOGS), Actor("api"), _progress()[1])
+
+
+def test_an_unknown_group_fails_before_planning(make, gather_env):
+    session, *_ = _started(make, knowledge=_logs_knowledge)
+    with pytest.raises(cs.JobFailed, match="no group of items called no such tag"):
+        session.run(
+            "gather", _gather("#minecraft:no_such_tag"), Actor("api"), _progress()[1]
+        )
+    assert gather_env.calls == []
 
 
 def test_a_failed_container_flush_does_not_hide_the_outcome(make, gather_env):

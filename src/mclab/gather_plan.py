@@ -197,6 +197,8 @@ class _Model:
         self.prefer = prefer
         self.known_blocks = frozenset(known_blocks)
         self.flex: frozenset[str] = frozenset()  # kit items: any stand-in will do
+        # group targets: the member planned -> every member (any log for "wood")
+        self.groups: dict[str, frozenset[str]] = {}
         self.rank_of = {
             n: i for i, n in enumerate(t for t in k.drop_tiers if t != "silk_touch")
         }
@@ -740,7 +742,8 @@ class _Expander:
                 else self.need.get(tool, 0) + n
             )
         self.have = dict(m.inv)
-        self.alts: dict[str, set[str]] = {}  # ingredient -> stand-ins
+        # ingredient -> stand-ins; a group target starts with its members
+        self.alts: dict[str, set[str]] = {r: set(g) for r, g in m.groups.items()}
         self.best = dict(m.best)
         self.uses: Counter[str] = Counter()
         self.tasks: dict[str, list[Task]] = {}
@@ -1178,7 +1181,11 @@ def plan(
         known_blocks,
         DEFAULT_PREFER if prefer is None else prefer,
     )
-    goal = {i: n for i, n in targets.items() if n > 0}
+    goal, m.groups, group_missing = _group_targets(
+        m, {i: n for i, n in targets.items() if n > 0}, counts
+    )
+    flexible = frozenset(m.groups)
+    m.flex = flexible
     if starter_tools and STONE_PICKAXE in goal:
         goal = _with_starter_tools(goal, counts)
     food_gap = (
@@ -1189,7 +1196,7 @@ def plan(
     ex, ordered = _best_expansion(m, goal)
     if kit is not None and (extra := kit_targets(ordered, counts, knowledge, kit)):
         # ore ahead: carry a table, spare pickaxes and logs down (gather_kit)
-        m.flex = frozenset(extra) - goal.keys()
+        m.flex = (frozenset(extra) - goal.keys()) | flexible
         goal = {**goal, **{i: max(n, goal.get(i, 0)) for i, n in extra.items()}}
         ex, ordered = _best_expansion(m, goal)
     done = add_storage(ordered, counts, boxes, knowledge, goal, keep=keep)
@@ -1198,9 +1205,53 @@ def plan(
             targets, inventory, knowledge, stations, boxes, food_target,
             executable_stations, known_blocks, prefer, starter_tools, kit, keep,
         )  # fmt: skip
-    missing = (*ex.missing, *([food_gap] if food_gap else ()))
+    missing = (*group_missing, *ex.missing, *([food_gap] if food_gap else ()))
     tasks = _starter_first(done.tasks) if starter_tools else done.tasks
     return PlanResult(tasks, missing, ex.total, dict(ex.surplus), done.stored)
+
+
+def group_members(knowledge: Knowledge, item: str) -> tuple[str, ...]:
+    """The items a target stands for: a tag's members (``#minecraft:logs``: any wood),
+    else the item itself."""
+    if item.startswith("#"):
+        return tuple(knowledge.item_tags.get(item, ()))
+    return (item,)
+
+
+def _group_targets(
+    m: _Model, goal: Mapping[str, int], counts: Mapping[str, int]
+) -> tuple[dict[str, int], dict[str, frozenset[str]], list[Missing]]:
+    """Group targets (``#tag``) as one member. Members held of any kind count; the
+    rest is planned as one member with every other member as a stand-in, so the runner
+    takes whichever is closest (and a crafted member's ingredient slot takes any of the
+    members' ingredients: any log for planks). The member planned is one seen nearby,
+    else the cheapest to get (held ingredients, then the oak preference). Each re-plan
+    recomputes this from the inventory. Returns (goal, {member planned: members},
+    missing)."""
+    out: dict[str, int] = {}
+    groups: dict[str, frozenset[str]] = {}
+    missing: list[Missing] = []
+    for item, n in goal.items():
+        if not item.startswith("#"):
+            out[item] = max(n, out.get(item, 0))
+            continue
+        members = group_members(m.k, item)
+        found = [i for i in members if m.cost.get(i, INF) < INF]
+        if not found:
+            missing.append(Missing(item, "no member of this group can be got"))
+            continue
+        need = n - sum(counts.get(i, 0) for i in members)
+        if need <= 0:
+            continue
+        seen = [
+            i
+            for i in found
+            if any(h.block in m.known_blocks for h in m.gathers.get(i, ()))
+        ]
+        rep = min(seen or found, key=lambda i: (m.cost[i], m.prefer.get(i, 1.0), i))
+        out[rep] = max(out.get(rep, 0), counts.get(rep, 0) + need)
+        groups[rep] = frozenset(members)
+    return out, groups, missing
 
 
 STONE_PICKAXE = "minecraft:stone_pickaxe"

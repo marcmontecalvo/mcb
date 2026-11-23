@@ -239,7 +239,8 @@ class HostBody(CompanionBody):
 
 
 def _short(item: str) -> str:
-    return item.removeprefix("minecraft:").replace("_", " ")
+    """An id as words: ``minecraft:oak_log`` -> oak log, ``#minecraft:logs`` -> logs."""
+    return item.removeprefix("#").removeprefix("minecraft:").replace("_", " ")
 
 
 def _where(pos) -> str:
@@ -671,12 +672,20 @@ class Session:
             self.body.follow = None
 
     def gather(self, args: dict, actor, progress) -> dict:
-        from mclab.gather_plan import plan
+        from mclab.gather_plan import group_members, plan
         from mclab.gather_runner import flush_containers, run_gather
 
         item, count = args["item"], args["count"]
         knowledge = self.knowledge()
-        held = self.body.inventory().get(item, 0)
+        members = group_members(knowledge, item)
+        if not members:
+            raise JobFailed(f"I know no group of items called {_short(item)}")
+
+        def holding() -> int:
+            inventory = self.body.inventory()
+            return sum(inventory.get(i, 0) for i in members)
+
+        held = holding()
         if held >= count:
             return {"item": item, "held": held, "gathered": 0}
         progress(stage="planning", done=held, total=count)
@@ -708,7 +717,7 @@ class Session:
             self._flush(flush_containers)
         if report.stop == "died":
             raise BodyDied("died while gathering")
-        now = self.body.inventory().get(item, 0)
+        now = holding()
         if now >= count:
             return {
                 "item": item,

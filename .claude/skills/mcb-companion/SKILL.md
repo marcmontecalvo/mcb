@@ -51,9 +51,11 @@ queue first) or `next` (queue behind what is already there).
   ask; do not guess coordinates.
 - Named places: `list_places`, then `goto {place}`. Save one with
   `remember_place {name: "home"}` (where the bot stands) or with x/y/z.
-- Items are Minecraft ids: "wood" is `oak_log`, "planks" `oak_planks`, "iron" is
-  `iron_ingot`, "stone" `cobblestone`. `gather` counts what the bot holds in total
-  and crafts or smelts as needed.
+- Items are Minecraft ids: "iron" is `iron_ingot`, "stone" `cobblestone`. When any
+  kind will do, give a group tag: "wood"/"logs" is `#minecraft:logs` (any log, the
+  nearest trees), "planks" `#minecraft:planks`; name one (`spruce_log`) only when
+  the player does. `gather` counts what the bot holds in total (every member of a
+  group) and crafts or smelts as needed.
 - Templates are names of saved builds (`builds/`). If you do not know the name,
   ask the player which template; do not invent one.
 - `build` without x/y/z builds beside the bot; give the origin corner to place it.
@@ -74,7 +76,7 @@ Come here:
 3. `wait_job {job_id: "j7"}` -> succeeded. Say so.
 
 Get logs, then follow:
-1. `gather {item: "oak_log", count: 32}` -> `j8`.
+1. `gather {item: "#minecraft:logs", count: 32}` -> `j8`.
 2. `follow {player: "Marc", when: "next"}` queues behind it.
 3. `wait_job {job_id: "j8", timeout_s: 60}` repeatedly, reporting `progress.detail`.
 

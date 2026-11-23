@@ -77,6 +77,35 @@ def test_gather_normalizes_the_item_id():
         ci.validate("gather", {"item": "othermod:thing", "count": 1})
 
 
+@pytest.mark.parametrize(
+    ("said", "item"),
+    [
+        ("wood", "#minecraft:logs"),
+        ("Logs", "#minecraft:logs"),
+        ("log", "#minecraft:logs"),
+        ("planks", "#minecraft:planks"),
+        ("plank", "#minecraft:planks"),
+        ("#minecraft:logs", "#minecraft:logs"),
+        ("#wool", "#minecraft:wool"),
+    ],
+)
+def test_gather_takes_a_group_of_items(said, item):
+    # "get wood" means any log, not oak: a tag stands for every member
+    assert ci.validate("gather", {"item": said, "count": 4})["item"] == item
+
+
+def test_a_group_must_be_a_tag_id():
+    with pytest.raises(ValueError, match="item"):
+        ci.validate("gather", {"item": "#Not A Tag", "count": 1})
+    with pytest.raises(ValueError, match="item"):
+        ci.validate("gather", {"item": "#othermod:logs", "count": 1})
+
+
+def test_the_gather_tool_tells_a_model_about_groups():
+    (gather,) = [t for t in ci.tool_schemas() if t["name"] == "gather"]
+    assert "#minecraft:logs" in gather["description"]
+
+
 def test_follow_defaults_and_bounds():
     assert ci.validate("follow", {"player": "Marc"}) == {
         "player": "Marc",
