@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "default",
+  "name": "MCBot",
+  "display_name": "MCBot",
+  "roles": {
+    "talker": "atom-qwen-chat"
+  },
+  "talker": {
+    "deadline_s": 20,
+    "max_tool_rounds": 4,
+    "history_turns": 6
+  }
+}
