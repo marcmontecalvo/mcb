@@ -5,6 +5,13 @@ courses, runs natural attempts and scores any named player. This client keeps th
 single-bridge interface the harness was written against: it routes each op to the
 right mod, merges both event streams, and overlays lab state (run state, episode,
 fixture) onto body state.
+
+Body-only mode (an instance config with ``lab_mod: false`` or no ``lab_port``, e.g.
+the play server): no lab request is ever made, and the session state is the body's
+own, with a ready body shown as ``running`` (the long-lived companion session is the
+"episode"); ``body_state`` keeps the raw body state. The companion host also sets
+``budget = None`` (no request budget), calls ``trim`` from its idle loop and sets
+``cancel_check``, which every ``state()`` poll runs first.
 """
 
 import http.client
@@ -13,6 +20,7 @@ import json
 import threading
 import time
 import urllib.error
+from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
@@ -84,13 +92,18 @@ class Bridge:
         self.launch_id = state["launch_id"]
         self._token = state["token"]
         self.root = f"http://127.0.0.1:{settings['bridge_port']}"
-        self.lab_root = f"http://127.0.0.1:{settings['lab_port']}"
         self._connection = http.client.HTTPConnection(
             "127.0.0.1", settings["bridge_port"], timeout=4
         )
-        self._lab_connection = http.client.HTTPConnection(
-            "127.0.0.1", settings["lab_port"], timeout=4
-        )
+        # Body-only: an instance without the mcb-lab mod (the play server).
+        self.lab = bool(settings.get("lab_mod", True)) and "lab_port" in settings
+        self.lab_root = None
+        self._lab_connection = None
+        if self.lab:
+            self.lab_root = f"http://127.0.0.1:{settings['lab_port']}"
+            self._lab_connection = http.client.HTTPConnection(
+                "127.0.0.1", settings["lab_port"], timeout=4
+            )
         self.run_id = "qualification-" + uuid4().hex[:12]
         self.episode_id = "proof-" + uuid4().hex[:12]
         self.body_id = "body-" + uuid4().hex[:12]
@@ -105,7 +118,13 @@ class Bridge:
         self.samples: list[dict] = []
         self.last_tick = -1
         self.last_heartbeat = 0.0
-        self.budget = read_json(ROOT / "config/qualification.json")["request_budget"]
+        # None: no budget (the long-lived companion host)
+        self.budget: int | None = read_json(ROOT / "config/qualification.json")[
+            "request_budget"
+        ]
+        # Run first by every state() poll, so any blocking wait can be cancelled
+        # (the companion host raises its JobCancelled from it).
+        self.cancel_check: Callable[[], None] | None = None
         output.parent.mkdir(parents=True, exist_ok=True)
         # The log is a SQLite store; callers still pass <run>/events.jsonl.
         self.stream = EventWriter(output)
@@ -141,7 +160,7 @@ class Bridge:
                 # both snapshots. Do not admit commands until both mods are ready.
                 self.http("/state")
                 body = self.http("/events?after=0")
-                lab = self.http("/lab/events?after=0")
+                lab = self.http("/lab/events?after=0") if self.lab else None
                 break
             except urllib.error.HTTPError:
                 raise
@@ -150,7 +169,7 @@ class Bridge:
                     raise
                 time.sleep(0.1)
         self.cursor = body["latest_sequence"]
-        self.lab_cursor = lab["latest_sequence"]
+        self.lab_cursor = lab["latest_sequence"] if lab is not None else 0
         self.record(
             "stream_open",
             {
@@ -227,9 +246,15 @@ class Bridge:
     def http(self, path: str, payload: dict | None = None) -> dict:
         """'/lab/...' goes to mcb-lab; /state and /policy merge both; else mcb-body."""
         if path.startswith("/lab/"):
+            if not self.lab:
+                raise RuntimeError(
+                    f"{path} needs the mcb-lab mod; this server has none"
+                )
             return self._raw(True, path[4:], payload)
         if path in {"/state", "/policy"} and payload is None:
             body = self._raw(False, path, None)
+            if not self.lab:
+                return session_view(body)
             return merge(
                 body, self._raw(True, "/state", None), policy=path == "/policy"
             )
@@ -237,7 +262,7 @@ class Bridge:
 
     def envelope(self, op: str, **fields) -> dict:
         self.sequence += 1
-        if self.sequence > self.budget:
+        if self.budget is not None and self.sequence > self.budget:
             raise RuntimeError("Qualification request budget exhausted")
         return {
             "schema_version": 1,
@@ -284,7 +309,8 @@ class Bridge:
             return request
         if op == "despawn":
             request = self._send("despawn")
-            self._send("stop", reason="despawn_cancelled")
+            if self.lab:
+                self._send("stop", reason="despawn_cancelled")
             self.body_name = None
             self.lab_watchdog = False
             return request
@@ -341,7 +367,7 @@ class Bridge:
 
     def send_raw(self, payload: dict, *, motor: bool = False, lab: bool | None = None):
         """Submits one envelope; the op picks the target mod unless `lab` is given."""
-        if self.submitted >= self.budget:
+        if self.budget is not None and self.submitted >= self.budget:
             raise RuntimeError("Qualification request budget exhausted")
         self.submitted += 1
         self.silence.touch()
@@ -357,21 +383,28 @@ class Bridge:
 
     def drain(self) -> list[dict]:
         body = self.http(f"/events?after={self.cursor}")
-        lab = self.http(f"/lab/events?after={self.lab_cursor}")
-        for batch in (body, lab):
+        batches = [body]
+        if self.lab:
+            batches.append(self.http(f"/lab/events?after={self.lab_cursor}"))
+        for batch in batches:
             if batch["gap"]:
                 self.record("event_gap", batch)
                 raise RuntimeError("Critical qualification event gap; attempt invalid")
         # Stable sort keeps each mod's own order within a tick.
-        merged = sorted(body["events"] + lab["events"], key=lambda e: e["tick"])
+        merged = sorted(
+            (e for batch in batches for e in batch["events"]), key=lambda e: e["tick"]
+        )
         for event in merged:
             self.record("server_event", event)
             self.events.append(event)
         self.cursor = body["latest_sequence"]
-        self.lab_cursor = lab["latest_sequence"]
+        if self.lab:
+            self.lab_cursor = batches[1]["latest_sequence"]
         return merged
 
     def state(self, *, heartbeat=True) -> dict:
+        if self.cancel_check is not None:
+            self.cancel_check()
         if heartbeat and time.monotonic() - self.last_heartbeat >= 0.5:
             self.send("heartbeat")
             self.last_heartbeat = time.monotonic()
@@ -399,6 +432,14 @@ class Bridge:
             timeout=duration / 10 + 5,
             heartbeat=heartbeat,
         )
+
+    def trim(self, keep: int = 2000) -> None:
+        """Bound the in-memory event and observation lists of a long-lived session
+        (the recording keeps everything). Call it between waits, never inside one:
+        an acknowledgement looks its event up in ``events``."""
+        for kept in (self.events, self.samples):
+            if len(kept) > keep:
+                del kept[:-keep]
 
     # 20 s: a 5.5 s server pause outlived the old 5 s and ended a healthy build
     # at 423 blocks (run 20261110T035112317338Z, cancel_plan ack)
@@ -438,7 +479,8 @@ class Bridge:
         finally:
             self.silence.close()
             self._connection.close()
-            self._lab_connection.close()
+            if self._lab_connection is not None:
+                self._lab_connection.close()
             self.stream.close()
 
 
@@ -446,6 +488,16 @@ def _legacy_awareness() -> dict:
     from mclab.awareness import Awareness
 
     return Awareness().payload()
+
+
+def session_view(body: dict) -> dict:
+    """Body-only state: a ready body is a running session; any other body state
+    (preparing, settling, dead, disconnected_or_dead, ...) shows as it is."""
+    value = dict(body)
+    value["body_state"] = body.get("state", "idle")
+    if value["body_state"] == "ready":
+        value["state"] = "running"
+    return value
 
 
 def merge(body: dict, lab: dict, *, policy: bool) -> dict:

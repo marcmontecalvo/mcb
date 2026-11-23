@@ -483,7 +483,10 @@ def test_end_to_end_subprocess_with_fake_host(tmp_path):
     finally:
         srv.shutdown()
     assert proc.returncode == 0, proc.stderr
-    replies = [json.loads(line) for line in proc.stdout.splitlines()]
+    # tool calls answer as they finish, so match replies by id
+    replies = sorted(
+        (json.loads(line) for line in proc.stdout.splitlines()), key=lambda r: r["id"]
+    )
     assert [r["id"] for r in replies] == [1, 2, 3]
     assert replies[1]["result"]["structuredContent"]["result"] == {
         "echo": "status",

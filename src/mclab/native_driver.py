@@ -708,6 +708,9 @@ def drive_native(client, controller, wall_timeout):
                     on_pass(
                         position, route=route_ahead(active_route, follower, active_id)
                     )
+            follow = getattr(controller, "follow", None)
+            if follow is not None:  # follow a player: the goal moves with them
+                follow.update(controller, observation)
             # Companion goto: a controller may end the drive without ending the episode.
             stop_reason = getattr(controller, "stop_reason", None)
             if stop_reason is not None and (why := stop_reason(observation)):

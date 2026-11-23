@@ -295,6 +295,23 @@ class SegmentedController(NavigationController):
         self.cancelled = False
         self.mode = "planning"
 
+    def retarget(self, goal):
+        """Move the goal without stopping (follow a player).
+
+        The route being driven is kept; the next re-plan or search heads for the
+        new goal. replace_goal cancels instead, which stops the motor (a new
+        goal_revision makes drive_native cancel the route), so this keeps the
+        revision. Searches toward the old goal are cancelled in the body planner.
+        """
+        self.goal = tuple(goal)
+        self.plan_tail = ()
+        if isinstance(self.search, body_search.BodySearch):
+            self.search.cancel()
+        self.search = None
+        self._discard_prefetch()
+        self.refreshed = None
+        self.avoid_goal_stances.clear()  # stances refused for the old goal
+
     def replace_goal(self, goal):
         self.cancel()
         self.goal = tuple(goal)

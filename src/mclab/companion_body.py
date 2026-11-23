@@ -2777,6 +2777,21 @@ def session_archive(
     )
 
 
+def await_sampled_stream(bridge, timeout: float = 60.0) -> dict:
+    """Wait on /state (never /policy) until the stream runs and the sensor has
+    sampled: before that the terrain batch is an empty placeholder (tick -100).
+    Shared by start_session (lab episode) and the companion host's own spawn."""
+    deadline = time.monotonic() + timeout
+    while True:
+        state = bridge.http("/state")
+        sampled = state.get("awareness", {}).get("coverage", {}).get("sample_tick")
+        if state["state"] == "running" and isinstance(sampled, int) and sampled >= 0:
+            return state
+        if time.monotonic() > deadline:
+            raise RuntimeError("Policy stream did not reach a sampled running state")
+        time.sleep(0.05)
+
+
 def start_session(
     bridge,
     folder,
@@ -2838,23 +2853,7 @@ def start_session(
             terrain_encoding="sections-v1",
         )
         bridge.acknowledge(request, "natural_accepted", timeout=10)
-        deadline = time.monotonic() + 60
-        # Wait on /state (never /policy) until the stream runs and the sensor has
-        # sampled: before that the terrain batch is an empty placeholder (tick -100).
-        while True:
-            state = bridge.http("/state")
-            sampled = state.get("awareness", {}).get("coverage", {}).get("sample_tick")
-            if (
-                state["state"] == "running"
-                and isinstance(sampled, int)
-                and sampled >= 0
-            ):
-                break
-            if time.monotonic() > deadline:
-                raise RuntimeError(
-                    "Policy stream did not reach a sampled running state"
-                )
-            time.sleep(0.05)
+        await_sampled_stream(bridge)
     except BaseException:
         memory.close()
         raise
