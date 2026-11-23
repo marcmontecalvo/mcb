@@ -183,14 +183,19 @@ within `leash` of `anchor` (no leash without `anchor`). When the straight step t
 (a ledge two up, a wall) an approach (melee, hunt, poke, hit-and-back, and a snipe out of sight) walks a chase
 path instead: `FightLogic.chase`, breadth first over the same one-cell steps, to a stance within 2.5 blocks
 across and 1.5 up or down of the target, inside 16 blocks of the body and 4096 cells. It is planned again
-every 20 ticks, when the target moves 1.5 blocks, or when the body is knocked off it. No path three searches
-running (10 ticks apart) ends the fight `unreachable` (live trial: an axe stood under a skeleton two blocks
-up for 200 ticks). Sprinting needs food above 6.
+every 20 ticks, when the target moves 1.5 blocks, or when the body is knocked off it. Each step is checked
+facing its own direction (the safety sweep samples along the facing). With no path the body holds still and
+searches again every 10 ticks; a target that has come 1 block nearer than when the path was lost (a zombie
+walking up) restarts the wait from there, and one that has not after 40 ticks (2 s) ends the fight
+`unreachable` (`FightLogic.noPath`; live trial: an axe stood under a skeleton two blocks up for 200 ticks).
+Sprinting needs food above 6.
 `_done`: `{"kills", "hits", "crits", "shots", "damage", "style", "ticks", "health", "end": "clear",
 "inventory"}`; `damage` is the health the targets lost while targeted (read each tick, so arrows that land
 later count; a kill counts what the target had left).
 `_failed`: `{"reason"}` of `low_health`, `timeout`, `avoid`, `unreachable`, `bad_request`, `not_allowed`,
-`not_found`, `busy`, `cancelled:<why>`. Python fights an `unreachable` target only from range for 30 s
+`not_found`, `busy`, `cancelled:<why>`, plus the `_done` counters but `end` (`Task.failure`), and after a
+failed path search `chase`: `{"from":[x,y,z], "to":[x,y,z], "expanded":cells, "exits":[feet y or null for
+east, west, south, north]}`. Python fights an `unreachable` target only from range for 30 s
 (`companion_session.OUT_OF_REACH_S`).
 
 ### `escape`
@@ -198,8 +203,8 @@ Request: `{"radius":24?, "clear":16?, "max_ticks":200?}`; `radius` 4..32, `clear
 20..1200, else `bad_request`. The active getaway, unlike a walk away (a route to one spot): each tick on
 the ground it scores the eight headings whose next cell is standable and safe (`RouteGeometry`, drop up to
 3, a step up) by the hostiles' field Σ1/d² two blocks along it, every `RouteReflex.HOSTILES` mob within
-`radius` counted, new spawns included. It takes the lowest (the current heading's field x0.9, so it does not
-jitter), faces it and sprints (food above 6). It jumps over level ground with headroom (a sprint-jump), and
+`radius` counted, new spawns included (each heading's cell checked facing that heading). It takes the lowest
+(the current heading's field x0.9, so it does not jitter), faces it and sprints (food above 6). It jumps over level ground with headroom (a sprint-jump), and
 on any step up. In the air it holds the heading. It ends `done` when no hostile has been within `clear`
 for 20 ticks (`end: "clear"`) or after `max_ticks` (`end: "timeout"`).
 `_done`: `{"end", "ticks", "jumps", "distance", "nearest", "health"}`. `_failed`: `cornered` (no safe

@@ -1186,6 +1186,7 @@ public final class BodyRuntime implements AutoCloseable {
             data.putAll(task.result(player));
             emit(task.name() + "_done", "fabric_start", data);
         } else {
+            data.putAll(task.failure(player));
             data.put("reason", outcome);
             emit(task.name() + "_failed", "fabric_start", data);
         }

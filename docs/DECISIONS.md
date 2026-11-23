@@ -453,9 +453,12 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   poll is fast enough. A fight that finds no walkable way to its target (a mob on
   a ledge) ends `unreachable` and the target is fought only from range for 30 s;
   this is a fact about the terrain fed back to the decision, not a cap on
-  attempts. Trials run through an operator-only `trial` op (never an intent or
-  MCP tool) that summons on level ground in the bot's sight, so a trial measures
-  the fight, not the terrain. Plan:
+  attempts. "No walkable way" means no path and the target not coming closer
+  for 2 s: a zombie walking up to the bot is waited for, not given up on.
+  Trials run through an operator-only `trial` op (never an intent or
+  MCP tool) that summons on level ground in the bot's sight, and every trial of
+  a matrix is fought on one flat arena the bot walks back to, so a trial
+  measures the fight, not the terrain. Plan:
   [COMPANION_COMBAT_PLAN_2026-11-23.md](COMPANION_COMBAT_PLAN_2026-11-23.md).
 - **Open:** LAN access for a second PC (the game port binds loopback for now),
   rotating a long session's `events.sqlite3`, and the live night test of the

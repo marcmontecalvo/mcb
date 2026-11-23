@@ -94,8 +94,8 @@ def test_summary_records_failed_steps_and_escape_jumps():
     assert (s["jumps"], s["ticks"], s["health"]) == (3, 30, None)
 
 
-def _status(job=None, queue=(), active=None, resting=0.0):
-    return {"job": job, "queue": list(queue),
+def _status(job=None, queue=(), active=None, resting=0.0, position=None):
+    return {"job": job, "queue": list(queue), "position": position,
             "defense": {"active": active, "resting": resting}}  # fmt: skip
 
 
@@ -368,10 +368,117 @@ def test_a_hunt_whose_job_vanished_says_so():
     )
 
 
+def test_a_bot_away_from_the_arena_walks_back_before_the_scene():
+    clock = FakeClock()
+    far = _status(position=[110.4, 64.0, -20.7])
+    client = FakeClient(clock, job={"state": "succeeded"}, statuses=[far, far])
+
+    out = ct.run_one(client, "sword", "zombie", timeout=5, clock=clock,
+                     arena=(100, 64, -20))  # fmt: skip
+
+    gotos = [c for c in client.calls if c[0] == "goto"]
+    assert gotos == [("goto", {"x": 100, "y": 64, "z": -20}, "api")]
+    # measured across, from the arena block's centre
+    assert out["arena"] == {"from": pytest.approx(9.97, abs=0.01),
+                            "end": "succeeded"}  # fmt: skip
+    assert client.trial_at is not None and client.trial_at >= 3.0  # after the walk
+
+
+def test_a_bot_within_the_arena_slack_stays_where_it_is():
+    clock = FakeClock()
+    near = _status(position=[101.5, 64.0, -18.5])
+    client = FakeClient(clock, statuses=[near, near])
+
+    out = ct.run_one(client, "sword", "zombie", timeout=5, clock=clock,
+                     arena=(100, 64, -20))  # fmt: skip
+
+    assert [c for c in client.calls if c[0] == "goto"] == []
+    assert out["arena"] == {"from": pytest.approx(1.41, abs=0.01), "end": "there"}
+
+
+def test_a_walk_back_that_fails_is_recorded_and_the_trial_goes_on():
+    clock = FakeClock()
+    far = _status(position=[130.0, 64.0, -20.0])
+    client = FakeClient(clock, job={"state": "failed", "error": "no_path"},
+                        statuses=[far, far])  # fmt: skip
+
+    out = ct.run_one(client, "sword", "zombie", timeout=5, clock=clock,
+                     arena=(100, 64, -20))  # fmt: skip
+
+    assert out["arena"]["end"] == "failed"
+    assert client.trials == [ct.scene("sword", "zombie")]
+
+
+def test_a_walk_back_past_its_time_is_stopped():
+    clock = FakeClock()
+    far = _status(position=[130.0, 64.0, -20.0])
+    client = FakeClient(clock, job={"state": "running"}, statuses=[far, far])
+
+    out = ct.run_one(client, "sword", "zombie", timeout=5, clock=clock,
+                     arena=(100, 64, -20))  # fmt: skip
+
+    assert out["arena"]["end"] == "timeout"
+    assert ("stop", {}, "api") in client.calls
+    assert clock.now >= ct.ARENA_WAIT
+
+
+def test_a_bot_with_no_known_position_is_not_walked():
+    clock = FakeClock()
+    client = FakeClient(clock)
+
+    out = ct.run_one(client, "sword", "zombie", timeout=5, clock=clock,
+                     arena=(100, 64, -20))  # fmt: skip
+
+    assert [c for c in client.calls if c[0] == "goto"] == []
+    assert out["arena"] == {"from": None, "end": "unknown"}
+
+
+def test_without_an_arena_the_trial_never_walks():
+    clock = FakeClock()
+    client = FakeClient(clock, statuses=[_status(position=[500.0, 64.0, 0.0])])
+
+    out = ct.run_one(client, "sword", "zombie", timeout=5, clock=clock)
+
+    assert [c for c in client.calls if c[0] == "goto"] == []
+    assert "arena" not in out
+
+
+def test_the_arena_is_the_bots_position_when_none_is_named():
+    clock = FakeClock()
+    client = FakeClient(clock, statuses=[_status(position=[12.7, 70.0, -3.2])])
+
+    assert ct.locate(client) == (12, 70, -4)
+    assert ct.locate(FakeClient(clock)) is None
+
+
+def test_an_operator_names_the_arena_as_three_whole_numbers():
+    assert ct.parse_arena("12,64,-3") == (12, 64, -3)
+    assert ct.parse_arena(" 12, 64 ,-3 ") == (12, 64, -3)
+    for bad in ("12,64", "a,b,c", "1.5,64,2", "1,2,3,4", ""):
+        with pytest.raises(ValueError):
+            ct.parse_arena(bad)
+
+
+def test_the_matrix_passes_its_arena_and_records_it(tmp_path):
+    seen = []
+
+    def one(client, weapon, mob, timeout, clock, arena=None):
+        seen.append(arena)
+        return {"weapon": weapon, "mob": mob, "end": "killed"}
+
+    path = ct.run_matrix(object(), ["sword"], ["zombie"], out_dir=tmp_path,
+                         timeout=5, run_one=one, arena=(1, 2, 3))  # fmt: skip
+
+    import json
+
+    assert seen == [(1, 2, 3)]
+    assert json.loads(path.read_text(encoding="utf-8"))["arena"] == [1, 2, 3]
+
+
 def test_the_matrix_echoes_a_header_once_then_rows(tmp_path):
     printed = []
 
-    def one(client, weapon, mob, timeout, clock):
+    def one(client, weapon, mob, timeout, clock, arena=None):
         return {"weapon": weapon, "mob": mob, "end": "killed"}
 
     ct.run_matrix(object(), ["sword"], ["zombie", "skeleton"], out_dir=tmp_path,
@@ -395,7 +502,7 @@ def test_the_matrix_runs_every_pair_and_writes_one_file(tmp_path):
     clock = FakeClock()
     seen = []
 
-    def one(client, weapon, mob, timeout, clock):
+    def one(client, weapon, mob, timeout, clock, arena=None):
         seen.append((weapon, mob))
         return {"weapon": weapon, "mob": mob, "end": "killed", "killed": True}
 

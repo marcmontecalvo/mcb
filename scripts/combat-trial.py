@@ -32,6 +32,12 @@ def main(argv=None) -> int:
     parser.add_argument("--mobs", default=DEFAULT_MOBS)
     parser.add_argument("--timeout", type=float, default=90.0, help="seconds per trial")
     parser.add_argument("--out", default=str(ROOT / "results" / "companion" / "trials"))
+    parser.add_argument(
+        "--arena",
+        type=ct.parse_arena,
+        help="X,Y,Z every trial is fought at (default: where the bot stands at the "
+        "start); a bot that drifted more than a few blocks walks back first",
+    )
     args = parser.parse_args(argv)
     os.environ.setdefault("MCLAB_INSTANCE", "play")  # never the lab
     weapons = [w for w in args.weapons.split(",") if w]
@@ -46,8 +52,20 @@ def main(argv=None) -> int:
     except ApiUnavailable as error:
         print(f"combat-trial: {error}", file=sys.stderr)
         return 2
+    arena = args.arena or ct.locate(client)
+    if arena is None:
+        print("combat-trial: the bot's position is unknown; give --arena X,Y,Z",
+              file=sys.stderr)  # fmt: skip
+        return 2
+    print(f"ARENA {arena[0]} {arena[1]} {arena[2]}")
     path = ct.run_matrix(
-        client, weapons, mobs, out_dir=args.out, timeout=args.timeout, echo=print
+        client,
+        weapons,
+        mobs,
+        out_dir=args.out,
+        timeout=args.timeout,
+        echo=print,
+        arena=arena,
     )
     print(f"TRIALS {path}")
     return 0

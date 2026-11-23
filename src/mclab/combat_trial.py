@@ -18,6 +18,7 @@ Docs: COMPANION_COMBAT_PLAN_2026-11-23.md section 5.
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from datetime import UTC, datetime
@@ -32,6 +33,12 @@ JOB_WAIT = 60.0  # the control API caps a job long-poll at this
 SETTLE = 30.0  # seconds for a busy bot to go quiet before a trial (twice, with a stop)
 GRACE = 3.0  # after a defence ends, this long for the guard to take it up again
 FINAL = ("died", "stopped")  # defence ends nothing takes up again
+# Every trial is fought on one arena: a bot further than ARENA_SLACK blocks across
+# from it walks back first (one that drifted into a trench or onto ice between
+# trials measured the terrain, not the weapon), for at most ARENA_WAIT seconds.
+ARENA_SLACK = 4.0
+ARENA_WAIT = 120.0
+DONE = ("succeeded", "failed", "cancelled")
 WEAPONS = ("sword", "axe", "spear", "bow", "fist")
 # Undead that burn by day get a helmet so a day trial is a fight, not a sunburn.
 BURNS = frozenset(
@@ -127,22 +134,66 @@ def _stop(client) -> None:
         pass
 
 
+def _wait(client, job_id: str, deadline: float, clock):
+    """The job once it is done, None when it vanished, or "timeout" (stopped)."""
+    while True:
+        left = deadline - clock()
+        job = client.wait_job(job_id, min(JOB_WAIT, max(left, 0)))
+        if job is None or job.get("state") in DONE:
+            return job
+        if clock() >= deadline:
+            _stop(client)
+            return "timeout"
+
+
+def _position(client):
+    reply = client.call("status", {}, source="api")
+    state = reply.get("result") if reply.get("ok") else None
+    where = state.get("position") if isinstance(state, dict) else None
+    return where if isinstance(where, (list, tuple)) and len(where) == 3 else None
+
+
+def parse_arena(text: str) -> tuple[int, int, int]:
+    """``X,Y,Z`` (whole blocks) as the operator writes it on the command line."""
+    parts = [p.strip() for p in text.split(",")]
+    if len(parts) != 3 or not all(re.fullmatch(r"-?\d+", p) for p in parts):
+        raise ValueError(f"arena must be X,Y,Z in whole blocks, got {text!r}")
+    return tuple(int(p) for p in parts)
+
+
+def locate(client) -> tuple[int, int, int] | None:
+    """The block the bot stands in (the default arena), or None when unknown."""
+    where = _position(client)
+    return None if where is None else tuple(math.floor(v) for v in where)
+
+
+def home(client, arena, clock=time.monotonic) -> dict:
+    """Walk a bot that drifted off the arena back to it (``goto``). Returns how far
+    across it was and the end: "there", the job's state, "timeout", "refused",
+    "lost_job" or "unknown" (no position)."""
+    where = _position(client)
+    if where is None:
+        return {"from": None, "end": "unknown"}
+    away = math.hypot(where[0] - (arena[0] + 0.5), where[2] - (arena[2] + 0.5))
+    if away <= ARENA_SLACK:
+        return {"from": away, "end": "there"}
+    reply = client.call("goto", dict(zip("xyz", arena, strict=True)), source="api")
+    if not reply.get("ok"):
+        return {"from": away, "end": "refused", "error": reply.get("error")}
+    job = _wait(client, reply["result"]["job"]["id"], clock() + ARENA_WAIT, clock)
+    if job == "timeout":
+        return {"from": away, "end": "timeout"}
+    return {"from": away, "end": "lost_job" if job is None else job["state"]}
+
+
 def _hunt(client, mob: str, started: float, timeout: float, clock) -> dict:
     item = M + ANIMAL_DROPS[mob]
     reply = client.call("gather", {"item": item, "count": 1}, source="api")
     if not reply.get("ok"):
         return {"end": "refused", "killed": False, "error": reply.get("error")}
-    job_id = reply["result"]["job"]["id"]
-    deadline = started + timeout
-    job = None
-    while True:
-        left = deadline - clock()
-        job = client.wait_job(job_id, min(JOB_WAIT, max(left, 0)))
-        if job is None or job.get("state") in ("succeeded", "failed", "cancelled"):
-            break
-        if clock() >= deadline:
-            _stop(client)
-            return {"end": "timeout", "killed": False, "seconds": clock() - started}
+    job = _wait(client, reply["result"]["job"]["id"], started + timeout, clock)
+    if job == "timeout":
+        return {"end": "timeout", "killed": False, "seconds": clock() - started}
     if job is None:
         return {"end": "lost_job", "killed": False}
     begun, finished = job.get("started_at"), job.get("finished_at")
@@ -234,15 +285,24 @@ def _defend(client, after: int, started: float, timeout: float, clock) -> dict:
 
 
 def run_one(
-    client, weapon: str, mob: str, timeout: float, clock=time.monotonic
+    client, weapon: str, mob: str, timeout: float, clock=time.monotonic, arena=None
 ) -> dict:
-    """Wait for a quiet bot, set the scene, let the bot act, and measure it."""
+    """Wait for a quiet bot, bring it back to the arena (when one is given), set
+    the scene, let the bot act, and measure it."""
     spec = scene(weapon, mob)
     settled, waited = settle(client, clock)
+    back = None
+    if arena is not None:
+        back = home(client, arena, clock)
+        if back["end"] != "there" and back["from"] is not None:
+            settled, more = settle(client, clock)  # the walk may have woken the guard
+            waited += more
     after = int(client.events(0, wait=0).get("latest", 0))
     started = clock()
     reply = client.trial(spec)
     head = {"weapon": weapon, "mob": mob, "settled": settled, "settle": waited}
+    if back is not None:
+        head["arena"] = back
     if not reply.get("ok"):
         return {**head, "end": "scene_refused", "killed": False,
                 "error": reply.get("error")}  # fmt: skip
@@ -262,17 +322,20 @@ def run_matrix(
     clock=time.monotonic,
     run_one=run_one,
     echo=None,
+    arena=None,
 ) -> Path:
-    """Every weapon against every mob, in order; the file is rewritten after each
-    trial so a stopped run keeps what it measured."""
+    """Every weapon against every mob, in order, each on ``arena`` when given; the
+    file is rewritten after each trial so a stopped run keeps what it measured."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = out_dir / f"{stamp}.json"
-    record = {"started": stamp, "timeout": timeout, "trials": []}
+    record = {"started": stamp, "timeout": timeout,
+              "arena": list(arena) if arena is not None else None,
+              "trials": []}  # fmt: skip
     for weapon in weapons:
         for mob in mobs:
-            row = run_one(client, weapon, mob, timeout, clock)
+            row = run_one(client, weapon, mob, timeout, clock, arena=arena)
             record["trials"].append(row)
             path.write_text(json.dumps(record, indent=2), encoding="utf-8")
             if echo is not None:

@@ -28,6 +28,8 @@ final class BodyEntity {
         long requestSequence();
         String step(ServerPlayer player);
         Map<String, Object> result(ServerPlayer player);
+        /** Evidence for a failure (counters so far, why): merged under the reason in &lt;name&gt;_failed. */
+        default Map<String, Object> failure(ServerPlayer player) { return Map.of(); }
         /** Called when the task is cancelled or ends early. */
         default void stop(ServerPlayer player) {}
         /** Movement for this tick, applied after step by the runtime with a 2-tick expiry; null releases the body. */
@@ -200,11 +202,16 @@ final class BodyEntity {
         private LivingEntity tracked;
         private float trackedHealth;
         /** Chase: a walk round what blocks the straight step (FightLogic.chase); null while the step is open. */
-        static final int CHASE_REPLAN = 20, CHASE_RETRY = 10, CHASE_FAILS = 3;
+        static final int CHASE_REPLAN = 20, CHASE_RETRY = 10;
         static final double CHASE_RANGE = 2.5;  // across: a melee hit lands from here
         private java.util.List<double[]> chase;
-        private int chaseIndex, chasedTick, nextChase, chaseFails;
+        private int chaseIndex, chasedTick, nextChase;
         private double[] chasedAt;
+        /** No chase path since this tick (-1: a path, or in reach), the target this far off then (FightLogic.noPath). */
+        private int noPathSince = -1;
+        private double noPathAt;
+        /** The last failed search, for the failure's evidence: from, to, cells reached, the start's four exits. */
+        private Map<String, Object> lostPath;
         /** hit_and_back: backing off after a hit until the creeper's swell is gone. */
         private boolean retreating;
         /** Set by step for controls: forward (-1 back, 0, 1), jump, sprint, hold use (bow draw). */
@@ -300,8 +307,13 @@ final class BodyEntity {
             if (pick == null) { stopDraw(); return "done"; }
             LivingEntity target = entities.get(pick.uuid());
             track(target);
-            if (chaseFails >= CHASE_FAILS) { stopDraw(); return "unreachable"; }  // the guard decides again
             double distance = Math.sqrt(player.distanceToSqr(target));
+            if (noPathSince >= 0) {
+                // no walk to it: hold and let it come; one that keeps off is left to the guard
+                String call = FightLogic.noPath(noPathSince, noPathAt, ticks, distance);
+                if ("closing".equals(call)) { noPathSince = ticks; noPathAt = distance; }
+                else if ("unreachable".equals(call)) { stopDraw(); return "unreachable"; }
+            }
             switch (tactic.style()) {
                 case "snipe" -> {
                     if (CombatLogic.snipeClose(distance, tactic.melee() != null)) { stopDraw(); melee(player, target, tactic.melee()); }
@@ -334,7 +346,7 @@ final class BodyEntity {
             }
             // sprint in: the strike itself drops the sprint when it wants the crit
             if (!reach) { approach(player, target); sprint = true; }
-            else chaseFails = 0;
+            else noPathSince = -1;
         }
 
         /** Spear: hold the band just past the target's reach and jab at full charge. */
@@ -345,7 +357,7 @@ final class BodyEntity {
             var move = CombatLogic.keep(eye, tactic.keepMin(), tactic.keepMax());
             if (move == CombatLogic.Move.APPROACH) approach(player, target);
             else if (move == CombatLogic.Move.RETREAT) walk(player, target, -1);
-            if (move != CombatLogic.Move.APPROACH) chaseFails = 0;  // in its band: reached
+            if (move != CombatLogic.Move.APPROACH) noPathSince = -1;  // in its band: reached
             var stack = player.getMainHandItem();
             var spear = stack.get(DataComponents.PIERCING_WEAPON);
             // the item's own minimum charge, and full charge for full damage (the jab resets it)
@@ -377,7 +389,7 @@ final class BodyEntity {
                 }
                 default -> {
                     retreating = false; aim(player, target); approach(player, target); sprint = true;
-                    if (reach) chaseFails = 0;
+                    if (reach) noPathSince = -1;
                 }
             }
         }
@@ -397,7 +409,7 @@ final class BodyEntity {
             if (!sight) approach(player, target);
             else if (move == CombatLogic.Move.APPROACH || shot == null) walk(player, target, 1);
             else if (move == CombatLogic.Move.RETREAT) walk(player, target, -1);
-            if (sight) chaseFails = 0;
+            if (sight) noPathSince = -1;
             boolean drawn = player.isUsingItem() && player.getTicksUsingItem() >= CombatLogic.FULL_DRAW;
             if (drawn && sight && shot != null) { useHold = false; shots++; }  // released with the controls
             else useHold = sight || player.isUsingItem();  // start in sight; hold a draw while it is lost
@@ -440,20 +452,14 @@ final class BodyEntity {
             return next == null ? 0 : next > y ? 2 : 1;
         }
 
-        /** The feet y of a standable, safe stance in column (cx, cz) one step from pose (level, a step up, a drop). */
         private Double stance(RouteGeometry geometry, RouteMotor.Pose pose, int cx, double y, int cz) {
-            for (int offset : FightLogic.STEP_OFFSETS) {
-                var cell = new RouteMotor.Point(cx, y + offset, cz);
-                if (!FightLogic.withinLeash(params.anchor(), params.leash(), cx, cell.y(), cz)) continue;
-                if (geometry.standable(cell) && geometry.safe(pose, cell, y, .6, offset > 0, FightLogic.MAX_DROP))
-                    return y + offset;
-            }
-            return null;
+            return FightLogic.stance(geometry, pose, cx, y, cz, params.anchor(), params.leash());
         }
 
         /**
          * Toward the target: the straight step while it is open, else a chase path round what is in the way (a
-         * ledge, a wall). A target no path reaches CHASE_FAILS times running ends the fight "unreachable".
+         * ledge, a wall). With no path the body holds still and lets the target come (FightLogic.noPath); one
+         * that keeps off ends the fight "unreachable".
          */
         private void approach(ServerPlayer player, LivingEntity target) {
             if (chase == null) {
@@ -477,20 +483,30 @@ final class BodyEntity {
         }
 
         private void planChase(ServerPlayer player, LivingEntity target) {
-            var geometry = new RouteGeometry(reader.apply(player));
-            int food = player.getFoodData().getFoodLevel();
-            FightLogic.Steps steps = (x, y, z, dx, dz) ->
-                    stance(geometry, new RouteMotor.Pose(x + .5, y, z + .5, 0, 0, 0, true, food), x + dx, y, z + dz);
+            var steps = FightLogic.steps(new RouteGeometry(reader.apply(player)), player.getFoodData().getFoodLevel(),
+                    params.anchor(), params.leash());
             double[] start = {Math.floor(player.getX()), Math.rint(player.getY() * 2) / 2, Math.floor(player.getZ())};
-            chase = FightLogic.chase(start, target.getX(), target.getY(), target.getZ(), CHASE_RANGE, steps,
+            var search = FightLogic.search(start, target.getX(), target.getY(), target.getZ(), CHASE_RANGE, steps,
                     FightLogic.CHASE_NODES);
+            chase = search.path();
             chaseIndex = 0;
             chasedTick = ticks;
             chasedAt = new double[] {target.getX(), target.getZ()};
-            if (chase != null) { chaseFails = 0; return; }
-            chaseFails++;
+            if (chase != null) { noPathSince = -1; return; }
+            if (noPathSince < 0) { noPathSince = ticks; noPathAt = Math.sqrt(player.distanceToSqr(target)); }
             nextChase = ticks + CHASE_RETRY;  // a failed search is not repeated every tick
+            var exits = new java.util.ArrayList<Object>();  // feet y east, west, south, north (null: no step)
+            for (int[] d : new int[][] {{1, 0}, {-1, 0}, {0, 1}, {0, -1}})
+                exits.add(steps.next((int) start[0], start[1], (int) start[2], d[0], d[1]));
+            var lost = new LinkedHashMap<String, Object>();
+            lost.put("from", java.util.List.of(start[0], start[1], start[2]));
+            lost.put("to", java.util.List.of(round1(target.getX()), round1(target.getY()), round1(target.getZ())));
+            lost.put("expanded", search.expanded());
+            lost.put("exits", exits);
+            lostPath = lost;
         }
+
+        private static double round1(double v) { return Math.round(v * 10) / 10.0; }
 
         @Override public BodyRuntime.Controls controls(ServerPlayer player, int tick) {
             if (forward == 0 && !jump && !useHold && !player.isUsingItem()) return null;
@@ -513,6 +529,14 @@ final class BodyEntity {
             out.put("ticks", ticks);
             out.put("health", player.getHealth());
             out.put("end", "clear");
+            return out;
+        }
+
+        /** The counters so far and, for an unreachable target, the last search that found no walk to it. */
+        @Override public Map<String, Object> failure(ServerPlayer player) {
+            var out = result(player);
+            out.remove("end");
+            if (lostPath != null) out.put("chase", lostPath);
             return out;
         }
     }

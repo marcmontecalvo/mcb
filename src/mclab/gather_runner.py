@@ -1016,6 +1016,13 @@ class _Exec:
 
     def mob(self, t, shear: bool) -> Result:
         body, done, fails, used = self.body, 0, 0, set()
+        # The count holds a spare animal for an unlucky drop (the plan's margin):
+        # a hunt that already holds what it is for stops, like a block gather.
+        item = getattr(t, "item", "")
+        target = body.inventory().get(item, 0) + max(1, t.item_count) if item else None
+
+        def enough() -> bool:
+            return target is not None and body.inventory().get(item, 0) >= target
 
         def mobs():
             return [
@@ -1024,7 +1031,7 @@ class _Exec:
                 if e.get("type") == t.entity_type and e["uuid"] not in used
             ]
 
-        while done < t.count and fails < MAX_TRIES * 2:
+        while done < t.count and fails < MAX_TRIES * 2 and not enough():
             near = mobs()
             if not near:
                 if not self.explore(lambda: bool(mobs())):

@@ -76,7 +76,7 @@ final class EscapeTask implements BodyEntity.Task {
         boolean[] safe = new boolean[8];
         int[] rise = new int[8];
         for (int h = 0; h < 8; h++) {
-            Integer offset = nextCell(geometry, pose, bx + EscapeLogic.DX[h], bz + EscapeLogic.DZ[h], y, h % 2 == 1);
+            Integer offset = nextCell(geometry, pose, bx, bz, y, h);
             safe[h] = offset != null;
             rise[h] = offset == null ? 0 : offset;
         }
@@ -100,8 +100,15 @@ final class EscapeTask implements BodyEntity.Task {
         return null;
     }
 
-    /** The feet offset of the safe cell that way (level first, a step up, then drops), or null. */
-    private static Integer nextCell(RouteGeometry geometry, RouteMotor.Pose pose, int cx, int cz, double y, boolean diagonal) {
+    /**
+     * The feet offset of the safe cell one step along {@code heading} from column (bx, bz) (level first, a step up,
+     * then drops), or null. Checked facing that heading, as the body will run it.
+     */
+    static Integer nextCell(RouteGeometry geometry, RouteMotor.Pose pose, int bx, int bz, double y, int heading) {
+        int dx = EscapeLogic.DX[heading], dz = EscapeLogic.DZ[heading], cx = bx + dx, cz = bz + dz;
+        boolean diagonal = dx != 0 && dz != 0;
+        pose = new RouteMotor.Pose(pose.x(), pose.y(), pose.z(), pose.vx(), pose.vz(), FightLogic.yaw(dx, dz),
+                pose.grounded(), pose.food(), pose.inWater());
         for (int offset : FightLogic.STEP_OFFSETS) {
             var cell = new RouteMotor.Point(cx, y + offset, cz);
             if (!geometry.standable(cell)) continue;

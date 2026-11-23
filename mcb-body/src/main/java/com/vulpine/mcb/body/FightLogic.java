@@ -123,6 +123,34 @@ final class FightLogic {
     @FunctionalInterface
     interface Steps { Double next(int x, double y, int z, int dx, int dz); }
 
+    /**
+     * The feet y of a standable, safe stance in column (cx, cz) one step from {@code pose} at feet y (level, a step
+     * up, a drop of up to MAX_DROP), inside the leash; null when there is none.
+     */
+    static Double stance(RouteGeometry geometry, RouteMotor.Pose pose, int cx, double y, int cz,
+                         double[] anchor, int leash) {
+        for (int offset : STEP_OFFSETS) {
+            var cell = new RouteMotor.Point(cx, y + offset, cz);
+            if (!withinLeash(anchor, leash, cx, cell.y(), cz)) continue;
+            if (geometry.standable(cell) && geometry.safe(pose, cell, y, .6, offset > 0, MAX_DROP)) return y + offset;
+        }
+        return null;
+    }
+
+    /**
+     * The chase's steps over real terrain: a body standing at each cell's centre, facing the step (the safety
+     * sweep samples along the pose's facing; a fixed facing checked every step as if it went south).
+     */
+    static Steps steps(RouteGeometry geometry, int food, double[] anchor, int leash) {
+        return (x, y, z, dx, dz) -> stance(geometry,
+                new RouteMotor.Pose(x + .5, y, z + .5, 0, 0, yaw(dx, dz), true, food), x + dx, y, z + dz, anchor, leash);
+    }
+
+    /** Minecraft yaw (degrees) facing the step (dx, dz): 0 is +z (south), 90 is -x (west). */
+    static float yaw(double dx, double dz) {
+        return (float) Math.toDegrees(Math.atan2(-dx, dz));
+    }
+
     /** A chase path never leaves this square round its start (blocks each way). */
     static final int CHASE_SPAN = 16;
     /** Cells a chase search may expand. */
@@ -137,9 +165,16 @@ final class FightLogic {
      */
     static List<double[]> chase(double[] start, double tx, double ty, double tz, double range, Steps steps,
                                 int maxNodes) {
+        return search(start, tx, ty, tz, range, steps, maxNodes).path();
+    }
+
+    /** A chase search: the path (as {@link #chase}) and how many cells it reached, the start included. */
+    record Search(List<double[]> path, int expanded) { }
+
+    static Search search(double[] start, double tx, double ty, double tz, double range, Steps steps, int maxNodes) {
         java.util.function.Predicate<double[]> goal = c -> Math.hypot(c[0] + .5 - tx, c[2] + .5 - tz) <= range
                 && Math.abs(c[1] - ty) <= 1.5;
-        if (goal.test(start)) return List.of();
+        if (goal.test(start)) return new Search(List.of(), 1);
         var parent = new java.util.HashMap<Long, double[]>();
         var queue = new java.util.ArrayDeque<double[]>();
         parent.put(cellKey(start), null);
@@ -159,12 +194,27 @@ final class FightLogic {
                     var path = new java.util.ArrayList<double[]>();
                     for (double[] c = next; c != start; c = parent.get(cellKey(c))) path.add(c);
                     java.util.Collections.reverse(path);
-                    return path;
+                    return new Search(path, parent.size());
                 }
                 queue.add(next);
             }
         }
-        return null;
+        return new Search(null, parent.size());
+    }
+
+    /** Ticks with no chase path before a target that is not coming closer is left "unreachable" (2 s). */
+    static final int CHASE_GIVE_UP = 40;
+    /** Blocks nearer than when the path was lost: the target is coming to the body (a zombie walking up). */
+    static final double CLOSING = 1.0;
+
+    /**
+     * The fight's call on a target no chase path reaches, lost at tick {@code since} from {@code lostAt} blocks:
+     * "closing" when it has come CLOSING nearer (wait on, from here), "unreachable" when CHASE_GIVE_UP ticks went by
+     * without that, else null (hold still and let it come).
+     */
+    static String noPath(int since, double lostAt, int now, double distance) {
+        if (distance <= lostAt - CLOSING) return "closing";
+        return now - since >= CHASE_GIVE_UP ? "unreachable" : null;
     }
 
     /** A stance's key: column x and z, feet y in half blocks. */

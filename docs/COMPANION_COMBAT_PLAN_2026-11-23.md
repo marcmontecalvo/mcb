@@ -100,7 +100,9 @@ along each; the current heading's field counts ×0.9 so it does not jitter. It s
 when food is above 6 and jumps over level ground with headroom (sprint-jumping) and on
 any step up. It ends `clear` after 20 ticks with no hostile within the clear radius
 (16), `cornered` after 20 ticks with no safe heading (Python then walks away by
-route), or `timeout`. Exact contract: `BODY_ACTION_OPS.md` `escape`.
+route), or `timeout`. Each heading's cell is checked facing that heading, as the body
+will run it (the safety sweep samples along the pose's facing). Exact contract:
+`BODY_ACTION_OPS.md` `escape`.
 
 ### 4. Melee technique (mod; shared by `fight` and `attack_entity`)
 
@@ -131,6 +133,13 @@ guard's own `defense` event, and a `defense_end` that is not a death or a stop i
 3 s for the guard to engage again (it re-decides every observation), so a fight that
 pauses to switch weapons or to walk round a ledge is followed to its kill.
 
+Every trial is fought on one arena: `--arena X,Y,Z`, or where the bot stands when the
+matrix starts. After settling, a bot more than 4 blocks across from it walks back
+(`goto`, up to 120 s, then `stop`) and settles again; the row's `arena` holds how far
+it was and how the walk ended (`there`, `succeeded`, `failed`, `timeout`, `unknown`).
+Choose a flat, open, dry arena: a trial on rough ground measures the terrain, not the
+weapon.
+
 ### 6. First live matrix (Nov 23): what it showed and what changed
 
 Sixteen trials (sword, axe, spear, bow × zombie, skeleton, creeper, pig) on the play
@@ -145,6 +154,22 @@ instance; diagnosed from the host's event log before any change:
 | arrow hits could not be told from misses | `shots` counts releases | the fight reports `damage` (health its targets lost) |
 | the next trial began while the guard still rested after the last one's `stop` | a stop with no defence under way also rested the guard | only a stop during a defence rests it |
 
+### 7. Second live matrix (Nov 23): what it showed and what changed
+
+The same sixteen trials with the section 6 fixes, diagnosed from the host's event log:
+
+| seen | cause | change |
+|---|---|---|
+| later trials summoned `no_spot` or fought from a trench and a frozen pond | each trial began where the last one ended; the bot drifted into rough ground | a fixed arena (section 5) the bot walks back to |
+| a hunt for one porkchop killed two pigs | the plan's spare animal (margin) was always hunted, even with the item held | a hunt stops once it holds what it was for (`gather_runner.mob`) |
+| a zombie walking up to the bot was left `unreachable` | three failed path searches in a row gave up on any target | with no path the fight holds still; a target that came 1 block nearer resets the wait; `unreachable` only after 40 ticks (2 s) without that (`FightLogic.noPath`) |
+| chase and escape refused steps along a trench's edge | each step's safety sweep used the body's current facing, not the step's | each step is checked facing its own direction (`FightLogic.steps`, `EscapeTask.nextCell`) |
+| a failed fight said only `unreachable` | `<op>_failed` carried the reason alone | a failed op's data has its counters (`Task.failure`), and a fight with no path its last search (`chase`: from, to, cells expanded, each side's exit) |
+
+Open: a sword fight on the frozen pond found no path to a zombie; a synthetic copy of
+the pond finds one, so the next occurrence's `chase` evidence decides the cause. The
+axe landed no crits on the skeleton or the creeper (0 of 3).
+
 ## Slices (TDD each; one commit each)
 
 1. Done: `companion_combat.py`: weapons, profiles, tactic and weapon choice.
@@ -157,6 +182,6 @@ instance; diagnosed from the host's event log before any change:
    `defense_step`/`defense_end` events, `scripts/combat-trial.py`.
 6. Done: Session: `escape` and `walk_away` steps; `fight` passes the tactic.
 7. In progress: Live trials: sword, axe, spear and bow against a zombie, skeleton, creeper
-   and pig. The first matrix ran; its fixes (section 6) are built and unit-tested; the
-   matrix runs again with them.
+   and pig. Two matrices ran; their fixes (sections 6 and 7) are built and
+   unit-tested; the matrix runs again on a fixed arena.
 8. Later: spear charge, trident throw with Loyalty, shield blocking, the dragon.

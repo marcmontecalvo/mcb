@@ -63,6 +63,32 @@ public final class EscapeLogicTest {
         check("clear".equals(EscapeLogic.end(5, 200, EscapeLogic.CLEAR_TICKS, 0)), "clear long enough");
         check("cornered".equals(EscapeLogic.end(5, 200, 0, EscapeLogic.CORNERED_TICKS)), "cornered long enough");
         check("timeout".equals(EscapeLogic.end(201, 200, 0, 0)), "timeout");
+        headingsFaceTheirWay();
         System.out.println("EscapeLogicTest ok");
+    }
+
+    private record Key(int x, int y, int z) { }
+
+    /**
+     * Each heading is checked as the body would run it, facing that way: a body facing a trench to its south
+     * may still run east or west along it (the safety sweep samples along the pose's facing).
+     */
+    private static void headingsFaceTheirWay() {
+        var air = java.util.Map.<String, Object>of("block", "minecraft:air", "collision_boxes", List.of(),
+                "fluid", "minecraft:empty");
+        var stone = java.util.Map.<String, Object>of("block", "minecraft:stone",
+                "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1)), "fluid", "minecraft:empty");
+        var cells = new java.util.HashMap<Key, java.util.Map<String, Object>>();
+        for (int x = -4; x <= 4; x++) for (int z = -4; z <= 4; z++)
+            for (int y = 55; y <= 67; y++) cells.put(new Key(x, y, z), z == 1 || y >= 63 ? air : stone);
+        var geometry = new RouteGeometry((x, y, z) -> cells.get(new Key(x, y, z)));
+        var facingSouth = new RouteMotor.Pose(.5, 63, .5, 0, 0, 0, true, 20);
+        int east = -1, south = -1;
+        for (int h = 0; h < 8; h++) {
+            if (EscapeLogic.DX[h] == 1 && EscapeLogic.DZ[h] == 0) east = h;
+            if (EscapeLogic.DX[h] == 0 && EscapeLogic.DZ[h] == 1) south = h;
+        }
+        check(EscapeTask.nextCell(geometry, facingSouth, 0, 0, 63, east) != null, "east along the trench");
+        check(EscapeTask.nextCell(geometry, facingSouth, 0, 0, 63, south) == null, "south into it is closed");
     }
 }

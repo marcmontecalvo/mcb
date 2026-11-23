@@ -109,10 +109,86 @@ public final class FightLogicTest {
         check(!FightLogic.withinLeash(anchor, 6, 7, 64, 0), "past the leash");
         check(!FightLogic.withinLeash(anchor, 6, 0, 71, 0), "leash counts height");
 
+        frozenPond();
+        facing();
+
+        // No path to the target: wait while it comes closer, give up on one that does not
+        // (live trial 20261123T193934Z: a zombie walking up was given up on within a second).
+        check(FightLogic.noPath(100, 7.0, 100 + FightLogic.CHASE_GIVE_UP - 1, 7.0) == null, "still waiting");
+        check("unreachable".equals(FightLogic.noPath(100, 7.0, 100 + FightLogic.CHASE_GIVE_UP, 7.0)), "it never came");
+        check("unreachable".equals(FightLogic.noPath(100, 7.0, 100 + FightLogic.CHASE_GIVE_UP, 6.5)), "a half step is not coming");
+        check("closing".equals(FightLogic.noPath(100, 7.0, 120, 7.0 - FightLogic.CLOSING)), "a block nearer: it is coming");
+        check("closing".equals(FightLogic.noPath(100, 7.0, 100 + FightLogic.CHASE_GIVE_UP * 3, 3.0)), "closing outranks the wait");
+        // a search reports how far it got, for the failure's evidence
+        var boxed = FightLogic.search(new double[] {0, 66, 0}, 4.5, 68, 0.5, 2.5, (x, y, z, dx, dz) -> null, 4096);
+        check(boxed.path() == null && boxed.expanded() == 1, "no way out of the start");
+        var open = FightLogic.search(foot, 4.5, 68, 0.5, 2.5, walk, 4096);
+        check(open.path() != null && open.expanded() > 1, "a path and its search size");
+
         check("minecraft:stone_sword".equals(FightLogic.desiredWeapon("minecraft:stone_sword", true, "minecraft:iron_sword")), "requested weapon carried");
         check("minecraft:iron_sword".equals(FightLogic.desiredWeapon("minecraft:stone_sword", false, "minecraft:iron_sword")), "requested broke, best instead");
         check(FightLogic.desiredWeapon(null, false, null) == null, "empty hand when nothing");
         check(!FightLogic.needsReselect(null, null) && FightLogic.needsReselect(null, "a") && !FightLogic.needsReselect("a", "a"), "reselect");
         System.out.println("FightLogicTest ok");
+    }
+
+    private record Key(int x, int y, int z) { }
+    private static final java.util.Map<String, Object> AIR = java.util.Map.of("block", "minecraft:air",
+            "collision_boxes", List.of(), "fluid", "minecraft:empty");
+    private static java.util.Map<String, Object> solid(String block) {
+        return java.util.Map.of("block", block, "collision_boxes", List.of(List.of(0, 0, 0, 1, 1, 1)),
+                "fluid", "minecraft:empty");
+    }
+
+    /** Each chase step is swept along its own heading: a hole south of the start never blocks a step east. */
+    private static void facing() {
+        var cells = new java.util.HashMap<Key, java.util.Map<String, Object>>();
+        for (int x = -4; x <= 4; x++) for (int z = -4; z <= 4; z++) {
+            boolean hole = z == 1;  // a deep trench along the start's south side
+            for (int y = 55; y <= 63; y++) cells.put(new Key(x, y, z), hole || y == 63 ? AIR : solid("minecraft:stone"));
+            for (int y = 64; y <= 67; y++) cells.put(new Key(x, y, z), AIR);
+        }
+        var steps = FightLogic.steps(new RouteGeometry((x, y, z) -> cells.get(new Key(x, y, z))), 20, null, 0);
+        check(steps.next(0, 63, 0, 1, 0) != null, "east along the trench edge");
+        check(steps.next(0, 63, 0, -1, 0) != null, "west along the trench edge");
+        check(steps.next(0, 63, 0, 0, -1) != null, "north away from it");
+        check(steps.next(0, 63, 0, 0, 1) == null, "south into it is no step");
+    }
+
+    /**
+     * Live trial 20261123T193934Z, sword against zombie: the bot on a frozen pond (ice at y 62 over water), the
+     * zombie one block down beside it on a one-layer snow cover (no collision) over stone. The fight's chase found
+     * no path three times running and ended "unreachable" within a second.
+     */
+    private static void frozenPond() {
+        var cells = new java.util.HashMap<Key, java.util.Map<String, Object>>();
+        var water = java.util.Map.<String, Object>of("block", "minecraft:water", "collision_boxes", List.of(),
+                "fluid", "minecraft:water", "properties", java.util.Map.of("level", "0"));
+        var snow = java.util.Map.<String, Object>of("block", "minecraft:snow", "collision_boxes", List.of(),
+                "fluid", "minecraft:empty", "properties", java.util.Map.of("layers", "1"), "replaceable", true);
+        for (int x = -8; x <= 8; x++) for (int z = -12; z <= 6; z++) {
+            boolean bank = z <= -6;  // the zombie's side: stone, one block lower, under snow
+            cells.put(new Key(x, 59, z), solid("minecraft:stone"));
+            cells.put(new Key(x, 60, z), bank ? solid("minecraft:stone") : water);
+            cells.put(new Key(x, 61, z), bank ? solid("minecraft:stone") : water);
+            cells.put(new Key(x, 62, z), bank ? snow : solid("minecraft:ice"));
+            for (int y = 63; y <= 67; y++) cells.put(new Key(x, y, z), AIR);
+        }
+        var geometry = new RouteGeometry((x, y, z) -> cells.get(new Key(x, y, z)));
+        var steps = FightLogic.steps(geometry, 20, null, 0);
+        double[] start = {0, 63, 0};
+        check(FightLogic.stance(geometry, new RouteMotor.Pose(.5, 63, .5, 0, 0, 180, true, 20), 0, 63, -1, null, 0) == 63,
+                "ice is a level stance facing north");
+        var path = FightLogic.chase(start, 3.5, 62, -6.5, 2.5, steps, FightLogic.CHASE_NODES);
+        check(path != null && !path.isEmpty(), "a path across the ice to a mob a block down");
+        var last = path.get(path.size() - 1);
+        check(Math.hypot(last[0] + .5 - 3.5, last[2] + .5 + 6.5) <= 2.5, "it ends in reach");
+        for (int i = 0; i < path.size(); i++) {
+            var from = i == 0 ? start : path.get(i - 1);
+            check(Math.abs(path.get(i)[0] - from[0]) + Math.abs(path.get(i)[2] - from[2]) == 1, "one cardinal step at a time");
+        }
+        // west and east too: every heading is checked along its own way, not one fixed facing
+        check(FightLogic.chase(start, -6.5, 62, -6.5, 2.5, steps, FightLogic.CHASE_NODES) != null, "north-west");
+        check(FightLogic.chase(start, 6.5, 63, 3.5, 2.5, steps, FightLogic.CHASE_NODES) != null, "south-east on the ice");
     }
 }

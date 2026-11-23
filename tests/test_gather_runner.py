@@ -178,6 +178,34 @@ def test_a_hunt_collects_where_the_animal_died_not_where_it_was_seen():
     assert body.inventory()[M + "beef"] == 1
 
 
+def test_a_hunt_stops_once_it_holds_what_it_was_for():
+    # The plan's spare animal (margin) covers an unlucky drop; one that dropped
+    # enough is the end of it (live trial 20261123T193934Z: two porkchops held
+    # after one pig at 10 s, then 80 s exploring for a second pig).
+    cow = {"uuid": "c1", "type": M + "cow", "position": [3.5, 0, 3.5]}
+    body = FakeGatherBody(K, floor(), entities=[cow])
+    hunt = Hunt(M + "cow", 2, item=M + "beef", item_count=1, expected=2.0, margin=1)
+
+    report = run_gather(PlanResult((hunt,), (), 0.0), body, K)
+
+    assert report.stop == "done", report
+    assert body.inventory()[M + "beef"] >= 1
+    assert not [c for c in body.log if c[0] == "walk" and abs(c[1][0]) > 8], "explored"
+
+
+def test_a_hunt_short_of_its_item_hunts_the_spare_animal():
+    cows = [
+        {"uuid": f"c{i}", "type": M + "cow", "position": [3.5 + i, 0, 3.5]}
+        for i in (1, 2)
+    ]
+    body = FakeGatherBody(K, floor(), entities=cows)
+    hunt = Hunt(M + "cow", 2, item=M + "beef", item_count=5, expected=2.0, margin=1)
+
+    run_gather(PlanResult((hunt,), (), 0.0), body, K)
+
+    assert not [e for e in body.ents if e.get("type") == M + "cow"], "both hunted"
+
+
 def test_eats_when_hungry_and_holding_food():
     body = FakeGatherBody(K, trees_and_stone(), {M + "cooked_beef": 2}, food=12)
 
