@@ -86,6 +86,28 @@ def test_shutdown_route_runs_the_hook_once_authorized(host):
         srv.shutdown()
 
 
+def test_shutdown_reads_its_request_body(host):
+    # An unread body is left in the socket: on Windows the close then resets the
+    # connection under the reply (the full suite flaked on it), and on a kept-alive
+    # connection the next request is read from the middle of the old body.
+    import http.client
+
+    srv = serve(host, port=0, token=TOKEN, on_shutdown=lambda: None)
+    connection = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=5)
+    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+    try:
+        for _ in range(2):
+            connection.request(
+                "POST", "/shutdown", body=b'{"why": "test"}', headers=headers
+            )
+            response = connection.getresponse()
+            assert response.status == 202
+            response.read()
+    finally:
+        connection.close()
+        srv.shutdown()
+
+
 def test_shutdown_route_is_absent_without_a_hook(server):
     assert raw(server, "POST", "/shutdown", {})[0] == 404
 

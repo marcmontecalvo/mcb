@@ -133,6 +133,19 @@ class _Handler(BaseHTTPRequestHandler):
             self._fail(400, "body must be a JSON object")
         return None
 
+    def _drain(self) -> None:
+        """Read a body the route ignores. Left in the socket, it resets the
+        connection under the reply on Windows and starts the next kept-alive
+        request; one that cannot be read whole closes the connection instead."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = -1
+        if 0 <= length <= MAX_BODY:
+            self.rfile.read(length)
+        else:
+            self.close_connection = True
+
     # -- routes
 
     def do_GET(self):
@@ -166,6 +179,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _post(self):
         url = urllib.parse.urlsplit(self.path)
         if url.path == "/shutdown" and self.on_shutdown is not None:
+            self._drain()
             self.on_shutdown()  # sets a flag; the host winds down on its own thread
             return self._send(202, {"ok": True})
         if url.path != "/call":
