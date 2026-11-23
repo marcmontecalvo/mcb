@@ -89,6 +89,56 @@ def test_coarse_graph_budgets_and_gaps_fail_closed(tmp_path):
         g.route("home", "hill", verified_after_ns=1)
 
 
+class _NoStorage:
+    """An archive whose storage hangs: any connect is a failure of the test."""
+
+    def __init__(self, archive):
+        self.identity, self.path = archive.identity, archive.path
+
+    def connect(self, writing=False):
+        raise AssertionError("a place lookup touched storage")
+
+
+def test_place_lookups_never_touch_storage(tmp_path):
+    # The guard looks the base up on every poll; one connect there froze the body
+    # 8.9 s while sqlite waited (combat matrix 20261123T211141Z, sword pig).
+    g = graph(tmp_path)
+    real, g.archive = g.archive, _NoStorage(g.archive)
+    assert [p.name for p in g.listed()] == ["Home", "Pass", "Hill"]
+    assert g.named("Pass").position == (16, 80, 0)
+    assert g.named("nowhere") is None
+    assert g.nearest((30, 80, 0)).name == "Hill"
+    g.archive = real
+
+
+def test_place_writes_are_seen_at_once_and_survive_reopen(tmp_path):
+    g = graph(tmp_path)
+    g.add("base", (5, 70, 5), kind="home")
+    g.rename("Pass", "Gap")
+    g.remove("Hill")
+    g.put_place(Place("home", "Home", (1, 81, 1), "observed-route", 200))
+    expected = [("Home", (1, 81, 1)), ("Gap", (16, 80, 0)), ("base", (5, 70, 5))]
+    assert [(p.name, p.position) for p in g.listed()] == expected
+    assert [p.name for p in g.listed("home")] == ["base"]
+    assert g.remember("chest", (2, 64, 2)) == g.remember("chest", (2, 64, 2))
+    reopened = PlaceGraph(MapArchive(g.archive.path, identity()))
+    assert reopened.listed() == g.listed()
+
+
+def test_a_failed_place_write_changes_nothing(tmp_path):
+    g = graph(tmp_path)
+    real, g.archive = g.archive, _NoStorage(g.archive)
+    for write in (
+        lambda: g.add("base", (5, 70, 5)),
+        lambda: g.rename("Pass", "Gap"),
+        lambda: g.remove("Hill"),
+    ):
+        with pytest.raises(AssertionError):
+            write()
+    g.archive = real
+    assert [p.name for p in g.listed()] == ["Home", "Pass", "Hill"]
+
+
 def test_containers_round_trip_across_reopen(tmp_path):
     g = graph(tmp_path)
     g.save_containers({(1, 64, 2): {"minecraft:dirt": 5}, (3, 64, 2): {}})

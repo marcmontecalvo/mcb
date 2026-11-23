@@ -60,7 +60,8 @@ def test_places_written_before_kinds_existed_still_load(tmp_path):
             "INSERT INTO places VALUES(?,?,?)",
             (g.archive.identity.key, "old", json.dumps(old)),
         )
-    assert g.named("Old") == Place("old", "Old", (1, 2, 3), "x", 5)
+    reopened = PlaceGraph(g.archive)  # an older world's places load on open
+    assert reopened.named("Old") == Place("old", "Old", (1, 2, 3), "x", 5)
 
 
 def test_body_records_useful_blocks_and_walks_to_a_named_place(tmp_path):

@@ -72,6 +72,14 @@ class Connection:
 
 
 class PlaceGraph:
+    """Places are read once and kept in memory, written through on every change.
+
+    The guard looks the base up on every poll, inside the motor loop; a fresh
+    connection there froze the body 8.9 s while sqlite waited (combat matrix
+    20261123T211141Z). One graph owns its world's places in a process (the host,
+    or one lab run), so nothing else changes them underneath it.
+    """
+
     def __init__(self, archive):
         self.archive = archive
         with archive.connect(writing=True) as db:
@@ -97,6 +105,12 @@ class PlaceGraph:
                     seen_ns INTEGER NOT NULL, count INTEGER NOT NULL,
                     PRIMARY KEY(namespace,item,pos))
             """)
+            rows = db.execute(
+                "SELECT payload FROM places WHERE namespace=? ORDER BY rowid",
+                (archive.identity.key,),
+            ).fetchall()
+        # id -> Place in row order: an upsert keeps its row, so its place here
+        self._places = {(p := Place(**json.loads(row[0]))).id: p for row in rows}
 
     def note_sightings(self, item, positions):
         """Remember where `item` was seen to be had (blocks found by a scan)."""
@@ -165,22 +179,18 @@ class PlaceGraph:
                 "DELETE FROM connections WHERE namespace=? AND (source=? OR target=?)",
                 (self.archive.identity.key, place.id, place.id),
             )
+        self._places[place.id] = place  # stored: now it is seen
 
     # --- named waypoints ---------------------------------------------------
-    # ponytail: lookups read the namespace's places (capped at PLACE_LIMIT) and
-    # filter in Python; they run when a job picks a goal, never in the motor loop.
-    # A name/kind index is the upgrade if a world collects thousands of places.
+    # ponytail: lookups scan the in-memory places (the first PLACE_LIMIT) in
+    # Python; they run on every guard poll. A name/kind index is the upgrade if a
+    # world collects thousands of places.
     @property
     def dimension(self):
         return self.archive.identity.dimension
 
     def listed(self, kind=None):
-        with self.archive.connect() as db:
-            rows = db.execute(
-                "SELECT payload FROM places WHERE namespace=? ORDER BY rowid LIMIT ?",
-                (self.archive.identity.key, PLACE_LIMIT),
-            ).fetchall()
-        places = [Place(**json.loads(row[0])) for row in rows]
+        places = list(self._places.values())[:PLACE_LIMIT]
         return [p for p in places if kind is None or p.kind == kind]
 
     def named(self, name):
@@ -221,6 +231,7 @@ class PlaceGraph:
                 "UPDATE places SET payload=? WHERE namespace=? AND id=?",
                 (json.dumps(asdict(renamed)), self.archive.identity.key, place.id),
             )
+        self._places[place.id] = renamed
         return renamed
 
     def remove(self, name):
@@ -234,6 +245,7 @@ class PlaceGraph:
                 "DELETE FROM connections WHERE namespace=? AND (source=? OR target=?)",
                 (key, place.id, place.id),
             )
+        del self._places[place.id]
 
     def put_connection(self, connection):
         if not isinstance(connection, Connection):
