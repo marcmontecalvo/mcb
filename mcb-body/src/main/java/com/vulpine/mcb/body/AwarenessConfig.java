@@ -31,6 +31,20 @@ public record AwarenessConfig(String preset, int horizontalRadius, int verticalR
 
     public String profile() { return preset.equals("legacy") ? "local-visibility-v1" : "awareness-v1"; }
     public boolean occluded() { return !preset.equals("chunk") && !preset.equals("sections"); }
+    /** How far under an entity box's top the second sight ray aims (inside the box, never past it). */
+    static final double SIGHT_TOP_INSET = 0.02;
+
+    /**
+     * The heights (at the box's horizontal centre) a "visible" entity is looked for: seen when any ray is clear.
+     * Legacy looks at the centre only (frozen). A development preset also looks just under the top, as a player
+     * sees any part of it: a drop sunk in a snow layer or grass has its centre at the cover's surface.
+     */
+    public double[] sightHeights(double minY, double maxY) {
+        double centre = (minY + maxY) / 2;
+        if (preset.equals("legacy")) return new double[] {centre};
+        return new double[] {centre, Math.max(centre, maxY - SIGHT_TOP_INSET)};
+    }
+
     /** Whole-section scanner over loaded chunks; requires the sections-v1 terrain encoding. */
     public boolean sections() { return preset.equals("sections"); }
 

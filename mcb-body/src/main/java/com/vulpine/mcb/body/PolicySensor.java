@@ -67,8 +67,7 @@ public final class PolicySensor {
     public static List<Map<String,Object>> entities(ServerPlayer p,AwarenessConfig config) {
         var result=new ArrayList<Map<String,Object>>();
         for(var entity:p.level().getEntities(p,p.getBoundingBox().inflate(config.entityRadius(),config.entityVerticalRadius(),config.entityRadius()))) {
-            var point=entity.getBoundingBox().getCenter();
-            if(config.entityVisibility().equals("visible") && ray(p,p.getEyePosition(),point).getType()!=HitResult.Type.MISS) continue;
+            if(config.entityVisibility().equals("visible") && !seen(p,entity,config)) continue;
             var entry=new LinkedHashMap<String,Object>();
             entry.put("uuid",entity.getUUID().toString());
             entry.put("type",BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString());
@@ -85,6 +84,13 @@ public final class PolicySensor {
             result.add(Map.copyOf(entry));
         }
         return List.copyOf(result);
+    }
+    /** Any of the config's sight heights (AwarenessConfig.sightHeights) is in clear view from the eye. */
+    private static boolean seen(ServerPlayer p,net.minecraft.world.entity.Entity entity,AwarenessConfig config) {
+        var box=entity.getBoundingBox(); var centre=box.getCenter(); var eye=p.getEyePosition();
+        for(double y:config.sightHeights(box.minY,box.maxY))
+            if(ray(p,eye,new Vec3(centre.x,y,centre.z)).getType()==HitResult.Type.MISS) return true;
+        return false;
     }
     private static <T extends Comparable<T>> void addProperty(Map<String,String> values, net.minecraft.world.level.block.state.BlockState state, net.minecraft.world.level.block.state.properties.Property<T> property) {
         values.put(property.getName(),property.getName(state.getValue(property)));

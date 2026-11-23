@@ -183,6 +183,16 @@ axe crits of the second matrix are no longer missing.
 | each bow trial dealt 20 damage in 3 shots but reported no kill | kills were counted at a melee swing only; an arrow kills ticks after the release | a target that dies with the body as its killer (kill credit) counts once, however it died (`FightLogic.Kills`) |
 | a sword took 73 s over one pig (the axe's stood still: 4 s) | the hunt walked to where the pig had been and struck in place; the pig had walked on, `out_of_reach`, again | the hunt fights its animal with `fight` (tactic `hunt`), which chases it per tick; the result says `killed` and `at` |
 
+### 9. Fourth live matrix (Nov 23): what it showed and what changed
+
+Fifteen of sixteen trials ended in a kill; every bow trial now counts its kills (4, 3
+and 3 shots). The hunt's fight killed its pig in 9 to 165 ticks (axe 3.1 s, spear
+5.6 s, bow by hand 12.7 s). The spear with a creeper walked away (by design).
+
+| seen | cause | change |
+|---|---|---|
+| the sword killed its pig at 5 s, then hunted a second one (18 s) | the porkchop lay in a one-layer snow cover; the entity ray aimed at its box centre, level with the snow's outline, so the drop went unseen for 4 s and the hunt moved on | a development awareness preset also aims a ray just under the box's top; legacy is frozen (`AWARENESS_MODES.md`) |
+
 Expected, not faults: the spear with a creeper walks away and escapes (a creeper is
 fought only by hit-and-back with a sword, axe or trident); hit-and-back strikes sprinting
 for knockback, so it never crits.
@@ -199,7 +209,7 @@ for knockback, so it never crits.
    `defense_step`/`defense_end` events, `scripts/combat-trial.py`.
 6. Done: Session: `escape` and `walk_away` steps; `fight` passes the tactic.
 7. In progress: Live trials: sword, axe, spear and bow against a zombie, skeleton, creeper
-   and pig. Three matrices ran; their fixes (sections 6 to 8) are built and
-   unit-tested. Melee kills every zombie and skeleton with crits; the matrix runs
-   again for the bow's kill count and the chased hunt.
+   and pig. Four matrices ran; their fixes (sections 6 to 9) are built and
+   unit-tested. The fourth killed in 15 of 16 trials (the 16th, a spear with a
+   creeper, walks away by design); the matrix runs again for the drop sight.
 8. Later: spear charge, trident throw with Loyalty, shield blocking, the dragon.

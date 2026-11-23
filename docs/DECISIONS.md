@@ -458,7 +458,12 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   Trials run through an operator-only `trial` op (never an intent or
   MCP tool) that summons on level ground in the bot's sight, and every trial of
   a matrix is fought on one flat arena the bot walks back to, so a trial
-  measures the fight, not the terrain. Plan:
+  measures the fight, not the terrain. A gather hunt fights its animal with the
+  same per-tick fight motor (tactic `hunt`), never a strike in place. The
+  development awareness presets see an entity by its box top as well as its
+  centre (a drop sunk in snow or grass is in plain view); the frozen legacy
+  preset and the awareness payload (and so the world-memory namespace) are
+  unchanged. Plan:
   [COMPANION_COMBAT_PLAN_2026-11-23.md](COMPANION_COMBAT_PLAN_2026-11-23.md).
 - **Open:** LAN access for a second PC (the game port binds loopback for now),
   rotating a long session's `events.sqlite3`, and the live night test of the

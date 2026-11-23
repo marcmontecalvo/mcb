@@ -71,6 +71,16 @@ public final class AwarenessConfigTest {
         var clipped=AwarenessConfig.parse(spine);
         if(AwarenessVolume.nearRefresh(clipped,0,2,0) || AwarenessVolume.nearRefresh(clipped,2,0,0))
             throw new AssertionError("spine cannot expand requested envelope");
+        // Entity sight: an entity is seen when any sampled point of its box is. Legacy looks at the box centre
+        // only (frozen); a development preset also looks just under the top, so a drop sunk in a snow layer or
+        // grass shows by its top (live trial 20261123T203045Z: a porkchop 3 blocks off went unseen for 4 s).
+        double[] old = legacy.sightHeights(77.0, 77.25);
+        if(old.length!=1 || old[0]!=77.125) throw new AssertionError("legacy sights the centre only");
+        double[] both = spineConfig.sightHeights(77.0, 77.25);
+        if(both.length!=2 || both[0]!=77.125 || !(both[1]>77.125 && both[1]<77.25))
+            throw new AssertionError("development sight: centre, then just under the top");
+        double[] zombie = spineConfig.sightHeights(64.0, 65.95);
+        if(!(zombie[1]>65.8 && zombie[1]<65.95)) throw new AssertionError("a tall box's top: its head");
         System.out.println("Awareness configuration: profiles, bounds, types and frozen legacy verified");
     }
 }

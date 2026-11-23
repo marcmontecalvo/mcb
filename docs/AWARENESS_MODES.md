@@ -57,7 +57,14 @@ qualification or a navigation benchmark.
 | `--extra-scan-budget-ms` | 1-10; default 3 |
 
 The legacy preset rejects any changed setting. Choose visible/chunk to adjust
-knobs. The server independently validates schema, types, and ranges; malformed
+knobs.
+
+`visible` entities pass a ray from the eye (block outlines and fluids occlude). The
+legacy preset aims it at the box centre only (frozen). The development presets
+(`visible`, `chunk`, `sections`) also aim just under the box's top, and an entity is seen
+when either ray is clear, as a player sees any part of it. A drop sunk in a one-layer
+snow cover or in grass has its centre at the cover's surface; the centre ray alone hid
+a porkchop 3 blocks from the companion for 4 s (combat trial 20261123T203045Z). The server independently validates schema, types, and ranges; malformed
 or unknown fields are rejected before admitting a natural run.
 
 ## Use in a natural-terrain run
