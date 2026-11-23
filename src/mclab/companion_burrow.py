@@ -18,6 +18,8 @@ DEPTH = 3
 BURROW_MAX_TICKS = 100  # all three digs: a mob is near, so only quick ground will do
 DROP_WAIT_TICKS = 20  # after a dig, the body falls into the cell within this
 FLUIDS = frozenset({M + "water", M + "lava", M + "flowing_water", M + "flowing_lava"})
+AIR = M + "air"
+OPEN = frozenset({AIR, M + "cave_air", M + "void_air"})  # nothing to clear
 SIDES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1))
 # Seals a player would use first; any other full, non-falling block held comes next.
 SEALS = (M + "dirt", M + "cobblestone", M + "cobbled_deepslate", M + "netherrack")
@@ -50,6 +52,9 @@ class Burrow:
     seal_tool: str | None  # to break the seal again
     feet: tuple  # where the body stands once dug in
     ticks: float  # estimated digging time
+    # Broken first, with no drop: what fills the feet cell (snow, grass, a carpet)
+    # has no collision but blocks the view of the block below, so its dig would fail.
+    clear: tuple = ()
 
 
 def plan_burrow(
@@ -70,12 +75,18 @@ def plan_burrow(
         return "open wall: a side of the hole is open or wet"
     if not any(_solid(cells[_add(seal, s)]) for s in SIDES):
         return "no seal: nothing beside the top of the hole to place a block against"
+    here = cells.get(tuple(feet)) or {}
+    if here.get("block") in FLUIDS:
+        return "standing in water: a hole here would flood"
+    clear = () if here.get("block", AIR) in OPEN else (tuple(feet),)
     tools, drops, total = [], [], 0.0
-    for p in digs:
+    for p in (*clear, *digs):
         block = cells[p]["block"]
         info = knowledge.blocks.get(block) or {}
         ticks, tool, tier = _dig(info, inventory)
         total += ticks
+        if p in clear:
+            continue  # its tool is picked again by the break op; its drop is no seal
         tools.append(tool)
         drops.extend(d.item for d in _drops(knowledge, block, tier))
     if total > BURROW_MAX_TICKS:
@@ -84,11 +95,15 @@ def plan_burrow(
     if item is None:
         return "no seal: no block to close the hole with"
     _, seal_tool, _ = _dig(knowledge.blocks.get(item) or {}, inventory)
-    return Burrow(digs, tuple(tools), seal, item, seal_tool, digs[-1], total)
+    return Burrow(digs, tuple(tools), seal, item, seal_tool, digs[-1], total, clear)
 
 
 def dig_in(body, plan: Burrow) -> Result:
     """Dig down and seal the hole. Not ok: the reason (the caller decides again)."""
+    for pos in plan.clear:
+        result = body.break_block(pos, None)
+        if not result.ok:
+            return result
     for pos, tool in zip(plan.digs, plan.tools, strict=True):
         result = body.break_block(pos, tool)
         if not result.ok:

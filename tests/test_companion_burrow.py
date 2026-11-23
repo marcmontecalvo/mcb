@@ -106,6 +106,24 @@ def test_no_seal_block_at_all_is_no_shelter(k):
     assert "seal" in cb.plan_burrow(sand, FEET, {}, k)
 
 
+@pytest.mark.parametrize("block", ["snow", "short_grass", "white_carpet"])
+def test_what_fills_the_feet_cell_is_cleared_first(k, block):
+    # live, Nov 23: standing in one layer of snow, every dig below failed
+    # no_line_of_sight (the layer has no collision but blocks the view down)
+    cells = ground()
+    cells[FEET] = {"block": M + block, "collision_boxes": []}
+    plan = cb.plan_burrow(cells, FEET, {}, k)
+    assert plan.clear == (FEET,)
+    assert plan.digs == ((0, 63, 0), (0, 62, 0), (0, 61, 0))
+    assert cb.plan_burrow(ground(), FEET, {}, k).clear == ()
+
+
+def test_standing_in_water_is_no_place_to_burrow(k):
+    cells = ground()
+    cells[FEET] = WATER
+    assert "water" in cb.plan_burrow(cells, FEET, {}, k)
+
+
 def test_the_seal_needs_a_side_to_be_placed_against(k):
     cells = ground()
     for side in ((1, 63, 0), (-1, 63, 0), (0, 63, 1), (0, 63, -1)):
@@ -156,6 +174,16 @@ def test_dig_and_seal(k):
         ("break", (0, 61, 0), None),
         ("place", (0, 63, 0), M + "cobblestone"),
     ]
+
+
+def test_the_feet_cell_is_cleared_before_the_digs_without_a_drop(k):
+    cells = ground()
+    cells[FEET] = {"block": M + "snow", "collision_boxes": []}
+    body = Body()
+    assert cb.dig_in(body, cb.plan_burrow(cells, FEET, {}, k)).ok
+    acts = [c[:2] for c in body.calls if c[0] != "wait"]
+    assert acts[:2] == [("break", FEET), ("break", (0, 63, 0))]
+    assert acts[-1] == ("place", (0, 63, 0))
 
 
 def test_a_failed_dig_stops_and_says_why(k):
