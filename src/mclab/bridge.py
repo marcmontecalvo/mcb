@@ -60,6 +60,8 @@ BODY_OPS = frozenset(
         "use_block",
         "break_block",
         "attack_entity",
+        "fight",
+        "escape",
         "use_entity",
         "eat",
         "container",

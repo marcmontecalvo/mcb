@@ -1883,6 +1883,20 @@ def test_plug_keep_is_a_body_op():
     assert "plug_keep" in BODY_OPS
 
 
+def test_every_op_the_companion_sends_is_routed_to_the_body_mod():
+    # An op missing from BODY_OPS goes to /lab/admin, which the play server (no
+    # mcb-lab) refuses: the first armed fight on play would have raised.
+    import re
+    from pathlib import Path
+
+    from mclab.bridge import BODY_OPS
+
+    source = Path(cb.__file__).read_text(encoding="utf-8")
+    sent = set(re.findall(r'self\.op\(\s*"(\w+)"', source))
+    assert {"fight", "escape", "attack_entity", "break_block"} <= sent
+    assert sent - BODY_OPS == set()
+
+
 def test_a_hurt_drop_keeps_three_hearts_and_is_put_back(monkeypatch):
     b, _, _ = body()
     cases = ((20.0, 12), (15.0, 12), (12.0, 9), (9.0, 6), (6.0, 3), (4.0, 3))
