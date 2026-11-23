@@ -31,6 +31,7 @@ from pathlib import Path
 from mclab import companion_burrow as burrow
 from mclab import companion_defense as defense
 from mclab import paths
+from mclab.build_runner import Result
 from mclab.companion_body import (
     DIG_TERRAIN,
     NATURAL_MOVEMENT,
@@ -66,6 +67,11 @@ HALT_TIMEOUT_S = 5.0
 # and the host's guard decides again after each
 FIGHT_TICKS = 200  # one fight step: the guard decides again at least this often
 FIGHT_ENDS = frozenset({"low_health", "avoid", "timeout"})  # decide again at once
+# A defence step's outcome (host event defense_step): the fight and escape ops' scalars.
+OUTCOME_FIELDS = (
+    "kills", "hits", "crits", "shots", "style", "ticks", "health", "end", "jumps",
+    "distance", "nearest",
+)  # fmt: skip
 DEFEND_WAIT_TICKS = 10  # a step that could do nothing waits this long
 FLEE_DISTANCE = 12  # blocks: one flee step
 FLEE_RADIUS = 3.0
@@ -745,8 +751,10 @@ class Session:
                 return cell
         return tuple(self.body.position())
 
-    def defend(self, action: defense.Action) -> None:
-        """One step of ``action``; the host's guard decides again after it."""
+    def defend(self, action: defense.Action) -> dict:
+        """One step of ``action``; the host's guard decides again after it. Returns
+        the step's outcome: the action, and for a body op (fight, escape) its ok,
+        reason and scalar result fields (OUTCOME_FIELDS; never the inventory)."""
         self.knowledge()  # body.foods: eat_when_needed knows what is food
         step = {
             "fight": self._fight,
@@ -757,15 +765,28 @@ class Session:
             "arm": self._arm,
             "burrow": self._burrow,
         }.get(action.kind)
-        if step is not None:
-            step(action)
+        result = step(action) if step is not None else None
+        outcome = {"action": action.kind}
+        if isinstance(result, Result):
+            data = result.data or {}
+            outcome.update(ok=result.ok, reason=result.reason)
+            outcome.update({k: data[k] for k in OUTCOME_FIELDS if k in data})
+        return outcome
+
+    def trial(self, spec: dict) -> dict:
+        """Set the scene for an operator's combat trial (the body's trial op). The
+        body checks every field; a refusal raises ValueError with its reason."""
+        result = self.body.trial(**spec)
+        if not result.ok:
+            raise ValueError(f"trial failed: {result.reason}")
+        return {k: v for k, v in (result.data or {}).items() if k != "inventory"}
 
     def _rest(self) -> None:
         """Nothing to move for: eat if hungry or hurt, and let a few ticks pass."""
         self.body.eat_when_needed()
         self.body.wait_ticks(DEFEND_WAIT_TICKS)
 
-    def _fight(self, action: defense.Action) -> None:
+    def _fight(self, action: defense.Action) -> Result:
         policy = self.defense_policy
 
         def once(entity):
@@ -785,18 +806,20 @@ class Session:
             if result.reason in ("not_allowed", "not_found"):
                 result = once(None)  # the nearest the body will fight instead
         if not result.ok and result.reason in FIGHT_ENDS:
-            return
+            return result
         spent = int((result.data or {}).get("ticks", 0)) if result.ok else 0
         if spent < DEFEND_WAIT_TICKS:  # nothing in reach yet: let the mob come
             self.body.wait_ticks(DEFEND_WAIT_TICKS - spent)
+        return result
 
-    def _escape(self, action: defense.Action) -> None:
+    def _escape(self, action: defense.Action) -> Result:
         """Sprint-jump away from every hostile around (the body steers each tick)."""
         result = self.body.escape(
             radius=ESCAPE_SCAN, clear=ESCAPE_CLEAR, max_ticks=ESCAPE_TICKS
         )
         if not result.ok and result.reason == "cornered":
             self._walk_away(action)  # the route planner sees past the next cell
+        return result
 
     def _walk_away(self, action: defense.Action) -> None:
         """Walk FLEE_DISTANCE straight away from the threats, else off to a side."""

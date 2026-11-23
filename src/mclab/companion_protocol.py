@@ -29,6 +29,12 @@ EVENT_TYPES = (
     "chat_out",  # data: {"text": ..., "to": name | None}  what the bot said
     "session",  # data: {"state": "starting" | "ready" | "died" | "lost", "detail"}
     "defense",  # data: {"action": "fight" | "burrow" | ..., "reason", "job": id | None}
+    # after each defence step: {"action", "job", "ok"?, "reason"?, and for fight and
+    # escape their scalars: "kills", "hits", "crits", "shots", "end", "jumps", ...}
+    "defense_step",
+    # once a defence is over: {"end": "clear" | "stopped" | "died" | "error",
+    # "steps": n, "job": id | None}
+    "defense_end",
 )
 
 

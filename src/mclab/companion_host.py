@@ -195,6 +195,16 @@ class Host:
                 "events": [copy.deepcopy(e) for e in self._events if e["seq"] > after],
             }
 
+    def trial(self, spec) -> dict:
+        """Set the scene for an operator's combat trial (control API ``/trial`` only:
+        no intent, so no MCP tool and no chat command can reach it). Shaped as call."""
+        if not isinstance(spec, dict):
+            return {"ok": False, "error": "a trial is a JSON object"}
+        try:
+            return {"ok": True, "result": self._on_worker(lambda s: s.trial(spec))}
+        except (ValueError, HostError) as error:
+            return {"ok": False, "error": str(error)}
+
     def note(self, type: str, data: dict) -> None:
         if type not in EVENT_TYPES:
             raise ValueError(f"Unknown event type {type!r}")
@@ -529,6 +539,7 @@ class Host:
         except Exception as error:  # noqa: BLE001 - the defence goes on
             log.warning("halt before defending failed: %s", error)
         last = None
+        steps, end = 0, "error"
         try:
             while action.kind != "none":
                 with self._cond:
@@ -544,10 +555,23 @@ class Host:
                     self._announce(action.reason)
                     if job_id is not None:
                         self._progress(job_id, stage="defending", detail=action.reason)
-                session.defend(action)
+                outcome = session.defend(action)
+                steps += 1
+                self._emit("defense_step", {**(outcome or {"action": action.kind}),
+                                            "job": job_id})  # fmt: skip
                 action = session.threat()
+            end = "clear"
+        except JobCancelled:
+            end = "stopped"
+            raise
+        except BodyDied:
+            end = "died"
+            raise
         finally:
             with self._cond:
+                self._emit_locked(
+                    "defense_end", {"end": end, "steps": steps, "job": job_id}
+                )
                 self._defending = None
                 self._defense_cancel = False
 

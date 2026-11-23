@@ -23,6 +23,7 @@ class FakeHost:
         self.event_calls = []
         self.jobs = {"j1": {"id": "j1", "state": "running"}}
         self.reply = {"ok": True, "result": {"hello": 1}}
+        self.trials = []
 
     def call(self, intent, args, actor, *, key=None):
         self.calls.append((intent, args, actor, key))
@@ -38,6 +39,10 @@ class FakeHost:
 
     def note(self, type, data):
         pass
+
+    def trial(self, spec):
+        self.trials.append(spec)
+        return {"ok": True, "result": {"given": 1}}
 
 
 @pytest.fixture
@@ -106,6 +111,21 @@ def test_shutdown_reads_its_request_body(host):
     finally:
         connection.close()
         srv.shutdown()
+
+
+def test_trial_route_sets_a_scene_for_the_operator(server, host):
+    spec = {"clear": 24, "give": [{"item": "minecraft:bow", "count": 1}]}
+    assert raw(server, "POST", "/trial", spec, token="wrong")[0] == 401
+    assert raw(server, "POST", "/trial", spec) == (
+        200,
+        {"ok": True, "result": {"given": 1}},
+    )
+    assert ApiClient(server.port, TOKEN).trial({"heal": True}) == {
+        "ok": True,
+        "result": {"given": 1},
+    }
+    assert host.trials == [spec, {"heal": True}]
+    assert raw(server, "POST", "/trial", [1, 2])[0] == 400
 
 
 def test_shutdown_route_is_absent_without_a_hook(server):

@@ -1041,6 +1041,7 @@ public final class BodyRuntime implements AutoCloseable {
             case "attack_entity" -> startAction("attack_entity", sequence, player -> BodyEntity.AttackTask.start(player, request, sequence));
             case "fight" -> startAction("fight", sequence, player -> BodyEntity.FightTask.start(player, request, sequence, this::localReader));
             case "escape" -> startAction("escape", sequence, player -> EscapeTask.start(player, request, sequence, this::localReader));
+            case "trial" -> bodyAction("trial", sequence, player -> { requireFree(); return BodyTrial.run(server, player, request); });
             case "eat" -> startAction("eat", sequence, player -> BodyEntity.EatTask.start(player, request, sequence));
             case "use_entity" -> bodyAction("use_entity", sequence, player -> { requireFree(); return BodyEntity.use(player, request); });
             case "container" -> bodyAction("container", sequence, player -> { requireFree(); return BodyContainer.run(player, request); });

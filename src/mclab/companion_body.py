@@ -1366,6 +1366,11 @@ class CompanionBody:
         ``clear``; fails ``cornered`` when no safe heading is left."""
         return self.op("escape", radius=radius, clear=clear, max_ticks=max_ticks)
 
+    def trial(self, **spec) -> Result:
+        """Operator combat trials only (BODY_ACTION_OPS ``trial``): clear the area and
+        the inventory, give, heal, set the time, summon. Never an intent or a tool."""
+        return self.op("trial", **spec)
+
     def use_entity(self, entity: str, item: str | None = None) -> Result:
         extra = {"item": item} if item else {}
         return self.op("use_entity", entity=entity, **extra)

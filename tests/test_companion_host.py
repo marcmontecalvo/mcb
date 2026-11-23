@@ -50,6 +50,8 @@ class FakeSession:
         self.defended = []
         self.defend_hook = None  # called inside defend (after a poll)
         self.defense = DefensePolicy()
+        self.trials = []
+        self.trial_result = {"summoned": []}
 
     def start(self):
         self.started = True
@@ -64,6 +66,13 @@ class FakeSession:
         self.poll()
         if self.defend_hook is not None:
             self.defend_hook(self, action)
+        return {"action": action.kind, "ok": True, "kills": 1}
+
+    def trial(self, spec):
+        self.trials.append((spec, threading.current_thread().name))
+        if isinstance(self.trial_result, Exception):
+            raise self.trial_result
+        return self.trial_result
 
     def defense_settings(self, changes):
         if changes:
@@ -335,6 +344,55 @@ def test_the_guard_keeps_going_until_nothing_threatens(host, made):
     assert kinds == ["fight", "burrow"]
 
 
+def test_each_defence_step_is_reported_with_its_outcome(host, made):
+    session = made[0]
+    session.threats.extend([FIGHT, FIGHT])
+
+    def steps():
+        return [
+            e["data"] for e in host.events()["events"] if e["type"] == "defense_step"
+        ]
+
+    assert _until(lambda: len(steps()) == 2)
+    assert steps()[0] == {"action": "fight", "ok": True, "kills": 1, "job": None}
+
+
+def test_the_end_of_a_defence_is_reported_once_after_its_steps(host, made):
+    session = made[0]
+    session.threats.extend([FIGHT, FIGHT])
+
+    def kinds():
+        return [e["type"] for e in host.events()["events"]
+                if e["type"].startswith("defense")]  # fmt: skip
+
+    assert _until(lambda: "defense_end" in kinds())
+    assert kinds() == ["defense", "defense_step", "defense_step", "defense_end"]
+    end = next(e for e in host.events()["events"] if e["type"] == "defense_end")
+    assert end["data"] == {"end": "clear", "steps": 2, "job": None}
+
+
+def test_a_trial_runs_on_the_worker_and_is_never_a_tool(host, made):
+    assert host.wait_ready(5)
+    session = made[0]
+    session.trial_result = {"summoned": [{"type": "minecraft:zombie", "uuid": "u1"}]}
+    reply = host.trial({"clear": 8})
+    assert reply == {"ok": True, "result": session.trial_result}
+    assert session.trials == [({"clear": 8}, "companion-worker")]
+    # set-up for operator trials only: neither an intent nor an MCP tool
+    assert "trial" not in companion_intents.INTENTS
+    assert "trial" not in {t["name"] for t in companion_intents.tool_schemas()}
+
+
+def test_a_failed_or_malformed_trial_says_why(host, made):
+    assert host.wait_ready(5)
+    made[0].trial_result = ValueError("trial failed: unknown_item")
+    assert host.trial({"give": []}) == {
+        "ok": False,
+        "error": "trial failed: unknown_item",
+    }
+    assert host.trial(["clear"]) == {"ok": False, "error": "a trial is a JSON object"}
+
+
 def test_the_same_action_again_is_announced_once(host, made):
     session = made[0]
     session.threats.extend([FIGHT, FIGHT, FIGHT])
@@ -358,6 +416,8 @@ def test_stop_ends_a_defence_and_the_guard_rests_a_while(host, made):
     assert entered.wait(5)
     host.call("stop", {}, OPERATOR)
     assert _until(lambda: host.status()["defense"]["active"] is None)
+    ends = [e["data"] for e in host.events()["events"] if e["type"] == "defense_end"]
+    assert ends == [{"end": "stopped", "steps": 0, "job": None}]
     session.defend_hook = None
     session.threats.append(FIGHT)
     time.sleep(0.1)
@@ -395,6 +455,8 @@ def test_death_in_a_fight_respawns(host, made):
     session.defend_hook = die
     session.threats.append(FIGHT)
     assert _until(lambda: session.respawns == 1)
+    ends = [e["data"] for e in host.events()["events"] if e["type"] == "defense_end"]
+    assert ends == [{"end": "died", "steps": 0, "job": None}]
 
 
 def test_the_defense_intent_reads_and_changes_the_settings(host, made):

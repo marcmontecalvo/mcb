@@ -2726,3 +2726,15 @@ def test_escape_sends_its_fields_and_waits_long_enough():
     assert result.ok and result.data["end"] == "clear"
     assert bridge.sent[-1] == ("escape", {"radius": 24, "clear": 16, "max_ticks": 200})
     assert cb.OP_TIMEOUTS["escape"] >= 1200 / 20
+
+
+def test_trial_sends_the_scene_as_given():
+    b, bridge, _ = body()
+    bridge.reply["trial"] = ("done", {"given": 1, "summoned": []})
+    spec = {
+        "clear": 24,
+        "heal": True,
+        "summon": [{"type": "minecraft:pig", "offset": [3, 0, 0]}],
+    }
+    assert b.trial(**spec).ok
+    assert bridge.sent[-1] == ("trial", spec)

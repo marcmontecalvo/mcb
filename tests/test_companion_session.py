@@ -1189,7 +1189,7 @@ class Plan:
 class DefenseBody(FakeBody):
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
-        self.fights, self.containers, self.escapes = [], [], []
+        self.fights, self.containers, self.escapes, self.trials = [], [], [], []
         self.stance_ok = True
         self.ate = 0
 
@@ -1200,6 +1200,10 @@ class DefenseBody(FakeBody):
     def escape(self, **fields):
         self.log.append(("escape", fields))
         return self.escapes.pop(0) if self.escapes else Result(True, None, {})
+
+    def trial(self, **fields):
+        self.log.append(("trial", fields))
+        return self.trials.pop(0)
 
     def goto_stance(self, pos, reach, avoid=()):
         self.log.append(("stance", tuple(pos), reach))
@@ -1370,6 +1374,54 @@ def test_a_fight_that_ends_at_once_waits_but_low_health_does_not(guard):
         ("wait", cs.DEFEND_WAIT_TICKS - 2),
         ("wait", cs.DEFEND_WAIT_TICKS),
     ]
+
+
+def test_defend_reports_the_fight_outcome_without_the_inventory(guard):
+    session, _, _ = guard()
+    session.body.fights = [
+        Result(True, None, {"kills": 1, "hits": 3, "crits": 2, "shots": 0,
+                            "style": "melee", "ticks": 80, "health": 18.0,
+                            "end": "clear", "inventory": [{"slot": 0}]})
+    ]  # fmt: skip
+    outcome = session.defend(Action("fight", "fighting", target="z1", item=SWORD))
+    assert outcome == {
+        "action": "fight", "ok": True, "reason": None, "kills": 1, "hits": 3,
+        "crits": 2, "shots": 0, "style": "melee", "ticks": 80, "health": 18.0,
+        "end": "clear",
+    }  # fmt: skip
+
+
+def test_defend_reports_an_escape_and_a_step_with_no_body_op(guard):
+    session, _, _ = guard()
+    data = {"end": "clear", "jumps": 9, "distance": 21.5, "nearest": 17.0, "ticks": 90}
+    session.body.escapes = [Result(True, None, data), Result(False, "cornered", {})]
+    assert session.defend(Action("escape", "getting away")) == {
+        "action": "escape",
+        "ok": True,
+        "reason": None,
+        **data,
+    }
+    cornered = session.defend(Action("escape", "getting away"))
+    assert (cornered["ok"], cornered["reason"]) == (False, "cornered")
+    session.body.walk_ok = True
+    assert session.defend(Action("walk_away", "walking away")) == {
+        "action": "walk_away"
+    }
+
+
+def test_trial_sets_the_scene_through_the_body(guard):
+    session, _, _ = guard()
+    body = session.body
+    summoned = [{"type": ZOMBIE, "uuid": "u1"}]
+    body.trials = [
+        Result(True, None, {"summoned": summoned, "given": 1, "inventory": []}),
+        Result(False, "unknown_item", {}),
+    ]
+    spec = {"clear": 24, "give": [{"item": SWORD, "count": 1}], "time": 6000}
+    assert session.trial(spec) == {"summoned": summoned, "given": 1}
+    assert _logged(body, "trial") == [("trial", spec)]
+    with pytest.raises(ValueError, match="unknown_item"):
+        session.trial({"give": [{"item": "minecraft:nope", "count": 1}]})
 
 
 def test_a_target_the_body_refuses_is_fought_as_the_nearest_instead(guard):

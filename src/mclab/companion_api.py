@@ -6,6 +6,8 @@ Routes (all need ``Authorization: Bearer <token>``; JSON in and out):
 - ``GET /jobs/<id>?wait=<s>``  ->  the job (long-polled, wait capped at 60 s) or 404
 - ``GET /events?after=<n>&wait=<s>``  ->  the host's events
 - ``GET /health``  ->  ``{"ok": true}``
+- ``POST /trial`` ``{clear?, clear_inventory?, give?, heal?, time?, summon?}``  ->  as
+  ``/call``; sets the scene for an operator's combat trial (never an MCP tool)
 - ``POST /shutdown``  ->  202; the host halts and despawns the body and exits (the
   supervisor's stop; Windows ``terminate()`` would skip that)
 
@@ -27,6 +29,7 @@ from pathlib import Path
 from mclab.companion_intents import Actor
 
 MAX_BODY = 64 * 1024
+MAX_DISCARD = 1024 * 1024  # an oversize body read and dropped so the 413 arrives
 MAX_WAIT = 60.0
 SOURCES = ("api", "mcp")
 RUNTIME_FILE = "companion-host.json"
@@ -122,6 +125,7 @@ class _Handler(BaseHTTPRequestHandler):
         if length < 0:
             self._fail(400, "bad Content-Length")
         elif length > MAX_BODY:
+            self._discard(length)
             self._fail(413, f"request body over {MAX_BODY} bytes")
         else:
             try:
@@ -146,6 +150,17 @@ class _Handler(BaseHTTPRequestHandler):
             self.rfile.read(length)
         else:
             self.close_connection = True
+
+    def _discard(self, length: int) -> None:
+        """Read and drop an oversize body (up to MAX_DISCARD) before refusing it:
+        unread bytes make Windows reset the socket under the 413, so the client
+        sees a connection abort instead of the reply."""
+        left = min(length, MAX_DISCARD)
+        while left > 0:
+            chunk = self.rfile.read(min(left, 64 * 1024))
+            if not chunk:
+                break
+            left -= len(chunk)
 
     # -- routes
 
@@ -184,6 +199,11 @@ class _Handler(BaseHTTPRequestHandler):
             self._drain()
             self.on_shutdown()  # sets a flag; the host winds down on its own thread
             return self._send(202, {"ok": True})
+        if url.path == "/trial":
+            spec = self._json_body()
+            if spec is not None:
+                self._send(200, self.host.trial(spec))
+            return
         if url.path != "/call":
             return self._fail(404, "not found")
         body = self._json_body()
@@ -308,6 +328,10 @@ class ApiClient:
         if key is not None:
             body["key"] = key
         return self._request("POST", "/call", body)[1]
+
+    def trial(self, spec: dict) -> dict:
+        """Set the scene for a combat trial (scripts/combat-trial.py); as ``call``."""
+        return self._request("POST", "/trial", spec)[1]
 
     def shutdown(self) -> bool:
         """Ask the host to wind down (halt and despawn the body, then exit)."""
