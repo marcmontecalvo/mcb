@@ -31,6 +31,15 @@ public final class TrialLogicTest {
         check(zombie.type().equals("minecraft:zombie") && zombie.dx() == 8 && zombie.dy() == 0 && zombie.dz() == -2
                 && zombie.helmet(), "summon with offset and a helmet (undead do not burn by day)");
         check(!full.summon().get(1).helmet(), "helmet off by default");
+        check(!full.surface() && !none.surface(), "the body stays where it is by default");
+        check(parse("{\"surface\":true}").surface(), "surface: the scene starts on open ground");
+        rejects("{\"surface\":\"yes\"}", "bad_request");
+
+        // where a summon stands: on its column's ground with surface, else level with the body
+        check(TrialLogic.summonY(true, 71, 0, 77) == 77, "surface: the summon column's ground");
+        check(TrialLogic.summonY(true, 71, 2, 77) == 79, "surface: dy above that ground");
+        check(TrialLogic.summonY(false, 71, 0, 77) == 71, "no surface: the body's feet level");
+        check(TrialLogic.summonY(false, 71, -1, 77) == 70, "no surface: dy from the feet");
 
         // structured fields only: never a command string
         rejects("{\"clear\":-1}", "bad_request"); rejects("{\"clear\":49}", "bad_request");

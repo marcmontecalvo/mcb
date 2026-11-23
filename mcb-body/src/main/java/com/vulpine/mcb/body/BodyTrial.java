@@ -16,6 +16,7 @@ import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.levelgen.Heightmap;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,8 +24,10 @@ import java.util.Map;
 
 /**
  * The trial op (TrialLogic parses it): sets the scene for one combat trial on the play
- * server. Order: clear the area, then the inventory, give, heal, set the time, summon.
- * Every registry id is checked before anything changes. Docs:
+ * server. Order: move to the surface (when asked), clear the area, then the inventory,
+ * give, heal, set the time, summon. Every registry id is checked before anything
+ * changes; a summon with no room where it would stand fails (never left to suffocate in
+ * a hillside). Docs:
  * COMPANION_COMBAT_PLAN_2026-11-23.md section 5.
  */
 final class BodyTrial {
@@ -47,6 +50,16 @@ final class BodyTrial {
         }
         var level = player.level();
         var out = new LinkedHashMap<String, Object>();
+        BlockPos feet = player.blockPosition();
+        if (trial.surface()) {  // out of a hole or a cave: the trial is fought in the open
+            int ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, feet.getX(), feet.getZ());
+            if (ground != feet.getY()) {
+                player.teleportTo(level, feet.getX() + .5, ground, feet.getZ() + .5, java.util.Set.of(),
+                        player.getYRot(), player.getXRot(), true);
+                feet = new BlockPos(feet.getX(), ground, feet.getZ());
+            }
+            out.put("surface", ground);
+        }
         if (trial.clear() > 0) out.put("cleared", clear(player, trial.clear()));
         if (trial.clearInventory()) player.getInventory().clearContent();
         int given = 0;
@@ -75,13 +88,15 @@ final class BodyTrial {
             out.put("time", trial.time());
         }
         var summoned = new ArrayList<Map<String, Object>>();
-        BlockPos feet = player.blockPosition();
         for (var summon : trial.summon()) {
             var type = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(summon.type()));
             Entity entity = type.create(level, EntitySpawnReason.COMMAND);
             if (entity == null) throw new BodyActions.Fail("cannot_create_entity");
-            entity.snapTo(feet.getX() + summon.dx() + .5, feet.getY() + summon.dy(), feet.getZ() + summon.dz() + .5,
-                    level.getRandom().nextFloat() * 360f, 0f);
+            int x = feet.getX() + summon.dx(), z = feet.getZ() + summon.dz();
+            int y = TrialLogic.summonY(trial.surface(), feet.getY(), summon.dy(),
+                    level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z));
+            entity.snapTo(x + .5, y, z + .5, level.getRandom().nextFloat() * 360f, 0f);
+            if (!level.noCollision(entity)) throw new BodyActions.Fail("no_room");
             entity.addTag(TAG);
             if (entity instanceof Mob mob) {
                 // as a natural spawn: a skeleton gets its bow, a zombie maybe a sword

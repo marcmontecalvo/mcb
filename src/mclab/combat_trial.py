@@ -74,6 +74,7 @@ def scene(
     """The trial op's request for one weapon against one mob."""
     mob = _mob(mob)
     return {
+        "surface": True,
         "clear": CLEAR,
         "clear_inventory": True,
         "heal": True,

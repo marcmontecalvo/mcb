@@ -198,19 +198,22 @@ The observation (`/state`) also carries `time_of_day` (day time modulo 24000).
 Sets the scene for a combat trial on the play server (`scripts/combat-trial.py` sends it through the host's
 control API, `POST /trial`, which keeps the mod's request sequence). Structured fields only, never a
 command string; any other key is `bad_request`:
-`{"clear":0..48?, "clear_inventory":bool?, "give":[{"item","count":1..256}]? (max 36),
+`{"surface":bool?, "clear":0..48?, "clear_inventory":bool?, "give":[{"item","count":1..256}]? (max 36),
 "heal":bool?, "time":0..23999?, "summon":[{"type","offset":[dx,dy,dz] (each -32..32),"helmet":bool?}]? (max 8)}`.
 Order: check every item and entity id against the registries first (`unknown_item`, `unknown_entity`;
-nothing changes on a bad id), then `clear` (discards earlier trial mobs (tag `mcb_trial`), hostiles,
+nothing changes on a bad id), then `surface` (the body moves to the top of its column, the first free
+cell over the top non-leaf block, so a trial never starts in a hole or a cave), then `clear` (discards earlier trial mobs (tag `mcb_trial`), hostiles,
 dropped items, XP orbs and projectiles within that radius; never players), `clear_inventory`, `give`
 (split into stacks, `inventory_full`), `heal` (full health and food, saturation 5, no fire, no effects),
 `time` (moves the clock forward to that day time, never back), then `summon` (at the feet cell plus the
-offset, tagged `mcb_trial`, spawned as by a command; `helmet` adds a leather helmet that never drops, so
-undead do not burn by day). The Ender Dragon and the Wither are `not_allowed`.
+offset; with `surface`, dy counts from the ground of the summon's own column instead; tagged `mcb_trial`,
+spawned as by a command; `helmet` adds a leather helmet that never drops, so undead do not burn by day).
+A summon whose box would overlap blocks fails `no_room` (a mob put into a hillside suffocates unseen). The Ender Dragon and the Wither are `not_allowed`.
 A summoned mob is finalized as a natural spawn (a skeleton gets its bow, a zombie may get gear).
-`_done`: `{"cleared": n?, "time"?, "given": n (give entries), "summoned":[{type,uuid}], "health"}`.
+`_done`: `{"surface": y?, "cleared": n?, "time"?, "given": n (give entries), "summoned":[{type,uuid}],
+"health"}`.
 `_failed`: `bad_request`, `not_allowed`, `unknown_item`, `unknown_entity`, `inventory_full`,
-`cannot_create_entity`, `busy`.
+`cannot_create_entity`, `no_room`, `busy`.
 
 ### `use_entity`
 Request: `{"entity":"<uuid>", "item":"<item>"?}`. A single normal use on the

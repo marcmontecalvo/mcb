@@ -24,6 +24,7 @@ def test_scene_clears_heals_arms_and_summons_at_a_distance():
     spec = ct.scene("sword", "zombie", distance=9, time=6000)
 
     assert spec == {
+        "surface": True,  # out of a hole or a cave: trials are fought in the open
         "clear": ct.CLEAR,
         "clear_inventory": True,
         "heal": True,
