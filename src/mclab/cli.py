@@ -29,7 +29,7 @@ from mclab import (
     screening,
     server,
 )
-from mclab.paths import ROOT, SERVER, config, lock, read_json, write_json
+from mclab.paths import ROOT, SERVER, config, config_ports, lock, read_json, write_json
 
 
 def doctor() -> dict:
@@ -60,7 +60,7 @@ def doctor() -> dict:
                 "ok": path.exists() and bootstrap.sha256(path) == artifact["sha256"],
             }
         )
-    for key in ("game_port", "bridge_port", "lab_port", "supervisor_port"):
+    for key in config_ports(settings):
         checks.append(
             {
                 "check": key,

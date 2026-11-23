@@ -7,6 +7,8 @@ dependencies = []
 
 [project.scripts]
 mclab = "mclab.cli:main"
+mcplay = "mclab.play_cli:main"
+mcb-mcp = "mclab.mcb_mcp:main"
 
 [build-system]
 requires = ["hatchling==1.27.0"]

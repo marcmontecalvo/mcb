@@ -6,7 +6,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from mclab.paths import RUNTIME, SERVER, config, lock
+from mclab.paths import INSTANCE, RUNTIME, SERVER, config, lock
 
 
 def sha256(path: Path) -> str:
@@ -77,29 +77,11 @@ def bootstrap() -> dict:
             shutil.copyfile(archive, destination)
     properties = SERVER / "server.properties"
     if not properties.exists():
-        values = {
-            "server-ip": settings["server_host"],
-            "server-port": settings["game_port"],
-            "online-mode": str(settings["online_mode"]).lower(),
-            "level-name": "world",
-            "level-type": "minecraft:flat",
-            "level-seed": settings["world_seed"],
-            "gamemode": "survival",
-            "difficulty": "normal",
-            "spawn-protection": 0,
-            "max-players": 4,
-            "view-distance": 6,
-            "simulation-distance": 5,
-            "pause-when-empty-seconds": -1,
-            "enable-rcon": "false",
-            "enable-query": "false",
-            "white-list": "false",
-            "motd": "Minecraft AI Lab - development, unscored",
-            "generator-settings": '{"layers":[{"block":"minecraft:bedrock",'
-            '"height":1},{"block":"minecraft:dirt","height":2},'
-            '{"block":"minecraft:grass_block","height":1}],'
-            '"biome":"minecraft:plains"}',
-        }
+        values = (
+            _lab_properties(settings)
+            if INSTANCE.name == "lab"
+            else _world_properties(settings)
+        )
         properties.write_text("\n".join(f"{k}={v}" for k, v in values.items()) + "\n")
     eula = SERVER / "eula.txt"
     if not eula.exists():
@@ -110,4 +92,54 @@ def bootstrap() -> dict:
         "java": str(java()),
         "artifacts_verified": len(artifacts),
         "server": str(SERVER),
+    }
+
+
+def _world_properties(settings: dict) -> dict:
+    """server.properties for a normal-world instance (no flat generator)."""
+    world = settings["world"]
+    return {
+        "server-ip": settings["server_host"],
+        "server-port": settings["game_port"],
+        "online-mode": str(settings["online_mode"]).lower(),
+        "level-name": "world",
+        "level-type": world["level_type"],
+        "level-seed": world["seed"],
+        "gamemode": "survival",
+        "difficulty": world["difficulty"],
+        "spawn-protection": 0,
+        "max-players": 8,
+        "view-distance": world["view_distance"],
+        "simulation-distance": world["simulation_distance"],
+        "pause-when-empty-seconds": -1,
+        "enable-rcon": "false",
+        "enable-query": "false",
+        "white-list": "false",
+        "motd": world["motd"],
+    }
+
+
+def _lab_properties(settings: dict) -> dict:
+    return {
+        "server-ip": settings["server_host"],
+        "server-port": settings["game_port"],
+        "online-mode": str(settings["online_mode"]).lower(),
+        "level-name": "world",
+        "level-type": "minecraft:flat",
+        "level-seed": settings["world_seed"],
+        "gamemode": "survival",
+        "difficulty": "normal",
+        "spawn-protection": 0,
+        "max-players": 4,
+        "view-distance": 6,
+        "simulation-distance": 5,
+        "pause-when-empty-seconds": -1,
+        "enable-rcon": "false",
+        "enable-query": "false",
+        "white-list": "false",
+        "motd": "Minecraft AI Lab - development, unscored",
+        "generator-settings": '{"layers":[{"block":"minecraft:bedrock",'
+        '"height":1},{"block":"minecraft:dirt","height":2},'
+        '{"block":"minecraft:grass_block","height":1}],'
+        '"biome":"minecraft:plains"}',
     }

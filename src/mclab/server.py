@@ -12,9 +12,20 @@ import urllib.error
 import urllib.request
 
 from mclab.bootstrap import java
-from mclab.paths import ROOT, RUNTIME, SERVER, config, read_json, write_json
+from mclab.paths import (
+    INSTANCE,
+    ROOT,
+    SERVER,
+    config,
+    config_ports,
+    read_json,
+    write_json,
+)
+from mclab.paths import (
+    INSTANCE_RUNTIME as RUNTIME,  # this instance's runtime files
+)
 
-STATE = RUNTIME / "supervisor.json"
+STATE = INSTANCE.state
 
 
 def port_free(port: int) -> bool:
@@ -72,7 +83,7 @@ def status() -> dict:
             return {"state": "stopped"}
         if isinstance(pid, int) and not pid_alive(pid):
             return {"state": "stopped", "detail": "supervisor process is gone"}
-        return {"state": "unreachable", "detail": "Inspect runtime/server-console.log"}
+        return {"state": "unreachable", "detail": f"Inspect {INSTANCE.console_log}"}
 
 
 def _spawn_detached(output) -> subprocess.Popen:
@@ -114,7 +125,7 @@ def start(accept_eula: bool = False) -> dict:
         handle = launch_lock.open("x")
     except FileExistsError as error:
         raise RuntimeError(
-            "Another launch is in progress; inspect runtime/launch.lock"
+            f"Another launch is in progress; inspect {launch_lock}"
         ) from error
     try:
         with handle:
@@ -128,7 +139,7 @@ def _start(accept_eula: bool = False) -> dict:
     assert_stopped()
     stop_orphans()
     settings = config()
-    for key in ("game_port", "bridge_port", "lab_port", "supervisor_port"):
+    for key in config_ports(settings):
         # A server stopped a moment ago may hold its ports a few seconds more:
         # run 20261117T184243178083Z lost its summary switching back to the
         # operator world ("Port 25575 is in use").
@@ -158,7 +169,9 @@ def _start(accept_eula: bool = False) -> dict:
     if properties.get("server-ip") != "127.0.0.1" or properties.get(
         "server-port"
     ) != str(settings["game_port"]):
-        raise RuntimeError("Server properties host/port differ from config/lab.json")
+        raise RuntimeError(
+            "Server properties host/port differ from " + str(INSTANCE.config_file)
+        )
     if properties.get("pause-when-empty-seconds") != "-1":
         raise RuntimeError("Set pause-when-empty-seconds=-1 in lab server.properties")
     token = secrets.token_urlsafe(32)
@@ -170,7 +183,7 @@ def _start(accept_eula: bool = False) -> dict:
             "launch_id": secrets.token_hex(16),
         },
     )
-    logfile = RUNTIME / "supervisor.log"
+    logfile = INSTANCE.supervisor_log
     for attempt in range(4):
         with logfile.open("ab") as output:
             proc = _spawn_detached(output)
@@ -205,6 +218,19 @@ def _start(accept_eula: bool = False) -> dict:
 
 
 LAUNCH_FLAG = "-Dmclab.launch_id="
+INSTANCE_FLAG = "-Dmclab.instance="
+
+
+def instance_flag(name: str) -> list[str]:
+    """JVM argument naming a non-lab instance; the lab's command line is unchanged."""
+    return [] if name == "lab" else [f"{INSTANCE_FLAG}{name}"]
+
+
+def _is_ours(args: str) -> bool:
+    """A JVM belongs to this instance: the lab has no instance flag, others do."""
+    if INSTANCE.name == "lab":
+        return INSTANCE_FLAG not in args
+    return f"{INSTANCE_FLAG}{INSTANCE.name}" in args.split()
 
 
 def orphans() -> list[int]:
@@ -228,7 +254,12 @@ def orphans() -> list[int]:
     pids = []
     for line in out.splitlines():
         pid, _, args = line.strip().partition("\t" if os.name == "nt" else " ")
-        if LAUNCH_FLAG in args and pid.isdigit() and int(pid) != os.getpid():
+        if (
+            LAUNCH_FLAG in args
+            and _is_ours(args)
+            and pid.isdigit()
+            and int(pid) != os.getpid()
+        ):
             pids.append(int(pid))
     return pids
 

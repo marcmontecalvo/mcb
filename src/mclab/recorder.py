@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
 
-from mclab.paths import ROOT
+from mclab.paths import INSTANCE, ROOT
 
 # The run's own event log (events.sqlite3) holds every payload in full. The ledger
 # keeps small ones (requests, milestones, outcomes) and a stub for the rest, the
@@ -67,7 +67,7 @@ def exclusive_run(path: Path):
 
 @contextmanager
 def exclusive_arena():
-    with exclusive_run(ROOT / "results/.arena.lock"):
+    with exclusive_run(ROOT / "results" / INSTANCE.arena_lock_name):
         try:
             yield
         finally:

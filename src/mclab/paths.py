@@ -2,11 +2,75 @@
 
 import hashlib
 import json
+import os
+import re
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNTIME = ROOT / "runtime"
-SERVER = RUNTIME / "server"
+RUNTIME = ROOT / "runtime"  # shared: toolchains and downloads for every instance
+LAB_INSTANCE = "lab"
+_INSTANCE_NAME = re.compile(r"[a-z][a-z0-9-]{0,15}")
+
+
+@dataclass(frozen=True)
+class InstancePaths:
+    """Every per-instance file location. The lab keeps its historical layout."""
+
+    name: str
+    config_file: Path
+    runtime: Path  # supervisor.json, launch.lock, logs, mod-build.json
+    server: Path
+    arena_lock_name: str  # file under results/
+
+    @property
+    def state(self) -> Path:
+        return self.runtime / "supervisor.json"
+
+    @property
+    def launch_lock(self) -> Path:
+        return self.runtime / "launch.lock"
+
+    @property
+    def supervisor_log(self) -> Path:
+        return self.runtime / "supervisor.log"
+
+    @property
+    def console_log(self) -> Path:
+        return self.runtime / "server-console.log"
+
+    @property
+    def mod_build(self) -> Path:
+        return self.runtime / "mod-build.json"
+
+    @property
+    def companion_log(self) -> Path:
+        return self.runtime / "companion-host.log"
+
+
+def instance_paths(name: str | None, root: Path = ROOT) -> InstancePaths:
+    """Resolve an instance name ("" / None / "lab" = the lab) to its locations."""
+    name = name or LAB_INSTANCE
+    if name == LAB_INSTANCE:
+        runtime = root / "runtime"
+        return InstancePaths(
+            name, root / "config/lab.json", runtime, runtime / "server", ".arena.lock"
+        )
+    if not _INSTANCE_NAME.fullmatch(name):
+        raise ValueError(f"Invalid MCLAB_INSTANCE {name!r}: use [a-z][a-z0-9-]{{0,15}}")
+    runtime = root / "runtime/instances" / name
+    return InstancePaths(
+        name,
+        root / "config/instances" / f"{name}.json",
+        runtime,
+        runtime / "server",
+        f".arena-{name}.lock",
+    )
+
+
+INSTANCE = instance_paths(os.environ.get("MCLAB_INSTANCE"))
+SERVER = INSTANCE.server
+INSTANCE_RUNTIME = INSTANCE.runtime
 # Two independent server mods: the body (nervous system) and the lab (courses, scoring).
 MODS = ("mcb-body", "mcb-lab")
 # Source-bound inputs archived with evidence and hashed for provenance.
@@ -30,16 +94,22 @@ def digest(value: object) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
+def config_ports(value: dict) -> list[str]:
+    """Names of the port keys this instance's config must define."""
+    keys = ["game_port", "bridge_port", "supervisor_port"]
+    if value.get("lab_mod", True):
+        keys.append("lab_port")
+    if "companion_port" in value:
+        keys.append("companion_port")
+    return keys
+
+
 def config() -> dict:
-    value = read_json(ROOT / "config/lab.json")
+    value = read_json(INSTANCE.config_file)
+    value.setdefault("lab_mod", True)
     if value["server_host"] != "127.0.0.1":
         raise ValueError("This desktop launch profile requires loopback binding")
-    ports = [
-        value["game_port"],
-        value["bridge_port"],
-        value["lab_port"],
-        value["supervisor_port"],
-    ]
+    ports = [value[key] for key in config_ports(value)]
     if len(set(ports)) != len(ports) or any(not 1024 <= p <= 65535 for p in ports):
         raise ValueError("Use distinct unprivileged game/bridge/lab/supervisor ports")
     if not 1 <= value["heap_gb"] <= 16:

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "minecraft": "26.3",
+  "server_host": "127.0.0.1",
+  "game_port": 25565,
+  "bridge_port": 8775,
+  "supervisor_port": 8776,
+  "companion_port": 8777,
+  "heap_gb": 4,
+  "online_mode": true,
+  "lab_mod": false,
+  "world": {
+    "seed": 20261123,
+    "level_type": "minecraft:normal",
+    "difficulty": "normal",
+    "view_distance": 10,
+    "simulation_distance": 8,
+    "motd": "MCB companion"
+  },
+  "companion": {
+    "bot": "default"
+  }
+}
