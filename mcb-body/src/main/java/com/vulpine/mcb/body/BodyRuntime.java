@@ -90,6 +90,8 @@ public final class BodyRuntime implements AutoCloseable {
     private boolean nativeMode;
     private BreakTask breakTask;
     private BodyEntity.Task actionTask;
+    /** The running action task (fight) is holding movement controls that tickAction must release. */
+    private boolean actionControlled;
 
     public record Controls(String action_id, int observation_tick, int intended_apply_tick,
                            int expires_tick, int duration, double forward, double strafe,
@@ -693,6 +695,8 @@ public final class BodyRuntime implements AutoCloseable {
             var task = actionTask;
             actionTask = null;
             if (body != null && body.player() != null) task.stop(body.player());
+            if (actionControlled && body != null) { body.release(); expiryTick = -1; }
+            actionControlled = false;
             emit(task.name() + "_failed", "fabric_start", Map.of("request_sequence", task.requestSequence(), "reason", "cancelled:" + reason));
         }
         if (breakTask != null) {
@@ -1035,6 +1039,7 @@ public final class BodyRuntime implements AutoCloseable {
             case "use_block" -> bodyAction("use_block", sequence, player -> { requireFree(); return BodyBuild.use(player, request); });
             case "break_block" -> startBreak(request, sequence);
             case "attack_entity" -> startAction("attack_entity", sequence, player -> BodyEntity.AttackTask.start(player, request, sequence));
+            case "fight" -> startAction("fight", sequence, player -> BodyEntity.FightTask.start(player, request, sequence, this::localReader));
             case "eat" -> startAction("eat", sequence, player -> BodyEntity.EatTask.start(player, request, sequence));
             case "use_entity" -> bodyAction("use_entity", sequence, player -> { requireFree(); return BodyEntity.use(player, request); });
             case "container" -> bodyAction("container", sequence, player -> { requireFree(); return BodyContainer.run(player, request); });
@@ -1157,8 +1162,20 @@ public final class BodyRuntime implements AutoCloseable {
             return;
         }
         String outcome = task.step(player);
-        if (outcome == null) return;
+        if (outcome == null) {
+            int tick = server.getTickCount();
+            var controls = task.controls(player, tick);
+            if (controls != null) {
+                body.controls(controls);
+                expiryTick = tick + 2;
+                actionControlled = true;
+            } else if (actionControlled) {
+                body.release(); expiryTick = -1; actionControlled = false;
+            }
+            return;
+        }
         actionTask = null;
+        if (actionControlled) { body.release(); expiryTick = -1; actionControlled = false; }
         if (!outcome.equals("done")) task.stop(player);
         var data = new LinkedHashMap<String, Object>();
         data.put("request_sequence", task.requestSequence());
@@ -1444,7 +1461,7 @@ public final class BodyRuntime implements AutoCloseable {
         boolean streaming=streaming();
         if(body!=null && body.player()!=null) {
             var observed=body.observe();
-            for(String key:List.of("position","velocity","yaw","pitch","on_ground","health","food",
+            for(String key:List.of("position","velocity","yaw","pitch","on_ground","health","food","time_of_day",
                     "mode","pose","alive","sprinting","inventory","ray","block_reach","entity_reach","attack_strength"))
                 filtered.put(key,observed.get(key));
             // Development bodies also report survival state. Qualified course bodies keep

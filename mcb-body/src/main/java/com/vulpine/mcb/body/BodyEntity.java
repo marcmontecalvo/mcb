@@ -30,6 +30,8 @@ final class BodyEntity {
         Map<String, Object> result(ServerPlayer player);
         /** Called when the task is cancelled or ends early. */
         default void stop(ServerPlayer player) {}
+        /** Movement for this tick, applied after step by the runtime with a 2-tick expiry; null releases the body. */
+        default BodyRuntime.Controls controls(ServerPlayer player, int tick) { return null; }
     }
 
     static String typeId(Entity entity) { return BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString(); }
@@ -68,7 +70,7 @@ final class BodyEntity {
         static AttackTask start(ServerPlayer player, JsonObject request, long sequence) {
             Entity target = find(player, request);
             boolean tamed = target instanceof OwnableEntity owned && owned.getOwnerReference() != null;
-            if (!ActionLogic.allowedTarget(target instanceof Animal, tamed, target instanceof net.minecraft.world.entity.player.Player,
+            if (!ActionLogic.allowedTarget(target instanceof Animal, target instanceof net.minecraft.world.entity.monster.Enemy, tamed, target instanceof net.minecraft.world.entity.player.Player,
                     target instanceof net.minecraft.world.entity.npc.villager.AbstractVillager))
                 throw new BodyActions.Fail("not_allowed");
             checkReach(player, target);
@@ -105,6 +107,143 @@ final class BodyEntity {
             out.put("killed", !target.isAlive());
             out.put("ticks", ticks);
             out.put("hits", hits);
+            return out;
+        }
+    }
+
+    // ---- fight
+    static final class FightTask implements Task {
+        final long sequence;
+        final FightLogic.Params params;
+        final java.util.function.Function<ServerPlayer, RouteGeometry.Reader> reader;
+        final UUID requested;
+        int ticks, hits, kills;
+        /** Set by step: 0 hold still, 1 walk forward, 2 walk forward and jump. */
+        private int move;
+
+        private FightTask(long sequence, FightLogic.Params params, UUID requested,
+                          java.util.function.Function<ServerPlayer, RouteGeometry.Reader> reader) {
+            this.sequence = sequence; this.params = params; this.requested = requested; this.reader = reader;
+        }
+
+        static FightTask start(ServerPlayer player, JsonObject request, long sequence,
+                               java.util.function.Function<ServerPlayer, RouteGeometry.Reader> reader) {
+            var params = FightLogic.parse(request);
+            UUID requested = null;
+            if (params.entity() != null) {
+                Entity target = find(player, request);
+                boolean tamed = target instanceof OwnableEntity owned && owned.getOwnerReference() != null;
+                if (!ActionLogic.allowedTarget(target instanceof Animal, target instanceof net.minecraft.world.entity.monster.Enemy, tamed,
+                        target instanceof net.minecraft.world.entity.player.Player,
+                        target instanceof net.minecraft.world.entity.npc.villager.AbstractVillager))
+                    throw new BodyActions.Fail("not_allowed");
+                requested = target.getUUID();
+            }
+            var task = new FightTask(sequence, params, requested, reader);
+            task.holdWeapon(player);
+            return task;
+        }
+
+        @Override public String name() { return "fight"; }
+        @Override public long requestSequence() { return sequence; }
+
+        private static String heldId(ServerPlayer player) {
+            var held = player.getMainHandItem();
+            return held.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(held.getItem()).toString();
+        }
+
+        /** Hold the requested weapon while carried, else the best one; re-picks after a break. */
+        private void holdWeapon(ServerPlayer player) {
+            boolean carried = false;
+            if (params.weapon() != null) {
+                var inv = player.getInventory();
+                for (int i = 0; i < 36 && !carried; i++)
+                    carried = !inv.getItem(i).isEmpty()
+                            && BuiltInRegistries.ITEM.getKey(inv.getItem(i).getItem()).toString().equals(params.weapon());
+            }
+            String desired = FightLogic.desiredWeapon(params.weapon(), carried, bestWeapon(player));
+            if (!FightLogic.needsReselect(heldId(player), desired)) return;
+            if (desired != null) BodyBuild.selectItem(player, desired);
+            else player.getInventory().setSelectedSlot(emptyHotbar(player));
+        }
+
+        private void addMob(ServerPlayer player, LivingEntity living, String type,
+                            java.util.List<FightLogic.Mob> candidates, java.util.Map<String, LivingEntity> entities) {
+            double distance = Math.sqrt(player.distanceToSqr(living));
+            candidates.add(new FightLogic.Mob(living.getUUID().toString(), type, distance, living.getY() - player.getY(),
+                    distance <= params.radius() && player.hasLineOfSight(living)));
+            entities.put(living.getUUID().toString(), living);
+        }
+
+        @Override public String step(ServerPlayer player) {
+            ticks++;
+            move = 0;
+            String end = FightLogic.endReason(player.getHealth(), params.floor(), ticks, params.maxTicks());
+            if (end != null) return end;
+            var candidates = new java.util.ArrayList<FightLogic.Mob>();
+            var entities = new java.util.HashMap<String, LivingEntity>();
+            var box = player.getBoundingBox().inflate(params.radius(), FightLogic.MAX_DY, params.radius());
+            for (Entity e : player.level().getEntities(player, box)) {
+                if (!(e instanceof LivingEntity living) || !living.isAlive()) continue;
+                String type = typeId(e);
+                if (!RouteReflex.HOSTILES.contains(type) && !e.getUUID().equals(requested)) continue;
+                addMob(player, living, type, candidates, entities);
+            }
+            if (requested != null && !entities.containsKey(requested.toString())
+                    && player.level().getEntity(requested) instanceof LivingEntity living && living.isAlive())
+                addMob(player, living, typeId(living), candidates, entities);
+            if (FightLogic.avoid(candidates)) return "avoid";
+            var pick = FightLogic.pick(requested == null ? null : requested.toString(), candidates, params.radius());
+            if (pick == null) return "done";
+            LivingEntity target = entities.get(pick.uuid());
+            holdWeapon(player);
+            aimAt(player, target);
+            if (player.isWithinEntityInteractionRange(target, 0) && player.hasLineOfSight(target)) {
+                if (ActionLogic.shouldSwing(player.getAttackStrengthScale(0.5f))) {
+                    player.attack(target);
+                    player.swingAndResetAttackStrength(InteractionHand.MAIN_HAND, player.getMainHandItem().getInteractAnimation(), false);
+                    player.resetAttackStrengthTicker();
+                    hits++;
+                    if (!target.isAlive()) kills++;
+                }
+                return null;
+            }
+            move = approach(player, target);
+            return null;
+        }
+
+        /** One forward step toward the target when the next cell is standable, safe and inside the leash. */
+        private int approach(ServerPlayer player, Entity target) {
+            if (!player.onGround()) return 0;
+            int[] dir = FightLogic.direction(target.getX() - player.getX(), target.getZ() - player.getZ());
+            int cx = (int) Math.floor(player.getX()) + dir[0], cz = (int) Math.floor(player.getZ()) + dir[1];
+            double y = Math.rint(player.getY() * 2) / 2;
+            var geometry = new RouteGeometry(reader.apply(player));
+            var velocity = player.getDeltaMovement();
+            var pose = new RouteMotor.Pose(player.getX(), player.getY(), player.getZ(), velocity.x, velocity.z,
+                    player.getYRot(), true, player.getFoodData().getFoodLevel());
+            for (int offset : FightLogic.STEP_OFFSETS) {
+                var cell = new RouteMotor.Point(cx, y + offset, cz);
+                if (!FightLogic.withinLeash(params.anchor(), params.leash(), cx, cell.y(), cz)) continue;
+                if (geometry.standable(cell) && geometry.safe(pose, cell, y, .6, offset > 0, FightLogic.MAX_DROP))
+                    return offset > 0 ? 2 : 1;
+            }
+            return 0;
+        }
+
+        @Override public BodyRuntime.Controls controls(ServerPlayer player, int tick) {
+            if (move == 0) return null;
+            return new BodyRuntime.Controls("native-fight", tick, tick, tick + 2, 2, 1, 0, 0, 0, move == 2,
+                    false, false, false, false, false, false, player.getInventory().getSelectedSlot());
+        }
+
+        @Override public Map<String, Object> result(ServerPlayer player) {
+            var out = new LinkedHashMap<String, Object>();
+            out.put("kills", kills);
+            out.put("hits", hits);
+            out.put("ticks", ticks);
+            out.put("health", player.getHealth());
+            out.put("end", "clear");
             return out;
         }
     }

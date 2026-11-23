@@ -343,6 +343,7 @@ public final class CarpetBodyAdapter {
                 Map.entry("yaw", player.getYRot()), Map.entry("pitch", player.getXRot()),
                 Map.entry("on_ground", player.onGround()), Map.entry("health", player.getHealth()),
                 Map.entry("food", player.getFoodData().getFoodLevel()),
+                Map.entry("time_of_day", (int) Math.floorMod(player.level().getDefaultClockTime(), 24000L)),
                 Map.entry("mode", player.gameMode.getGameModeForPlayer().getName()),
                 Map.entry("pose", player.getPose().toString()), Map.entry("alive", player.isAlive()),
                 Map.entry("sprinting", player.isSprinting()),

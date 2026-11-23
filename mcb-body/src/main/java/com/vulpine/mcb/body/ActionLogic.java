@@ -16,9 +16,9 @@ final class ActionLogic {
     record Stack(String item, int count) {}
     record Slot(int index, String item, int count, boolean toolOrFood) {}
 
-    /** Passive animals only: an Animal that is not tamed, not a player and not a villager. */
-    static boolean allowedTarget(boolean animal, boolean tamed, boolean player, boolean villager) {
-        return animal && !tamed && !player && !villager;
+    /** Animals and hostile mobs: not tamed, not a player and not a villager. */
+    static boolean allowedTarget(boolean animal, boolean hostile, boolean tamed, boolean player, boolean villager) {
+        return (animal || hostile) && !tamed && !player && !villager;
     }
 
     /** Attack only with a full cooldown. */

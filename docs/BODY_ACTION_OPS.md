@@ -133,8 +133,8 @@ Notes on built behaviour (differences from the first contract text):
   1,200,000 and a goal of any distance; other subjects keep the old limits (24,000 ticks, 384 blocks).
 
 ### `attack_entity`
-Request: `{"entity":"<uuid>", "weapon":"<item>"?}`. Targets passive animals only
-(`Animal`, not tamed, not a player, not a villager); anything else is refused
+Request: `{"entity":"<uuid>", "weapon":"<item>"?}`. Targets animals and hostile mobs
+(`Animal` or `Enemy`, not tamed, not a player, not a villager); anything else is refused
 with `not_allowed`. The body equips the weapon, or the best sword/axe held (else
 an empty hand). It aims at the entity's box centre each tick and attacks whenever
 the attack cooldown is full and the entity is within entity interaction range
@@ -145,6 +145,25 @@ or after 200 ticks.
 `out_of_reach`, `no_line_of_sight`, `not_allowed`, `not_found`, `timeout`,
 `cancelled:<why>`.
 Drops stay where they fall.
+
+### `fight`
+Request: `{"entity":"<uuid>"?, "radius":12?, "floor":6?, "max_ticks":600?, "anchor":[x,y,z]?, "leash":6?, "weapon":"<item>"?}`.
+A per-tick melee motor (`busy` while it or another task runs). `radius` 2..32, `floor` (health, 0..19),
+`max_ticks` 20..2400, `leash` 1..32; any other value fails with `bad_request`. `entity` (optional) is
+engaged first while it is alive and within `radius`; it must pass the `attack_entity` target rules
+(`not_allowed`, `not_found` at start). Otherwise the target is the nearest living entity of
+`RouteReflex.HOSTILES` minus creeper and warden, within `radius`, `|dy| <= 6`, with line of sight.
+`weapon` defaults to the best sword/axe held and is re-picked mid-fight when it breaks.
+Each tick, in order: health <= `floor` ends `low_health`; more than `max_ticks` ticks ends `timeout`; a
+creeper or warden within 3.5 blocks ends `avoid` (Python decides what to do); no target left ends `done`.
+In reach (interaction range and line of sight) it aims at the box centre and attacks at full cooldown
+exactly like `attack_entity`, without moving. Out of reach it faces the target and walks one cell at a time
+(through the body controls, 2-tick expiry, released when the task ends) only if the next cell toward the
+target is standable and safe per `RouteGeometry` (drop up to 3, a one-block step up with a jump) and
+within `leash` of `anchor` (no leash without `anchor`); otherwise it holds still and lets the mob come.
+`_done`: `{"kills", "hits", "ticks", "health", "end": "clear", "inventory"}`. `_failed`: `{"reason"}` of
+`low_health`, `timeout`, `avoid`, `bad_request`, `not_allowed`, `not_found`, `busy`, `cancelled:<why>`.
+The observation (`/state`) also carries `time_of_day` (day time modulo 24000).
 
 ### `use_entity`
 Request: `{"entity":"<uuid>", "item":"<item>"?}`. A single normal use on the
