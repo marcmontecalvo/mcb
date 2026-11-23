@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "mcb": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "--directory",
+        "<REPO_PATH>",
+        "python",
+        "-m",
+        "mclab.mcb_mcp"
+      ],
+      "env": {
+        "MCLAB_INSTANCE": "play"
+      }
+    }
+  }
+}
