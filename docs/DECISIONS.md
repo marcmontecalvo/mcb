@@ -385,3 +385,34 @@ Earlier runs that found the faults: 20261122T013145553434Z (props for batch cell
 20261122T021157007245Z (scaffolding top), 20261122T024835715542Z (closed ledge),
 20261122T031908319185Z, 20261122T034141954170Z (scaffolding place from inside a column),
 20261122T045703502025Z (shut in on its own cell), 20261122T063256626024Z.
+
+## Companion LLM wiring (November 23, 2026)
+
+Marc chose to build both LLM paths at once (an MCP stdio server for external agents
+and in-game chat answered by the local Atom Qwen) and to run the companion on a
+separate play server now, so playing and lab runs can happen at the same time. The
+design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
+
+- **Not the lab episode path.** `/mcb` jobs ran as lab episodes: `natural_start`
+  freezes the clock, turns mob spawning off, replaces the inventory with a kit and
+  the arena is wiped afterwards. A companion needs one body in a kept world, so
+  the host spawns it straight through mcb-body with `keep_state` (the saved
+  inventory, health and food stay).
+- **One host process per play instance**, started and restarted by that
+  instance's supervisor. Every adapter (MCP via the loopback control API, the
+  talker, `/mcb`) calls one `Host.call(intent, args, actor)`; validation and
+  authority live there once.
+- **Cancel from the bridge poll.** Every blocking wait goes through
+  `Bridge.state()`, so the host's cancel hook there ends any job at the next poll.
+  `JobCancelled` is a `BaseException`, so runner code that catches `Exception`
+  cannot swallow a stop. A stop never tears the session down.
+- **Stop in code.** A chat line made only of stop words stops the bot before any
+  model sees it, and a model's own tool calls run with the speaker's authority:
+  players outside the owner list can chat and look (`status`, `list_places`) but
+  start no job.
+- **Stopping the host politely.** On Windows `terminate()` is a hard kill, so the
+  supervisor first asks over `POST /shutdown` (the host halts and despawns the
+  body, a logout that saves) and only then terminates.
+- **Open:** LAN access for a second PC (the game port binds loopback for now),
+  rotating a long session's `events.sqlite3`, and night shelter (B5) before the bot
+  is left alone for hours.

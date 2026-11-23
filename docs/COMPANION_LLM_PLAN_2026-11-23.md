@@ -1,6 +1,7 @@
 # Companion LLM wiring (Nov 23, 2026)
 
-Status: **in progress** on `feat/companion-llm`. This is phase 4 of
+Status: **code and unit tests done, live verification next** on
+`feat/companion-llm` (section 7). This is phase 4 of
 [LAB_COMPANION_PLAN_2026-11-15.md](LAB_COMPANION_PLAN_2026-11-15.md) ("Companion
 v0 and MCP: one bot"), done with two decisions from Nov 23:
 
@@ -132,11 +133,16 @@ Loopback HTTP on `companion_port`; the bearer token is written to
   wait ends (≤ 60 s)
 - `GET /events?after=<n>&wait=<s>` → host events (job started/progress/finished,
   chat in and out)
+- `POST /shutdown` → 202; the host halts and despawns the body and exits. The
+  supervisor stops the host this way first, because on Windows `terminate()` is a
+  hard kill that would skip that cleanup.
 
 ## 5. MCP server (`mcb_mcp.py`)
 
 Stdio JSON-RPC 2.0, no extra dependency: `initialize`, `tools/list`,
-`tools/call`, `ping`. Tools are the intents plus `wait_job {job_id, timeout_s}`.
+`tools/call`, `ping`. Tools are the intents plus `wait_job {job_id, timeout_s}`;
+job tools also take an idempotency `key`. Tool calls are answered as they finish
+(a pool off the read loop), so a `stop` never waits behind a long `wait_job`.
 It reads the control API address and token from the instance runtime file.
 Example client config `.mcp.json.example`, and a bespoke skill
 `.claude/skills/mcb-companion/SKILL.md` that teaches: check `status` first, follow
