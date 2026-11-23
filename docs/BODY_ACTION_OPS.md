@@ -119,8 +119,10 @@ Notes on built behaviour (differences from the first contract text):
 - `eat` and `attack_entity` are per-tick tasks like `break_block`: `busy` while one runs, cancelled
   by `release`, `cancel_route`, follow ops and despawn (`<op>_failed`, `cancelled:<why>`).
   `eat` uses `ServerPlayerGameMode.useItem` (about 32 ticks); `_done` also has `ticks`.
-- `attack_entity` calls `Player.attack` when the attack strength is at least 0.95, then swings and resets
-  the cooldown, as a client does. Weapon choice: best sword, else axe, by durability.
+- `attack_entity` and `fight` swing through `Player.attack` and then reset the cooldown, as a client does,
+  only at full strength (above 0.9). Where a crit is possible they jump so that the cooldown is full as the
+  fall starts, and strike on the way down (x1.5; `CombatLogic.melee`, facts in `COMBAT_MECHANICS_26.3.md`).
+  Weapon choice: best sword, else axe, by durability.
 - A finished route no longer leaves the ops blocked: `route_active` means a route, step, gap or reflex
   follower is running now, not that native mode was once entered. A threat reflex still cancels a running
   break, attack or eat.
@@ -136,33 +138,60 @@ Notes on built behaviour (differences from the first contract text):
 Request: `{"entity":"<uuid>", "weapon":"<item>"?}`. Targets animals and hostile mobs
 (`Animal` or `Enemy`, not tamed, not a player, not a villager); anything else is refused
 with `not_allowed`. The body equips the weapon, or the best sword/axe held (else
-an empty hand). It aims at the entity's box centre each tick and attacks whenever
-the attack cooldown is full and the entity is within entity interaction range
-with a line of sight. It does not move: if the animal walks out of reach the op
-fails with `out_of_reach`, and Python re-approaches. It ends when the entity dies
-or after 200 ticks.
-`_done`: `{"entity", "type", "killed": true, "ticks", "hits"}`. `_failed`:
+an empty hand). It aims at the entity's box centre each tick and, with the entity
+within entity interaction range and in sight, jump-crits (see above). Where no crit is
+possible (water, a ladder, a low ceiling) it strikes at full cooldown; a grounded sword
+hit that would sweep a non-hostile beside the target (the rest of a herd, a pet) is
+struck sprinting, which never sweeps. It only jumps: if the animal walks out of reach
+the op fails with `out_of_reach` once landed, and Python re-approaches. It ends when
+the entity dies or after 200 ticks.
+`_done`: `{"entity", "type", "killed": true, "ticks", "hits", "crits"}`. `_failed`:
 `out_of_reach`, `no_line_of_sight`, `not_allowed`, `not_found`, `timeout`,
 `cancelled:<why>`.
 Drops stay where they fall.
 
 ### `fight`
-Request: `{"entity":"<uuid>"?, "radius":12?, "floor":6?, "max_ticks":600?, "anchor":[x,y,z]?, "leash":6?, "weapon":"<item>"?}`.
-A per-tick melee motor (`busy` while it or another task runs). `radius` 2..32, `floor` (health, 0..19),
-`max_ticks` 20..2400, `leash` 1..32; any other value fails with `bad_request`. `entity` (optional) is
+Request: `{"entity":"<uuid>"?, "radius":12?, "floor":6?, "max_ticks":600?, "anchor":[x,y,z]?, "leash":6?, "weapon":"<item>"?, "tactic":{...}?}`.
+A per-tick combat motor (`busy` while it or another task runs). `radius` 2..32, `floor` (health, 0..19),
+`max_ticks` 20..2400, `leash` 1..32; any other value fails with `bad_request`. `tactic` is what Python's
+`companion_combat.tactic` chose for the target and the inventory: `{"style", "crit", "sweep", "keep":[min,max]?,
+"melee":"<item>"?, "no_gaze"?}`, with `style` one of:
+- `melee` (default; crit `true`, sweep `true`): the jump-crit cycle, sprinting in when out of reach.
+- `hunt`: the same swing, for a target with no mob profile (an animal); sweep `false`.
+- `poke` (spear): hold the `keep` band (eye to box, default 2.5..4) and jab through the item's
+  `PiercingWeapon.attack` (the server's stab path) at full charge, 2..4.5 blocks from the eye.
+- `hit_and_back` (creeper): a sprint hit (extra knockback), then face away and sprint until it is more than
+  7.5 blocks off and no longer swelling; then in again. Creepers do not end this fight with `avoid`.
+- `snipe` (bow): hold the `keep` band (default 8..15), draw for 20 ticks while in sight (a draw is held while
+  sight is lost), aim with gravity, drag and the target's lead (`CombatLogic.aim`), release. Inside 4 blocks it
+  fights `melee` with the `melee` item when one is given.
+`no_gaze` aims at an enderman's legs, never its eyes. `bad_request` for an unknown style or a bad field. `entity` (optional) is
 engaged first while it is alive and within `radius`; it must pass the `attack_entity` target rules
 (`not_allowed`, `not_found` at start). Otherwise the target is the nearest living entity of
 `RouteReflex.HOSTILES` minus creeper and warden, within `radius`, `|dy| <= 6`, with line of sight.
 `weapon` defaults to the best sword/axe held and is re-picked mid-fight when it breaks.
 Each tick, in order: health <= `floor` ends `low_health`; more than `max_ticks` ticks ends `timeout`; a
-creeper or warden within 3.5 blocks ends `avoid` (Python decides what to do); no target left ends `done`.
-In reach (interaction range and line of sight) it aims at the box centre and attacks at full cooldown
-exactly like `attack_entity`, without moving. Out of reach it faces the target and walks one cell at a time
-(through the body controls, 2-tick expiry, released when the task ends) only if the next cell toward the
-target is standable and safe per `RouteGeometry` (drop up to 3, a one-block step up with a jump) and
+creeper (except under `hit_and_back`) or a warden within 3.5 blocks ends `avoid` (Python decides what to
+do); no target left ends `done`. Then the style above runs. Every step toward or away from the target is
+one cell at a time (through the body controls, 2-tick expiry, released when the task ends) and only if
+that cell is standable and safe per `RouteGeometry` (drop up to 3, a one-block step up with a jump) and
 within `leash` of `anchor` (no leash without `anchor`); otherwise it holds still and lets the mob come.
-`_done`: `{"kills", "hits", "ticks", "health", "end": "clear", "inventory"}`. `_failed`: `{"reason"}` of
-`low_health`, `timeout`, `avoid`, `bad_request`, `not_allowed`, `not_found`, `busy`, `cancelled:<why>`.
+Sprinting needs food above 6.
+`_done`: `{"kills", "hits", "crits", "shots", "style", "ticks", "health", "end": "clear", "inventory"}`.
+`_failed`: `{"reason"}` of `low_health`, `timeout`, `avoid`, `bad_request`, `not_allowed`, `not_found`,
+`busy`, `cancelled:<why>`.
+
+### `escape`
+Request: `{"radius":24?, "clear":16?, "max_ticks":200?}`; `radius` 4..32, `clear` 4..`radius`, `max_ticks`
+20..1200, else `bad_request`. The active getaway, unlike a walk away (a route to one spot): each tick on
+the ground it scores the eight headings whose next cell is standable and safe (`RouteGeometry`, drop up to
+3, a step up) by the hostiles' field Σ1/d² two blocks along it, every `RouteReflex.HOSTILES` mob within
+`radius` counted, new spawns included. It takes the lowest (the current heading's field x0.9, so it does not
+jitter), faces it and sprints (food above 6). It jumps over level ground with headroom (a sprint-jump), and
+on any step up. In the air it holds the heading. It ends `done` when no hostile has been within `clear`
+for 20 ticks (`end: "clear"`) or after `max_ticks` (`end: "timeout"`).
+`_done`: `{"end", "ticks", "jumps", "distance", "nearest", "health"}`. `_failed`: `cornered` (no safe
+heading for 20 ticks; Python then walks away by route), `bad_request`, `busy`, `cancelled:<why>`.
 The observation (`/state`) also carries `time_of_day` (day time modulo 24000).
 
 ### `use_entity`

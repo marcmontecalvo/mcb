@@ -56,12 +56,64 @@ final class BodyEntity {
                 PlacementLogic.pitchTo(at.x - eye.x, at.y - eye.y, at.z - eye.z));
     }
 
+    // ---- melee technique, shared by attack_entity and fight (rules in CombatLogic)
+
+    private static String heldId(ServerPlayer player) {
+        var held = player.getMainHandItem();
+        return held.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(held.getItem()).toString();
+    }
+
+    /** This tick's swing: jump for a crit, strike (sprinting to spare bystanders a sweep), or wait. */
+    private static CombatLogic.Act meleeAct(ServerPlayer player, LivingEntity target, boolean inReach,
+                                            boolean critWanted, boolean sweepOk) {
+        float scale = player.getAttackStrengthScale(0.5f);
+        double toFull = Math.max(0, (1 - scale) * player.getCurrentItemAttackStrengthDelay());
+        var kind = CombatLogic.kind(heldId(player));
+        return CombatLogic.melee(inReach, scale, toFull, player.onGround(), falling(player), critHere(player),
+                critWanted, kind.crits(), kind == CombatLogic.Kind.SWORD && bystanders(player, target), sweepOk);
+    }
+
+    /** One swing at full use; true when it was a crit (Player.canCriticalAttack's conditions). */
+    private static boolean strike(ServerPlayer player, LivingEntity target) {
+        boolean crit = player.getAttackStrengthScale(0.5f) > CombatLogic.STRONG && falling(player) && critHere(player)
+                && !player.isSprinting();
+        player.attack(target);
+        player.swingAndResetAttackStrength(InteractionHand.MAIN_HAND, player.getMainHandItem().getInteractAnimation(), false);
+        player.resetAttackStrengthTicker();
+        return crit;
+    }
+
+    private static boolean falling(ServerPlayer player) {
+        return !player.onGround() && player.fallDistance > 0 && player.getDeltaMovement().y < 0;
+    }
+
+    /** Player.canCriticalAttack's conditions that a jump cannot fix, plus room to jump. */
+    private static boolean critHere(ServerPlayer player) {
+        return !player.isInWater() && !player.onClimbable() && !player.isPassenger()
+                && !player.hasEffect(net.minecraft.world.effect.MobEffects.BLINDNESS)
+                && (!player.onGround() || player.level().noCollision(player, player.getBoundingBox().move(0, .5, 0)));
+    }
+
+    /** A grounded sword hit would sweep a non-hostile living thing beside the target. */
+    private static boolean bystanders(ServerPlayer player, LivingEntity target) {
+        for (var e : player.level().getEntitiesOfClass(LivingEntity.class, target.getBoundingBox().inflate(1, .25, 1))) {
+            if (e == player || e == target || e instanceof net.minecraft.world.entity.monster.Enemy) continue;
+            if (player.distanceToSqr(e) < 9) return true;
+        }
+        return false;
+    }
+
     // ---- attack_entity
+    /**
+     * Hits one entity in reach until it dies or leaves reach (the caller walks after it).
+     * Jump-crit technique as the fight's, and a sword hit never sweeps the herd round a hunted animal.
+     */
     static final class AttackTask implements Task {
         final long sequence;
         final Entity target;
         final String type;
-        int ticks, hits;
+        int ticks, hits, crits;
+        private boolean jump;
 
         private AttackTask(long sequence, Entity target) {
             this.sequence = sequence; this.target = target; this.type = typeId(target);
@@ -85,19 +137,33 @@ final class BodyEntity {
 
         @Override public String step(ServerPlayer player) {
             ticks++;
+            jump = false;
             if (!target.isAlive()) return "done";
             if (ticks > ActionLogic.ATTACK_TIMEOUT_TICKS) return "timeout";
             try { checkReach(player, target); }
-            catch (BodyActions.Fail fail) { return fail.getMessage(); }
+            catch (BodyActions.Fail fail) { return player.onGround() ? fail.getMessage() : null; }  // mid-jump: land first
             aimAt(player, target);
-            if (ActionLogic.shouldSwing(player.getAttackStrengthScale(0.5f))) {
-                player.attack(target);
-                player.swingAndResetAttackStrength(InteractionHand.MAIN_HAND, player.getMainHandItem().getInteractAnimation(), false);
-                player.resetAttackStrengthTicker();
-                hits++;
-                if (!target.isAlive()) return "done";
+            if (!(target instanceof LivingEntity living)) {  // an item frame, a boat: no technique
+                if (ActionLogic.shouldSwing(player.getAttackStrengthScale(0.5f))) { player.attack(target); hits++; }
+                return target.isAlive() ? null : "done";
             }
-            return null;
+            var act = meleeAct(player, living, true, true, false);
+            switch (act) {
+                case JUMP -> jump = true;
+                case STRIKE, SPRINT_STRIKE -> {
+                    player.setSprinting(act == CombatLogic.Act.SPRINT_STRIKE);  // a sprint hit never sweeps
+                    if (strike(player, living)) crits++;
+                    hits++;
+                }
+                case NONE -> { }
+            }
+            return living.isAlive() ? null : "done";
+        }
+
+        @Override public BodyRuntime.Controls controls(ServerPlayer player, int tick) {
+            if (!jump) return null;
+            return new BodyRuntime.Controls("native-attack", tick, tick, tick + 2, 2, 0, 0, 0, 0, true,
+                    false, false, false, false, false, false, player.getInventory().getSelectedSlot());
         }
 
         @Override public Map<String, Object> result(ServerPlayer player) {
@@ -107,28 +173,40 @@ final class BodyEntity {
             out.put("killed", !target.isAlive());
             out.put("ticks", ticks);
             out.put("hits", hits);
+            out.put("crits", crits);
             return out;
         }
     }
 
     // ---- fight
+    /**
+     * The fight motor: per tick it picks the target and carries out the tactic Python chose
+     * (CombatLogic: crit melee, spear poke, creeper hit-and-back, bow snipe, hunt).
+     * Docs: COMPANION_COMBAT_PLAN_2026-11-23.md.
+     */
     static final class FightTask implements Task {
         final long sequence;
         final FightLogic.Params params;
+        final CombatLogic.Tactic tactic;
         final java.util.function.Function<ServerPlayer, RouteGeometry.Reader> reader;
         final UUID requested;
-        int ticks, hits, kills;
-        /** Set by step: 0 hold still, 1 walk forward, 2 walk forward and jump. */
-        private int move;
+        int ticks, hits, kills, crits, shots;
+        /** hit_and_back: backing off after a hit until the creeper's swell is gone. */
+        private boolean retreating;
+        /** Set by step for controls: forward (-1 back, 0, 1), jump, sprint, hold use (bow draw). */
+        private double forward;
+        private boolean jump, sprint, useHold;
 
-        private FightTask(long sequence, FightLogic.Params params, UUID requested,
+        private FightTask(long sequence, FightLogic.Params params, CombatLogic.Tactic tactic, UUID requested,
                           java.util.function.Function<ServerPlayer, RouteGeometry.Reader> reader) {
-            this.sequence = sequence; this.params = params; this.requested = requested; this.reader = reader;
+            this.sequence = sequence; this.params = params; this.tactic = tactic; this.requested = requested;
+            this.reader = reader;
         }
 
         static FightTask start(ServerPlayer player, JsonObject request, long sequence,
                                java.util.function.Function<ServerPlayer, RouteGeometry.Reader> reader) {
             var params = FightLogic.parse(request);
+            var tactic = CombatLogic.parseTactic(request);
             UUID requested = null;
             if (params.entity() != null) {
                 Entity target = find(player, request);
@@ -139,29 +217,24 @@ final class BodyEntity {
                     throw new BodyActions.Fail("not_allowed");
                 requested = target.getUUID();
             }
-            var task = new FightTask(sequence, params, requested, reader);
-            task.holdWeapon(player);
+            var task = new FightTask(sequence, params, tactic, requested, reader);
+            task.holdWeapon(player, params.weapon());
             return task;
         }
 
         @Override public String name() { return "fight"; }
         @Override public long requestSequence() { return sequence; }
 
-        private static String heldId(ServerPlayer player) {
-            var held = player.getMainHandItem();
-            return held.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(held.getItem()).toString();
-        }
-
         /** Hold the requested weapon while carried, else the best one; re-picks after a break. */
-        private void holdWeapon(ServerPlayer player) {
+        private void holdWeapon(ServerPlayer player, String weapon) {
             boolean carried = false;
-            if (params.weapon() != null) {
+            if (weapon != null) {
                 var inv = player.getInventory();
                 for (int i = 0; i < 36 && !carried; i++)
                     carried = !inv.getItem(i).isEmpty()
-                            && BuiltInRegistries.ITEM.getKey(inv.getItem(i).getItem()).toString().equals(params.weapon());
+                            && BuiltInRegistries.ITEM.getKey(inv.getItem(i).getItem()).toString().equals(weapon);
             }
-            String desired = FightLogic.desiredWeapon(params.weapon(), carried, bestWeapon(player));
+            String desired = FightLogic.desiredWeapon(weapon, carried, bestWeapon(player));
             if (!FightLogic.needsReselect(heldId(player), desired)) return;
             if (desired != null) BodyBuild.selectItem(player, desired);
             else player.getInventory().setSelectedSlot(emptyHotbar(player));
@@ -177,7 +250,7 @@ final class BodyEntity {
 
         @Override public String step(ServerPlayer player) {
             ticks++;
-            move = 0;
+            forward = 0; jump = false; sprint = false;
             String end = FightLogic.endReason(player.getHealth(), params.floor(), ticks, params.maxTicks());
             if (end != null) return end;
             var candidates = new java.util.ArrayList<FightLogic.Mob>();
@@ -192,30 +265,131 @@ final class BodyEntity {
             if (requested != null && !entities.containsKey(requested.toString())
                     && player.level().getEntity(requested) instanceof LivingEntity living && living.isAlive())
                 addMob(player, living, typeId(living), candidates, entities);
-            if (FightLogic.avoid(candidates)) return "avoid";
+            if (FightLogic.avoid(candidates, tactic.style().equals("hit_and_back"))) return "avoid";
             var pick = FightLogic.pick(requested == null ? null : requested.toString(), candidates, params.radius());
-            if (pick == null) return "done";
+            if (pick == null) { stopDraw(); return "done"; }
             LivingEntity target = entities.get(pick.uuid());
-            holdWeapon(player);
-            aimAt(player, target);
-            if (player.isWithinEntityInteractionRange(target, 0) && player.hasLineOfSight(target)) {
-                if (ActionLogic.shouldSwing(player.getAttackStrengthScale(0.5f))) {
-                    player.attack(target);
-                    player.swingAndResetAttackStrength(InteractionHand.MAIN_HAND, player.getMainHandItem().getInteractAnimation(), false);
-                    player.resetAttackStrengthTicker();
-                    hits++;
-                    if (!target.isAlive()) kills++;
+            double distance = Math.sqrt(player.distanceToSqr(target));
+            switch (tactic.style()) {
+                case "snipe" -> {
+                    if (CombatLogic.snipeClose(distance, tactic.melee() != null)) { stopDraw(); melee(player, target, tactic.melee()); }
+                    else snipe(player, target, distance);
                 }
-                return null;
+                case "poke" -> poke(player, target);
+                case "hit_and_back" -> hitAndBack(player, target, distance);
+                default -> melee(player, target, params.weapon());  // melee and hunt
             }
-            move = approach(player, target);
             return null;
         }
 
-        /** One forward step toward the target when the next cell is standable, safe and inside the leash. */
-        private int approach(ServerPlayer player, Entity target) {
+        // -- techniques (rules in CombatLogic; game facts in COMBAT_MECHANICS_26.3.md)
+
+        private boolean inReach(ServerPlayer player, Entity target) {
+            return player.isWithinEntityInteractionRange(target, 0) && player.hasLineOfSight(target);
+        }
+
+        /** Crit melee: jump so the cooldown is full as the fall starts, strike on the way down. */
+        private void melee(ServerPlayer player, LivingEntity target, String weapon) {
+            holdWeapon(player, weapon);
+            aim(player, target);
+            boolean reach = inReach(player, target);
+            var act = meleeAct(player, target, reach, tactic.crit(), tactic.sweep());
+            switch (act) {
+                case JUMP -> jump = true;
+                case STRIKE -> { player.setSprinting(false); strike(player, target); }
+                case SPRINT_STRIKE -> { player.setSprinting(true); strike(player, target); }
+                case NONE -> { }
+            }
+            // sprint in: the strike itself drops the sprint when it wants the crit
+            if (!reach) { walk(player, target, 1); sprint = true; }
+        }
+
+        /** Spear: hold the band just past the target's reach and jab at full charge. */
+        private void poke(ServerPlayer player, LivingEntity target) {
+            holdWeapon(player, params.weapon());
+            aim(player, target);
+            double eye = Math.sqrt(target.getBoundingBox().distanceToSqr(player.getEyePosition()));
+            var move = CombatLogic.keep(eye, tactic.keepMin(), tactic.keepMax());
+            if (move == CombatLogic.Move.APPROACH) walk(player, target, 1);
+            else if (move == CombatLogic.Move.RETREAT) walk(player, target, -1);
+            var stack = player.getMainHandItem();
+            var spear = stack.get(DataComponents.PIERCING_WEAPON);
+            // the item's own minimum charge, and full charge for full damage (the jab resets it)
+            boolean charged = !player.cannotAttackWithItem(stack, 5) && player.getAttackStrengthScale(0.5f) > CombatLogic.STRONG;
+            if (spear != null && player.hasLineOfSight(target) && CombatLogic.jabReach(eye) && charged) {
+                float before = target.getHealth();
+                spear.attack(player, net.minecraft.world.entity.EquipmentSlot.MAINHAND);  // the server's STAB path
+                if (target.getHealth() < before || !target.isAlive()) hits++;
+                if (!target.isAlive()) kills++;
+            }
+        }
+
+        /** Creeper: a sprint hit knocks it back, then keep off until its swell is gone. */
+        private void hitAndBack(ServerPlayer player, LivingEntity target, double distance) {
+            holdWeapon(player, params.weapon());
+            boolean swelling = target instanceof net.minecraft.world.entity.monster.Creeper c
+                    && (c.getSwellDir() > 0 || c.getSwelling(0) > 0);
+            boolean reach = inReach(player, target);
+            String plan = CombatLogic.hitAndBack(retreating, distance, swelling, reach, player.getAttackStrengthScale(0.5f));
+            switch (plan) {
+                case "strike" -> { aim(player, target); player.setSprinting(true); strike(player, target); retreating = true; }
+                case "retreat" -> {
+                    // face away and sprint: walking backwards is too slow to outrun a swell
+                    float away = (float) Math.toDegrees(Math.atan2(target.getX() - player.getX(), -(target.getZ() - player.getZ())));
+                    BodyBuild.aim(player, away, 0);
+                    walk(player, target, -1);
+                    if (forward != 0) forward = 1;  // facing away: a backward step is forward
+                    sprint = forward != 0;
+                }
+                default -> { retreating = false; aim(player, target); walk(player, target, 1); sprint = true; }
+            }
+        }
+
+        /** Bow: keep the band, draw 20 ticks, aim with drop and lead, release. */
+        private void snipe(ServerPlayer player, LivingEntity target, double distance) {
+            holdWeapon(player, params.weapon());
+            var move = CombatLogic.keep(distance, tactic.keepMin(), tactic.keepMax());
+            boolean sight = player.hasLineOfSight(target);
+            Vec3 from = player.getEyePosition().subtract(0, .1, 0), at = target.getBoundingBox().getCenter();
+            Vec3 v = target.getDeltaMovement();
+            double[] shot = CombatLogic.aim(at.x - from.x, at.y - from.y, at.z - from.z, v.x, v.y, v.z);
+            if (shot != null) BodyBuild.aim(player, (float) shot[0], (float) shot[1]);
+            else aim(player, target);
+            if (move == CombatLogic.Move.APPROACH || shot == null || !sight) walk(player, target, 1);
+            else if (move == CombatLogic.Move.RETREAT) walk(player, target, -1);
+            boolean drawn = player.isUsingItem() && player.getTicksUsingItem() >= CombatLogic.FULL_DRAW;
+            if (drawn && sight && shot != null) { useHold = false; shots++; }  // released with the controls
+            else useHold = sight || player.isUsingItem();  // start in sight; hold a draw while it is lost
+        }
+
+        private void stopDraw() { useHold = false; }
+
+        private void strike(ServerPlayer player, LivingEntity target) {
+            if (BodyEntity.strike(player, target)) crits++;
+            hits++;
+            if (!target.isAlive()) kills++;
+        }
+
+        /** Aim at the target; an enderman's legs, never its eyes (looking at them provokes it). */
+        private void aim(ServerPlayer player, LivingEntity target) {
+            if (!tactic.noGaze()) { aimAt(player, target); return; }
+            Vec3 eye = player.getEyePosition(), at = target.position().add(0, .5, 0);
+            BodyBuild.aim(player, (float) Math.toDegrees(Math.atan2(-(at.x - eye.x), at.z - eye.z)),
+                    PlacementLogic.pitchTo(at.x - eye.x, at.y - eye.y, at.z - eye.z));
+        }
+
+        /** One step toward (sign 1) or away from (-1) the target when that cell is standable, safe, in the leash. */
+        private void walk(ServerPlayer player, Entity target, int sign) {
+            int code = stepCode(player, sign * (target.getX() - player.getX()), sign * (target.getZ() - player.getZ()));
+            if (code == 0) return;
+            forward = sign;
+            jump = jump || code == 2;
+        }
+
+        /** 0: no safe cell that way; 1: walk; 2: walk and jump (a step up). */
+        private int stepCode(ServerPlayer player, double dx, double dz) {
             if (!player.onGround()) return 0;
-            int[] dir = FightLogic.direction(target.getX() - player.getX(), target.getZ() - player.getZ());
+            int[] dir = FightLogic.direction(dx, dz);
             int cx = (int) Math.floor(player.getX()) + dir[0], cz = (int) Math.floor(player.getZ()) + dir[1];
             double y = Math.rint(player.getY() * 2) / 2;
             var geometry = new RouteGeometry(reader.apply(player));
@@ -232,15 +406,21 @@ final class BodyEntity {
         }
 
         @Override public BodyRuntime.Controls controls(ServerPlayer player, int tick) {
-            if (move == 0) return null;
-            return new BodyRuntime.Controls("native-fight", tick, tick, tick + 2, 2, 1, 0, 0, 0, move == 2,
-                    false, false, false, false, false, false, player.getInventory().getSelectedSlot());
+            if (forward == 0 && !jump && !useHold && !player.isUsingItem()) return null;
+            boolean run = sprint && forward > 0 && player.getFoodData().getFoodLevel() > EscapeLogic.SPRINT_FOOD;
+            return new BodyRuntime.Controls("native-fight", tick, tick, tick + 2, 2, forward, 0, 0, 0, jump,
+                    false, run, false, false, useHold, false, player.getInventory().getSelectedSlot());
         }
+
+        @Override public void stop(ServerPlayer player) { if (player.isUsingItem()) player.stopUsingItem(); }
 
         @Override public Map<String, Object> result(ServerPlayer player) {
             var out = new LinkedHashMap<String, Object>();
             out.put("kills", kills);
             out.put("hits", hits);
+            out.put("crits", crits);
+            out.put("shots", shots);
+            out.put("style", tactic.style());
             out.put("ticks", ticks);
             out.put("health", player.getHealth());
             out.put("end", "clear");

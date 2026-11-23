@@ -40,6 +40,10 @@ public final class FightLogicTest {
         check(FightLogic.avoid(List.of(mob("a", "minecraft:warden", 2, 0, false))), "warden without line of sight");
         check(!FightLogic.avoid(List.of(mob("a", "minecraft:creeper", 3.6, 0, true))), "creeper beyond 3.5");
         check(!FightLogic.avoid(List.of(mob("a", "minecraft:zombie", 1, 0, true))), "zombie is not avoided");
+        // hit-and-back is the creeper technique: the creeper is its target, a warden still ends it
+        check(!FightLogic.avoid(List.of(mob("a", "minecraft:creeper", 2, 0, true)), true), "creeper fought hit-and-back");
+        check(FightLogic.avoid(List.of(mob("a", "minecraft:warden", 2, 0, true)), true), "warden ends hit-and-back");
+        check(FightLogic.avoid(List.of(mob("a", "minecraft:creeper", 2, 0, true)), false), "creeper ends other styles");
 
         check(FightLogic.fightable("minecraft:zombie") && !FightLogic.fightable("minecraft:creeper")
                 && !FightLogic.fightable("minecraft:warden") && !FightLogic.fightable("minecraft:cow"), "fightable set");

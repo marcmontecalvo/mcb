@@ -70,7 +70,16 @@ final class FightLogic {
 
     /** Creeper or warden within AVOID_DISTANCE. */
     static boolean avoid(List<Mob> mobs) {
-        for (var mob : mobs) if (avoidType(mob.type()) && mob.distance() <= AVOID_DISTANCE) return true;
+        return avoid(mobs, false);
+    }
+
+    /** As {@link #avoid(List)}; a hit-and-back fight targets creepers, so only a warden ends it. */
+    static boolean avoid(List<Mob> mobs, boolean creepersFought) {
+        for (var mob : mobs) {
+            if (!avoidType(mob.type()) || mob.distance() > AVOID_DISTANCE) continue;
+            if (creepersFought && "minecraft:creeper".equals(mob.type())) continue;
+            return true;
+        }
         return false;
     }
 
