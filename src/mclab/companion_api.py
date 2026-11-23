@@ -178,6 +178,7 @@ class _Handler(BaseHTTPRequestHandler):
     do_PUT = do_DELETE = do_PATCH = _other
 
     def _get(self):
+        self._drain()  # no GET route reads a body
         url = urllib.parse.urlsplit(self.path)
         query = urllib.parse.parse_qs(url.query)
         if url.path == "/health":
@@ -205,6 +206,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, self.host.trial(spec))
             return
         if url.path != "/call":
+            self._drain()
             return self._fail(404, "not found")
         body = self._json_body()
         if body is None:

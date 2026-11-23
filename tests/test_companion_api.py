@@ -1,3 +1,4 @@
+import http.client
 import json
 import os
 import subprocess
@@ -221,6 +222,26 @@ def test_unknown_routes_and_methods(server):
     assert raw(server, "POST", "/health", {})[0] == 404
     assert raw(server, "GET", "/call")[0] == 404
     assert raw(server, "PUT", "/call", {})[0] in (404, 405, 501)
+
+
+@pytest.mark.parametrize("method,path", [("POST", "/health"), ("GET", "/nope")])
+def test_a_refused_route_reads_its_body_so_the_connection_stays_sound(
+    server, method, path
+):
+    # Left unread, the body resets the socket under the reply on Windows (a
+    # flaky ConnectionAbortedError) and is parsed as the next kept-alive request.
+    conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=5)
+    auth = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+    try:
+        conn.request(method, path, body=b'{"a": 1}', headers=auth)
+        first = conn.getresponse()
+        first.read()
+        assert first.status == 404
+        conn.request("GET", "/health", headers=auth)
+        second = conn.getresponse()
+        assert second.status == 200, second.read()
+    finally:
+        conn.close()
 
 
 def test_job_found_and_wait_clamped(server, host):
