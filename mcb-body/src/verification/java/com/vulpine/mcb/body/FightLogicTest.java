@@ -30,6 +30,12 @@ public final class FightLogicTest {
         rejects("{\"leash\":0}"); rejects("{\"leash\":33}"); rejects("{\"anchor\":[1,2]}"); rejects("{\"anchor\":[1,2,\"x\"]}");
         rejects("{\"anchor\":5}"); rejects("{\"entity\":\"nope\"}"); rejects("{\"entity\":7}"); rejects("{\"weapon\":\"\"}");
 
+        check(!FightLogic.allowPlayer(JsonParser.parseString("{}").getAsJsonObject()), "a player is no target by default");
+        check(FightLogic.allowPlayer(JsonParser.parseString("{\"allow_player\":true}").getAsJsonObject()), "commanded");
+        check(!FightLogic.allowPlayer(JsonParser.parseString("{\"allow_player\":false}").getAsJsonObject()), "explicitly not");
+        try { FightLogic.allowPlayer(JsonParser.parseString("{\"allow_player\":\"yes\"}").getAsJsonObject()); throw new AssertionError("accepted a string"); }
+        catch (BodyActions.Fail fail) { check(fail.getMessage().equals("bad_request"), "allow_player must be a boolean"); }
+
         check(FightLogic.endReason(6, 6, 1, 600).equals("low_health"), "health at floor ends");
         check(FightLogic.endReason(6.5, 6, 1, 600) == null, "health above floor carries on");
         check(FightLogic.endReason(20, 6, 601, 600).equals("timeout"), "timeout");

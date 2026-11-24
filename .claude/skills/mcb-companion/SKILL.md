@@ -1,6 +1,6 @@
 ---
 name: mcb-companion
-description: Use when driving the MCB companion bot in the play world through the mcb MCP tools (status, goto, follow, gather, build, say, stop, wait_job) — "come here", "get me 20 logs", "build the cottage", "what is the bot doing", "stop".
+description: Use when driving the MCB companion bot in the play world through the mcb MCP tools (status, goto, follow, gather, build, attack, say, stop, wait_job) — "come here", "get me 20 logs", "build the cottage", "kill that zombie", "what is the bot doing", "stop".
 ---
 
 # Driving the companion bot
@@ -29,7 +29,10 @@ job reruns (stage `defending` meanwhile; `status.defense.active` says why). A
 `stop` during a defence ends it and leaves the bot alone for 10 s. Save a real base
 with `remember_place {name: "base"}`; the `home` recorded at first spawn is no base.
 Jobs (return `{ok, result: {job}}`): `goto {x,y,z | place | player, radius?}`,
-`follow {player, distance?}`, `gather {item, count}`, `build {template, x?,y?,z?, rotation?}`.
+`follow {player, distance?}`, `gather {item, count}` (hunt an animal by gathering its drop, e.g. porkchop),
+`build {template, x?,y?,z?, rotation?}`,
+`attack {player | mob | nearest_hostile, weapon?}` (a player: by name; hitting a player needs the owner or a
+config-listed name; ends killed, lost, invulnerable, low_health or on `stop`).
 `wait_job {job_id, timeout_s 1-60, default 30}` long-polls a job.
 Every job tool also takes `when`: `now` (default; stops the current job and the
 queue first) or `next` (queue behind what is already there).

@@ -16,6 +16,23 @@ public final class ActionLogicTest {
         check(!ActionLogic.allowedTarget(false, true, false, false, true), "hostile villager refused");
         check(!ActionLogic.allowedTarget(false, true, true, false, false), "tamed hostile refused");
         check(!ActionLogic.allowedTarget(false, false, false, false, false), "neither animal nor hostile refused");
+        // a commanded attack (the owner's /mcb attack) may name a player; the five-argument form never does
+        check(ActionLogic.allowedTarget(false, false, false, true, false, true, false), "commanded player ok");
+        check(!ActionLogic.allowedTarget(false, false, false, true, false, false, false), "player refused unless commanded");
+        check(!ActionLogic.allowedTarget(false, false, false, true, false, true, true), "never the body itself");
+        check(!ActionLogic.allowedTarget(false, true, false, false, true, true, false), "villager refused even when commanded");
+        check(ActionLogic.allowedTarget(false, true, false, false, false, true, false), "zombie ok when commanded");
+        check(!ActionLogic.allowedTarget(false, false, false, false, false, true, false), "commanded does not widen the mob kinds");
+        check(!ActionLogic.allowedTarget(true, false, true, false, false, true, false), "tamed refused even when commanded");
+        // what a commanded player target ends with
+        check(ActionLogic.refusal(false, false, false, true, false, true, false, true) == null, "hurtable player fought");
+        check("invulnerable".equals(ActionLogic.refusal(false, false, false, true, false, true, false, false)),
+                "creative, spectator or invulnerable player ends invulnerable");
+        check("not_allowed".equals(ActionLogic.refusal(false, false, false, true, false, false, false, true)), "player not commanded");
+        check("not_allowed".equals(ActionLogic.refusal(false, false, false, true, false, true, true, true)), "self");
+        check(ActionLogic.refusal(true, false, false, false, false, false, false, false) == null, "hurtable is only a player's question");
+        check(ActionLogic.hurtable(false, false, false) && !ActionLogic.hurtable(true, false, false)
+                && !ActionLogic.hurtable(false, true, false) && !ActionLogic.hurtable(false, false, true), "hurtable");
         check(!ActionLogic.shouldSwing(0.5f) && ActionLogic.shouldSwing(1f), "cooldown");
         check(ActionLogic.bestFood(Map.of("bread", 5)).equals("bread") && ActionLogic.bestFood(Map.of()) == null, "food");
         var inv = List.of(new ActionLogic.Slot(0, "a", 1, true), new ActionLogic.Slot(3, "log", 64, false),

@@ -1109,8 +1109,8 @@ def _fake_adapters(monkeypatch, log, *, fail=()):
         log.append(("talker", bot["name"], instance))
         return Adapter(log, "talker")
 
-    def ingress(host, talker, source, *, bot):
-        log.append(("ingress", talker is not None, source))
+    def ingress(host, talker, source, *, bot, players):
+        log.append(("ingress", talker is not None, source, players))
         return Adapter(log, "ingress")
 
     module("companion_api", serve=serve)
@@ -1119,6 +1119,7 @@ def _fake_adapters(monkeypatch, log, *, fail=()):
         "companion_ingress",
         Ingress=ingress,
         bridge_events_source=lambda: "events-source",
+        bridge_players_source=lambda: "players-source",
     )
     monkeypatch.setattr(
         paths, "INSTANCE", pytypes.SimpleNamespace(name="play"), raising=False
@@ -1146,7 +1147,7 @@ def test_adapters_are_wired_and_the_handshake_written(tmp_path, monkeypatch):
         ("serve", 8777, "tok"),
         ("on_shutdown", hook),
         ("talker", "MCBot", "play"),
-        ("ingress", True, "events-source"),
+        ("ingress", True, "events-source", "players-source"),
         ("start", "ingress"),
     ]
     handshake = json.loads((tmp_path / "companion-host.json").read_text())
@@ -1161,7 +1162,10 @@ def test_a_failing_adapter_does_not_stop_the_others(tmp_path, monkeypatch):
     stops = companion_host._start_adapters(
         "host", {"name": "MCBot"}, {"companion_port": 8777}, "tok", tmp_path
     )
-    assert log == [("ingress", False, "events-source"), ("start", "ingress")]
+    assert log == [
+        ("ingress", False, "events-source", "players-source"),
+        ("start", "ingress"),
+    ]
     assert not (tmp_path / "companion-host.json").exists()
     assert len(stops) == 1
 
@@ -1208,3 +1212,67 @@ def test_main_runs_until_a_signal_then_cleans_up(tmp_path, monkeypatch):
     assert log == ["host start", "adapter stop", "host shutdown"]
     assert not (tmp_path / "companion-host.json").exists()
     assert made[0].bot == {"name": "MCBot"}
+
+
+# --- attack: who may hit whom -------------------------------------------------------
+
+
+@pytest.fixture
+def listed(monkeypatch):
+    """Whom the config names, for the stricter player-attack rule."""
+    names = set()
+    monkeypatch.setattr(
+        companion_intents,
+        "_listed",
+        lambda uuid, name="": bool({uuid, name.lower()} & names),
+    )
+    return names
+
+
+def attack(host, actor, **args):
+    return host.call("attack", args, actor)
+
+
+def test_an_attack_on_a_player_needs_the_operator_or_a_listed_name(host, listed):
+    stranger = Actor("chat", name="Alex", uuid="u-9")
+    refused = attack(host, stranger, player="Bob")
+    assert not refused["ok"] and "player" in refused["error"]
+    assert host.status()["job"] is None
+    assert attack(host, PLAYER, player="Bob")["ok"] is False  # Steve is not listed
+    listed.add("steve")
+    assert attack(host, PLAYER, player="Bob")["ok"]
+
+
+def test_the_operator_may_attack_a_player_without_a_config_entry(host, listed):
+    assert attack(host, OPERATOR, player="Bob")["ok"]
+
+
+def test_mobs_and_the_nearest_hostile_need_only_the_ordinary_authority(host, listed):
+    assert attack(host, PLAYER, mob="zombie")["ok"]
+    assert attack(host, PLAYER, nearest_hostile=True)["ok"]
+
+
+def test_the_bot_may_not_be_ordered_to_attack_itself(host, listed):
+    for name in ("MCBot", "mcbot"):
+        reply = attack(host, OPERATOR, player=name)
+        assert not reply["ok"] and "itself" in reply["error"]
+    assert host.status()["job"] is None
+
+
+def test_the_owner_may_attack_themselves_only_by_asking_for_it(host, listed):
+    # decision: the target is whoever is named; the owner is not special-cased
+    listed.add("steve")
+    assert attack(host, PLAYER, player="Steve")["ok"]
+
+
+def test_a_running_job_knows_its_id_so_a_replan_keeps_its_stats(host, made):
+    seen = []
+
+    def note(session, args, actor, progress):
+        seen.append(session.current_job)
+        return {}
+
+    made[0].behaviour["goto"] = note
+    job = submit(host)
+    host.wait_job(job["id"], 5)
+    assert seen == [job["id"]]

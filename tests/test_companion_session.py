@@ -49,6 +49,8 @@ class FakeBridge:
         self.cancel_check = None
         self.closed = False
         self.default = _row()
+        # the body's /players: one payload per read, the last repeating; or an error
+        self.players = []
 
     def send(self, op, **fields):
         self.sent.append((op, fields))
@@ -58,6 +60,12 @@ class FakeBridge:
         self.acks.append((request["op"], kind))
 
     def http(self, path):
+        if path == "/players":
+            if isinstance(self.players, Exception):
+                raise self.players
+            if len(self.players) > 1:
+                return self.players.pop(0)
+            return self.players[0] if self.players else {"players": []}
         if isinstance(self.http_state, Exception):
             raise self.http_state
         return self.http_state

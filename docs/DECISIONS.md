@@ -471,6 +471,21 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   - **Swaps:** a spear's charge opens a fight before a swing weapon only when it kills sooner (`companion_combat.charge_first`). Alone, a swing weapon's first crit lands on arrival; after a charge the swap resets its cooldown. A 10x matrix measured the charge-then-sword slower than the sword alone (zombie 3.5 s against 2.7). A lone spear still charges, and jabs up close rather than backing off for a run-up.
   - **Archers:** a skeleton, stray or bogged is a threat out to 16 blocks, its bow's reach, whatever the threat radius. A group fight was called clear with the third skeleton shooting from past 12.
   - **Trials:** a trial never leaves a summoned mob alive into the next one.
+- **The owner may order the bot to attack a player, and only the listed owner may
+  (Nov 23).** Marc asked for `/mcb attack <player>` and the same from MCP and the
+  in-game chat model. Auto-defence still never fights a player: the mod refuses a
+  player target unless the request carries `allow_player`, which Python sets only
+  for an `attack` job against a player (`ActionLogic.allowedTarget`, pure and
+  tested). Who: `attack` is a trusted intent (owner or allowlist; the operator
+  through MCP and the API). A player target is stricter: an empty owners and
+  allowlist lets everyone command the bot but names nobody, so it does not let
+  anyone hit a player; that needs the operator or a name or UUID the config lists
+  (`allowed(..., listed=True)`). The bot is never its own target. The owner **may**
+  name themselves (the target is whoever is named; the order is theirs); to forbid
+  it, refuse `actor.name == target` in `Host._check_player_target`. A target in
+  creative, spectator or invulnerable ends the job `invulnerable`: it is not a
+  failure. The operator-only `trial` op stays off `/mcb`, MCP and the chat model. Plan:
+  [COMPANION_COMBAT_PLAN_2026-11-23.md](COMPANION_COMBAT_PLAN_2026-11-23.md) section 14.
 - **Nothing in a poll touches storage (Nov 23).** The guard runs inside the motor
   loop, so its threat check reads only memory. The place graph reads its places
   once and writes every change through; one graph owns a world's places in a

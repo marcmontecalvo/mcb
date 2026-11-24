@@ -2719,6 +2719,17 @@ def test_fight_sends_only_the_given_fields_and_waits_long_enough():
     assert bridge.sent[-1][1]["tactic"] == {"style": "melee", "crit": True}
 
 
+def test_fight_lets_a_player_be_the_target_only_when_commanded():
+    b, bridge, _ = body()
+    bridge.reply["fight"] = ("done", {"kills": 0, "end": "clear"})
+    b.fight(entity="u-1", radius=12, floor=6, max_ticks=200)
+    assert "allow_player" not in bridge.sent[-1][1]
+    b.fight(entity="u-1", radius=12, floor=6, max_ticks=200, allow_player=False)
+    assert "allow_player" not in bridge.sent[-1][1]
+    b.fight(entity="u-1", radius=12, floor=6, max_ticks=200, allow_player=True)
+    assert bridge.sent[-1][1]["allow_player"] is True
+
+
 def test_escape_sends_its_fields_and_waits_long_enough():
     b, bridge, _ = body()
     bridge.reply["escape"] = ("done", {"end": "clear", "ticks": 60})

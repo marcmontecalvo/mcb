@@ -79,10 +79,10 @@ def command(seq, sub, **data):
     }
 
 
-def make(*batches, host=None):
+def make(*batches, host=None, players=None):
     host, talker = host or FakeHost(), FakeTalker()
     source = Source(batch(latest=10), *batches)
-    ingress = Ingress(host, talker, source, bot=BOT)
+    ingress = Ingress(host, talker, source, bot=BOT, players=players)
     ingress.poll_once()  # the head: nothing replayed
     return ingress, host, talker, source
 
@@ -224,6 +224,118 @@ def test_ask_goes_to_the_talker_without_a_reply():
     assert actor.name == "Owner" and actor.uuid == UUID
 
 
+def attacking(*words, players=("flamingchicken", "Owner", "MCBot"), **extra):
+    """The call and tells for one /mcb attack typed with ``words`` as the target."""
+    host = FakeHost()
+    host.results["attack"] = {"ok": True, "result": {"job": {"id": "j-9"}}}
+    ingress, host, _, _ = make(
+        batch([command(11, "attack", target=words[0], **extra)]),
+        host=host,
+        players=lambda: list(players) if players is not None else None,
+    )
+    ingress.poll_once()
+    return host.non_say(), host.tells()
+
+
+def test_attack_a_word_that_names_an_online_player_attacks_that_player():
+    calls, tells = attacking("FlamingChicken")
+    assert calls[0][:2] == ("attack", {"player": "flamingchicken"})
+    assert tells == [("Owner", "Started job j-9: attack flamingchicken")]
+
+
+def test_attack_a_word_that_is_not_a_player_is_a_mob_type():
+    calls, tells = attacking("zombie")
+    assert calls[0][:2] == ("attack", {"mob": "zombie"})
+    assert tells == [("Owner", "Started job j-9: attack zombie")]
+
+
+@pytest.mark.parametrize("word", ["hostile", "nearest_hostile", "HOSTILES"])
+def test_attack_hostile_means_the_nearest_hostile(word):
+    calls, tells = attacking(word)
+    assert calls[0][:2] == ("attack", {"nearest_hostile": True})
+    assert tells == [("Owner", "Started job j-9: attack the nearest hostile")]
+
+
+def test_attack_with_a_weapon_passes_it_on():
+    calls, tells = attacking("flamingchicken", weapon="iron_sword")
+    assert calls[0][:2] == (
+        "attack",
+        {"player": "flamingchicken", "weapon": "iron_sword"},
+    )
+    assert tells[0][1].endswith("attack flamingchicken with iron_sword")
+
+
+def test_a_player_wins_over_a_mob_of_the_same_name_and_a_missing_roster_means_a_mob():
+    calls, _ = attacking("zombie", players=("Zombie",))
+    assert calls[0][:2] == ("attack", {"player": "Zombie"})
+    calls, _ = attacking("flamingchicken", players=None)
+    assert calls[0][:2] == ("attack", {"mob": "flamingchicken"})
+
+
+def test_attack_without_a_target_is_refused_before_the_host():
+    ingress, host, _, _ = make(batch([command(11, "attack")]))
+    ingress.poll_once()
+    assert host.non_say() == []
+    assert host.tells() == [("Owner", "Can't do that: attack needs a target.")]
+
+
+def test_a_refused_attack_tells_the_player_why():
+    host = FakeHost()
+    host.results["attack"] = {"ok": False, "error": "Not allowed: may not attack"}
+    ingress, host, _, _ = make(
+        batch([command(11, "attack", target="Alex")]),
+        host=host,
+        players=lambda: ["Alex"],
+    )
+    ingress.poll_once()
+    assert host.tells() == [("Owner", "Can't do that: Not allowed: may not attack")]
+
+
+def test_defense_shows_the_settings_and_changes_them():
+    host = FakeHost()
+    shown = {
+        "floor_health": 6, "floor_hearts": 3.0, "threat_radius": 12,
+        "ally_radius": 32, "base_radius": 64,
+    }  # fmt: skip
+    host.results["defense"] = {"ok": True, "result": {"defense": shown}}
+    ingress, host, _, _ = make(
+        batch(
+            [
+                command(11, "defense"),
+                command(12, "defense", floor_hearts=4.5),
+                command(13, "defense", threat_radius=16),
+            ]
+        ),
+        host=host,
+    )
+    ingress.poll_once()
+    assert [c[:2] for c in host.non_say()] == [
+        ("defense", {}),
+        ("defense", {"floor_hearts": 4.5}),
+        ("defense", {"threat_radius": 16}),
+    ]
+    text = host.tells()[0][1]
+    assert "3 hearts" in text and "12 blocks" in text
+
+
+def test_defense_ignores_settings_that_are_not_numbers():
+    ingress, host, _, _ = make(batch([command(11, "defense", floor_hearts="lots")]))
+    ingress.poll_once()
+    assert host.non_say() == []
+    assert host.tells()[0][1].startswith("Can't do that")
+
+
+def test_the_players_source_lists_the_online_names(bridge):
+    port, seen = bridge
+    names = companion_ingress.bridge_players_source(
+        port=lambda: port, token=lambda: "tok"
+    )
+    assert names() == ["Owner", "flamingchicken"]
+    assert seen[-1] == ("/players?after=0", "Bearer tok")
+    down = companion_ingress.bridge_players_source(port=lambda: 1, token=lambda: "t")
+    assert down() is None
+
+
 def test_unknown_subcommand_and_missing_fields():
     ingress, host, talker, _ = make(
         batch(
@@ -342,9 +454,13 @@ def bridge():
                 self.end_headers()
                 self.wfile.write(b"x" * 9_000_000)
                 return
-            body = json.dumps(
-                {"latest_sequence": 4, "gap": False, "events": [], "launch_id": "L"}
-            ).encode()
+            if self.path.startswith("/players"):
+                roster = {"players": [{"name": "Owner"}, {"name": "flamingchicken"}]}
+                body = json.dumps(roster).encode()
+            else:
+                body = json.dumps(
+                    {"latest_sequence": 4, "gap": False, "events": [], "launch_id": "L"}
+                ).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()

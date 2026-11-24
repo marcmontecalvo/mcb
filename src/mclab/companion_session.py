@@ -28,6 +28,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+from mclab import companion_attack as commanded
 from mclab import companion_burrow as burrow
 from mclab import companion_combat as combat
 from mclab import companion_defense as defense
@@ -82,6 +83,11 @@ OUTCOME_FIELDS = (
     "raises", "block_ticks",  # the shield: times raised, ticks up
 )  # fmt: skip
 DEFEND_WAIT_TICKS = 10  # a step that could do nothing waits this long
+# a commanded attack (companion_attack.py): beyond this the bot walks to the target
+# first, and the fight op then starts with all of it in reach
+ATTACK_CHASE = 24.0
+ATTACK_WALK_RADIUS = 6  # a walk toward the target ends this close
+ATTACK_WAIT_TICKS = 20  # no walk got nearer: look again after this
 FLEE_DISTANCE = 12  # blocks: one flee step
 FLEE_RADIUS = 3.0
 FLEE_TURNS = (0, 45, -45, 90, -90)  # degrees off straight away, tried in order
@@ -372,6 +378,10 @@ class Session:
         self._spent_chests: set = set()  # this defence: a chest that failed
         self._burrow_failed = None  # this defence: feet where a burrow failed
         self._out_of_reach: dict[str, float] = {}  # uuid -> clock() until
+        # the host sets the running job's id: a job re-run after a defence keeps its
+        # tally
+        self.current_job: str | None = None
+        self._tally: commanded.Tally | None = None
 
     # --- lifecycle ---------------------------------------------------------------
     def start(self) -> None:
@@ -970,6 +980,7 @@ class Session:
             "follow": self.follow,
             "gather": self.gather,
             "build": self.build,
+            "attack": self.attack,
         }.get(intent)
         if handler is None:
             raise JobFailed(f"{intent} is not a job")
@@ -1017,6 +1028,119 @@ class Session:
     def _stopped_short(self, label: str) -> JobFailed:
         here = _where(self.body.position())
         return JobFailed(f"I could not get to {label}; I stopped at {here}")
+
+    def attack(self, args: dict, actor, progress) -> dict:
+        """The owner's order: find the target, close in, fight it with the tactic
+        ``companion_combat`` picks (the named weapon decides it when one is named),
+        and look again after every fight. Ends on a kill, the health floor, losing
+        the target (logged out, another dimension, nothing of the type in sight) or a
+        target that cannot be hurt; a stop raises ``JobCancelled``. No failure counter
+        ends it early. Auto-defence never targets a player: only this job does, and
+        the fight op is told so (``allow_player``)."""
+        target, weapon = args["target"], args.get("weapon")
+        tally = self._tally = commanded.Tally.for_job(self._tally, self.current_job)
+        label = target.get("player") or (
+            target["mob"].removeprefix("minecraft:") if "mob" in target else "hostile"
+        )
+        chosen = None
+        while True:
+            state = self.bridge.state()
+            body = state.get("body") or {}
+            here = body.get("position")
+            if here is None:
+                raise BodyDied("observation has no position: the body is dead")
+            roster = self._roster() if "player" in target else None
+            found = commanded.find(target, state, roster, self.bot_name, chosen)
+            if isinstance(found, str):
+                return self._attack_over(tally, found, label)
+            label = found.label
+            if "player" not in target:
+                chosen = found.uuid  # this one, not whichever is nearest next look
+            if float(body.get("health", 20.0)) <= self.defense_policy.floor_health:
+                return self._attack_over(tally, commanded.LOW_HEALTH, label)
+            rows = body.get("inventory")
+            plan = self._attack_tactic(
+                found.type, weapon, _counts(rows), label, combat.loyal(rows)
+            )
+            distance = math.dist(here, found.position)
+            progress(
+                stage="attacking",
+                detail=f"{label}, {distance:.0f} blocks away"
+                + ("" if found.seen else " (out of sight)"),
+            )
+            if not found.seen or distance > ATTACK_CHASE:
+                goal = feet_cell(found.position)
+                if not self.body.walk_far(goal, ATTACK_WALK_RADIUS):
+                    self.body.wait_ticks(ATTACK_WAIT_TICKS)
+                continue
+            result = self.body.fight(
+                entity=found.uuid,
+                weapon=plan.weapon,
+                radius=min(
+                    defense.FIGHT_RADIUS_MAX,
+                    max(
+                        int(self.defense_policy.threat_radius),
+                        math.ceil(distance) + 2,
+                    ),
+                ),
+                floor=int(self.defense_policy.floor_health),
+                max_ticks=FIGHT_TICKS,
+                tactic=plan.wire(),
+                allow_player="player" in target,
+            )
+            data = result.data or {}
+            tally.add(data)
+            if result.ok:
+                if data.get("killed"):
+                    return self._attack_over(tally, commanded.KILLED, label)
+                spent = int(data.get("ticks", 0))
+            else:
+                reason = result.reason or ""
+                if reason.startswith("cancelled"):
+                    raise JobCancelled  # /mcb stop cancelled the fight op itself
+                if reason == commanded.LOW_HEALTH:
+                    return self._attack_over(tally, commanded.LOW_HEALTH, label)
+                if reason == commanded.INVULNERABLE:
+                    return self._attack_over(tally, commanded.INVULNERABLE, label)
+                if reason in ("not_allowed", "bad_request"):
+                    raise JobFailed(f"I may not attack {label}")
+                spent = 0
+                if reason == "unreachable":  # a walk that gets nearer, then try again
+                    self.body.walk_to(feet_cell(found.position), ATTACK_WALK_RADIUS)
+            if spent < DEFEND_WAIT_TICKS:  # nothing came of it: let the target move
+                self.body.wait_ticks(DEFEND_WAIT_TICKS - spent)
+
+    def _attack_over(self, tally, outcome: str, label: str) -> dict:
+        self._tally = None
+        return tally.result(outcome, label)
+
+    def _roster(self) -> list | None:
+        """The body's online players, or None when it cannot say."""
+        try:
+            players = self.bridge.http("/players").get("players")
+        except Exception as error:  # noqa: BLE001 - an older mod, or the bridge down
+            log.warning("no player roster: %s", error)
+            return None
+        return players if isinstance(players, list) else None
+
+    @staticmethod
+    def _attack_tactic(kind, weapon, inventory, label, loyal=False) -> combat.Tactic:
+        """How to fight ``kind``: the named weapon when there is one (it must be
+        held), else what the held weapons suit, else the fists (it is the owner's
+        order). A target the profiles never engage is refused. ``loyal``: a carried
+        trident has Loyalty, so it may be thrown."""
+        if combat.never_engaged(kind):
+            raise JobFailed(f"I won't fight a {label}: it is too dangerous")
+        if weapon:
+            plan = combat.forced_tactic(weapon, kind, inventory, loyal)
+            if plan is None:
+                name = weapon.removeprefix("minecraft:")
+                if inventory.get(weapon, 0) > 0:
+                    raise JobFailed(f"I have a {name} but no arrows for it")
+                raise JobFailed(f"I am not holding a {name}")
+            return plan
+        plan = combat.tactic(kind, inventory, loyal=loyal)
+        return combat.fists() if plan.style == "avoid" else plan
 
     def follow(self, args: dict, actor, progress) -> dict:
         """Keep within ``distance`` of the player until stopped (never returns by

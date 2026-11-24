@@ -18,7 +18,34 @@ final class ActionLogic {
 
     /** Animals and hostile mobs: not tamed, not a player and not a villager. */
     static boolean allowedTarget(boolean animal, boolean hostile, boolean tamed, boolean player, boolean villager) {
-        return (animal || hostile) && !tamed && !player && !villager;
+        return allowedTarget(animal, hostile, tamed, player, villager, false, false);
+    }
+
+    /**
+     * As the five-argument form, for a request the owner commanded (allowPlayer, set by Python only for an
+     * attack job against a named player): a player may then be the target, never the body itself. Auto-defence
+     * never sets it. Villagers and tamed animals stay refused whoever asks.
+     */
+    static boolean allowedTarget(boolean animal, boolean hostile, boolean tamed, boolean player, boolean villager,
+                                 boolean allowPlayer, boolean self) {
+        if (self || villager || tamed) return false;
+        if (player) return allowPlayer;
+        return animal || hostile;
+    }
+
+    /** A player can be hurt unless in creative or spectator mode or invulnerable. */
+    static boolean hurtable(boolean creative, boolean spectator, boolean invulnerable) {
+        return !creative && !spectator && !invulnerable;
+    }
+
+    /**
+     * Why a target is refused, or null: "not_allowed" (a kind the op never hits) or "invulnerable" (a commanded player
+     * target that cannot be hurt; hurtable is only asked of a player).
+     */
+    static String refusal(boolean animal, boolean hostile, boolean tamed, boolean player, boolean villager,
+                          boolean allowPlayer, boolean self, boolean hurtable) {
+        if (!allowedTarget(animal, hostile, tamed, player, villager, allowPlayer, self)) return "not_allowed";
+        return player && !hurtable ? "invulnerable" : null;
     }
 
     /** Attack only with a full cooldown. */

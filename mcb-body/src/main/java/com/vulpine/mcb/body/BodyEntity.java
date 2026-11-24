@@ -62,6 +62,15 @@ final class BodyEntity {
         return entity;
     }
 
+    /** Why the body may not hit target (ActionLogic.refusal), or null; allowPlayer: a commanded attack (a player may be named). */
+    static String refusal(ServerPlayer body, Entity target, boolean allowPlayer) {
+        boolean tamed = target instanceof OwnableEntity owned && owned.getOwnerReference() != null;
+        var other = target instanceof net.minecraft.world.entity.player.Player p ? p : null;
+        return ActionLogic.refusal(target instanceof Animal, target instanceof net.minecraft.world.entity.monster.Enemy, tamed,
+                other != null, target instanceof net.minecraft.world.entity.npc.villager.AbstractVillager, allowPlayer,
+                target == body, other == null || ActionLogic.hurtable(other.isCreative(), other.isSpectator(), other.isInvulnerable()));
+    }
+
     private static void checkReach(ServerPlayer player, Entity entity) {
         if (!player.isWithinEntityInteractionRange(entity, 0)) throw new BodyActions.Fail("out_of_reach");
         if (!player.hasLineOfSight(entity)) throw new BodyActions.Fail("no_line_of_sight");
@@ -182,10 +191,8 @@ final class BodyEntity {
 
         static AttackTask start(ServerPlayer player, JsonObject request, long sequence) {
             Entity target = find(player, request);
-            boolean tamed = target instanceof OwnableEntity owned && owned.getOwnerReference() != null;
-            if (!ActionLogic.allowedTarget(target instanceof Animal, target instanceof net.minecraft.world.entity.monster.Enemy, tamed, target instanceof net.minecraft.world.entity.player.Player,
-                    target instanceof net.minecraft.world.entity.npc.villager.AbstractVillager))
-                throw new BodyActions.Fail("not_allowed");
+            String refused = refusal(player, target, FightLogic.allowPlayer(request));
+            if (refused != null) throw new BodyActions.Fail(refused);
             checkReach(player, target);
             String weapon = request.has("weapon") ? request.get("weapon").getAsString() : bestWeapon(player);
             if (weapon != null) BodyBuild.selectItem(player, weapon);
@@ -256,6 +263,8 @@ final class BodyEntity {
         final CombatLogic.Tactic tactic;
         final java.util.function.Function<ServerPlayer, RouteGeometry.Reader> reader;
         final UUID requested;
+        /** The requested target is a player the owner commanded the body to attack: checked each tick (a mode change ends it). */
+        boolean commandedPlayer;
         int ticks, hits, crits, shots;
         /** Targets that died with the body as their killer (FightLogic.Kills). */
         final FightLogic.Kills kills = new FightLogic.Kills();
@@ -363,16 +372,17 @@ final class BodyEntity {
             var params = FightLogic.parse(request);
             var tactic = CombatLogic.parseTactic(request);
             UUID requested = null;
+            boolean commandedPlayer = false;
             if (params.entity() != null) {
                 Entity target = find(player, request);
-                boolean tamed = target instanceof OwnableEntity owned && owned.getOwnerReference() != null;
-                if (!ActionLogic.allowedTarget(target instanceof Animal, target instanceof net.minecraft.world.entity.monster.Enemy, tamed,
-                        target instanceof net.minecraft.world.entity.player.Player,
-                        target instanceof net.minecraft.world.entity.npc.villager.AbstractVillager))
-                    throw new BodyActions.Fail("not_allowed");
+                boolean commanded = FightLogic.allowPlayer(request);
+                String refused = refusal(player, target, commanded);
+                if (refused != null) throw new BodyActions.Fail(refused);
                 requested = target.getUUID();
+                commandedPlayer = commanded && target instanceof net.minecraft.world.entity.player.Player;
             }
             var task = new FightTask(sequence, params, tactic, requested, reader);
+            task.commandedPlayer = commandedPlayer;
             task.holdWeapon(player, params.weapon());
             return task;
         }
@@ -430,6 +440,10 @@ final class BodyEntity {
             var pick = FightLogic.pick(requested == null ? null : requested.toString(), candidates, reach);
             if (pick == null) { stopDraw(player); return "done"; }
             LivingEntity target = entities.get(pick.uuid());
+            if (commandedPlayer && target.getUUID().equals(requested) && refusal(player, target, true) != null) {
+                stopDraw(player);
+                return "invulnerable";  // it went creative or spectator, or became invulnerable
+            }
             track(target);
             around.clear();
             near.clear();

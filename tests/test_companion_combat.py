@@ -356,3 +356,65 @@ def test_a_tactic_serialises_for_the_fight_op():
     }
     hunt = cc.tactic(M + "cow", inv("iron_axe"))
     assert hunt.wire() == {"style": "hunt", "crit": True, "sweep": False}
+
+
+# --- a commanded attack on a player -------------------------------------------------
+
+
+def test_a_player_is_fought_like_a_twenty_health_melee_mob():
+    player = M + "player"
+    assert cc.PROFILES[player].styles == ("melee", "snipe")
+    assert cc.mob_health(player) == 20.0
+    assert not cc.never_engaged(player)
+    swung = cc.tactic(player, inv("iron_sword"))
+    assert (swung.style, swung.weapon, swung.crit) == ("melee", M + "iron_sword", True)
+    assert cc.tactic(player, inv("bow", arrows=8)).style == "snipe"  # a bow alone
+    assert cc.tactic(player, inv()) is cc.AVOID  # bare hands: the caller decides
+
+
+def test_a_player_is_never_hunted_like_an_animal():
+    # with no profile a player fell through to HUNT, which is for animals
+    assert cc.tactic(M + "player", inv("iron_sword")).style != "hunt"
+
+
+def test_a_named_weapon_decides_the_style():
+    sword = cc.forced_tactic(M + "iron_sword", M + "zombie", inv("iron_sword"))
+    assert (sword.style, sword.weapon, sword.crit) == ("melee", M + "iron_sword", True)
+    axe = cc.forced_tactic(M + "iron_axe", M + "player", inv("iron_axe", "iron_sword"))
+    assert (axe.style, axe.weapon) == ("melee", M + "iron_axe")
+    spear = cc.forced_tactic(M + "iron_spear", M + "zombie", inv("iron_spear"))
+    assert (spear.style, spear.weapon) == ("lance", M + "iron_spear")
+    bow = cc.forced_tactic(M + "bow", M + "zombie", inv("bow", "iron_sword", arrows=4))
+    assert (bow.style, bow.weapon, bow.keep, bow.melee) == (
+        "snipe", M + "bow", cc.SNIPE_KEEP, M + "iron_sword"
+    )
+
+
+def test_a_named_trident_is_thrown_only_when_it_has_loyalty():
+    held = inv("trident", "iron_sword")
+    thrown = cc.forced_tactic(M + "trident", M + "zombie", held, loyal=True)
+    assert (thrown.style, thrown.weapon, thrown.keep, thrown.melee) == (
+        "throw", M + "trident", cc.SNIPE_KEEP, M + "iron_sword"
+    )
+    swung = cc.forced_tactic(M + "trident", M + "zombie", held)
+    assert (swung.style, swung.weapon, swung.crit) == ("melee", M + "trident", True)
+
+
+def test_a_named_bow_needs_arrows_and_a_named_item_must_be_held():
+    assert cc.forced_tactic(M + "bow", M + "zombie", inv("bow")) is None
+    assert cc.forced_tactic(M + "iron_sword", M + "zombie", inv()) is None
+    other = inv("diamond_sword")
+    assert cc.forced_tactic(M + "iron_sword", M + "zombie", other) is None
+
+
+def test_a_named_non_weapon_is_swung_as_a_plain_hit():
+    stick = cc.forced_tactic(M + "stick", M + "zombie", inv("stick"))
+    assert (stick.style, stick.weapon, stick.crit, stick.sweep) == (
+        "melee", M + "stick", False, False,
+    )  # fmt: skip
+
+
+def test_bare_hands_are_a_fist_tactic():
+    fists = cc.fists()
+    assert (fists.style, fists.weapon, fists.crit) == ("melee", None, False)
+    assert fists.wire() == {"style": "melee", "crit": False, "sweep": False}

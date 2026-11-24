@@ -17,7 +17,7 @@ def test_every_intent_has_a_tool_schema_with_a_description():
 def test_job_intents_and_instant_intents_are_disjoint_and_complete():
     assert ci.JOB_INTENTS | ci.INSTANT_INTENTS == set(ci.INTENTS)
     assert not ci.JOB_INTENTS & ci.INSTANT_INTENTS
-    assert ci.JOB_INTENTS == {"goto", "follow", "gather", "build"}
+    assert ci.JOB_INTENTS == {"goto", "follow", "gather", "build", "attack"}
 
 
 def test_unknown_intent_and_unknown_argument_are_refused():
@@ -227,3 +227,98 @@ def test_untrusted_tools_are_read_only():
 def test_actor_round_trips_through_a_dict():
     actor = ci.Actor("chat", name="Marc", uuid="u1", position=(1.5, 64.0, -2.25))
     assert ci.Actor.from_dict(actor.to_dict()) == actor
+
+
+# --- attack ------------------------------------------------------------------------
+
+
+def test_attack_names_exactly_one_target():
+    assert ci.validate("attack", {"player": "flamingchicken"}) == {
+        "target": {"player": "flamingchicken"},
+        "weapon": None,
+        "when": "now",
+    }
+    assert ci.validate("attack", {"mob": "zombie"})["target"] == {
+        "mob": "minecraft:zombie"
+    }
+    assert ci.validate("attack", {"mob": "Minecraft:Cow"})["target"] == {
+        "mob": "minecraft:cow"
+    }
+    assert ci.validate("attack", {"nearest_hostile": True})["target"] == {
+        "nearest_hostile": True
+    }
+    for none in ({}, {"nearest_hostile": False}):
+        with pytest.raises(ValueError, match="exactly one"):
+            ci.validate("attack", none)
+    with pytest.raises(ValueError, match="exactly one"):
+        ci.validate("attack", {"player": "Marc", "mob": "zombie"})
+    with pytest.raises(ValueError, match="exactly one"):
+        ci.validate("attack", {"mob": "zombie", "nearest_hostile": True})
+
+
+def test_attack_target_values_are_checked():
+    with pytest.raises(ValueError, match="player"):
+        ci.validate("attack", {"player": "no spaces allowed"})
+    with pytest.raises(ValueError, match="mob"):
+        ci.validate("attack", {"mob": "Zom bie!"})
+    with pytest.raises(ValueError, match="use player"):
+        ci.validate("attack", {"mob": "player"})  # a player is named, not a mob kind
+    with pytest.raises(ValueError, match="use player"):
+        ci.validate("attack", {"mob": "minecraft:player"})
+    with pytest.raises(ValueError, match="nearest_hostile"):
+        ci.validate("attack", {"nearest_hostile": "yes"})
+
+
+def test_attack_takes_a_weapon_and_when():
+    got = ci.validate(
+        "attack", {"mob": "zombie", "weapon": "Iron_Sword", "when": "next"}
+    )
+    assert got["weapon"] == "minecraft:iron_sword" and got["when"] == "next"
+    assert ci.validate("attack", {"mob": "zombie", "weapon": "minecraft:bow"})[
+        "weapon"
+    ] == "minecraft:bow"
+    with pytest.raises(ValueError, match="weapon"):
+        ci.validate("attack", {"mob": "zombie", "weapon": "#minecraft:swords"})
+    with pytest.raises(ValueError, match="when"):
+        ci.validate("attack", {"mob": "zombie", "when": "later"})
+    with pytest.raises(ValueError, match="Unknown argument"):
+        ci.validate("attack", {"mob": "zombie", "speed": 3})
+
+
+def test_attack_is_a_trusted_job_intent():
+    assert "attack" in ci.JOB_INTENTS and "attack" not in ci.UNTRUSTED_INTENTS
+    assert "attack" not in {t["name"] for t in ci.tool_schemas(trusted=False)}
+
+
+def test_attack_tool_says_how_it_ends_and_who_may_use_it():
+    (attack,) = [t for t in ci.tool_schemas() if t["name"] == "attack"]
+    text = attack["description"]
+    for word in ("killed", "lost", "invulnerable", "owner"):
+        assert word in text
+    assert set(attack["input_schema"]["properties"]) == {
+        "player",
+        "mob",
+        "nearest_hostile",
+        "weapon",
+        "when",
+    }
+
+
+def test_hunting_is_a_gather_and_the_tool_says_so():
+    (gather,) = [t for t in ci.tool_schemas() if t["name"] == "gather"]
+    assert "hunt" in gather["description"] and "porkchop" in gather["description"]
+
+
+def test_hitting_a_player_needs_the_operator_or_a_named_owner(monkeypatch):
+    seen = []
+
+    def listed(uuid, name=""):
+        seen.append((uuid, name))
+        return name == "Marc"
+
+    monkeypatch.setattr(ci, "_listed", listed)
+    assert ci.may_attack_players(ci.Actor("mcp"))
+    assert ci.may_attack_players(ci.Actor("api"))
+    assert ci.may_attack_players(ci.Actor("command", name="Marc", uuid="u1"))
+    assert not ci.may_attack_players(ci.Actor("chat", name="Stranger", uuid="u2"))
+    assert seen == [("u1", "Marc"), ("u2", "Stranger")]

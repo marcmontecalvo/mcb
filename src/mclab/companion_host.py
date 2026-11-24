@@ -160,6 +160,8 @@ class Host:
                     "ask the bot's owner",
                 }
             clean = validate(intent, args)
+            if intent == "attack" and "player" in clean["target"]:
+                self._check_player_target(clean["target"]["player"], actor)
             if key is not None and (
                 not isinstance(key, str) or not 1 <= len(key) <= 128
             ):
@@ -170,6 +172,19 @@ class Host:
         except Exception as error:  # noqa: BLE001 - never raise for a bad request
             log.exception("call %s failed", intent)
             return {"ok": False, "error": f"Internal error: {error}"}
+
+    def _check_player_target(self, name: str, actor: Actor) -> None:
+        """Hitting a player is stricter than commanding the bot: the bot is never its
+        own target, and only the operator or someone the config names may order it.
+        The owner may name themselves: the target is whoever is named."""
+        if str(self.bot.get("name") or "").lower() == name.lower():
+            raise ValueError("The bot cannot attack itself")
+        if not companion_intents.may_attack_players(actor):
+            who = actor.name or actor.source
+            raise HostError(
+                f"Not allowed: {who} may not attack a player; only the bot's owner "
+                "or an allowlisted player may"
+            )
 
     def wait_job(self, job_id: str, timeout: float) -> dict | None:
         with self._cond:
@@ -677,6 +692,7 @@ class Host:
             actor = Actor.from_dict(job["actor"])
         self._record_progress(copy.deepcopy(job))
         state, result, error, health = "succeeded", None, None, "ok"
+        session.current_job = job_id  # a re-run after a defence keeps the job's stats
         try:
             while True:
                 try:
@@ -856,7 +872,11 @@ def _start_adapters(host, bot, settings, token, runtime, *, on_shutdown=None):
         from mclab import companion_ingress
 
         ingress = companion_ingress.Ingress(
-            host, talker, companion_ingress.bridge_events_source(), bot=bot
+            host,
+            talker,
+            companion_ingress.bridge_events_source(),
+            bot=bot,
+            players=companion_ingress.bridge_players_source(),
         )
         ingress.start()
         stops.append(ingress.stop)

@@ -123,7 +123,10 @@ INTENTS = {
         "Collect an item: mine, chop, craft and smelt as needed until the bot holds "
         "`count` of it. Item is a Minecraft id such as oak_log or iron_ingot, or a "
         "group tag when any kind will do: #minecraft:logs for wood (any log, the "
-        "nearest), #minecraft:planks, #minecraft:wool.",
+        "nearest), #minecraft:planks, #minecraft:wool. This is also how to hunt: "
+        "gather a drop an animal gives (porkchop, beef, mutton, chicken, leather, "
+        "feather) and the bot finds and kills the animals for it, shooting with a "
+        "bow while it has arrows.",
         {
             "item": {"type": "string"},
             "count": {"type": "integer", "minimum": 1, "maximum": MAX_COUNT},
@@ -142,8 +145,38 @@ INTENTS = {
         },
         ["template"],
     ),
+    "attack": (
+        "Fight one target on the owner's order, until it dies, you stop it or it can "
+        "no longer be fought. Give exactly one of: `player` (an online player's "
+        "name), `mob` (a kind such as zombie or cow: the nearest one seen) or "
+        "`nearest_hostile` (true: the nearest hostile mob). The bot walks or chases "
+        "into range, picks the tactic and weapon itself (`weapon`: an item id it "
+        "holds, to use that instead), chases again when the target runs off, and "
+        "still stops at its health floor (see defense). The job's result says how it "
+        "ended: killed; lost (the target logged out, went to another dimension or "
+        "cannot be found); invulnerable (a player in creative or spectator mode); "
+        "with kills, hits, crits, shots and damage. Only the owner or allowlist may "
+        "use it; a player may be named only if the owners or allowlist name them.",
+        {
+            "player": {"type": "string", "description": "an online player's name"},
+            "mob": {
+                "type": "string",
+                "description": "an entity type such as zombie, skeleton or cow",
+            },
+            "nearest_hostile": {
+                "type": "boolean",
+                "description": "true: the nearest hostile mob in sight",
+            },
+            "weapon": {
+                "type": "string",
+                "description": "an item id the bot holds, such as iron_sword or bow",
+            },
+            **_WHEN,
+        },
+        [],
+    ),
 }
-JOB_INTENTS = frozenset({"goto", "follow", "gather", "build"})
+JOB_INTENTS = frozenset({"goto", "follow", "gather", "build", "attack"})
 INSTANT_INTENTS = frozenset(INTENTS) - JOB_INTENTS
 # What an unauthorized player's chat may make the bot do: look, never act.
 UNTRUSTED_INTENTS = frozenset({"status", "list_places"})
@@ -284,7 +317,58 @@ def _defense(args):
     return out
 
 
+def _entity_type(args, key="mob"):
+    """An entity type id: ``zombie`` and ``Zombie`` are both ``minecraft:zombie``."""
+    value = args.get(key)
+    said = value.strip().lower() if isinstance(value, str) else ""
+    found = ITEM.fullmatch(said)
+    if not found:
+        raise ValueError(f"{key} must be an entity type such as zombie or cow")
+    if found.group(1) == "player":
+        raise ValueError("to attack a player use player (their name), not mob")
+    return "minecraft:" + found.group(1)
+
+
+def _weapon(args):
+    value = args.get("weapon")
+    if value is None:
+        return None
+    found = ITEM.fullmatch(value.strip().lower()) if isinstance(value, str) else None
+    if not found:
+        raise ValueError("weapon must be an item id such as iron_sword or bow")
+    return "minecraft:" + found.group(1)
+
+
+def _attack(args):
+    """One target: a player by name, the nearest mob of a type, or the nearest
+    hostile."""
+    hostile = args.get("nearest_hostile")
+    if hostile is not None and type(hostile) is not bool:
+        raise ValueError("nearest_hostile must be true or false")
+    forms = [
+        form
+        for form, present in (
+            ("player", args.get("player") is not None),
+            ("mob", args.get("mob") is not None),
+            ("nearest_hostile", hostile is True),
+        )
+        if present
+    ]
+    if len(forms) != 1:
+        raise ValueError(
+            "attack needs exactly one target: player, mob or nearest_hostile"
+        )
+    if forms[0] == "player":
+        target = {"player": _player(args)}
+    elif forms[0] == "mob":
+        target = {"mob": _entity_type(args)}
+    else:
+        target = {"nearest_hostile": True}
+    return {"target": target, "weapon": _weapon(args), "when": _when(args)}
+
+
 _VALIDATORS = {
+    "attack": _attack,
     "status": lambda a: {},
     "list_places": lambda a: {},
     "stop": lambda a: {},
@@ -380,3 +464,18 @@ def authorized(actor: Actor) -> bool:
     if actor.source in OPERATOR_SOURCES:
         return True
     return bool(_allowlisted(actor.uuid or "", actor.name or ""))
+
+
+def _listed(uuid, name=""):
+    from mclab.companion_service import allowed
+
+    return allowed(uuid, name, listed=True)
+
+
+def may_attack_players(actor: Actor) -> bool:
+    """May this actor order an attack on a player? Stricter than ``authorized``: an
+    empty owners/allowlist lets every player command the bot, but not hit a player;
+    only the local operator or someone the config names does."""
+    if actor.source in OPERATOR_SOURCES:
+        return True
+    return bool(_listed(actor.uuid or "", actor.name or ""))

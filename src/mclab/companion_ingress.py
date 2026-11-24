@@ -62,6 +62,21 @@ def bridge_events_source(*, port=None, token=None, path="/events", timeout=4.0):
     return source
 
 
+def bridge_players_source(**kwargs):
+    """``players()`` -> the online player names from the body's ``/players``, or None
+    when the bridge cannot say. Takes ``bridge_events_source``'s arguments."""
+    read = bridge_events_source(path="/players", **kwargs)
+
+    def players():
+        try:
+            roster = read(0).get("players")
+            return [p["name"] for p in roster if isinstance(p.get("name"), str)]
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None
+
+    return players
+
+
 def _position(data):
     value = data.get("position")
     try:
@@ -83,13 +98,35 @@ def _describe(intent, args):
         return f"goto {args['x']} {args['y']} {args['z']}"
     if intent == "gather":
         return f"gather {args['count']} {args['item']}"
+    if intent == "attack":
+        who = (
+            args.get("player")
+            or args.get("mob")
+            or ("the nearest hostile" if args.get("nearest_hostile") else "?")
+        )
+        with_ = f" with {args['weapon']}" if args.get("weapon") else ""
+        return f"attack {who}{with_}"
     return f"build {args['template']}"
 
 
+HOSTILE_WORDS = frozenset({"hostile", "hostiles", "nearest_hostile", "nearest-hostile"})
+
+
+def _defense_text(settings):
+    """The defence settings, as one line a player reads in chat."""
+    hearts = settings.get("floor_hearts", settings.get("floor_health", 0) / 2)
+    return (
+        f"Defence: fall back below {hearts:g} hearts, threats within "
+        f"{settings.get('threat_radius')} blocks, allies within "
+        f"{settings.get('ally_radius')}, base within {settings.get('base_radius')}."
+    )
+
+
 class Ingress:
-    def __init__(self, host, talker, events_source, *, bot, poll_s=1.0):
+    def __init__(self, host, talker, events_source, *, bot, poll_s=1.0, players=None):
         self.host, self.talker, self.source = host, talker, events_source
         self.bot, self.poll_s = bot, poll_s
+        self.players = players  # () -> online player names, or None when unknown
         self.cursor: int | None = None
         self.launch_id = None
         self.gaps = 0
@@ -211,7 +248,52 @@ class Ingress:
             return self._run_intent(
                 actor, "build", {"template": template}, self._started
             )
+        if sub == "attack":
+            return self._attack(actor, data)
+        if sub == "defense":
+            return self._defense(actor, data)
         self._tell(actor, "Unknown command.")
+
+    def _attack(self, actor, data):
+        """``/mcb attack <word> [weapon]``: the word is an online player's name first,
+        else hostile (the nearest one), else a mob type. The host checks who may."""
+        word, weapon = data.get("target"), data.get("weapon")
+        if not isinstance(word, str) or not word.strip():
+            return self._tell(actor, "Can't do that: attack needs a target.")
+        word = word.strip()
+        online = self.online_player(word)
+        if online is not None:
+            args = {"player": online}
+        elif word.lower() in HOSTILE_WORDS:
+            args = {"nearest_hostile": True}
+        else:
+            args = {"mob": word}
+        if isinstance(weapon, str) and weapon:
+            args["weapon"] = weapon
+        return self._run_intent(actor, "attack", args, self._started)
+
+    def online_player(self, word):
+        """The online player ``word`` names (case-insensitive), else None."""
+        try:
+            names = self.players() if self.players is not None else None
+        except Exception:
+            names = None
+        return next((n for n in names or () if n.lower() == word.lower()), None)
+
+    def _defense(self, actor, data):
+        args = {}
+        for key in ("floor_hearts", "threat_radius"):
+            value = data.get(key)
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return self._tell(actor, f"Can't do that: {key} must be a number.")
+            args[key] = value
+        return self._run_intent(actor, "defense", args, self._defense_reply)
+
+    @staticmethod
+    def _defense_reply(result, args, intent):
+        return _defense_text(result.get("defense") or {})
 
     def _run_intent(self, actor, intent, args, describe):
         try:
