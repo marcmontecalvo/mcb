@@ -1126,7 +1126,7 @@ class CompanionBody:
             self.bridge.send("plug_keep", items=keep)
             self._plug_keep_sent = keep
 
-    def op(self, name: str, **fields) -> Result:
+    def op(self, name: str, /, **fields) -> Result:  # positional-only: arena ops carry a ``name`` field
         if name in PLUG_KEEP_OPS:
             self.sync_plug_keep()
         payload = self.bridge.send(name, **fields)
@@ -1370,6 +1370,41 @@ class CompanionBody:
         """Operator combat trials only (BODY_ACTION_OPS ``trial``): clear the area and
         the inventory, give, heal, set the time, summon. Never an intent or a tool."""
         return self.op("trial", **spec)
+
+    # --- arena runtime (docs/ARENA_RUNTIME.md; ops of com.vulpine.mcb.arena) ---
+    def arena_build(
+        self, plan: dict, origin, *, name: str | None = None, dimension: str | None = None
+    ) -> Result:
+        """Register and place an arena plan with its min corner at ``origin``. The ack
+        (``state`` building) comes at once; the job then ends with an ``arena_built``
+        event (``arena_build_aborted`` when it cannot finish)."""
+        extra = {
+            k: v for k, v in (("name", name), ("dimension", dimension)) if v is not None
+        }
+        return self.op("arena_build", plan=plan, origin=list(origin), **extra)
+
+    def arena_remove(self, name: str, *, restore: bool = False) -> Result:
+        """Unregister an arena; ``restore`` first sets its whole box to air."""
+        return self.op("arena_remove", name=name, restore=restore)
+
+    def arena_list(self) -> Result:
+        return self.op("arena_list")
+
+    def arena_status(self, name: str) -> Result:
+        """State, build progress, and the match (wave, live wave mobs, participants)."""
+        return self.op("arena_status", name=name)
+
+    def arena_start(
+        self, name: str, mode: str, *, waves=None, participants=None, teams=None
+    ) -> Result:
+        """Start a ``waves`` or ``teams`` match; ``participants`` default to everyone inside."""
+        fields = {"waves": waves, "participants": participants, "teams": teams}
+        given = {k: v for k, v in fields.items() if v is not None}
+        return self.op("arena_start", name=name, mode=mode, **given)
+
+    def arena_stop(self, name: str) -> Result:
+        """End the match and discard every wave mob."""
+        return self.op("arena_stop", name=name)
 
     def wear(self) -> Result:
         """Put on the best armor carried in each slot and a shield in the off hand

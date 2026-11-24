@@ -295,6 +295,50 @@ solid block), `container_full`, `inventory_full`, `missing_item`.
 A shulker box keeps its contents when broken with `break_block` (the game does
 this). Python records where each container is and what it holds.
 
+## Arena ops
+
+Admin ops for the protected arena runtime ([ARENA_RUNTIME.md](ARENA_RUNTIME.md): plan, rules, events,
+status shape). They need **no body, run or episode**; the envelope still needs `sequence` and
+`request_id`, and the ack carries both back. Acks are `<op>_done` / `<op>_failed` (`reason`, `detail`).
+Python: `CompanionBody.arena_*`, `mclab.arena.ArenaClient`, `mcplay arena ...`.
+
+### `arena_build`
+`{plan, origin:[x,y,z], name?, dimension?}`. Validates the whole plan first, then places it in
+time-budgeted batches over ticks (forceloading its chunks), and persists the registry. `name`
+defaults to the plan's name. `arena_build_done`: `{name, state:"building", cells, chunks, bounds}`;
+progress comes as `arena_build_progress`, the end as `arena_built` or `arena_build_aborted`.
+Failures: `bad_plan`, `bad_block`, `overlap`, `unknown_dimension`, `busy`.
+
+### `arena_remove`
+`{name, restore?:false}`. Drops the arena (protection ends). With `restore:true` the bounds are
+cleared to air first (state `clearing`, then `arena_removed {restored:true}`). `arena_remove_done`:
+`{name, restoring}`. Failure: `unknown_arena`.
+
+### `arena_list`
+`{}`. `arena_list_done`: `{arenas:[summary]}` (name, dimension, state, origin, size, bounds,
+capacity, teams, mob_spawns, spectator, match_state).
+
+### `arena_status`
+`{name}`. `arena_status_done`: the summary plus `build` (while a job runs), `match` and
+`blocked_spawns`. Failure: `unknown_arena`.
+
+### `arena_start`
+`{name, mode:"waves"|"teams", waves?:[{mobs:{type:count}, delay_ticks}], participants?:[names],
+teams?:{team:[names]}}`. Waves mode needs `waves`; participants default to the players inside the
+bounds. Teams mode assigns round-robin unless `teams` is given. `arena_start_done`:
+`{name, mode, participants, waves?}`, then `arena_match_started`. Failures: `unknown_arena`,
+`arena_not_ready`, `match_running`, `no_mob_spawns`, `over_capacity`, `unknown_entity`,
+`not_a_mob`, `participant_offline`, `no_participants`, `duplicate_participant`, `bad_request`
+(malformed waves), `not_allowed` (forbidden mob).
+
+### `arena_stop`
+`{name}`. Ends the running match (mobs discarded, scoreboard team removed). `arena_stop_done`:
+`{name, state:"stopped"}`; also emits `arena_match_stopped`. Failure: `no_match`.
+
+### `arena_protected` (existing ops)
+`place_block`, `use_block` (item use that would place or burn) and `break_block`, and the scaffold
+ops built on them, fail with `arena_protected` when the target cell is inside an arena's bounds.
+
 ## Lab support (mcb-lab, not the body)
 
 ### `kit` (lab op, acts on the current body by name, like `fixture`)

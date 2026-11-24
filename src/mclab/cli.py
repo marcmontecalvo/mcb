@@ -145,6 +145,10 @@ def main() -> int:
         from mclab.run_history import main as runs_main
 
         return runs_main(sys.argv[2:])
+    if sys.argv[1:2] == ["arena"]:
+        from mclab.arena_cli import main as arena_main
+
+        return arena_main(sys.argv[2:])
     if sys.argv[1:2] == ["qual"]:
         from mclab import qualification_battery
 
