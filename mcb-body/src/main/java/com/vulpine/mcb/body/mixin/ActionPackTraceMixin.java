@@ -1,6 +1,6 @@
 package com.vulpine.mcb.body.mixin;
 
-import com.vulpine.mcb.body.BodyRuntime;
+import com.vulpine.mcb.body.BodyHub;
 import net.minecraft.server.level.ServerPlayer;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -16,11 +16,11 @@ public abstract class ActionPackTraceMixin {
 
     @Inject(method = "onUpdate", at = @At("HEAD"), remap = false)
     private void beforeUpdate(CallbackInfo ci) {
-        BodyRuntime.trace(player, "carpet_action_head");
+        BodyHub.trace(player, "carpet_action_head");
     }
 
     @Inject(method = "onUpdate", at = @At("TAIL"), remap = false)
     private void afterUpdate(CallbackInfo ci) {
-        BodyRuntime.trace(player, "carpet_action_tail");
+        BodyHub.trace(player, "carpet_action_tail");
     }
 }

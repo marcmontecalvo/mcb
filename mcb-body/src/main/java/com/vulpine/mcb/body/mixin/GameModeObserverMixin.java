@@ -1,6 +1,6 @@
 package com.vulpine.mcb.body.mixin;
 
-import com.vulpine.mcb.body.BodyRuntime;
+import com.vulpine.mcb.body.BodyHub;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -28,7 +28,7 @@ public abstract class GameModeObserverMixin {
     @Inject(method = "handleBlockBreakAction", at = @At("HEAD"))
     private void onDig(BlockPos pos, ServerboundPlayerActionPacket.Action action,
                        Direction face, int height, int sequence, CallbackInfo ci) {
-        BodyRuntime.interaction(player, "dig_packet", () -> Map.of(
+        BodyHub.interaction(player, "dig_packet", () -> Map.of(
                 "action", action.toString(), "position", List.of(pos.getX(), pos.getY(), pos.getZ()),
                 "face", face.toString(), "client_sequence", sequence));
     }
@@ -41,7 +41,7 @@ public abstract class GameModeObserverMixin {
     @Inject(method = "destroyBlock", at = @At("RETURN"))
     private void afterBreak(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
         if (!cir.getReturnValue() || mcbbody$beforeBlock == null) return;
-        BodyRuntime.interaction(player, "block_broken", () -> Map.of(
+        BodyHub.interaction(player, "block_broken", () -> Map.of(
                 "block", mcbbody$beforeBlock, "position", List.of(pos.getX(), pos.getY(), pos.getZ())));
     }
 }

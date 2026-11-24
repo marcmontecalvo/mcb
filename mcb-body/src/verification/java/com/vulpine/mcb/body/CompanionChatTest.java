@@ -43,6 +43,19 @@ public final class CompanionChatTest {
 
         check(CompanionChat.speaker("Fennel").equals("Fennel"), "speaker is the body");
         check(CompanionChat.speaker(null).equals("MCB"), "no body: MCB");
+        // Several bodies: /say names who speaks; an unknown name never speaks for another body.
+        var bodies = java.util.List.of("MCBot", "MCBot2");
+        check(CompanionChat.speaker("MCBot2", bodies).equals("MCBot2"), "the named body speaks");
+        check(CompanionChat.speaker("mcbot2", bodies).equals("MCBot2"), "matched by name, any case, spoken as it is");
+        check(CompanionChat.speaker(null, bodies).equals("MCBot"), "no name: the first body");
+        check(CompanionChat.speaker("Stranger", bodies).equals("MCBot"), "an unknown name: the first body");
+        check(CompanionChat.speaker("MCBot2", java.util.List.of()).equals("MCB"), "no body: MCB");
+        check(CompanionChat.speaker(null, java.util.List.of()).equals("MCB"), "no body, no name: MCB");
+        check(CompanionChat.requireSpeaker(null) == null && CompanionChat.requireSpeaker("MCBot2").equals("MCBot2"),
+                "the speaker is optional");
+        boolean badSpeaker;
+        try { CompanionChat.requireSpeaker("bad name"); badSpeaker = false; } catch (IllegalArgumentException e) { badSpeaker = true; }
+        check(badSpeaker, "a speaker is a player name");
         check(CompanionChat.broadcast("Fennel", "hi").equals("<Fennel> hi"), "broadcast format");
         check(CompanionChat.whisper("Fennel", "hi").equals("Fennel whispers to you: hi"), "whisper format");
 

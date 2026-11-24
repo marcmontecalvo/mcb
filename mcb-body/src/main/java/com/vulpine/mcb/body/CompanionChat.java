@@ -29,6 +29,24 @@ final class CompanionChat {
         return bodyName == null || bodyName.isEmpty() ? DEFAULT_SPEAKER : bodyName;
     }
 
+    /**
+     * Who speaks when several bodies may: the requested one if a body of that name exists (any case, spoken as the body
+     * spells it), else the first body, else MCB. A name that matches no body never makes up a speaker.
+     */
+    static String speaker(String requested, java.util.List<String> bodyNames) {
+        if (requested != null) {
+            for (var name : bodyNames) if (name != null && name.equalsIgnoreCase(requested)) return name;
+        }
+        return speaker(bodyNames.isEmpty() ? null : bodyNames.get(0));
+    }
+
+    /** Optional {@code /say} speaker; null or absent means the default body. Throws IllegalArgumentException for a bad name. */
+    static String requireSpeaker(String name) {
+        if (name == null) return null;
+        if (!PLAYER_NAME.matcher(name).matches()) throw new IllegalArgumentException("invalid_speaker");
+        return name;
+    }
+
     static String whisper(String speaker, String text) { return speaker + " whispers to you: " + text; }
 
     static String broadcast(String speaker, String text) { return "<" + speaker + "> " + text; }
