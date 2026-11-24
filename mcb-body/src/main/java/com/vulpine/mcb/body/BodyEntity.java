@@ -44,13 +44,15 @@ final class BodyEntity {
 
     /**
      * What dealt the body's last damage: the direct entity's type (an evoker's fangs, an arrow, a vex), else the
-     * damage kind ("fall", "magic"); null once it is too old to be this tick's.
+     * damage kind ("fall", "magic"); null once it is too old to be this tick's. Damage the body caused itself (its
+     * own splash potion) is {@code self:<id>}.
      */
-    static String hurtSource(ServerPlayer player) { return hurtSource(player.getLastDamageSource()); }
+    static String hurtSource(ServerPlayer player) { return hurtSource(player, player.getLastDamageSource()); }
 
-    static String hurtSource(net.minecraft.world.damagesource.DamageSource source) {
+    static String hurtSource(ServerPlayer player, net.minecraft.world.damagesource.DamageSource source) {
         if (source == null) return null;
-        return source.getDirectEntity() != null ? typeId(source.getDirectEntity()) : source.getMsgId();
+        String id = source.getDirectEntity() != null ? typeId(source.getDirectEntity()) : source.getMsgId();
+        return FightLogic.hurtKey(id, source.getEntity() == player);
     }
 
     static Entity find(ServerPlayer player, JsonObject request) {

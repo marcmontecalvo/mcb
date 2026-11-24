@@ -17,6 +17,10 @@ public final class FightLogicTest {
     }
 
     public static void main(String[] args) {
+        // its own splash names itself apart from a witch's (live run 20261124T040230Z could not tell them)
+        check(FightLogic.hurtKey("minecraft:splash_potion", true).equals("self:minecraft:splash_potion"), "own");
+        check(FightLogic.hurtKey("minecraft:splash_potion", false).equals("minecraft:splash_potion"), "foe's");
+        check(FightLogic.hurtKey(null, true) == null, "no source");
         var d = FightLogic.parse(JsonParser.parseString("{}").getAsJsonObject());
         check(d.radius() == 12 && d.floor() == 6 && d.maxTicks() == 600 && d.leash() == 6, "defaults");
         check(d.entity() == null && d.anchor() == null && d.weapon() == null, "optionals absent");

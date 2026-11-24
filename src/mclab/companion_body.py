@@ -1976,6 +1976,18 @@ class CompanionBody:
             self.terrain_policy = saved
 
     @contextmanager
+    def walk_wall(self, seconds: float):
+        """Give up any walk after ``seconds`` (never longer than the usual wall), with
+        the movement and terrain policies untouched: a fight's walk toward its target
+        ends soon enough that the next look can heal or strike back."""
+        saved = self.goto_wall_s
+        self.goto_wall_s = min(saved, seconds)
+        try:
+            yield
+        finally:
+            self.goto_wall_s = saved
+
+    @contextmanager
     def no_placing(self, wall: float = 10.0, max_drop: int | None = None):
         """Move without placing blocks, and give up a walk after ``wall`` seconds:
         an unreachable goal otherwise replans for 90 s (42 s gaps with 18 plans,

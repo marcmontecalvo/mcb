@@ -422,7 +422,11 @@ match wins:
 
 A throw needs two foes in the splash, or one brute at its centre. No harmful splash breaks within
 4.5 blocks of a player in sight. The body cannot see a mob's effects, so the session remembers
-what it threw on whom (`Marks`) until the effect wears off. While something held heals, a fight
+what it threw on whom (`Marks`) until the effect wears off, and marks every throw's targets in
+flight for 1.5 s: the first live run (20261124T040230Z) threw two harming and a weakness at one
+vindicator in 0.2 s, before the first had landed. The same run died in a 29 s walk toward an
+unreachable vindicator with five heals held; a hunt's walks now end after 4 s (ARENA_RUNTIME,
+"The bot's hunt"). While something held heals, a fight
 op breaks off at `HEAL_AT` (`fight_floor`), and the bot heals and fights on. The guard does the
 same before each defence step. The combat-trial kit parts `food` (16 steak, 2 golden apples) and
 `potions` (drinkable healing II x2, strength, swiftness, regeneration, fire resistance; splash

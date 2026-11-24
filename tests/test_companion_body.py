@@ -1088,6 +1088,20 @@ def test_no_placing_turns_placement_off_and_restores_the_policy():
     assert b.movement_policy.allow_climb
 
 
+def test_walk_wall_only_shortens_a_walk_and_restores_it_after():
+    b, _bridge, _memory = body()
+    terrain, movement, wall = b.terrain_policy, b.movement_policy, b.goto_wall_s
+    with b.walk_wall(4.0):
+        assert b.goto_wall_s == 4.0
+        assert (b.terrain_policy, b.movement_policy) == (terrain, movement)
+    assert b.goto_wall_s == wall
+    with b.walk_wall(wall + 50):  # never lengthens one
+        assert b.goto_wall_s == wall
+    with pytest.raises(RuntimeError), b.walk_wall(3.0):
+        raise RuntimeError
+    assert b.goto_wall_s == wall
+
+
 _ROW = [(x, 0, 4) for x in range(4, 7)] + [(x, 0, 5) for x in range(3, 7)]
 
 

@@ -75,6 +75,10 @@ FULL_FOOD = 20
 SPRINT_FOOD = 6  # at or below, a player cannot sprint
 HEAL_RESERVE = 1  # healing splashes kept for the bot before one is thrown at undead
 MARK_MIN_S = 15.0  # a thrown effect is remembered on its targets at least this long
+# A splash lands within ~12 ticks at THROW_REACH; the wave mob's health and death
+# reach the next look a little after. Until then its targets are IN_FLIGHT.
+FLIGHT_S = 1.5
+IN_FLIGHT = "in_flight"
 
 UNDEAD = frozenset(
     M + n
@@ -271,17 +275,24 @@ class Use:
 
 class Marks:
     """Effects thrown on foes, remembered until they wear off (the body cannot see a
-    mob's effects): the same foe is not weakened twice."""
+    mob's effects): the same foe is not weakened twice. Every throw also marks its
+    targets IN_FLIGHT until the splash has landed, so no second potion follows it
+    at a foe the first may already have killed (live run 20261124T040230Z: two
+    harming and a weakness went at one vindicator in 0.2 s)."""
 
     def __init__(self) -> None:
         self._until: dict[str, dict[str, float]] = {}
 
     def record(self, use: Use, now: float) -> None:
-        if use.op != "throw" or use.effect is None:
+        if use.op != "throw":
             return
+        for uuid in use.targets:
+            self._until.setdefault(uuid, {})[IN_FLIGHT] = now + FLIGHT_S
+        if use.effect is None or use.duration <= 1:
+            return  # an instant effect leaves nothing to remember once it lands
         until = now + max(MARK_MIN_S, use.duration / 20.0 * 0.5)
         for uuid in use.targets:
-            self._until.setdefault(uuid, {})[use.effect] = until
+            self._until[uuid][use.effect] = until
 
     def active(self, now: float) -> dict[str, set[str]]:
         out = {}
@@ -493,7 +504,10 @@ def _throw(items, foes: tuple[Foe, ...], marks, friends, here) -> Use | None:
                 weight = _intensity(f, point)
                 if weight <= 0:
                     continue
-                value = score(f, set(marks.get(f.uuid, ())))
+                marked = set(marks.get(f.uuid, ()))
+                value = score(f, marked)
+                if value > 0 and IN_FLIGHT in marked:
+                    value = 0  # one is on its way; a foe it would heal still counts
                 total += value * weight
                 if value > 0:
                     hit.append(f.uuid)

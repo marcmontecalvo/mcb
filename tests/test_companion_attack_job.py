@@ -152,7 +152,7 @@ def test_an_arena_hunt_finds_every_wave_mob_wherever_it_is_and_ends_with_the_mat
     assert result["outcome"] == "won" and result["target"] == "vault"
     assert (result["kills"], result["hits"], result["fights"]) == (1, 9, 1)
     assert result["waves_cleared"] == 2
-    walks = [e for e in session.body.log if e[0] == "walk_far"]
+    walks = [e for e in session.body.log if e[0] == "walk_to"]
     assert walks and walks[0][1][0] == 40  # toward the far ravager, whatever the range
     ((_, fields),) = _logged(session.body, "fight")
     assert fields["entity"] == "r1" and not fields["allow_player"]
@@ -288,6 +288,42 @@ def test_a_use_the_body_refuses_is_not_tried_again_at_once(fighter):
 
     assert len(_uses(session)) == 1
     assert len(_logged(session.body, "fight")) == 2  # it fought on both looks
+
+
+def test_a_hunt_walks_toward_an_unreachable_mob_only_briefly(fighter):
+    # Live run 20261124T040230Z: after an unreachable fight the walk toward the
+    # vindicator ran 29 s while arrows took the bot from 10.6 to dead, no heal tried.
+    session, bridge = fighter
+    v = ("v1", (2.5, 64.0, 0.5))
+    seen = {"type": RAVAGER, "uuid": "v1", "position": list(v[1])}
+    _arena(session, _match(v), _match(v), _match(state="won", cleared=2))
+    _look(bridge, seen, inv=_sword())
+    _look(bridge, seen, inv=_sword())
+    _look(bridge, inv=_sword())
+    session.body.fights = [Result(False, "unreachable", {}), KILL]
+
+    _attack(session, arena="vault")
+
+    names = [entry[0] for entry in session.body.log]
+    at = names.index("walk_to")
+    assert session.body.log[at - 1] == ("walk_wall", cs.ARENA_WALK_S)
+    assert names[at + 1] == "walk_wall_end"
+    assert cs.ARENA_WALK_S <= 5.0  # the next look comes in seconds: heal, fight back
+
+
+def test_a_hunt_chases_a_far_mob_in_short_walks(fighter):
+    session, bridge = fighter
+    far = ("p1", (30.5, 64.0, 0.5))
+    _arena(session, _match(far), _match(state="won", cleared=2))
+    _look(bridge, inv=_sword())
+    _look(bridge, inv=_sword())
+
+    _attack(session, arena="vault")
+
+    names = [entry[0] for entry in session.body.log]
+    assert "walk_far" not in names  # its legs would add up past the wall
+    at = names.index("walk_to")
+    assert session.body.log[at - 1] == ("walk_wall", cs.ARENA_WALK_S)
 
 
 def test_between_waves_a_hungry_hunter_eats(fighter):

@@ -282,6 +282,12 @@ final class FightLogic {
      * fangs rather than the evoker, or the damage kind), read off the health each tick: a raid's losses say what
      * hurt. Health regained in between is not counted, so a fight that healed shows less than it took.
      */
+    /** How a damage source is named in hurt_by / killed_by: the body's own (its splash) as {@code self:<id>}. */
+    static String hurtKey(String id, boolean own) {
+        if (id == null) return null;
+        return own ? "self:" + id : id;
+    }
+
     static final class Hurt {
         private final java.util.Map<String, Double> bySource = new java.util.TreeMap<>();
         private float health;

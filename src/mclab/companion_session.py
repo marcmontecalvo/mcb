@@ -112,6 +112,7 @@ DEFEND_WAIT_TICKS = 10  # a step that could do nothing waits this long
 ATTACK_CHASE = 24.0
 ATTACK_WALK_RADIUS = 6  # a walk toward the target ends this close
 ATTACK_WAIT_TICKS = 20  # no walk got nearer: look again after this
+ARENA_WALK_S = 4.0  # a hunt's walk ends by then: the next look heals or fights back
 ARENA_WAIT_TICKS = 20  # between an arena's waves: look again after this
 FLEE_DISTANCE = 12  # blocks: one flee step
 FLEE_RADIUS = 3.0
@@ -1262,8 +1263,7 @@ class Session:
             # tracks it by uuid: the body's short entity sensor (8 blocks, in view) is
             # no reason to walk at a pillager shooting from 15.
             if distance > ATTACK_CHASE or (arena is None and not found.seen):
-                goal = feet_cell(found.position)
-                if not self.body.walk_far(goal, ATTACK_WALK_RADIUS):
+                if not self._approach(feet_cell(found.position), arena, far=True):
                     self.body.wait_ticks(ATTACK_WAIT_TICKS)
                 continue
             result = self.body.fight(
@@ -1307,9 +1307,21 @@ class Session:
                     raise JobFailed(f"I may not attack {label}")
                 spent = 0
                 if reason == "unreachable":  # a walk that gets nearer, then try again
-                    self.body.walk_to(feet_cell(found.position), ATTACK_WALK_RADIUS)
+                    self._approach(feet_cell(found.position), arena, far=False)
             if spent < DEFEND_WAIT_TICKS:  # nothing came of it: let the target move
                 self.body.wait_ticks(DEFEND_WAIT_TICKS - spent)
+
+    def _approach(self, goal, arena, *, far: bool) -> bool:
+        """Walk toward the target. In an arena one walk of at most ARENA_WALK_S: the
+        whole match is in reach, and the look after it can heal or fight back (live
+        run 20261124T040230Z: a 29 s walk toward an unreachable vindicator ended in
+        death with five heals held). Outside, a far target is walked to in legs."""
+        if arena is not None:
+            with self.body.walk_wall(ARENA_WALK_S):
+                return self.body.walk_to(goal, ATTACK_WALK_RADIUS)
+        if far:
+            return self.body.walk_far(goal, ATTACK_WALK_RADIUS)
+        return self.body.walk_to(goal, ATTACK_WALK_RADIUS)
 
     def _attack_over(self, tally, outcome: str, label: str) -> dict:
         self._tally = None

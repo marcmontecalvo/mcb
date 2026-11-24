@@ -258,7 +258,7 @@ public final class BodyRuntime implements AutoCloseable {
         data.put("cause", player.getCombatTracker().getDeathMessage().getString());
         addSender(data, player);
         runtime.emit("body_died", "fabric_start", data);
-        if (runtime.actionTask != null) runtime.actionTask.died(player, BodyEntity.hurtSource(source));
+        if (runtime.actionTask != null) runtime.actionTask.died(player, BodyEntity.hurtSource(player, source));
         runtime.actionDied(player);
     }
 

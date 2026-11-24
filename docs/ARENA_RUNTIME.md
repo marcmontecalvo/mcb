@@ -135,7 +135,15 @@ reach. A use is a step of its own (`action` eat / drink / throw, `purpose`, `pot
 While a heal is held (a healing or regeneration potion, a golden apple) the fight breaks off at
 `HEAL_AT` (10 health) so the bot heals and fights on; the "no floor" rule applies once nothing heals.
 Between waves it eats to a full bar, which regenerates fastest. A use the body refuses waits
-`USE_RETRY_S` before it is tried again. The rules are in COMPANION_COMBAT_PLAN section 15.
+`USE_RETRY_S` before it is tried again. A thrown splash marks its targets in flight for `FLIGHT_S`
+(1.5 s), so no second potion follows it at a mob the first may already have killed. The rules are
+in COMPANION_COMBAT_PLAN section 15.
+
+Every walk in a hunt (a chase past 24 blocks, or toward a mob the fight op found unreachable) is
+one `walk_to` under `walk_wall(ARENA_WALK_S)` (4 s), never `walk_far`'s legs: a walk cannot heal or
+fight back, and the look after it can. Run 20261124T040230Z died in a 29 s walk toward an
+unreachable vindicator with five heals held. Damage the bot did to itself (its own splash) is
+counted as `self:<id>` in `hurt_by` and `killed_by`.
 
 `scripts/arena-hunt.py` (`mclab.arena_hunt`) measures hunts: each run hands the kit out afresh
 (default `all+armor+shield+trident+food+potions`), heals, starts the match and samples it once a

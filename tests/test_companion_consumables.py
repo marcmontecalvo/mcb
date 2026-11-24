@@ -308,10 +308,43 @@ def test_with_no_heal_the_fight_keeps_the_callers_floor():
 def test_marks_remember_a_thrown_effect_on_its_targets_until_it_wears_off():
     marks = cons.Marks()
     use = cons.Use("throw", M + "splash_potion", "weaken", potion=M + "weakness",
-                   at="v1", effect=M + "weakness", targets=("v1", "v2"))  # fmt: skip
+                   at="v1", effect=M + "weakness", targets=("v1", "v2"),
+                   duration=1800)  # fmt: skip
     marks.record(use, now=0.0)
     assert marks.active(now=10.0) == {"v1": {M + "weakness"}, "v2": {M + "weakness"}}
     assert marks.active(now=10_000.0) == {}
+
+
+def _harm_on(*targets):
+    return cons.Use("throw", M + "splash_potion", "harm", potion=M + "strong_harming",
+                    point=(5.0, 64.0, 0.0), effect=M + "instant_damage",
+                    targets=targets)  # fmt: skip
+
+
+def test_a_splash_in_flight_marks_its_targets_until_it_has_landed():
+    marks = cons.Marks()
+    marks.record(_harm_on("v1"), now=0.0)
+    assert marks.active(now=0.5) == {"v1": {cons.IN_FLIGHT}}
+    assert marks.active(now=cons.FLIGHT_S + 0.1) == {}  # instant: no mark left
+
+
+def test_no_second_splash_goes_at_a_foe_the_first_has_not_reached_yet():
+    # Live run 20261124T040230Z: two harming and a weakness thrown at one vindicator in
+    # 0.2 s, before the first had landed.
+    vindicator = foe("vindicator", 5.5, uuid="v1")
+    marks = cons.Marks()
+    marks.record(_harm_on("v1"), now=0.0)
+    flying = decide(body(), [HARM, WEAK], [vindicator], marks.active(now=0.2))
+    assert flying is None
+    landed = decide(body(), [HARM, WEAK], [vindicator], marks.active(now=2.0))
+    assert landed is not None and landed.reason == "harm"  # it lived: throw again
+
+
+def test_a_splash_in_flight_still_counts_against_the_undead_it_would_heal():
+    pillagers = [foe("pillager", 6.0, 0.0, "p1"), foe("pillager", 6.0, 1.0, "p2")]
+    assert decide(body(), [HARM], pillagers) is not None  # worth a harming alone
+    group = [*pillagers, foe("zombie", 6.5, -0.5, "z1")]
+    assert decide(body(), [HARM], group, {"z1": {cons.IN_FLIGHT}}) is None
 
 
 def test_a_use_goes_to_the_body_op_as_its_fields():

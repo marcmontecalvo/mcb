@@ -1,6 +1,7 @@
 """Companion session: the host's one body in a kept world (fakes, no server)."""
 
 import json
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -144,6 +145,14 @@ class FakeBody:
     def walk_to(self, goal, radius=1.5):
         self.log.append(("walk_to", tuple(goal), radius, self.follow))
         return self.walk_ok
+
+    @contextmanager
+    def walk_wall(self, seconds):
+        self.log.append(("walk_wall", seconds))
+        try:
+            yield
+        finally:
+            self.log.append(("walk_wall_end",))
 
     def wait_ticks(self, ticks):
         self.log.append(("wait", ticks))
