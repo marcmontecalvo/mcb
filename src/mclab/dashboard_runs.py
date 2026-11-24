@@ -222,7 +222,12 @@ def _plan(request):
     jobs = []
     if kind == "setup":
         operation = request.get("operation")
-        if operation not in {"server-start", "baritone-prepare", "baritone-launch"}:
+        if operation not in {
+            "server-start",
+            "play-start",
+            "baritone-prepare",
+            "baritone-launch",
+        }:
             raise ValueError("Unknown setup action")
         return [
             {"kind": kind, "operation": operation, "entrant": operation, "expected": 0}
@@ -688,6 +693,10 @@ def folder(job):
         }.get(run.get("check"), "companion")
     if job["kind"] == "setup":
         return "__setup_no_artifacts__"
+    from mclab.play_runs import FAMILIES as PLAY
+
+    if job["kind"] in PLAY:  # results/<family>/<stamp>/summary.json
+        return job["kind"]
     if job["kind"] == "natural":
         return "natural"
     if job["kind"] == "models":
@@ -702,9 +711,11 @@ def folder(job):
 
 
 def setup(operation):
-    from mclab import baritone_client, natural, server
+    from mclab import baritone_client, natural, play_runs, server
     from mclab.recorder import exclusive_arena
 
+    if operation == "play-start":  # the play server: not the lab's arena lock
+        return {"status": "completed_setup", "details": play_runs.ensure_play()}
     with exclusive_arena():
         if operation == "server-start":
             state = server.status()["state"]
@@ -969,8 +980,11 @@ def companion_live(folder, events=12):
     ][-events:]
     # one-line "what is it doing / why stalled" from the same logic as the CLI status
     tail = [
-        {"type": f"{e['op']}_{e['result']}", "at": e.get("at"),
-         "data": {"reason": e["reason"]}}
+        {
+            "type": f"{e['op']}_{e['result']}",
+            "at": e.get("at"),
+            "data": {"reason": e["reason"]},
+        }
         for e in live["events"]
         if e["result"] != "rejected"
     ]

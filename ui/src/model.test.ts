@@ -103,7 +103,27 @@ describe("position and schema helpers", () => {
     expect(schemaAt(s, ["run", "seed"])?.anyOf?.[0]).toBe(leaf);
     expect(schemaAt(s, ["run", "nope"])).toBeUndefined();
   });
+  it("keeps an optional field's enum, format and label on its non-null branch", () => {
+    const arena = {
+      label: "Arena",
+      enum: ["crash_site", "vault"],
+      anyOf: [{ type: "string" }, { type: "null" }],
+    };
+    expect(nonNullSchema(arena)).toEqual({
+      label: "Arena",
+      enum: ["crash_site", "vault"],
+      type: "string",
+    });
+    const corner = {
+      format: "position",
+      anyOf: [{ type: "array", items: { type: "integer" } }, { type: "null" }],
+    };
+    expect(nonNullSchema(corner).format).toBe("position");
+    expect(nonNullSchema(corner).type).toBe("array");
+    expect(nonNullSchema({ type: "boolean" })).toEqual({ type: "boolean" });
+  });
 });
+import { nonNullSchema } from "./model";
 import { splitSessions } from "./model";
 describe("splitSessions", () => {
   it("separates active, queued and caps recent newest-first", () => {

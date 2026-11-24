@@ -465,6 +465,10 @@ def execute_config(config):
         if runner is navigation_runner:
             return runner.execute(run["course"], run["seeds"], scored=run["scored"])
         return runner.execute(run["course"], run["seeds"])
+    from mclab import play_runs
+
+    if family in play_runs.FAMILIES:
+        return play_runs.execute(config)
     raise ValueError("Unsupported run family")
 
 
@@ -583,6 +587,10 @@ def validate_launch(config):
             raise ValueError("Unknown companion check")
         if run["check"] not in CHECKS_WITH_FLAGS and run["arguments"]:
             raise ValueError("Selected check accepts no test arguments")
+    from mclab import play_runs
+
+    if test in play_runs.FAMILIES:
+        play_runs.require(run)
 
 
 def parse_battery_args(parser):

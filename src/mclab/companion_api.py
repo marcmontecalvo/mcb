@@ -344,6 +344,10 @@ class ApiClient:
         """Ask the host to wind down (halt and despawn the body, then exit)."""
         return self._request("POST", "/shutdown", {})[0] == 202
 
+    def health(self) -> bool:
+        """The host answers (``GET /health``); no bot state is read."""
+        return self._request("GET", "/health")[0] == 200
+
     def wait_job(self, job_id: str, wait: float = 0.0) -> dict | None:
         quoted = urllib.parse.quote(str(job_id), safe="")
         status, body = self._request("GET", f"/jobs/{quoted}?wait={wait}", wait=wait)

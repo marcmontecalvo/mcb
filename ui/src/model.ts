@@ -12,6 +12,7 @@ export type Schema = {
   title?: string;
   label?: string;
   description?: string;
+  format?: string;
   enum?: Json[];
   default?: Json;
   defaults?: Record<string, Json>;
@@ -61,8 +62,13 @@ export function seedsFromText(text: string): number[] | undefined {
     throw new Error("Seeds must be comma-separated safe integers.");
   return parts.map(Number);
 }
+// An optional field is anyOf [type, null]; keep the field's own label, enum,
+// format and description on the non-null branch.
 export function nonNullSchema(schema: Schema): Schema {
-  return schema.anyOf?.find((x) => x.type !== "null") ?? schema;
+  const inner = schema.anyOf?.find((x) => x.type !== "null");
+  if (!inner) return schema;
+  const { anyOf: _drop, ...outer } = schema;
+  return { ...outer, ...inner };
 }
 export function mergeObjects(
   base: Record<string, Json>,

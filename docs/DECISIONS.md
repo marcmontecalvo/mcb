@@ -499,6 +499,15 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   once and writes every change through; one graph owns a world's places in a
   process. A fresh archive connection in the guard once froze the body 8.9 s
   while sqlite waited (combat matrix 20261123T211141Z).
+- **The lab dashboard drives the play server too, from the files (Nov 24).** Marc
+  wanted the arena and combat work in the dashboard, and new things to appear there
+  without dashboard changes. The `arena` and `combat` families (`mclab.play_runs`)
+  run the operator's own scripts and `mcplay arena` in a child process bound to the
+  play instance, so the dashboard has no second copy of their logic and never
+  touches the lab's arena lock. Choices are read on every page load (arena plans,
+  wave presets, `combat_trial`'s weapons and mobs); a new kind of play run is one
+  `PlayRun` entry. Rejected: generating forms from each script's argparse. It loses
+  types and choices, and it would let the page run any script with any flag.
 - **Open:** LAN access for a second PC (the game port binds loopback for now),
   rotating a long session's `events.sqlite3`, and the live night test of the
   defence (built, not yet run against real mobs).

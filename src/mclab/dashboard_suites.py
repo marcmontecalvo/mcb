@@ -26,6 +26,7 @@ SECTIONS = {
     "Getting around": False,
     "Big jobs": False,
     "Obstacle courses": False,
+    "Arenas and combat": False,  # play_runs.SECTION: runs on the play server
     "Baritone comparison": True,
     "AI model trials": True,
     "Regression checks": True,
@@ -332,7 +333,24 @@ def test_catalog():
         )
         rows[-1]["command"] = command
         rows[-1]["timeout"] = timeout
+    from mclab import play_runs
+
+    for play in play_runs.catalog_rows():
+        add(
+            play["id"],
+            play["label"],
+            play["family"],
+            play["overrides"],
+            play["description"],
+        )
+        rows[-1].update(
+            {k: play[k] for k in ("section", "server", "locked_fields", "basic_fields")}
+        )
     for row in rows:
+        row.setdefault("server", "lab")
+        if row["server"] == "play":  # play_runs owns its rows' text and fields
+            row["advanced"] = SECTIONS[row["section"]]
+            continue
         locked = ["run.test"]
         if row["family"] == "companion":
             locked += ["run.check"]

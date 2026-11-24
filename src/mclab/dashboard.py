@@ -300,11 +300,18 @@ def job_outputs(job):
 def needs_lab_server(job):
     """Every world run needs the lab server; setup jobs manage it themselves and
     a battery restarts it unless told to use it as it is."""
-    if job.get("kind") == "setup":
+    if job.get("kind") == "setup" or needs_play_server(job):
         return False
     if job.get("kind") == "battery":
         return bool(((job.get("run_config") or {}).get("run") or {}).get("no_restart"))
     return True
+
+
+def needs_play_server(job):
+    """Arena and combat runs drive the play server (mclab.play_runs)."""
+    from mclab.play_runs import FAMILIES
+
+    return job.get("kind") in FAMILIES
 
 
 def worker(path):
@@ -685,6 +692,12 @@ class Dashboard:
                     {**job, "id": "lab-start", "label": "Start lab server"}
                     for job in runs.plan({"kind": "setup", "operation": "server-start"})
                 ] + jobs
+        if worker_target == "session" and any(map(needs_play_server, jobs)):
+            # Cheap when the play bot is already ready; boots the server otherwise.
+            jobs = [
+                {**job, "id": "play-start", "label": "Start play server"}
+                for job in runs.plan({"kind": "setup", "operation": "play-start"})
+            ] + jobs
         # sessions() also reconciles workers that died unexpectedly.
         if any(s["status"] in ACTIVE for s in self.sessions()):
             raise ValueError("A session is already active")
@@ -915,9 +928,15 @@ def handler(dashboard):
                     catalog["companion"]["seeds"] = runs.natural_seeds()
                     return self.reply(200, catalog)
                 if parsed.path == "/api/status":
-                    from mclab import server
+                    from mclab import play_runs, server
 
-                    return self.reply(200, {"state": server.status()["state"]})
+                    return self.reply(
+                        200,
+                        {
+                            "state": server.status()["state"],
+                            "play": play_runs.play_state(),
+                        },
+                    )
                 if parsed.path == "/api/sessions":
                     return self.reply(200, dashboard.sessions())
                 if parsed.path == "/api/baseline-progress":

@@ -39,10 +39,10 @@ type Test = {
   default_config: Record<string, Json>;
   locked_fields?: string[];
   basic_fields?: string[];
+  server?: "lab" | "play";
 };
 type House = { path: string; label: string };
 const HousesCtx = createContext<House[]>([]);
-const POSITIONS = new Set(["start", "origin", "preview_offset"]);
 type Preset = {
   id: string;
   label: string;
@@ -240,7 +240,7 @@ function Fields({
     override !== undefined ? override : (getPath(value, path) ?? null);
   const id = "field-" + path.join("-");
   const title = schema.label || label(path.at(-1) || "Setting");
-  if (node.type === "array" && POSITIONS.has(path.at(-1)!))
+  if (node.type === "array" && node.format === "position")
     return (
       <PositionInput
         id={id}
@@ -291,6 +291,7 @@ function Fields({
           onChange={(e) => change(path, e.target.checked)}
         />
         <span>{title}</span>
+        {node.description && <small>{node.description}</small>}
       </label>
     );
   if (node.enum) {
@@ -313,6 +314,7 @@ function Fields({
               </option>
             ))}
         </select>
+        {node.description && <small>{node.description}</small>}
       </div>
     );
   }
@@ -338,7 +340,7 @@ function Fields({
           )
         }
       />
-      {schema.description && <small>{schema.description}</small>}
+      {node.description && <small>{node.description}</small>}
     </div>
   );
 }
@@ -490,20 +492,32 @@ function App() {
     try {
       await api("/api/start", "POST", { kind: "suite", entries });
       setTab("activity");
+      const servers = new Set(
+        entries.map((e) => tests.find((t) => t.id === e.test_id)?.server || "lab"),
+      );
+      const booting = [
+        servers.has("lab") && status !== "running" && "lab",
+        servers.has("play") && playStatus !== "running" && "play",
+      ].filter(Boolean);
       setNotice(
-        status === "running"
-          ? "Started. Follow along here or watch the bot in Minecraft."
-          : "Starting the lab server first (a minute or two), then your missions run.",
+        booting.length
+          ? `Starting the ${booting.join(" and ")} server first (a minute or two), then your missions run.`
+          : "Started. Follow along here or watch the bot in Minecraft.",
       );
     } catch (e) {
       setError((e as Error).message);
     }
   }
-  async function startLab() {
+  async function startServer(which: "lab" | "play") {
     try {
-      await api("/api/start", "POST", { kind: "setup", operation: "server-start" });
+      await api("/api/start", "POST", {
+        kind: "setup",
+        operation: which === "lab" ? "server-start" : "play-start",
+      });
       setTab("activity");
-      setNotice("Starting the lab server. The badge turns to running when it's ready.");
+      setNotice(
+        `Starting the ${which} server. The badge turns to running when it's ready.`,
+      );
     } catch (e) {
       setError((e as Error).message);
     }
@@ -529,6 +543,7 @@ function App() {
     }
   }
   const status = String(snapshot.status?.state || "unknown");
+  const playStatus = String(snapshot.status?.play || "unknown");
   const sectionOf = (t: Test) => t.section || label(t.family);
   const groups = useMemo(
     () => Array.from(new Set(tests.map(sectionOf))),
@@ -613,7 +628,13 @@ function App() {
                 {status === "running" ? "lab running" : `lab ${status}`}
               </Badge>
               {status !== "running" && status !== "starting" && (
-                <Button onClick={startLab}>Start lab</Button>
+                <Button onClick={() => startServer("lab")}>Start lab</Button>
+              )}
+              <Badge tone={playStatus === "running" ? "working" : "quiet"}>
+                {`play ${playStatus}`}
+              </Badge>
+              {playStatus !== "running" && (
+                <Button onClick={() => startServer("play")}>Start play server</Button>
               )}
             </div>
           </div>

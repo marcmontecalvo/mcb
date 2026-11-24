@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import get_args, get_origin, get_type_hints
 
 from mclab import build_checkpoint as ck
+from mclab import play_runs
 from mclab.awareness import Awareness
 from mclab.companion_body import DIG_TERRAIN, NATURAL_MOVEMENT
 from mclab.gather_options import GatherOptions
@@ -99,6 +100,18 @@ class RunSettings:
     baritone_settings: dict[str, bool] | None = None
     flee: FleeSettings | None = None
     origin: list[int] | None = None
+    # play-server runs (mclab.play_runs): arena actions and hunts, combat trials
+    arena: str | None = None
+    arena_action: str | None = None
+    waves: str | None = None
+    custom_waves: str | None = None
+    kit: str | None = None
+    players: str | None = None
+    corner: list[int] | None = None
+    restore: bool = False
+    weapons: str | None = None
+    mobs: str | None = None
+    spot: list[int] | None = None
 
 
 @dataclass
@@ -122,7 +135,18 @@ class ModelSettings:
     planner_prompt_identity: str | None = None
 
 
-TESTS = ("gather", "build", "courses", "natural", "models", "battery", "companion")
+TESTS = (
+    "gather",
+    "build",
+    "courses",
+    "natural",
+    "models",
+    "battery",
+    "companion",
+    *play_runs.FAMILIES,
+)
+# Families that carry no planner or awareness policies.
+_NO_POLICIES = tuple(t for t in TESTS if t not in {"natural", "gather", "build"})
 
 
 _TUPLE_TYPES = {
@@ -437,10 +461,13 @@ def resolve_config(
         "models": {"count"},
         "battery": {"checks", "output", "timeout", "no_restart"},
         "companion": {"check", "arguments"},
+        **{family: set(names) for family, names in play_runs.FIELDS.items()},
     }[test] | {"test"}
     unused = set(run) - allowed
     if any(run[name] != default_run[name] for name in unused):
         raise ValueError(f"Settings not supported by {test} runner")
+    if test in play_runs.FAMILIES:
+        play_runs.check(run)
     defaults_for_test = _defaults(test)
     if test != "natural" and any(
         result["body"][k] != defaults_for_test["body"][k]
@@ -845,18 +872,10 @@ def config_schema() -> dict:
                 )
 
     annotate(schema, {test: resolve_config(test) for test in TESTS})
-    schema["properties"]["planner"]["nullable_for"] = [
-        "courses",
-        "models",
-        "battery",
-        "companion",
-    ]
-    schema["properties"]["body"]["properties"]["awareness"]["nullable_for"] = [
-        "courses",
-        "models",
-        "battery",
-        "companion",
-    ]
+    schema["properties"]["planner"]["nullable_for"] = list(_NO_POLICIES)
+    schema["properties"]["body"]["properties"]["awareness"]["nullable_for"] = list(
+        _NO_POLICIES
+    )
     schema["properties"]["planner"]["type"] = ["object", "null"]
     schema["properties"]["body"]["properties"]["awareness"]["type"] = ["object", "null"]
     run = schema["properties"]["run"]["properties"]
@@ -867,7 +886,7 @@ def config_schema() -> dict:
         "entrant": ["courses"],
         "seeds": ["courses"],
         "operation": ["courses"],
-        "count": ["courses", "models"],
+        "count": ["courses", "models", *play_runs.FAMILIES],
         "routes": ["natural"],
         "route_ids": ["natural"],
         "route_data": ["natural"],
@@ -885,14 +904,36 @@ def config_schema() -> dict:
         "baritone_settings": ["natural"],
         "checks": ["battery"],
         "output": ["battery"],
-        "timeout": ["battery"],
+        "timeout": ["battery", *play_runs.FAMILIES],
         "no_restart": ["battery"],
         "check": ["companion"],
         "arguments": ["companion"],
         "test": list(TESTS),
+        **{
+            name: [family]
+            for family, names in play_runs.FIELDS.items()
+            for name in names
+            if name not in ("count", "timeout")
+        },
     }
     for name, families in capabilities.items():
         run[name]["supported_tests"] = families
+    # Play-run choices are read from the files each time (a new arena plan or wave
+    # preset is offered at once); positions are shown as X Y Z inputs.
+    run["arena"]["enum"] = play_runs.arena_names()
+    run["waves"]["enum"] = play_runs.wave_presets()
+    run["arena_action"]["enum"] = list(play_runs.ACTIONS)
+    for name in ("start", "origin", "preview_offset", *play_runs.POSITIONS):
+        run[name]["format"] = "position"
+    for name, (label, text) in play_runs.HELP.items():
+        run[name].update(label=label, help=text, description=text)
+    run["count"]["help"] = run["count"]["description"] = (
+        "Courses and models: episodes. Arena hunts: matches in the series. "
+        "Combat trials: times round every weapon and mob."
+    )
+    run["timeout"]["help"] = run["timeout"]["description"] = (
+        "Seconds: per check (battery), per match (arena hunt), per fight (combat)."
+    )
     for name in ("routes", "route_ids", "condition"):
         run[name]["supported_tests"] = []
         run[name]["supported"] = False

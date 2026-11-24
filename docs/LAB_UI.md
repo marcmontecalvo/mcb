@@ -34,8 +34,9 @@ credentials. Without a built `ui/dist`, `/` falls back to the previous page;
 
 ### Catalog, configuration, and queue
 
-The dynamic catalog currently exposes 46 tests across seven families: gather,
-build, natural routes, courses, models, battery, and companion checks. Forms come
+The dynamic catalog exposes nine families: gather, build, natural routes,
+courses, models, battery, companion checks, and the play-server families `arena`
+and `combat` (below). Forms come
 from the server's `/api/schema`; preset choices use partial config files in
 `config/presets/`. Saved suites in `config/suites/` contain references and
 explicit overrides, not copies of the underlying configuration. Configure
@@ -59,6 +60,44 @@ arena locking, and POST authorization remain in force.
 UI tests and the production build do not launch Minecraft and do not qualify bot
 behavior. Current full-suite and browser E2E verification status is tracked in
 [IMPLEMENTED.md](IMPLEMENTED.md).
+
+### Arenas and combat (the play server)
+
+The **Arenas and combat** section drives the PLAY server, not the lab, through
+the same scripts and CLI an operator uses, each in a child process bound to the
+play instance (`MCLAB_INSTANCE=play`). `mclab.play_runs` owns these rows:
+
+| Row | What it runs |
+|---|---|
+| Bot clears an arena | `scripts/arena-hunt.py`: the bot fights a waves match in a built arena with the full kit, food and potions. `count` matches in a series. |
+| Start an arena match | `mcplay arena start <arena> --waves ...`: a match for you (and anyone named in Players) to play. |
+| Stop an arena match | `mcplay arena stop <arena>` |
+| Build an arena | `mcplay arena build <arena> --at X Y Z --wait` |
+| Remove an arena | `mcplay arena remove <arena>` (Restore clears it to air) |
+| Combat trials | `scripts/combat-trial.py`: each weapon against each mob, `count` times round. |
+
+The choices come from the files, every time the page loads: **Arena** lists the
+plans in `arenas/*.json`, **Waves** the presets in `arenas/waves/*.json`, and the
+weapons and mobs are whatever `combat_trial` accepts. A new arena plan, wave
+preset or weapon appears without a dashboard change. **Custom waves** takes one
+wave per comma (`pillager*2, pillager+vindicator`) instead of a preset. A new
+kind of play run is one `PlayRun` entry in `play_runs.RUNS` plus its command;
+each row locks the family fields it does not use, so they are hidden and refused.
+
+A session that holds a play run starts with **Start play server**: it does
+nothing when the play bot is already ready, and otherwise starts the play server
+(`mcplay server start`) and waits up to five minutes for the bot. The header shows
+a `play running` / `play stopped` badge next to the lab's (the companion host's
+`GET /health`, probed at most every five seconds) and a **Start play server**
+button. The dashboard must run with the model credentials the companion host
+needs: `uv run --env-file <.env> --locked python -m mclab.dashboard`.
+
+Hunts and trials write the script's own record plus a `summary.json` (a history
+row: one episode per match or fight) to `results/arena/<stamp>/` and
+`results/combat/<stamp>/`; CLI runs keep writing `results/companion/arena/` and
+`results/companion/trials/`. **Kill now** on a hunt also stops its match, so no
+mobs are left running. Positions (`corner`, `spot`, like `start`) are fields with
+`"format": "position"` in `/api/schema` and show as X Y Z boxes.
 
 ## Legacy dashboard page
 
