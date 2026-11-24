@@ -1,6 +1,6 @@
 package com.vulpine.mcb.body.mixin;
 
-import com.vulpine.mcb.body.BodyRuntime;
+import com.vulpine.mcb.body.BodyHub;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.protocol.game.ServerboundAttackPacket;
 import net.minecraft.network.protocol.game.ServerboundUseItemOnPacket;
@@ -22,7 +22,7 @@ public abstract class InteractionObserverMixin {
     @Shadow public ServerPlayer player;
 
     @Unique private void mcbbody$use(ServerboundUseItemOnPacket packet, String phase) {
-        BodyRuntime.interaction(player, phase, () -> {
+        BodyHub.interaction(player, phase, () -> {
             var hit = packet.hitResult();
             var pos = hit.getBlockPos();
             var placed = pos.relative(hit.getDirection());
@@ -42,7 +42,7 @@ public abstract class InteractionObserverMixin {
     private void afterUse(ServerboundUseItemOnPacket packet, CallbackInfo ci) { mcbbody$use(packet, "use_result"); }
 
     @Unique private void mcbbody$attack(ServerboundAttackPacket packet, String phase) {
-        BodyRuntime.interaction(player, phase, () -> {
+        BodyHub.interaction(player, phase, () -> {
             var entity = player.level().getEntity(packet.entityId());
             if (entity == null) return Map.of("target_present", false);
             return Map.of("target_present", true, "uuid", entity.getUUID().toString(),

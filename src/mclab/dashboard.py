@@ -803,7 +803,7 @@ class Dashboard:
 
 def handler(dashboard):
     token = secrets.token_urlsafe(32)
-    from mclab.dashboard_events import EventBroker, TooManyListeners
+    from mclab.dashboard_events import EventBroker, TooManyListeners, peer_connected
 
     events = EventBroker(dashboard)
 
@@ -878,7 +878,10 @@ def handler(dashboard):
             if not secrets.compare_digest(supplied, token):
                 return self.reply(403, {"error": "Reload the local dashboard"})
             try:
-                subscription = events.subscribe()
+                connection = self.connection
+                subscription = events.subscribe(
+                    alive=lambda: peer_connected(connection)
+                )
             except TooManyListeners as error:
                 return self.reply(503, {"error": str(error)})
             try:

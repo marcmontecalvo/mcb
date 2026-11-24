@@ -88,7 +88,13 @@ and enqueue up to 60 jobs in a batch.
 The app uses the existing detached, durable session worker and exclusive arena
 ownership. Live status uses authenticated server-sent events; each connection
 receives an `event: snapshot` with the full durable state on initial connect and
-reconnect. The server bounds active listeners to eight. Refreshing the page or
+reconnect. The server bounds active listeners to eight. A closed or reloaded tab
+keeps its place only until it is needed: a full pool first peeks at each
+listener's socket (`dashboard_events.peer_connected`) and frees the places of
+tabs that are gone, so only eight live tabs ever get a 503 (the page retries
+every 3 s). Before, a place was freed only when a write to it failed, up to the
+15 s heartbeat, and a few quick reloads left a new page with no live status at
+all. Refreshing the page or
 reconnecting resynchronizes from backend state; closing a browser tab does not
 own or stop a worker.
 
@@ -127,7 +133,10 @@ The **Arena** row is a short wizard: **Arena**, **Game**, **Players**, **Waves**
 everyone against the mob waves), **PvP** (`teams`: team against team, waves
 optional: **Waves** then offers **No mob waves**) or **Kill race** (`race`: teams
 race to kill the most wave mobs). **Players** is `run.roster`, a list of
-`{name, team, op}` (`run_config.RosterEntry`): the bot's row, a row per person
+`{name, team, op}` (`run_config.RosterEntry`): the bot's row, more bots from
+**+ Add a bot (MCBot2)** (the next free `MCBot<N>`, on the smaller team; a bot
+has no Op box and cannot be an operator; a removed bot's name is reused; see
+[ARENA_RUNTIME.md](ARENA_RUNTIME.md#several-bots)), a row per person
 added by Minecraft name, a team select in PvP and Kill race (only the arena's
 own teams, read from its plan: `run.arena.enum_meta` gives `teams`, `per_team`
 and `players`), and an **Op** box that makes that person an operator on the

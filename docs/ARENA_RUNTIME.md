@@ -345,6 +345,42 @@ backs off to a stand-off band for `snipe` / `throw`):
 Evidence gaps: `fight_done` has no per-attacker damage, so "the other player did the damage" is
 read from where each stood (proximity), not from `hurt_by` uuids; the live check is pending.
 
+### Several bots
+
+A match can have several copies of the bot, on one team or on both (2v2, 3v3, bots and people
+mixed, up to 8 a team). Built, **live check pending**.
+
+- **Names.** The first bot is `MCBot` (fleet id `default`); the others are `MCBot2` … `MCBot99`
+  (ids `mcbot2` …). `mclab.companion_names` holds the mapping (`bot_id_for`, `bot_name_for`,
+  `bot_id_for_name`, `is_bot_name`); it imports nothing heavy, so the dashboard and `play_runs`
+  can use it. Nothing else names a bot: a roster name matching `MCBot` or `MCBot<N>` is a bot.
+- **Bodies.** The mod's body hub gives each bot its own body, routed and tagged by body id. The
+  companion `Fleet` (`companion_fleet.py`, up to 16) keeps one `Member` (host, session, talker) per
+  bot with its own files. `ApiClient` routes by `bot=` (`bots()`, `add_bot(id)`; adding an
+  existing id is a no-op).
+- **Hunt.** `arena-hunt.py --team red=MCBot,Ann --team blue=MCBot2,Bob --world` reads the roster,
+  asks the host which bots are running (`resolve_bots`), and puts in the missing ones
+  (`ensure_bots`, echoed `put in mcbot2`) before waiting for the humans. `--bot NAME` (repeatable)
+  names a bot that is not a derived name; it must already be running. A bot that cannot be put in
+  ends the script with exit 2 and a reason; bots are never waited for as humans and never made
+  operators. Each bot gets the kit, is sent to hunt its own foes (the live participants of the
+  other teams, so bots fight each other as well) and ends with the match; `_end` stops every bot
+  and then the match. A bot whose attack is refused is recorded (`outcome: refused`,
+  `refused_by`), not retried. When every bot's job is over (a bot died) but a human is still
+  alive in the running match (`match.participants[].alive`), the hunt keeps sampling until the
+  match ends or the timeout hits; it ends the match as `abandoned` only when no live human is
+  left.
+- **Results.** One bot keeps the flat row (`bot`, `bot_won`, `bot_kills`, …). Several give
+  totals (`bot_kills`, `hits`, `damage`, `hurt_by`, `uses`) and a `bots` object keyed by name with
+  each bot's `min_health`, `job_state`, `error`, `steps`, `hurt_by`, `killed_by`, `picks`,
+  `uses`, `hits`, `damage`, `bot_kills`, `team`, `bot_won`. Samples carry `bot_health` per bot. The
+  series summary adds `bots[name] = {runs, wins, bot_kills, deaths, min_health, hurt_by}`.
+- **Dashboard.** The Arena roster has "+ Add a bot (MCBot2)", which names the next free bot and
+  puts it on the smaller team; a bot cannot be an operator (`play_runs` refuses it too) and
+  counts toward capacity. The "where to watch" card lists only the humans a match waits on.
+- **Not done.** The MCP tools (`goto`, `attack`, …) drive the first bot only: there is no `bot`
+  argument yet.
+
 ## The arena server
 
 A third instance, `config/instances/arena.json` (`mcarena`, like `mcplay`; game `25566`, bridge

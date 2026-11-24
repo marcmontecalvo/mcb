@@ -160,3 +160,88 @@ def test_state_runs_the_cancel_check_every_poll(body_only, monkeypatch):
     body_only.state(heartbeat=False)
     body_only.state(heartbeat=False)
     assert len(seen) == 2 and len(body_only.samples) == 1
+
+
+# --- one body among several (the arena server) ---------------------------------------
+
+
+def test_a_bridge_reads_every_body_unless_it_is_scoped(body_only, monkeypatch):
+    calls = fake_raw(
+        body_only,
+        monkeypatch,
+        {
+            "/state": {"state": "idle", "tick": 3},
+            "/events?after=0": {"latest_sequence": 1},
+        },
+    )
+    body_only.synchronize()
+    assert [path for _, path, _ in calls] == ["/state", "/events?after=0"]
+
+
+def test_a_scoped_bridge_asks_for_its_own_body_only(body_only, monkeypatch):
+    body_only.scoped = True
+    mine = "body=" + body_only.body_id
+    state = {"state": "ready", "tick": 4, "body": {"position": [1, 64, 1]}}
+    calls = fake_raw(
+        body_only,
+        monkeypatch,
+        {
+            f"/state?{mine}": state,
+            f"/policy?{mine}": state,
+            f"/events?after=0&{mine}": {
+                "latest_sequence": 5,
+                "gap": False,
+                "events": [],
+            },
+            f"/events?after=5&{mine}": {
+                "latest_sequence": 5,
+                "gap": False,
+                "events": [],
+            },
+        },
+    )
+    body_only.synchronize()
+    assert body_only.cursor == 5
+    assert body_only.http("/state")["body_state"] == "ready"
+    assert body_only.http("/policy")["body_state"] == "ready"
+    body_only.last_heartbeat = float("inf")
+    body_only.state(heartbeat=False)
+    assert [path for _, path, _ in calls] == [
+        f"/state?{mine}",
+        f"/events?after=0&{mine}",
+        f"/state?{mine}",
+        f"/policy?{mine}",
+        f"/events?after=5&{mine}",
+        f"/state?{mine}",
+    ]
+
+
+def test_a_scoped_bridge_still_refuses_a_snapshot_that_is_not_ready(body_only):
+    body_only.scoped = True
+    from mclab.bridge import Bridge
+
+    class Response:
+        status, reason, headers = 200, "OK", {}
+
+        def read(self):
+            return b'{"state": "idle"}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    class Connection:
+        def request(self, *args, **kwargs):
+            pass
+
+        def getresponse(self):
+            return Response()
+
+        def close(self):
+            pass
+
+    body_only._connection = Connection()
+    with pytest.raises(bridge.urllib.error.URLError, match="not ready"):
+        Bridge._raw(body_only, False, f"/state?body={body_only.body_id}", None)

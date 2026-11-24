@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from mclab import dashboard
-from mclab.dashboard_events import EventBroker
+from mclab.dashboard_events import EventBroker, TooManyListeners
 
 
 @contextmanager
@@ -217,16 +217,10 @@ def test_sse_requires_token_and_enforces_listener_limit():
             urlopen(base + "/api/events", timeout=3)
         assert unauthenticated.value.code == 403
 
-        connections = []
+        streams = []
         try:
             for _ in range(8):
-                connection = http.client.HTTPConnection(
-                    "127.0.0.1", server.server_port, timeout=3
-                )
-                connection.request("GET", f"/api/events?token={handler.token}")
-                response = connection.getresponse()
-                assert response.status == 200
-                connections.append(connection)
+                streams.append(_open_stream(server, handler))
             with pytest.raises(HTTPError) as limited:
                 urlopen(
                     Request(
@@ -237,8 +231,66 @@ def test_sse_requires_token_and_enforces_listener_limit():
                 )
             assert limited.value.code == 503
         finally:
-            for connection in connections:
-                connection.close()
+            for stream in streams:
+                stream.close()
+
+
+def _open_stream(server, handler):
+    """An event stream held open, as a tab holds it: the response owns the socket
+    (http.client hands it over for a body without a length), so it is kept."""
+    connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+    connection.request("GET", f"/api/events?token={handler.token}")
+    response = connection.getresponse()
+    assert response.status == 200
+    return response
+
+
+def test_a_full_pool_takes_back_the_slot_of_a_closed_tab_at_once():
+    # A tab closed or reloaded keeps its slot until the next write fails, up to a
+    # 15 s heartbeat on an idle dashboard: a few quick reloads filled the pool, and
+    # the new page got 503 on every retry. A full pool now checks its peers first.
+    with local_dashboard() as (base, server, handler):
+        streams = [_open_stream(server, handler) for _ in range(8)]
+        try:
+            url = base + f"/api/events?token={handler.token}"
+            with pytest.raises(HTTPError) as limited:  # every tab is still open
+                urlopen(Request(url, headers={"Connection": "close"}), timeout=3)
+            assert limited.value.code == 503
+            streams.pop(0).close()  # the tab is gone; no write to it has failed yet
+            for _ in range(40):  # the close reaches the server's socket in a moment
+                try:
+                    streams.append(urlopen(url, timeout=3))
+                    break
+                except HTTPError as refused:
+                    assert refused.code == 503
+                    threading.Event().wait(0.05)
+            assert len(streams) == 8 and streams[-1].status == 200
+        finally:
+            for stream in streams:
+                stream.close()
+
+
+def test_a_full_broker_closes_only_listeners_whose_peer_is_gone():
+    broker = EventBroker(
+        SimpleNamespace(sessions=lambda: [], history=lambda: []),
+        server_state=lambda: "stopped",
+        max_listeners=2,
+    )
+    peers = {"a": True, "b": True}
+    first = broker.subscribe(alive=lambda: peers["a"])
+    second = broker.subscribe(alive=lambda: peers["b"])
+    try:
+        with pytest.raises(TooManyListeners):  # both still there: the limit holds
+            broker.subscribe(alive=lambda: True)
+        peers["a"] = False
+        third = broker.subscribe(alive=lambda: True)
+        assert first.closed and not second.closed and broker.listeners == 2
+        assert list(first.stream(heartbeat=0.01)) == []  # its stream ends at once
+        third.close()
+    finally:
+        first.close()
+        second.close()
+        broker.close()
 
 
 def test_event_heartbeat_does_not_poll_game_status_again():

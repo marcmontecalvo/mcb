@@ -238,3 +238,18 @@ def test_start_session_writes_home_before_the_first_terrain_write(
     assert spawned == [True]
     assert seen[0].position == (1, 64, 2)
     assert body.places.named("home").position == (1, 64, 2)
+
+
+def test_each_companion_keeps_its_own_world_memory(tmp_path, monkeypatch):
+    """Two bots on one server remember apart: a place or a map cell one learns is not
+    the other's; the first bot keeps the archive it always had."""
+    monkeypatch.setattr(companion_body, "_level_dir", lambda: level(tmp_path, 7))
+    monkeypatch.setattr(companion_body, "WORLD_MEMORY", tmp_path / "memory")
+    run = tmp_path / "run"
+    first = companion_body.session_archive(run, Awareness(), "ep")
+    second = companion_body.session_archive(
+        run, Awareness(), "ep", memory_root=tmp_path / "memory" / "mcbot2"
+    )
+    assert first.path.parent == tmp_path / "memory"
+    assert second.path.parent == tmp_path / "memory" / "mcbot2"
+    assert first.path != second.path and second.path.parent.is_dir()

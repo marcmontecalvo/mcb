@@ -189,12 +189,12 @@ export function watchFor(job: Rec, where: Where) {
   const server = SERVER[family] || "lab";
   const arena = typeof run.arena === "string" ? run.arena : null;
   const known = arena ? where.arenas?.[arena] : undefined;
-  const bot = (where.bot || "").toLowerCase();
+  const bot = where.bot || "";
   const humans =
     family === "arena"
       ? rosterOf(run.roster)
           .map((p) => p.name)
-          .filter((name) => name && name.toLowerCase() !== bot)
+          .filter((name) => name && !(bot && isBotName(name, bot)))
       : [];
   return {
     server,
@@ -215,6 +215,25 @@ export type Slot = { name: string; team: string | null; op: boolean };
 export type ArenaMeta = { teams: string[]; per_team: number | null; players: number | null };
 const PLAYER = /^[A-Za-z0-9_]{1,16}$/;
 export const MAX_PLAYERS = 16; // mclab.play_runs.MAX_PLAYERS
+export const BOT = "MCBot"; // mclab.companion_names.DEFAULT_NAME
+
+/** Whether a name is one of the bots: MCBot, then MCBot2 .. MCBot99 (any case;
+ * mclab.companion_names.bot_id_for_name). ``bot`` is the first bot's name. */
+export function isBotName(name: string, bot: string = BOT): boolean {
+  const base = bot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${base}(?:[2-9]|[1-9][0-9])?$`, "i").test(name);
+}
+
+/** The next bot to add: the first of MCBot, MCBot2, MCBot3 ... the roster lacks
+ * (a removed bot's name is reused), or null when a match's bots are all in. */
+export function nextBotName(roster: Slot[], bot: string = BOT): string | null {
+  const taken = new Set(roster.map((p) => p.name.toLowerCase()));
+  for (let n = 1; n <= MAX_PLAYERS; n++) {
+    const name = n === 1 ? bot : `${bot}${n}`;
+    if (!taken.has(name.toLowerCase())) return name;
+  }
+  return null;
+}
 
 /** The well-formed players of a stored roster value. */
 export function rosterOf(value: unknown): Slot[] {
@@ -277,7 +296,12 @@ export function teamCounts(roster: Slot[], meta: ArenaMeta) {
 }
 
 /** What stops a roster from starting (mclab.play_runs.require, in words). */
-export function rosterProblems(roster: Slot[], sided: boolean, meta?: ArenaMeta): string[] {
+export function rosterProblems(
+  roster: Slot[],
+  sided: boolean,
+  meta?: ArenaMeta,
+  bot: string = BOT,
+): string[] {
   if (!roster.length) return ["Add at least one player."];
   const problems: string[] = [];
   const seen = new Set<string>();
@@ -285,6 +309,8 @@ export function rosterProblems(roster: Slot[], sided: boolean, meta?: ArenaMeta)
     if (!PLAYER.test(p.name))
       problems.push(`"${p.name}" is not a Minecraft name (letters, digits and _, up to 16).`);
     else if (seen.has(p.name.toLowerCase())) problems.push(`${p.name} is in the match twice.`);
+    else if (p.op && isBotName(p.name, bot))
+      problems.push(`${p.name} is a bot and cannot be an operator.`);
     seen.add(p.name.toLowerCase());
   }
   if (roster.length > MAX_PLAYERS) problems.push(`A match holds at most ${MAX_PLAYERS} players.`);

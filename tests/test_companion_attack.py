@@ -387,3 +387,20 @@ def test_wave_mobs_keep_the_old_rule_only_a_worse_threat_displaces_the_chosen():
     near = wave_mob("z2", (6.5, 64, 0.5), ZOMBIE)
     kept = attack.hunt(match(far, near), state(), "z1", held=attack.HOLD_TICKS)
     assert kept.uuid == "z1"
+
+
+def test_another_bot_is_a_foe_on_the_other_team_and_never_on_mine():
+    # Several bots play one match: each reads the same roster with its own name, so a
+    # bot is a foe of exactly the bots across the teams, and a teammate of the rest.
+    first = fighter("MCBot", "red", (0.5, 64, 0.5))
+    mate = fighter("MCBot2", "red", (1.5, 64, 0.5))
+    rival = fighter("MCBot3", "blue", (12.5, 64, 0.5))
+    match = contest(first, mate, rival)["match"]
+    assert [r["name"] for r in attack.foes(match, "MCBot")] == ["MCBot3"]
+    assert [r["name"] for r in attack.foes(match, "MCBot2")] == ["MCBot3"]
+    assert sorted(r["name"] for r in attack.foes(match, "MCBot3")) == [
+        "MCBot",
+        "MCBot2",
+    ]
+    found = attack.hunt(contest(first, mate, rival), state(), None, "mcbot2")
+    assert (found.uuid, found.name) == ("u-MCBot3", "MCBot3")

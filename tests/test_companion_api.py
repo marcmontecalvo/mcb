@@ -354,6 +354,156 @@ def test_client_events(client, host):
     assert host.event_calls == [(3, 2.0)]
 
 
+# --- several bots -------------------------------------------------------------------
+
+
+class FakeFleet(FakeHost):
+    """A host that answers for several bots (the fleet's shape)."""
+
+    def __init__(self):
+        super().__init__()
+        self.routed = []
+        self.rows = [{"id": "default", "name": "MCBot"}]
+        self.refuse = None
+
+    def call(self, intent, args, actor, *, key=None, bot=None):
+        self.routed.append(("call", bot))
+        return super().call(intent, args, actor, key=key)
+
+    def wait_job(self, job_id, timeout, *, bot=None):
+        self.routed.append(("job", bot))
+        return super().wait_job(job_id, timeout)
+
+    def events(self, after=0, wait=0.0, *, bot=None):
+        self.routed.append(("events", bot))
+        return super().events(after, wait)
+
+    def trial(self, spec, *, bot=None):
+        self.routed.append(("trial", bot))
+        return super().trial(spec)
+
+    def bots(self):
+        return list(self.rows)
+
+    def add(self, bot_id=None):
+        if self.refuse:
+            raise self.refuse
+        self.routed.append(("add", bot_id))
+        row = {"id": bot_id or "mcbot2", "name": "MCBot2"}
+        self.rows.append(row)
+        return row
+
+    def remove(self, bot_id):
+        if self.refuse:
+            raise self.refuse
+        self.routed.append(("remove", bot_id))
+        return {"id": bot_id, "name": "MCBot2"}
+
+
+@pytest.fixture
+def fleet():
+    return FakeFleet()
+
+
+@pytest.fixture
+def fleet_server(fleet):
+    srv = serve(fleet, port=0, token=TOKEN)
+    yield srv
+    srv.shutdown()
+
+
+def test_a_request_names_the_bot_it_is_for(fleet_server, fleet):
+    raw(fleet_server, "POST", "/call", {"intent": "status", "bot": "mcbot2"})
+    raw(fleet_server, "POST", "/call", {"intent": "status"})
+    raw(fleet_server, "GET", "/jobs/j1?bot=mcbot2")
+    raw(fleet_server, "GET", "/events?after=1&bot=mcbot3")
+    raw(fleet_server, "POST", "/trial?bot=mcbot2", {"heal": True})
+    assert fleet.routed == [
+        ("call", "mcbot2"),
+        ("call", None),
+        ("job", "mcbot2"),
+        ("events", "mcbot3"),
+        ("trial", "mcbot2"),
+    ]
+
+
+def test_a_host_of_one_bot_is_never_asked_for_a_bot(server, host):
+    # a plain host takes no bot argument: the key is passed only when named
+    assert raw(server, "POST", "/call", {"intent": "status"})[0] == 200
+    assert raw(server, "GET", "/events")[0] == 200
+    assert raw(server, "GET", "/jobs/j1")[0] == 200
+    assert raw(server, "GET", "/bots")[0] == 404
+
+
+def test_a_bot_must_be_a_name(fleet_server, fleet):
+    status, body = raw(fleet_server, "POST", "/call", {"intent": "status", "bot": 5})
+    assert status == 400 and "bot" in body["error"]
+    assert fleet.routed == []
+
+
+def test_the_bots_are_listed(fleet_server):
+    assert raw(fleet_server, "GET", "/bots") == (
+        200,
+        {"ok": True, "bots": [{"id": "default", "name": "MCBot"}]},
+    )
+    assert raw(fleet_server, "GET", "/bots", token="wrong")[0] == 401
+
+
+def test_a_bot_is_added_and_removed(fleet_server, fleet):
+    assert raw(fleet_server, "POST", "/bots", {}) == (
+        200,
+        {"ok": True, "bot": {"id": "mcbot2", "name": "MCBot2"}},
+    )
+    assert (
+        raw(fleet_server, "POST", "/bots", {"id": "mcbot3"})[1]["bot"]["id"] == "mcbot3"
+    )
+    assert raw(fleet_server, "DELETE", "/bots/mcbot3") == (
+        200,
+        {"ok": True, "bot": {"id": "mcbot3", "name": "MCBot2"}},
+    )
+    assert fleet.routed == [("add", None), ("add", "mcbot3"), ("remove", "mcbot3")]
+    assert raw(fleet_server, "POST", "/bots", {"id": 4})[0] == 400
+    assert raw(fleet_server, "DELETE", "/bots/x", token="wrong")[0] == 401
+    assert raw(fleet_server, "DELETE", "/call")[0] == 405
+
+
+def test_a_bot_that_cannot_be_added_says_why(fleet_server, fleet):
+    from mclab.companion_protocol import HostError
+
+    fleet.refuse = HostError("A server holds at most 3 bots")
+    assert raw(fleet_server, "POST", "/bots", {}) == (
+        200,
+        {"ok": False, "error": "A server holds at most 3 bots"},
+    )
+    fleet.refuse = ValueError("No bot profile bots/pal/bot.json")
+    assert raw(fleet_server, "DELETE", "/bots/pal")[1]["ok"] is False
+
+
+def test_the_client_names_bots(fleet_server, fleet):
+    client = ApiClient(fleet_server.port, TOKEN)
+    client.call("status", bot="mcbot2")
+    client.wait_job("j1", 0, bot="mcbot2")
+    client.events(0, 0, bot="mcbot2")
+    client.trial({"heal": True}, bot="mcbot2")
+    assert client.bots() == [{"id": "default", "name": "MCBot"}]
+    assert client.add_bot()["bot"]["id"] == "mcbot2"
+    assert client.add_bot("mcbot4")["bot"]["id"] == "mcbot4"
+    assert client.remove_bot("mcbot4")["bot"]["id"] == "mcbot4"
+    assert [r for r in fleet.routed if r[1] == "mcbot2"] == [
+        ("call", "mcbot2"),
+        ("job", "mcbot2"),
+        ("events", "mcbot2"),
+        ("trial", "mcbot2"),
+    ]
+    fleet.refuse = ValueError("no")
+    assert client.add_bot() == {"ok": False, "error": "no"}
+
+
+def test_the_client_of_one_bot_sends_no_bot(client, host):
+    client.call("status")
+    assert host.calls[0][:2] == ("status", {})
+
+
 def test_client_wrong_token_is_error(server):
     bad = ApiClient(server.port, "bad")
     with pytest.raises(ApiUnavailable, match="token"):

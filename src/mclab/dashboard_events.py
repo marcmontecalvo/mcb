@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+import select
+import socket
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 _SECRET_KEY = re.compile(
@@ -36,20 +39,46 @@ def redact(value: Any, key: str = "") -> Any:
     return value
 
 
+def peer_connected(connection: socket.socket) -> bool:
+    """Whether the browser at the other end of an event stream is still there,
+    without writing to it. An SSE client sends nothing after its request, so a
+    readable socket means the peer closed it (or reset it)."""
+    try:
+        readable, _, _ = select.select([connection], [], [], 0)
+        return not readable or connection.recv(1, socket.MSG_PEEK) != b""
+    except (OSError, ValueError):
+        return False
+
+
+def _is_alive(subscription: Subscription) -> bool:
+    if subscription.alive is None:
+        return True
+    try:
+        return bool(subscription.alive())
+    except Exception:  # noqa: BLE001 - a probe that fails says the peer is unusable
+        return False
+
+
 class TooManyListeners(Exception):
     """Raised when the dashboard's bounded event listener pool is full."""
 
 
 class Subscription:
-    def __init__(self, broker: EventBroker, seen: int):
+    """One listener's place in the pool. ``alive`` says whether its browser is still
+    connected, so a full pool can take back the place of one that is gone."""
+
+    def __init__(
+        self, broker: EventBroker, seen: int, alive: Callable[[], bool] | None = None
+    ):
         self.broker = broker
         self.closed = False
         self.seen = seen
+        self.alive = alive
 
     def close(self) -> None:
         if not self.closed:
             self.closed = True
-            self.broker._unsubscribe()
+            self.broker._unsubscribe(self)
 
     def stream(self, heartbeat: float = 15.0):
         last_heartbeat = time.monotonic()
@@ -97,6 +126,7 @@ class EventBroker:
         self.max_listeners = min(max_listeners, 8)
         self.condition = threading.Condition()
         self.listeners = 0
+        self.subscriptions: list[Subscription] = []
         self.sequence = 0
         self.latest_frame: str | None = None
         self.latest_value: dict | None = None
@@ -126,10 +156,17 @@ class EventBroker:
             }
         )
 
-    def subscribe(self) -> Subscription:
+    def subscribe(self, alive: Callable[[], bool] | None = None) -> Subscription:
+        """A place in the pool. ``alive`` (optional) tells whether the listener's
+        peer is still there: a closed or reloaded tab holds its place until a write
+        to it fails (up to a heartbeat), so a full pool first frees the places of
+        listeners that are gone; only a pool of live ones refuses."""
         with self.condition:
             if self.closed:
                 raise RuntimeError("Dashboard event stream is closed")
+            if self.listeners >= self.max_listeners:
+                for gone in [s for s in self.subscriptions if not _is_alive(s)]:
+                    gone.close()  # its stream wakes on the notify and ends
             if self.listeners >= self.max_listeners:
                 raise TooManyListeners("Dashboard event listener limit reached")
             was_idle = self.listeners == 0
@@ -144,11 +181,15 @@ class EventBroker:
                     target=self._run, name="mclab-dashboard-events", daemon=True
                 )
                 self.thread.start()
+            subscription = Subscription(self, seen, alive)
+            self.subscriptions.append(subscription)
             self.condition.notify_all()
-        return Subscription(self, seen)
+        return subscription
 
-    def _unsubscribe(self) -> None:
+    def _unsubscribe(self, subscription: Subscription) -> None:
         with self.condition:
+            if subscription in self.subscriptions:
+                self.subscriptions.remove(subscription)
             self.listeners = max(0, self.listeners - 1)
             self.condition.notify_all()
 

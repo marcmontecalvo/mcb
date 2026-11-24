@@ -2,19 +2,11 @@ package com.vulpine.mcb.body;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -25,19 +17,16 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Body bridge: spawn a Carpet body, apply controls, sense, report body events.
- * Knows nothing about courses, episodes or scoring (those live in mcb-lab).
- * Handlers never access Minecraft world/player objects.
+ * One body of the bridge: spawn a Carpet body, apply controls, sense, report body events.
+ * Knows nothing about courses, episodes or scoring (those live in mcb-lab), nor about the other bodies: {@link BodyHub}
+ * owns the HTTP endpoint, the request inbox and the event log, routes each request to the engine of the body it names
+ * and tags this engine's events with its identity. Everything here runs on the server thread.
  */
 public final class BodyRuntime implements AutoCloseable {
     private static final Gson GSON = new Gson();
-    /** An /admin or /controls body: 256 KB, room for an arena plan with thousands of fills. */
-    private static final int MAX_REQUEST_BYTES = 262_144;
     private static final int MAX_RETIRED_BODIES = 32;
     /**
      * A queued request older than this many server ticks is refused: the world moved on under it.
@@ -45,8 +34,8 @@ public final class BodyRuntime implements AutoCloseable {
      * 20261111T135214868983Z) cannot age a request against a world that did not change.
      */
     static final int STALE_QUEUED_TICKS = 40;
-    private static volatile BodyRuntime active;
     private final MinecraftServer server;
+    private final BodyHub hub;
     private volatile Map<String,Object> policySnapshot = Map.of();
     private final ServedTerrain servedTerrain=new ServedTerrain(); // last terrain batch /policy served
     private TerrainBatch loggedBatch; // this update's newly scanned sections, for the event log
@@ -60,17 +49,12 @@ public final class BodyRuntime implements AutoCloseable {
     private boolean extendedObservation;
     private boolean courseLimits;
     private boolean legacyMoving;
-    private final String launchId = System.getProperty("mclab.launch_id", "unmanaged");
-    private final ArrayBlockingQueue<Inbound> inbox = new ArrayBlockingQueue<>(64);
-    private final ArrayDeque<Event> events = new ArrayDeque<>();
+    private final String launchId;
     private final PriorityQueue<Scheduled> scheduled = new PriorityQueue<>(
             Comparator.comparingInt(Scheduled::tick));
     private final List<CarpetBodyAdapter> retired = new ArrayList<>();
     private final Set<String> actionIds = new HashSet<>();
-    private final HttpServer http;
-    private final ThreadPoolExecutor workers;
     private volatile Map<String, Object> snapshot = Map.of("state", "idle");
-    private long eventSequence;
     private long lastRequestSequence;
     private long lastContactNanos = System.nanoTime();
     private String runId = "none";
@@ -92,8 +76,6 @@ public final class BodyRuntime implements AutoCloseable {
     private boolean nativeMode;
     private BreakTask breakTask;
     private BodyEntity.Task actionTask;
-    /** The players online, published each tick for GET /players (read on the HTTP thread). */
-    private volatile List<Map<String, Object>> roster = List.of();
     /** The running action task (fight) is holding movement controls that tickAction must release. */
     private boolean actionControlled;
 
@@ -104,117 +86,32 @@ public final class BodyRuntime implements AutoCloseable {
                            boolean use_hold, boolean use_pulse, int hotbar_slot) {}
     public record Inbound(JsonObject json, boolean admin, long receivedNanos, int receivedTick) {}
     public record Scheduled(int tick, JsonObject request, Controls controls) {}
-    public record Event(int schema_version, String launch_id, String run_id, String episode_id,
-                        String body_id, long sequence, int tick, String phase, String type,
-                        Map<String, Object> data) {}
 
-    public BodyRuntime(MinecraftServer server) throws IOException {
+    BodyRuntime(MinecraftServer server, BodyHub hub) {
         this.server = server;
-        int port = Integer.parseInt(System.getProperty("mclab.bridge_port", "8765"));
-        String token = System.getProperty("mclab.bridge_token", "");
-        if (token.length() < 32) throw new IllegalStateException("Missing private bridge token");
-        http = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 8);
-        workers = new ThreadPoolExecutor(2, 4, 10, TimeUnit.SECONDS,
-                new ArrayBlockingQueue<>(16), runnable -> {
-                    var thread = new Thread(runnable, "mcb-body-http");
-                    thread.setDaemon(true);
-                    return thread;
-                }, new ThreadPoolExecutor.AbortPolicy());
-        http.setExecutor(workers);
-        http.createContext("/", exchange -> handle(exchange, token));
-        http.start();
-        active = this;
-        com.vulpine.mcb.arena.ArenaRuntime.setEmitter((type, data) -> emit(type, "fabric_start", data));
+        this.hub = hub;
+        this.launchId = hub.launchId();
     }
 
-    private void handle(HttpExchange exchange, String token) throws IOException {
-        try {
-            String authorization = exchange.getRequestHeaders().getFirst("Authorization");
-            if (authorization == null || !MessageDigest.isEqual(
-                    authorization.getBytes(StandardCharsets.UTF_8),
-                    ("Bearer " + token).getBytes(StandardCharsets.UTF_8))) {
-                respond(exchange, 401, Map.of("error", "unauthorized"));
-                return;
-            }
-            String path = exchange.getRequestURI().getPath();
-            if (exchange.getRequestMethod().equals("GET")) {
-                if (path.equals("/policy")) {
-                    // Mark before the slow encode+send: a scan during it must not carry this batch again.
-                    respond(exchange,200,servedTerrain.serve(()->policySnapshot));
-                    return;
-                }
-                if (path.equals("/state")) { respond(exchange, 200, snapshot); return; }
-                if (path.equals("/players")) { respond(exchange, 200, Map.of("schema_version", 1, "launch_id", launchId, "players", roster)); return; }
-                if (path.equals("/events")) {
-                    String query = exchange.getRequestURI().getRawQuery();
-                    long after = query == null ? 0 : Long.parseLong(query.replace("after=", ""));
-                    respond(exchange, 200, eventBatch(after));
-                    return;
-                }
-            }
-            if (exchange.getRequestMethod().equals("POST")
-                    && (path.equals("/admin") || path.equals("/controls"))) {
-                var bytes = exchange.getRequestBody().readNBytes(MAX_REQUEST_BYTES + 1);
-                if (bytes.length > MAX_REQUEST_BYTES) {
-                    respond(exchange, 413, Map.of("error", "request_too_large"));
-                    return;
-                }
-                var request = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
-                if (!inbox.offer(new Inbound(request, path.equals("/admin"), System.nanoTime(), server.getTickCount()))) {
-                    respond(exchange, 429, Map.of("error", "queue_full"));
-                    return;
-                }
-                respond(exchange, 202, Map.of("status", "queued", "launch_id", launchId));
-                return;
-            }
-            if (exchange.getRequestMethod().equals("POST") && path.equals("/tell")) {
-                var request = JsonParser.parseString(new String(
-                        exchange.getRequestBody().readNBytes(2048), StandardCharsets.UTF_8)).getAsJsonObject();
-                var id = java.util.UUID.fromString(request.get("uuid").getAsString());
-                var message = request.get("text").getAsString();
-                if (message.length() > 256) throw new IllegalArgumentException("text_too_long");
-                server.execute(() -> {
-                    var player = server.getPlayerList().getPlayer(id);
-                    if (player != null) player.sendSystemMessage(net.minecraft.network.chat.Component.literal(message));
-                });
-                respond(exchange, 202, Map.of("status", "queued", "launch_id", launchId));
-                return;
-            }
-            if (exchange.getRequestMethod().equals("POST") && path.equals("/say")) {
-                var request = JsonParser.parseString(new String(
-                        exchange.getRequestBody().readNBytes(4096), StandardCharsets.UTF_8)).getAsJsonObject();
-                var text = CompanionChat.requireText(request.get("text").getAsString());
-                var target = request.has("to") && !request.get("to").isJsonNull()
-                        ? CompanionChat.requireTarget(request.get("to").getAsString()) : null;
-                say(text, target);
-                respond(exchange, 202, Map.of("status", "queued", "launch_id", launchId));
-                return;
-            }
-            respond(exchange, 404, Map.of("error", "not_found"));
-        } catch (RuntimeException error) {
-            respond(exchange, 400, Map.of("error", "invalid_request"));
-        } finally { exchange.close(); }
-    }
+    // ---- what the hub asks of an engine
 
-    private static void respond(HttpExchange exchange, int code, Object payload) throws IOException {
-        byte[] data = GSON.toJson(payload).getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.sendResponseHeaders(code, data.length);
-        exchange.getResponseBody().write(data);
-    }
+    String bodyId() { return bodyId; }
+    String runId() { return runId; }
+    String episodeId() { return episodeId; }
+    /** The player name of the body, or null when none is spawned. */
+    String name() { return body == null ? null : body.name(); }
+    /** A body is spawned (alive or not: a dead one still needs a replacing spawn or a despawn). */
+    boolean live() { return body != null; }
+    boolean owns(ServerPlayer player) { return body != null && body.owns(player); }
+    /** True when nothing of this engine remains: no body, no retired adapter still finishing. */
+    boolean removable() { return body == null && retired.isEmpty() && readyState.equals("idle"); }
+    void received() { received++; }
+    Map<String, Object> snapshot() { return snapshot; }
+    /** The /policy observation; marks its terrain batch served in the same step so a scan cannot resend it. */
+    Map<String, Object> servePolicy() { return servedTerrain.serve(() -> policySnapshot); }
 
-    private synchronized Map<String, Object> eventBatch(long after) {
-        long first = events.isEmpty() ? eventSequence + 1 : events.getFirst().sequence();
-        return Map.of("schema_version", 1, "launch_id", launchId,
-                "gap", after < first - 1, "latest_sequence", eventSequence,
-                "events", events.stream().filter(event -> event.sequence() > after).toList());
-    }
-
-    private synchronized void emit(String type, String phase, Map<String, Object> data) {
-        if (events.size() == 2048) events.removeFirst();
-        events.addLast(new Event(1, launchId, runId, episodeId, bodyId, ++eventSequence,
-                server.getTickCount(), phase, type, eventData(data)));
-    }
+    /** One event of this body, tagged with its identity. */
+    private void emit(String type, String phase, Map<String, Object> data) { hub.emit(this, type, phase, data); }
 
     /**
      * An event's immutable data with null values left out (absent, not null). emit runs on the server tick, so a
@@ -226,103 +123,26 @@ public final class BodyRuntime implements AutoCloseable {
         return Map.copyOf(out);
     }
 
-    /**
-     * A player's /mcb command, on the server thread. Always recorded for the Python service, which owns
-     * authority (owner and allowlist). stop also cancels the body here, so it needs neither Python nor a model.
-     */
-    static void playerCommand(ServerPlayer player, String sub, Map<String, Object> args) {
-        var runtime = active;
-        if (runtime == null) return;
-        var data = new HashMap<String, Object>(args);
-        data.put("player_uuid", player.getUUID().toString());
-        data.put("player_name", player.getName().getString());
-        data.put("command", sub);
-        addSender(data, player);
-        runtime.emit("player_command", "fabric_start", data);
-        if (sub.equals("stop")) runtime.cancelRoute("player_stop"); // no body spawned: nothing is active, a no-op
-    }
+    /** A player's /mcb stop: cancels whatever this body is doing; with no body spawned nothing is active, a no-op. */
+    void cancelAll(String reason) { cancelRoute(reason); }
 
     /**
-     * The current body's player died (Fabric AFTER_DEATH, server thread). Carpet then removes the fake player, so
-     * the state afterwards reads disconnected_or_dead; this carries the cause, once per spawned body.
+     * This body's player died (Fabric AFTER_DEATH, server thread). Carpet then removes the fake player, so the state
+     * afterwards reads disconnected_or_dead; this carries the cause, once per spawned body.
      */
-    static void bodyDied(net.minecraft.world.entity.LivingEntity entity,
-                         net.minecraft.world.damagesource.DamageSource source) {
-        var runtime = active;
-        if (runtime == null || !(entity instanceof ServerPlayer player)) return;
-        var body = runtime.body;
-        if (body == null || runtime.diedReported || !body.owns(player)) return;
-        runtime.diedReported = true;
+    void died(ServerPlayer player, net.minecraft.world.damagesource.DamageSource source) {
+        if (body == null || diedReported || !body.owns(player)) return;
+        diedReported = true;
         var data = new HashMap<String, Object>();
         data.put("name", player.getName().getString());
         data.put("cause", player.getCombatTracker().getDeathMessage().getString());
-        addSender(data, player);
-        runtime.emit("body_died", "fabric_start", data);
-        if (runtime.actionTask != null) runtime.actionTask.died(player, BodyEntity.hurtSource(player, source));
-        runtime.actionDied(player);
+        BodyHub.addSender(data, player);
+        emit("body_died", "fabric_start", data);
+        if (actionTask != null) actionTask.died(player, BodyEntity.hurtSource(player, source));
+        actionDied(player);
     }
 
-    /**
-     * Every player online (the body's own fake player too, flagged fake), for GET /players: where they are, whether a
-     * commanded attack can hurt them, and whether they are still there (a logout drops them). Built each tick on the
-     * server thread; the HTTP thread reads the published copy.
-     */
-    private void updateRoster() {
-        var out = new java.util.ArrayList<Map<String, Object>>();
-        for (var player : server.getPlayerList().getPlayers()) {
-            var entry = new LinkedHashMap<String, Object>();
-            entry.put("name", player.getName().getString());
-            entry.put("uuid", player.getUUID().toString());
-            entry.put("position", List.of(player.getX(), player.getY(), player.getZ()));
-            entry.put("dimension", player.level().dimension().identifier().toString());
-            entry.put("mode", player.isSpectator() ? "spectator" : player.isCreative() ? "creative" : "survival");
-            entry.put("invulnerable", player.isInvulnerable());
-            entry.put("fake", CarpetBodyAdapter.isFakePlayer(player));
-            entry.put("alive", !player.isDeadOrDying());  // false on the death screen: a match waits for the respawn
-            out.add(Map.copyOf(entry));
-        }
-        roster = List.copyOf(out);
-    }
-
-    /** The sender's position and dimension, shared by player_command and player_chat. */
-    private static void addSender(Map<String, Object> data, ServerPlayer player) {
-        data.put("position", List.of(player.getX(), player.getY(), player.getZ()));
-        data.put("dimension", player.level().dimension().identifier().toString());
-    }
-
-    /**
-     * A chat line from a real player, on the server thread. Carpet fake players are skipped so the bot never hears
-     * itself. The text is the plain signed content, cut to 256 characters.
-     */
-    static void playerChat(ServerPlayer player, String text) {
-        var runtime = active;
-        if (runtime == null || !CompanionChat.heard(CarpetBodyAdapter.isFakePlayer(player))) return;
-        var data = new HashMap<String, Object>();
-        data.put("player_uuid", player.getUUID().toString());
-        data.put("player_name", player.getName().getString());
-        data.put("text", CompanionChat.truncate(text));
-        addSender(data, player);
-        runtime.emit("player_chat", "fabric_start", data);
-    }
-
-    /** /say: speaks as the body (or MCB with none), to one online player or to everyone. World work on the server thread. */
-    private void say(String text, String to) {
-        server.execute(() -> {
-            String speaker = CompanionChat.speaker(body == null ? null : body.name());
-            if (to == null) {
-                server.getPlayerList().broadcastSystemMessage(
-                        net.minecraft.network.chat.Component.literal(CompanionChat.broadcast(speaker, text)), false);
-                return;
-            }
-            var player = server.getPlayerList().getPlayerByName(to);
-            if (player == null) return; // offline or unknown: accepted, nothing emitted
-            player.sendSystemMessage(net.minecraft.network.chat.Component
-                    .literal(CompanionChat.whisper(speaker, text))
-                    .withStyle(net.minecraft.ChatFormatting.GRAY, net.minecraft.ChatFormatting.ITALIC));
-        });
-    }
-
-    private static String text(JsonObject request, String key) {
+    static String text(JsonObject request, String key) {
         String value = request.get(key).getAsString();
         if (!value.matches("[A-Za-z0-9_.:-]{1,80}")) throw new IllegalArgumentException("invalid_" + key);
         return value;
@@ -347,7 +167,7 @@ public final class BodyRuntime implements AutoCloseable {
         }
     }
 
-    private static boolean strictBoolean(JsonObject value, String field) {
+    static boolean strictBoolean(JsonObject value, String field) {
         var entry = value.get(field);
         if (entry == null || !entry.isJsonPrimitive() || !entry.getAsJsonPrimitive().isBoolean())
             throw new IllegalArgumentException(field);
@@ -361,31 +181,19 @@ public final class BodyRuntime implements AutoCloseable {
         return nowNanos - lastContactNanos > TimeUnit.SECONDS.toNanos(2);
     }
 
-    public void preTick() {
+    /** The start of this body's tick, before the hub admits the tick's requests. */
+    void preTickHead() {
         if (body != null && traceEnabled) emit("phase", "fabric_start", Map.of());
         // A retired body whose entity is gone is done: a companion that dies and respawns for
         // hours must not run into MAX_RETIRED_BODIES.
         retired.removeIf(previous -> { previous.pollReady(); return previous.finished(); });
         if (body != null && readyState.equals("spawn_timeout")) body.pollReady();
+        if (traceEnabled && server.getTickCount() >= traceEnd) traceEnabled = false;
+    }
+
+    /** The rest of this body's tick, after the hub drained the inbox: a request queued during a long tick counts as contact. */
+    void preTickTail() {
         int tick = server.getTickCount();
-        if (traceEnabled && tick >= traceEnd) traceEnabled = false;
-        for (int budget = 0; budget < 8; budget++) {
-            var request = inbox.poll();
-            if (request == null) break;
-            received++;
-            try {
-                if (staleQueued(request.receivedTick(), tick)) {
-                    throw new IllegalArgumentException("stale_queued_request");
-                }
-                admit(request);
-            }
-            catch (Exception error) {
-                emit("rejected", "fabric_start", Map.of("request_sequence",
-                        request.json().has("sequence") ? request.json().get("sequence").toString() : "missing",
-                        "reason", error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage()));
-            }
-        }
-        // After the drain, so a request queued during a long tick counts as contact.
         if (body != null && watchdogDue(lastContactNanos, System.nanoTime())) {
             cancelRoute("watchdog");
             legacyMoving = false;
@@ -897,22 +705,13 @@ public final class BodyRuntime implements AutoCloseable {
                 || !text(request, "body_id").equals(bodyId)) throw new IllegalArgumentException("wrong_identity");
     }
 
-    private void admit(Inbound inbound) throws Exception {
+    /**
+     * Admits a request the hub routed here by body id (schema, op, arena and spawn ops are already handled by the
+     * hub). The identity is checked again, whole: run, episode and body.
+     */
+    void admit(Inbound inbound, long sequence, String op) throws Exception {
+        received++;
         var request = inbound.json();
-        if (request.get("schema_version").getAsInt() != 1) throw new IllegalArgumentException("schema_version");
-        long sequence = request.get("sequence").getAsLong();
-        String op = text(request, "op");
-        if (inbound.admin() && com.vulpine.mcb.arena.ArenaRuntime.handles(op)) {
-            // The arena runtime owns these ops: they need no body, and answer by request_id and sequence.
-            var arena = com.vulpine.mcb.arena.ArenaRuntime.active();
-            if (arena == null) emit(op + "_failed", "fabric_start", Map.of("request_sequence", sequence, "reason", "arena_runtime_unavailable"));
-            else arena.handle(op, request, sequence);
-            return;
-        }
-        if (inbound.admin() && op.equals("spawn")) {
-            spawn(request, sequence, inbound.receivedNanos());
-            return;
-        }
         validateIdentity(request);
         if (sequence <= lastRequestSequence) throw new IllegalArgumentException("duplicate_or_out_of_order_sequence");
         lastRequestSequence = sequence;
@@ -1374,7 +1173,7 @@ public final class BodyRuntime implements AutoCloseable {
      * Spawn a fresh body with a new identity. replace=true retires the current body first
      * (the controller has usually already moved to the next episode's identity).
      */
-    private void spawn(JsonObject request, long sequence, long receivedNanos) throws Exception {
+    void spawn(JsonObject request, long sequence, long receivedNanos) throws Exception {
         // A spawn opens a new identity, so its sequence may restart (a new controller process).
         if (sequence < 1) throw new IllegalArgumentException("sequence_must_be_positive");
         boolean replace = request.has("replace") && request.get("replace").getAsBoolean();
@@ -1466,7 +1265,7 @@ public final class BodyRuntime implements AutoCloseable {
         }
     }
 
-    public void postTick() {
+    void postTick() {
         if (body != null && !readyState.equals("spawn_timeout")) {
             String state = body.pollReady();
             if (state.equals("ready")) everReady = true;
@@ -1480,7 +1279,6 @@ public final class BodyRuntime implements AutoCloseable {
                 emit("infrastructure_failure", "fabric_end", Map.of("reason", "spawn_timeout"));
             }
         }
-        updateRoster();
         updatePolicySnapshot();
         if (body != null && traceEnabled) emit("phase", "fabric_end_observation", Map.of());
         var status = new LinkedHashMap<String,Object>(Map.of("schema_version", 1, "launch_id", launchId,
@@ -1590,25 +1388,18 @@ public final class BodyRuntime implements AutoCloseable {
         }
     }
 
-    public static void trace(ServerPlayer player, String phase) {
-        var bridge = active;
-        if (bridge != null && bridge.traceEnabled && bridge.body != null && bridge.body.owns(player)) {
-            bridge.emit("phase", phase, Map.of("position", List.of(player.getX(), player.getY(), player.getZ())));
-        }
+    /** A Carpet action-pack phase of this body's player, while a trace is on. */
+    void trace(ServerPlayer player, String phase) {
+        if (traceEnabled) emit("phase", phase, Map.of("position", List.of(player.getX(), player.getY(), player.getZ())));
     }
 
-    /** Interaction packets and results for this mod's own bodies only. */
-    public static void interaction(ServerPlayer player, String type, Supplier<Map<String, Object>> data) {
-        var bridge = active;
-        if (bridge == null || !bridge.server.isSameThread()) return;
-        if (bridge.body != null && bridge.body.owns(player)) bridge.emit(type, "server_interaction", data.get());
+    /** An interaction packet or result of this body's player. */
+    void interaction(String type, Supplier<Map<String, Object>> data) {
+        emit(type, "server_interaction", data.get());
     }
 
     @Override public void close() {
-        active = null;
         if (body != null) body.retire();
         retired.forEach(CarpetBodyAdapter::retire);
-        http.stop(0);
-        workers.shutdownNow();
     }
 }
