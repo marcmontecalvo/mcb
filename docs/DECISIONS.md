@@ -467,6 +467,10 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   fuse: an arrow from range, a sword or axe hit then a sprint away, a spear's
   jab from past its 3-block fuse (`outreach`); only bare hands walk away. Plan:
   [COMPANION_COMBAT_PLAN_2026-11-23.md](COMPANION_COMBAT_PLAN_2026-11-23.md).
+- **Weapon swaps are measured, not assumed (Nov 23).**
+  - **Swaps:** a spear's charge opens a fight before a swing weapon only when it kills sooner (`companion_combat.charge_first`). Alone, a swing weapon's first crit lands on arrival; after a charge the swap resets its cooldown. A 10x matrix measured the charge-then-sword slower than the sword alone (zombie 3.5 s against 2.7). A lone spear still charges, and jabs up close rather than backing off for a run-up.
+  - **Archers:** a skeleton, stray or bogged is a threat out to 16 blocks, its bow's reach, whatever the threat radius. A group fight was called clear with the third skeleton shooting from past 12.
+  - **Trials:** a trial never leaves a summoned mob alive into the next one.
 - **Nothing in a poll touches storage (Nov 23).** The guard runs inside the motor
   loop, so its threat check reads only memory. The place graph reads its places
   once and writes every change through; one graph owns a world's places in a

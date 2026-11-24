@@ -59,37 +59,41 @@ blocks, animals and pets included.
 
 | style | what the mod does |
 |---|---|
-| `melee` | close in. Jump when the cooldown will be full at the jump's apex, strike on the way down (crit). Where a jump cannot crit (low ceiling, water, ladder), strike at full cooldown. |
-| `poke` | spear: hold 2.5 to 4 blocks off and jab at full charge; back off when the target closes inside 2.5. Against a creeper (`outreach`) the band is 3.3 to 4.2, past its fuse; one that swells anyway is outrun first. |
+| `melee` | close in and jump-crit where the target will be (`CritForecast`, section 12): hop in place, backward from a mob walking in, or walking or sprinting at one backing off, so the strike on the way down lands in reach and outside the mob's own reach. Where a jump cannot crit (low ceiling, water, ladder), strike at full cooldown. |
+| `lance` | spear charge (`LanceLogic`, section 12): hold the use and sprint at the target so it crosses the look 2.3 to 4.2 from the eye on a fast tick; sprint-jump for the burst when a ground sprint is too slow (a skeleton backing off). Inside 2.4 the `melee` weapon, when carried, takes over and hands back past 6 blocks; a lone spear jabs there instead (held 2.5 to 4.0), never backing off for a run-up while its jab reaches; a creeper is outrun after each hit. |
+| `poke` | spear jab (still served by the mod, no longer picked): hold 2.5 to 4 blocks off and jab at full charge. |
 | `hit_and_back` | sprint hit (extra knockback), then back off past 7 blocks while the creeper's swell runs down; again when the swell is back to zero. |
 | `snipe` | bow: keep 8 to 15 blocks off, draw 20 ticks, aim with drop and lead, release. Switch to a melee weapon if the target closes within 4. |
-| `hunt` | animals: chase at a sprint and take the biggest single hit (one-shot). No sweep while another animal stands within 3 blocks of the target. Never the bow (arrows are wasted on food). |
+| `hunt` | animals: the owner's rule (Nov 23, replacing "never the bow"): the bow while there are arrows (shot, never swung, `snipe` closing in past 8); else the held weapon that kills in the fewest ticks, then with the least wear, that the kill does not break; else the fist. No sweep while another animal stands within 3 blocks of the target. |
 | `avoid` | never engaged: `escape` instead. |
 
 **Profiles** (entity type to tactic; a table, not code branches):
 
 | targets | tactic | notes |
 |---|---|---|
-| zombie, husk, drowned, zombie_villager, spider, cave_spider, silverfish, endermite, slime, magma_cube, witch, vindicator, hoglin, zoglin, piglin_brute, wither_skeleton | `melee` (sword > axe > trident > spear-poke), else `snipe` with a bow | crit melee; spear pokes outreach them; a bow alone shoots rather than runs |
+| zombie, husk, drowned, zombie_villager, spider, cave_spider, silverfish, endermite, slime, magma_cube, witch, vindicator, hoglin, zoglin, piglin_brute, wither_skeleton | `melee` (a carried spear opens with `lance`, handing over to the best of sword > axe > trident), else `snipe` with a bow | crit melee; a bow alone shoots rather than runs |
 | vex | `melee` | too small and quick to shoot |
 | skeleton, stray, bogged, pillager | `snipe` with a bow, else `melee` | archers: duel from range or close fast; an escape from them is always a sprint |
-| creeper | `snipe` with a bow, else `hit_and_back` with a sword, axe or trident, else `outreach` (a spear's poke from past the fuse), else `avoid` | the swell starts within 3 blocks (feet to feet) and runs down past 7; a jab reaches 4.5 |
+| creeper | the owner's order: `snipe` with a bow, else `lance` with a spear (never handed to a sword), else `hit_and_back` with a sword, axe or trident, else `avoid` | the swell starts within 3 blocks (feet to feet) and runs down past 7; a charge reaches 4.5. A crit from outside the fuse has about 0.05 blocks to spare (reach 3.0 eye to box against the fuse's 3.0 feet to feet), so hit-and-back keeps the sprint hit at the reach's edge |
 | evoker | `melee`, else `snipe`; first in line | kill it before its vexes |
 | enderman | not a threat until it targets the bot; then `melee` | never stare at it (provoked by gaze); a carved pumpkin on the head prevents it |
 | phantom, blaze, ghast | `snipe` with a bow, else `avoid` | the ghast cannot be reached for melee |
 | breeze | `melee` only | it deflects arrows |
 | warden, ravager, elder_guardian, guardian | `avoid` | |
 | ender_dragon, wither | `avoid` (a boss) | a planned fight later: end crystals with a bow, melee at the perch |
-| animals (pig, cow, sheep, chicken, rabbit, ...) | `hunt` (axe > sword > spear) | the axe one-shots: an iron axe crit is 13.5 against a cow's 10 HP |
+| animals (pig, cow, sheep, chicken, rabbit, ...) | `hunt` (bow with arrows; else the quickest kill that does not break the weapon; a spear charges) | an iron axe crit is 13.5 against a cow's 10 HP; an axe spends 2 uses a hit, the rest 1 |
 
 The weapon is picked by the tactic's allowed kinds, then expected damage per second
-(melee) or per hit (hunt). A bow needs arrows.
+(melee) or ticks to kill (hunt). A spear is ranked by its charge (1 + floor(5.6 b/s ×
+its multiplier) once a 20-tick pass), not its jab. A bow needs arrows.
 
 Animals are hunted when a player asks for what they drop (`gather` porkchop, beef,
-leather, ...): the gather plan's `Hunt` task runs `attack_entity`, which crits and never
-sweeps. The plan picks the hunt weapon by the same rule as `hunt` (biggest single hit,
-then damage per second; `gather_plan._find_weapon` asks `companion_combat`), so a held
-iron axe beats an iron sword for a cow. The guard never hunts: animals are not threats.
+leather, ...): the gather plan's `Hunt` task runs the hunt fight, which crits and never
+sweeps. The plan picks the hunt weapon by the same rule as `hunt`
+(`companion_combat.hunt_weapon`, from `gather_plan._find_weapon`), so a held iron axe
+beats an iron sword for a cow, and a bow with arrows beats both. An animal already
+inside the fight's radius is fought at once, without a walk to it first. The guard
+never hunts: animals are not threats.
 
 ### 3. The `escape` op (mod, per tick)
 
@@ -235,6 +239,83 @@ axe, 18.3 with the bow and 7.7 with the spear).
 | the sword killed its pig in 3.4 s, but the trial ran 13.8 s | the guard's threat check looks the base up on every poll; that opened the world archive, and one open waited 8.9 s inside sqlite while terrain was being written, freezing the motor loop | the place graph reads its places once and keeps them in memory, written through on every change: no poll touches storage (`PlaceGraph`) |
 | the spear lost 12 health to a skeleton | a skeleton backs off inside about 7.5 blocks, out of a 4.5-block jab | open: a spear needs the charge, or the bow when one is carried |
 
+### 12. The owner's second round (Nov 23): forecast crits, the charge, 10x matrices
+
+The owner asked for:
+- jump crits aimed at where the mob will be;
+- the spear's charge, swapping weapons when that is quicker;
+- dead mobs skipped;
+- the hunt rule (the bow with arrows, else the quickest kill that does not break);
+- creepers fought from range first;
+- ten trials per cell, then groups.
+
+What was built:
+
+| item | change |
+|---|---|
+| jump crits | `CritForecast` (mod, pure) predicts the target's position when the strike falls (a zombie walks in, a skeleton backs off) and picks the hop: in place, backward from a mob walking in, or walking or sprinting at one backing off. Every sword and axe hit in both 10x matrices was a crit. |
+| spear charge | `LanceLogic` (mod, pure). Holding the use, the bot sprints so the target crosses the look 2.3 to 4.2 from the eye on a tick 4.6 b/s faster than the target. It sprint-jumps only at a target backing off, since a hop at one walking in carries the body onto it. Inside 2.4 a lone spear jabs (held 2.5 to 4.0) rather than backing off for a run-up, and charges again past 6 blocks. The result reports `lance` (ticks per move) and `charge_log` (each hit's gap, speed and damage). |
+| charge then swap | `companion_combat.charge_first`. Open with the charge and hand over to the swing weapon only when that kills sooner: alone, (n − 1) swing cycles; after a charge, m cycles, since the swap resets the cooldown. No current weapon pair passes, because a charge (iron 6, netherite 7) saves at most one swing. |
+| creeper | the owner's order: the bow, then the spear's charge from past the fuse (never handed to a sword; outrun after each hit), then hit-and-back, then avoid. A crit from outside the fuse has about 0.05 blocks to spare (reach 3.0, eye to box, against a 3.0 fuse, feet to feet), so hit-and-back keeps its sprint hit at the reach's edge instead. |
+| trials | a mob left alive (an escape, a timeout, a death) is cleared at once and again before a walk back; the body clears trial mobs anywhere loaded. Live, a skeleton a spear escaped from shot the bot dead on the walk back. The settle waits for the session's state, since the status's body state is a snapshot that still reads "ready" while the bot lies dead. |
+
+Ten trials per cell, iron weapons (`20261123T230049Z` before the charge, `20261123T235754Z` after; median seconds, then the lowest health where any was lost):
+
+| weapon | zombie | skeleton | creeper | pig |
+|---|---|---|---|---|
+| sword | 2.7 | 2.6, health ≥ 16.0 | 6.3, 5.4 flees | 3.5 |
+| axe | 2.3 | 2.2, ≥ 13.8 | 5.0, 3.8 flees | 3.0 |
+| spear (jab, before) | 7.2 | 10.3, median 11.4, 5 timeouts | 7.3 | 5.5, 9/10 |
+| spear (charge and jab) | 6.3 | 6.0 (9/10), median 14.2, ≥ 6.3 | 7.0 | 5.2 |
+| bow | 3.5 | 3.5, ≥ 17.2 | 3.5 | 4.7 |
+| spear+sword (charge, then the sword) | 3.5 | 2.9, ≥ 15.8 | 7.0 | 3.4 |
+
+No cell regressed against the earlier matrix. The spear+sword row measured the swap: it was
+slower than the sword alone, so `charge_first` now keeps the sword alone.
+
+Open:
+- a lone spear against a skeleton (one escape in ten);
+- the trident throw (needs Loyalty, or a walk to pick it up);
+- the bow drawn after a charge once the target is far.
+
+### 13. Groups (Nov 23–24): what they showed and what changed
+
+Scenes: 2 skeletons, 3 skeletons, 3 zombies, and 2 zombies with a skeleton; ten trials per
+cell. Each further mob stands a block further off. A trial is killed only when every mob
+of the scene is down.
+
+Cells show kills out of ten, then the median seconds. The first run is
+`20261124T002512Z`; the second, `20261124T011202Z`, came after the archer threat fix
+below.
+
+| weapon | skeleton×2 | skeleton×3 | zombie×3 | zombie×2+skeleton |
+|---|---|---|---|---|
+| sword (second run) | 10, 4.7 | 10, 7.1 | 10, 6.6 | 10, 5.9 |
+| axe (second run) | 10, 4.3 | 9, 6.9 | 10, 6.5 | 10, 7.1 |
+| spear+sword (the sword alone) | 10, 4.3 | 10, 6.5 | 10, 6.3 | 10, 7.1 |
+| bow (first run) | 10 | 6 | 10 | 5 |
+| bow (second run) | 10, 6.8 | 6, 9.8 | 7, 11.4 | 5, 9.9 |
+| lone spear (first run) | 11 of 40 across the four | | | |
+
+What each showed and what changed:
+
+1. **An archer is a threat as far as it shoots** (`companion_defense.ARCHER_RANGE` 16).
+   - A bow killed two of three skeletons at near full health, then the guard called the
+     defence clear: the third was shooting from past the 12-block threat radius.
+   - The fight also looks as far as the farthest threat seen (`fight_radius`).
+2. **A mob the bot would shoot is a threat as far as the bow's stand-off band (15).**
+   - The second run's bow misses all ended "clear" at full health. A sniper backs off to
+     8–15 blocks, so after one kill the zombies still coming stood past 12.
+   - Fixed in `threats(..., inventory)`; not yet re-measured.
+3. **Melee picks the weapon that kills this mob soonest** (`companion_combat.kill_ticks`).
+   - Picking by damage per second always took the sword. The one-on-one matrix measured
+     the iron axe quicker on 20-health mobs: two crits in one cycle against three in two
+     (zombie 2.3 s against 2.7).
+   - Hit-and-back takes the fewest plain hits, and a sniper hands over to the quickest
+     swing weapon.
+4. **A lone spear against a group** jabs most of the time and loses health (11/40, one
+   death). A kite tactic (charge, retreat, charge again) is open.
+
 ## Slices (TDD each; one commit each)
 
 1. Done: `companion_combat.py`: weapons, profiles, tactic and weapon choice.
@@ -246,8 +327,15 @@ axe, 18.3 with the bow and 7.7 with the spear).
 5. Done: the `trial` body op (`TrialLogic`, `BodyTrial`), the host's `/trial` route,
    `defense_step`/`defense_end` events, `scripts/combat-trial.py`.
 6. Done: Session: `escape` and `walk_away` steps; `fight` passes the tactic.
-7. In progress: Live trials: sword, axe, spear and bow against a zombie, skeleton, creeper
-   and pig. Six matrices ran; their fixes (sections 6 to 11) are built and
-   unit-tested. The sixth killed in all 16 trials. Open: a spear against a
-   skeleton.
-8. Later: spear charge, trident throw with Loyalty, shield blocking, the dragon.
+7. Done: Live trials: sword, axe, spear and bow against a zombie, skeleton, creeper
+   and pig. Six matrices, then two 10x matrices (section 12); every fix is
+   unit-tested.
+8. Done: forecast jump crits, the spear charge (`lance`), and the charge-first rule
+   (section 12).
+9. Done: groups (section 13): the archer and sniper threat ranges, the quickest weapon per mob.
+10. In progress: raids (section 14). The trial counts kills by type (`kill_types`), so an
+    evoker's vexes do not stand in for it. The `all` kit carries every weapon; the
+    ravager is shot (avoided without a bow), and the illusioner is an archer.
+11. Next: full iron armor worn from whatever the bot carries, shield blocking, and the
+    trident (swung, and thrown with Loyalty).
+12. Later: the bow after a charge, a kite for the lone spear against a group, the dragon.
