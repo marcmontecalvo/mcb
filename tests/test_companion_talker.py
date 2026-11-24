@@ -154,6 +154,67 @@ def test_every_heard_line_is_noted_even_when_answered(make):
     assert [n[0] for n in host.notes] == ["chat_in"]
 
 
+# --- one bot among several ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("line", "bot", "named"),
+    [
+        ("mcbot2 come here", "MCBot2", True),
+        ("hey @MCBot2!", "MCBot2", True),
+        ("mcbot2 come here", "MCBot", False),
+        ("mcbot12", "MCBot2", False),
+        ("MCBot and MCBot2", "MCBot", True),
+    ],
+)
+def test_a_bot_is_named_by_its_own_name_only(line, bot, named):
+    assert companion_talker.mentions(line, bot) is named
+
+
+def test_a_line_for_another_bot_is_recorded_not_answered(make):
+    talker, host, backend = make([])
+    talker.hear(OWNER, "mcbot come here", engaged=False)
+    talker.hear(ASK, "what are you doing", engaged=False)
+    assert talker.wait_idle(5)
+    assert backend.requests == [] and host.calls == []
+    assert [n[0] for n in host.notes] == ["chat_in", "chat_in"]
+
+
+def test_a_stop_is_obeyed_by_a_bot_it_was_not_for_but_said_by_one(make):
+    talker, host, backend = make([])
+    talker.hear(OWNER, "stop", engaged=False)
+    assert host.intents() == ["stop"] and backend.requests == []
+    assert host.said() == []
+
+
+def test_a_refused_stop_is_not_answered_by_a_bot_it_was_not_for(make):
+    talker, host, _ = make([])
+    talker.hear(KID, "mcbot stop", engaged=False)
+    assert host.calls == []
+
+
+def test_a_derived_bot_speaks_with_the_default_soul_under_its_own_name(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "bots" / "default").mkdir(parents=True)
+    (tmp_path / "bots" / "default" / "SOUL.md").write_text(
+        "You are MCBot. MCBots rule."
+    )
+    (tmp_path / "bots" / "scout").mkdir()
+    (tmp_path / "bots" / "scout" / "SOUL.md").write_text("Scout here.")
+    monkeypatch.setattr(companion_talker, "ROOT", tmp_path)
+    assert companion_talker._soul_for({"id": "default", "name": "MCBot"}) == (
+        "You are MCBot. MCBots rule."
+    )
+    assert companion_talker._soul_for({"id": "mcbot2", "name": "MCBot2"}) == (
+        "You are MCBot2. MCBots rule."
+    )
+    assert companion_talker._soul_for({"id": "scout", "name": "Scout"}) == "Scout here."
+    assert (
+        companion_talker._soul_for({"name": "MCBot"}) == "You are MCBot. MCBots rule."
+    )
+
+
 # --- stop in code -------------------------------------------------------------
 
 

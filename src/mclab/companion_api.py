@@ -2,13 +2,22 @@
 
 Routes (all need ``Authorization: Bearer <token>``; JSON in and out):
 
-- ``POST /call`` ``{intent, args?, key?, source?}``  ->  the host's ``call`` dict
+- ``POST /call`` ``{intent, args?, key?, source?, bot?}``  ->  the host's ``call`` dict
 - ``GET /jobs/<id>?wait=<s>``  ->  the job (long-polled, wait capped at 60 s) or 404
 - ``GET /events?after=<n>&wait=<s>``  ->  the host's events
 - ``GET /health``  ->  ``{"ok": true}``
 - ``POST /trial`` ``{clear?, clear_inventory?, give?, wear?, heal?, time?,
   summon?}``  ->  as ``/call``; sets the scene for an operator's combat trial
   (never an MCP tool)
+
+With several bots (a ``Fleet``) every route above takes the bot's id (``bot`` in the
+``/call`` body, ``?bot=`` otherwise); none means the first bot, and ``stop`` alone
+takes ``"all"``. And:
+
+- ``GET /bots``  ->  ``{"ok": true, "bots": [{id, name, session, job, default}]}``
+- ``POST /bots`` ``{id?}``  ->  ``{"ok": true, "bot": {id, name}}``: put a bot in
+  (the next free name by default) or ``{"ok": false, "error"}``
+- ``DELETE /bots/<id>``  ->  as ``POST /bots``: the bot halts and leaves
 - ``POST /shutdown``  ->  202; the host halts and despawns the body and exits (the
   supervisor's stop; Windows ``terminate()`` would skip that)
 
@@ -29,6 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from mclab.companion_intents import Actor
+from mclab.companion_protocol import HostError
 
 log = logging.getLogger(__name__)
 MAX_BODY = 64 * 1024
@@ -114,6 +124,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._fail(401, "missing or wrong bearer token")
         try:
             handler()
+        except HostError as error:  # a bot that is not here, on a read
+            self._fail(404, str(error))
         except Exception as error:  # the host must never take the API down
             # the caller gets the type only; the host log keeps the traceback
             log.exception("control API %s %s failed", self.command, self.path)
@@ -180,20 +192,39 @@ class _Handler(BaseHTTPRequestHandler):
         self.close_connection = True
         self._fail(405, "method not allowed")
 
-    do_PUT = do_DELETE = do_PATCH = _other
+    do_PUT = do_PATCH = _other
+
+    def do_DELETE(self):
+        self._guard(self._delete)
+
+    @staticmethod
+    def _route(bot) -> dict:
+        """The ``bot=`` argument, only when a bot was named: a host of one bot takes
+        none, and a fleet answers for its first bot without it."""
+        return {} if bot is None else {"bot": bot}
+
+    @staticmethod
+    def _query_bot(query):
+        return (query.get("bot") or [None])[0] or None
+
+    def _fleet(self) -> bool:
+        return hasattr(self.host, "bots")
 
     def _get(self):
         self._drain()  # no GET route reads a body
         url = urllib.parse.urlsplit(self.path)
         query = urllib.parse.parse_qs(url.query)
+        route = self._route(self._query_bot(query))
         if url.path == "/health":
             return self._send(200, {"ok": True})
         if url.path == "/events":
             after = max(_number(query, "after", int, 0), 0)
-            return self._send(200, self.host.events(after, _wait(query)))
+            return self._send(200, self.host.events(after, _wait(query), **route))
+        if url.path == "/bots" and self._fleet():
+            return self._send(200, {"ok": True, "bots": self.host.bots()})
         if url.path.startswith("/jobs/") and len(url.path) > 6:
             job_id = urllib.parse.unquote(url.path[6:])
-            job = self.host.wait_job(job_id, _wait(query))
+            job = self.host.wait_job(job_id, _wait(query), **route)
             if job is None:
                 return self._fail(404, f"unknown job {job_id!r}")
             return self._send(200, job)
@@ -201,6 +232,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _post(self):
         url = urllib.parse.urlsplit(self.path)
+        query = urllib.parse.parse_qs(url.query)
         if url.path == "/shutdown" and self.on_shutdown is not None:
             self._drain()
             self.on_shutdown()  # sets a flag; the host winds down on its own thread
@@ -208,8 +240,11 @@ class _Handler(BaseHTTPRequestHandler):
         if url.path == "/trial":
             spec = self._json_body()
             if spec is not None:
-                self._send(200, self.host.trial(spec))
+                route = self._route(self._query_bot(query))
+                self._send(200, self.host.trial(spec, **route))
             return
+        if url.path == "/bots" and self._fleet():
+            return self._add_bot()
         if url.path != "/call":
             self._drain()
             return self._fail(404, "not found")
@@ -218,15 +253,43 @@ class _Handler(BaseHTTPRequestHandler):
             return
         intent, args, key = body.get("intent"), body.get("args"), body.get("key")
         source = body.get("source", "api")
+        bot = body.get("bot", self._query_bot(query))
         if not isinstance(intent, str) or not intent:
             return self._fail(400, "intent must be a non-empty string")
         if args is not None and not isinstance(args, dict):
             return self._fail(400, "args must be an object")
         if key is not None and not isinstance(key, str):
             return self._fail(400, "key must be a string")
+        if bot is not None and not isinstance(bot, str):
+            return self._fail(400, "bot must be a string")
         if source not in SOURCES:
             return self._fail(400, f"source must be one of {', '.join(SOURCES)}")
-        self._send(200, self.host.call(intent, args, Actor(source), key=key))
+        reply = self.host.call(intent, args, Actor(source), key=key, **self._route(bot))
+        self._send(200, reply)
+
+    def _add_bot(self):
+        body = self._json_body()
+        if body is None:
+            return
+        bot_id = body.get("id")
+        if bot_id is not None and not isinstance(bot_id, str):
+            return self._fail(400, "id must be a string")
+        self._bot_reply(lambda: self.host.add(bot_id))
+
+    def _delete(self):
+        path = urllib.parse.urlsplit(self.path).path
+        if not (path.startswith("/bots/") and len(path) > 6 and self._fleet()):
+            return self._other()
+        self._drain()
+        bot_id = urllib.parse.unquote(path[6:])
+        self._bot_reply(lambda: self.host.remove(bot_id))
+
+    def _bot_reply(self, change) -> None:
+        """A bot added or removed, or why it could not be (a 200 like ``/call``)."""
+        try:
+            self._send(200, {"ok": True, "bot": change()})
+        except (HostError, ValueError, LookupError) as error:
+            self._send(200, {"ok": False, "error": str(error).strip("'\"")})
 
 
 class Server:
@@ -330,15 +393,40 @@ class ApiClient:
         args: dict | None = None,
         key: str | None = None,
         source: str = "mcp",
+        bot: str | None = None,
     ) -> dict:
+        """``bot``: which bot (a server with several; none is the first one)."""
         body = {"intent": intent, "args": args or {}, "source": source}
         if key is not None:
             body["key"] = key
+        if bot is not None:
+            body["bot"] = bot
         return self._request("POST", "/call", body)[1]
 
-    def trial(self, spec: dict) -> dict:
+    @staticmethod
+    def _bot_query(bot: str | None, joiner: str = "&") -> str:
+        return "" if bot is None else f"{joiner}bot={urllib.parse.quote(bot, safe='')}"
+
+    def trial(self, spec: dict, bot: str | None = None) -> dict:
         """Set the scene for a combat trial (scripts/combat-trial.py); as ``call``."""
-        return self._request("POST", "/trial", spec)[1]
+        path = "/trial" + self._bot_query(bot, "?")
+        return self._request("POST", path, spec)[1]
+
+    def bots(self) -> list[dict]:
+        """The bots in the world, the first (default) one first."""
+        return self._request("GET", "/bots")[1].get("bots") or []
+
+    def add_bot(self, bot_id: str | None = None) -> dict:
+        """Put a bot in (the next free name by default): ``{"ok", "bot"}`` or
+        ``{"ok": False, "error"}``."""
+        return self._request("POST", "/bots", {} if bot_id is None else {"id": bot_id})[
+            1
+        ]
+
+    def remove_bot(self, bot_id: str) -> dict:
+        """Take a bot out (it halts and leaves the world); shaped as ``add_bot``."""
+        quoted = urllib.parse.quote(str(bot_id), safe="")
+        return self._request("DELETE", f"/bots/{quoted}")[1]
 
     def shutdown(self) -> bool:
         """Ask the host to wind down (halt and despawn the body, then exit)."""
@@ -348,12 +436,14 @@ class ApiClient:
         """The host answers (``GET /health``); no bot state is read."""
         return self._request("GET", "/health")[0] == 200
 
-    def wait_job(self, job_id: str, wait: float = 0.0) -> dict | None:
+    def wait_job(
+        self, job_id: str, wait: float = 0.0, bot: str | None = None
+    ) -> dict | None:
         quoted = urllib.parse.quote(str(job_id), safe="")
-        status, body = self._request("GET", f"/jobs/{quoted}?wait={wait}", wait=wait)
+        path = f"/jobs/{quoted}?wait={wait}{self._bot_query(bot)}"
+        status, body = self._request("GET", path, wait=wait)
         return None if status == 404 else body
 
-    def events(self, after: int = 0, wait: float = 0.0) -> dict:
-        return self._request(
-            "GET", f"/events?after={int(after)}&wait={wait}", wait=wait
-        )[1]
+    def events(self, after: int = 0, wait: float = 0.0, bot: str | None = None) -> dict:
+        path = f"/events?after={int(after)}&wait={wait}{self._bot_query(bot)}"
+        return self._request("GET", path, wait=wait)[1]

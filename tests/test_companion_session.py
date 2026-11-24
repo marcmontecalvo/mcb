@@ -1787,3 +1787,199 @@ def test_defense_settings_default_file_and_bad_saved_settings(make):
         session.defense_file.write_text(bad)
         again, *_ = make()
         assert again.defense_policy == DefensePolicy()
+
+
+# --- one companion among several ------------------------------------------------------
+
+
+def test_spawn_shares_the_server_with_other_bodies(make):
+    _, bridge, _, _, _ = _started(make)
+    assert bridge.sent[0][1]["coexist"] is True
+
+
+def test_say_client_can_speak_as_a_named_bot(monkeypatch):
+    seen = {}
+
+    class Connection:
+        def __init__(self, host, port, timeout):
+            pass
+
+        def request(self, method, path, body, headers):
+            seen["body"] = json.loads(body)
+
+        def getresponse(self):
+            return FakeResponse(200)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cs.http.client, "HTTPConnection", Connection)
+    cs.SayClient(8765, "tok", speaker="MCBot2").say("hi", "Steve")
+    assert seen["body"] == {"text": "hi", "to": "Steve", "speaker": "MCBot2"}
+
+
+def test_a_session_says_as_its_own_bot(make, monkeypatch):
+    session, _, _, _, _ = make()
+    session._say_client = None
+    made = []
+    monkeypatch.setattr(
+        cs, "default_say_client", lambda speaker=None: made.append(speaker) or FakeSay()
+    )
+    session.start()
+    assert made == ["MCBot"]
+
+
+def test_the_host_bridge_reads_only_its_own_body(monkeypatch, tmp_path):
+    made = SimpleNamespace(policy_memory=1)
+    monkeypatch.setattr(cs, "open_bridge", lambda folder, budget: made)
+    from mclab import navigation_runner
+
+    monkeypatch.setattr(navigation_runner, "_new_identity", lambda client, prefix: None)
+    bridge = cs.open_host_bridge(tmp_path)
+    assert bridge is made and bridge.scoped is True and bridge.policy_memory is None
+
+
+def test_a_session_opens_the_memory_of_its_own_root(make, tmp_path):
+    opened = []
+    session, _, _, _, memory = make()
+    session._open_memory = lambda *args, **kwargs: opened.append(kwargs) or memory
+    session.start()
+    assert opened == [{}]  # the first bot keeps the shared default
+    session.close()
+    other, _, _, _, memory = make()
+    other.memory_root = tmp_path / "mcbot2"
+    other._open_memory = lambda *args, **kwargs: opened.append(kwargs) or memory
+    other.start()
+    assert opened[1] == {"memory_root": tmp_path / "mcbot2"}
+
+
+def test_each_bot_opens_its_own_world_memory(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(
+        cs,
+        "session_archive",
+        lambda *args, **kwargs: seen.append(kwargs.get("memory_root")) or object(),
+    )
+    import mclab.spatial_memory as sm
+
+    monkeypatch.setattr(sm, "SpatialMemory", lambda archive, episode, policy: archive)
+    bridge = SimpleNamespace(episode_id="e")
+    cs.open_world_memory(bridge, tmp_path, object())
+    cs.open_world_memory(bridge, tmp_path, object(), memory_root=tmp_path / "mcbot2")
+    assert seen == [None, tmp_path / "mcbot2"]
+
+
+# --- two companions, two sessions: nothing is shared ----------------------------------
+
+
+@pytest.fixture
+def pair(tmp_path, monkeypatch):
+    """Two real sessions on one 'server': each has its own bridge, memory, places,
+    body, state file and results folder, as a fleet makes them."""
+    monkeypatch.setattr(cs, "await_sampled_stream", lambda bridge, timeout: {})
+
+    def build(name, spawn):
+        parts = SimpleNamespace(
+            bridge=FakeBridge(), memory=FakeMemory(), places=FakePlaces(), say=FakeSay()
+        )
+        parts.session = cs.Session(
+            name,
+            folder=tmp_path / name / "run",
+            state_file=tmp_path / name / "companion-state.json",
+            gather_state=GatherState(),
+            open_bridge=lambda folder: parts.bridge,
+            open_memory=lambda b, folder, awareness: parts.memory,
+            make_places=lambda m: parts.places,
+            make_body=FakeBody,
+            awareness=FakeAwareness(),
+            say_client=parts.say,
+            knowledge=lambda: SimpleNamespace(foods={}),
+            clock=lambda: 0.0,
+            world_spawn=lambda: spawn,
+        )
+        parts.session.start()
+        return parts
+
+    return build("MCBot", (0, 80, 0)), build("MCBot2", (40, 80, 40))
+
+
+def test_two_sessions_spawn_their_own_names_where_they_belong(pair):
+    first, second = pair
+    for parts, name, where in (
+        (first, "MCBot", [0.5, 80, 0.5]),
+        (second, "MCBot2", [40.5, 80, 40.5]),
+    ):
+        op, fields = parts.bridge.sent[0]
+        assert op == "spawn" and fields["name"] == name
+        assert fields["position"] == where and fields["coexist"] is True
+    assert first.session.body is not second.session.body
+    assert first.session.state_file != second.session.state_file
+
+
+def test_a_command_to_one_session_never_reaches_the_other(pair):
+    first, second = pair
+    second.bridge.sent.clear()
+    _, progress = _progress()
+    first.session.run("goto", _goto({"pos": (10, 64, 10)}), Actor("api"), progress)
+    assert first.session.body.log[-1][0] == "walk_far"
+    assert second.session.body.log == [] and second.bridge.sent == []
+    first.session.halt()
+    assert [op for op, _ in first.bridge.sent][-2:] == ["cancel_route", "release"]
+    assert second.bridge.sent == []
+
+
+def test_a_death_is_seen_by_the_body_it_happened_to(pair):
+    first, second = pair
+    first.bridge.events.append(
+        {"type": "body_died", "data": {"name": "MCBot", "position": [9.3, 64, 9.8]}}
+    )
+    first.session.last_good = (4, 64, 4)
+    second.session.last_good = (44, 64, 44)
+    first.session.respawn()
+    assert first.places.named("death").position == (9, 64, 9)
+    assert second.places.named("death") is None and second.session._died_event is None
+    # the other one, leaving without dying, comes back where it was
+    second.bridge.sent.clear()
+    second.session.respawn()
+    assert second.bridge.sent[0][1]["position"] == [44.5, 64, 44.5]
+
+
+def test_both_dying_in_the_same_moment_each_come_back_once(pair):
+    first, second = pair
+    first.bridge.events.append({"type": "body_died", "data": {"position": [1, 64, 1]}})
+    second.bridge.events.append(
+        {"type": "body_died", "data": {"position": [50, 64, 50]}}
+    )
+    for parts in pair:
+        parts.bridge.sent.clear()
+    first.session.respawn()
+    second.session.respawn()
+    assert first.places.named("death").position == (1, 64, 1)
+    assert second.places.named("death").position == (50, 64, 50)
+    # each is brought back at its own server's spawn, once
+    assert [op for op, _ in first.bridge.sent] == ["spawn"]
+    assert [op for op, _ in second.bridge.sent] == ["spawn"]
+    assert first.bridge.sent[0][1]["name"] == "MCBot"
+    assert second.bridge.sent[0][1]["name"] == "MCBot2"
+    # and a death already handled is not counted again by either
+    first.session.respawn()
+    assert first.places.named("death") is not None
+    assert first.session._died_event is None
+
+
+def test_saved_state_is_kept_per_bot(pair):
+    first, second = pair
+    first.session._save((7, 65, 8), force=True)
+    second.session._save((41, 81, 42), force=True)
+    assert cs.read_state(first.session.state_file)["position"] == [7, 65, 8]
+    assert cs.read_state(first.session.state_file)["bot"] == "MCBot"
+    assert cs.read_state(second.session.state_file)["position"] == [41, 81, 42]
+    assert cs.read_state(second.session.state_file)["bot"] == "MCBot2"
+
+
+def test_closing_one_session_leaves_the_other_open(pair):
+    first, second = pair
+    first.session.close()
+    assert first.bridge.closed and first.memory.closed
+    assert not second.bridge.closed and not second.memory.closed
+    second.session.respawn()  # still works

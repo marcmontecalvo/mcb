@@ -1127,7 +1127,9 @@ class CompanionBody:
             self.bridge.send("plug_keep", items=keep)
             self._plug_keep_sent = keep
 
-    def op(self, name: str, /, **fields) -> Result:  # positional-only: arena ops carry a ``name`` field
+    def op(
+        self, name: str, /, **fields
+    ) -> Result:  # positional-only: arena ops carry a ``name`` field
         if name in PLUG_KEEP_OPS:
             self.sync_plug_keep()
         payload = self.bridge.send(name, **fields)
@@ -1378,7 +1380,12 @@ class CompanionBody:
 
     # --- arena runtime (docs/ARENA_RUNTIME.md; ops of com.vulpine.mcb.arena) ---
     def arena_build(
-        self, plan: dict, origin, *, name: str | None = None, dimension: str | None = None
+        self,
+        plan: dict,
+        origin,
+        *,
+        name: str | None = None,
+        dimension: str | None = None,
     ) -> Result:
         """Register and place an arena plan with its min corner at ``origin``. The ack
         (``state`` building) comes at once; the job then ends with an ``arena_built``
@@ -2873,9 +2880,18 @@ def _level_dir():
 
 
 def session_archive(
-    folder, awareness, episode_id, world_memory=None, memory_policy=None
+    folder,
+    awareness,
+    episode_id,
+    world_memory=None,
+    memory_policy=None,
+    memory_root=None,
 ):
     """Per-world archive that outlives the session, or a per-run one.
+
+    ``memory_root``: the folder the world's archive lives in (default
+    ``WORLD_MEMORY``). Companions sharing a server each get their own, so one bot's
+    remembered cells and places are never another's.
 
     None: world memory only in a kept world. A companion_world(seed) copy is
     restored fresh every run, so remembering it would make a run depend on the
@@ -2892,7 +2908,7 @@ def session_archive(
     world_memory = world_memory and memory_policy.memory_mode == "persistent"
     level = _level_dir()
     if world_memory:
-        archive = world_archive(level, awareness, WORLD_MEMORY)
+        archive = world_archive(level, awareness, memory_root or WORLD_MEMORY)
         if archive is not None:
             return archive
         logging.getLogger(__name__).warning(

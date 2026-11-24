@@ -216,11 +216,24 @@ class SayClient:
     """``POST /say {text, to?}`` on the body bridge. Its own connection per call, so
     any thread may use it (the Bridge object belongs to the worker thread)."""
 
-    def __init__(self, port: int, token: str, timeout: float = 4.0):
+    def __init__(
+        self,
+        port: int,
+        token: str,
+        timeout: float = 4.0,
+        speaker: str | None = None,
+    ):
+        """``speaker``: the bot's name; with several bots on the server the bridge
+        speaks as the one named (without it, as the first)."""
         self.port, self._token, self.timeout = port, token, timeout
+        self.speaker = speaker
 
     def say(self, text: str, to: str | None = None) -> None:
-        payload = {"text": text, **({"to": to} if to else {})}
+        payload = {
+            "text": text,
+            **({"to": to} if to else {}),
+            **({"speaker": self.speaker} if self.speaker else {}),
+        }
         connection = http.client.HTTPConnection(
             "127.0.0.1", self.port, timeout=self.timeout
         )
@@ -242,22 +255,29 @@ class SayClient:
             raise RuntimeError(f"say failed: HTTP {response.status} {data[:200]!r}")
 
 
-def default_say_client() -> SayClient:
+def default_say_client(speaker: str | None = None) -> SayClient:
     from mclab.server import STATE
 
-    return SayClient(paths.config()["bridge_port"], paths.read_json(STATE)["token"])
+    return SayClient(
+        paths.config()["bridge_port"],
+        paths.read_json(STATE)["token"],
+        speaker=speaker,
+    )
 
 
 # --- defaults for the live session --------------------------------------------------
 
 
 def open_host_bridge(folder: Path):
-    """A recorded bridge with no request budget and a fresh companion identity."""
+    """A recorded bridge with no request budget and a fresh companion identity. It is
+    scoped to that identity's body: other companions may share the server, and this
+    one reads only what its own body did and what concerns everyone."""
     from mclab.navigation_runner import _new_identity
 
     bridge = open_bridge(folder, budget=None)
     _new_identity(bridge, "companion")
     bridge.policy_memory = None
+    bridge.scoped = True
     return bridge
 
 
@@ -267,13 +287,17 @@ def load_awareness():
     return Awareness.from_payload(paths.read_json(AWARENESS))
 
 
-def open_world_memory(bridge, folder: Path, awareness):
-    """Persistent world memory (the real level's archive; per-run if it has no seed)."""
+def open_world_memory(bridge, folder: Path, awareness, memory_root=None):
+    """Persistent world memory (the real level's archive; per-run if it has no seed).
+    ``memory_root``: where this bot's archive lives, when it is not the first bot."""
     from mclab.memory_policy import MemoryPolicy
     from mclab.spatial_memory import SpatialMemory
 
     policy = MemoryPolicy()
-    archive = session_archive(folder, awareness, bridge.episode_id, True, policy)
+    extra = {} if memory_root is None else {"memory_root": memory_root}
+    archive = session_archive(
+        folder, awareness, bridge.episode_id, True, policy, **extra
+    )
     return SpatialMemory(archive, bridge.episode_id, policy=policy)
 
 
@@ -368,6 +392,7 @@ class Session:
         world_spawn=level_spawn,
         defense: DefensePolicy | None = None,
         defense_file: Path | None = None,
+        memory_root: Path | None = None,
     ):
         from mclab.gather_options import GatherOptions
         from mclab.gather_runner import GatherState
@@ -375,6 +400,9 @@ class Session:
         self.bot_name = bot_name
         self.folder = Path(folder)
         self.state_file = Path(state_file)
+        # where this bot's world memory lives; None is the shared default (the
+        # first bot's), so one bot's remembered cells are never another's
+        self.memory_root = None if memory_root is None else Path(memory_root)
         self.gather_state = gather_state if gather_state is not None else GatherState()
         self.gather_options = gather_options or GatherOptions()
         self._open_bridge, self._open_memory = open_bridge, open_memory
@@ -421,10 +449,15 @@ class Session:
             if self._awareness is None:
                 self._awareness = load_awareness()
             if self._say_client is None:
-                self._say_client = default_say_client()
+                self._say_client = default_say_client(self.bot_name)
             self.bridge = self._open_bridge(self.folder)
             self.bridge.cancel_check = self._on_poll
-            self.memory = self._open_memory(self.bridge, self.folder, self._awareness)
+            extra = (
+                {} if self.memory_root is None else {"memory_root": self.memory_root}
+            )
+            self.memory = self._open_memory(
+                self.bridge, self.folder, self._awareness, **extra
+            )
             self.places = self._make_places(self.memory)
             position = self.spawn_position()
             self._spawn(position)
@@ -473,6 +506,7 @@ class Session:
             position=[x + 0.5, y, z + 0.5],
             yaw=0.0,
             replace=True,
+            coexist=True,  # other companions may be in the world: add, don't take over
             stream=True,
             extended_observation=True,
             keep_state=True,  # the saved inventory, health and food stay

@@ -20,6 +20,7 @@ import json
 import threading
 import time
 import urllib.error
+import urllib.parse
 from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
@@ -124,6 +125,11 @@ class Bridge:
         self.episode_id = "proof-" + uuid4().hex[:12]
         self.body_id = "body-" + uuid4().hex[:12]
         self.body_name: str | None = None
+        # True: this client shares the server with other bodies (the arena server's
+        # several companions). Its /state, /policy and /events then name its own body,
+        # so it reads only what that body did and what concerns everyone (chat, the
+        # arena). False: the one body every older client assumes; it reads everything.
+        self.scoped = False
         self.lab_watchdog = False
         self.sequence = 0
         self.submitted = 0
@@ -175,7 +181,7 @@ class Bridge:
                 # HTTP/event endpoints exist before the first server tick publishes
                 # both snapshots. Do not admit commands until both mods are ready.
                 self.http("/state")
-                body = self.http("/events?after=0")
+                body = self.http(self._scoped("/events?after=0"))
                 lab = self.http("/lab/events?after=0") if self.lab else None
                 break
             except urllib.error.HTTPError:
@@ -246,9 +252,10 @@ class Bridge:
                 io.BytesIO(data),
             )
         value = json.loads(data)
-        if value in ({}, {"state": "idle"}) and path in {"/state", "/policy"}:
+        route = path.partition("?")[0]
+        if value in ({}, {"state": "idle"}) and route in {"/state", "/policy"}:
             raise urllib.error.URLError("Bridge snapshot not ready")
-        if path == "/policy":
+        if route == "/policy":
             self.last_policy_wire_bytes = len(data)
         if value.get("launch_id") != self.launch_id:
             raise RuntimeError(
@@ -268,13 +275,20 @@ class Bridge:
                 )
             return self._raw(True, path[4:], payload)
         if path in {"/state", "/policy"} and payload is None:
-            body = self._raw(False, path, None)
+            body = self._raw(False, self._scoped(path), None)
             if not self.lab:
                 return session_view(body)
             return merge(
                 body, self._raw(True, "/state", None), policy=path == "/policy"
             )
         return self._raw(False, path, payload)
+
+    def _scoped(self, path: str) -> str:
+        """``path`` naming this client's body when it shares the server (``scoped``)."""
+        if not self.scoped:
+            return path
+        joint = "&" if "?" in path else "?"
+        return f"{path}{joint}body={urllib.parse.quote(self.body_id, safe='')}"
 
     def envelope(self, op: str, **fields) -> dict:
         self.sequence += 1
@@ -398,7 +412,7 @@ class Bridge:
         self.record("receipt", receipt)
 
     def drain(self) -> list[dict]:
-        body = self.http(f"/events?after={self.cursor}")
+        body = self.http(self._scoped(f"/events?after={self.cursor}"))
         batches = [body]
         if self.lab:
             batches.append(self.http(f"/lab/events?after={self.lab_cursor}"))
