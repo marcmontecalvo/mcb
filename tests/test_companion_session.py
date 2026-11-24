@@ -1349,6 +1349,16 @@ def test_defend_fights_with_the_policys_floor_and_radius(guard):
     assert not _logged(session.body, "wait")
 
 
+def test_defend_widens_the_fight_to_an_archer_past_the_radius(guard):
+    session, _, _ = guard(defense=DefensePolicy(threat_radius=10))
+    archer = Threat("s1", "minecraft:skeleton", (14.5, 64.0, 0.5), 14.4)
+    session.defend(
+        Action("fight", "fighting", target="s1", item=SWORD, threats=(archer,))
+    )
+    ((_, fields),) = _logged(session.body, "fight")
+    assert fields["radius"] == 15
+
+
 def test_defend_passes_the_tactic_to_the_body(guard):
     session, _, _ = guard()
     plan = Tactic("snipe", "minecraft:bow", keep=(8.0, 15.0), melee=SWORD)

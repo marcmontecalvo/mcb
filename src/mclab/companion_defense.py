@@ -25,6 +25,12 @@ CREEPER = M + "creeper"
 CREEPER_SWELL = 7.0  # a started swell runs down only past 7 blocks
 WEAPONS = combat.MELEE_RANKED  # best first, by damage per second with crits
 RANGED_STYLES = frozenset({"snipe"})  # tactics that reach a mob no walk gets to
+# A bow-wielding mob shoots from 15 blocks: it is a threat that far, whatever the
+# threat radius (live, a third skeleton shot from past 12 after the guard called a
+# group fight clear).
+ARCHERS = frozenset(M + n for n in ("skeleton", "stray", "bogged"))
+ARCHER_RANGE = 16.0
+FIGHT_RADIUS_MAX = 32  # the fight op's radius bound
 
 # field: (low, high) inclusive
 _BOUNDS = {
@@ -120,7 +126,8 @@ def _dist(a, b) -> float:
 
 
 def threats(entities, position, policy: DefensePolicy) -> list[Threat]:
-    """Hostiles within the threat radius and roughly level with us, nearest first."""
+    """Hostiles within the threat radius (an archer: within its bow's range) and
+    roughly level with us, nearest first."""
     out = []
     for e in entities:
         at = e.get("position") or ()
@@ -129,9 +136,19 @@ def threats(entities, position, policy: DefensePolicy) -> list[Threat]:
         if abs(at[1] - position[1]) > THREAT_DY:
             continue
         d = _dist(at, position)
-        if d <= policy.threat_radius:
+        limit = policy.threat_radius
+        if e["type"] in ARCHERS:
+            limit = max(limit, ARCHER_RANGE)
+        if d <= limit:
             out.append(Threat(str(e.get("uuid")), e["type"], tuple(at), d))
     return sorted(out, key=lambda t: t.distance)
+
+
+def fight_radius(seen: Iterable[Threat], policy: DefensePolicy) -> int:
+    """The radius a fight looks in: the threat radius, widened to the farthest
+    threat seen, so a fight never ends "done" with an archer still shooting."""
+    far = max((t.distance for t in seen), default=0.0)
+    return min(FIGHT_RADIUS_MAX, math.ceil(max(policy.threat_radius, far)))
 
 
 def allies(entities, name, position, policy: DefensePolicy) -> list[Ally]:

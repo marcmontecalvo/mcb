@@ -807,7 +807,7 @@ class Session:
             return self.body.fight(
                 entity=entity,
                 weapon=action.item,
-                radius=int(policy.threat_radius),
+                radius=defense.fight_radius(action.threats, policy),
                 floor=int(policy.floor_health),
                 max_ticks=FIGHT_TICKS,
                 anchor=action.anchor,

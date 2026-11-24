@@ -81,6 +81,26 @@ def test_threats_are_hostiles_near_and_level_sorted_by_distance():
     assert found[0].distance == pytest.approx(2.0)
 
 
+def test_an_archer_is_a_threat_as_far_as_it_shoots():
+    # live (group matrix 20261124T002512Z): a bow killed two of three skeletons and
+    # the guard called it clear with the third shooting from past 12 blocks
+    at14 = mob("skeleton", at=(14.5, 64.0, 0.5), uuid="s")
+    stray = mob("stray", at=(0.5, 64.0, 16.0), uuid="t")
+    zombie = mob(at=(14.5, 64.0, 0.5), uuid="z")
+    out = mob("skeleton", at=(17.5, 64.0, 0.5), uuid="out")
+    found = cd.threats((at14, stray, zombie, out), HERE, POLICY)
+    assert [t.uuid for t in found] == ["s", "t"]
+    assert cd.ARCHER_RANGE >= 15  # a skeleton's bow reaches 15 blocks
+
+
+def test_the_fight_looks_as_far_as_the_farthest_threat_seen():
+    near = cd.Threat("a", M + "zombie", (4.5, 64.0, 0.5), 4.0)
+    archer = cd.Threat("b", M + "skeleton", (14.7, 64.0, 0.5), 14.2)
+    assert cd.fight_radius((near,), POLICY) == 12
+    assert cd.fight_radius((near, archer), POLICY) == 15
+    assert cd.fight_radius((), POLICY) == 12
+
+
 def test_allies_are_other_players_near():
     me = player("MCBot", at=HERE)
     far = player("Far", at=(80.5, 64.0, 0.5))
