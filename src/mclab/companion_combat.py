@@ -177,7 +177,9 @@ def _profiles() -> dict[str, Profile]:
         "piglin_brute wither_skeleton",
         # the breeze deflects arrows; a vex is too small and quick to shoot
         Profile(("melee",)): "breeze vex",
-        Profile(("melee", "snipe"), first=True): "evoker",
+        # it flees a player inside 8 blocks: melee landed 0-1 hits in 10 trials
+        # while its vexes wore the bot down (20261124T014222Z), so the bow first
+        Profile(("snipe", "melee"), first=True): "evoker",
         Profile(("snipe", "melee")): "skeleton stray bogged pillager illusioner",
         # the owner's order: the bow, the spear's charge past its fuse, then close in
         Profile(("snipe", "charge", "hit_and_back")): "creeper",

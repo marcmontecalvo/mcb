@@ -77,6 +77,16 @@ def test_a_ravager_is_shot_from_range_and_never_met_in_melee():
     assert cc.mob_health(M + "ravager") == 100
 
 
+def test_an_evoker_is_shot_first_since_it_runs_from_melee():
+    # it flees a player inside 8 blocks: in melee the bot landed 0 or 1 hits in
+    # 10 trials while its vexes wore it down (20261124T014222Z); still first
+    kit = inv("iron_sword", "iron_axe", "bow", arrows=64)
+    t = cc.tactic(M + "evoker", kit)
+    assert (t.style, t.weapon, t.melee) == ("snipe", M + "bow", M + "iron_axe")
+    assert cc.tactic(M + "evoker", inv("iron_sword")).style == "melee"
+    assert cc.first(M + "evoker")
+
+
 def test_a_ravager_is_met_behind_a_shield_when_the_bot_carries_one():
     # a blocked bite can stun it (the opening to strike); the shield in the off
     # hand is the mod's to raise, the tactic only picks the swing weapon

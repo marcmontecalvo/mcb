@@ -240,7 +240,8 @@ public final class BodyRuntime implements AutoCloseable {
      * The current body's player died (Fabric AFTER_DEATH, server thread). Carpet then removes the fake player, so
      * the state afterwards reads disconnected_or_dead; this carries the cause, once per spawned body.
      */
-    static void bodyDied(net.minecraft.world.entity.LivingEntity entity) {
+    static void bodyDied(net.minecraft.world.entity.LivingEntity entity,
+                         net.minecraft.world.damagesource.DamageSource source) {
         var runtime = active;
         if (runtime == null || !(entity instanceof ServerPlayer player)) return;
         var body = runtime.body;
@@ -251,6 +252,7 @@ public final class BodyRuntime implements AutoCloseable {
         data.put("cause", player.getCombatTracker().getDeathMessage().getString());
         addSender(data, player);
         runtime.emit("body_died", "fabric_start", data);
+        if (runtime.actionTask != null) runtime.actionTask.died(player, BodyEntity.hurtSource(source));
         runtime.actionDied(player);
     }
 

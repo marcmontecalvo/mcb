@@ -19,7 +19,7 @@ public final class BodyMod implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registry, environment) -> McbCommand.register(dispatcher));
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) ->
                 BodyRuntime.playerChat(sender, message.signedContent()));
-        ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> BodyRuntime.bodyDied(entity));
+        ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> BodyRuntime.bodyDied(entity, source));
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             try { runtime = new BodyRuntime(server); }
             catch (IOException error) { throw new IllegalStateException("Cannot bind body bridge", error); }

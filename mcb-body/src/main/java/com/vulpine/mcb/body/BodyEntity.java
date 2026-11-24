@@ -33,6 +33,8 @@ final class BodyEntity {
         default Map<String, Object> failure(ServerPlayer player) { return Map.of(); }
         /** Called when the task is cancelled or ends early. */
         default void stop(ServerPlayer player) {}
+        /** The body died of `source` (hurtSource) while the task ran; failure follows. */
+        default void died(ServerPlayer player, String source) {}
         /** Movement for this tick, applied after step by the runtime with a 2-tick expiry; null releases the body. */
         default BodyRuntime.Controls controls(ServerPlayer player, int tick) { return null; }
     }
@@ -43,8 +45,9 @@ final class BodyEntity {
      * What dealt the body's last damage: the direct entity's type (an evoker's fangs, an arrow, a vex), else the
      * damage kind ("fall", "magic"); null once it is too old to be this tick's.
      */
-    static String hurtSource(ServerPlayer player) {
-        var source = player.getLastDamageSource();
+    static String hurtSource(ServerPlayer player) { return hurtSource(player.getLastDamageSource()); }
+
+    static String hurtSource(net.minecraft.world.damagesource.DamageSource source) {
         if (source == null) return null;
         return source.getDirectEntity() != null ? typeId(source.getDirectEntity()) : source.getMsgId();
     }
@@ -319,6 +322,12 @@ final class BodyEntity {
         }
 
         /** Adds what the tracked target lost since the last look; a dead one is counted (an arrow's kill) and let go. */
+        /** The death's own source: the last tick's damage source may be gone by the time the death is seen. */
+        @Override public void died(ServerPlayer player, String source) {
+            if (hurt == null) hurt = new FightLogic.Hurt(player.getMaxHealth());
+            hurt.seen(0, source);
+        }
+
         private void account(ServerPlayer player) {
             if (hurt == null) hurt = new FightLogic.Hurt(player.getHealth());
             hurt.seen(player.getHealth(), hurtSource(player));
