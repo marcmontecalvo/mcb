@@ -550,7 +550,30 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   roster is a list of `{name, team, op}` (`RosterEntry`) checked against the arena's
   own teams and `per_team` from its plan before launch. In a team game the bot fights
   the other teams' players as well as wave mobs; a teammate is never a target and never
-  in a harmful splash. Phase 1 has one bot; two bots and an "add a bot" button come
-  next.
+  in a harmful splash. Phase 1 had one bot; several bots and an "add a bot" button
+  followed (see "Several bots in an arena match" below).
 - **Open:** rotating a long session's `events.sqlite3`, and the live night test of the
   defence (built, not yet run against real mobs).
+
+## Several bots in an arena match (November 24, 2026)
+
+- **Decision:** a match can have several copies of the bot (2v2, 3v3, bots and people
+  mixed, up to 8 a team). Each bot is a body with its own host, session, talker and
+  files (`companion_fleet.Fleet`, up to 16); the mod's body hub routes and tags every
+  event and command by body id. The bots are `MCBot` (id `default`), then `MCBot2` …
+  `MCBot99` (`mcbot2` …): the roster name decides, so nothing else has to say which
+  names are bots. The naming lives in `mclab.companion_names`, which imports nothing
+  heavy, so the dashboard and `play_runs` share it with the host.
+- **Why not a "bot" argument everywhere yet:** the arena hunt is the only caller that
+  needs several bots now, so only it and the API routing (`bot=`) know about them. The
+  MCP tools still drive the first bot. Single-bot runs keep the flat result row and the
+  old call shapes (a `bot=` goes out only for a bot that is not the first), so history
+  and tools do not change.
+- **Bots fight each other:** a bot's foes are the live participants of the other teams,
+  bots included; a teammate bot is never a target or in a harmful splash. A bot cannot be
+  an operator (refused in `play_runs` and in the roster form).
+- **Failures:** a bot that cannot be put in stops the series with a reason (exit 2), and
+  a bot that is not ready stops it too; nothing counts failures or bans a bot.
+- **Open:** the live check (a 2-bot PvE match, then a 2v2 with one person and one bot a
+  team), the same wave feed and event load with many bodies, and a `bot` argument for
+  the MCP tools.

@@ -127,7 +127,10 @@ The **Arena** row is a short wizard: **Arena**, **Game**, **Players**, **Waves**
 everyone against the mob waves), **PvP** (`teams`: team against team, waves
 optional: **Waves** then offers **No mob waves**) or **Kill race** (`race`: teams
 race to kill the most wave mobs). **Players** is `run.roster`, a list of
-`{name, team, op}` (`run_config.RosterEntry`): the bot's row, a row per person
+`{name, team, op}` (`run_config.RosterEntry`): the bot's row, more bots from
+**+ Add a bot (MCBot2)** (the next free `MCBot<N>`, on the smaller team; a bot
+has no Op box and cannot be an operator; a removed bot's name is reused; see
+[ARENA_RUNTIME.md](ARENA_RUNTIME.md#several-bots)), a row per person
 added by Minecraft name, a team select in PvP and Kill race (only the arena's
 own teams, read from its plan: `run.arena.enum_meta` gives `teams`, `per_team`
 and `players`), and an **Op** box that makes that person an operator on the
