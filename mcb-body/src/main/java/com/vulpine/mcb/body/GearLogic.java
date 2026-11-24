@@ -29,6 +29,16 @@ final class GearLogic {
     /** Whether `a` is worth wearing over `b`. */
     static boolean better(Piece a, Piece b) { return RANK.compare(a, b) > 0; }
 
+    /**
+     * The armor points the worn pieces give (the ARMOR attribute once the body next ticks: LivingEntity
+     * applies an equipment change's modifiers then, so getArmorValue right after a wear is stale).
+     */
+    static double armor(java.util.Collection<Piece> worn) {
+        double sum = 0;
+        for (var p : worn) sum += p.armor();
+        return sum;
+    }
+
     /** A piece that belongs in its slot: armor with armor points, or a shield in the off hand. */
     private static boolean wearable(Piece p) { return p.slot() == Slot.OFFHAND || p.armor() > 0; }
 

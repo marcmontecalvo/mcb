@@ -25,6 +25,9 @@ public final class GearLogicTest {
         var moves = GearLogic.plan(List.of(ironHelmet, ironChest, ironLegs, ironBoots, shield), Map.of(), Set.of());
         check(moves.size() == 5, "five moves: " + moves);
         check(moves.contains(new GearLogic.Move(4, C)) && moves.contains(new GearLogic.Move(7, O)), "chest and shield");
+        // the armor a set gives, from its pieces: the attribute updates only on the body's next tick
+        check(GearLogic.armor(List.of(ironHelmet, ironChest, ironLegs, ironBoots, shield)) == 15, "iron set is 15");
+        check(GearLogic.armor(List.of()) == 0, "nothing worn is 0");
 
         // the better piece of a slot wins: armor first, then toughness, protection, durability left
         var leather = piece(8, "leather_chestplate", C, 3, 0, 0, 80);

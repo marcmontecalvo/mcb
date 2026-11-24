@@ -88,7 +88,12 @@ final class BodyGear {
         var out = new LinkedHashMap<String, Object>();
         out.put("put_on", put);
         out.put("worn", worn(player));
-        out.put("armor", player.getArmorValue());
+        var on = new ArrayList<GearLogic.Piece>();
+        for (var slot : GearLogic.Slot.values()) {
+            var stack = player.getItemBySlot(equipment(slot));
+            if (slotOf(stack) == slot) on.add(piece(player, -1, stack, slot));
+        }
+        out.put("armor", GearLogic.armor(on));  // the attribute itself catches up on the next tick
         return out;
     }
 
