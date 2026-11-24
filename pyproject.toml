@@ -29,3 +29,6 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.ruff.lint.per-file-ignores]
 # Throwaway analysis scripts: long printf-style lines and late imports are fine.
 "scripts/analysis/*" = ["E501", "E402"]
+# Arena validator messages and block-name lists read better unwrapped.
+"src/mclab/arena/*" = ["E501"]
+"tests/test_arena_*" = ["E501"]
