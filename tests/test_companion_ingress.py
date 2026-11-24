@@ -256,6 +256,12 @@ def test_attack_hostile_means_the_nearest_hostile(word):
     assert tells == [("Owner", "Started job j-9: attack the nearest hostile")]
 
 
+def test_attack_arena_hunts_the_match_the_bot_stands_in():
+    calls, tells = attacking("Arena")
+    assert calls[0][:2] == ("attack", {"arena": True})
+    assert tells == [("Owner", "Started job j-9: attack every wave mob in the arena")]
+
+
 def test_attack_with_a_weapon_passes_it_on():
     calls, tells = attacking("flamingchicken", weapon="iron_sword")
     assert calls[0][:2] == (

@@ -486,6 +486,14 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   creative, spectator or invulnerable ends the job `invulnerable`: it is not a
   failure. The operator-only `trial` op stays off `/mcb`, MCP and the chat model. Plan:
   [COMPANION_COMBAT_PLAN_2026-11-23.md](COMPANION_COMBAT_PLAN_2026-11-23.md) section 14.
+- **In an arena the bot hunts every wave mob and fights to the end (Nov 24).** Marc wanted no
+  12-block defensive radius in the arena: all five ravagers of a wave must die wherever they are.
+  `attack {arena}` reads the match's wave mobs from `arena_status` and takes the nearest, walking to
+  one it cannot see. While the hunt runs, the guard stands down (the hunt is already the defence).
+  The fight has no health floor, because an arena has no shelter, no burrow (its blocks are
+  protected) and no way out, and a match is lost only by dying. Outside an arena, the floor and
+  the guard are unchanged. Arena designs, protection and waves: [ARENAS.md](ARENAS.md),
+  [ARENA_RUNTIME.md](ARENA_RUNTIME.md).
 - **Nothing in a poll touches storage (Nov 23).** The guard runs inside the motor
   loop, so its threat check reads only memory. The place graph reads its places
   once and writes every change through; one graph owns a world's places in a

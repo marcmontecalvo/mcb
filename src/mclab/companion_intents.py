@@ -12,6 +12,8 @@ from dataclasses import asdict, dataclass
 
 PLAYER = re.compile(r"[A-Za-z0-9_]{1,16}")
 ITEM = re.compile(r"(?:minecraft:)?([a-z0-9_]{1,64})")
+# a registered arena's name (the mod's rule; mclab.arena.client.NAME)
+ARENA_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 TEMPLATE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
 PLACE = re.compile(r"[a-z0-9][a-z0-9 _-]{0,31}")
 JOB_ID = re.compile(r"[A-Za-z0-9_-]{1,40}")
@@ -149,14 +151,17 @@ INTENTS = {
         "Fight one target on the owner's order, until it dies, you stop it or it can "
         "no longer be fought. Give exactly one of: `player` (an online player's "
         "name), `mob` (a kind such as zombie or cow: the nearest one seen) or "
-        "`nearest_hostile` (true: the nearest hostile mob). The bot walks or chases "
+        "`nearest_hostile` (true: the nearest hostile mob) or `arena` (an arena's "
+        "name, or true for the one the bot stands in: hunt every wave mob of its "
+        "match, wherever it is, fighting on to the end). The bot walks or chases "
         "into range, picks the tactic and weapon itself (`weapon`: an item id it "
         "holds, to use that instead), chases again when the target runs off, and "
-        "still stops at its health floor (see defense). The job's result says how it "
-        "ended: killed; lost (the target logged out, went to another dimension or "
-        "cannot be found); invulnerable (a player in creative or spectator mode); "
-        "with kills, hits, crits, shots and damage. Only the owner or allowlist may "
-        "use it; a player may be named only if the owners or allowlist name them.",
+        "outside an arena still stops at its health floor (see defense). The job's "
+        "result says how it ended: killed; lost (the target logged out, went to "
+        "another dimension or cannot be found); invulnerable (a player in creative "
+        "or spectator mode); for an arena won, lost or stopped; with kills, hits, "
+        "crits, shots and damage. Only the owner or allowlist may use it; a player "
+        "may be named only if the owners or allowlist name them.",
         {
             "player": {"type": "string", "description": "an online player's name"},
             "mob": {
@@ -166,6 +171,11 @@ INTENTS = {
             "nearest_hostile": {
                 "type": "boolean",
                 "description": "true: the nearest hostile mob in sight",
+            },
+            "arena": {
+                "type": ["string", "boolean"],
+                "description": "an arena's name, or true for the arena the bot "
+                "stands in: every wave mob of its match",
             },
             "weapon": {
                 "type": "string",
@@ -339,9 +349,19 @@ def _weapon(args):
     return "minecraft:" + found.group(1)
 
 
+def _arena(value):
+    """An arena's registered name, or true: the arena the bot stands in."""
+    if value is True or (isinstance(value, str) and ARENA_NAME.fullmatch(value)):
+        return value
+    raise ValueError(
+        "arena must be an arena's name (lowercase letters, digits, - and _, at most "
+        "32) or true for the arena the bot stands in"
+    )
+
+
 def _attack(args):
-    """One target: a player by name, the nearest mob of a type, or the nearest
-    hostile."""
+    """One target: a player by name, the nearest mob of a type, the nearest
+    hostile, or every wave mob of an arena's match."""
     hostile = args.get("nearest_hostile")
     if hostile is not None and type(hostile) is not bool:
         raise ValueError("nearest_hostile must be true or false")
@@ -351,17 +371,20 @@ def _attack(args):
             ("player", args.get("player") is not None),
             ("mob", args.get("mob") is not None),
             ("nearest_hostile", hostile is True),
+            ("arena", args.get("arena") is not None),
         )
         if present
     ]
     if len(forms) != 1:
         raise ValueError(
-            "attack needs exactly one target: player, mob or nearest_hostile"
+            "attack needs exactly one target: player, mob, nearest_hostile or arena"
         )
     if forms[0] == "player":
         target = {"player": _player(args)}
     elif forms[0] == "mob":
         target = {"mob": _entity_type(args)}
+    elif forms[0] == "arena":
+        target = {"arena": _arena(args["arena"])}
     else:
         target = {"nearest_hostile": True}
     return {"target": target, "weapon": _weapon(args), "when": _when(args)}

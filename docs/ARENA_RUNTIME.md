@@ -110,6 +110,19 @@ after the end). A finished match reports `state` won, lost or stopped with `reas
 Waves mode carries `wave_index`, `waves`, `next_wave_in_ticks`, `spawned`, `killed`, `wave_mobs`;
 teams mode carries `teams_alive`.
 
+## The bot's hunt
+
+`attack {arena: NAME}` (or `arena: true`, the arena the bot stands in; in chat `/mcb attack arena`)
+is the bot's hunt mode. Each look reads `arena_status` and takes the nearest live wave mob, wherever
+it is in the bounds, keeping the one already chosen while it lives. If the body does not see it,
+the bot walks to it; otherwise one `fight` op runs against it with the usual tactic. Between waves
+the bot eats if it needs to and waits. The job ends only with the match (`won`, `lost`, `stopped`),
+with the job's kills, hits and damage plus `waves_cleared`. Inside a hunt there is no threat
+radius, and the guard stands down: the hunt is the defence. The fight has no health floor, because
+the arena has no shelter and a match is lost only by dying. The bot must be a participant (the
+default is everyone inside when the match starts). Code: `companion_attack.hunt` / `arena_here`,
+`Session.attack`.
+
 ## CLI
 
 ```

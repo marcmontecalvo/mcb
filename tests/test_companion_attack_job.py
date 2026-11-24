@@ -107,6 +107,99 @@ def test_attack_throws_a_loyalty_trident_as_the_defence_would(fighter):
     assert [f["tactic"]["style"] for _, f in fights] == ["throw", "throw"]
 
 
+RAVAGER = "minecraft:ravager"
+
+
+def _match(*mobs, state="running", next_wave=0, cleared=0):
+    """An arena_status reply for the vault's waves match."""
+    data = {"name": "vault", "match_state": state,
+            "match": {"mode": "waves", "state": state, "wave_index": cleared,
+                      "waves": 2, "next_wave_in_ticks": next_wave, "killed": cleared,
+                      "wave_mobs": [{"uuid": u, "type": RAVAGER, "position": list(p),
+                                     "health": 100.0} for u, p in mobs]}}  # fmt: skip
+    return Result(True, None, data)
+
+
+def _arena(session, *replies, listing=None):
+    """The body answers arena_status with ``replies`` in turn (and arena_list)."""
+    queue = list(replies)
+    session.body.arena_status = lambda name: (
+        session.body.log.append(("arena_status", name)) or queue.pop(0)
+    )
+    session.body.arena_list = lambda: Result(True, None, listing or {"arenas": []})
+
+
+def test_an_arena_hunt_finds_every_wave_mob_wherever_it_is_and_ends_with_the_match(
+    fighter,
+):
+    session, bridge = fighter
+    far, near = ("r1", (40.5, 64.0, 0.5)), ("r1", (6.5, 64.0, 0.5))
+    _arena(session, _match(far), _match(near), _match(next_wave=60, cleared=1),
+           _match(state="won", cleared=2))  # fmt: skip
+    _look(bridge, inv=_sword())  # 40 blocks off: out of sight, walk to it
+    _look(bridge, {"type": RAVAGER, "uuid": "r1", "position": list(near[1])},
+          inv=_sword())  # fmt: skip
+    _look(bridge, inv=_sword())  # between waves: wait
+    _look(bridge, inv=_sword())
+    session.body.fights = [Result(True, None, {"kills": 1, "killed": True, "hits": 9})]
+
+    result = _attack(session, arena="vault")
+
+    assert result["outcome"] == "won" and result["target"] == "vault"
+    assert (result["kills"], result["hits"], result["fights"]) == (1, 9, 1)
+    assert result["waves_cleared"] == 2
+    walks = [e for e in session.body.log if e[0] == "walk_far"]
+    assert walks and walks[0][1][0] == 40  # toward the far ravager, whatever the range
+    ((_, fields),) = _logged(session.body, "fight")
+    assert fields["entity"] == "r1" and not fields["allow_player"]
+    assert fields["floor"] == 0  # the match is lost only by dying: no retreat from it
+    assert fields["tactic"]["style"] != "avoid"
+
+
+def test_an_arena_hunt_stands_down_the_guard_while_its_match_runs(fighter):
+    session, bridge = fighter
+    seen = []
+    _arena(session, _match(("r1", (6.5, 64.0, 0.5))), _match(state="lost"))
+    _look(bridge, {"type": RAVAGER, "uuid": "r1", "position": [6.5, 64.0, 0.5]},
+          inv=_sword(), health=3.0)  # fmt: skip
+    _look(bridge, inv=_sword(), health=3.0)
+
+    def fight(**fields):
+        seen.append(session.threat().kind)  # a guarded poll mid-fight
+        return Result(True, None, {"ticks": 200})
+
+    session.body.fight = fight
+    assert _attack(session, arena="vault")["outcome"] == "lost"
+    assert seen == ["none"]  # the hunt is the defence: no escape, shelter or burrow
+    assert not session.hunting  # the guard is back once the job ends
+
+
+def test_an_arena_hunt_with_no_arena_named_takes_the_one_the_bot_stands_in(fighter):
+    session, bridge = fighter
+    box = {"name": "duel", "dimension": "minecraft:overworld", "match_state": "running",
+           "bounds": {"min": [-10, 60, -10], "max": [10, 70, 10]}}  # fmt: skip
+    _arena(session, _match(state="won"), listing={"arenas": [box]})
+    _look(bridge, inv=_sword())
+    assert _attack(session, arena=True)["target"] == "duel"
+    assert ("arena_status", "duel") in session.body.log
+
+
+def test_an_arena_hunt_outside_any_arena_or_match_fails_plainly(fighter):
+    session, bridge = fighter
+    _arena(session)
+    _look(bridge, inv=_sword())
+    with pytest.raises(cs.JobFailed, match="not in an arena"):
+        _attack(session, arena=True)
+    _arena(session, Result(True, None, {"name": "vault", "match_state": "none"}))
+    _look(bridge, inv=_sword())
+    with pytest.raises(cs.JobFailed, match="no wave match"):
+        _attack(session, arena="vault")
+    _arena(session, Result(False, "unknown_arena", {}))
+    _look(bridge, inv=_sword())
+    with pytest.raises(cs.JobFailed, match="unknown_arena"):
+        _attack(session, arena="vault")
+
+
 def test_attack_a_mob_never_allows_a_player_target(fighter):
     session, bridge = fighter
     _look(bridge, _mob(), inv=_sword())

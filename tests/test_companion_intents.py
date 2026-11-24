@@ -256,6 +256,17 @@ def test_attack_names_exactly_one_target():
         ci.validate("attack", {"mob": "zombie", "nearest_hostile": True})
 
 
+def test_attack_an_arena_hunts_every_wave_mob_of_its_match():
+    assert ci.validate("attack", {"arena": "vault"})["target"] == {"arena": "vault"}
+    # true: the arena the bot stands in
+    assert ci.validate("attack", {"arena": True})["target"] == {"arena": True}
+    for bad in ("Vault!", "a" * 33, False, 3):
+        with pytest.raises(ValueError, match="arena"):
+            ci.validate("attack", {"arena": bad})
+    with pytest.raises(ValueError, match="exactly one"):
+        ci.validate("attack", {"arena": "vault", "mob": "zombie"})
+
+
 def test_attack_target_values_are_checked():
     with pytest.raises(ValueError, match="player"):
         ci.validate("attack", {"player": "no spaces allowed"})
@@ -293,12 +304,13 @@ def test_attack_is_a_trusted_job_intent():
 def test_attack_tool_says_how_it_ends_and_who_may_use_it():
     (attack,) = [t for t in ci.tool_schemas() if t["name"] == "attack"]
     text = attack["description"]
-    for word in ("killed", "lost", "invulnerable", "owner"):
+    for word in ("killed", "lost", "invulnerable", "owner", "arena", "won"):
         assert word in text
     assert set(attack["input_schema"]["properties"]) == {
         "player",
         "mob",
         "nearest_hostile",
+        "arena",
         "weapon",
         "when",
     }

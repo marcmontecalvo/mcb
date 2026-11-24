@@ -160,3 +160,64 @@ def test_a_tally_belongs_to_one_job():
     fresh = attack.Tally.for_job(tally, "j-2")
     assert fresh is not tally and fresh.hits == 0 and fresh.job == "j-2"
     assert attack.Tally.for_job(None, None).job is None
+
+
+# --- an arena hunt: every wave mob, wherever it is in the bounds ----------------------
+
+
+def wave_mob(uuid, pos, kind="minecraft:ravager", health=100.0):
+    return {"uuid": uuid, "type": kind, "position": list(pos), "health": health}
+
+
+def match(*mobs, state="running", next_wave=0, **extra):
+    return {
+        "name": "vault",
+        "match": {"mode": "waves", "state": state, "wave_index": 0, "waves": 3,
+                  "next_wave_in_ticks": next_wave, "wave_mobs": list(mobs), **extra},
+    }  # fmt: skip
+
+
+def test_a_hunt_takes_the_nearest_wave_mob_however_far_it_is():
+    far, near = wave_mob("r1", (60.5, 64, 0.5)), wave_mob("r2", (40.5, 64, 0.5))
+    found = attack.hunt(match(far, near), state(), None)
+    assert (found.uuid, found.type, found.position) == (
+        "r2", "minecraft:ravager", (40.5, 64.0, 0.5)
+    )
+    assert not found.seen  # 40 blocks off: out of sight, so the job walks to it
+
+
+def test_a_hunt_sees_a_wave_mob_the_body_sees():
+    mob = wave_mob("r1", (6.5, 64, 0.5))
+    seen = state(entity("minecraft:ravager", "r1", (6.4, 64, 0.5)))
+    found = attack.hunt(match(mob), seen, None)
+    assert found.seen and found.position == (6.4, 64.0, 0.5)  # the body's own sight
+
+
+def test_a_hunt_keeps_its_mob_while_it_lives_then_takes_the_next_nearest():
+    a, b = wave_mob("a", (5.5, 64, 0.5)), wave_mob("b", (9.5, 64, 0.5))
+    assert attack.hunt(match(a, b), state(), "b").uuid == "b"
+    assert attack.hunt(match(a), state(), "b").uuid == "a"
+
+
+def test_a_hunt_waits_between_waves_and_ends_with_the_match():
+    assert attack.hunt(match(next_wave=80), state(), None) == attack.WAITING
+    assert attack.hunt(match(state="won"), state(), None) == "won"
+    assert attack.hunt(match(state="lost"), state(), None) == "lost"
+    assert attack.hunt(match(state="stopped"), state(), None) == "stopped"
+    assert attack.hunt({"name": "vault"}, state(), None) == attack.NO_MATCH
+    teams = match()
+    teams["match"]["mode"] = "teams"
+    assert attack.hunt(teams, state(), None) == attack.NO_MATCH  # waves only
+
+
+def test_the_arena_here_is_the_one_whose_bounds_hold_the_bot():
+    def summary(name, lo, hi, match_state="running"):
+        return {"name": name, "dimension": OVERWORLD, "match_state": match_state,
+                "bounds": {"min": list(lo), "max": list(hi)}}  # fmt: skip
+
+    listing = {"arenas": [summary("duel", (100, 60, 100), (132, 72, 138)),
+                          summary("vault", (-20, 60, -20), (20, 74, 26))]}  # fmt: skip
+    assert attack.arena_here(listing, (0.5, 64.0, 0.5)) == "vault"
+    assert attack.arena_here(listing, (20.9, 64.0, 0.5)) == "vault"  # the max cell
+    assert attack.arena_here(listing, (21.5, 64.0, 0.5)) is None
+    assert attack.arena_here({"arenas": []}, (0.5, 64.0, 0.5)) is None

@@ -88,6 +88,7 @@ DEFEND_WAIT_TICKS = 10  # a step that could do nothing waits this long
 ATTACK_CHASE = 24.0
 ATTACK_WALK_RADIUS = 6  # a walk toward the target ends this close
 ATTACK_WAIT_TICKS = 20  # no walk got nearer: look again after this
+ARENA_WAIT_TICKS = 20  # between an arena's waves: look again after this
 FLEE_DISTANCE = 12  # blocks: one flee step
 FLEE_RADIUS = 3.0
 FLEE_TURNS = (0, 45, -45, 90, -90)  # degrees off straight away, tried in order
@@ -364,6 +365,7 @@ class Session:
         self._saved: tuple[int, int, int] | None = None
         self._observed_at = -math.inf
         self._dressed_for: tuple | None = None  # the gear rows the last wear saw
+        self.hunting = False  # an arena hunt runs: the guard stands down
         # defence: bot.json settings, then the ones changed in play (saved apart:
         # _save rewrites the state file whole)
         self._defense_base = defense or DefensePolicy()
@@ -712,6 +714,8 @@ class Session:
         """What to do about hostiles now, from the newest sample. Runs inside every
         guarded ``bridge.state()`` poll, so it never polls itself; decided once per
         server tick."""
+        if self.hunting:
+            return NO_THREAT  # an arena hunt already fights the nearest wave mob
         samples = getattr(self.bridge, "samples", None) or ()
         state = samples[-1] if samples else {}
         tick = state.get("tick")
@@ -1036,12 +1040,49 @@ class Session:
         the target (logged out, another dimension, nothing of the type in sight) or a
         target that cannot be hurt; a stop raises ``JobCancelled``. No failure counter
         ends it early. Auto-defence never targets a player: only this job does, and
-        the fight op is told so (``allow_player``)."""
+        the fight op is told so (``allow_player``).
+
+        An ``arena`` target hunts every wave mob of that arena's match, wherever it
+        is (``arena_status``), and ends only with the match: won, lost or stopped. It
+        fights to the end (no floor: a match is lost only by dying, and an arena has
+        no shelter to fall back to) and stands the guard down while it runs, since
+        it already fights the nearest wave mob first."""
         target, weapon = args["target"], args.get("weapon")
         tally = self._tally = commanded.Tally.for_job(self._tally, self.current_job)
-        label = target.get("player") or (
-            target["mob"].removeprefix("minecraft:") if "mob" in target else "hostile"
+        arena = self._arena_name(target["arena"]) if "arena" in target else None
+        label = (
+            arena
+            or target.get("player")
+            or (
+                target["mob"].removeprefix("minecraft:")
+                if "mob" in target
+                else "hostile"
+            )
         )
+        self.hunting = arena is not None
+        try:
+            return self._attack_loop(target, weapon, tally, arena, label, progress)
+        finally:
+            self.hunting = False
+
+    def _arena_name(self, arena) -> str:
+        """The arena named, or for ``True`` the one whose bounds hold the bot."""
+        if arena is not True:
+            return arena
+        here = (self.bridge.state().get("body") or {}).get("position")
+        listing = self.body.arena_list()
+        name = commanded.arena_here(listing.data or {}, here) if here else None
+        if not listing.ok or name is None:
+            raise JobFailed("I am not in an arena")
+        return name
+
+    def _arena_status(self, arena: str) -> dict:
+        reply = self.body.arena_status(arena)
+        if not reply.ok:
+            raise JobFailed(f"arena {arena}: {reply.reason}")
+        return reply.data or {}
+
+    def _attack_loop(self, target, weapon, tally, arena, label, progress) -> dict:
         chosen = None
         while True:
             state = self.bridge.state()
@@ -1049,14 +1090,33 @@ class Session:
             here = body.get("position")
             if here is None:
                 raise BodyDied("observation has no position: the body is dead")
-            roster = self._roster() if "player" in target else None
-            found = commanded.find(target, state, roster, self.bot_name, chosen)
-            if isinstance(found, str):
-                return self._attack_over(tally, found, label)
-            label = found.label
+            if arena is not None:
+                status = self._arena_status(arena)
+                found = commanded.hunt(status, state, chosen)
+                if found == commanded.NO_MATCH:
+                    raise JobFailed(f"arena {arena} runs no wave match")
+                if found == commanded.WAITING:
+                    progress(stage="waiting", detail=f"{arena}: the next wave")
+                    self.body.eat_when_needed()
+                    self.body.wait_ticks(ARENA_WAIT_TICKS)
+                    continue
+                if isinstance(found, str):
+                    match = status.get("match") or {}
+                    return {
+                        **self._attack_over(tally, found, arena),
+                        "waves_cleared": int(match.get("wave_index") or 0),
+                        "waves": match.get("waves"),
+                    }
+            else:
+                roster = self._roster() if "player" in target else None
+                found = commanded.find(target, state, roster, self.bot_name, chosen)
+                if isinstance(found, str):
+                    return self._attack_over(tally, found, label)
+                label = found.label
             if "player" not in target:
                 chosen = found.uuid  # this one, not whichever is nearest next look
-            if float(body.get("health", 20.0)) <= self.defense_policy.floor_health:
+            floor = 0 if arena is not None else int(self.defense_policy.floor_health)
+            if float(body.get("health", 20.0)) <= floor:
                 return self._attack_over(tally, commanded.LOW_HEALTH, label)
             rows = body.get("inventory")
             plan = self._attack_tactic(
@@ -1065,7 +1125,7 @@ class Session:
             distance = math.dist(here, found.position)
             progress(
                 stage="attacking",
-                detail=f"{label}, {distance:.0f} blocks away"
+                detail=f"{found.label if arena else label}, {distance:.0f} blocks away"
                 + ("" if found.seen else " (out of sight)"),
             )
             if not found.seen or distance > ATTACK_CHASE:
@@ -1076,14 +1136,16 @@ class Session:
             result = self.body.fight(
                 entity=found.uuid,
                 weapon=plan.weapon,
-                radius=min(
+                radius=defense.FIGHT_RADIUS_MAX
+                if arena is not None
+                else min(
                     defense.FIGHT_RADIUS_MAX,
                     max(
                         int(self.defense_policy.threat_radius),
                         math.ceil(distance) + 2,
                     ),
                 ),
-                floor=int(self.defense_policy.floor_health),
+                floor=floor,
                 max_ticks=FIGHT_TICKS,
                 tactic=plan.wire(),
                 allow_player="player" in target,
@@ -1091,8 +1153,11 @@ class Session:
             data = result.data or {}
             tally.add(data)
             if result.ok:
-                if data.get("killed"):
+                if data.get("killed") and arena is None:
                     return self._attack_over(tally, commanded.KILLED, label)
+                if data.get("killed"):
+                    chosen = None  # the next wave mob: the nearest one
+                    continue
                 spent = int(data.get("ticks", 0))
             else:
                 reason = result.reason or ""

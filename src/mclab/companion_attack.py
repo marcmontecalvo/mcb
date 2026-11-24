@@ -8,7 +8,7 @@ Docs: COMPANION_COMBAT_PLAN_2026-11-23.md ("Commanded attack").
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from mclab import companion_combat as combat
 from mclab.companion_defense import PLAYER
@@ -24,14 +24,15 @@ UNHURTABLE_MODES = frozenset({"creative", "spectator"})
 
 @dataclass(frozen=True)
 class Victim:
-    uuid: str | None  # None: out of sight, known only from the roster
+    uuid: str | None  # None: a player out of sight, known only from the roster
     type: str
     position: tuple[float, float, float]
     name: str | None = None
+    in_sight: bool = True  # False: an arena's wave mob the body does not see
 
     @property
     def seen(self) -> bool:
-        return self.uuid is not None
+        return self.uuid is not None and self.in_sight
 
     @property
     def label(self) -> str:
@@ -118,6 +119,51 @@ def find(target: dict, state: dict, roster, bot: str, chosen: str | None = None)
             and not combat.never_engaged(row["type"]),
         )
     return found if found is not None else LOST
+
+
+# --- an arena hunt (docs/ARENA_RUNTIME.md: arena_status) --------------------------
+
+WAITING = "waiting"  # between waves: no wave mob is alive yet
+NO_MATCH = "no_match"  # the arena runs no waves match
+MATCH_OVER = frozenset({"won", "lost", "stopped"})
+
+
+def hunt(status: dict, state: dict, chosen: str | None = None):
+    """The wave mob to fight now (a ``Victim``), WAITING, NO_MATCH, or how the match
+    ended (won, lost, stopped). Every live wave mob counts, wherever it is in the
+    arena: the match is won only when all are dead. The mob already chosen is kept
+    while it lives; else the nearest. Where the body sees it, its own sighting is
+    used (fresher than the status, and ``seen`` lets the job fight rather than walk)."""
+    match = status.get("match")
+    if not isinstance(match, dict) or match.get("mode") != "waves":
+        return NO_MATCH
+    if match.get("state") in MATCH_OVER:
+        return match["state"]
+    if match.get("state") != "running":
+        return NO_MATCH
+    mobs = [m for m in match.get("wave_mobs") or () if _position(m) is not None]
+    if not mobs:
+        return WAITING
+    here = _position({"position": (state.get("body") or {}).get("position")})
+    keep = [m for m in mobs if str(m.get("uuid")) == chosen]
+    pick = _nearest(keep or mobs, here, lambda row: True)
+    sighted = _nearest(
+        state.get("visible_entities") or (),
+        here,
+        lambda row: str(row.get("uuid")) == pick.uuid,
+    )
+    return sighted or replace(pick, in_sight=False)
+
+
+def arena_here(listing: dict, position) -> str | None:
+    """The name of the arena whose bounds hold ``position`` (``arena_list``)."""
+    cell = [math.floor(v) for v in position]
+    for arena in listing.get("arenas") or ():
+        box = arena.get("bounds") or {}
+        lo, hi = box.get("min"), box.get("max")
+        if lo and hi and all(a <= c <= b for a, c, b in zip(lo, cell, hi, strict=True)):
+            return arena.get("name")
+    return None
 
 
 @dataclass

@@ -99,10 +99,13 @@ def _describe(intent, args):
     if intent == "gather":
         return f"gather {args['count']} {args['item']}"
     if intent == "attack":
+        arena = args.get("arena")
         who = (
             args.get("player")
             or args.get("mob")
-            or ("the nearest hostile" if args.get("nearest_hostile") else "?")
+            or ("the nearest hostile" if args.get("nearest_hostile") else None)
+            or ("every wave mob in the arena" if arena is True else None)
+            or (f"every wave mob in {arena}" if arena else "?")
         )
         with_ = f" with {args['weapon']}" if args.get("weapon") else ""
         return f"attack {who}{with_}"
@@ -256,7 +259,8 @@ class Ingress:
 
     def _attack(self, actor, data):
         """``/mcb attack <word> [weapon]``: the word is an online player's name first,
-        else hostile (the nearest one), else a mob type. The host checks who may."""
+        else hostile (the nearest one), else arena (every wave mob of the match the
+        bot stands in), else a mob type. The host checks who may."""
         word, weapon = data.get("target"), data.get("weapon")
         if not isinstance(word, str) or not word.strip():
             return self._tell(actor, "Can't do that: attack needs a target.")
@@ -266,6 +270,8 @@ class Ingress:
             args = {"player": online}
         elif word.lower() in HOSTILE_WORDS:
             args = {"nearest_hostile": True}
+        elif word.lower() == "arena":  # every wave mob of the match the bot is in
+            args = {"arena": True}
         else:
             args = {"mob": word}
         if isinstance(weapon, str) and weapon:
