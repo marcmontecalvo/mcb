@@ -24,7 +24,7 @@ ESCAPE_NEAR = 6.0  # a mob closer than this is pressing: escape, don't stroll
 CREEPER = M + "creeper"
 CREEPER_SWELL = 7.0  # a started swell runs down only past 7 blocks
 WEAPONS = combat.MELEE_RANKED  # best first, by damage per second with crits
-RANGED_STYLES = frozenset({"snipe"})  # tactics that reach a mob no walk gets to
+RANGED_STYLES = frozenset({"snipe", "throw"})  # reach a mob no walk gets to
 # A bow-wielding mob shoots from 15 blocks: it is a threat that far, whatever the
 # threat radius (live, a third skeleton shot from past 12 after the guard called a
 # group fight clear).
@@ -104,6 +104,7 @@ class Situation:
     can_heal: bool = True  # fed enough to regenerate, or food held
     # uuids a hand-to-hand fight found no way to (a ledge): fought only from range
     out_of_reach: Collection[str] = frozenset()
+    loyal: bool = False  # a carried trident has Loyalty: it is thrown, and comes back
 
 
 @dataclass(frozen=True)
@@ -130,11 +131,12 @@ def threats(
     position,
     policy: DefensePolicy,
     inventory: Mapping[str, int] | None = None,
+    loyal: bool = False,
 ) -> list[Threat]:
     """Hostiles within the threat radius and roughly level with us, nearest first.
-    An archer is one within its bow's range; a mob the held weapons would shoot
-    (``inventory``) is one within the bow's stand-off band, which a sniper backs
-    off to while the mob still comes."""
+    An archer is one within its bow's range; a mob the held weapons would shoot or
+    throw at (``inventory``, ``loyal``) is one within the bow's stand-off band,
+    which a sniper backs off to while the mob still comes."""
     out = []
     shoots: dict[str, bool] = {}
     for e in entities:
@@ -150,7 +152,8 @@ def threats(
         if d > limit and inventory:
             kind = e["type"]
             if kind not in shoots:
-                shoots[kind] = combat.tactic(kind, inventory).style == "snipe"
+                style = combat.tactic(kind, inventory, loyal=loyal).style
+                shoots[kind] = style in RANGED_STYLES
             if shoots[kind]:
                 limit = max(limit, combat.SNIPE_KEEP[1])
         if d <= limit:
@@ -195,7 +198,7 @@ def _pressed(s: Situation, seen: tuple[Threat, ...]) -> bool:
 
 
 def decide(s: Situation, policy: DefensePolicy) -> Action:
-    seen = tuple(threats(s.entities, s.position, policy, s.inventory))
+    seen = tuple(threats(s.entities, s.position, policy, s.inventory, s.loyal))
     if not seen:
         return Action("none", "no threat near")
     friends = allies(s.entities, s.name, s.position, policy)
@@ -228,7 +231,7 @@ def decide(s: Situation, policy: DefensePolicy) -> Action:
     able = [
         (t, plan)
         for t in seen
-        if (plan := combat.tactic(t.type, s.inventory)).style != "avoid"
+        if (plan := combat.tactic(t.type, s.inventory, loyal=s.loyal)).style != "avoid"
         and (t.uuid not in s.out_of_reach or plan.style in RANGED_STYLES)
     ]
     if able:

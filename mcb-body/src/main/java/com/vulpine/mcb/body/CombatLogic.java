@@ -20,7 +20,10 @@ final class CombatLogic {
     static final double SNIPE_CLOSE = 4.0;  // a target this close is fought with the melee weapon
     static final int FULL_DRAW = 20;  // BowItem.getPowerForTime reaches 1.0
     static final double ARROW_SPEED = 3.0, ARROW_DRAG = .99, ARROW_GRAVITY = .05;
-    private static final Set<String> STYLES = Set.of("melee", "poke", "lance", "hit_and_back", "snipe", "hunt");
+    /** A thrown trident: TridentItem releases after 10 ticks of use, at 2.5 a tick (no Riptide); an arrow's drag and drop. */
+    static final int TRIDENT_DRAW = 10;
+    static final double TRIDENT_SPEED = 2.5;
+    private static final Set<String> STYLES = Set.of("melee", "poke", "lance", "hit_and_back", "snipe", "throw", "hunt");
 
     enum Kind {
         SWORD, AXE, SPEAR, TRIDENT, BOW, OTHER;
@@ -180,38 +183,43 @@ final class CombatLogic {
      * Low arc, three lead passes; each pass bisects the pitch on the simulated flight.
      */
     static double[] aim(double dx, double dy, double dz, double vx, double vy, double vz) {
+        return aim(dx, dy, dz, vx, vy, vz, ARROW_SPEED);
+    }
+
+    /** As aim, for a projectile leaving at `speed` blocks a tick (an arrow 3, a thrown trident 2.5); same drag and drop. */
+    static double[] aim(double dx, double dy, double dz, double vx, double vy, double vz, double speed) {
         double ax = dx, ay = dy, az = dz;
         double[] shot = null;
         for (int pass = 0; pass < 3; pass++) {
-            shot = solve(Math.hypot(ax, az), ay);
+            shot = solve(Math.hypot(ax, az), ay, speed);
             if (shot == null) return null;
             double t = shot[1];
             ax = dx + vx * t; ay = dy + vy * t; az = dz + vz * t;
         }
-        shot = solve(Math.hypot(ax, az), ay);
+        shot = solve(Math.hypot(ax, az), ay, speed);
         if (shot == null) return null;
         return new double[]{Math.toDegrees(Math.atan2(-ax, az)), -shot[0]};
     }
 
     /** {elevation degrees (up positive), flight ticks} on the low arc, or null. */
-    private static double[] solve(double horizontal, double height) {
+    private static double[] solve(double horizontal, double height, double speed) {
         double lo = -80, hi = 42;  // ~42 degrees is the drag-limited range peak
-        double[] top = fly(hi, horizontal);
+        double[] top = fly(hi, horizontal, speed);
         if (top == null || top[0] < height) return null;
         double[] at = null;
         for (int i = 0; i < 50; i++) {
             double mid = (lo + hi) / 2;
-            at = fly(mid, horizontal);
+            at = fly(mid, horizontal, speed);
             if (at != null && at[0] >= height) hi = mid; else lo = mid;
         }
-        at = fly(hi, horizontal);
+        at = fly(hi, horizontal, speed);
         return at == null ? null : new double[]{hi, at[1]};
     }
 
     /** {height at the horizontal distance, ticks}, or null when it falls short within 200 ticks. */
-    private static double[] fly(double elevation, double horizontal) {
+    private static double[] fly(double elevation, double horizontal, double speed) {
         double r = Math.toRadians(elevation);
-        double vh = Math.cos(r) * ARROW_SPEED, vy = Math.sin(r) * ARROW_SPEED, h = 0, y = 0;
+        double vh = Math.cos(r) * speed, vy = Math.sin(r) * speed, h = 0, y = 0;
         for (int t = 1; t <= 200; t++) {
             double nh = h + vh, ny = y + vy;
             if (nh >= horizontal) {

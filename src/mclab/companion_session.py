@@ -29,6 +29,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from mclab import companion_burrow as burrow
+from mclab import companion_combat as combat
 from mclab import companion_defense as defense
 from mclab import companion_gear as gear
 from mclab import paths
@@ -725,6 +726,7 @@ class Session:
             position=tuple(position),
             entities=tuple(state.get("visible_entities") or ()),
             inventory=inventory,
+            loyal=combat.loyal(body.get("inventory")),
             name=self.bot_name,
             base=base,
             base_weapons=self._base_weapons(base),

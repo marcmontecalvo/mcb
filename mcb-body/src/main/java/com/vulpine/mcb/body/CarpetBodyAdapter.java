@@ -324,6 +324,12 @@ public final class CarpetBodyAdapter {
             entry.put("item", BuiltInRegistries.ITEM.getKey(stack.getItem()).toString());
             entry.put("count", stack.getCount());
             if (stack.isDamageableItem()) { entry.put("damage", stack.getDamageValue()); entry.put("max_damage", stack.getMaxDamage()); }
+            if (stack.isEnchanted()) {  // the host reads a trident's Loyalty (it is thrown only if it comes back)
+                var levels = new java.util.TreeMap<String, Integer>();
+                for (var e : stack.getEnchantments().entrySet())
+                    e.getKey().unwrapKey().ifPresent(key -> levels.put(key.identifier().toString(), e.getIntValue()));
+                entry.put("enchantments", levels);
+            }
             inventory.add(entry);
         }
         var p = player.position();

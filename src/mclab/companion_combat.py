@@ -24,6 +24,7 @@ SNIPE_KEEP = (8.0, 15.0)  # outside a skeleton's comfort, inside its 15-block ra
 HUNT_KEEP = (0.0, 8.0)
 ARROWS = frozenset({M + "arrow", M + "spectral_arrow", M + "tipped_arrow"})
 SHIELD = M + "shield"
+TRIDENT = M + "trident"
 MELEE_KINDS = ("sword", "axe", "trident", "spear")
 SWING_KINDS = ("sword", "axe", "trident")  # swung through Player.attack: they crit
 # Max health of the animals hunted for drops (LivingEntity attributes, 26.3);
@@ -179,14 +180,18 @@ def _profiles() -> dict[str, Profile]:
         Profile(("melee",)): "breeze vex",
         # it flees a player inside 8 blocks: melee landed 0-1 hits in 10 trials
         # while its vexes wore the bot down (20261124T014222Z), so the bow first
-        Profile(("snipe", "melee"), first=True): "evoker",
-        Profile(("snipe", "melee")): "skeleton stray bogged pillager illusioner",
-        # the owner's order: the bow, the spear's charge past its fuse, then close in
-        Profile(("snipe", "charge", "hit_and_back")): "creeper",
+        # (a Loyalty trident's throw stands in for the bow wherever there is none)
+        Profile(("snipe", "throw", "melee"), first=True): "evoker",
+        Profile(("snipe", "throw", "melee")): (
+            "skeleton stray bogged pillager illusioner"
+        ),
+        # the owner's order: the bow, the spear's charge past its fuse or the
+        # trident's throw, then close in
+        Profile(("snipe", "charge", "throw", "hit_and_back")): "creeper",
         # a ravager (100 health, a 12-point bite) is met only behind a shield (a
         # blocked bite can stun it); else it is shot as it comes, never met
-        Profile(("shielded", "snipe")): "ravager",
-        Profile(("snipe",)): "phantom blaze ghast",
+        Profile(("shielded", "snipe", "throw")): "ravager",
+        Profile(("snipe", "throw")): "phantom blaze ghast",
         Profile(("melee",), no_gaze=True): "enderman",
         Profile(()): "warden guardian elder_guardian ender_dragon wither",
     }
@@ -300,12 +305,19 @@ def hunt_weapon(
 
 
 def tactic(
-    target: str, inventory: Mapping[str, int], wear: Wear | None = None
+    target: str,
+    inventory: Mapping[str, int],
+    wear: Wear | None = None,
+    loyal: bool = False,
 ) -> Tactic:
-    """The first style in the target's profile that the held weapons allow."""
+    """The first style in the target's profile that the held weapons allow.
+    ``loyal``: a carried trident has Loyalty (only that one is thrown)."""
     profile = PROFILES.get(target, HUNT)
     for style in profile.styles:
-        chosen = _style(style, inventory, target, wear)
+        if style == "throw":
+            chosen = _throw(inventory, target) if loyal else None
+        else:
+            chosen = _style(style, inventory, target, wear)
         if chosen is not None:
             return (
                 Tactic(**{**chosen.__dict__, "no_gaze": True})
@@ -313,6 +325,29 @@ def tactic(
                 else chosen
             )
     return AVOID
+
+
+LOYALTY = M + "loyalty"
+
+
+def loyal(stacks) -> bool:
+    """Whether a carried trident has Loyalty (the body's inventory rows carry each
+    stack's enchantments): only such a one is thrown, since it comes back."""
+    return any(
+        s.get("item") == TRIDENT and (s.get("enchantments") or {}).get(LOYALTY, 0) > 0
+        for s in stacks or ()
+    )
+
+
+def _throw(inventory, target: str) -> Tactic | None:
+    """A Loyalty trident thrown from the bow's band (the mod draws it 10 ticks);
+    while it is out, the quickest other swing weapon meets one that closes in."""
+    if inventory.get(TRIDENT, 0) <= 0:
+        return None
+    others = {k: v for k, v in inventory.items() if k != TRIDENT}
+    backup = _quickest(others, SWING_KINDS, mob_health(target))
+    melee = backup.item if backup else None
+    return Tactic("throw", TRIDENT, keep=SNIPE_KEEP, melee=melee)
 
 
 def _style(style: str, inventory, target: str = "", wear=None) -> Tactic | None:

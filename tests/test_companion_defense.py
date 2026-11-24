@@ -111,6 +111,21 @@ def test_a_mob_the_bot_would_shoot_is_a_threat_as_far_as_its_bow_keeps():
     assert cd.threats((zombie,), HERE, POLICY) == []  # nothing held: the radius
 
 
+def test_a_loyal_trident_is_thrown_and_keeps_the_bows_band():
+    # a skeleton with no bow held: the Loyalty trident's throw, from as far as
+    # the bow's band, and it reaches a mob no walk gets to
+    skeleton = mob("skeleton", at=(14.5, 64.0, 0.5), uuid="s")
+    kit = {M + "trident": 1, M + "iron_sword": 1}
+    s = situation(entities=[skeleton], inventory=kit, loyal=True)
+    action = cd.decide(s, POLICY)
+    assert (action.kind, action.tactic.style) == ("fight", "throw")
+    creeper = mob("creeper", at=(14.5, 64.0, 0.5), uuid="c")
+    found = cd.threats((creeper,), HERE, POLICY, kit, loyal=True)
+    assert [t.uuid for t in found] == ["c"]
+    assert cd.threats((creeper,), HERE, POLICY, kit) == []  # no Loyalty: swung, near
+    assert "throw" in cd.RANGED_STYLES
+
+
 def test_the_fight_looks_as_far_as_the_farthest_threat_seen():
     near = cd.Threat("a", M + "zombie", (4.5, 64.0, 0.5), 4.0)
     archer = cd.Threat("b", M + "skeleton", (14.7, 64.0, 0.5), 14.2)

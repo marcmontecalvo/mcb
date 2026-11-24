@@ -108,7 +108,8 @@ permission checks as the packet path apply: spawn protection and `mayInteract`
 (A5). Built: `place_block` runs with sneak on (restored afterwards); `place_block`,
 `use_block`, `use_entity` and `container` fail with `protected` when
 `MinecraftServer.isUnderSpawnProtection`, `ServerLevel.mayInteract` or the build limits refuse the position.
-Observations: `observe()` inventory entries gain `damage` and `max_damage` for damageable stacks (A3);
+Observations: `observe()` inventory entries gain `damage` and `max_damage` for damageable stacks (A3), and
+`enchantments` (`{id: level}`) for enchanted ones;
 `PolicySensor.entities` entries carry `uuid`, `sheared` (sheep) and `baby` (animals).
 
 Notes on built behaviour (differences from the first contract text):
@@ -178,6 +179,17 @@ A per-tick combat motor (`busy` while it or another task runs). `radius` 2..32, 
 - `snipe` (bow): hold the `keep` band (default 8..15), draw for 20 ticks while in sight (a draw is held while
   sight is lost), aim with gravity, drag and the target's lead (`CombatLogic.aim`), release. Inside 4 blocks it
   fights `melee` with the `melee` item when one is given.
+- `throw` (trident): as `snipe` with the trident (`weapon`): a 10-tick draw, aimed for its 2.5 a tick
+  (`CombatLogic.TRIDENT_DRAW`, `TRIDENT_SPEED`). While it is out (in flight, coming back), a target inside 4
+  blocks meets the `melee` item and the band is kept otherwise. A trident without Loyalty
+  (`EnchantmentHelper.getTridentReturnToOwnerAcceleration` 0) is never thrown: it is swung. Python sends
+  `throw` only for a Loyalty trident (`observe()` rows carry `enchantments`).
+
+A shield in the off hand (`BLOCKS_ATTACKS`, not on cooldown from an axe) is raised in `melee` and
+`hit_and_back` while some melee mob would reach the body before a late raise blocks (its box within 1.3 blocks
+of ours after 6 ticks at its closing speed; `ShieldLogic`), held while that lasts, and lowered the tick a
+strike is ready in reach or when no melee mob is close. Archers, spellcasters, creepers and a stunned ravager
+are not threats. `snipe`, `throw`, `poke` and `lance` lower it before using the main hand.
 `no_gaze` aims at an enderman's legs, never its eyes. `bad_request` for an unknown style or a bad field. `entity` (optional) is
 engaged first while it is alive and within `radius`; it must pass the `attack_entity` target rules
 (`not_allowed`, `not_found` at start). Otherwise the target is the nearest living entity of
@@ -208,8 +220,12 @@ first 8 flee starts: `tick`, `cause` swell/blocked/after_hit, `distance`, `eye`,
 that land later count; a kill counts what the target had left). `kills` counts each target that died (its
 health at or below 0) with the body as its killer (vanilla kill credit), once, whether a swing, a jab or an
 arrow that landed later killed it; a creeper that blew up is removed with health left and is no kill.
+`kill_types` (kills by entity type) when it killed; `hurt_by` (the damage the body took, by the direct source's
+entity type, an evoker's fangs not the evoker, else the damage kind; health regained between ticks is not
+counted); `raises` and `block_ticks` (the shield) when it was raised.
 `_failed`: `{"reason"}` of `low_health`, `timeout`, `avoid`, `unreachable`, `bad_request`, `not_allowed`,
-`not_found`, `busy`, `cancelled:<why>`, plus the `_done` counters but `end` (`Task.failure`), and after a
+`not_found`, `busy`, `cancelled:<why>`, `died` (the body died in the fight: the counters so far and
+`killed_by`, the death's own source), plus the `_done` counters but `end` (`Task.failure`), and after a
 failed path search `chase`: `{"from":[x,y,z], "to":[x,y,z], "expanded":cells, "exits":[feet y or null for
 east, west, south, north]}`. Python fights an `unreachable` target only from range for 30 s
 (`companion_session.OUT_OF_REACH_S`).

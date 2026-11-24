@@ -1261,6 +1261,16 @@ def test_threat_reads_the_newest_sample_and_never_polls(guard):
     assert len(bridge.samples) == count
 
 
+def test_a_loyal_trident_in_the_inventory_is_thrown_at_a_skeleton(guard):
+    session, bridge, _ = guard()
+    trident = {"slot": 1, "item": "minecraft:trident", "count": 1,
+               "enchantments": {"minecraft:loyalty": 3}}  # fmt: skip
+    skeleton = _mob("s1", kind="minecraft:skeleton")
+    _seen_now(bridge, skeleton, inv=[*_sword(), trident])
+    action = session.threat()
+    assert (action.kind, action.tactic.style) == ("fight", "throw")
+
+
 def test_threat_is_decided_once_per_tick(guard, monkeypatch):
     session, bridge, _ = guard()
     calls = []

@@ -13,6 +13,7 @@ import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.animal.sheep.Sheep;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.KineticWeapon;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.LinkedHashMap;
@@ -449,6 +450,7 @@ final class BodyEntity {
                 case "poke" -> { lowerShield(player); poke(player, target); }
                 case "lance" -> { lowerShield(player); lance(player, target, distance); }
                 case "hit_and_back" -> hitAndBack(player, target, distance);
+                case "throw" -> throwTrident(player, target, distance);
                 default -> melee(player, target, params.weapon());  // melee and hunt
             }
             return null;
@@ -778,14 +780,59 @@ final class BodyEntity {
             }
         }
 
+        /**
+         * Trident (Loyalty): the bow's band, a 10-tick draw, a throw with drop and lead at 2.5 a tick. While it is
+         * out (in flight, coming back), a target that closes in meets the backup weapon and the band is kept
+         * otherwise. One without Loyalty is never thrown (it would not come back): it is swung.
+         */
+        private void throwTrident(ServerPlayer player, LivingEntity target, double distance) {
+            String trident = params.weapon();
+            ItemStack held = carried(player, trident);
+            boolean close = distance < CombatLogic.SNIPE_CLOSE;
+            if (held != null && EnchantmentHelper.getTridentReturnToOwnerAcceleration(
+                    (net.minecraft.server.level.ServerLevel) player.level(), held, player) <= 0) {
+                stopDraw(player);
+                melee(player, target, trident);
+                return;
+            }
+            if (held == null || close) {  // out and coming back, or upon the body: swing what there is
+                stopDraw(player);
+                String swing = tactic.melee() != null ? tactic.melee() : held != null ? trident : null;
+                if (close && swing != null) { melee(player, target, swing); return; }
+                aim(player, target);
+                var move = CombatLogic.keep(distance, tactic.keepMin(), tactic.keepMax());
+                if (move == CombatLogic.Move.APPROACH) walk(player, target, 1);
+                else if (move == CombatLogic.Move.RETREAT) walk(player, target, -1);
+                if (player.hasLineOfSight(target)) noPathSince = -1;
+                return;
+            }
+            lowerShield(player);
+            shoot(player, target, distance, CombatLogic.TRIDENT_DRAW, CombatLogic.TRIDENT_SPEED);
+        }
+
+        /** The stack of `item` in the main inventory, or null. */
+        private static ItemStack carried(ServerPlayer player, String item) {
+            var inv = player.getInventory();
+            for (int i = 0; i < 36; i++) {
+                var stack = inv.getItem(i);
+                if (!stack.isEmpty() && BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().equals(item)) return stack;
+            }
+            return null;
+        }
+
         /** Bow: keep the band, draw 20 ticks, aim with drop and lead, release. */
         private void snipe(ServerPlayer player, LivingEntity target, double distance) {
+            shoot(player, target, distance, CombatLogic.FULL_DRAW, CombatLogic.ARROW_SPEED);
+        }
+
+        /** The held projectile weapon (a bow, a trident): keep the band, draw `fullDraw`, aim at `speed`, release. */
+        private void shoot(ServerPlayer player, LivingEntity target, double distance, int fullDraw, double speed) {
             holdWeapon(player, params.weapon());
             var move = CombatLogic.keep(distance, tactic.keepMin(), tactic.keepMax());
             boolean sight = player.hasLineOfSight(target);
             Vec3 from = player.getEyePosition().subtract(0, .1, 0), at = target.getBoundingBox().getCenter();
             Vec3 v = target.getDeltaMovement();
-            double[] shot = CombatLogic.aim(at.x - from.x, at.y - from.y, at.z - from.z, v.x, v.y, v.z);
+            double[] shot = CombatLogic.aim(at.x - from.x, at.y - from.y, at.z - from.z, v.x, v.y, v.z, speed);
             if (shot != null) BodyBuild.aim(player, (float) shot[0], (float) shot[1]);
             else aim(player, target);
             // out of sight: walk round what hides it (no shot is released without sight, so the
@@ -797,7 +844,7 @@ final class BodyEntity {
             // The draw is an item use run here, as a client sends use-item when no entity is in its reach;
             // through the click helper, its entity-reach guard cancelled the draw whenever a mob stood 3 to
             // 4.5 blocks along the aim (CombatLogic.draw).
-            switch (CombatLogic.draw(player.isUsingItem(), player.getTicksUsingItem(), CombatLogic.FULL_DRAW, sight, shot != null)) {
+            switch (CombatLogic.draw(player.isUsingItem(), player.getTicksUsingItem(), fullDraw, sight, shot != null)) {
                 case START -> player.gameMode.useItem(player, player.level(), player.getMainHandItem(), InteractionHand.MAIN_HAND);
                 case RELEASE -> { player.releaseUsingItem(); shots++; }
                 case HOLD, NONE -> { }

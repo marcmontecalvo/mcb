@@ -20,8 +20,12 @@ public final class CombatLogicTest {
      * tests the whole segment an arrow sweeps each tick, so the miss is measured along it.
      */
     private static double missBy(double[] aim, double dx, double dy, double dz, double vx, double vy, double vz) {
+        return missBy(aim, 3, dx, dy, dz, vx, vy, vz);
+    }
+
+    private static double missBy(double[] aim, double speed, double dx, double dy, double dz, double vx, double vy, double vz) {
         double yaw = Math.toRadians(aim[0]), pitch = Math.toRadians(aim[1]);
-        double ax = -Math.sin(yaw) * Math.cos(pitch) * 3, ay = -Math.sin(pitch) * 3, az = Math.cos(yaw) * Math.cos(pitch) * 3;
+        double ax = -Math.sin(yaw) * Math.cos(pitch) * speed, ay = -Math.sin(pitch) * speed, az = Math.cos(yaw) * Math.cos(pitch) * speed;
         double x = 0, y = 0, z = 0, best = Double.POSITIVE_INFINITY;
         for (int t = 0; t < 200; t++) {
             for (int s = 1; s <= 30; s++) {
@@ -43,6 +47,8 @@ public final class CombatLogicTest {
                 + "\"melee\":\"minecraft:iron_sword\"}}");
         check(s.style().equals("snipe") && s.keepMin() == 8 && s.keepMax() == 15 && "minecraft:iron_sword".equals(s.melee()), "snipe");
         check(tactic("{\"tactic\":{\"style\":\"melee\",\"crit\":true,\"sweep\":true,\"no_gaze\":true}}").noGaze(), "no gaze");
+        var thrown = tactic("{\"tactic\":{\"style\":\"throw\",\"keep\":[8,15],\"melee\":\"minecraft:iron_sword\"}}");
+        check(thrown.style().equals("throw") && thrown.keepMax() == 15, "a trident's throw");
         rejects("{\"tactic\":5}"); rejects("{\"tactic\":{\"style\":\"dance\"}}"); rejects("{\"tactic\":{\"style\":\"avoid\"}}");
         rejects("{\"tactic\":{\"style\":\"poke\",\"keep\":[4,2]}}"); rejects("{\"tactic\":{\"style\":\"poke\",\"keep\":[1]}}");
         rejects("{\"tactic\":{\"style\":\"melee\",\"crit\":\"yes\"}}"); rejects("{\"tactic\":{\"style\":\"snipe\",\"melee\":\"\"}}");
@@ -145,6 +151,15 @@ public final class CombatLogicTest {
         check(lead != null && missBy(lead, 0, 0, 20, .15, 0, 0) < .4, "a walking target is led");
         check(missBy(still, 0, 0, 20, .15, 0, 0) > .8, "unled would miss it");
         check(CombatLogic.aim(0, 0, 400, 0, 0, 0) == null, "out of range");
+        // a thrown trident leaves at 2.5 a tick, not 3: aimed higher, and it still lands
+        double[] trident = CombatLogic.aim(0, 0, 20, 0, 0, 0, CombatLogic.TRIDENT_SPEED);
+        check(trident != null && trident[1] < still[1], "a trident aims higher than an arrow");
+        check(missBy(trident, CombatLogic.TRIDENT_SPEED, 0, 0, 20, 0, 0, 0) < .3, "the trident's throw hits");
+        double[] far = CombatLogic.aim(0, 0, 30, 0, 0, 0);
+        check(missBy(far, CombatLogic.TRIDENT_SPEED, 0, 0, 30, 0, 0, 0) > .5, "an arrow's aim would drop it short");
+        double[] ledThrow = CombatLogic.aim(0, 0, 14, .15, 0, 0, CombatLogic.TRIDENT_SPEED);
+        check(missBy(ledThrow, CombatLogic.TRIDENT_SPEED, 0, 0, 14, .15, 0, 0) < .4, "a thrown trident is led");
+        check(CombatLogic.TRIDENT_DRAW == 10, "a trident throws after 10 ticks of draw");
         check(CombatLogic.snipeClose(3.5, true) && !CombatLogic.snipeClose(3.5, false) && !CombatLogic.snipeClose(6, true),
                 "switch to melee when it closes in and a melee weapon is held");
         System.out.println("CombatLogicTest ok");

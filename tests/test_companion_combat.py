@@ -87,6 +87,41 @@ def test_an_evoker_is_shot_first_since_it_runs_from_melee():
     assert cc.first(M + "evoker")
 
 
+def test_a_loyal_trident_is_thrown_where_the_bow_would_shoot_and_there_is_no_bow():
+    # a Loyalty trident comes back: thrown from the bow's band, the best other
+    # swing weapon (never the trident, which is out) meets one that closes in
+    kit = inv("iron_sword", "trident")
+    t = cc.tactic(M + "skeleton", kit, loyal=True)
+    assert (t.style, t.weapon, t.melee) == ("throw", M + "trident", M + "iron_sword")
+    assert t.keep == cc.SNIPE_KEEP
+    # without Loyalty it would not come back: swung as before
+    assert cc.tactic(M + "skeleton", kit).style == "melee"
+    # the bow first while there are arrows
+    archer = cc.tactic(M + "skeleton", inv("trident", "bow", arrows=64), loyal=True)
+    assert (archer.style, archer.melee) == ("snipe", M + "trident")
+    # alone, nothing to meet it with up close
+    assert cc.tactic(M + "blaze", inv("trident"), loyal=True).melee is None
+
+
+def test_a_trident_is_loyal_when_a_carried_one_has_loyalty():
+    plain = {"slot": 0, "item": M + "trident", "count": 1}
+    loyal = {**plain, "slot": 1, "enchantments": {M + "loyalty": 3}}
+    sword = {"slot": 2, "item": M + "iron_sword", "count": 1,
+             "enchantments": {M + "loyalty": 1}}  # fmt: skip
+    assert cc.loyal([plain, loyal])
+    assert not cc.loyal([plain, sword]) and not cc.loyal(None)
+
+
+def test_a_creeper_takes_the_bow_then_the_charge_or_throw_then_the_swing():
+    # the owner's order: bow, then the spear's charge or the trident's throw,
+    # then sword or axe
+    creeper, kit = M + "creeper", inv("iron_sword", "trident")
+    assert cc.tactic(creeper, kit, loyal=True).style == "throw"
+    spear = cc.tactic(creeper, inv("iron_spear", "trident"), loyal=True)
+    assert spear.style == "lance"
+    assert cc.tactic(creeper, kit).style == "hit_and_back"
+
+
 def test_a_ravager_is_met_behind_a_shield_when_the_bot_carries_one():
     # a blocked bite can stun it (the opening to strike); the shield in the off
     # hand is the mod's to raise, the tactic only picks the swing weapon
