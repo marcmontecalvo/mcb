@@ -55,8 +55,22 @@ final class BodyBuild {
             throw new BodyActions.Fail("protected");
     }
 
+    /** A registered arena refuses every block change inside it, the body's included: place and break fail with arena_protected. */
+    static void checkArena(ServerPlayer player, BlockPos pos) {
+        if (com.vulpine.mcb.arena.ArenaGuard.protectedCell(player.level(), pos)) throw new BodyActions.Fail("arena_protected");
+    }
+
+    /** A held bucket, flint and steel, bone meal or block item may not be used on or beside an arena either. */
+    static void checkArenaUse(ServerPlayer player, BlockPos pos) {
+        var stack = player.getItemInHand(InteractionHand.MAIN_HAND);
+        if (com.vulpine.mcb.arena.ArenaGuard.restricted(stack)
+                && com.vulpine.mcb.arena.ArenaGuard.nearArena(player.level(), pos, com.vulpine.mcb.arena.ArenaGuard.reach(stack)))
+            throw new BodyActions.Fail("arena_protected");
+    }
+
     private static Map<String, Object> placeSneaking(ServerPlayer player, JsonObject request) {
         BlockPos pos = pos(request);
+        checkArena(player, pos);
         PlacementLogic.ParsedState target;
         try { target = PlacementLogic.parse(request.get("state").getAsString()); }
         catch (IllegalArgumentException e) { throw new BodyActions.Fail("invalid_state"); }
@@ -275,8 +289,9 @@ final class BodyBuild {
         float yaw0 = player.getYRot(), pitch0 = player.getXRot();
         aim(player, (float) Math.toDegrees(Math.atan2(-(at.x - eye.x), at.z - eye.z)),
                 PlacementLogic.pitchTo(at.x - eye.x, at.y - eye.y, at.z - eye.z));
+        checkArenaUse(player, pos);
         checkPermission(player, pos);
-        var result = player.gameMode.useItemOn(player, level, player.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND, hit);
+        var result =player.gameMode.useItemOn(player, level, player.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND, hit);
         if (player.containerMenu != player.inventoryMenu) player.closeContainer();
         if (!result.consumesAction()) { aim(player, yaw0, pitch0); throw new BodyActions.Fail("no_effect"); }
         var out = new LinkedHashMap<String, Object>();

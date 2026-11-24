@@ -36,6 +36,8 @@ import java.util.concurrent.TimeUnit;
  */
 public final class BodyRuntime implements AutoCloseable {
     private static final Gson GSON = new Gson();
+    /** An /admin or /controls body: 256 KB, room for an arena plan with thousands of fills. */
+    private static final int MAX_REQUEST_BYTES = 262_144;
     private static final int MAX_RETIRED_BODIES = 32;
     /**
      * A queued request older than this many server ticks is refused: the world moved on under it.
@@ -120,6 +122,7 @@ public final class BodyRuntime implements AutoCloseable {
         http.createContext("/", exchange -> handle(exchange, token));
         http.start();
         active = this;
+        com.vulpine.mcb.arena.ArenaRuntime.setEmitter((type, data) -> emit(type, "fabric_start", data));
     }
 
     private void handle(HttpExchange exchange, String token) throws IOException {
@@ -148,8 +151,8 @@ public final class BodyRuntime implements AutoCloseable {
             }
             if (exchange.getRequestMethod().equals("POST")
                     && (path.equals("/admin") || path.equals("/controls"))) {
-                var bytes = exchange.getRequestBody().readNBytes(16385);
-                if (bytes.length > 16384) {
+                var bytes = exchange.getRequestBody().readNBytes(MAX_REQUEST_BYTES + 1);
+                if (bytes.length > MAX_REQUEST_BYTES) {
                     respond(exchange, 413, Map.of("error", "request_too_large"));
                     return;
                 }
@@ -871,6 +874,13 @@ public final class BodyRuntime implements AutoCloseable {
         if (request.get("schema_version").getAsInt() != 1) throw new IllegalArgumentException("schema_version");
         long sequence = request.get("sequence").getAsLong();
         String op = text(request, "op");
+        if (inbound.admin() && com.vulpine.mcb.arena.ArenaRuntime.handles(op)) {
+            // The arena runtime owns these ops: they need no body, and answer by request_id and sequence.
+            var arena = com.vulpine.mcb.arena.ArenaRuntime.active();
+            if (arena == null) emit(op + "_failed", "fabric_start", Map.of("request_sequence", sequence, "reason", "arena_runtime_unavailable"));
+            else arena.handle(op, request, sequence);
+            return;
+        }
         if (inbound.admin() && op.equals("spawn")) {
             spawn(request, sequence, inbound.receivedNanos());
             return;

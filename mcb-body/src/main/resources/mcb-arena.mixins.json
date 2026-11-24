@@ -1,0 +1,17 @@
+{
+  "required": true,
+  "package": "com.vulpine.mcb.arena.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "mixins": [
+    "BlockPlaceMixin",
+    "ExplosionMixin",
+    "FireMixin",
+    "BlockGriefMixin",
+    "EndermanGriefMixin",
+    "SilverfishGriefMixin",
+    "DoorGriefMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

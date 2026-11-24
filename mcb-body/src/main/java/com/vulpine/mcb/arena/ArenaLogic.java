@@ -34,6 +34,12 @@ public final class ArenaLogic {
                 || id.equals("minecraft:fire_charge") || id.equals("minecraft:bone_meal");
     }
 
+    /** Items that put an entity into the world (a boat, a minecart, an armor stand, an end crystal): refused inside the bounds. */
+    public static boolean entityItem(String id) {
+        return id.endsWith("_boat") || id.endsWith("_raft") || id.endsWith("minecart") || id.equals("minecraft:armor_stand")
+                || id.equals("minecraft:end_crystal");
+    }
+
     // ---- who counts as made by a wave mob
 
     /** Which spawn reasons a child type may have, and which wave mob types may be its parent. */

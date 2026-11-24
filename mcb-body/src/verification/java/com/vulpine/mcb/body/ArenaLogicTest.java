@@ -149,6 +149,11 @@ public final class ArenaLogicTest {
         for (var id : List.of("minecraft:milk_bucket", "minecraft:stick", "minecraft:iron_sword", "minecraft:bread",
                 "minecraft:crossbow", "minecraft:bonemeal_extra", "minecraft:shield"))
             check(!ArenaLogic.restrictedItem(id), id + " is free");
+        for (var id : List.of("minecraft:oak_boat", "minecraft:bamboo_raft", "minecraft:minecart", "minecraft:tnt_minecart",
+                "minecraft:armor_stand", "minecraft:end_crystal"))
+            check(ArenaLogic.entityItem(id), id + " puts an entity in the arena");
+        for (var id : List.of("minecraft:stick", "minecraft:boat_part", "minecraft:minecart_rail", "minecraft:crystal"))
+            check(!ArenaLogic.entityItem(id), id + " is no entity item");
         check(ArenaLogic.INTERACT_MARGIN >= 4, "an item used near the walls counts as used on the arena");
     }
 
