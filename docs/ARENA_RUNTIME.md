@@ -123,8 +123,15 @@ the bot eats if it needs to and waits. The job ends only with the match (`won`, 
 with the job's kills, hits and damage plus `waves_cleared`. Inside a hunt there is no threat
 radius, and the guard stands down: the hunt is the defence. The fight has no health floor, because
 the arena has no shelter and a match is lost only by dying. The bot must be a participant (the
-default is everyone inside when the match starts). Code: `companion_attack.hunt` / `arena_here`,
-`Session.attack`.
+default is everyone inside when the match starts). A wave mob within 24 blocks is fought even when
+the body's short entity sensor (8 blocks) misses it: the status places it and the fight op tracks
+it by uuid. A mob the guard would avoid (a ravager with only a sword) is fought with the best melee
+weapon held (`combat.ordered_tactic`). Each fight lands as a host `job_step` event (weapon, target
+type, `hurt_by`, `killed_by`). Code: `companion_attack.hunt` / `arena_here`, `Session.attack`.
+
+`scripts/arena-hunt.py` (`mclab.arena_hunt`) measures hunts: each run hands the kit out afresh,
+heals, starts the match and samples it once a second; the file under `results/companion/arena/`
+keeps every run's samples, steps, damage by source and the series summary.
 
 ## CLI
 

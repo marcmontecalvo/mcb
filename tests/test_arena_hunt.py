@@ -58,6 +58,7 @@ class FakeApi:
         self.clock, self.health, self.refuse = clock, list(health), refuse
         self.calls, self.trials, self.reads = [], [], 0
         self.job = {"id": "j1", "state": "running"}
+        self.log = []  # host events: (type, data), seq is the index + 1
 
     def trial(self, spec):
         self.trials.append(spec)
@@ -86,6 +87,12 @@ class FakeApi:
     def wait_job(self, job_id, wait=0.0):
         self.clock.now += max(wait, 0.5)
         return dict(self.job)
+
+    def events(self, after=0, wait=0.0):
+        rows = [
+            {"seq": i + 1, "type": t, "data": d} for i, (t, d) in enumerate(self.log)
+        ]
+        return {"latest": len(rows), "events": [r for r in rows if r["seq"] > after]}
 
 
 def finish(api, arena):
@@ -126,6 +133,51 @@ def test_a_hunt_heals_starts_the_match_sends_the_bot_and_samples_it():
         row["samples"][0]
     )
     assert arena.stopped == []  # the match ended by itself
+
+
+def test_a_hunt_keeps_its_job_steps_and_sums_what_hurt_the_bot():
+    clock = Clock()
+    api, arena = FakeApi(clock), FakeArena(clock)
+    api.log = [("job_step", {"id": "old", "step": {"hurt_by": {"x": 99.0}}})]  # before
+    finish(api, arena)
+    real = api.call
+
+    def call(intent, args=None, key=None, source="mcp"):
+        out = real(intent, args, key, source)
+        if intent == "attack":  # the job's fights land after it is sent
+            api.log += [
+                ("job_step", {"id": "j1", "step": {
+                    "weapon": "minecraft:bow", "target_type": "minecraft:pillager",
+                    "hurt_by": {"minecraft:arrow": 4.0}}}),
+                ("job_progress", {"id": "j1"}),
+                ("job_step", {"id": "other", "step": {"hurt_by": {"y": 1.0}}}),
+                ("job_step", {"id": "j1", "step": {
+                    "weapon": "minecraft:trident", "target_type": "minecraft:vindicator",
+                    "hurt_by": {"minecraft:arrow": 1.5, "minecraft:vindicator": 7.0},
+                    "killed_by": "minecraft:vindicator"}}),
+            ]  # fmt: skip
+        return out
+
+    api.call = call
+    row = ah.hunt(
+        api, arena, "vault", [], participants=["MCBot"], timeout=60, clock=clock
+    )
+    assert [s["weapon"] for s in row["steps"]] == ["minecraft:bow", "minecraft:trident"]
+    assert row["hurt_by"] == {"minecraft:arrow": 5.5, "minecraft:vindicator": 7.0}
+    assert row["killed_by"] == "minecraft:vindicator"
+    assert row["picks"] == {
+        "minecraft:pillager": {"minecraft:bow": 1},
+        "minecraft:vindicator": {"minecraft:trident": 1},
+    }
+
+
+def test_summary_sums_damage_taken_across_runs():
+    rows = [
+        {"outcome": "won", "hurt_by": {"a": 2.0}},
+        {"outcome": "lost", "hurt_by": {"a": 1.0, "b": 3.0}, "killed_by": "b"},
+    ]
+    s = ah.summary(rows)
+    assert s["hurt_by"] == {"a": 3.0, "b": 3.0} and s["killed_by"] == {"b": 1}
 
 
 def test_a_kit_is_handed_out_afresh_each_run():

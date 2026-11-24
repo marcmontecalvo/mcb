@@ -223,6 +223,29 @@ def test_a_job_runs_to_success_with_its_progress_and_events(host, made):
     assert made[0].progress_records  # progress.json is written by the session
 
 
+def test_a_job_step_is_an_event_of_its_own_never_throttled(host, made):
+    """A job's body steps (an attack's fights) each land as a job_step event, however
+    close together: a raid's analysis reads which weapon met which mob, what hurt."""
+
+    def fight(session, args, actor, progress):
+        progress(stage="attacking", detail="pillager")
+        progress(step={"weapon": "minecraft:iron_sword", "hurt_by": {"pillager": 4.0}})
+        progress(step={"weapon": "minecraft:bow"})
+        return {"ok": 1}
+
+    made[0].behaviour["goto"] = fight
+    job = submit(host)
+    done = host.wait_job(job["id"], 5)
+    assert done["state"] == "succeeded"
+    assert done["progress"]["stage"] == "attacking"  # a step is not progress
+    steps = [e["data"] for e in host.events()["events"] if e["type"] == "job_step"]
+    assert steps == [
+        {"id": job["id"], "intent": "goto", "step": {"weapon": "minecraft:iron_sword",
+                                                     "hurt_by": {"pillager": 4.0}}},
+        {"id": job["id"], "intent": "goto", "step": {"weapon": "minecraft:bow"}},
+    ]  # fmt: skip
+
+
 def test_now_cancels_the_running_job_and_drops_the_queue(host, made):
     first = submit(host)
     assert made[0].blocking.wait(5)

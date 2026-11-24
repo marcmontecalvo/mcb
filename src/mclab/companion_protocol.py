@@ -24,6 +24,9 @@ EVENT_TYPES = (
     "job_queued",
     "job_started",
     "job_progress",
+    # one body step of a job (an attack's fight): {"id", "intent", "step": {"action",
+    # "weapon", "target_type", "ok", "reason", and the fight op's scalars}}
+    "job_step",
     "job_finished",  # data: the job (state succeeded / failed / cancelled)
     "chat_in",  # data: {"actor": {...}, "text": ...}  a player's line the bot saw
     "chat_out",  # data: {"text": ..., "to": name | None}  what the bot said

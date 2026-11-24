@@ -359,6 +359,21 @@ def fists() -> Tactic:
     return Tactic("melee", None, crit=False, sweep=False)
 
 
+def ordered_tactic(
+    target: str,
+    inventory: Mapping[str, int],
+    wear: Wear | None = None,
+    loyal: bool = False,
+) -> Tactic:
+    """The tactic for a fight the owner ordered (an attack, an arena hunt): the
+    guard's ``tactic``, except that a mob the guard would avoid is fought in melee
+    with the best weapon held, and with bare hands only when nothing is held."""
+    plan = tactic(target, inventory, wear, loyal=loyal)
+    if plan.style != "avoid":
+        return plan
+    return _style("melee", inventory, target, wear) or fists()
+
+
 def forced_tactic(
     weapon: str, target: str, inventory: Mapping[str, int], loyal: bool = False
 ) -> Tactic | None:

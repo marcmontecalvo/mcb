@@ -175,6 +175,29 @@ def test_an_arena_hunt_fights_a_wave_mob_in_reach_the_short_sensor_misses(fighte
     assert fields["entity"] == "p1" and fields["radius"] == cs.defense.FIGHT_RADIUS_MAX
 
 
+def test_each_fight_of_an_attack_is_reported_as_a_step(fighter):
+    """Which weapon met which mob, and what hurt the bot: the job's tally sums the
+    fights, and a death leaves no result at all, so each fight is a step of its own."""
+    session, bridge = fighter
+    pillager = ("p1", (10.5, 64.0, 0.5))
+    _arena(session, _match(pillager), _match(state="won", cleared=2))
+    _look(bridge, inv=_sword())
+    _look(bridge, inv=_sword())
+    session.body.fights = [Result(True, None, {
+        "kills": 1, "killed": True, "hits": 3, "style": "melee", "health": 14.0,
+        "hurt_by": {"minecraft:arrow": 6.0}, "inventory": [{"item": "x"}],
+    })]  # fmt: skip
+
+    _attack(session, arena="vault")
+
+    steps = [r["step"] for r in session.reported if "step" in r]
+    assert steps == [{
+        "action": "fight", "weapon": SWORD, "target_type": RAVAGER, "ok": True,
+        "reason": None, "kills": 1, "hits": 3, "style": "melee", "health": 14.0,
+        "hurt_by": {"minecraft:arrow": 6.0},
+    }]  # fmt: skip - never the inventory
+
+
 def test_an_arena_hunt_stands_down_the_guard_while_its_match_runs(fighter):
     session, bridge = fighter
     seen = []

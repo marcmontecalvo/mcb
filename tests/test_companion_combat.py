@@ -400,6 +400,18 @@ def test_a_named_trident_is_thrown_only_when_it_has_loyalty():
     assert (swung.style, swung.weapon, swung.crit) == ("melee", M + "trident", True)
 
 
+def test_an_ordered_fight_with_a_mob_the_guard_avoids_swings_the_best_weapon_held():
+    """The guard leaves a ravager alone with only a sword; ordered to fight it (an
+    arena wave, the owner's word), the bot swings the sword, never bare hands."""
+    held = inv("iron_sword", "wooden_sword")
+    assert cc.tactic(M + "ravager", held).style == "avoid"
+    ordered = cc.ordered_tactic(M + "ravager", held)
+    assert (ordered.style, ordered.weapon) == ("melee", M + "iron_sword")
+    assert cc.ordered_tactic(M + "ravager", inv()) == cc.fists()
+    kit = inv("iron_sword", "bow", "shield") | {M + "arrow": 64}
+    assert cc.ordered_tactic(M + "pillager", kit) == cc.tactic(M + "pillager", kit)
+
+
 def test_a_named_bow_needs_arrows_and_a_named_item_must_be_held():
     assert cc.forced_tactic(M + "bow", M + "zombie", inv("bow")) is None
     assert cc.forced_tactic(M + "iron_sword", M + "zombie", inv()) is None

@@ -108,6 +108,7 @@ def hunt(
     except ArenaError as error:
         return {**row, "outcome": "not_started", "error": str(error)}
     started = clock()
+    cursor = api.events(0, wait=0).get("latest", 0)  # this job's steps come after
     reply = api.call("attack", {"arena": name}, source="api")
     if not reply.get("ok"):
         _end(api, arena, name)
@@ -138,6 +139,7 @@ def hunt(
         job_state=(job or {}).get("state"),
         error=(job or {}).get("error"),
         wave_times=wave_times(samples),
+        **_steps(api, cursor, job_id),
         samples=samples,
         **{
             k: result[k]
@@ -148,10 +150,41 @@ def hunt(
     return row
 
 
+def _add(total: dict, more) -> None:
+    for k, v in (more or {}).items():
+        if isinstance(v, (int, float)):
+            total[k] = round(total.get(k, 0.0) + v, 2)
+
+
+def _steps(api, cursor: int, job_id: str) -> dict:
+    """The job's fights (host job_step events): every step, the damage the bot took
+    by source, what landed the last blow, and which weapon met which mob type."""
+    steps = [
+        e["data"].get("step") or {}
+        for e in api.events(cursor, wait=0).get("events") or ()
+        if e.get("type") == "job_step" and (e.get("data") or {}).get("id") == job_id
+    ]
+    hurt: dict = {}
+    picks: dict = {}
+    killed_by = None
+    for s in steps:
+        _add(hurt, s.get("hurt_by"))
+        killed_by = s.get("killed_by") or killed_by
+        if s.get("target_type") and s.get("weapon"):
+            kind = picks.setdefault(s["target_type"], {})
+            kind[s["weapon"]] = kind.get(s["weapon"], 0) + 1
+    return {"steps": steps, "hurt_by": hurt, "killed_by": killed_by, "picks": picks}
+
+
 def summary(rows: list[dict]) -> dict:
-    """A series: win rate, outcomes, the won runs' time spread, the lowest health."""
+    """A series: win rate, outcomes, the won runs' time spread, the lowest health,
+    the damage taken by source and what killed the bot."""
     if not rows:
         return {"runs": 0}
+    hurt: dict = {}
+    for r in rows:
+        _add(hurt, r.get("hurt_by"))
+    killers = Counter(r["killed_by"] for r in rows if r.get("killed_by"))
     won = [r for r in rows if r.get("outcome") == "won"]
     times = [r["seconds"] for r in won if isinstance(r.get("seconds"), (int, float))]
     health = [
@@ -169,6 +202,8 @@ def summary(rows: list[dict]) -> dict:
         "max_won_seconds": max(times) if times else None,
         "min_health": min(health) if health else None,
         "mean_waves_cleared": statistics.mean(cleared) if cleared else None,
+        "hurt_by": dict(sorted(hurt.items(), key=lambda kv: -kv[1])),
+        "killed_by": dict(killers),
     }
 
 

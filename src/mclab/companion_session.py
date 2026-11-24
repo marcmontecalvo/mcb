@@ -82,6 +82,29 @@ OUTCOME_FIELDS = (
     "hurt_by", "killed_by",  # damage taken per source type; what landed the last
     "raises", "block_ticks",  # the shield: times raised, ticks up
 )  # fmt: skip
+
+
+def _outcome(result: Result) -> dict:
+    """A body op's ok, reason and scalar result fields (never the inventory)."""
+    data = result.data or {}
+    return {
+        "ok": result.ok,
+        "reason": result.reason,
+        **{k: data[k] for k in OUTCOME_FIELDS if k in data},
+    }
+
+
+def _fight_step(weapon, target_type, result) -> dict:
+    """One fight op as a step (defense_step, an attack's job_step): which weapon met
+    which mob, and how it went."""
+    step = {"action": "fight", "weapon": weapon}
+    if target_type is not None:
+        step["target_type"] = target_type
+    if isinstance(result, Result):
+        step.update(_outcome(result))
+    return step
+
+
 DEFEND_WAIT_TICKS = 10  # a step that could do nothing waits this long
 # a commanded attack (companion_attack.py): beyond this the bot walks to the target
 # first, and the fight op then starts with all of it in reach
@@ -819,16 +842,12 @@ class Session:
             "burrow": self._burrow,
         }.get(action.kind)
         result = step(action) if step is not None else None
-        outcome = {"action": action.kind}
         if action.kind == "fight":  # which weapon met which mob (a raid's analysis)
-            outcome["weapon"] = action.item
             types = (t.type for t in action.threats if t.uuid == action.target)
-            if (kind := next(types, None)) is not None:
-                outcome["target_type"] = kind
+            return _fight_step(action.item, next(types, None), result)
+        outcome = {"action": action.kind}
         if isinstance(result, Result):
-            data = result.data or {}
-            outcome.update(ok=result.ok, reason=result.reason)
-            outcome.update({k: data[k] for k in OUTCOME_FIELDS if k in data})
+            outcome.update(_outcome(result))
         return outcome
 
     def trial(self, spec: dict) -> dict:
@@ -1155,6 +1174,7 @@ class Session:
             )
             data = result.data or {}
             tally.add(data)
+            progress(step=_fight_step(plan.weapon, found.type, result))
             if result.ok:
                 if data.get("killed") and arena is None:
                     return self._attack_over(tally, commanded.KILLED, label)
@@ -1194,9 +1214,10 @@ class Session:
     @staticmethod
     def _attack_tactic(kind, weapon, inventory, label, loyal=False) -> combat.Tactic:
         """How to fight ``kind``: the named weapon when there is one (it must be
-        held), else what the held weapons suit, else the fists (it is the owner's
-        order). A target the profiles never engage is refused. ``loyal``: a carried
-        trident has Loyalty, so it may be thrown."""
+        held), else what the held weapons suit, else the best melee weapon held, else
+        the fists (it is the owner's order: combat.ordered_tactic). A target the
+        profiles never engage is refused. ``loyal``: a carried trident has Loyalty,
+        so it may be thrown."""
         if combat.never_engaged(kind):
             raise JobFailed(f"I won't fight a {label}: it is too dangerous")
         if weapon:
@@ -1207,8 +1228,7 @@ class Session:
                     raise JobFailed(f"I have a {name} but no arrows for it")
                 raise JobFailed(f"I am not holding a {name}")
             return plan
-        plan = combat.tactic(kind, inventory, loyal=loyal)
-        return combat.fists() if plan.style == "avoid" else plan
+        return combat.ordered_tactic(kind, inventory, loyal=loyal)
 
     def follow(self, args: dict, actor, progress) -> dict:
         """Keep within ``distance`` of the player until stopped (never returns by

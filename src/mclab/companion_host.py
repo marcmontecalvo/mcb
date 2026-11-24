@@ -409,12 +409,22 @@ class Host:
             if key is not None and self._keys.get(key) == job_id:
                 del self._keys[key]
 
-    def _progress(self, job_id, stage=None, done=None, total=None, detail=None):
+    def _progress(
+        self, job_id, stage=None, done=None, total=None, detail=None, step=None
+    ):
+        """A running job's progress (throttled job_progress events), or with ``step``
+        one body step's outcome (a job_step event each, never throttled)."""
         now = self.clock()
         with self._cond:
             job = self._jobs.get(job_id)
             if job is None or job["state"] != "running":
                 return
+            if step is not None:
+                self._emit_locked(
+                    "job_step", {"id": job_id, "intent": job["intent"], "step": step}
+                )
+                if (stage, done, total, detail) == (None, None, None, None):
+                    return
             progress = job["progress"]
             new_stage = stage is not None and stage != progress["stage"]
             for name, value in (
