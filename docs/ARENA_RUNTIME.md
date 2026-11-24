@@ -59,10 +59,20 @@ pads in plan order, so the sealed arenas need no door) facing the centre; more p
 than `capacity.teams * capacity.per_team`, is refused (`not_enough_pads`, `over_capacity`). Code:
 `ArenaLogic.wavePads`. A wave is a `{mobs: {type: count}, delay_ticks}`; mobs spawn round-robin over the
 `mob_spawns` markers (room-checked, `COMMAND` spawn reason), are persistent, and are retargeted to
-the nearest live participant every 10 ticks. `delay_ticks` counts from the match start for wave 0
+the nearest live participant every 10 ticks. `capacity.mobs` is how many wave mobs are alive at
+once, not a wave's size: a bigger wave spawns the cap when it starts and the rest as wave mobs fall,
+kinds taking turns so it stays mixed; mobs a wave mob made (vexes, reinforcements) take places too
+(`ArenaLogic.WaveFeed`). The wave is cleared when none is alive and none is queued. Only an arena
+with `capacity.mobs` 0 refuses waves (`over_capacity`). `delay_ticks` counts from the match start for wave 0
 and from the previous wave being cleared afterwards. Won when the last wave is cleared; lost when no
 participant is live (alive, online, same level, inside the bounds). Mobs are discarded when the
 match ends.
+
+Litter (dropped items, experience orbs, arrows and other projectiles, potion clouds) is cleared
+from the bounds when a match starts and when it ends, while its chunks are still held
+(`arena_cleared` when there was any), and litter that loads from a chunk file inside an arena
+whose match is running is refused: it was left before chunk holding kept it loaded. A match's own
+drops stay for the match.
 
 `mode: "teams"`: players go to their team's pads, a scoreboard team `mcb_<8 hex>` per arena team is
 made with friendly fire off and the team's colour (name tags show it), and it is removed afterwards.
@@ -189,8 +199,9 @@ start.
 | `arena_build_aborted` | `name, ticks, reason` |
 | `arena_removed` | `name, restored` |
 | `arena_match_started` | `name, mode, participants, waves` or `teams` |
-| `arena_wave_started` | `name, wave, waves, mobs, failed` |
+| `arena_wave_started` | `name, wave, waves, size, mobs, queued, failed` (`mobs` spawned now, `queued` waiting for room) |
 | `arena_wave_cleared` | `name, wave, waves` |
+| `arena_cleared` | `name, litter` (entities cleared when a match ended) |
 | `arena_match_won` / `arena_match_lost` / `arena_match_stopped` | `name, mode, winner?, reason?, waves_cleared, waves, kills` (per player: `mobs, players, deaths, damage_dealt, damage_taken, healing, team?`), `team_kills?, duration_ticks` |
 
 Acks are `<op>_done` / `<op>_failed` (`reason`, `detail`) carrying `request_sequence` and
@@ -210,7 +221,7 @@ forbidden mob such as the ender dragon), `bad_plan`, `bad_block`, `overlap`,
  "build": {"name": "vault", "kind": "build", "percent": 40, "placed": 1, "total": 3},
  "blocked_spawns": 12,
  "match": {"name": "vault", "mode": "waves", "state": "running", "ticks": 340,
-           "wave_index": 1, "waves": 3, "next_wave_in_ticks": 0, "spawned": 9, "killed": 4,
+           "wave_index": 1, "waves": 3, "next_wave_in_ticks": 0, "spawned": 9, "killed": 4, "queued": 6,
            "wave_mobs": [{"uuid": "..", "type": "minecraft:zombie", "position": [..], "health": 20.0,
                           "velocity": [vx, vy, vz]}],
            "participants": [{"uuid": "..", "name": "Ann", "alive": true, "team": "red",
@@ -221,7 +232,7 @@ forbidden mob such as the ender dragon), `bad_plan`, `bad_block`, `overlap`,
 
 `build` appears only while a job runs; `match` only after a match has started (it keeps the result
 after the end). A finished match reports `state` won, lost or stopped with `reason` and `winner`.
-Waves mode carries `wave_index`, `waves`, `next_wave_in_ticks`, `spawned`, `killed`, `wave_mobs`;
+Waves mode carries `wave_index`, `waves`, `next_wave_in_ticks`, `spawned`, `killed`, `queued`, `wave_mobs`;
 teams mode carries `teams_alive`. A wave mob's `velocity` is its motion this tick in blocks per
 second (the bot leads a thrown splash with it).
 

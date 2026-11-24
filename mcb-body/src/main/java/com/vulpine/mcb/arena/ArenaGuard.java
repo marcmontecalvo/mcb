@@ -91,7 +91,7 @@ public final class ArenaGuard {
     static boolean allowLoad(Entity entity, ServerLevel level, EntitySpawnReason reason, boolean fromDisk) {
         var runtime = ArenaRuntime.active();
         if (runtime == null) return true;
-        if (fromDisk) return !runtime.staleWaveMob(entity);
+        if (fromDisk) return !runtime.staleWaveMob(entity) && !runtime.staleLitter(entity, level);
         if (!(entity instanceof Mob mob)) return true;
         var arena = runtime.registry().atPoint(dimension(level), entity.getX(), entity.getY(), entity.getZ());
         return arena == null || runtime.admitMob(arena, mob, reason);

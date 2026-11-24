@@ -175,6 +175,45 @@ public final class ArenaLogic {
 
     // ---- spawning
 
+    /**
+     * A wave's mobs in spawn order, with at most {@code cap} wave mobs alive at once (the arena's {@code capacity.mobs}):
+     * the cap comes when the wave starts and the rest as wave mobs fall, so a wave may be bigger than the arena holds.
+     * Kinds take turns (a zombie, a skeleton, a zombie...), so a wave fed in parts stays mixed. Mobs a wave mob made
+     * (vexes, reinforcements) count as alive too: they hold reinforcements back like any other wave mob.
+     */
+    public static final class WaveFeed {
+        private final List<String> order = new ArrayList<>();
+        private final int cap;
+        private int next;
+
+        public WaveFeed(Map<String, Integer> mobs, int cap) {
+            if (cap < 1) throw new ArenaFail("over_capacity", "the arena takes no mobs");
+            this.cap = cap;
+            var left = new LinkedHashMap<>(mobs);
+            while (!left.isEmpty()) {
+                for (var it = left.entrySet().iterator(); it.hasNext(); ) {
+                    var entry = it.next();
+                    order.add(entry.getKey());
+                    if (entry.getValue() <= 1) it.remove();
+                    else entry.setValue(entry.getValue() - 1);
+                }
+            }
+        }
+
+        public int total() { return order.size(); }
+
+        /** Mobs of the wave not spawned yet. */
+        public int pending() { return order.size() - next; }
+
+        /** The types to spawn now, with {@code alive} wave mobs alive: as many as the cap has room for. */
+        public List<String> take(int alive) {
+            int n = Math.min(Math.max(0, cap - alive), pending());
+            var out = List.copyOf(order.subList(next, next + n));
+            next += n;
+            return out;
+        }
+    }
+
     /** Mob number {@code i} of a wave goes to this spawn marker: round robin. */
     public static int spawnMarker(int mobIndex, int markers) { return mobIndex % markers; }
 

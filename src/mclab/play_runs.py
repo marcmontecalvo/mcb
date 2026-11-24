@@ -108,7 +108,8 @@ HELP = {
     "waves": ("Waves", "Which mobs come, and how many waves of them."),
     "custom_waves": (
         "Your waves",
-        "Each wave is the mobs that come at once; the next wave comes 3 seconds "
+        "Each wave is the mobs that come together; a wave bigger than the arena's "
+        "mob limit sends the rest in as mobs fall. The next wave comes 3 seconds "
         "after the last one is cleared.",
     ),
     "roster": (
@@ -304,7 +305,11 @@ def arena_help() -> dict[str, str]:
         size, mobs = head.get("size"), (head.get("capacity") or {}).get("mobs")
         if isinstance(size, list) and len(size) == 3:
             text += f" {size[0]} × {size[2]} blocks"
-            text += f", up to {mobs} mobs at once." if mobs else "."
+            text += (
+                f", up to {mobs} mobs at once (bigger waves come in as they fall)."
+                if mobs
+                else "."
+            )
         out[name] = text.strip() or name
     return out
 

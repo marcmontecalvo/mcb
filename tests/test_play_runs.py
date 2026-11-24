@@ -988,3 +988,13 @@ def test_arena_listing_runs_the_arena_cli_on_the_arena_server():
     assert seen["argv"][-1] == "list" and seen["env"]["MCLAB_INSTANCE"] == "arena"
     with pytest.raises(RuntimeError, match="exit code 2"):
         pr.arena_listing(run_cli=lambda argv, env: (2, "Traceback ..."))
+
+
+def test_arena_help_says_bigger_waves_come_in_parts(arenas):
+    # Run 20261124T174359797107Z: a 30-mob wave in a 12-mob arena was refused after
+    # every player had typed /mcb ready. The mob limit is how many fight at once:
+    # a bigger wave sends the rest in as mobs fall.
+    text = pr.arena_help()["vault"]
+    assert "up to 12 mobs at once" in text
+    assert "bigger waves come in as they fall" in text
+    assert "rest in as mobs fall" in pr.HELP["custom_waves"][1]

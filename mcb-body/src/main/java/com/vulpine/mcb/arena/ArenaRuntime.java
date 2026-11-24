@@ -492,14 +492,16 @@ public final class ArenaRuntime {
         return true;
     }
 
-    /** Every wave fits the arena and names a real mob; one creation per type proves it can be spawned. */
+    /**
+     * Every wave names a real mob; one creation per type proves it can be spawned. A wave may be bigger than the arena's
+     * mob cap: the rest come in as wave mobs fall ({@link ArenaLogic.WaveFeed}). An arena with no mob room takes none.
+     */
     private void checkWaves(ArenaRecord record, ServerLevel level, List<ArenaRequests.Wave> waves) {
         if (record.mobSpawns().isEmpty()) throw new ArenaFail("no_mob_spawns", record.name() + " has no mob_spawns marker");
+        if (record.capacity().mobs() < 1) throw new ArenaFail("over_capacity", record.name() + " takes no mobs");
         var checked = new HashSet<String>();
         for (int i = 0; i < waves.size(); i++) {
             var wave = waves.get(i);
-            if (wave.total() > record.capacity().mobs())
-                throw new ArenaFail("over_capacity", "waves[" + i + "] has " + wave.total() + " mobs, the arena allows " + record.capacity().mobs());
             for (var id : wave.mobs().keySet()) {
                 if (!checked.add(id)) continue;
                 var key = Identifier.tryParse(id);
@@ -549,6 +551,8 @@ public final class ArenaRuntime {
         if (record == null) return;
         var level = levelOf(record.dimension());
         if (level == null) return;
+        int cleared = clearLitter(record, level);  // while its chunks are still held: the floor is clean for the next match
+        if (cleared > 0) emit("arena_cleared", Map.of("name", name, "litter", cleared));
         releaseChunks(record, level);
         registry.save();
     }
@@ -602,11 +606,46 @@ public final class ArenaRuntime {
         }
     }
 
-    /** Removes mobs the arena does not own from its bounds (what stood there before it was built, or wandered in). */
+    /**
+     * Removes mobs the arena does not own from its bounds (what stood there before it was built, or wandered in) and
+     * the litter a match leaves (drops, experience, projectiles, potion clouds), so every match starts on a clean floor.
+     */
     private void sweep(ArenaRecord record, ServerLevel level) {
-        var box = record.box();
-        var area = new AABB(box.minX(), box.minY(), box.minZ(), box.maxX() + 1.0, box.maxY() + 1.0, box.maxZ() + 1.0);
+        var area = area(record);
         for (var mob : level.getEntitiesOfClass(Mob.class, area, m -> !spared(m))) mob.discard();
+        clearLitter(record, level);
+    }
+
+    /** The litter in the arena's bounds goes; how much there was. */
+    private static int clearLitter(ArenaRecord record, ServerLevel level) {
+        var litter = level.getEntities((Entity) null, area(record), ArenaRuntime::litter);
+        for (var entity : litter) entity.discard();
+        return litter.size();
+    }
+
+    private static AABB area(ArenaRecord record) {
+        var box = record.box();
+        return new AABB(box.minX(), box.minY(), box.minZ(), box.maxX() + 1.0, box.maxY() + 1.0, box.maxZ() + 1.0);
+    }
+
+    /** What a match leaves lying about: dropped items, experience orbs, arrows and other projectiles, potion clouds. */
+    static boolean litter(Entity entity) {
+        return entity instanceof net.minecraft.world.entity.item.ItemEntity
+                || entity instanceof net.minecraft.world.entity.ExperienceOrb
+                || entity instanceof net.minecraft.world.entity.projectile.Projectile
+                || entity instanceof net.minecraft.world.entity.AreaEffectCloud;
+    }
+
+    /**
+     * Litter loaded from a chunk file inside an arena whose match is running: left from an earlier match, in chunks that
+     * were not loaded when this one started (a running match holds its chunks, so its own litter never loads from disk).
+     */
+    boolean staleLitter(Entity entity, ServerLevel level) {
+        if (!litter(entity)) return false;
+        var arena = registry.atPoint(ArenaGuard.dimension(level), entity.getX(), entity.getY(), entity.getZ());
+        if (arena == null) return false;
+        var match = matches.get(arena.name());
+        return match != null && match.running();
     }
 
     // ---- the mob rules (called from the entity load event)

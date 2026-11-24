@@ -231,6 +231,40 @@ public final class ArenaLogicTest {
         check(both.tick(0, false).kind() == ArenaLogic.Kind.LOST, "the last mob and the last participant dying together is a loss");
         rejects(() -> new ArenaLogic.WaveClock(List.of()), "bad_request", "no waves");
         rejects(() -> new ArenaLogic.WaveClock(List.of(-1)), "bad_request", "negative delay");
+        feed();
+    }
+
+    /** A wave bigger than the arena's mob cap: the cap comes at once, the rest as wave mobs fall, kinds mixed. */
+    private static void feed() {
+        var mobs = new java.util.LinkedHashMap<String, Integer>();
+        mobs.put("minecraft:vindicator", 10);
+        mobs.put("minecraft:witch", 10);
+        mobs.put("minecraft:pillager", 10);
+        var feed = new ArenaLogic.WaveFeed(mobs, 12);
+        check(feed.total() == 30 && feed.pending() == 30, "nothing spawned yet: " + feed.pending());
+        var first = feed.take(0);
+        check(first.size() == 12 && feed.pending() == 18, "the cap comes at once: " + first.size());
+        check(first.subList(0, 6).equals(List.of("minecraft:vindicator", "minecraft:witch", "minecraft:pillager",
+                "minecraft:vindicator", "minecraft:witch", "minecraft:pillager")), "kinds take turns: " + first);
+        check(feed.take(12).isEmpty() && feed.pending() == 18, "a full arena waits");
+        check(feed.take(14).isEmpty(), "derived mobs over the cap hold reinforcements back too");
+        check(feed.take(9).size() == 3 && feed.pending() == 15, "three fall, three come");
+        var rest = new java.util.ArrayList<String>();
+        while (feed.pending() > 0) rest.addAll(feed.take(0));
+        check(rest.size() == 15 && feed.take(0).isEmpty(), "every mob of the wave comes once");
+        var all = new java.util.ArrayList<>(first);
+        all.add("minecraft:vindicator"); all.add("minecraft:witch"); all.add("minecraft:pillager");
+        all.addAll(rest);
+        for (var type : mobs.keySet())
+            check(all.stream().filter(type::equals).count() == 10, type + " comes as often as asked");
+
+        var uneven = new java.util.LinkedHashMap<String, Integer>();
+        uneven.put("minecraft:zombie", 3);
+        uneven.put("minecraft:skeleton", 1);
+        check(new ArenaLogic.WaveFeed(uneven, 12).take(0).equals(List.of("minecraft:zombie", "minecraft:skeleton",
+                "minecraft:zombie", "minecraft:zombie")), "a kind that runs out drops out of the turns");
+        check(new ArenaLogic.WaveFeed(uneven, 64).take(0).size() == 4, "a wave under the cap comes whole");
+        rejects(() -> new ArenaLogic.WaveFeed(uneven, 0), "over_capacity", "an arena without mob room takes no wave");
     }
 
     private static Map<String, Integer> sides(int red, int blue) {

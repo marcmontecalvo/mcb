@@ -67,6 +67,9 @@ final class ArenaMatch {
     private State state = State.RUNNING;
     private String winner, reason;
     private int startTick, endTick, ticks, spawned, killed;
+    /** The wave being fought: its mobs not spawned yet (null before the first wave); {@code fed}: its mobs placed so far. */
+    private ArenaLogic.WaveFeed feed;
+    private int fed;
     /** The mob being spawned now: its jockey, added during finalizeSpawn, is already its child. */
     private Mob spawning;
 
@@ -126,7 +129,8 @@ final class ArenaMatch {
         ArenaLogic.Step step = null;
         if (clock != null) {
             prune();
-            step = clock.tick(mobs.size(), anyLive());
+            reinforce();
+            step = clock.tick(mobs.size() + queued(), anyLive());
             switch (step.kind()) {
                 case SPAWN -> spawnWave(step.wave());
                 case CLEARED -> {
@@ -212,7 +216,7 @@ final class ArenaMatch {
             players.add(new ArenaLogic.Player(name, teamOf.getOrDefault(id, ""), tally.score(name), live(id)));
         }
         ArenaLogic.WaveInfo info = clock == null ? null
-                : new ArenaLogic.WaveInfo(Math.min(clock.index() + 1, waves.size()), waves.size(), mobs.size());
+                : new ArenaLogic.WaveInfo(Math.min(clock.index() + 1, waves.size()), waves.size(), mobs.size() + queued());
         var lines = ArenaLogic.fit(ArenaLogic.matchBoard(mode, teamNames(), players, info), ArenaLogic.BOARD_LINES);
         board.show(ArenaLogic.matchTitle(arena.name(), series), lines);
     }
@@ -327,24 +331,41 @@ final class ArenaMatch {
         }
     }
 
+    /** The arena's cap of wave mobs comes at once; the rest of the wave waits in {@link #feed} for room. */
     private void spawnWave(int index) {
         var wave = waves.get(index);
-        var markers = arena.mobSpawns();
-        int n = 0, failed = 0;
-        for (var entry : wave.mobs().entrySet()) {
-            var type = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(entry.getKey()));
-            for (int i = 0; i < entry.getValue(); i++) {
-                var marker = arena.world(markers.get(ArenaLogic.spawnMarker(n++, markers.size())));
-                if (!spawnOne(type.create(level, EntitySpawnReason.COMMAND), marker)) failed++;
-            }
-        }
+        feed = new ArenaLogic.WaveFeed(wave.mobs(), arena.capacity().mobs());
+        fed = 0;
+        int failed = spawnFed(feed.take(mobs.size()));
         var data = base();
         data.put("wave", index);
         data.put("waves", waves.size());
+        data.put("size", feed.total());
         data.put("mobs", mobs.size());
+        data.put("queued", feed.pending());
         data.put("failed", failed);
         emit.emit("arena_wave_started", data);
         if (mobs.isEmpty()) finish(State.STOPPED, "spawn_failed", "arena_match_stopped");
+    }
+
+    /** As wave mobs fall, the wave's queued mobs take their places, up to the arena's cap. */
+    private void reinforce() {
+        if (feed == null || feed.pending() == 0) return;
+        spawnFed(feed.take(mobs.size()));
+    }
+
+    private int queued() { return feed == null ? 0 : feed.pending(); }
+
+    /** Spawns these types round-robin over the spawn markers, continuing the wave's count; how many found no room. */
+    private int spawnFed(List<String> types) {
+        var markers = arena.mobSpawns();
+        int failed = 0;
+        for (var id : types) {
+            var type = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(id));
+            var marker = arena.world(markers.get(ArenaLogic.spawnMarker(fed++, markers.size())));
+            if (!spawnOne(type.create(level, EntitySpawnReason.COMMAND), marker)) failed++;
+        }
+        return failed;
     }
 
     private boolean spawnOne(Entity created, int[] marker) {
@@ -512,6 +533,7 @@ final class ArenaMatch {
             out.put("next_wave_in_ticks", clock.nextIn());
             out.put("spawned", spawned);
             out.put("killed", killed);
+            out.put("queued", queued());
             var list = new ArrayList<Map<String, Object>>();
             for (var entry : mobs.entrySet()) {
                 var t = entry.getValue();
