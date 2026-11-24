@@ -46,6 +46,7 @@ from mclab.companion_body import (
     session_archive,
 )
 from mclab.companion_defense import DefensePolicy
+from mclab.companion_pursuit import Pursuit, own_speed
 from mclab.follow import PLAYER, FollowTarget, feet_cell, find_player
 from mclab.gather_runner import STATION_REACH, flush_containers
 from mclab.progress_watch import BodyDied
@@ -70,6 +71,7 @@ HALT_TIMEOUT_S = 5.0
 # defence (COMPANION_DEFENSE_PLAN_2026-11-23.md): one ``defend`` call is one step,
 # and the host's guard decides again after each
 FIGHT_TICKS = 200  # one fight step: the guard decides again at least this often
+PLAYER_LOOK_TICKS = 60  # ...a player foe's: it runs, so the attack job looks every 3 s
 # decide again at once
 FIGHT_ENDS = frozenset({"low_health", "avoid", "timeout", "unreachable"})
 OUT_OF_REACH_S = 30.0  # a mob no walk reached is fought only from range this long
@@ -1207,16 +1209,24 @@ class Session:
 
     def _attack_loop(self, target, weapon, tally, arena, label, progress) -> dict:
         chosen = None
+        picked_at = None  # the game tick the foe in ``chosen`` was picked
+        pursuit = Pursuit()  # the gap to a player foe across the looks
         while True:
             state = self.bridge.state()
             body = state.get("body") or {}
             here = body.get("position")
             if here is None:
                 raise BodyDied("observation has no position: the body is dead")
+            tick = state.get("tick")
+            tick = tick if isinstance(tick, int) else None
             status = None
             if arena is not None:
                 status = self._arena_status(arena)
-                found = commanded.hunt(status, state, chosen, self.bot_name)
+                held = None if tick is None or picked_at is None else tick - picked_at
+                stuck = pursuit.blocked(tick) if tick is not None else frozenset()
+                found = commanded.hunt(
+                    status, state, chosen, self.bot_name, held=held, stuck=stuck
+                )
                 if found == commanded.NO_MATCH:
                     raise JobFailed(f"arena {arena} runs no match")
                 if found == commanded.WAITING:
@@ -1238,6 +1248,8 @@ class Session:
                     return self._attack_over(tally, found, label)
                 label = found.label
             if "player" not in target:
+                if found.uuid != chosen:
+                    picked_at = tick
                 chosen = found.uuid  # this one, not whichever is nearest next look
             foes = self._attack_foes(state, status, target, found)
             enemies = [f.uuid for f in foes if f.type == PLAYER]
@@ -1251,8 +1263,14 @@ class Session:
                 return self._attack_over(tally, commanded.LOW_HEALTH, label)
             floor = self._fight_floor(body, base)  # breaks off to heal while it can
             rows = body.get("inventory")
+            counts, loyal = _counts(rows), combat.loyal(rows)
+            kiting = False
+            if found.type == PLAYER and tick is not None:
+                kiting = self._kiting(
+                    pursuit, found, tick, body, counts, loyal, named=bool(weapon)
+                )
             plan = self._attack_tactic(
-                found.type, weapon, _counts(rows), label, combat.loyal(rows)
+                found.type, weapon, counts, label, loyal, kiting=kiting
             )
             distance = math.dist(here, found.position)
             progress(
@@ -1280,7 +1298,9 @@ class Session:
                     ),
                 ),
                 floor=floor,
-                max_ticks=FIGHT_TICKS,
+                # a player is looked at again every few seconds: players run, and
+                # the fight op follows only the one uuid it was given
+                max_ticks=PLAYER_LOOK_TICKS if found.type == PLAYER else FIGHT_TICKS,
                 tactic=plan.wire(),
                 allow_player="player" in target or found.type == PLAYER,
             )
@@ -1306,7 +1326,9 @@ class Session:
                     return self._attack_over(tally, commanded.INVULNERABLE, label)
                 if reason in ("not_allowed", "bad_request"):
                     raise JobFailed(f"I may not attack {label}")
-                spent = 0
+                # a timeout is a fight that ran its ticks: the target has moved on a
+                # while, so no pause before the next look
+                spent = int(data.get("ticks", 0)) if reason == "timeout" else 0
                 if reason == "unreachable":  # a walk that gets nearer, then try again
                     self._approach(feet_cell(found.position), arena, far=False)
             if spent < DEFEND_WAIT_TICKS:  # nothing came of it: let the target move
@@ -1337,13 +1359,30 @@ class Session:
             return None
         return players if isinstance(players, list) else None
 
+    def _kiting(self, pursuit, found, tick, body, counts, loyal, *, named) -> bool:
+        """Look at the player ``found``: whether it keeps out of melee (the gap held
+        across the looks, ``companion_pursuit``). With nothing to reach it from range
+        (and no weapon named: that is the owner's word) it is left alone for a
+        while, so the other enemy is fought instead."""
+        pursuit.observe(found.uuid, tick, body["position"], found.position)
+        if not pursuit.cannot_close(own_speed(body.get("effects"))):
+            pursuit.clear_block(found.uuid)
+            return False
+        if not named and combat.ranged_tactic(found.type, counts, loyal=loyal) is None:
+            pursuit.block(found.uuid, tick)
+            return False
+        return True
+
     @staticmethod
-    def _attack_tactic(kind, weapon, inventory, label, loyal=False) -> combat.Tactic:
+    def _attack_tactic(
+        kind, weapon, inventory, label, loyal=False, kiting=False
+    ) -> combat.Tactic:
         """How to fight ``kind``: the named weapon when there is one (it must be
         held), else what the held weapons suit, else the best melee weapon held, else
         the fists (it is the owner's order: combat.ordered_tactic). A target the
         profiles never engage is refused. ``loyal``: a carried trident has Loyalty,
-        so it may be thrown."""
+        so it may be thrown. ``kiting``: the target keeps out of melee, so what
+        reaches it from range comes first."""
         if combat.never_engaged(kind):
             raise JobFailed(f"I won't fight a {label}: it is too dangerous")
         if weapon:
@@ -1354,7 +1393,7 @@ class Session:
                     raise JobFailed(f"I have a {name} but no arrows for it")
                 raise JobFailed(f"I am not holding a {name}")
             return plan
-        return combat.ordered_tactic(kind, inventory, loyal=loyal)
+        return combat.ordered_tactic(kind, inventory, loyal=loyal, kiting=kiting)
 
     def follow(self, args: dict, actor, progress) -> dict:
         """Keep within ``distance`` of the player until stopped (never returns by

@@ -277,6 +277,34 @@ bot in the roster the script needs no companion host: it starts the match and sa
 ends or times out. `--op NAME` / `--deop NAME` set operator status once before the first match
 (`arena_op`; the bot is skipped), and every player gets the same kit (`arena_kit`).
 
+### Fighting players that run (live series 20261124T164259Z)
+
+A dad and son on red played five matches against the bot alone on blue; it lost three. Two
+faults, both in the attack job, none in the Java fight op (which tracks one uuid and already
+backs off to a stand-off band for `snipe` / `throw`):
+
+- **It chased on foot.** `PROFILES["minecraft:player"]` was a static `("melee", "snipe")`, so the
+  sword came first however far the player ran; every fight of the series was a swing (shots 0)
+  while the bow and a Loyalty trident sat in the kit. `companion_pursuit.Pursuit` now records
+  the gap to a player foe at every look (looks are every `PLAYER_LOOK_TICKS`, 60 ticks, for a
+  player; a mob keeps `FIGHT_TICKS`) and says the foe `cannot_close` when the gap is over
+  4 blocks and shrinks by under 0.8 blocks a second across at least 1.5 s (a band: it is closed
+  on again from 1.6). A bot slower than the foe's measured pace (`own_speed`: speed +20%, slowness
+  -15% a level, multiplied) knows it after 10 ticks, so a splash of slowness does not cost two
+  more fights. A kited bot fights with `combat.ranged_tactic` (bow with arrows, else a Loyalty
+  trident's throw), which the sword then backs up under 4 blocks. A named weapon stays the
+  owner's word. A foe walking in, or standing still, is met in melee as before.
+- **It stuck to one foe while the other did the damage.** `_threat` kept the chosen player for
+  good. It now leaves a chosen player only for a clear reason (`companion_attack._commit`): the
+  foe is gone; the bot found no way to it (`stuck`: kept out of melee and nothing held reaches
+  it, left alone for `BLOCK_TICKS` = 10 s); the other enemy is within `PRESS_GAP` (4.5) while the
+  chosen one is over `KEEP_FAR` (6) away; or, after `HOLD_TICKS` (2 s), the other is under half
+  as far. A fresh pick is held for 2 s, so two players equally far never flip-flop, and it is never
+  swapped for a stuck one. Wave mobs keep the old rule (kept unless a heavier `THREAT` appears).
+
+Evidence gaps: `fight_done` has no per-attacker damage, so "the other player did the damage" is
+read from where each stood (proximity), not from `hurt_by` uuids; the live check is pending.
+
 ## The arena server
 
 A third instance, `config/instances/arena.json` (`mcarena`, like `mcplay`; game `25566`, bridge

@@ -89,7 +89,8 @@ def test_attack_a_player_fights_them_commanded_with_the_weapon_that_suits(fighte
     assert fields["entity"] == "u-Alex" and fields["allow_player"] is True
     assert fields["weapon"] == SWORD and fields["tactic"]["style"] == "melee"
     assert fields["floor"] == session.defense_policy.floor_health
-    assert fields["max_ticks"] == cs.FIGHT_TICKS and fields.get("anchor") is None
+    assert fields["max_ticks"] == cs.PLAYER_LOOK_TICKS  # a player runs: look often
+    assert fields.get("anchor") is None
     assert fields["radius"] >= 8  # the target is 5 blocks away: all of it in reach
 
 
@@ -198,11 +199,20 @@ def test_each_fight_of_an_attack_is_reported_as_a_step(fighter):
     _attack(session, arena="vault")
 
     steps = [r["step"] for r in session.reported if "step" in r]
-    assert steps == [{
-        "action": "fight", "weapon": SWORD, "target_type": RAVAGER, "ok": True,
-        "reason": None, "kills": 1, "hits": 3, "style": "melee", "health": 14.0,
-        "hurt_by": {"minecraft:arrow": 6.0},
-    }]  # fmt: skip - never the inventory
+    assert steps == [
+        {
+            "action": "fight",
+            "weapon": SWORD,
+            "target_type": RAVAGER,
+            "ok": True,
+            "reason": None,
+            "kills": 1,
+            "hits": 3,
+            "style": "melee",
+            "health": 14.0,
+            "hurt_by": {"minecraft:arrow": 6.0},
+        }
+    ]  # fmt: skip - never the inventory
 
 
 def _potion(slot, name, effect, item="splash_potion", amplifier=1):
@@ -289,7 +299,10 @@ def test_a_hunt_splashes_harming_on_a_group_at_range_before_closing_in(fighter):
 
     (use,) = _uses(session)
     assert (use.op, use.reason, use.potion) == (
-        "throw", "harm", "minecraft:strong_harming")
+        "throw",
+        "harm",
+        "minecraft:strong_harming",
+    )
     assert set(use.targets) == {"a", "b"}
     assert "position" in use.fields()["at"]  # a point short of them: out of its reach
 
@@ -692,3 +705,175 @@ def test_run_dispatches_attack_as_a_job(fighter):
     session.body.fights = [Result(True, None, {"kills": 1, "killed": True})]
     result = session.run("attack", _order(mob=ZOMBIE), OWNER, lambda **kw: None)
     assert result["outcome"] == "killed"
+
+
+# --- a team match against two players: who to go after, and with what -----------------
+# Live series 20261124T164259Z (a dad and son on red against the bot on blue): every
+# fight was a trident swing (shots 0) at a target running as fast as the bot, while the
+# other player, 4 to 9 blocks off, did the damage; slowness made it worse.
+
+LOYAL_TRIDENT = {
+    **_stack("minecraft:trident"),
+    "slot": 5,
+    "enchantments": {"minecraft:loyalty": 3},
+}
+SHOOTER = [
+    *_sword(),
+    {"slot": 3, "item": BOW, "count": 1},
+    {"slot": 4, "item": ARROW, "count": 64},
+]
+TIMEOUT = Result(False, "timeout", {"ticks": cs.PLAYER_LOOK_TICKS + 1, "hits": 0})
+
+
+def _teams(*people, state="running"):
+    """An arena_status reply for a teams match: (name, team, position) people."""
+    rows = [
+        {"uuid": f"u-{n}", "name": n, "team": t, "alive": True, "position": list(p)}
+        for n, t, p in people
+    ]
+    match = {"mode": "teams", "state": state, "participants": rows}
+    return Result(True, None, {"name": "duel", "match_state": state, "match": match})
+
+
+def _blue(*enemies, bot=(0.5, 64.0, 0.5), state="running"):
+    return _teams(("MCBot", "blue", bot), *enemies, state=state)
+
+
+def _red(name, at):
+    return (name, "red", at)
+
+
+def _fights(session):
+    return [f for _, f in _logged(session.body, "fight")]
+
+
+def test_a_team_fight_against_a_player_looks_again_every_few_seconds(fighter):
+    session, bridge = fighter
+    _arena(session, _blue(_red("Ann", (10.5, 64.0, 0.5))), _blue(state="won"))
+    _look(bridge, inv=SHOOTER, tick=0)
+    _look(bridge, inv=SHOOTER, tick=60)
+    session.body.fights = [TIMEOUT]
+
+    _attack(session, arena="duel")
+
+    (fight,) = _fights(session)
+    assert fight["max_ticks"] == cs.PLAYER_LOOK_TICKS < cs.FIGHT_TICKS
+
+
+def test_a_fight_that_ran_out_its_ticks_is_not_followed_by_a_pause(fighter):
+    session, bridge = fighter
+    _arena(session, _blue(_red("Ann", (10.5, 64.0, 0.5))), _blue(state="won"))
+    _look(bridge, inv=SHOOTER, tick=0)
+    _look(bridge, inv=SHOOTER, tick=60)
+    session.body.fights = [TIMEOUT]
+
+    _attack(session, arena="duel")
+
+    assert not [e for e in session.body.log if e[0] == "wait"]
+
+
+def test_a_player_the_bot_cannot_close_on_is_shot_not_chased(fighter):
+    session, bridge = fighter
+    ann = _red("Ann", (20.5, 64.0, 0.5))  # the gap holds at 20 look after look
+    _arena(session, *[_blue(ann)] * 3, _blue(state="won"))
+    for tick in (0, 60, 120, 180):
+        _look(bridge, inv=SHOOTER, tick=tick)
+    session.body.fights = [TIMEOUT, TIMEOUT, TIMEOUT]
+
+    _attack(session, arena="duel")
+
+    fights = _fights(session)
+    assert [f["tactic"]["style"] for f in fights] == ["melee", "snipe", "snipe"]
+    assert fights[0]["weapon"] == SWORD and fights[1]["weapon"] == BOW
+    assert fights[1]["tactic"]["keep"] == list(cs.combat.SNIPE_KEEP)
+    assert {f["entity"] for f in fights} == {"u-Ann"}
+
+
+def test_a_kited_bot_throws_a_loyalty_trident_when_it_has_no_arrows(fighter):
+    session, bridge = fighter
+    kit = [*_sword(), LOYAL_TRIDENT]
+    ann = _red("Ann", (20.5, 64.0, 0.5))
+    _arena(session, *[_blue(ann)] * 2, _blue(state="won"))
+    for tick in (0, 60, 120):
+        _look(bridge, inv=kit, tick=tick)
+    session.body.fights = [TIMEOUT, TIMEOUT]
+
+    _attack(session, arena="duel")
+
+    styles = [f["tactic"]["style"] for f in _fights(session)]
+    assert styles == ["melee", "throw"]
+    assert _fights(session)[1]["weapon"] == "minecraft:trident"
+
+
+def test_a_slowed_bot_goes_ranged_as_soon_as_it_sees_the_runner_outpace_it(fighter):
+    session, bridge = fighter
+    slow = [{"id": "minecraft:slowness", "amplifier": 0, "duration": 900}]
+    _arena(session, _blue(_red("Ann", (10.5, 64.0, 0.5))),
+           _blue(_red("Ann", (17.5, 64.0, 0.5))), _blue(state="won"))  # fmt: skip
+    _look(bridge, inv=SHOOTER, tick=0, effects=slow)
+    _look(
+        bridge, inv=SHOOTER, tick=25, effects=slow
+    )  # 7 blocks in 1.25 s: 5.6 a second
+    _look(bridge, inv=SHOOTER, tick=50, effects=slow)
+    session.body.fights = [TIMEOUT, TIMEOUT]
+
+    _attack(session, arena="duel")
+
+    assert [f["tactic"]["style"] for f in _fights(session)] == ["melee", "snipe"]
+
+
+def test_a_player_closing_in_is_met_in_melee_not_shot(fighter):
+    session, bridge = fighter
+    _arena(session, *[_blue(_red("Ann", (x, 64.0, 0.5))) for x in (20.5, 12.5, 6.5)],
+           _blue(state="won"))  # fmt: skip
+    for tick in (0, 60, 120, 180):
+        _look(bridge, inv=SHOOTER, tick=tick)
+    session.body.fights = [TIMEOUT, TIMEOUT, TIMEOUT]
+
+    _attack(session, arena="duel")
+
+    assert {f["tactic"]["style"] for f in _fights(session)} == {"melee"}
+
+
+def test_without_a_ranged_weapon_an_unreachable_player_is_left_for_the_other(fighter):
+    session, bridge = fighter
+    ann, bob = _red("Ann", (20.5, 64.0, 0.5)), _red("Bob", (-21.5, 64.0, 0.5))
+    _arena(session, *[_blue(ann, bob)] * 3, _blue(state="won"))
+    for tick in (0, 60, 120, 180):
+        _look(bridge, inv=_sword(), tick=tick)  # nothing to shoot or throw
+    session.body.fights = [TIMEOUT, TIMEOUT, TIMEOUT]
+
+    _attack(session, arena="duel")
+
+    entities = [f["entity"] for f in _fights(session)]
+    assert entities[:2] == ["u-Ann", "u-Ann"]  # the verdict needs a second look
+    assert entities[2] == "u-Bob"  # then the one it can try for
+    assert {f["tactic"]["style"] for f in _fights(session)} == {"melee"}
+
+
+def test_an_enemy_pressing_in_takes_the_fight_from_a_far_target(fighter):
+    session, bridge = fighter
+    far = _red("Ann", (14.5, 64.0, 0.5))
+    _arena(session, _blue(far), _blue(far, _red("Bob", (-2.5, 64.0, 0.5))),
+           _blue(state="won"))  # fmt: skip
+    for tick in (0, 60, 120):
+        _look(bridge, inv=SHOOTER, tick=tick)
+    session.body.fights = [TIMEOUT, TIMEOUT]
+
+    _attack(session, arena="duel")
+
+    assert [f["entity"] for f in _fights(session)] == ["u-Ann", "u-Bob"]
+
+
+def test_a_named_weapon_is_still_the_owners_word_against_a_runner(fighter):
+    session, bridge = fighter
+    ann = _red("Ann", (20.5, 64.0, 0.5))
+    _arena(session, *[_blue(ann)] * 2, _blue(state="won"))
+    for tick in (0, 60, 120):
+        _look(bridge, inv=SHOOTER, tick=tick)
+    session.body.fights = [TIMEOUT, TIMEOUT]
+
+    _attack(session, SWORD, arena="duel")
+
+    assert {f["weapon"] for f in _fights(session)} == {SWORD}
+    assert {f["tactic"]["style"] for f in _fights(session)} == {"melee"}
