@@ -156,6 +156,25 @@ def test_an_arena_hunt_finds_every_wave_mob_wherever_it_is_and_ends_with_the_mat
     assert fields["tactic"]["style"] != "avoid"
 
 
+def test_an_arena_hunt_fights_a_wave_mob_in_reach_the_short_sensor_misses(fighter):
+    """A pillager shoots from 15 blocks: past the body's 8-block entity sensor, but
+    the arena's status places it this look and the fight op tracks it by uuid. A
+    walk to where it stood would only be shot at all the way (the rung-1 deaths)."""
+    session, bridge = fighter
+    pillager = ("p1", (15.5, 64.0, 0.5))
+    _arena(session, _match(pillager), _match(state="won", cleared=2))
+    _look(bridge, inv=_sword())  # not in visible_entities
+    _look(bridge, inv=_sword())
+    session.body.fights = [Result(True, None, {"kills": 1, "killed": True, "hits": 3})]
+
+    result = _attack(session, arena="vault")
+
+    assert result["outcome"] == "won"
+    assert not [e for e in session.body.log if e[0] in ("walk_far", "walk_to")]
+    ((_, fields),) = _logged(session.body, "fight")
+    assert fields["entity"] == "p1" and fields["radius"] == cs.defense.FIGHT_RADIUS_MAX
+
+
 def test_an_arena_hunt_stands_down_the_guard_while_its_match_runs(fighter):
     session, bridge = fighter
     seen = []

@@ -133,7 +133,8 @@ def hunt(status: dict, state: dict, chosen: str | None = None):
     ended (won, lost, stopped). Every live wave mob counts, wherever it is in the
     arena: the match is won only when all are dead. The mob already chosen is kept
     while it lives; else the nearest. Where the body sees it, its own sighting is
-    used (fresher than the status, and ``seen`` lets the job fight rather than walk)."""
+    used (fresher than the status); ``seen`` is then only how the job reports it,
+    since the fight op tracks a wave mob in reach by uuid either way."""
     match = status.get("match")
     if not isinstance(match, dict) or match.get("mode") != "waves":
         return NO_MATCH

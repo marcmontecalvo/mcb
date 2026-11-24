@@ -1128,7 +1128,10 @@ class Session:
                 detail=f"{found.label if arena else label}, {distance:.0f} blocks away"
                 + ("" if found.seen else " (out of sight)"),
             )
-            if not found.seen or distance > ATTACK_CHASE:
+            # In an arena the status places every wave mob this look, and the fight op
+            # tracks it by uuid: the body's short entity sensor (8 blocks, in view) is
+            # no reason to walk at a pillager shooting from 15.
+            if distance > ATTACK_CHASE or (arena is None and not found.seen):
                 goal = feet_cell(found.position)
                 if not self.body.walk_far(goal, ATTACK_WALK_RADIUS):
                     self.body.wait_ticks(ATTACK_WAIT_TICKS)
