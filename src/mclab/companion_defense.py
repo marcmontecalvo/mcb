@@ -125,10 +125,18 @@ def _dist(a, b) -> float:
     return math.dist(tuple(a), tuple(b))
 
 
-def threats(entities, position, policy: DefensePolicy) -> list[Threat]:
-    """Hostiles within the threat radius (an archer: within its bow's range) and
-    roughly level with us, nearest first."""
+def threats(
+    entities,
+    position,
+    policy: DefensePolicy,
+    inventory: Mapping[str, int] | None = None,
+) -> list[Threat]:
+    """Hostiles within the threat radius and roughly level with us, nearest first.
+    An archer is one within its bow's range; a mob the held weapons would shoot
+    (``inventory``) is one within the bow's stand-off band, which a sniper backs
+    off to while the mob still comes."""
     out = []
+    shoots: dict[str, bool] = {}
     for e in entities:
         at = e.get("position") or ()
         if e.get("type") not in HOSTILE or len(at) != 3:
@@ -139,6 +147,12 @@ def threats(entities, position, policy: DefensePolicy) -> list[Threat]:
         limit = policy.threat_radius
         if e["type"] in ARCHERS:
             limit = max(limit, ARCHER_RANGE)
+        if d > limit and inventory:
+            kind = e["type"]
+            if kind not in shoots:
+                shoots[kind] = combat.tactic(kind, inventory).style == "snipe"
+            if shoots[kind]:
+                limit = max(limit, combat.SNIPE_KEEP[1])
         if d <= limit:
             out.append(Threat(str(e.get("uuid")), e["type"], tuple(at), d))
     return sorted(out, key=lambda t: t.distance)
@@ -181,7 +195,7 @@ def _pressed(s: Situation, seen: tuple[Threat, ...]) -> bool:
 
 
 def decide(s: Situation, policy: DefensePolicy) -> Action:
-    seen = tuple(threats(s.entities, s.position, policy))
+    seen = tuple(threats(s.entities, s.position, policy, s.inventory))
     if not seen:
         return Action("none", "no threat near")
     friends = allies(s.entities, s.name, s.position, policy)

@@ -93,6 +93,24 @@ def test_an_archer_is_a_threat_as_far_as_it_shoots():
     assert cd.ARCHER_RANGE >= 15  # a skeleton's bow reaches 15 blocks
 
 
+def test_a_mob_the_bot_would_shoot_is_a_threat_as_far_as_its_bow_keeps():
+    # live (group matrix 20261124T011202Z): a sniper backs off to 8-15 blocks, so
+    # after one kill the other zombies, still coming, stood past 12 and the guard
+    # called it clear (bow zombie*3 7/10, every miss "clear" at full health)
+    zombie = mob(at=(14.5, 64.0, 0.5), uuid="z")
+    far = mob(at=(17.5, 64.0, 0.5), uuid="far")
+    bow = {M + "bow": 1, M + "arrow": 16}
+    found = cd.threats((zombie, far), HERE, POLICY, inventory=bow)
+    assert [t.uuid for t in found] == ["z"]
+    assert cd.decide(situation(entities=[zombie], inventory=bow), POLICY).kind == (
+        "fight"
+    )
+    # met in melee, it is not a threat until it is near
+    sword = {M + "iron_sword": 1, **bow}
+    assert cd.threats((zombie,), HERE, POLICY, inventory=sword) == []
+    assert cd.threats((zombie,), HERE, POLICY) == []  # nothing held: the radius
+
+
 def test_the_fight_looks_as_far_as_the_farthest_threat_seen():
     near = cd.Threat("a", M + "zombie", (4.5, 64.0, 0.5), 4.0)
     archer = cd.Threat("b", M + "skeleton", (14.7, 64.0, 0.5), 14.2)
