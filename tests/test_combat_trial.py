@@ -773,6 +773,24 @@ def test_the_all_kit_carries_every_weapon_the_bot_can_choose_between():
         ct.kit("all+sword")
 
 
+def test_a_kit_may_add_a_loyal_trident_a_shield_and_a_set_of_armor():
+    assert ct.kit("trident") == [{"item": M + "trident", "count": 1,
+                                  "enchantments": {M + "loyalty": 3}}]  # fmt: skip
+    assert ct.kit("sword+shield") == ct.kit("sword") + [
+        {"item": M + "shield", "count": 1}
+    ]
+    assert ct.kit("armor", tier="diamond") == [
+        {"item": M + f"diamond_{piece}", "count": 1}
+        for piece in ("helmet", "chestplate", "leggings", "boots")
+    ]
+    # the cell name says what it carried: compared apart from the bare kit
+    assert ct.kit("all+armor+shield") == ct.kit("all") + ct.kit("armor") + ct.kit(
+        "shield"
+    )
+    with pytest.raises(ValueError, match="weapon"):
+        ct.kit("fist+armor")
+
+
 def test_a_group_trial_with_one_left_alive_is_not_a_kill():
     clock = FakeClock()
     client = FakeClient(clock, feed=[

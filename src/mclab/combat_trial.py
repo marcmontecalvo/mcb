@@ -45,7 +45,9 @@ FINAL = ("died", "stopped")  # defence ends nothing takes up again
 ARENA_SLACK = 4.0
 ARENA_WAIT = 120.0
 DONE = ("succeeded", "failed", "cancelled")
-WEAPONS = ("sword", "axe", "spear", "bow", "fist")
+WEAPONS = ("sword", "axe", "spear", "bow", "trident", "shield", "armor", "fist")
+ARMOR = ("helmet", "chestplate", "leggings", "boots")
+LOYALTY = 3  # a thrown trident flies back: Loyalty III, the quickest return
 # Undead that burn by day get a helmet so a day trial is a fight, not a sunburn.
 BURNS = frozenset(
     "zombie skeleton stray bogged zombie_villager drowned phantom".split()
@@ -64,22 +66,34 @@ CHARGE_LOG = 8  # a fight's charge hits kept (the mod reports its first eight)
 
 
 ALL = "all"  # every weapon the bot chooses between (a raid trial): sword+axe+spear+bow
+ALL_PARTS = ("sword", "axe", "spear", "bow")
 
 
 def kit(weapon: str, *, tier: str = "iron") -> list[dict]:
-    """The give entries for a weapon, or several joined by ``+`` (``spear+sword``):
-    one of each, and arrows for a bow. The fist is an empty kit of its own;
-    ``all`` is every weapon at once."""
-    parts = ["sword", "axe", "spear", "bow"] if weapon == ALL else weapon.split("+")
+    """The give entries for a kit: a weapon, or several parts joined by ``+``
+    (``spear+sword``): one of each, arrows for a bow, Loyalty on a trident, a
+    shield, and ``armor`` (a full set of the tier). The fist is an empty kit of its
+    own; ``all`` is every weapon at once (``all+armor+shield``)."""
+    parts = []
+    for part in weapon.split("+"):
+        parts += ALL_PARTS if part == ALL else [part]
     known = len(parts) == len(set(parts)) and all(p in WEAPONS for p in parts)
     if not known or (len(parts) > 1 and "fist" in parts):
         raise ValueError(
-            f"weapon must be one of {', '.join(WEAPONS)}, or several joined by +"
+            f"weapon must be one of {', '.join(WEAPONS)} or {ALL}, or several "
+            "joined by +"
         )
     out = []
     for part in parts:
         if part == "bow":
             out += [{"item": M + "bow", "count": 1}, {"item": M + "arrow", "count": 64}]
+        elif part == "trident":
+            out.append({"item": M + "trident", "count": 1,
+                        "enchantments": {M + "loyalty": LOYALTY}})  # fmt: skip
+        elif part == "shield":
+            out.append({"item": M + "shield", "count": 1})
+        elif part == "armor":
+            out += [{"item": f"{M}{tier}_{piece}", "count": 1} for piece in ARMOR]
         elif part != "fist":
             out.append({"item": f"{M}{tier}_{part}", "count": 1})
     return out

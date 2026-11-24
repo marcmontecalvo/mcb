@@ -231,7 +231,8 @@ The observation (`/state`) also carries `time_of_day` (day time modulo 24000).
 Sets the scene for a combat trial on the play server (`scripts/combat-trial.py` sends it through the host's
 control API, `POST /trial`, which keeps the mod's request sequence). Structured fields only, never a
 command string; any other key is `bad_request`:
-`{"surface":bool?, "clear":0..48?, "clear_inventory":bool?, "give":[{"item","count":1..256}]? (max 36),
+`{"surface":bool?, "clear":0..48?, "clear_inventory":bool?, "give":[{"item","count":1..256,
+"enchantments":{id: 1..10}? (max 4; a trident's Loyalty)}]? (max 36),
 "heal":bool?, "time":0..23999?, "summon":[{"type", "offset":[dx,dy,dz] (each -32..32) | "distance":2..32,
 "helmet":bool?}]? (max 8)}`; each summon has exactly one of `offset` and `distance`.
 Order: check every item and entity id against the registries first (`unknown_item`, `unknown_entity`;
@@ -251,8 +252,19 @@ guard, which reacts to what it sees, never knew it was there. The Ender Dragon a
 A summoned mob is finalized as a natural spawn (a skeleton gets its bow, a zombie may get gear).
 `_done`: `{"surface": y?, "cleared": n?, "time"?, "given": n (give entries), "summoned":[{type,uuid,at}],
 "health"}`.
-`_failed`: `bad_request`, `not_allowed`, `unknown_item`, `unknown_entity`, `inventory_full`,
-`cannot_create_entity`, `no_room`, `no_spot`, `busy`.
+`_failed`: `bad_request`, `not_allowed`, `unknown_item`, `unknown_enchantment`, `unknown_entity`,
+`inventory_full`, `cannot_create_entity`, `no_room`, `no_spot`, `busy`.
+
+### `wear`
+Puts on the best armor carried (main inventory, slots 0–35) in each armor slot, and a shield in the off
+hand (`GearLogic.plan`). Pieces rank by armor points, then toughness, then Protection levels, then uses
+left. A worn piece at least as good stays on, and the piece it replaces goes back to the slot the new one
+came from. A piece with no armor points (a carved pumpkin, an elytra) never goes in an armor slot. An off
+hand holding something that is not gear (a totem, a torch) is left alone. No fields.
+The session asks for it when the gear it carries or wears changes (`companion_gear.signature`): on idle
+polls and before each defence step.
+`_done`: `{"put_on": [item...], "worn": {"head"|"chest"|"legs"|"feet"|"offhand": item}, "armor": points,
+"inventory"}`. `_failed`: `busy`, `route_active`.
 
 ### `use_entity`
 Request: `{"entity":"<uuid>", "item":"<item>"?}`. A single normal use on the

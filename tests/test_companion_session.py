@@ -140,6 +140,10 @@ class FakeBody:
     def wait_ticks(self, ticks):
         self.log.append(("wait", ticks))
 
+    def wear(self):
+        self.log.append(("wear",))
+        return Result(True, None, {"put_on": [], "worn": {}, "armor": 0})
+
     def _drop_ahead(self):
         self.log.append(("drop_ahead",))
 
@@ -1428,6 +1432,45 @@ def test_defend_reports_a_spear_charges_evidence(guard):
     outcome = session.defend(Action("fight", "fighting", target="z1", item=SWORD))
     assert (outcome["lance"], outcome["charge_log"]) == ({"charge": 9}, [hit])
     assert "flee_log" not in outcome  # the step event stays small
+
+
+CHEST = {"slot": 4, "item": "minecraft:iron_chestplate", "count": 1}
+SHIELD = {"slot": 5, "item": "minecraft:shield", "count": 1}
+
+
+def test_idle_puts_on_armor_and_a_shield_the_bot_carries_once(make):
+    # armor given, picked up or crafted is worn: a full iron set halves a zombie's
+    # hits, and the shield goes in the off hand
+    session, bridge, *_ = make()
+    session.start()
+    session.body.log.clear()
+    bridge.default = _row(inv=[CHEST, SHIELD])
+
+    session.idle()
+    session.idle()  # the same gear carried: asked once (a worse piece stays carried)
+
+    assert session.body.log.count(("wear",)) == 1
+    boots = {**CHEST, "slot": 6, "item": "minecraft:iron_boots"}
+    bridge.default = _row(inv=[CHEST, SHIELD, boots])
+    session.idle()
+    assert session.body.log.count(("wear",)) == 2
+
+
+def test_idle_with_nothing_to_put_on_never_asks(make):
+    session, bridge, *_ = make()
+    session.start()
+    session.body.log.clear()
+    bridge.default = _row(inv=[{**CHEST, "slot": 38}])  # already worn
+    session.idle()
+    assert ("wear",) not in session.body.log
+
+
+def test_defend_dresses_before_the_fight(guard):
+    session, _, _ = guard()
+    session.body.rows = lambda: [CHEST]
+    session.defend(Action("fight", "fighting", target="z1", item=SWORD))
+    kinds = [entry[0] for entry in session.body.log]
+    assert kinds.index("wear") < kinds.index("fight")
 
 
 def test_defend_reports_what_a_fight_step_fought_with_what_and_killed(guard):

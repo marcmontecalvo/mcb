@@ -1371,6 +1371,16 @@ class CompanionBody:
         the inventory, give, heal, set the time, summon. Never an intent or a tool."""
         return self.op("trial", **spec)
 
+    def wear(self) -> Result:
+        """Put on the best armor carried in each slot and a shield in the off hand
+        (BODY_ACTION_OPS ``wear``); data: ``put_on``, ``worn`` by slot, ``armor``."""
+        return self.op("wear")
+
+    def rows(self) -> list[dict]:
+        """The inventory rows last seen (slot, item, count): 36-39 armor, 40 the
+        off hand."""
+        return list(self._rows)
+
     def use_entity(self, entity: str, item: str | None = None) -> Result:
         extra = {"item": item} if item else {}
         return self.op("use_entity", entity=entity, **extra)

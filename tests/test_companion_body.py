@@ -2728,6 +2728,19 @@ def test_escape_sends_its_fields_and_waits_long_enough():
     assert cb.OP_TIMEOUTS["escape"] >= 1200 / 20
 
 
+def test_wear_asks_the_body_to_dress_and_rows_keep_the_slots():
+    b, bridge, _ = body()
+    bridge.reply["wear"] = ("done", {"put_on": ["minecraft:iron_chestplate"],
+                                     "worn": {"chest": "minecraft:iron_chestplate"},
+                                     "armor": 6})  # fmt: skip
+    result = b.wear()
+    assert result.ok and result.data["armor"] == 6
+    assert bridge.sent[-1] == ("wear", {})
+    rows = [{"slot": 38, "item": "minecraft:iron_chestplate", "count": 1}]
+    b._set_inventory(rows)
+    assert b.rows() == rows and b.rows() is not b._rows
+
+
 def test_trial_sends_the_scene_as_given():
     b, bridge, _ = body()
     bridge.reply["trial"] = ("done", {"given": 1, "summoned": []})

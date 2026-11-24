@@ -25,7 +25,9 @@ final class TrialLogic {
     static final Set<String> BOSSES = Set.of("minecraft:ender_dragon", "minecraft:wither");
     private static final Pattern ID = Pattern.compile("[a-z0-9_.-]+:[a-z0-9_./-]+");
 
-    record Give(String item, int count) {}
+    static final int MAX_ENCHANTMENTS = 4, MAX_LEVEL = 10;
+    /** An item, how many, and its enchantments (id to level; a trident's Loyalty). */
+    record Give(String item, int count, java.util.Map<String, Integer> enchantments) {}
     /** An offset summon stands at (dx, dy, dz); a distance summon (offset 0) at a cell BodyTrial picks from ring(). */
     record Summon(String type, int dx, int dy, int dz, boolean helmet, Integer distance) {}
     /** surface: the body moves to the top of its column first and summons stand on their columns' ground. */
@@ -114,8 +116,18 @@ final class TrialLogic {
         Integer time = request.has("time") ? integer(request.get("time"), 0, 23999) : null;
         var give = new ArrayList<Give>();
         for (var e : array(request, "give", MAX_GIVE)) {
-            var o = entry(e, Set.of("item", "count"));
-            give.add(new Give(id(o.get("item")), integer(o.get("count"), 1, MAX_COUNT)));
+            var o = entry(e, Set.of("item", "count", "enchantments"));
+            var enchantments = new java.util.TreeMap<String, Integer>();
+            if (o.has("enchantments")) {
+                var map = o.get("enchantments");
+                if (!map.isJsonObject() || map.getAsJsonObject().size() > MAX_ENCHANTMENTS) throw bad();
+                for (var level : map.getAsJsonObject().entrySet()) {
+                    if (!ID.matcher(level.getKey()).matches()) throw bad();
+                    enchantments.put(level.getKey(), integer(level.getValue(), 1, MAX_LEVEL));
+                }
+            }
+            give.add(new Give(id(o.get("item")), integer(o.get("count"), 1, MAX_COUNT),
+                    java.util.Map.copyOf(enchantments)));
         }
         var summon = new ArrayList<Summon>();
         for (var e : array(request, "summon", MAX_SUMMON)) {

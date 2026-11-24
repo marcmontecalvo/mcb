@@ -30,6 +30,7 @@ from pathlib import Path
 
 from mclab import companion_burrow as burrow
 from mclab import companion_defense as defense
+from mclab import companion_gear as gear
 from mclab import paths
 from mclab.build_runner import Result
 from mclab.companion_body import (
@@ -353,6 +354,7 @@ class Session:
         self._saved_at = -math.inf
         self._saved: tuple[int, int, int] | None = None
         self._observed_at = -math.inf
+        self._dressed_for: tuple | None = None  # the gear rows the last wear saw
         # defence: bot.json settings, then the ones changed in play (saved apart:
         # _save rewrites the state file whole)
         self._defense_base = defense or DefensePolicy()
@@ -546,9 +548,26 @@ class Session:
         if body_state == "ready" and now - self._observed_at >= IDLE_OBSERVE_S:
             self.body.observe()
             self._observed_at = now
+        if body_state == "ready":
+            self._dress((state.get("body") or {}).get("inventory"))
         self._keep_position(state)
         self.bridge.trim(KEEP_EVENTS)
         return self.snapshot(state)
+
+    def _dress(self, rows) -> None:
+        """Put on the armor and shield carried (the body's wear op picks the best
+        piece per slot), once per change in the gear carried or worn: a worse piece
+        left carried is not asked about again."""
+        if not gear.unworn(rows):
+            return
+        seen = gear.signature(rows)
+        if seen == self._dressed_for:
+            return
+        self._dressed_for = seen
+        result = self.body.wear()
+        if not result.ok:
+            log.warning("wear failed: %s", result.reason)
+            self._dressed_for = None  # a busy body: ask again next time
 
     def health(self) -> str:
         """ok | dead (the body is gone) | lost (no bridge, or another server launch)."""
@@ -769,6 +788,9 @@ class Session:
         the step's outcome: the action, and for a body op (fight, escape) its ok,
         reason and scalar result fields (OUTCOME_FIELDS; never the inventory)."""
         self.knowledge()  # body.foods: eat_when_needed knows what is food
+        rows = getattr(self.body, "rows", None)
+        if rows is not None:
+            self._dress(rows())  # armor picked up mid-job goes on before the fight
         step = {
             "fight": self._fight,
             "walk_away": self._walk_away,

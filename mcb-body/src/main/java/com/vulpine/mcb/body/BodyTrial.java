@@ -3,6 +3,8 @@ package com.vulpine.mcb.body;
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -42,7 +44,16 @@ final class BodyTrial {
         for (var give : trial.give()) {
             var id = Identifier.tryParse(give.item());
             if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) throw new BodyActions.Fail("unknown_item");
-            stacks.add(new ItemStack(BuiltInRegistries.ITEM.getValue(id), give.count()));
+            var stack = new ItemStack(BuiltInRegistries.ITEM.getValue(id), give.count());
+            var enchantments = player.level().registryAccess().lookupOrThrow(Registries.ENCHANTMENT);
+            for (var level : give.enchantments().entrySet()) {
+                var key = Identifier.tryParse(level.getKey());
+                var holder = key == null ? null
+                        : enchantments.get(ResourceKey.create(Registries.ENCHANTMENT, key)).orElse(null);
+                if (holder == null) throw new BodyActions.Fail("unknown_enchantment");
+                stack.enchant(holder, level.getValue());
+            }
+            stacks.add(stack);
         }
         for (var summon : trial.summon()) {
             var id = Identifier.tryParse(summon.type());

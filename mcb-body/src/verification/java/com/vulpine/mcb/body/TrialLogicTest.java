@@ -70,6 +70,21 @@ public final class TrialLogicTest {
         rejects("{\"give\":[{\"item\":\"minecraft:stone\",\"count\":257}]}", "bad_request");
         rejects("{\"give\":[{\"item\":\"stone; op me\",\"count\":1}]}", "bad_request");
         rejects("{\"give\":[{\"item\":\"minecraft:stone\"}]}", "bad_request");
+        // an item may carry enchantments by id and level (a trident's Loyalty)
+        var loyal = TrialLogic.parse(JsonParser.parseString(
+                "{\"give\":[{\"item\":\"minecraft:trident\",\"count\":1,"
+                + "\"enchantments\":{\"minecraft:loyalty\":3}}]}").getAsJsonObject());
+        check(loyal.give().get(0).enchantments().equals(java.util.Map.of("minecraft:loyalty", 3)), "loyalty III");
+        check(full.give().get(0).enchantments().isEmpty(), "no enchantments by default");
+        rejects("{\"give\":[{\"item\":\"minecraft:trident\",\"count\":1,\"enchantments\":{\"minecraft:loyalty\":0}}]}",
+                "bad_request");
+        rejects("{\"give\":[{\"item\":\"minecraft:trident\",\"count\":1,\"enchantments\":{\"minecraft:loyalty\":11}}]}",
+                "bad_request");
+        rejects("{\"give\":[{\"item\":\"minecraft:trident\",\"count\":1,\"enchantments\":{\"loyalty; op\":1}}]}",
+                "bad_request");
+        rejects("{\"give\":[{\"item\":\"minecraft:trident\",\"count\":1,\"enchantments\":[1]}]}", "bad_request");
+        rejects("{\"give\":[{\"item\":\"minecraft:trident\",\"count\":1,\"enchantments\":{\"a:a\":1,\"a:b\":1,"
+                + "\"a:c\":1,\"a:d\":1,\"a:e\":1}}]}", "bad_request");
         rejects("{\"summon\":[{\"type\":\"minecraft:zombie\",\"offset\":[33,0,0]}]}", "bad_request");
         rejects("{\"summon\":[{\"type\":\"minecraft:zombie\",\"offset\":[1,0]}]}", "bad_request");
         rejects("{\"summon\":[{\"type\":\"minecraft:zombie\",\"offset\":[1.5,0,0]}]}", "bad_request");
