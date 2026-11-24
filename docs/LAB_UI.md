@@ -168,7 +168,7 @@ The dashboard must run with the model credentials the companion hosts need:
 
 Matches and trials write the script's own record plus a `summary.json` (a
 history row: one episode per match or fight, a match's with its `winner`,
-`bot_won`, per-player `kills` and `team_kills`) to `results/arena/<stamp>/` and
+`bot_won`, per-player `players` stats (kills, downs, damage dealt and taken, healing) and `team_kills`) to `results/arena/<stamp>/` and
 `results/combat/<stamp>/`; CLI runs keep writing `results/companion/arena/` and
 `results/companion/trials/`. **Stop** / **Cancel** on a running match interrupts
 the script and then stops its match on the arena server (`mcarena arena stop`),

@@ -46,6 +46,9 @@ public final class ArenaLogicTest {
         clock();
         game();
         tally();
+        stats();
+        board();
+        recap();
         misc();
         cursor();
         registry();
@@ -311,6 +314,133 @@ public final class ArenaLogicTest {
 
         check(ArenaLogic.objectiveName("vault").length() <= 16 && ArenaLogic.objectiveName("vault").startsWith("mcbk_"), "objective name fits");
         check(!ArenaLogic.objectiveName("vault").equals(ArenaLogic.objectiveName("hall")), "one per arena");
+        check(ArenaLogic.seriesBoardName("vault").length() <= 16 && ArenaLogic.seriesBoardName("vault").startsWith("mcbs_")
+                && !ArenaLogic.seriesBoardName("vault").equals(ArenaLogic.objectiveName("vault")), "the series board is its own objective");
+    }
+
+    /** Damage dealt and taken, healing done and downs, per participant. */
+    private static void stats() {
+        var teamOf = new LinkedHashMap<String, String>();
+        teamOf.put("Ann", "red"); teamOf.put("Cy", "red"); teamOf.put("Bot", "blue");
+        var tally = new ArenaLogic.Tally(teamOf, List.of("red", "blue"));
+        tally.hurt("Ann", "Bot", false, 7.5);
+        check(tally.dealt("Ann") == 7.5 && tally.taken("Bot") == 7.5, "a hit on an enemy: dealt by one, taken by the other");
+        tally.hurt("Ann", null, true, 4);
+        check(tally.dealt("Ann") == 11.5, "a hit on a wave mob is dealt too");
+        tally.hurt("Ann", null, false, 6);
+        check(tally.dealt("Ann") == 11.5, "a hit on anything else (a stray cow) is not");
+        tally.hurt(null, "Cy", false, 3);
+        tally.hurt("Cy", "Cy", false, 2);
+        check(tally.taken("Cy") == 5 && tally.dealt("Cy") == 0, "a fall or your own potion is taken, never dealt");
+        tally.hurt("Ann", "Cy", false, 1);
+        check(tally.dealt("Ann") == 11.5 && tally.taken("Cy") == 6, "a teammate's hit is taken but not dealt");
+        tally.hurt("Zed", "Ann", false, 2);
+        check(tally.taken("Ann") == 2 && tally.dealt("Zed") == 0, "an outsider's hit is taken by a participant, dealt by nobody");
+
+        tally.healed(null, "Ann", 3);
+        check(tally.healing("Ann") == 3, "regeneration and food: the player's own healing");
+        tally.healed("Ann", "Ann", 4);
+        tally.healed("Ann", "Cy", 6);
+        check(tally.healing("Ann") == 13 && tally.healing("Cy") == 0, "a potion on yourself or a teammate is the thrower's healing");
+        tally.healed("Bot", "Ann", 5);
+        tally.healed("", "Ann", 5);
+        tally.healed("Ann", "Zed", 5);
+        check(tally.healing("Bot") == 0 && tally.healing("Ann") == 13, "healing an enemy, an outsider's or a non-participant's: nobody's");
+
+        tally.down("Bot"); tally.down("Bot"); tally.down("Zed");
+        check(tally.deaths("Bot") == 2 && tally.deaths("Zed") == 0 && tally.deaths("Ann") == 0, "downs per participant");
+
+        var rows = tally.rows();
+        check(rows.get("Ann").get("damage_dealt").equals(11.5) && rows.get("Bot").get("damage_taken").equals(7.5)
+                && rows.get("Ann").get("healing").equals(13.0) && rows.get("Bot").get("deaths").equals(2), "the rows carry it");
+        tally.hurt("Cy", "Bot", false, 1.0 / 3);
+        check(tally.rows().get("Cy").get("damage_dealt").equals(0.3), "reported to a tenth");
+        var stats = tally.stats();
+        check(stats.size() == 3 && stats.get(0).name().equals("Ann") && stats.get(2).team().equals("blue")
+                && stats.get(2).deaths() == 2 && stats.get(0).dealt() == 11.5, "stats in participant order");
+    }
+
+    private static ArenaLogic.Player player(String name, String team, int kills, boolean alive) {
+        return new ArenaLogic.Player(name, team, kills, alive);
+    }
+
+    private static List<String> texts(List<ArenaLogic.Line> lines) {
+        var out = new ArrayList<String>();
+        for (var line : lines) out.add(line.text().strip() + "=" + line.value());
+        return out;
+    }
+
+    /** The sidebar: teams with their players by kills, wave progress, a fit into 15 lines. */
+    private static void board() {
+        check(ArenaLogic.teamColor("red", 1).equals("red") && ArenaLogic.teamColor("blue", 0).equals("blue"),
+                "a team named for a colour wears it");
+        check(ArenaLogic.COLORS.contains(ArenaLogic.teamColor("alpha", 0))
+                && !ArenaLogic.teamColor("alpha", 0).equals(ArenaLogic.teamColor("beta", 1)), "others get one by plan order");
+
+        var duel = ArenaLogic.fit(ArenaLogic.matchBoard("teams", List.of("red", "blue"), List.of(
+                player("Ann", "red", 0, true), player("Cy", "red", 2, false), player("Bot", "blue", 1, true)), null), 15);
+        check(texts(duel).equals(List.of("Red · 1 alive=2", "Cy=2", "Ann=0", "Blue · 1 alive=1", "Bot=1")),
+                "each team (alive, kills), then its players by kills: " + texts(duel));
+        check(duel.get(0).bold() && duel.get(0).color().equals("red") && duel.get(4).color().equals("blue"), "team colours");
+        check(duel.get(1).struck() && duel.get(1).color().equals("dark_gray") && !duel.get(2).struck(), "a downed player is greyed out");
+        check(duel.get(1).text().startsWith(" "), "players sit under their team");
+
+        var coop = ArenaLogic.fit(ArenaLogic.matchBoard("waves", List.of(), List.of(
+                player("Ann", "", 3, true), player("Bot", "", 9, true)), new ArenaLogic.WaveInfo(2, 5, 13)), 15);
+        check(texts(coop).equals(List.of("Wave=2/5", "Mobs left=13", "Bot=9", "Ann=3")), "co-op: the waves, then everyone: " + texts(coop));
+
+        var race = ArenaLogic.fit(ArenaLogic.matchBoard("race", List.of("red", "blue"), List.of(
+                player("Ann", "red", 3, true), player("Bot", "blue", 4, true)), new ArenaLogic.WaveInfo(1, 1, 2)), 15);
+        check(texts(race).get(2).equals("Red · 1 alive=3"), "a race: the team's kills");
+
+        // 8 against 8 is 18 lines: every team keeps its line, each shows its best and says how many more.
+        var many = new ArrayList<ArenaLogic.Player>();
+        for (int i = 0; i < 8; i++) { many.add(player("r" + i, "red", i, true)); many.add(player("b" + i, "blue", i, true)); }
+        var fitted = ArenaLogic.fit(ArenaLogic.matchBoard("teams", List.of("red", "blue"), many, null), 15);
+        check(fitted.size() == 15, "15 lines at most: " + fitted.size());
+        var shown = texts(fitted);
+        check(shown.get(0).startsWith("Red") && shown.get(1).equals("r7=7") && shown.get(7).equals("+2 more=")
+                && shown.get(8).startsWith("Blue") && shown.get(14).equals("+3 more="),
+                "each team: its best players and the rest counted: " + shown);
+        var waves = ArenaLogic.fit(ArenaLogic.matchBoard("waves", List.of(), many, new ArenaLogic.WaveInfo(1, 3, 50)), 15);
+        check(waves.size() == 15 && texts(waves).get(0).equals("Wave=1/3") && texts(waves).get(14).equals("+4 more="),
+                "50 mobs, 16 players: the waves stay, the rest fold: " + texts(waves));
+        check(ArenaLogic.fit(List.of(), 15).isEmpty(), "nothing to show");
+
+        check(ArenaLogic.matchTitle("duel", null).equals("Kills · duel") && ArenaLogic.matchTitle("duel", new int[] {2, 5}).equals("Kills · Match 2/5"),
+                "the title: the arena, or the match of the series");
+        check(ArenaLogic.endTitle("teams", "won", "red", null).equals("Red wins!") && ArenaLogic.endTitle("teams", "lost", null, "draw").equals("Draw")
+                && ArenaLogic.endTitle("waves", "won", null, null).equals("Victory!") && ArenaLogic.endTitle("waves", "lost", null, "participants_down").equals("Defeated")
+                && ArenaLogic.endTitle("race", "won", "blue", "participants_down").equals("Blue wins!")
+                && ArenaLogic.endTitle("teams", "stopped", null, "stopped").equals("Stopped"), "how it ended");
+    }
+
+    private static String plain(List<ArenaLogic.Seg> line) {
+        var out = new StringBuilder();
+        for (var seg : line) out.append(seg.text());
+        return out.toString();
+    }
+
+    /** The chat recap after a match: who did what, the top damage dealer starred. */
+    private static void recap() {
+        check(ArenaLogic.fmt(7.0).equals("7") && ArenaLogic.fmt(7.25).equals("7.3") && ArenaLogic.fmt(0).equals("0"), "a tenth, no .0");
+        check(ArenaLogic.recapHeader("Red wins!", new int[] {2, 5}, 2040).equals("Match 2 of 5 · Red wins! · 1:42")
+                && ArenaLogic.recapHeader("Victory!", null, 700).equals("Victory! · 0:35"), "the header: match, ending, time");
+        var stats = List.of(
+                new ArenaLogic.Stat("Ann", "red", 0, 1, 1, 34.5, 28, 12),
+                new ArenaLogic.Stat("Cy", "red", 2, 0, 0, 10, 4, 0),
+                new ArenaLogic.Stat("Bot", "blue", 1, 1, 1, 40.25, 44.5, 20));
+        var lines = ArenaLogic.recap("Match 1 of 1 · Red wins! · 0:50", List.of("red", "blue"), stats);
+        var text = lines.stream().map(ArenaLogicTest::plain).toList();
+        check(text.get(0).equals("Match 1 of 1 · Red wins! · 0:50") && lines.get(0).get(0).bold(), "the header first");
+        check(text.get(1).startsWith("Red") && text.get(1).contains("3 kills") && text.get(1).contains("dealt 44.5"), "a team's totals: " + text.get(1));
+        check(text.get(2).equals(" Ann: 1 kill, 1 down · dealt 34.5 · took 28 · healed 12"), "a player's line: " + text.get(2));
+        check(text.get(3).equals(" Cy: 2 kills · dealt 10 · took 4 · healed 0"), "no downs, nothing said: " + text.get(3));
+        check(text.get(5).equals(" ★ Bot: 2 kills (1 player), 1 down · dealt 40.3 · took 44.5 · healed 20"),
+                "the top damage dealer starred; mixed kills split: " + text.get(5));
+        check(lines.get(2).stream().anyMatch(s -> s.text().equals("Ann") && s.color().equals("red")), "names in their team's colour");
+        var coop = ArenaLogic.recap("Victory!", List.of(), List.of(new ArenaLogic.Stat("Ann", "", 5, 0, 0, 0, 0, 0)));
+        check(coop.size() == 2 && plain(coop.get(1)).equals(" Ann: 5 kills · dealt 0 · took 0 · healed 0"), "co-op: no teams, no star for nothing");
     }
 
     private static void misc() {
@@ -378,7 +508,7 @@ public final class ArenaLogicTest {
                 && !ArenaLogic.isOperationName("trial") && !ArenaLogic.isOperationName("arena_bogus"), "the ops the runtime owns");
         check(ArenaLogic.isOperationName("arena_spawn") && ArenaLogic.isOperationName("arena_op")
                 && ArenaLogic.isOperationName("arena_kit"), "the world's spawn, ops and kits");
-        check(ArenaLogic.OPS.size() == 9, "nine ops");
+        check(ArenaLogic.OPS.size() == 11, "eleven ops");
     }
 
     private static void cursor() {
@@ -562,6 +692,34 @@ public final class ArenaLogicTest {
                 "bad_request", "player name chars");
         rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"waves\",\"waves\":[{\"mobs\":{\"minecraft:zombie\":1}}],\"participants\":[]}")),
                 "bad_request", "empty participants");
+        var series = ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\",\"teams\":{\"red\":[\"a\"],\"blue\":[\"b\"]},"
+                + "\"series\":{\"match\":2,\"of\":5}}"));
+        check(series.series()[0] == 2 && series.series()[1] == 5 && mapped.series() == null, "a match of a series, or none");
+        for (var bad : List.of("{\"match\":0,\"of\":5}", "{\"match\":6,\"of\":5}", "{\"match\":1}", "{\"match\":1,\"of\":2,\"x\":1}", "3"))
+            rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\",\"teams\":{\"red\":[\"a\"]},\"series\":" + bad + "}")),
+                    "bad_request", "series " + bad);
+
+        var board = ArenaRequests.parseBoard(json("{\"name\":\"duel\",\"title\":\"duel · 2 of 5\",\"rows\":["
+                + "{\"text\":\"Red\",\"value\":\"2 wins\",\"color\":\"red\",\"bold\":true},{\"text\":\" Ann\",\"value\":\"3 kills\"}]}"));
+        check(board.name().equals("duel") && board.title().equals("duel · 2 of 5") && !board.clear(), "a board");
+        check(board.rows().get(0).equals(new ArenaLogic.Line("Red", "2 wins", "red", true, false))
+                && board.rows().get(1).equals(new ArenaLogic.Line(" Ann", "3 kills", "white", false, false)), "rows; white and plain by default");
+        check(ArenaRequests.parseBoard(json("{\"name\":\"duel\",\"clear\":true}")).clear(), "or take it down");
+        var rows16 = new StringBuilder("[");
+        for (int i = 0; i < 16; i++) rows16.append(i == 0 ? "" : ",").append("{\"text\":\"r").append(i).append("\"}");
+        for (var bad : List.of("\"title\":\"t\",\"rows\":" + rows16 + "]", "\"title\":\"t\",\"rows\":[{\"text\":\"a\",\"color\":\"pink\"}]",
+                "\"title\":\"t\",\"rows\":[{\"text\":\"a\",\"size\":3}]", "\"rows\":[]", "\"title\":\"t\",\"rows\":[{\"value\":\"1\"}]",
+                "\"title\":\"" + "t".repeat(65) + "\",\"rows\":[]", "\"title\":\"t\",\"rows\":[],\"clear\":true"))
+            rejects(() -> ArenaRequests.parseBoard(json("{\"name\":\"duel\"," + bad + "}")), "bad_request", "board " + bad);
+
+        var say = ArenaRequests.parseSay(json("{\"name\":\"duel\",\"lines\":[[{\"text\":\"Series · final\",\"color\":\"gold\",\"bold\":true}],"
+                + "[{\"text\":\" Ann\",\"color\":\"red\"},{\"text\":\": 7 kills\"}]]}"));
+        check(say.lines().size() == 2 && say.lines().get(0).get(0).equals(new ArenaLogic.Seg("Series · final", "gold", true))
+                && say.lines().get(1).get(1).equals(new ArenaLogic.Seg(": 7 kills", "white", false)), "chat lines of coloured parts");
+        for (var bad : List.of("[]", "[[]]", "[[{\"text\":\"a\",\"color\":\"pink\"}]]", "[[{\"text\":\"" + "a".repeat(121) + "\"}]]", "[\"a\"]"))
+            rejects(() -> ArenaRequests.parseSay(json("{\"name\":\"duel\",\"lines\":" + bad + "}")), "bad_request", "say " + bad);
+        check(ArenaLogic.isOperationName("arena_board") && ArenaLogic.isOperationName("arena_say"), "the new ops are the arena's");
+
         var many = new StringBuilder("{\"name\":\"v\",\"mode\":\"waves\",\"waves\":[");
         for (int i = 0; i < 51; i++) many.append(i == 0 ? "" : ",").append("{\"mobs\":{\"minecraft:zombie\":1}}");
         rejects(() -> ArenaRequests.parseStart(json(many + "]}")), "bad_request", "wave count cap");

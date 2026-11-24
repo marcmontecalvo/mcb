@@ -10,7 +10,9 @@
     "EndermanGriefMixin",
     "SilverfishGriefMixin",
     "DoorGriefMixin",
-    "SpawnFinderMixin"
+    "SpawnFinderMixin",
+    "LivingStatsMixin",
+    "HealEffectMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -12,6 +12,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
@@ -49,8 +50,13 @@ public final class ArenaRuntime {
     static final String TRIAL_TAG = "mcb_trial";
     /** Names the arena's own scoreboard teams carry (ArenaLogic.teamName), swept at start after a crash. */
     private static final java.util.regex.Pattern TEAM_NAME = java.util.regex.Pattern.compile("mcb_[0-9a-f]{8}");
-    /** The kill boards' names (ArenaLogic.objectiveName), swept the same way. */
-    private static final java.util.regex.Pattern BOARD_NAME = java.util.regex.Pattern.compile("mcbk_[0-9a-f]{8}");
+    /** The kill boards' and series boards' names (ArenaLogic.objectiveName, seriesBoardName), swept the same way. */
+    private static final java.util.regex.Pattern BOARD_NAME = java.util.regex.Pattern.compile("mcb[ks]_[0-9a-f]{8}");
+    /**
+     * Who is healing right now (HealOrHarmMobEffect's thrower or drinker, set around its instant effect), else null: the
+     * heal that follows is theirs. Server thread only.
+     */
+    private static Entity healer;
 
     private final MinecraftServer server;
     private final ArenaRegistry registry;
@@ -141,6 +147,8 @@ public final class ArenaRuntime {
                 case "arena_spawn" -> data.putAll(spawn(request));
                 case "arena_op" -> data.putAll(op(request));
                 case "arena_kit" -> data.putAll(kit(request));
+                case "arena_board" -> data.putAll(board(request));
+                case "arena_say" -> data.putAll(say(request));
                 default -> throw new ArenaFail("unknown_op", op);
             }
         } catch (ArenaFail fail) {
@@ -224,6 +232,9 @@ public final class ArenaRuntime {
         var level = requireLevel(record.dimension());
         var match = matches.get(record.name());
         if (match != null && match.running()) { match.stop("removed"); releaseMatch(record.name()); }
+        if (match != null) match.hideBoard();
+        var series = seriesBoards.remove(record.name());
+        if (series != null) series.hide();
         matches.remove(record.name());
         for (Iterator<ArenaBuild> it = builds.iterator(); it.hasNext(); ) {
             var job = it.next();
@@ -344,7 +355,7 @@ public final class ArenaRuntime {
             ArenaLogic.wavePads(padCounts(record), players.size(), record.capacity().teams() * record.capacity().perTeam());
         }
         sweep(record, level);
-        var match = new ArenaMatch(server, emitter, record, level, req.mode(), req.waves(), players, teamPlayers, req.exit());
+        var match = new ArenaMatch(server, emitter, record, level, req.mode(), req.waves(), players, teamPlayers, req.exit(), req.series());
         matches.put(record.name(), match);
         holdChunks(record, level);
         registry.save();
@@ -402,6 +413,66 @@ public final class ArenaRuntime {
             throw new ArenaFail(refused.reason, refused.getMessage());
         }
         return Map.of("players", given);
+    }
+
+    // ---- the series board and chat (what the lobby shows between matches)
+
+    private final Map<String, ArenaBoard> seriesBoards = new HashMap<>();
+
+    /** The arena's series board on the sidebar (until a match's own board takes it), or taken down. */
+    private Map<String, Object> board(JsonObject request) {
+        var req = ArenaRequests.parseBoard(request);
+        var record = require(req.name());
+        var board = seriesBoards.computeIfAbsent(record.name(), n -> new ArenaBoard(server, ArenaLogic.seriesBoardName(n)));
+        if (req.clear()) board.hide();
+        else board.show(req.title(), req.rows());
+        return Map.of("name", record.name(), "rows", req.rows().size(), "shown", !req.clear());
+    }
+
+    /** Chat lines for everyone in the arena's world. */
+    private Map<String, Object> say(JsonObject request) {
+        var req = ArenaRequests.parseSay(request);
+        var record = require(req.name());
+        var level = requireLevel(record.dimension());
+        int told = tell(level, List.of(), req.lines());
+        return Map.of("name", record.name(), "players", told);
+    }
+
+    /** Chat lines for every player in {@code level} and for {@code also} wherever they are; how many heard them. */
+    static int tell(ServerLevel level, java.util.Collection<UUID> also, List<List<ArenaLogic.Seg>> lines) {
+        var heard = new java.util.LinkedHashSet<ServerPlayer>(level.players());
+        for (var id : also) {
+            var player = level.getServer().getPlayerList().getPlayer(id);
+            if (player != null) heard.add(player);
+        }
+        for (var line : lines) {
+            var component = ArenaBoard.line(line);
+            for (var player : heard) player.sendSystemMessage(component);
+        }
+        return heard.size();
+    }
+
+    // ---- damage and healing (the stats mixins)
+
+    /** LivingEntity.hurtServer ended having taken {@code amount} of health and absorption: every running match hears of it. */
+    public static void hurt(LivingEntity entity, DamageSource source, float amount) {
+        var runtime = active;
+        if (runtime == null || amount <= 0 || runtime.matches.isEmpty()) return;
+        for (var match : runtime.matches.values()) match.hurt(entity, source, amount);
+    }
+
+    /** LivingEntity.heal is about to give {@code amount} health back (already capped at what was missing). */
+    public static void healed(LivingEntity entity, float amount) {
+        var runtime = active;
+        if (runtime == null || amount <= 0 || runtime.matches.isEmpty()) return;
+        for (var match : runtime.matches.values()) match.healed(entity, healer, amount);
+    }
+
+    /** Around an instant health effect: who it came from (the thrower or the drinker); returns who was set before. */
+    public static Entity healing(Entity by) {
+        var before = healer;
+        healer = by;
+        return before;
     }
 
     // ---- deaths and hits (the entity events)

@@ -646,7 +646,28 @@ def test_the_bridge_routes_arena_ops_to_the_body_mod():
         "arena_spawn",
         "arena_op",
         "arena_kit",
+        "arena_board",
+        "arena_say",
     )
+
+
+def test_a_match_of_a_series_says_which_and_the_lobby_gets_its_board_and_chat():
+    t = FakeTransport()
+    c = client(t)
+    c.start("duel", "teams", teams={"red": ["Ann"], "blue": ["Bo"]}, series=(2, 5))
+    rows = [{"text": "Red", "value": "2 wins", "color": "red", "bold": True}]
+    c.board("duel", "duel · 2 of 5", rows)
+    c.clear_board("duel")
+    lines = [[{"text": "Series", "color": "gold", "bold": True}]]
+    c.announce("duel", lines)
+    fields = [{k: v for k, v in p.items() if k not in arena.ENVELOPE} for p in t.sent]
+    assert fields[0]["series"] == {"match": 2, "of": 5}
+    assert fields[1] == {"name": "duel", "title": "duel · 2 of 5", "rows": rows}
+    assert fields[2] == {"name": "duel", "clear": True}
+    assert fields[3] == {"name": "duel", "lines": lines}
+    assert [p["op"] for p in t.sent] == [
+        "arena_start", "arena_board", "arena_board", "arena_say",
+    ]  # fmt: skip
 
 
 def test_names_match_the_runtime_rule():
@@ -674,7 +695,9 @@ def test_the_world_ops_and_a_match_with_an_exit_send_their_fields():
         "teams": {"red": ["Ann"], "blue": ["Bo"]}, "exit": [0, 102, 0],
     }  # fmt: skip
     assert fields[1] == {
-        "name": "hall", "mode": "teams", "teams": {"red": ["Ann"], "blue": ["Bo"]}
+        "name": "hall",
+        "mode": "teams",
+        "teams": {"red": ["Ann"], "blue": ["Bo"]},
     }, "no waves: a team match without mobs"
     assert fields[2] == {"position": [0, 102, 0]}
     assert fields[3] == {"player": "Ann", "operator": True}

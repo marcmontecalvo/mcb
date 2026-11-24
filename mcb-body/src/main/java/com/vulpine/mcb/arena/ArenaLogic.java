@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -17,7 +18,7 @@ public final class ArenaLogic {
 
     /** The ops the arena runtime owns. */
     public static final Set<String> OPS = Set.of("arena_build", "arena_remove", "arena_list", "arena_status", "arena_start", "arena_stop",
-            "arena_spawn", "arena_op", "arena_kit");
+            "arena_spawn", "arena_op", "arena_kit", "arena_board", "arena_say");
 
     public static boolean isOperationName(String op) { return OPS.contains(op); }
 
@@ -270,6 +271,9 @@ public final class ArenaLogic {
     /** The match's kill board (the sidebar objective): 13 characters, one per arena. */
     public static String objectiveName(String arena) { return String.format("mcbk_%08x", arena.hashCode()); }
 
+    /** The series standings board a lobby shows between matches (the arena_board op): one per arena. */
+    public static String seriesBoardName(String arena) { return String.format("mcbs_%08x", arena.hashCode()); }
+
     // ---- the games
 
     /**
@@ -327,13 +331,15 @@ public final class ArenaLogic {
     }
 
     /**
-     * A match's kills: wave mobs per participant (and so per team), and in a team match, enemy players. {@code teamOf}:
-     * every participant's team, "" in co-op; {@code teams}: the teams in plan order.
+     * A match's tally: kills (wave mobs per participant, and so per team; in a team match, enemy players), downs, and the
+     * health each participant took off enemies and wave mobs (dealt), lost (taken) and gave back to themselves and their
+     * team (healing). {@code teamOf}: every participant's team, "" in co-op; {@code teams}: the teams in plan order.
      */
     public static final class Tally {
         private final Map<String, String> teamOf;
         private final List<String> teams;
-        private final Map<String, Integer> mobs = new LinkedHashMap<>(), players = new LinkedHashMap<>();
+        private final Map<String, Integer> mobs = new LinkedHashMap<>(), players = new LinkedHashMap<>(), deaths = new LinkedHashMap<>();
+        private final Map<String, Double> dealt = new LinkedHashMap<>(), taken = new LinkedHashMap<>(), healing = new LinkedHashMap<>();
 
         public Tally(Map<String, String> teamOf, List<String> teams) {
             this.teamOf = new LinkedHashMap<>(teamOf);
@@ -356,9 +362,57 @@ public final class ArenaLogic {
             return true;
         }
 
+        private boolean enemies(String a, String b) {
+            String team = teamOf.get(a);
+            return team != null && !team.isEmpty() && teamOf.containsKey(b) && !team.equals(teamOf.get(b));
+        }
+
+        /**
+         * Health taken off {@code victim} (a participant's name, else null) by {@code attacker} (a participant's name, else
+         * null or an outsider's): taken by a participant whoever hit; dealt by a participant only to a wave mob or an enemy.
+         */
+        public void hurt(String attacker, String victim, boolean waveMob, double amount) {
+            if (amount <= 0) return;
+            if (victim != null && teamOf.containsKey(victim)) taken.merge(victim, amount, Double::sum);
+            if (attacker == null || !teamOf.containsKey(attacker) || attacker.equals(victim)) return;
+            if (waveMob || (victim != null && enemies(attacker, victim))) dealt.merge(attacker, amount, Double::sum);
+        }
+
+        /**
+         * Health given back to {@code target}: by {@code healer} (a participant's name, "" for anything else) when it threw
+         * or drank the potion, else (null) by the target's own body (regeneration, food). Healing is credited to a
+         * participant who healed themselves or a teammate, never an enemy.
+         */
+        public void healed(String healer, String target, double amount) {
+            if (amount <= 0 || !teamOf.containsKey(target)) return;
+            String by = healer == null ? target : healer;
+            if (!teamOf.containsKey(by)) return;
+            if (!by.equals(target) && !teamOf.get(by).equals(teamOf.get(target))) return;
+            healing.merge(by, amount, Double::sum);
+        }
+
+        /** A participant went down (died). */
+        public void down(String victim) { if (victim != null && teamOf.containsKey(victim)) deaths.merge(victim, 1, Integer::sum); }
+
         public int mobs(String name) { return mobs.getOrDefault(name, 0); }
 
         public int players(String name) { return players.getOrDefault(name, 0); }
+
+        public int deaths(String name) { return deaths.getOrDefault(name, 0); }
+
+        public double dealt(String name) { return dealt.getOrDefault(name, 0.0); }
+
+        public double taken(String name) { return taken.getOrDefault(name, 0.0); }
+
+        public double healing(String name) { return healing.getOrDefault(name, 0.0); }
+
+        /** Every participant's line, in participant order. */
+        public List<Stat> stats() {
+            var out = new ArrayList<Stat>();
+            teamOf.forEach((name, team) -> out.add(new Stat(name, team, mobs(name), players(name), deaths(name), dealt(name), taken(name),
+                    healing(name))));
+            return out;
+        }
 
         /** What the kill board shows for a player: every kill. */
         public int score(String name) { return mobs(name) + players(name); }
@@ -371,18 +425,209 @@ public final class ArenaLogic {
             return out;
         }
 
-        /** Per participant, in order: mobs, players and team (when there are teams). */
+        /** Per participant, in order: kills (mobs, players), downs, health dealt, taken and healed, team (when there are teams). */
         public Map<String, Map<String, Object>> rows() {
             var out = new LinkedHashMap<String, Map<String, Object>>();
             teamOf.forEach((name, team) -> {
                 var row = new LinkedHashMap<String, Object>();
                 row.put("mobs", mobs(name));
                 row.put("players", players(name));
+                row.put("deaths", deaths(name));
+                row.put("damage_dealt", tenth(dealt(name)));
+                row.put("damage_taken", tenth(taken(name)));
+                row.put("healing", tenth(healing(name)));
                 if (!team.isEmpty()) row.put("team", team);
                 out.put(name, row);
             });
             return out;
         }
+    }
+
+    public static double tenth(double v) { return Math.round(v * 10) / 10.0; }
+
+    /** One participant's match: kills, downs, and health dealt, taken and healed. */
+    public record Stat(String name, String team, int mobKills, int playerKills, int deaths, double dealt, double taken, double healing) {
+        public int kills() { return mobKills + playerKills; }
+    }
+
+    // ---- the sidebar and the recap
+
+    /** The chat colours a board line or a recap part may wear (ChatFormatting's, lower case). */
+    public static final Set<String> COLORS = Set.of("black", "dark_blue", "dark_green", "dark_aqua", "dark_red", "dark_purple", "gold",
+            "gray", "dark_gray", "blue", "green", "aqua", "red", "light_purple", "yellow", "white");
+    private static final List<String> TEAM_PALETTE = List.of("red", "blue", "green", "yellow", "light_purple", "aqua", "gold", "white");
+    public static final int BOARD_LINES = 15;
+
+    /** A team named for a colour wears it; any other takes the palette's colour for its place in the plan. */
+    public static String teamColor(String team, int index) {
+        String lower = team.toLowerCase(Locale.ROOT);
+        return COLORS.contains(lower) ? lower : TEAM_PALETTE.get(Math.floorMod(index, TEAM_PALETTE.size()));
+    }
+
+    /** "red" as "Red". */
+    public static String title(String word) { return word.isEmpty() ? word : Character.toUpperCase(word.charAt(0)) + word.substring(1); }
+
+    /** One sidebar line: its text, the value shown at its right ("" for none), a colour of {@link #COLORS}, bold, struck through. */
+    public record Line(String text, String value, String color, boolean bold, boolean struck) {}
+
+    /** A block of the sidebar: a head line that always shows (null for none) and members that fold when space runs out. */
+    public record Section(Line head, List<Line> members) {}
+
+    /** A participant as the match board shows them. */
+    public record Player(String name, String team, int kills, boolean alive) {}
+
+    /** The wave the match is on (1-based), of how many, and the wave mobs still alive. */
+    public record WaveInfo(int wave, int waves, int left) {}
+
+    /**
+     * The sections into {@code max} lines: every head stays; members share what is left (round robin, in their order),
+     * and a section that cannot show them all ends with "+n more".
+     */
+    public static List<Line> fit(List<Section> sections, int max) {
+        int heads = 0, total = 0;
+        for (var s : sections) { if (s.head() != null) heads++; total += s.members().size(); }
+        var out = new ArrayList<Line>();
+        int[] quota = new int[sections.size()];
+        if (heads + total <= max) {
+            for (int i = 0; i < quota.length; i++) quota[i] = sections.get(i).members().size();
+        } else {
+            int folded = 0;
+            for (int pass = 0; pass <= sections.size(); pass++) {
+                deal(sections, quota, Math.max(0, max - heads - folded));
+                int now = 0;
+                for (int i = 0; i < quota.length; i++) if (quota[i] < sections.get(i).members().size()) now++;
+                if (now == folded) break;
+                folded = now;
+            }
+        }
+        for (int i = 0; i < sections.size(); i++) {
+            var s = sections.get(i);
+            if (s.head() != null) out.add(s.head());
+            out.addAll(s.members().subList(0, quota[i]));
+            int rest = s.members().size() - quota[i];
+            if (rest > 0) out.add(new Line("  +" + rest + " more", "", "gray", false, false));
+        }
+        return out.size() > max ? out.subList(0, max) : out;
+    }
+
+    private static void deal(List<Section> sections, int[] quota, int free) {
+        java.util.Arrays.fill(quota, 0);
+        boolean any = true;
+        while (free > 0 && any) {
+            any = false;
+            for (int i = 0; i < quota.length && free > 0; i++) {
+                if (quota[i] < sections.get(i).members().size()) { quota[i]++; free--; any = true; }
+            }
+        }
+    }
+
+    /**
+     * The match's sidebar: the wave and the mobs left (when it has waves), then each team (its colour, how many are up,
+     * its kills) with its players by kills, or in co-op everyone by kills. A downed player is greyed out.
+     */
+    public static List<Section> matchBoard(String mode, List<String> teams, List<Player> players, WaveInfo waves) {
+        var out = new ArrayList<Section>();
+        if (waves != null) {
+            out.add(new Section(new Line("Wave", waves.wave() + "/" + waves.waves(), "yellow", false, false), List.of()));
+            out.add(new Section(new Line("Mobs left", Integer.toString(waves.left()), "yellow", false, false), List.of()));
+        }
+        if (!sided(mode)) {
+            out.add(new Section(null, playerLines(players, "white", "")));
+            return out;
+        }
+        for (int i = 0; i < teams.size(); i++) {
+            String team = teams.get(i), color = teamColor(team, i);
+            var members = players.stream().filter(p -> p.team().equals(team)).toList();
+            int alive = (int) members.stream().filter(Player::alive).count();
+            int kills = members.stream().mapToInt(Player::kills).sum();
+            var head = new Line(title(team) + " · " + alive + " alive", Integer.toString(kills), color, true, false);
+            out.add(new Section(head, playerLines(members, color, " ")));
+        }
+        return out;
+    }
+
+    private static List<Line> playerLines(List<Player> players, String color, String indent) {
+        var sorted = new ArrayList<>(players);
+        sorted.sort((a, b) -> Integer.compare(b.kills(), a.kills()));
+        var out = new ArrayList<Line>();
+        for (var p : sorted) {
+            out.add(new Line(indent + p.name(), Integer.toString(p.kills()), p.alive() ? color : "dark_gray", false, !p.alive()));
+        }
+        return out;
+    }
+
+    /** The live board's title: the match of its series, else the arena. */
+    public static String matchTitle(String arena, int[] series) {
+        return "Kills · " + (series == null ? arena : "Match " + series[0] + "/" + series[1]);
+    }
+
+    /** How a match ended, in a few words ({@code state}: won, lost or stopped). */
+    public static String endTitle(String mode, String state, String winner, String reason) {
+        if (state.equals("stopped")) return "Stopped";
+        if (winner != null && !winner.isEmpty()) return title(winner) + " wins!";
+        if ("draw".equals(reason)) return "Draw";
+        return state.equals("won") ? "Victory!" : "Defeated";
+    }
+
+    /** A number of health points to a tenth, without a trailing ".0". */
+    public static String fmt(double v) {
+        double t = tenth(v);
+        return t == Math.rint(t) ? Long.toString((long) t) : Double.toString(t);
+    }
+
+    /** The recap's first line: the match of the series, how it ended, how long it took (m:ss). */
+    public static String recapHeader(String end, int[] series, int ticks) {
+        int seconds = Math.max(0, ticks) / 20;
+        String time = (seconds / 60) + ":" + String.format(Locale.ROOT, "%02d", seconds % 60);
+        return (series == null ? "" : "Match " + series[0] + " of " + series[1] + " · ") + end + " · " + time;
+    }
+
+    /** A part of a chat line: its text, a colour of {@link #COLORS}, bold. */
+    public record Seg(String text, String color, boolean bold) {}
+
+    /**
+     * The chat recap after a match: the header, then each team (its kills and damage dealt) with its players, or in
+     * co-op everyone, each by damage dealt: kills, downs, health dealt, taken and healed. The top damage dealer is starred.
+     */
+    public static List<List<Seg>> recap(String header, List<String> teams, List<Stat> stats) {
+        var out = new ArrayList<List<Seg>>();
+        out.add(List.of(new Seg(header, "gold", true)));
+        Stat top = null;
+        for (var s : stats) if (s.dealt() > 0 && (top == null || s.dealt() > top.dealt())) top = s;
+        if (teams.isEmpty()) {
+            for (var s : byDealt(stats)) out.add(recapLine(s, "white", s == top));
+            return out;
+        }
+        for (int i = 0; i < teams.size(); i++) {
+            String team = teams.get(i), color = teamColor(team, i);
+            var members = byDealt(stats.stream().filter(s -> s.team().equals(team)).toList());
+            int kills = members.stream().mapToInt(Stat::kills).sum();
+            double dealt = members.stream().mapToDouble(Stat::dealt).sum();
+            out.add(List.of(new Seg(title(team), color, true), new Seg(" · " + count(kills, "kill") + " · dealt " + fmt(dealt), "gray", false)));
+            for (var s : members) out.add(recapLine(s, color, s == top));
+        }
+        return out;
+    }
+
+    private static List<Stat> byDealt(List<Stat> stats) {
+        var sorted = new ArrayList<>(stats);
+        sorted.sort((a, b) -> Double.compare(b.dealt(), a.dealt()));
+        return sorted;
+    }
+
+    private static String count(int n, String what) { return n + " " + what + (n == 1 ? "" : "s"); }
+
+    private static List<Seg> recapLine(Stat s, String color, boolean top) {
+        var line = new ArrayList<Seg>();
+        line.add(new Seg(" ", "white", false));
+        if (top) line.add(new Seg("★ ", "gold", true));
+        line.add(new Seg(s.name(), color, false));
+        var what = new StringBuilder(": ").append(count(s.kills(), "kill"));
+        if (s.mobKills() > 0 && s.playerKills() > 0) what.append(" (").append(count(s.playerKills(), "player")).append(")");
+        if (s.deaths() > 0) what.append(", ").append(count(s.deaths(), "down"));
+        what.append(" · dealt ").append(fmt(s.dealt())).append(" · took ").append(fmt(s.taken())).append(" · healed ").append(fmt(s.healing()));
+        line.add(new Seg(what.toString(), "gray", false));
+        return line;
     }
 
     // ---- tags and small helpers

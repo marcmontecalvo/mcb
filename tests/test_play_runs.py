@@ -443,7 +443,9 @@ def test_a_team_match_summary_names_the_winners_and_the_kills(arenas):
                 roster=_teams(red=1, blue=1))["run"]  # fmt: skip
     record = {"runs": [
         {"outcome": "won", "winner": "red", "bot_won": True, "seconds": 30.0,
-         "kills": {"MCBot": {"team": "red", "mob_kills": 0, "player_kills": 1}},
+         "players": {"MCBot": {"team": "red", "mob_kills": 0, "player_kills": 1,
+                               "deaths": 0, "damage_dealt": 24.5,
+                               "damage_taken": 6.0, "healing": 8.0}},
          "team_kills": {"red": 0, "blue": 0}},
         {"outcome": "lost", "reason": "draw", "seconds": 600.0},
     ], "summary": {"winners": {"red": 1}}}  # fmt: skip
@@ -452,7 +454,8 @@ def test_a_team_match_summary_names_the_winners_and_the_kills(arenas):
     first, second = summary["episodes"]
     assert first["status"] == "success" and first["winner"] == "red"
     assert first["bot_won"] is True
-    assert first["kills"]["MCBot"]["player_kills"] == 1
+    assert first["players"]["MCBot"]["player_kills"] == 1
+    assert first["players"]["MCBot"]["damage_dealt"] == 24.5
     assert second["status"] == "lost" and second["reason"] == "draw"
 
 

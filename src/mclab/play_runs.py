@@ -918,7 +918,7 @@ def _episode(status: str, seconds) -> dict:
 
 
 # what a match row says beyond its outcome (arena_hunt.hunt), kept when present
-_MATCH_KEYS = ("reason", "winner", "bot_won", "bot_kills", "kills", "team_kills")
+_MATCH_KEYS = ("reason", "winner", "bot_won", "bot_kills", "players", "team_kills")
 
 
 def summarize(run: dict, record: dict | None, *, run_id: str) -> dict:

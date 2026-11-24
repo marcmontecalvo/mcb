@@ -9,12 +9,16 @@ without the bot is only watched to its end.
 
 A run's row: ``mode``, ``outcome`` (the match's won / lost / stopped, or
 ``timeout``, ``refused``, ``not_started``), ``reason``, ``winner`` (a team; with
-``bot_team`` and ``bot_won``), the scoreboard (``kills`` by player,
-``team_kills``), ``waves_cleared`` of ``waves``, ``seconds``, ``min_health``, the
-job's ``bot_kills`` / ``hits`` / ``damage``, the time each wave was cleared
-(``wave_times``) and the ``samples``. A series writes
-``results/companion/arena/<UTC stamp>.json`` with every run and its ``summary``.
-Docs: docs/ARENA_RUNTIME.md "The bot's hunt".
+``bot_team`` and ``bot_won``), the tally (``players``: each player's team,
+``mob_kills``, ``player_kills``, ``deaths``, ``damage_dealt``, ``damage_taken``,
+``healing``; ``team_kills``), ``waves_cleared`` of ``waves``, ``seconds``,
+``min_health``, the job's ``bot_kills`` / ``hits`` / ``damage``, the time each
+wave was cleared (``wave_times``) and the ``samples``. A series writes
+``results/companion/arena/<UTC stamp>.json`` with every run and its ``summary``
+(``players``: each player's series totals and wins). Between the matches of a
+series the lobby's sidebar shows the standings, and its end a chat recap
+(mclab.arena.standings).
+Docs: docs/ARENA_RUNTIME.md "The bot's hunt", "Boards and recaps".
 """
 
 from __future__ import annotations
@@ -28,13 +32,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mclab.arena.client import ArenaError
+from mclab.arena.standings import player_totals, series_board, series_recap
 
 __all__ = [
     "ArenaError",
     "hunt",
     "parse_wave",
+    "player_totals",
     "roster",
     "run_series",
+    "series_board",
+    "series_recap",
     "summary",
     "wave_times",
 ]
@@ -144,12 +152,14 @@ def hunt(
     sample: float = SAMPLE_S,
     kit: list[dict] | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    series: tuple[int, int] | None = None,
 ) -> dict:
     """One match from a full-health start to its end. ``kit``: the trial op's give
     entries, handed out afresh to the bot and every human (a player who died last
     run left the kit on the arena floor); None keeps what each carries. ``exit``:
     where the players still in the arena go when it ends. ``bot`` plays only when
-    it is in the roster and ``api`` reaches it; else the match is only watched."""
+    it is in the roster and ``api`` reaches it; else the match is only watched.
+    ``series``: (match, of), for the match's board and recap."""
     people = roster(participants, teams)
     plays = api is not None and any(_same(p, bot) for p in people)
     humans = [p for p in people if not _same(p, bot)]
@@ -185,6 +195,7 @@ def hunt(
             participants=None if teams else (people or None),
             teams=teams,
             exit=exit,
+            series=series,
         )
     except ArenaError as error:
         return {**row, "outcome": "not_started", "error": str(error)}
@@ -243,24 +254,26 @@ def hunt(
     return row
 
 
+PLAYER_STATS = ("mob_kills", "player_kills", "deaths", "damage_dealt", "damage_taken",
+                "healing")  # fmt: skip
+
+
 def _board(match: dict) -> dict:
-    """The match's scoreboard: the winning team, each player's kills, each team's."""
+    """The match's tally: the winning team, each player's kills, downs and health
+    dealt, taken and healed, each team's kills."""
     out: dict = {}
     if match.get("winner"):
         out["winner"] = match["winner"]
-    kills = {}
+    players = {}
     for p in match.get("participants") or ():
         if not p.get("name"):
             continue
-        entry = {
-            "mob_kills": p.get("mob_kills", 0),
-            "player_kills": p.get("player_kills", 0),
-        }
+        entry = {k: p.get(k, 0) for k in PLAYER_STATS}
         if p.get("team"):
             entry = {"team": p["team"], **entry}
-        kills[p["name"]] = entry
-    if kills:
-        out["kills"] = kills
+        players[p["name"]] = entry
+    if players:
+        out["players"] = players
     if match.get("team_kills"):
         out["team_kills"] = match["team_kills"]
     return out
@@ -335,6 +348,7 @@ def summary(rows: list[dict]) -> dict:
         "hurt_by": dict(sorted(hurt.items(), key=lambda kv: -kv[1])),
         "killed_by": dict(killers),
         "uses": uses,
+        "players": player_totals(rows),
     }
 
 
@@ -411,7 +425,12 @@ def run_series(
     who died is on the death screen when a match ends; starting the next one then
     counted their team out at once and its kit's heal left them unable to respawn.
     The first match's wait is the caller's (the script stops before anything
-    starts when nobody comes)."""
+    starts when nobody comes).
+
+    Each match knows which of the series it is (its board and chat recap say so).
+    With more than one match, the lobby's sidebar shows the standings after each
+    (team wins, series kills) and the series' end sends a chat recap of everyone's
+    totals; a single match keeps its own final board and recap."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = Path(out_dir) / f"{stamp}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -427,6 +446,7 @@ def run_series(
         "exit": None if exit is None else list(exit),
         "ops": ops or {},
         "kit": None if kit is None else [g["item"] for g in kit],
+        "repeat": repeat,
         "runs": [],
         "summary": {},
     }
@@ -462,10 +482,24 @@ def run_series(
             clock=clock,
             kit=kit,
             sleep=sleep,
+            series=(i + 1, repeat),
         )
         record["runs"].append(row)
         record["summary"] = summary(record["runs"])
         path.write_text(json.dumps(record, indent=1), encoding="utf-8")
         echo(_line(i, repeat, row))
+        if repeat > 1:
+            _show(echo, "standings", lambda: arena.board(name, *series_board(record)))
+    if repeat > 1 and record["runs"]:
+        _show(echo, "recap", lambda: arena.announce(name, series_recap(record)))
     path.write_text(json.dumps(record, indent=1), encoding="utf-8")
     return path
+
+
+def _show(echo, what: str, send: Callable[[], object]) -> None:
+    """The lobby's board or chat: a server that refuses it (an older mod) is
+    said, and the series goes on."""
+    try:
+        send()
+    except ArenaError as error:
+        echo(f"the series {what} were not shown ({error})")

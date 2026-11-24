@@ -65,8 +65,70 @@ participant is live (alive, online, same level, inside the bounds). Mobs are dis
 match ends.
 
 `mode: "teams"`: players go to their team's pads, a scoreboard team `mcb_<8 hex>` per arena team is
-made with friendly fire off, and it is removed afterwards. Won by the last team with a live member;
-`draw` is a loss with winner none.
+made with friendly fire off and the team's colour (name tags show it), and it is removed afterwards.
+Won by the last team with a live member; `draw` is a loss with winner none.
+
+### Boards and recaps
+
+The sidebar is drawn as a table: each line is a score holder whose display name is the text and
+whose fixed number format is the value; the scores only order the lines (`ArenaBoard`). Layout is
+pure and shared by both boards: `ArenaLogic.matchBoard` / `fit` in the mod, mirrored by
+`mclab.arena.standings` for the series board. Every board fits the sidebar's 15 lines: each head
+line stays, and players share the rest round-robin, with "+n more" closing a team that cannot show
+everyone. That covers 1v1, 8v8, and 50 mobs against 7 players.
+
+- **The live match board** (`mcbk_<8 hex>`, one per arena), titled "Kills · Match 2/5" (or the
+  arena's name outside a series):
+  - When the match has waves: "Wave 2/5" and "Mobs left 13" first.
+  - Sided modes: each team in its colour with how many are up and the team's kills, then its
+    players by kills.
+  - Co-op: everyone by kills.
+  - A downed player is grey and struck through. The board redraws on every kill and down, and
+    every 5 ticks, sending only the lines that changed.
+- **When a match ends**, its board **stays up** with its final state, retitled "Red wins! · 2/5",
+  "Victory!", "Defeated", "Draw" or "Stopped". It used to vanish, so a kill made on the last blow
+  never showed.
+- **The chat recap**, sent to everyone in the arena's world and to the participants (`ArenaLogic.recap`):
+  - Header: "Match 2 of 5 · Red wins! · 1:42".
+  - Each team's kills and damage dealt.
+  - Each player by damage dealt: kills (players split out when they killed both mobs and
+    players), downs, health dealt, taken and healed. The top damage dealer is starred.
+- **Between the matches of a series** (more than one), `arena-hunt.py` puts the **series board** on
+  the sidebar (`arena_board`, `mcbs_<8 hex>`): "duel · 2 of 5 played" (then "final"), each team's
+  wins with its players' series kills and a draws line; in co-op, the matches won and everyone's
+  kills.
+- **At the series' end** it sends a chat recap of everyone's totals (`arena_say`): the score
+  "Red 3 · Blue 2 · 1 draw" (or "Won 3 of 5"), then each player's series kills, downs, health dealt,
+  taken and healed, the top dealer starred.
+- **A single match** keeps its own final board and recap.
+- Both board kinds are swept at server start, like the teams.
+
+What counts (`ArenaLogic.Tally`, fed by `LivingStatsMixin` and `HealEffectMixin`):
+
+- **Dealt and taken.** A hit is the health plus absorption the entity really lost across
+  `LivingEntity.hurtServer`, so armour, enchantments, a blocked blow and overkill are already
+  counted (a killing blow counts what was left).
+  - It is *taken* by a participant, whoever hit them.
+  - It is *dealt* by a participant (`DamageSource.getEntity`, so an arrow or a thrown trident or
+    potion is its owner's) only to a wave mob or an enemy.
+  - A fall, your own splash, a teammate's stray hit and a hit on anything else are never dealt.
+- **Healing** is what `heal` really gives back, capped at the missing health.
+  - Instant health from a potion counts for whoever drank or threw it (the effect's indirect
+    source), when that is the healed player or a teammate.
+  - Any other heal (regeneration, food) counts for the healed player themselves.
+  - Healing an enemy counts for nobody.
+- **Downs** are deaths in the match.
+
+## Lobby ops
+
+- `arena_board {name, title, rows: [{text, value?, color?, bold?, struck?}]}`: at most 15 rows,
+  title up to 64 characters, text 40, value 16. `color` is one of the 16 chat colours (default
+  white). `{name, clear: true}` takes the board down.
+- `arena_say {name, lines: [[{text, color?, bold?}]]}`: up to 24 lines of up to 16 parts, each up
+  to 120 characters.
+- In both, an unknown field is refused (`bad_request`).
+- Python: `ArenaClient.board`, `clear_board`, `announce`.
+- `arena_start` takes `series: {match, of}` (1 ≤ match ≤ of ≤ 1000) for the board and the recap.
 
 ### Waiting for players
 
@@ -109,7 +171,7 @@ start.
 | `arena_match_started` | `name, mode, participants, waves` or `teams` |
 | `arena_wave_started` | `name, wave, waves, mobs, failed` |
 | `arena_wave_cleared` | `name, wave, waves` |
-| `arena_match_won` / `arena_match_lost` / `arena_match_stopped` | `name, mode, winner?, reason?, waves_cleared, waves, duration_ticks` |
+| `arena_match_won` / `arena_match_lost` / `arena_match_stopped` | `name, mode, winner?, reason?, waves_cleared, waves, kills` (per player: `mobs, players, deaths, damage_dealt, damage_taken, healing, team?`), `team_kills?, duration_ticks` |
 
 Acks are `<op>_done` / `<op>_failed` (`reason`, `detail`) carrying `request_sequence` and
 `request_id`. Failure reasons: `bad_request` (a malformed request or waves), `not_allowed` (a
@@ -131,8 +193,10 @@ forbidden mob such as the ender dragon), `bad_plan`, `bad_block`, `overlap`,
            "wave_index": 1, "waves": 3, "next_wave_in_ticks": 0, "spawned": 9, "killed": 4,
            "wave_mobs": [{"uuid": "..", "type": "minecraft:zombie", "position": [..], "health": 20.0,
                           "velocity": [vx, vy, vz]}],
-           "participants": [{"uuid": "..", "name": "Ann", "alive": true, "team": "red"}],
-           "teams_alive": {"red": 1}}}
+           "participants": [{"uuid": "..", "name": "Ann", "alive": true, "team": "red",
+                             "mob_kills": 2, "player_kills": 1, "deaths": 0,
+                             "damage_dealt": 34.5, "damage_taken": 12.0, "healing": 8.0}],
+           "teams_alive": {"red": 1}, "series": [2, 5]}}
 ```
 
 `build` appears only while a job runs; `match` only after a match has started (it keeps the result
@@ -204,9 +268,11 @@ bot's foes (`companion_attack.foes`) are the placed wave mobs and, in `teams` mo
 participants of every team but its own (names matched case-insensitively): it hunts the nearest
 weighted foe as above, fights a player with `allow_player`, and never splashes a harmful potion
 where a teammate would be caught (the enemies are not "friends"). In `race` it hunts only wave
-mobs; teammates are never targets. Each match row keeps the scoreboard (`winner`, per-player
-`kills` with `mob_kills` / `player_kills`, `team_kills`), the bot's own job kills as `bot_kills`,
-and `bot_won` when the bot played on a team; the summary counts `winners` and `bot_wins`. With no
+mobs; teammates are never targets. Each match row keeps the tally (`winner`, per-player `players`
+with `team`, `mob_kills`, `player_kills`, `deaths`, `damage_dealt`, `damage_taken`, `healing`;
+`team_kills`), the bot's own job kills as `bot_kills`, and `bot_won` when the bot played on a team;
+the summary counts `winners`, `bot_wins` and each player's series totals and wins (`players`,
+`mclab.arena.standings.player_totals`). With no
 bot in the roster the script needs no companion host: it starts the match and samples it until it
 ends or times out. `--op NAME` / `--deop NAME` set operator status once before the first match
 (`arena_op`; the bot is skipped), and every player gets the same kit (`arena_kit`).

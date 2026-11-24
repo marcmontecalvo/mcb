@@ -22,13 +22,21 @@ class FakeArena:
         self.fail_start = fail_start
 
     def start(
-        self, name, mode, *, waves=None, participants=None, teams=None, exit=None
-    ):  # noqa: A002
+        self, name, mode, *, waves=None, participants=None, teams=None, exit=None,
+        series=None,
+    ):  # noqa: A002  # fmt: skip
         if self.fail_start:
             raise ah.ArenaError(self.fail_start, "no")
         self.started.append((name, mode, waves, participants))
+        self.series = series
         self.reads = 0
         return {"name": name, "mode": mode, "participants": participants}
+
+    def board(self, name, title, rows):
+        self.__dict__.setdefault("boards", []).append((name, title, rows))
+
+    def announce(self, name, lines):
+        self.__dict__.setdefault("said", []).append((name, lines))
 
     def status(self, name):
         self.reads += 1
@@ -452,25 +460,46 @@ def test_wave_times_mark_when_each_wave_is_cleared():
 class FakeContest:
     """A teams (or race) match that ends after ``reads`` status reads with ``winner``."""
 
-    def __init__(self, clock, teams, reads=3, winner="red", mode="teams"):
-        self.clock, self.teams, self.left, self.winner = clock, teams, reads, winner
+    def __init__(self, clock, teams, reads=3, winner="red", mode="teams", winners=None):
+        self.clock, self.teams, self.reads, self.winner = clock, teams, reads, winner
+        self.left = reads
+        self.winners = list(winners or ())  # one per match, else `winner` every time
         self.mode = mode
         self.started, self.stopped, self.kits, self.ops = [], [], [], []
-        self.refuse_op = set()
+        self.boards, self.said = [], []
+        self.refuse_op, self.refuse_board = set(), None
 
     def start(
-        self, name, mode, *, waves=None, participants=None, teams=None, exit=None
-    ):  # noqa: A002
+        self, name, mode, *, waves=None, participants=None, teams=None, exit=None,
+        series=None,
+    ):  # noqa: A002  # fmt: skip
         self.started.append({"name": name, "mode": mode, "waves": waves,
-                             "teams": teams, "exit": exit})  # fmt: skip
+                             "teams": teams, "exit": exit, "series": series})  # fmt: skip
+        self.left = self.reads
+        if self.winners:
+            self.winner = self.winners.pop(0)
         return {"name": name, "mode": mode, "teams": teams}
+
+    def board(self, name, title, rows):
+        if self.refuse_board:
+            raise ah.ArenaError(self.refuse_board, "no")
+        self.boards.append((name, title, rows))
+
+    def announce(self, name, lines):
+        self.said.append((name, lines))
+
+    def wait_ready(self, names, **kwargs):
+        pass  # everyone is back and ready at once
 
     def status(self, name):
         self.left -= 1
         over = self.left <= 0
         people = [{"name": n, "team": t, "alive": True,
                    "mob_kills": 2 if t == "red" else 1,
-                   "player_kills": 1 if n == "MCBot" else 0}
+                   "player_kills": 1 if n == "MCBot" else 0,
+                   "deaths": 0 if t == self.winner else 1,
+                   "damage_dealt": 20.5 if n == "MCBot" else 10.0,
+                   "damage_taken": 8.0, "healing": 4.0}
                   for t, names in self.teams.items() for n in names]  # fmt: skip
         match = {"mode": self.mode, "state": "won" if over else "running",
                  "participants": people,
@@ -514,15 +543,21 @@ def test_a_team_match_starts_its_teams_dresses_everyone_and_reports_the_winner()
     ended(api, contest)
     give = [{"item": "minecraft:iron_sword", "count": 1}]
     row = ah.hunt(api, contest, "duel", [], mode="teams", teams=teams,
-                  exit=(0, 102, 0), timeout=60, clock=clock, kit=give)  # fmt: skip
+                  exit=(0, 102, 0), timeout=60, clock=clock, kit=give,
+                  series=(2, 5))  # fmt: skip
     assert contest.started == [{"name": "duel", "mode": "teams", "waves": None,
-                                "teams": teams, "exit": (0, 102, 0)}]  # fmt: skip
+                                "teams": teams, "exit": (0, 102, 0),
+                                "series": (2, 5)}]  # fmt: skip
     assert contest.kits == [(["Ann", "Bob"], give)]  # the humans get the bot's kit
     assert api.trials[0]["give"] == give
     assert ("attack", {"arena": "duel"}) in api.calls
     assert row["mode"] == "teams" and row["outcome"] == "won"
     assert row["winner"] == "red" and row["bot_team"] == "red" and row["bot_won"]
-    assert row["kills"]["MCBot"] == {"team": "red", "mob_kills": 2, "player_kills": 1}
+    assert row["players"]["MCBot"] == {
+        "team": "red", "mob_kills": 2, "player_kills": 1, "deaths": 0,
+        "damage_dealt": 20.5, "damage_taken": 8.0, "healing": 4.0,
+    }  # fmt: skip
+    assert row["players"]["Bob"]["deaths"] == 1
     assert row["team_kills"] == {"red": 3, "blue": 1}
     assert row["participants"] == ["MCBot", "Ann", "Bob"]
 
@@ -665,3 +700,153 @@ def test_summary_counts_the_winning_teams_and_the_bots_wins():
     s = ah.summary(rows)
     assert s["winners"] == {"red": 1, "blue": 1}
     assert s["bot_wins"] == 1 and s["won"] == 2
+
+
+# ---- the series standings: the lobby board, the final recap, the totals ------
+
+
+def _p(team=None, mobs=0, players=0, deaths=0, dealt=0.0, taken=0.0, healing=0.0):
+    row = {"mob_kills": mobs, "player_kills": players, "deaths": deaths,
+           "damage_dealt": dealt, "damage_taken": taken, "healing": healing}  # fmt: skip
+    return {"team": team, **row} if team else row
+
+
+DUEL = {
+    "arena": "duel",
+    "mode": "teams",
+    "teams": {"red": ["MCBot"], "blue": ["Ann", "Bob"]},
+    "participants": ["MCBot", "Ann", "Bob"],
+    "repeat": 5,
+    "runs": [
+        {"outcome": "won", "winner": "red", "players": {
+            "MCBot": _p("red", players=2, dealt=40, taken=12, healing=8),
+            "Ann": _p("blue", deaths=1, dealt=7.5, taken=20),
+            "Bob": _p("blue", deaths=1, dealt=5, taken=20)}},
+        {"outcome": "won", "winner": "blue", "players": {
+            "MCBot": _p("red", deaths=1, dealt=30, taken=20, healing=10),
+            "Ann": _p("blue", players=1, dealt=12.5, taken=10, healing=4),
+            "Bob": _p("blue", dealt=9, taken=6)}},
+        {"outcome": "lost", "reason": "draw", "players": {
+            "MCBot": _p("red"), "Ann": _p("blue"), "Bob": _p("blue")}},
+    ],
+}  # fmt: skip
+
+HUNT = {
+    "arena": "vault",
+    "mode": "waves",
+    "teams": None,
+    "participants": ["MCBot", "Ann"],
+    "repeat": 2,
+    "runs": [
+        {"outcome": "won", "players": {"MCBot": _p(mobs=9), "Ann": _p(mobs=4)}},
+        {"outcome": "lost", "players": {"MCBot": _p(mobs=2), "Ann": _p(mobs=5)}},
+    ],
+}
+
+
+def test_the_series_totals_add_each_players_matches():
+    totals = ah.player_totals(DUEL["runs"])
+    assert totals["MCBot"] == {
+        "team": "red", "matches": 3, "wins": 1, "kills": 2, "mob_kills": 0,
+        "player_kills": 2, "deaths": 1, "damage_dealt": 70.0, "damage_taken": 32.0,
+        "healing": 18.0,
+    }  # fmt: skip
+    assert totals["Ann"]["wins"] == 1 and totals["Bob"]["deaths"] == 1
+    coop = ah.player_totals(HUNT["runs"])
+    assert coop["Ann"]["wins"] == 1 and "team" not in coop["Ann"]
+    assert coop["MCBot"]["kills"] == 11
+
+
+def test_the_lobby_board_shows_each_teams_wins_and_each_players_kills():
+    title, rows = ah.series_board(DUEL)
+    assert title == "duel · 3 of 5 played"
+    assert rows == [
+        {"text": "Red", "value": "1 win", "color": "red", "bold": True},
+        {"text": " MCBot", "value": "2 kills", "color": "red"},
+        {"text": "Blue", "value": "1 win", "color": "blue", "bold": True},
+        {"text": " Ann", "value": "1 kill", "color": "blue"},
+        {"text": " Bob", "value": "0 kills", "color": "blue"},
+        {"text": "Draws", "value": "1", "color": "gray"},
+    ]
+
+
+def test_the_lobby_board_of_a_co_op_series_shows_the_wins_and_the_kills():
+    title, rows = ah.series_board(HUNT)
+    assert title == "vault · final"
+    assert rows == [
+        {"text": "Won", "value": "1 of 2", "color": "gold", "bold": True},
+        {"text": "MCBot", "value": "11 kills", "color": "white"},
+        {"text": "Ann", "value": "9 kills", "color": "white"},
+    ]
+
+
+def test_the_lobby_board_fits_eight_against_eight_into_fifteen_lines():
+    teams = {"red": [f"r{i}" for i in range(8)], "blue": [f"b{i}" for i in range(8)]}
+    record = {"arena": "big", "mode": "teams", "teams": teams, "repeat": 1,
+              "runs": [{"outcome": "won", "winner": "red", "players": {
+                  n: _p(t, players=int(n[1:])) for t, ns in teams.items() for n in ns}}]}  # fmt: skip
+    _, rows = ah.series_board(record)
+    texts = [r["text"].strip() for r in rows]
+    assert len(rows) == 15 and texts[0] == "Red" and texts[1] == "r7"
+    assert texts[7] == "+2 more" and texts[8] == "Blue" and texts[14] == "+3 more"
+
+
+def test_the_series_recap_scores_the_teams_and_stars_the_top_damage_dealer():
+    lines = ah.series_recap(DUEL)
+    text = ["".join(seg["text"] for seg in line) for line in lines]
+    assert text[0] == "duel · stopped after 3 of 5"
+    assert text[1] == "Red 1 · Blue 1 · 1 draw"
+    assert text[2] == " ★ MCBot: 2 kills, 1 down · dealt 70 · took 32 · healed 18"
+    assert text[3] == " Ann: 1 kill, 1 down · dealt 20 · took 30 · healed 4"
+    assert text[4] == " Bob: 0 kills, 1 down · dealt 14 · took 26 · healed 0"
+    assert lines[0][0]["bold"] and lines[1][0]["color"] == "red"
+    assert {"text": "MCBot", "color": "red"} in lines[2]
+    coop = ["".join(s["text"] for s in line) for line in ah.series_recap(HUNT)]
+    assert coop[:2] == ["vault · final standings", "Won 1 of 2"]
+
+
+def test_a_series_posts_its_standings_after_every_match_and_a_recap_at_the_end(
+    tmp_path,
+):
+    clock = Clock()
+    teams = {"red": ["MCBot"], "blue": ["Ann"]}
+    api, contest = FakeApi(clock), FakeContest(clock, teams, winners=["red", "blue"])
+    ended(api, contest)
+    path = ah.run_series(api, contest, "duel", [], mode="teams", teams=teams,
+                         repeat=2, timeout=60, out_dir=tmp_path,
+                         echo=lambda _line: None, clock=clock)  # fmt: skip
+    assert [s["series"] for s in contest.started] == [(1, 2), (2, 2)]
+    assert [b[1] for b in contest.boards] == ["duel · 1 of 2 played", "duel · final"]
+    assert contest.boards[1][2][0] == {"text": "Red", "value": "1 win",
+                                       "color": "red", "bold": True}  # fmt: skip
+    ((name, lines),) = contest.said
+    assert name == "duel" and lines[0][0]["text"] == "duel · final standings"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert record["repeat"] == 2
+    assert record["summary"]["players"]["MCBot"]["wins"] == 1
+
+
+def test_a_single_match_keeps_its_own_board_and_recap(tmp_path):
+    clock = Clock()
+    teams = {"red": ["MCBot"], "blue": ["Ann"]}
+    api, contest = FakeApi(clock), FakeContest(clock, teams)
+    ended(api, contest)
+    ah.run_series(api, contest, "duel", [], mode="teams", teams=teams, repeat=1,
+                  timeout=60, out_dir=tmp_path, echo=lambda _line: None,
+                  clock=clock)  # fmt: skip
+    assert contest.started[0]["series"] == (1, 1)
+    assert contest.boards == [] and contest.said == []
+
+
+def test_a_board_the_server_refuses_is_reported_and_the_series_goes_on(tmp_path):
+    clock = Clock()
+    teams = {"red": ["MCBot"], "blue": ["Ann"]}
+    api, contest = FakeApi(clock), FakeContest(clock, teams)
+    contest.refuse_board = "unknown_op"
+    ended(api, contest)
+    lines = []
+    ah.run_series(api, contest, "duel", [], mode="teams", teams=teams, repeat=2,
+                  timeout=60, out_dir=tmp_path, echo=lines.append,
+                  clock=clock)  # fmt: skip
+    assert len(contest.started) == 2
+    assert any("standings" in line and "unknown_op" in line for line in lines)

@@ -552,5 +552,30 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   the other teams' players as well as wave mobs; a teammate is never a target and never
   in a harmful splash. Phase 1 has one bot; two bots and an "add a bot" button come
   next.
+- **The arena's scoreboard keeps the match and the series (Nov 24).** The kill board
+  vanished at every match end, so a fight's result showed as 0, 0, 0. Marc asked for each
+  player's kills per match, a running total in the lobby, and damage dealt, taken and
+  healed per player for an after-fight read on who was effective. It had to read well
+  from 1v1 to 8v8 and 50 mobs against 7 players.
+  - **Three surfaces, each doing one job:**
+    - The live sidebar: kills, who is down, wave progress. It keeps its final state when
+      the match ends.
+    - A chat recap after every match with the detail: kills, downs, health dealt, taken
+      and healed, the top damage dealer starred. Chat holds it after the board moves on.
+    - Between the matches of a series, the series standings on the sidebar: team wins
+      and series kills. At the series' end, a chat recap of the totals.
+  - **Sidebar as a table.** Fixed-format values, so a line can read "Red · 2 alive … 3",
+    not just a name and a number.
+  - **Fitting 15 lines.** Heads are kept and players fold into "+n more" per team.
+  - **Damage is measured as health really lost** (absorption included, overkill not),
+    not the hit's nominal amount. A hit is dealt only to wave mobs and enemies.
+  - **Healing:** instant health is credited to whoever drank or threw it; other heals go
+    to the player healed. Natural regeneration counts because it is health back in the
+    fight.
+  - **Ownership.** The mod owns the match board and recap, since it knows them exactly
+    as they happen. Python owns the series, since only it knows the series. It sends
+    the standings through two small, validated ops (`arena_board`, `arena_say`), never
+    a command string.
+  - **Results.** Rows keep `players` (the full per-player tally) instead of `kills`.
 - **Open:** rotating a long session's `events.sqlite3`, and the live night test of the
   defence (built, not yet run against real mobs).

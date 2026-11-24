@@ -10,7 +10,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -21,10 +20,6 @@ import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.Attributes;
-import net.minecraft.world.scores.DisplaySlot;
-import net.minecraft.world.scores.Objective;
-import net.minecraft.world.scores.ScoreHolder;
-import net.minecraft.world.scores.criteria.ObjectiveCriteria;
 
 /**
  * One match in one arena: co-op against mob waves, team against team (with mob waves or without), or a kill race between
@@ -45,6 +40,8 @@ final class ArenaMatch {
     }
 
     private static final int RETARGET_TICKS = 10;
+    /** How often the board looks again (who is up, mobs left); kills and downs redraw it at once. Only changed lines are sent. */
+    private static final int BOARD_TICKS = 5;
 
     private final MinecraftServer server;
     private final ArenaEmit emit;
@@ -64,7 +61,9 @@ final class ArenaMatch {
     /** Where participants still in the arena go when it ends, or null (they stay). */
     private final int[] exit;
     private final ArenaLogic.Tally tally;
-    private Objective board;
+    /** {match, of} when this match is one of a series, else null. */
+    private final int[] series;
+    private final ArenaBoard board;
     private State state = State.RUNNING;
     private String winner, reason;
     private int startTick, endTick, ticks, spawned, killed;
@@ -72,7 +71,8 @@ final class ArenaMatch {
     private Mob spawning;
 
     ArenaMatch(MinecraftServer server, ArenaEmit emit, ArenaRecord arena, ServerLevel level, String mode,
-               List<ArenaRequests.Wave> waves, List<ServerPlayer> players, Map<String, List<ServerPlayer>> teams, int[] exit) {
+               List<ArenaRequests.Wave> waves, List<ServerPlayer> players, Map<String, List<ServerPlayer>> teams, int[] exit,
+               int[] series) {
         this.server = server;
         this.emit = emit;
         this.arena = arena;
@@ -80,6 +80,8 @@ final class ArenaMatch {
         this.mode = mode;
         this.waves = waves;
         this.exit = exit;
+        this.series = series;
+        this.board = new ArenaBoard(server, ArenaLogic.objectiveName(arena.name()));
         this.tag = ArenaLogic.waveTag(arena.name());
         this.followRange = ArenaLogic.followRange(arena.box());
         this.participants = new ArrayList<>();
@@ -107,7 +109,7 @@ final class ArenaMatch {
         startTick = server.getTickCount();
         if (ArenaLogic.sided(mode)) enterTeams();
         else enterWaves();
-        showBoard();
+        refreshBoard();
         var data = base();
         data.put("mode", mode);
         data.put("participants", participantNames());
@@ -145,6 +147,7 @@ final class ArenaMatch {
             return;
         }
         if (clock != null && ticks % RETARGET_TICKS == 0) retarget();
+        if (ticks % BOARD_TICKS == 0) refreshBoard();
     }
 
     private Map<String, Integer> liveByTeam() {
@@ -160,10 +163,32 @@ final class ArenaMatch {
         if (state != State.RUNNING) return;
         String killer = participantName(source.getEntity());
         if (killer == null) killer = participantName(entity.getKillCredit());
-        boolean scored = false;
-        if (mobs.containsKey(entity.getUUID())) scored = tally.mob(killer);
-        else if (names.containsKey(entity.getUUID())) scored = tally.player(killer, names.get(entity.getUUID()));
-        if (scored) updateBoard(killer);
+        if (mobs.containsKey(entity.getUUID())) tally.mob(killer);
+        else if (names.containsKey(entity.getUUID())) {
+            String victim = names.get(entity.getUUID());
+            tally.down(victim);
+            tally.player(killer, victim);
+        } else return;
+        refreshBoard();
+    }
+
+    /** Health (and absorption) an entity lost to a hit: a participant's taken, a participant's dealt to an enemy or wave mob. */
+    void hurt(LivingEntity entity, DamageSource source, float amount) {
+        if (state != State.RUNNING) return;
+        String victim = names.get(entity.getUUID());
+        boolean waveMob = mobs.containsKey(entity.getUUID());
+        String attacker = participantName(source.getEntity());
+        if (victim == null && !(waveMob && attacker != null)) return;
+        tally.hurt(attacker, victim, waveMob, amount);
+    }
+
+    /** Health given back to a participant: by {@code by} (who threw or drank the potion), else (null) by their own body. */
+    void healed(LivingEntity entity, Entity by, float amount) {
+        if (state != State.RUNNING) return;
+        String target = names.get(entity.getUUID());
+        if (target == null) return;
+        String healer = by == null ? null : names.getOrDefault(by.getUUID(), "");
+        tally.healed(healer, target, amount);
     }
 
     /** Whether this hit may land: participants never hurt each other outside team against team (their own team never). */
@@ -177,39 +202,34 @@ final class ArenaMatch {
         return entity instanceof ServerPlayer player ? names.get(player.getUUID()) : null;
     }
 
-    // ---- the kill board
+    // ---- the kill board and the recap
 
-    private static String teamLabel(String team) { return "Team " + team; }
-
-    private void showBoard() {
-        var scoreboard = server.getScoreboard();
-        String name = ArenaLogic.objectiveName(arena.name());
-        var old = scoreboard.getObjective(name);
-        if (old != null) scoreboard.removeObjective(old);
-        board = scoreboard.addObjective(name, ObjectiveCriteria.DUMMY, Component.literal("Kills"),
-                ObjectiveCriteria.RenderType.INTEGER, false, null);
-        scoreboard.setDisplayObjective(DisplaySlot.SIDEBAR, board);
-        for (var id : participants) scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly(names.get(id)), board).set(0);
-        if (mode.equals("race")) {
-            for (var team : teams.keySet()) scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly(teamLabel(team)), board).set(0);
+    /** The live sidebar (ArenaLogic.matchBoard): the waves, each team and its players by kills, who is down. */
+    private void refreshBoard() {
+        var players = new ArrayList<ArenaLogic.Player>();
+        for (var id : participants) {
+            String name = names.get(id);
+            players.add(new ArenaLogic.Player(name, teamOf.getOrDefault(id, ""), tally.score(name), live(id)));
         }
+        ArenaLogic.WaveInfo info = clock == null ? null
+                : new ArenaLogic.WaveInfo(Math.min(clock.index() + 1, waves.size()), waves.size(), mobs.size());
+        var lines = ArenaLogic.fit(ArenaLogic.matchBoard(mode, teamNames(), players, info), ArenaLogic.BOARD_LINES);
+        board.show(ArenaLogic.matchTitle(arena.name(), series), lines);
     }
 
-    private void updateBoard(String player) {
-        if (board == null) return;
-        var scoreboard = server.getScoreboard();
-        scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly(player), board).set(tally.score(player));
-        if (mode.equals("race")) {
-            tally.byTeam().forEach((team, n) -> scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly(teamLabel(team)), board).set(n));
-        }
+    private String endTitle() {
+        return ArenaLogic.endTitle(mode, state.name().toLowerCase(Locale.ROOT), winner, reason);
     }
 
-    private void hideBoard() {
-        if (board == null) return;
-        var scoreboard = server.getScoreboard();
-        if (scoreboard.getObjective(board.getName()) != null) scoreboard.removeObjective(board);
-        board = null;
+    /** The match's final board stays up, titled with how it ended, and every player there reads the recap in chat. */
+    private void closeBoard() {
+        refreshBoard();
+        board.retitle(endTitle() + (series == null ? "" : " · " + series[0] + "/" + series[1]));
+        var header = ArenaLogic.recapHeader(endTitle(), series, endTick - startTick);
+        ArenaRuntime.tell(level, participants, ArenaLogic.recap(header, teamNames(), tally.stats()));
     }
+
+    void hideBoard() { board.hide(); }
 
     // ---- participants
 
@@ -241,6 +261,8 @@ final class ArenaMatch {
             var old = scoreboard.getPlayerTeam(name);
             if (old != null) scoreboard.removePlayerTeam(old);
             var team = scoreboard.addPlayerTeam(name);
+            team.setColor(java.util.Optional.of(net.minecraft.world.scores.TeamColor.valueOf(
+                    ArenaLogic.teamColor(entry.getKey(), teamNames().indexOf(entry.getKey())).toUpperCase(Locale.ROOT))));
             team.setAllowFriendlyFire(false);
             team.setSeeFriendlyInvisibles(true);
             var pads = arena.teams().get(entry.getKey()).pads();
@@ -413,17 +435,18 @@ final class ArenaMatch {
     void stop(String why) { finish(State.STOPPED, why, "arena_match_stopped"); }
 
     /**
-     * Ends the match: every remaining wave mob is discarded, the scoreboard teams and the kill board go, participants
-     * still in the arena go to the exit (when there is one), the event is sent once with the kills.
+     * Ends the match: the kill board stays up with how it ended and the recap goes to chat, every remaining wave mob is
+     * discarded, the scoreboard teams go, participants still in the arena go to the exit (when there is one), the event
+     * is sent once with the tally.
      */
     private void finish(State end, String why, String event) {
         if (state != State.RUNNING) return;
         state = end;
         reason = why;
         endTick = server.getTickCount();
+        closeBoard();  // before the mobs go and the players leave: the board shows the end as it was
         discardMobs();
         leaveTeams();
-        hideBoard();
         sendToExit();
         var data = base();
         data.put("mode", mode);
@@ -479,6 +502,7 @@ final class ArenaMatch {
         var out = new LinkedHashMap<String, Object>();
         out.put("mode", mode);
         out.put("state", state.name().toLowerCase(Locale.ROOT));
+        if (series != null) out.put("series", List.of(series[0], series[1]));
         if (reason != null) out.put("reason", reason);
         if (winner != null) out.put("winner", winner);
         out.put("ticks", (state == State.RUNNING ? server.getTickCount() : endTick) - startTick);
@@ -510,8 +534,13 @@ final class ArenaMatch {
             if (teamOf.containsKey(id)) p.put("team", teamOf.get(id));
             var player = server.getPlayerList().getPlayer(id);
             if (player != null) p.put("position", List.of(round(player.getX()), round(player.getY()), round(player.getZ())));
-            p.put("mob_kills", tally.mobs(names.get(id)));
-            p.put("player_kills", tally.players(names.get(id)));
+            String name = names.get(id);
+            p.put("mob_kills", tally.mobs(name));
+            p.put("player_kills", tally.players(name));
+            p.put("deaths", tally.deaths(name));
+            p.put("damage_dealt", ArenaLogic.tenth(tally.dealt(name)));
+            p.put("damage_taken", ArenaLogic.tenth(tally.taken(name)));
+            p.put("healing", ArenaLogic.tenth(tally.healing(name)));
             people.add(p);
         }
         out.put("participants", people);

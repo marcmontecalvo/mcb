@@ -79,6 +79,8 @@ BODY_OPS = frozenset(
         "arena_spawn",
         "arena_op",
         "arena_kit",
+        "arena_board",
+        "arena_say",
     }
 )
 # Lab ops that act on the current body by name.

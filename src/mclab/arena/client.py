@@ -30,6 +30,8 @@ OPS = (
     "arena_spawn",
     "arena_op",
     "arena_kit",
+    "arena_board",
+    "arena_say",
 )
 ENVELOPE = frozenset(
     {
@@ -451,10 +453,13 @@ class ArenaClient:
         participants=None,
         teams=None,
         exit=None,  # noqa: A002 - the mod's field name
+        series: tuple[int, int] | None = None,
     ) -> dict:
         """A match: ``waves`` (co-op), ``teams`` (team against team; waves
         optional, empty for none) or ``race`` (teams race to kill the waves).
-        ``exit``: the cell participants still in the arena go to at the end."""
+        ``exit``: the cell participants still in the arena go to at the end;
+        ``series``: (match, of) when it is one of a series (its board and recap
+        say which)."""
         if waves:
             check_waves(waves)
         fields = {
@@ -462,6 +467,7 @@ class ArenaClient:
             "participants": participants,
             "teams": teams,
             "exit": None if exit is None else list(exit),
+            "series": None if series is None else {"match": series[0], "of": series[1]},
         }
         return self.call(
             "arena_start",
@@ -472,6 +478,20 @@ class ArenaClient:
 
     def stop(self, name: str) -> dict:
         return self.call("arena_stop", name=name)
+
+    # -- what the players at an arena see between matches
+    def board(self, name: str, title: str, rows: Sequence[dict]) -> dict:
+        """The arena's series board on the sidebar: ``rows`` of ``text`` and
+        optional ``value``, ``color``, ``bold``, ``struck`` (at most 15)."""
+        return self.call("arena_board", name=name, title=title, rows=list(rows))
+
+    def clear_board(self, name: str) -> dict:
+        return self.call("arena_board", name=name, clear=True)
+
+    def announce(self, name: str, lines: Sequence[Sequence[dict]]) -> dict:
+        """Chat lines for everyone in the arena's world: each line a list of
+        parts (``text``, optional ``color`` and ``bold``)."""
+        return self.call("arena_say", name=name, lines=[list(line) for line in lines])
 
     # -- the world and its players
     def spawn(self, position) -> dict:

@@ -34,10 +34,20 @@ public final class ArenaRequests {
 
     /**
      * participants: player names, or null for every player inside the bounds; teams: an explicit team to names map, or
-     * null; exit: the cell participants still in the arena are sent to when the match ends (null: they stay).
+     * null; exit: the cell participants still in the arena are sent to when the match ends (null: they stay); series:
+     * {match, of} when the match is one of a series (its board and recap say which), else null.
      */
     public record Start(String name, String mode, List<Wave> waves, List<String> participants, Map<String, List<String>> teams,
-                        int[] exit) {}
+                        int[] exit, int[] series) {}
+
+    /** A sidebar board for an arena (the series standings between matches): title and rows, or clear to take it down. */
+    public record Board(String name, String title, List<ArenaLogic.Line> rows, boolean clear) {}
+
+    /** Chat lines for the players at an arena: each line coloured parts. */
+    public record Say(String name, List<List<ArenaLogic.Seg>> lines) {}
+
+    public static final int MAX_SERIES = 1000, MAX_TITLE = 64, MAX_ROW_TEXT = 40, MAX_ROW_VALUE = 16, MAX_SAY_LINES = 24,
+            MAX_SAY_PARTS = 16, MAX_SAY_TEXT = 120;
 
     /** Give or take away a player's operator status. */
     public record Op(String player, boolean op) {}
@@ -116,7 +126,7 @@ public final class ArenaRequests {
      * kill the waves: waves required).
      */
     public static Start parseStart(JsonObject request) {
-        only(request, Set.of("name", "mode", "waves", "participants", "teams", "exit"));
+        only(request, Set.of("name", "mode", "waves", "participants", "teams", "exit", "series"));
         String name = name(request), mode = text(request, "mode");
         if (!ArenaLogic.MODES.contains(mode)) throw bad("mode must be waves, teams or race");
         if (!ArenaLogic.sided(mode) && request.has("teams")) throw bad("teams belong to the teams and race modes");
@@ -146,7 +156,78 @@ public final class ArenaRequests {
             }
             participants = flat;
         }
-        return new Start(name, mode, List.copyOf(waves), participants == null ? null : List.copyOf(participants), teams, exit);
+        int[] series = request.has("series") ? series(request.get("series")) : null;
+        return new Start(name, mode, List.copyOf(waves), participants == null ? null : List.copyOf(participants), teams, exit, series);
+    }
+
+    private static int[] series(JsonElement e) {
+        if (!e.isJsonObject()) throw bad("series must be {match, of}");
+        var o = e.getAsJsonObject();
+        for (var key : o.keySet()) if (!key.equals("match") && !key.equals("of")) throw bad("series has unknown field " + key);
+        int of = whole(o.get("of"), "series.of", 1, MAX_SERIES);
+        return new int[] {whole(o.get("match"), "series.match", 1, of), of};
+    }
+
+    public static Board parseBoard(JsonObject request) {
+        only(request, Set.of("name", "title", "rows", "clear"));
+        String name = name(request);
+        if (flag(request, "clear")) {
+            if (request.has("title") || request.has("rows")) throw bad("clear takes nothing else");
+            return new Board(name, null, List.of(), true);
+        }
+        String title = bounded(text(request, "title"), "title", MAX_TITLE);
+        if (!request.has("rows") || !request.get("rows").isJsonArray()) throw bad("rows must be a list of rows");
+        var list = request.getAsJsonArray("rows");
+        if (list.size() > ArenaLogic.BOARD_LINES) throw bad("a board holds at most " + ArenaLogic.BOARD_LINES + " rows");
+        var rows = new ArrayList<ArenaLogic.Line>();
+        for (int i = 0; i < list.size(); i++) {
+            String where = "rows[" + i + "]";
+            if (!list.get(i).isJsonObject()) throw bad(where + " must be an object");
+            var o = list.get(i).getAsJsonObject();
+            for (var key : o.keySet())
+                if (!Set.of("text", "value", "color", "bold", "struck").contains(key)) throw bad(where + " has unknown field " + key);
+            rows.add(new ArenaLogic.Line(bounded(text(o, "text"), where + ".text", MAX_ROW_TEXT),
+                    o.has("value") ? bounded(text(o, "value"), where + ".value", MAX_ROW_VALUE) : "", color(o, where),
+                    flag(o, "bold"), flag(o, "struck")));
+        }
+        return new Board(name, title, List.copyOf(rows), false);
+    }
+
+    public static Say parseSay(JsonObject request) {
+        only(request, Set.of("name", "lines"));
+        String name = name(request);
+        var e = request.get("lines");
+        if (e == null || !e.isJsonArray() || e.getAsJsonArray().isEmpty() || e.getAsJsonArray().size() > MAX_SAY_LINES)
+            throw bad("lines must be a list of 1.." + MAX_SAY_LINES + " lines");
+        var lines = new ArrayList<List<ArenaLogic.Seg>>();
+        for (int i = 0; i < e.getAsJsonArray().size(); i++) {
+            var line = e.getAsJsonArray().get(i);
+            String where = "lines[" + i + "]";
+            if (!line.isJsonArray() || line.getAsJsonArray().isEmpty() || line.getAsJsonArray().size() > MAX_SAY_PARTS)
+                throw bad(where + " must be a list of 1.." + MAX_SAY_PARTS + " parts");
+            var parts = new ArrayList<ArenaLogic.Seg>();
+            for (var part : line.getAsJsonArray()) {
+                if (!part.isJsonObject()) throw bad(where + " parts must be objects");
+                var o = part.getAsJsonObject();
+                for (var key : o.keySet())
+                    if (!Set.of("text", "color", "bold").contains(key)) throw bad(where + " part has unknown field " + key);
+                parts.add(new ArenaLogic.Seg(bounded(text(o, "text"), where + ".text", MAX_SAY_TEXT), color(o, where), flag(o, "bold")));
+            }
+            lines.add(List.copyOf(parts));
+        }
+        return new Say(name, List.copyOf(lines));
+    }
+
+    private static String bounded(String value, String where, int max) {
+        if (value.length() > max) throw bad(where + " is longer than " + max);
+        return value;
+    }
+
+    private static String color(JsonObject o, String where) {
+        if (!o.has("color")) return "white";
+        String color = text(o, "color");
+        if (!ArenaLogic.COLORS.contains(color)) throw bad(where + ".color must be one of " + new java.util.TreeSet<>(ArenaLogic.COLORS));
+        return color;
     }
 
     /** The world spawn: where new players and everyone without a bed appear (the arena server's lobby). */
