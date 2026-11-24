@@ -181,7 +181,9 @@ def test_a_hunt_takes_the_nearest_wave_mob_however_far_it_is():
     far, near = wave_mob("r1", (60.5, 64, 0.5)), wave_mob("r2", (40.5, 64, 0.5))
     found = attack.hunt(match(far, near), state(), None)
     assert (found.uuid, found.type, found.position) == (
-        "r2", "minecraft:ravager", (40.5, 64.0, 0.5)
+        "r2",
+        "minecraft:ravager",
+        (40.5, 64.0, 0.5),
     )
     assert not found.seen  # 40 blocks off: out of sight, so the job walks to it
 
@@ -304,3 +306,84 @@ def test_the_arena_here_is_the_one_whose_bounds_hold_the_bot():
     assert attack.arena_here(listing, (20.9, 64.0, 0.5)) == "vault"  # the max cell
     assert attack.arena_here(listing, (21.5, 64.0, 0.5)) is None
     assert attack.arena_here({"arenas": []}, (0.5, 64.0, 0.5)) is None
+
+
+# --- two enemy players: commit to one, leave it only for a clear reason ---------------
+# Live series 20261124T164259Z: the dad and son on red against the bot. The bot held the
+# one it first picked for the whole match (a kiter it never reached) while the other, 4
+# to 9 blocks off, did the damage; nothing in the pick could ever say "leave it".
+
+
+def duo(ann, bob, held_pick=None, *, held=None, stuck=frozenset(), me=(0.5, 64, 0.5)):
+    """A teams match with the bot on blue and Ann and Bob on red, ``ann`` and ``bob``
+    blocks off along the x axis; the foe found, by uuid."""
+    people = [
+        fighter("MCBot", "blue", me),
+        fighter("Ann", "red", (me[0] + ann, 64, 0.5)),
+        fighter("Bob", "red", (me[0] - bob, 64, 0.5)),
+    ]
+    found = attack.hunt(
+        contest(*people), state(at=me), held_pick, "MCBot", held=held, stuck=stuck
+    )
+    return found.uuid
+
+
+def test_with_nothing_chosen_the_nearer_enemy_is_picked():
+    assert duo(10, 14) == "u-Ann" and duo(14, 10) == "u-Bob"
+
+
+def test_a_slightly_nearer_enemy_does_not_take_the_target():
+    assert duo(12, 10, "u-Ann", held=200) == "u-Ann"
+    assert duo(10, 12, "u-Bob", held=200) == "u-Bob"
+
+
+def test_the_pick_does_not_flip_flop_as_the_nearer_enemy_changes_every_look():
+    chosen = "u-Ann"
+    for look in range(40):  # two players circling: first one nearer, then the other
+        ann, bob = (9.0, 11.0) if look % 2 else (11.0, 9.0)
+        chosen = duo(ann, bob, chosen, held=look * 60)
+    assert chosen == "u-Ann"
+
+
+def test_an_enemy_pressing_in_comes_before_a_chosen_one_further_than_keep_far():
+    # the same rule as the fight op's for a hostile mob: the one in the body's face
+    assert duo(14, 3.5, "u-Ann", held=0) == "u-Bob"
+    assert duo(14, 5.5, "u-Ann", held=0) == "u-Ann"  # near, not yet pressing
+    assert duo(5.0, 3.5, "u-Ann", held=0) == "u-Ann"  # the chosen one is close too
+
+
+def test_a_much_nearer_enemy_takes_the_target_after_the_hold():
+    assert duo(20, 8, "u-Ann", held=attack.HOLD_TICKS) == "u-Bob"
+    assert duo(20, 11, "u-Ann", held=attack.HOLD_TICKS) == "u-Ann"  # not twice as near
+
+
+def test_a_target_just_picked_is_held_for_a_while():
+    assert duo(20, 8, "u-Ann", held=attack.HOLD_TICKS - 1) == "u-Ann"
+    assert duo(20, 8, "u-Ann", held=None) == "u-Bob"  # no record of the pick: free
+
+
+def test_a_chosen_enemy_the_bot_cannot_get_at_is_left_for_the_other():
+    assert duo(20, 40, "u-Ann", held=0, stuck={"u-Ann"}) == "u-Bob"
+    # both out of reach: stay with the one it has rather than swap between them
+    assert duo(20, 40, "u-Ann", held=0, stuck={"u-Ann", "u-Bob"}) == "u-Ann"
+
+
+def test_a_blocked_enemy_is_not_taken_for_being_much_nearer():
+    assert duo(20, 8, "u-Ann", held=attack.HOLD_TICKS, stuck={"u-Bob"}) == "u-Ann"
+
+
+def test_the_chosen_enemy_dying_hands_over_to_the_other_at_once():
+    people = [
+        fighter("MCBot", "blue", (0.5, 64, 0.5)),
+        fighter("Ann", "red", (9.5, 64, 0.5), alive=False),
+        fighter("Bob", "red", (-30.5, 64, 0.5)),
+    ]
+    found = attack.hunt(contest(*people), state(), "u-Ann", "MCBot", held=0)
+    assert found.uuid == "u-Bob"
+
+
+def test_wave_mobs_keep_the_old_rule_only_a_worse_threat_displaces_the_chosen():
+    far = wave_mob("z1", (20.5, 64, 0.5), ZOMBIE)
+    near = wave_mob("z2", (6.5, 64, 0.5), ZOMBIE)
+    kept = attack.hunt(match(far, near), state(), "z1", held=attack.HOLD_TICKS)
+    assert kept.uuid == "z1"

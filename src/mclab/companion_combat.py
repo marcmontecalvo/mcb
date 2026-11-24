@@ -317,18 +317,22 @@ def tactic(
     """The first style in the target's profile that the held weapons allow.
     ``loyal``: a carried trident has Loyalty (only that one is thrown)."""
     profile = PROFILES.get(target, HUNT)
-    for style in profile.styles:
+    chosen = _first_style(profile.styles, target, inventory, wear, loyal)
+    if chosen is None:
+        return AVOID
+    return Tactic(**{**chosen.__dict__, "no_gaze": True}) if profile.no_gaze else chosen
+
+
+def _first_style(styles, target, inventory, wear, loyal: bool) -> Tactic | None:
+    """The tactic of the first of ``styles`` the held weapons allow."""
+    for style in styles:
         if style == "throw":
             chosen = _throw(inventory, target) if loyal else None
         else:
             chosen = _style(style, inventory, target, wear)
         if chosen is not None:
-            return (
-                Tactic(**{**chosen.__dict__, "no_gaze": True})
-                if profile.no_gaze
-                else chosen
-            )
-    return AVOID
+            return chosen
+    return None
 
 
 LOYALTY = M + "loyalty"
@@ -359,15 +363,46 @@ def fists() -> Tactic:
     return Tactic("melee", None, crit=False, sweep=False)
 
 
+# What a target the bot cannot close on is fought with, best first: the bow while
+# there are arrows, then a Loyalty trident's throw (it returns to the hand by itself,
+# and the swing weapon meets one that closes in meanwhile). Arena series
+# 20261124T164259Z: the player profile said melee, so a kiting player was chased
+# through every fight of five matches (shots 0).
+RANGED_STYLES = ("snipe", "throw")
+
+
+def ranged_tactic(
+    target: str,
+    inventory: Mapping[str, int],
+    wear: Wear | None = None,
+    loyal: bool = False,
+) -> Tactic | None:
+    """The tactic for a target that keeps out of melee, or None when nothing held
+    can reach it (no bow with arrows, no Loyalty trident)."""
+    if never_engaged(target):
+        return None
+    return _first_style(RANGED_STYLES, target, inventory, wear, loyal)
+
+
+def can_shoot(inventory: Mapping[str, int], loyal: bool = False) -> bool:
+    """Whether the bot holds something to hit a target out of melee reach with."""
+    return ranged_tactic(M + "player", inventory, loyal=loyal) is not None
+
+
 def ordered_tactic(
     target: str,
     inventory: Mapping[str, int],
     wear: Wear | None = None,
     loyal: bool = False,
+    kiting: bool = False,
 ) -> Tactic:
     """The tactic for a fight the owner ordered (an attack, an arena hunt): the
     guard's ``tactic``, except that a mob the guard would avoid is fought in melee
-    with the best weapon held, and with bare hands only when nothing is held."""
+    with the best weapon held, and with bare hands only when nothing is held.
+    ``kiting``: the bot cannot close on the target (``companion_pursuit``), so what
+    reaches it from range is used when held (``ranged_tactic``)."""
+    if kiting and (ranged := ranged_tactic(target, inventory, wear, loyal)):
+        return ranged
     plan = tactic(target, inventory, wear, loyal=loyal)
     if plan.style != "avoid":
         return plan

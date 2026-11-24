@@ -386,7 +386,10 @@ def test_a_named_weapon_decides_the_style():
     assert (spear.style, spear.weapon) == ("lance", M + "iron_spear")
     bow = cc.forced_tactic(M + "bow", M + "zombie", inv("bow", "iron_sword", arrows=4))
     assert (bow.style, bow.weapon, bow.keep, bow.melee) == (
-        "snipe", M + "bow", cc.SNIPE_KEEP, M + "iron_sword"
+        "snipe",
+        M + "bow",
+        cc.SNIPE_KEEP,
+        M + "iron_sword",
     )
 
 
@@ -394,7 +397,10 @@ def test_a_named_trident_is_thrown_only_when_it_has_loyalty():
     held = inv("trident", "iron_sword")
     thrown = cc.forced_tactic(M + "trident", M + "zombie", held, loyal=True)
     assert (thrown.style, thrown.weapon, thrown.keep, thrown.melee) == (
-        "throw", M + "trident", cc.SNIPE_KEEP, M + "iron_sword"
+        "throw",
+        M + "trident",
+        cc.SNIPE_KEEP,
+        M + "iron_sword",
     )
     swung = cc.forced_tactic(M + "trident", M + "zombie", held)
     assert (swung.style, swung.weapon, swung.crit) == ("melee", M + "trident", True)
@@ -430,3 +436,59 @@ def test_bare_hands_are_a_fist_tactic():
     fists = cc.fists()
     assert (fists.style, fists.weapon, fists.crit) == ("melee", None, False)
     assert fists.wire() == {"style": "melee", "crit": False, "sweep": False}
+
+
+# --- a target the bot cannot close on (a kiting player) ------------------------------
+
+ARENA_KIT = inv(
+    "iron_sword", "iron_axe", "iron_spear", "bow", "trident", "shield", arrows=64
+)
+PLAYER = M + "player"
+
+
+def test_a_player_is_met_in_melee_while_the_bot_can_reach_them():
+    plan = cc.ordered_tactic(PLAYER, ARENA_KIT, loyal=True)
+    assert (plan.style, plan.weapon) == ("melee", M + "trident")
+
+
+def test_a_player_the_bot_cannot_close_on_is_shot_with_the_bow():
+    """Live series 20261124T164259Z: every fight of five matches was a melee trident
+    (shots 0), with the players 10 to 22 blocks off and out-running the bot."""
+    plan = cc.ordered_tactic(PLAYER, ARENA_KIT, loyal=True, kiting=True)
+    assert (plan.style, plan.weapon, plan.keep) == ("snipe", M + "bow", cc.SNIPE_KEEP)
+    assert plan.melee == M + "trident"  # what meets one that closes in
+
+
+def test_without_arrows_a_kited_bot_throws_its_loyalty_trident():
+    kit = inv("iron_sword", "trident", "shield")
+    plan = cc.ordered_tactic(PLAYER, kit, loyal=True, kiting=True)
+    assert (plan.style, plan.weapon, plan.keep) == (
+        "throw",
+        M + "trident",
+        cc.SNIPE_KEEP,
+    )
+    assert plan.melee == M + "iron_sword"  # the swing weapon while the trident is out
+
+
+def test_a_trident_without_loyalty_is_never_thrown_so_the_kited_bot_swings_on():
+    plan = cc.ordered_tactic(PLAYER, inv("iron_sword", "trident"), kiting=True)
+    assert plan.style == "melee"
+
+
+def test_a_kited_bot_with_nothing_to_shoot_or_throw_swings_on():
+    plan = cc.ordered_tactic(PLAYER, inv("iron_sword"), loyal=False, kiting=True)
+    assert (plan.style, plan.weapon) == ("melee", M + "iron_sword")
+    assert cc.ordered_tactic(PLAYER, inv(), kiting=True) == cc.fists()
+
+
+def test_kiting_never_makes_the_bot_engage_what_it_never_engages():
+    plan = cc.ordered_tactic(M + "warden", ARENA_KIT, loyal=True, kiting=True)
+    assert plan.style == "melee"  # the ordered fallback, not a shot at a warden
+
+
+def test_ranged_readiness_is_a_bow_with_arrows_or_a_loyalty_trident():
+    assert cc.can_shoot(ARENA_KIT, loyal=False)
+    assert cc.can_shoot(inv("trident"), loyal=True)
+    assert not cc.can_shoot(inv("trident"), loyal=False)  # it would not come back
+    assert not cc.can_shoot(inv("bow"), loyal=False)  # no arrows
+    assert not cc.can_shoot(inv("iron_sword"), loyal=True)

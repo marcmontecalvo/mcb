@@ -157,14 +157,23 @@ def foes(match: dict, bot: str | None) -> list[dict]:
     return rows
 
 
-def hunt(status: dict, state: dict, chosen: str | None = None, bot: str | None = None):
+def hunt(
+    status: dict,
+    state: dict,
+    chosen: str | None = None,
+    bot: str | None = None,
+    held: int | None = None,
+    stuck: frozenset[str] | set[str] = frozenset(),
+):
     """The foe to fight now (a ``Victim``), WAITING, NO_MATCH, or how the match ended
     (won, lost, stopped). Every live wave mob counts, wherever it is in the arena
     (a waves match is won only when all are dead), and in the teams mode every
     live enemy of ``bot``'s team. The foe already chosen is kept while it lives;
     else the nearest. Where the body sees it, its own sighting is used (fresher
     than the status); ``seen`` is then only how the job reports it, since the
-    fight op tracks a foe in reach by uuid either way."""
+    fight op tracks a foe in reach by uuid either way. ``held``: ticks since
+    ``chosen`` was picked (None: no record); ``stuck``: the foes the bot found no
+    way to, for now (``companion_pursuit``): see ``_threat``."""
     match = status.get("match")
     if not isinstance(match, dict) or match.get("mode") not in MODES:
         return NO_MATCH
@@ -176,7 +185,7 @@ def hunt(status: dict, state: dict, chosen: str | None = None, bot: str | None =
     if not mobs:
         return WAITING
     here = _position({"position": (state.get("body") or {}).get("position")})
-    pick = _threat(mobs, here, chosen)
+    pick = _threat(mobs, here, chosen, held, frozenset(stuck))
     sighted = _nearest(
         state.get("visible_entities") or (),
         here,
@@ -194,22 +203,70 @@ def hunt(status: dict, state: dict, chosen: str | None = None, bot: str | None =
 THREAT = {"minecraft:evoker": 3.0, "minecraft:witch": 2.5}
 
 
-def _threat(mobs, here, chosen: str | None) -> Victim:
-    """The wave mob to fight: the least distance / THREAT weight. The one already
-    chosen is kept while it lives, unless a mob of greater weight comes out ahead."""
+# An enemy player, once chosen, is left only for a clear reason (live series
+# 20261124T164259Z: the bot held the farther of two players, one it never reached,
+# for a whole match while the other did the damage; a pick that flips with every
+# nearer-by-a-step is as bad). The reasons, each with a margin so that the new
+# target is not itself left at once:
+#  - it is gone (dead, out of the match): the next nearest, at once;
+#  - the bot found no way to it (``stuck``: it keeps out of melee and nothing held
+#    reaches it): another, at once, unless that one is stuck too;
+#  - another is pressing in (within PRESS_GAP) while it is farther than KEEP_FAR:
+#    the fight op's rule for a hostile mob (FightLogic.pick), at once;
+#  - another is much nearer (under SWITCH_RATIO of its distance), once the pick has
+#    been held HOLD_TICKS.
+HOLD_TICKS = 40  # two seconds: a fresh pick is not weighed against the others
+PRESS_GAP = 4.5  # an enemy this near is in the body's face
+KEEP_FAR = 6.0  # the chosen one is farther than this: the one pressing in comes first
+SWITCH_RATIO = 0.5  # as near as half the chosen one's distance is "much nearer"
+
+
+def _threat(
+    mobs,
+    here,
+    chosen: str | None,
+    held: int | None = None,
+    stuck: frozenset[str] = frozenset(),
+) -> Victim:
+    """The foe to fight: the least distance / THREAT weight. The one already chosen is
+    kept while it lives, unless a mob of greater weight comes out ahead; a chosen
+    player also gives way for the reasons above (a wave mob never does)."""
+
+    def gap(row):
+        return math.dist(_position(row), here) if here is not None else 0.0
 
     def cost(row):
-        far = math.dist(_position(row), here) if here is not None else 0.0
-        return far / THREAT.get(row.get("type"), 1.0)
+        return gap(row) / THREAT.get(row.get("type"), 1.0)
 
     best = min(mobs, key=cost)
     kept = next((m for m in mobs if str(m.get("uuid")) == chosen), None)
-    if kept is not None and THREAT.get(best.get("type"), 1.0) <= THREAT.get(
-        kept.get("type"), 1.0
-    ):
-        best = kept
+    if kept is not None:
+        if THREAT.get(best.get("type"), 1.0) <= THREAT.get(kept.get("type"), 1.0):
+            best = _commit(kept, mobs, gap, cost, held, stuck)
     uuid = str(best.get("uuid"))
     return Victim(uuid, best["type"], _position(best), best.get("name"))
+
+
+def _commit(kept, mobs, gap, cost, held: int | None, stuck: frozenset[str]):
+    """``kept`` or the foe that takes the fight from it (see HOLD_TICKS)."""
+    if kept.get("type") != PLAYER:
+        return kept
+    others = [m for m in mobs if m is not kept and m.get("type") == PLAYER]
+    if not others:
+        return kept
+    open_ = [m for m in others if str(m.get("uuid")) not in stuck]
+    if str(kept.get("uuid")) in stuck and open_:
+        return min(open_, key=cost)
+    nearest = min(others, key=gap)
+    if gap(nearest) <= PRESS_GAP and gap(kept) > KEEP_FAR:
+        return nearest
+    if held is not None and held < HOLD_TICKS:
+        return kept
+    if open_:
+        better = min(open_, key=cost)
+        if cost(better) < SWITCH_RATIO * cost(kept):
+            return better
+    return kept
 
 
 def arena_here(listing: dict, position) -> str | None:

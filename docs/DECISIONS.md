@@ -552,5 +552,21 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   the other teams' players as well as wave mobs; a teammate is never a target and never
   in a harmful splash. Phase 1 has one bot; two bots and an "add a bot" button come
   next.
+- **The bot ranges a player it cannot catch and sticks to one it can (Nov 24).** The
+  dad-and-son series (20261124T164259Z, 2 wins in 5) showed a sword chase after a player
+  running at the bot's pace, shots 0, with a bow and a Loyalty trident held. Choices: the verdict
+  is *measured* (gap history across looks, with a hysteresis band) and not a static profile, since
+  a foe walking in or standing still is best met with the sword, and slowness changes the answer
+  mid-match; the ranged order is bow first, then a Loyalty trident's throw (the bow needs no
+  retrieval, and a non-Loyalty trident would be thrown away); a named weapon is still the owner's
+  word. Players are looked at every 60 ticks and mobs every 200, since the fight op follows one
+  uuid and a runner changes the picture in seconds. Target commitment: a chosen player is kept
+  until gone, stuck, pressed (another within 4.5 while it is over 6 away) or, after a 2 s hold,
+  much nearer (half the distance), so the choice can neither flip-flop nor strand the bot on a
+  kiter; "stuck" is a ten-second memory that ends by itself, not a failure count or a ban, and it
+  is never traded for another stuck foe. No attacker uuid exists in the damage events, so being
+  hit by the other player is read as that player pressing in (proximity), which is a proxy; adding
+  `hurt_by` uuids to `fight_done` would make it direct. Wave mobs keep the old kept-unless-heavier
+  rule.
 - **Open:** rotating a long session's `events.sqlite3`, and the live night test of the
   defence (built, not yet run against real mobs).
