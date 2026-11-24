@@ -79,6 +79,7 @@ MARK_MIN_S = 15.0  # a thrown effect is remembered on its targets at least this 
 # reach the next look a little after. Until then its targets are IN_FLIGHT.
 FLIGHT_S = 1.5
 IN_FLIGHT = "in_flight"
+SELF = "self"  # the marks key of the bot's own heal in flight
 
 UNDEAD = frozenset(
     M + n
@@ -284,6 +285,8 @@ class Marks:
         self._until: dict[str, dict[str, float]] = {}
 
     def record(self, use: Use, now: float) -> None:
+        if use.reason == "heal":  # its health shows the heal a few ticks later
+            self._until.setdefault(SELF, {})[IN_FLIGHT] = now + FLIGHT_S
         if use.op != "throw":
             return
         for uuid in use.targets:
@@ -565,7 +568,7 @@ def decide(
     near = foes[0].distance if foes else math.inf
     return _first(
         lambda: _fire(body, items),
-        lambda: _heal(body, items, near),
+        lambda: None if IN_FLIGHT in marks.get(SELF, ()) else _heal(body, items, near),
         lambda: _eat(items, "hungry")
         if body.food <= SPRINT_FOOD and near >= CLOSE
         else None,

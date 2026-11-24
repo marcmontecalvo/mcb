@@ -237,6 +237,21 @@ def test_a_hurt_hunter_splashes_healing_on_itself_then_fights_on(fighter):
     assert steps[0]["ok"] is True and steps[0]["potion"] == "minecraft:strong_healing"
 
 
+def test_a_hunt_does_not_heal_again_before_its_health_shows_the_first(fighter):
+    session, bridge = fighter
+    v = ("v1", (2.5, 64.0, 0.5))
+    seen = {"type": RAVAGER, "uuid": "v1", "position": list(v[1])}
+    _arena(session, _match(v), _match(v), _match(state="won", cleared=2))
+    _look(bridge, seen, inv=[*_sword(), SPLASH_HEAL, SPLASH_HEAL], health=8.0)
+    _look(bridge, seen, inv=[*_sword(), SPLASH_HEAL], health=8.0)  # not shown yet
+    _look(bridge, inv=_sword())
+    session.body.fights = [KILL]
+
+    _attack(session, arena="vault")
+
+    assert [u.reason for u in _uses(session)] == ["heal"]
+
+
 def test_a_hunt_holding_a_heal_breaks_off_at_the_heal_floor_and_heals(fighter):
     """No floor in an arena means fighting to the death only once nothing heals:
     with a heal held the fight stops at HEAL_AT, the bot heals, the hunt goes on."""

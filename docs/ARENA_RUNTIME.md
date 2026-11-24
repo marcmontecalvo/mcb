@@ -136,8 +136,9 @@ While a heal is held (a healing or regeneration potion, a golden apple) the figh
 `HEAL_AT` (10 health) so the bot heals and fights on; the "no floor" rule applies once nothing heals.
 Between waves it eats to a full bar, which regenerates fastest. A use the body refuses waits
 `USE_RETRY_S` before it is tried again. A thrown splash marks its targets in flight for `FLIGHT_S`
-(1.5 s), so no second potion follows it at a mob the first may already have killed. The rules are
-in COMPANION_COMBAT_PLAN section 15.
+(1.5 s), so no second potion follows it at a mob the first may already have killed; a heal marks
+the bot itself the same way (from the op's end), so no second heal follows one its health does not
+show yet. The rules are in COMPANION_COMBAT_PLAN section 15.
 
 Every walk in a hunt (a chase past 24 blocks, or toward a mob the fight op found unreachable) is
 one `walk_to` under `walk_wall(ARENA_WALK_S)` (4 s), never `walk_far`'s legs: a walk cannot heal or

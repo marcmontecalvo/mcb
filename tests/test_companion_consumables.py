@@ -347,6 +347,26 @@ def test_a_splash_in_flight_still_counts_against_the_undead_it_would_heal():
     assert decide(body(), [HARM], group, {"z1": {cons.IN_FLIGHT}}) is None
 
 
+def test_no_second_heal_follows_one_before_the_health_shows_it():
+    # Live run 20261124T041629Z: two healing splashes on itself back to back, then a
+    # golden apple straight after a third, each look still reading the old health.
+    marks = cons.Marks()
+    splash = cons.Use("throw", M + "splash_potion", "heal",
+                      potion=M + "strong_healing", at="self")  # fmt: skip
+    marks.record(splash, now=0.0)
+    close = [foe("vindicator", 3)]
+    soon = decide(body(8.0), [SPLASH_HEAL, GAPPLE], close, marks.active(0.3))
+    assert soon is None or soon.reason != "heal"
+    later = decide(body(8.0), [SPLASH_HEAL, GAPPLE], close, marks.active(2.0))
+    assert later is not None and later.reason == "heal"
+
+
+def test_eating_for_a_heal_marks_it_too():
+    marks = cons.Marks()
+    marks.record(cons.Use("eat", M + "golden_apple", "heal"), now=0.0)
+    assert marks.active(0.5) == {cons.SELF: {cons.IN_FLIGHT}}
+
+
 def test_a_use_goes_to_the_body_op_as_its_fields():
     splash = M + "splash_potion"
     throw = cons.Use("throw", splash, "heal", potion=M + "healing", at="self")

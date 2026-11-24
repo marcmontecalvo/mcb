@@ -923,7 +923,7 @@ class Session:
             return None
         result = self.body.consume(use)
         if result.ok:
-            self._marks.record(use, now)
+            self._marks.record(use, self.clock())  # from its end: a drink takes 1.6 s
             self._use_failed.pop(key, None)
         else:
             log.info("%s %s refused: %s", use.op, use.potion or use.item, result.reason)
