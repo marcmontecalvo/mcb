@@ -1343,17 +1343,21 @@ class CompanionBody:
         anchor=None,
         leash: int | None = None,
         tactic: dict | None = None,
+        allow_player: bool = False,
     ) -> Result:
         """The body's fight motor (BODY_ACTION_OPS ``fight``): hostiles within
         ``radius`` until none is left, health is at ``floor``, a creeper comes close
         or ``max_ticks`` pass. ``anchor`` and ``leash`` keep it beside an ally;
-        ``tactic`` (``companion_combat.Tactic.wire``) says how to fight."""
+        ``tactic`` (``companion_combat.Tactic.wire``) says how to fight.
+        ``allow_player``: ``entity`` may be a player (an owner-commanded attack
+        only; the mod refuses a player target otherwise)."""
         fields = {
             "entity": entity,
             "weapon": weapon,
             "anchor": list(anchor) if anchor is not None else None,
             "leash": leash,
             "tactic": tactic,
+            "allow_player": True if allow_player else None,
         }
         extra = {k: v for k, v in fields.items() if v is not None}
         return self.op(
