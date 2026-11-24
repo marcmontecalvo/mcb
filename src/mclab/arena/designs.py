@@ -698,11 +698,272 @@ def crossroads() -> Plan:
     return b.to_plan(Capacity(teams=4, per_team=10, mobs=24))
 
 
+# --- design: crash_site -------------------------------------------------------
+
+
+def _scatter_points(seed: int, count: int, radius: float, cx: int, cz: int):
+    """``count`` deterministic (x, z, k) points within ``radius`` of (cx, cz); k is a
+    free 16-bit draw for choosing a block or a size."""
+    state = seed & 0xFFFFFFFF
+    out = []
+    while len(out) < count:
+        state = (state * 1664525 + 1013904223) & 0xFFFFFFFF
+        a = (state >> 8) / float(1 << 24)
+        state = (state * 1664525 + 1013904223) & 0xFFFFFFFF
+        d = math.sqrt((state >> 8) / float(1 << 24)) * radius
+        state = (state * 1664525 + 1013904223) & 0xFFFFFFFF
+        out.append(
+            (
+                cx + round(d * math.cos(a * 2 * math.pi)),
+                cz + round(d * math.sin(a * 2 * math.pi)),
+                state >> 16,
+            )
+        )
+    return out
+
+
+def crash_site() -> Plan:
+    """A broken airliner on a round island under a night sky: a team-versus-team map.
+
+    The island is 83 blocks across, ringed by a mossy cliff, its floor patchy earth.
+    The fuselage lies north to south across the middle, snapped in two either side of
+    a smouldering crater; both halves are walk-through cabins with walkable roofs, the
+    north one reached up its tilted east wing, the south one up a spill of cargo on its
+    west side. The tail fin climbs a dozen blocks over the ground, step by step up its
+    leading edge. Around it: the torn-off west wing and an engine, a second engine,
+    two shacks with crate stairs to their roofs, four giant trees that hold up the sky
+    (no perches: their canopies meet the ceiling), fire pits and scattered wreckage.
+    Red starts on glowing pads at the west rim, blue at the east; mobs (in waves mode)
+    rise at four portals between them; spectators watch from behind the north cliff.
+    No real fire: embers are shroomlight.
+    """
+    rock, cliff, sky, star = (
+        _mc("deepslate"),
+        _mc("mossy_cobblestone"),
+        _mc("black_concrete"),
+        _mc("sea_lantern"),
+    )
+    soil, ember, scorch, char = (
+        _mc("coarse_dirt"),
+        _mc("shroomlight"),
+        _mc("coal_block"),
+        _mc("blackstone"),
+    )
+    hull, belly, stripe, accent = (
+        _mc("white_concrete"),
+        _mc("light_gray_concrete"),
+        _mc("cyan_concrete"),
+        _mc("orange_concrete"),
+    )
+    pane, cockpit, metal, dark = (
+        _mc("light_blue_stained_glass"),
+        _mc("black_stained_glass"),
+        _mc("gray_concrete"),
+        _mc("black_concrete"),
+    )
+    planks, post, roof, crate = (
+        _mc("spruce_planks"),
+        _mc("spruce_log[axis=y]"),
+        _mc("dark_oak_planks"),
+        _mc("stripped_spruce_wood[axis=y]"),
+    )
+    trunk, canopy, stone = (
+        _mc("dark_oak_log[axis=y]"),
+        _mc("moss_block"),
+        _mc("cobblestone"),
+    )
+    size = (89, 22, 97)
+    cx, cz, radius = 44, 52, 41
+    b = Builder("crash_site", size, feet=3)
+    g, top = b.feet, b.top  # feet on the ground at y 3; the interior reaches y 19
+
+    # --- the island: rock all round, a round hollow, a mossy cliff foot, a night sky
+    b.shell(rock)
+    b.disc(cx, cz, radius, g, top, ap.AIR)
+    b.disc(cx, cz, radius + 2, g, g + 3, cliff, inner=radius + 0.01)
+    b.disc(cx, cz, radius, top + 1, top + 1, sky)
+    for x, z, _ in _scatter_points(7, 70, radius - 1, cx, cz):
+        b.point((x, top + 1, z), star)
+
+    # --- the floor: coarse dirt with patches of other earth
+    b.disc(cx, cz, radius, g - 1, g - 1, soil)
+    earth = ("podzol", "mud", "packed_mud", "rooted_dirt", "moss_block", "coarse_dirt")
+    for x, z, k in _scatter_points(11, 46, radius - 3, cx, cz):
+        b.disc(x, z, 2 + k % 4, g - 1, g - 1, _mc(earth[k % len(earth)]))
+    # the scorched skid behind the tail, and burn marks
+    for z in range(cz + 22, cz + 31):
+        b.box((cx - 2, g - 1, z), (cx + 2, g - 1, z), scorch if z % 3 else char)
+    for x, z, k in _scatter_points(23, 18, 16, cx, cz):
+        b.point((x, g - 1, z), scorch if k % 2 else char)
+
+    # --- the crater where it broke: a raised lip, a ground-level step, a dip, a
+    # smouldering pit; a block a step all the way, so nothing down there is a trap
+    b.disc(cx, cz, 10, g, g, soil, inner=8)
+    b.disc(cx, cz, 6.5, g - 1, g - 1, ap.AIR)
+    b.disc(cx, cz, 6.5, g - 2, g - 2, char)
+    b.disc(cx, cz, 3, g - 2, g - 2, ap.AIR)
+    b.disc(cx, cz, 3, g - 3, g - 3, scorch)
+    b.box((cx - 1, g - 3, cz - 1), (cx + 1, g - 3, cz + 1), ember)
+
+    # --- the fuselage: two halves, 7 wide, a 5-wide cabin 4 high, a walkable crown
+    def cabin(z0: int, z1: int, seats: str) -> None:
+        b.box((cx - 3, g, z0), (cx + 3, g + 4, z1), hull)
+        b.box((cx - 2, g + 5, z0), (cx + 2, g + 5, z1), hull)
+        b.box((cx - 3, g, z0), (cx + 3, g, z1), belly)
+        for x in (cx - 3, cx + 3):
+            b.box((x, g + 3, z0), (x, g + 3, z1), stripe)
+            for z in range(z0 + 1, z1, 2):
+                b.point((x, g + 2, z), pane)
+        b.box((cx - 2, g, z0), (cx + 2, g + 3, z1), ap.AIR)
+        b.box((cx - 2, g - 1, z0), (cx + 2, g - 1, z1), planks)
+        for z in range(z0 + 2, z1 - 1, 2):
+            for x in (cx - 2, cx - 1, cx + 1, cx + 2):
+                b.point((x, g, z), seats)
+        for z in range(z0 + 1, z1 + 1, 4):
+            b.point((cx, g + 3, z), LANTERN)
+
+    north, south = cz - 6, cz + 5  # the broken ends, either side of the crater
+    cabin(cz - 19, north, _mc("spruce_stairs[facing=north]"))
+    cabin(south, cz + 18, _mc("spruce_stairs[facing=north]"))
+    # the nose, closed, with a dark cockpit
+    b.box((cx - 2, g, cz - 20), (cx + 2, g + 4, cz - 20), hull)
+    b.box((cx - 1, g + 3, cz - 20), (cx + 1, g + 3, cz - 20), cockpit)
+    b.box((cx - 1, g, cz - 21), (cx + 1, g + 3, cz - 21), hull)
+    b.box((cx - 1, g, cz - 22), (cx + 1, g + 1, cz - 22), belly)
+    # the tail cone sweeps up, so there is room to crouch under it
+    b.box((cx - 2, g + 1, cz + 19), (cx + 2, g + 5, cz + 19), hull)
+    b.box((cx - 1, g + 2, cz + 20), (cx + 1, g + 5, cz + 20), hull)
+    b.box((cx - 1, g + 3, cz + 21), (cx + 1, g + 5, cz + 21), hull)
+    # the fin: its leading edge rises a block a step, so its top is a climb
+    for k in range(11):
+        z = cz + 11 + k
+        height = min(k, 8)
+        b.box((cx, g + 6, z), (cx, g + 6 + height, z), hull)
+        if height >= 4:
+            b.point((cx, g + 6 + height - 2, z), stripe)
+        if height >= 6:
+            b.point((cx, g + 6 + height - 4, z), accent)
+    # tailplanes either side at the crown's height
+    for side in (-1, 1):
+        b.box((cx + side * 3, g + 5, cz + 17), (cx + side * 7, g + 5, cz + 19), hull)
+        b.point((cx + side * 7, g + 5, cz + 19), accent)
+    # torn ends: missing panels, the pieces on the ground
+    for x, y, z in (
+        (cx + 3, g + 4, north),
+        (cx + 2, g + 5, north),
+        (cx + 3, g + 1, north),
+        (cx - 3, g + 4, south),
+        (cx - 2, g + 5, south),
+        (cx - 3, g + 1, south),
+    ):
+        b.point((x, y, z), ap.AIR)
+
+    # the north half's east wing: snapped at the root, its tip in the dirt, a ramp
+    for i, x in enumerate(range(cx + 4, cx + 14)):
+        b.box((x, g + max(0, 4 - i), cz - 16), (x, g + max(0, 4 - i), cz - 11), belly)
+    b.box((cx + 13, g, cz - 16), (cx + 13, g, cz - 11), _mc("red_concrete"))
+    b.box((cx + 4, g + 4, cz - 16), (cx + 4, g + 4, cz - 11), metal)
+    # the south half's west side: a spill of cargo stepping up to the crown
+    for i, x in enumerate(range(cx - 7, cx - 3)):
+        b.box((x, g, cz + 7), (x, g + i, cz + 9), crate if i % 2 else planks)
+    # the west wing, torn off and lying flat to the north-west, its engine beside it
+    b.box((cx - 20, g, cz - 15), (cx - 10, g, cz - 10), belly)
+    b.box((cx - 20, g, cz - 15), (cx - 20, g, cz - 10), _mc("lime_concrete"))
+    b.box((cx - 16, g, cz - 18), (cx - 14, g + 1, cz - 16), metal)
+    b.box((cx - 15, g, cz - 18), (cx - 15, g + 1, cz - 18), dark)
+    # the other engine to the south-east, and a slab of skin to climb it from
+    b.box((cx + 12, g, cz + 14), (cx + 14, g + 1, cz + 16), metal)
+    b.box((cx + 13, g, cz + 16), (cx + 13, g + 1, cz + 16), dark)
+    b.box((cx + 11, g, cz + 13), (cx + 11, g, cz + 17), hull)
+    # wreckage and luggage: one block high, all of it
+    for dx, dz, block in (
+        (5, -8, hull), (-5, -4, belly), (7, -3, metal), (-8, -7, stripe),
+        (6, 5, hull), (9, 9, belly), (-9, 4, metal), (3, 25, hull), (-3, 28, metal),
+        (2, 31, belly), (-11, -2, _mc("light_blue_wool")), (10, -1, _mc("brown_wool")),
+        (-7, 13, _mc("red_wool")), (8, 20, _mc("brown_wool")), (-4, -25, belly),
+        (5, -27, metal),
+    ):  # fmt: skip
+        b.point((cx + dx, g, cz + dz), block)
+
+    # --- shacks, fire pits and giant trees, each pair a half turn apart
+    for turns in (0, 2):
+        with b.rotated(turns, (cx, cz)):
+            hx, hz = cx - 18, cz + 26
+            b.box((hx - 2, g, hz - 2), (hx + 2, g + 2, hz + 2), planks)
+            for x in (hx - 2, hx + 2):
+                for z in (hz - 2, hz + 2):
+                    b.box((x, g, z), (x, g + 2, z), post)
+            b.box((hx - 1, g, hz - 1), (hx + 1, g + 2, hz + 1), ap.AIR)
+            b.box((hx + 2, g, hz), (hx + 2, g + 1, hz), ap.AIR)  # the doorway
+            b.point((hx, g + 1, hz - 2), _mc("glass"))
+            b.box((hx - 3, g + 3, hz - 3), (hx + 3, g + 3, hz + 3), roof)
+            b.point((hx, g + 2, hz), LANTERN)
+            for i, z in enumerate(range(hz + 4, hz + 7)):
+                b.box((hx, g, z), (hx + 1, g + 2 - i, z), crate)
+            # a fire pit: a ring of stones round embers
+            fx, fz = hx + 6, hz - 4
+            b.box((fx - 1, g, fz - 1), (fx + 1, g, fz + 1), stone)
+            b.point((fx, g, fz), ap.AIR)
+            b.point((fx, g - 1, fz), ember)
+            for tx, tz in ((cx - 26, cz - 24), (cx - 12, cz + 34)):
+                for i, r in enumerate((6.5, 5.5, 4.5, 3.5, 2.5)):
+                    b.disc(tx, tz, r, top - i, top - i, canopy)
+                for dx, dz in ((-2, 0), (2, 0), (0, -2), (0, 2)):
+                    b.point((tx + dx, top - 4, tz + dz), ember)
+                b.box((tx, g, tz), (tx + 1, top, tz + 1), trunk)
+                b.point((tx - 1, g, tz), _mc("dark_oak_log[axis=x]"))
+                b.point((tx + 2, g, tz + 1), _mc("dark_oak_log[axis=x]"))
+                b.point((tx + 1, g, tz - 1), _mc("dark_oak_log[axis=z]"))
+                b.point((tx, g, tz + 2), _mc("dark_oak_log[axis=z]"))
+
+    # --- the two bases: glowing pads on a team rug at the west and east rim
+    for team, sign, glow in (
+        ("red", -1, _mc("pearlescent_froglight")),
+        ("blue", 1, star),
+    ):
+        base = lambda d, s=sign: cx + s * d  # noqa: E731
+        b.box(
+            (base(36), g - 1, cz - 4),
+            (base(32), g - 1, cz + 4),
+            _mc(f"{team}_terracotta"),
+        )
+        pads = [(base(d), g, cz + dz) for dz in (-3, 0, 3) for d in (35, 33)]
+        for x, _, z in pads:
+            b.point((x, g - 1, z), glow)
+        b.team(team, pads, entry=(base(30), g, cz))
+        for dz in (-7, 3):
+            b.low_wall(
+                (base(28), cz + dz),
+                (base(28), cz + dz + 4),
+                feet=g,
+                block=hull,
+                height=2,
+            )
+        b.banner(base(40), g + 4, cz, team, "east" if sign < 0 else "west")
+
+    # --- mob portals between the bases (waves mode)
+    for dx, dz in ((0, -33), (0, 33), (-16, 14), (16, -14)):
+        b.spawn_pad(
+            (cx + dx, g, cz + dz), _mc("polished_blackstone"), _mc("crying_obsidian")
+        )
+
+    # --- the spectators' box behind the north cliff, a window onto the field
+    b.box((cx - 7, g, cz - radius - 1), (cx + 7, top, cz - radius), rock)
+    b.spectator = b.gallery(
+        inner=((cx - 5, cz - radius - 7), (cx + 5, cz - radius - 2)),
+        raise_by=3,
+        window=((cx - 4, cz - radius - 1), (cx + 4, cz - radius)),
+    )
+    b.ensure_light(ember)
+    return b.to_plan(Capacity(teams=2, per_team=4, mobs=12))
+
+
 DESIGNS: dict[str, Callable[..., Plan]] = {
     "vault": vault,
     "duel": duel,
     "hall": hall,
     "crossroads": crossroads,
+    "crash_site": crash_site,
 }
 NAMES = tuple(DESIGNS)
 

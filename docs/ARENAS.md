@@ -1,6 +1,6 @@
 # Combat arenas
 
-Four generated, enclosed arenas for fights with the companion bot (players and the bot
+Five generated, enclosed arenas for fights with the companion bot (players and the bot
 against waves of mobs, or against copies of the bot). A generator produces a **plan**
 (a list of block fills plus markers); a separate mod runtime places the blocks, protects
 them and spawns the waves. Nothing here needs a Minecraft server: it is Python and data.
@@ -16,17 +16,18 @@ Plans are validated before they are written; an invalid plan is reported and not
 by `tests/test_arena_designs.py`, so regenerate and commit them after changing a design.
 Previews go to `results/` (git-ignored) as PNGs written without Pillow.
 
-## The four arenas
+## The arenas
 
 | Name | Size (x,y,z) | Capacity | What it is |
 |---|---|---|---|
+| `crash_site` | 89 × 22 × 97 | 2 teams × 4, 12 mobs | PvP: a broken airliner on a round island 83 across under a night sky; the fuselage halves, crater, wings, fin, shacks and giant trees are the cover and high ground |
 | `vault` | 41 × 15 × 47 | 1 team × 4, 15 mobs | Raid-vault chamber: dark gilded stone, stepped central dais, six glowing pillars, seven floor portals |
 | `duel` | 33 × 13 × 39 | 2 teams × 2, 6 mobs | Sandstone pit: sunken round floor, raised terrace ring with a team on each side, two ramps |
 | `hall` | 67 × 15 × 43 | 2 teams × 10, 30 mobs | Long hall: colonnade, side aisles, a dais at each end (or one big co-op group using both) |
 | `crossroads` | 63 × 15 × 63 | 4 teams × 10, 24 mobs | Four arms meeting in a plaza: one base per side, a stepped obelisk in the centre |
 
-Teams: `vault` red; `duel` and `hall` red (west) and blue (east); `crossroads` red north,
-blue east, green south, yellow west. `parameters`: `vault(pillars=4|6)`,
+Teams: `vault` red; `duel`, `hall` and `crash_site` red (west) and blue (east);
+`crossroads` red north, blue east, green south, yellow west. `parameters`: `vault(pillars=4|6)`,
 `duel(central_dais=True)`, `hall(pillars_per_row=3)`.
 
 ### Inspiration
@@ -48,6 +49,23 @@ blue east, green south, yellow west. `parameters`: `vault(pillars=4|6)`,
 - **`crossroads`** is the four-quadrant mirrored arena
   ([CurseForge: ArenaPVP](https://www.curseforge.com/minecraft/worlds/arenapvp)) with a
   raised neutral centre platform, as in several maps in the same listings.
+
+- **`crash_site`** follows the "plane crash" PvP map idea the owner shared as screenshots
+  (a round island, a broken airliner, a crater, huts and trees). It is our own design, not
+  a copy of that map: the fuselage lies north to south across the island, snapped either
+  side of a smouldering crater, with walk-through cabins (seats, an aisle, lanterns) and
+  walkable roofs. The north half is climbed up its tilted east wing, the south half up a
+  spill of cargo on its west side, and the fin up its stepped leading edge (the highest
+  ground, 15 above the floor). Cover: the torn-off west wing and its engine, a second
+  engine, tailplanes, two shacks with crate stairs to their roofs, fire pits and one-high
+  wreckage. The rules shaped it: a sealed box needs a roof, so the sky is a black ceiling
+  with sea-lantern stars; leaves, grass and campfires are banned, so the giant trees are
+  dark oak trunks under moss canopies that meet the ceiling (an open canopy top would be a
+  perch), and the embers are shroomlight (also the flush floor lamps the 16-block ceiling
+  makes necessary). Floor: coarse dirt with patches of podzol, mud, packed mud, rooted
+  dirt and moss, and a scorched skid behind the tail. Red holds the west rim, blue the
+  east, each on glowing pads; four mob portals sit between them; the gallery looks over
+  the nose from behind the north cliff.
 
 These pages were seen as search results and listings, not downloaded or copied; the
 shapes were designed from scratch for this project's rules.
@@ -76,7 +94,8 @@ The outer shell is the bounds.
 | `mob_spawns` | Feet cell at the centre of a solid 3×3 floor with 3×3×3 air; at least 12 blocks (horizontally) from every pad | magenta square on a dark 3×3 |
 | `spectator` | Feet cell in a gallery behind a solid wall with a glass window; no walkable path to the floor | cyan square |
 
-Floors are two thick: the floor surface is `y=1` and feet stand at `y=2`. Top-view
+Floors are two thick: the floor surface is `y=1` and feet stand at `y=2` (`crash_site` is
+three thick, feet at `y=3`, so its crater can sink two below the ground). Top-view
 brightness rises with floor height; yellow/orange/white dots are lamps set flush in the floor.
 
 ## Rules the validator enforces
@@ -126,7 +145,8 @@ blocks are not used for cover (they are 1.5 high and cannot be jumped).
 
 - All markers are feet cells. Pads and entries are only for standing; teleport onto them.
 - Mob spawns each have a 3×3 floor marked in a contrasting block; spawn mobs at the
-  centre cell, up to 15 (vault) / 6 / 30 / 24 at once spread over `mob_spawns`.
+  centre cell, up to 15 (vault) / 6 / 30 / 24 / 12 (crash_site) at once spread over
+  `mob_spawns`.
 - The runtime must forbid placing and breaking inside the bounds; nothing in the plan
   needs either to be reachable, and nothing changes by itself.
 - The gallery glass window is the only glass; it is a wall, not a roof.

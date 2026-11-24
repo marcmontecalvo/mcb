@@ -13,7 +13,7 @@ from mclab.arena import designs, preview
 from mclab.arena import plan as ap
 
 ROOT = Path(__file__).resolve().parents[1]
-NAMES = ("vault", "duel", "hall", "crossroads")
+NAMES = ("vault", "duel", "hall", "crossroads", "crash_site")
 
 
 @pytest.fixture(scope="module")
@@ -54,6 +54,7 @@ def test_fills_respect_limits_and_palette(built, name):
         ("duel", 2, 2, 6),
         ("hall", 2, 10, 30),
         ("crossroads", 4, 10, 24),
+        ("crash_site", 2, 4, 12),
     ],
 )
 def test_capacities(built, name, teams, per_team, mobs):
@@ -61,6 +62,67 @@ def test_capacities(built, name, teams, per_team, mobs):
     assert (cap.teams, cap.per_team, cap.mobs) == (teams, per_team, mobs)
     assert set(built[name].teams) == set(ap.TEAM_NAMES[:teams])
     assert all(len(t.pads) >= per_team for t in built[name].teams.values())
+
+
+# --- crash_site: a broken airliner on a round island ---------------------------
+
+
+@pytest.fixture(scope="module")
+def crash(built):
+    plan = built["crash_site"]
+    grid = ap.voxelize(plan)
+    pads = [p for t in plan.teams.values() for p in t.pads]
+    return plan, grid, pads, ap.flood(grid, ap.PLAYER, [pads[0]])
+
+
+def test_crash_site_is_a_round_island_about_ninety_across(crash):
+    plan, grid, _, reach = crash
+    xs = [c[0] for c in reach]
+    zs = [c[2] for c in reach]
+    assert 78 <= max(xs) - min(xs) <= 92 and 78 <= max(zs) - min(zs) <= 92
+    # round, not square: the corners of the bounding square are rock
+    x0, z0 = min(xs), min(zs)
+    assert not any(c[0] - x0 + c[2] - z0 < 12 for c in reach)
+
+
+def test_crash_site_teams_start_on_glowing_pads_either_side(crash):
+    plan, grid, pads, _ = crash
+    red, blue = plan.teams["red"].pads, plan.teams["blue"].pads
+    assert len(red) == len(blue) >= 4
+    for x, y, z in pads:
+        assert ap.emission(grid.base(x, y - 1, z)) > 0
+    centre = plan.size[0] // 2
+    assert all(x < centre - 25 for x, _, _ in red)
+    assert all(x > centre + 25 for x, _, _ in blue)
+    assert sorted(centre - x for x, _, _ in red) == sorted(
+        x - centre for x, _, _ in blue
+    )
+
+
+def test_crash_site_has_high_ground_crater_and_cover(crash):
+    _, grid, pads, reach = crash
+    ground = pads[0][1]
+    # the tail fin rises a dozen blocks over the ground, walkable to its top
+    assert max(c[1] for c in reach) - ground >= 12
+    # the fuselage roof: a long walkable strip six blocks up
+    assert sum(1 for c in reach if c[1] == ground + 6) >= 60
+    # the crater sinks two below the ground
+    assert min(c[1] for c in reach) <= ground - 2
+    # covered cells: the walk-through cabin, under the wing and stabilisers, the huts
+    covered = [
+        c
+        for c in reach
+        if any(grid.is_solid(c[0], y, c[2]) for y in range(c[1] + 2, c[1] + 6))
+    ]
+    assert len(covered) >= 150
+
+
+def test_crash_site_floor_is_patchy_earth(crash):
+    _, grid, _, reach = crash
+    ground = min(p[1] for p in crash[2])
+    soils = {grid.base(x, y - 1, z) for x, y, z in reach if y == ground}
+    earth = {"coarse_dirt", "podzol", "mud", "packed_mud", "rooted_dirt", "moss_block"}
+    assert len(soils & earth) >= 5
 
 
 @pytest.mark.parametrize("name", NAMES)
