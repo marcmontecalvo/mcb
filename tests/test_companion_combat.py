@@ -335,7 +335,8 @@ def test_a_named_weapon_decides_the_style():
 def test_a_named_bow_needs_arrows_and_a_named_item_must_be_held():
     assert cc.forced_tactic(M + "bow", M + "zombie", inv("bow")) is None
     assert cc.forced_tactic(M + "iron_sword", M + "zombie", inv()) is None
-    assert cc.forced_tactic(M + "iron_sword", M + "zombie", inv("diamond_sword")) is None
+    other = inv("diamond_sword")
+    assert cc.forced_tactic(M + "iron_sword", M + "zombie", other) is None
 
 
 def test_a_named_non_weapon_is_swung_as_a_plain_hit():

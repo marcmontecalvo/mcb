@@ -42,7 +42,8 @@ def roster(*others):
 
 def test_a_visible_player_is_found_by_name_ignoring_case():
     seen = entity(PLAYER, "u-1", (5.5, 64.0, 0.5), name="FlamingChicken")
-    found = attack.find({"player": "flamingchicken"}, state(seen), roster(person("FlamingChicken")), BOT)
+    online = roster(person("FlamingChicken"))
+    found = attack.find({"player": "flamingchicken"}, state(seen), online, BOT)
     assert found == attack.Victim(
         uuid="u-1", type=PLAYER, position=(5.5, 64.0, 0.5), name="FlamingChicken"
     )
@@ -83,7 +84,8 @@ def test_a_player_who_cannot_be_hurt_ends_the_attack(other):
 
 def test_without_a_roster_a_seen_player_is_fought_and_an_unseen_one_is_lost():
     seen = entity(PLAYER, "u-1", (5.5, 64.0, 0.5), name="Alex")
-    assert isinstance(attack.find({"player": "Alex"}, state(seen), None, BOT), attack.Victim)
+    found = attack.find({"player": "Alex"}, state(seen), None, BOT)
+    assert isinstance(found, attack.Victim)
     assert attack.find({"player": "Alex"}, state(), None, BOT) == attack.LOST
 
 

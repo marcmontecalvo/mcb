@@ -3,8 +3,8 @@
 Pure rules over the observation's ``visible_entities`` and the body's ``/players``
 roster (every online player: name, position, dimension, game mode, invulnerable).
 The session's ``attack`` job loops: find the target, close in, fight with the
-tactic ``companion_combat`` picks, find it again. Docs: COMPANION_COMBAT_PLAN_2026-11-23.md
-("Commanded attack").
+tactic ``companion_combat`` picks, find it again.
+Docs: COMPANION_COMBAT_PLAN_2026-11-23.md ("Commanded attack").
 """
 
 import math

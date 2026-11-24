@@ -379,4 +379,5 @@ def test_auto_defence_never_fights_a_player():
     fight = cd.decide(
         situation(entities=(player(), mob()), inventory=sword), POLICY
     )
-    assert fight.kind == "fight" and fight.target == mob()["uuid"]  # the zombie, not Marc
+    # the zombie, not Marc
+    assert fight.kind == "fight" and fight.target == mob()["uuid"]

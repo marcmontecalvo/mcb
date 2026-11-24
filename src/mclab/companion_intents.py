@@ -318,7 +318,7 @@ def _defense(args):
 
 
 def _entity_type(args, key="mob"):
-    """An entity type id: ``zombie`` and ``minecraft:Zombie`` are both ``minecraft:zombie``."""
+    """An entity type id: ``zombie`` and ``Zombie`` are both ``minecraft:zombie``."""
     value = args.get(key)
     said = value.strip().lower() if isinstance(value, str) else ""
     found = ITEM.fullmatch(said)
@@ -340,7 +340,8 @@ def _weapon(args):
 
 
 def _attack(args):
-    """One target: a player by name, the nearest mob of a type, or the nearest hostile."""
+    """One target: a player by name, the nearest mob of a type, or the nearest
+    hostile."""
     hostile = args.get("nearest_hostile")
     if hostile is not None and type(hostile) is not bool:
         raise ValueError("nearest_hostile must be true or false")
