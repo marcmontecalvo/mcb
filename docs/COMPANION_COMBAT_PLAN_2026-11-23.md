@@ -235,6 +235,92 @@ axe, 18.3 with the bow and 7.7 with the spear).
 | the sword killed its pig in 3.4 s, but the trial ran 13.8 s | the guard's threat check looks the base up on every poll; that opened the world archive, and one open waited 8.9 s inside sqlite while terrain was being written, freezing the motor loop | the place graph reads its places once and keeps them in memory, written through on every change: no poll touches storage (`PlaceGraph`) |
 | the spear lost 12 health to a skeleton | a skeleton backs off inside about 7.5 blocks, out of a 4.5-block jab | open: a spear needs the charge, or the bow when one is carried |
 
+## 12. Commanded attack and the command surface (Nov 23)
+
+The owner can order the bot to fight: a player, the nearest mob of a type, or the
+nearest hostile. Auto-defence is unchanged and never fights a player (`HOSTILE`
+holds mobs only; a player is an ally to it).
+
+### The `attack` job
+
+| field | meaning |
+|---|---|
+| `player` / `mob` / `nearest_hostile` | exactly one target. `player` is an online name (case-insensitive); `mob` is an entity type (`zombie`, `minecraft:cow`); `mob: player` is refused (use `player`). |
+| `weapon` | optional item id. The weapon decides the style (`companion_combat.forced_tactic`): a bow snipes (a held swing weapon backs it up close in), a spear charges, a sword, axe or trident swings for crits, any other item is a plain hit. An item not held, or a bow with no arrows, fails the job in plain words. |
+| `when` | `now` (default) or `next`, as every job. |
+
+The session loop (`Session.attack`, rules in `companion_attack.py`): read the
+observation, find the target, end if it is gone or cannot be hurt, end at the health
+floor, walk to it when it is out of sight or further than 24 blocks, else run one
+`fight` op (200 ticks) with the tactic `companion_combat.tactic` picks (the named
+weapon when there is one; the fists when no profile suits what is held), then look
+again. A fight that ends `done`, `timeout`, `avoid` or `unreachable` with the target
+alive means chase again: nothing counts failures or gives up, only these end it.
+
+| ends with | when |
+|---|---|
+| `killed` | the fight op reports the requested entity among its kills |
+| `lost` | a player logged out, is in another dimension or cannot be located; no mob of that type (or no hostile) in sight |
+| `invulnerable` | the roster says creative, spectator or invulnerable, or the fight op ends `invulnerable` |
+| `low_health` | health at or below the defence floor (the existing floor rule; the guard then decides as it always does) |
+| stop | `/mcb stop` or the `stop` intent: the mod cancels a running fight op at once (`cancelled:player_stop`), the job ends `cancelled` |
+| a new job | `when: now` cancels it like any job |
+
+The result is `{outcome, target, kills, hits, damage, crits, fights}`. The tally
+belongs to the job, so a defence in the middle (which unwinds and reruns the job)
+does not reset it (`session.current_job`).
+
+### Who may order it, and the self-target decision
+
+- `attack` is not in `UNTRUSTED_INTENTS`: only the owner and allowlist (or the local
+  operator through MCP and the API) may call it.
+- Hitting a **player** is stricter than commanding the bot. An empty owners and
+  allowlist lets every player in the game command the bot, but it names nobody, so it
+  does not let anyone attack a player: that needs the operator (`mcp`, `api`) or a
+  name or UUID the config lists (`companion_service.allowed(..., listed=True)`).
+- The bot is never its own target (refused in the host, and `ActionLogic.allowedTarget`
+  refuses `self` in the mod).
+- The owner **may** name themselves: the target is whoever is named, and the order is
+  the owner's. Recorded in [DECISIONS.md](DECISIONS.md) so it is easy to reverse.
+
+### The mod side
+
+- `allow_player` on the `fight` and `attack_entity` ops. Python sets it only for an
+  attack job against a player; auto-defence never sends it. Default false, so a
+  player target is `not_allowed` as before.
+- Pure rules in `ActionLogic.allowedTarget(animal, hostile, tamed, player, villager,
+  allowPlayer, self)` and `ActionLogic.refusal` (creative, spectator or invulnerable
+  is `invulnerable`); `FightLogic.allowPlayer(request)` parses the flag. `BodyEntity`
+  only calls them. The fight task rechecks each step: a player who went creative ends
+  the fight `invulnerable`.
+- `GET /players`: every online player (name, uuid, position, dimension, mode,
+  invulnerable, fake), published each tick, so the job can tell a logout from "out of
+  sight" and a creative target from a survival one without widening the frozen
+  observation.
+
+### The command surface
+
+Every combat action is the same intent from every surface; a test
+(`tests/test_companion_parity.py`) pins it.
+
+| action | `/mcb` | control API and MCP | chat model |
+|---|---|---|---|
+| attack | `/mcb attack <player\|mob\|hostile> [weapon]` | `attack {player\|mob\|nearest_hostile, weapon?, when?}` | tool `attack` (trusted speakers only) |
+| defence settings | `/mcb defense`, `defense floor <hearts>`, `defense radius <blocks>` | `defense {floor_hearts?, threat_radius?, ...}` | tool `defense` |
+| hunting | `/mcb gather porkchop <n>` | `gather {item: porkchop, count}` (the drop; the gather fights the animal) | tool `gather` |
+| stop | `/mcb stop` (cancels the body at once, in the mod) | `stop` | tool `stop` |
+| trial | none | none (the operator-only `POST /trial` route only) | none |
+
+`/mcb attack <word>`: Python resolves the word to an online player first (so
+`/mcb attack flamingchicken` attacks that player), else `hostile` or `nearest_hostile`
+to the nearest hostile, else a mob type. Tab-completion lists online names.
+
+### Not built
+
+`guard` (follow a player and fight hostiles near them). It needs a second
+re-anchoring loop beside `follow`; the defence already fights beside an ally within
+the ally radius (`anchor`, `leash`), so it waits for the shield and trident work.
+
 ## Slices (TDD each; one commit each)
 
 1. Done: `companion_combat.py`: weapons, profiles, tactic and weapon choice.

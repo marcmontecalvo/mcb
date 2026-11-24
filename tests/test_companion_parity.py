@@ -20,7 +20,7 @@ COMBAT_ACTIONS = ("attack", "defense", "gather")  # hunting is gather of a drop
 
 
 def mcb_subcommands() -> set[str]:
-    """The sub names /mcb sends to Python (``run(..., "sub", ...)``, ``send("sub")``)."""
+    """The sub names /mcb sends to Python (``run(.., "sub", ..)``, ``send("sub")``)."""
     source = MCB_COMMAND.read_text(encoding="utf-8")
     return set(re.findall(r'run\(context\.getSource\(\), "(\w+)"', source)) | set(
         re.findall(r'\bsend\("(\w+)"\)', source)
@@ -73,9 +73,8 @@ def test_trial_is_on_no_surface():
 
 def test_every_mcb_subcommand_is_handled_by_the_ingress():
     subs = mcb_subcommands()
-    assert {"status", "stop", "goto", "gather", "build", "ask", "attack", "defense"} <= (
-        subs
-    )
+    wanted = {"status", "stop", "goto", "gather", "build", "ask", "attack", "defense"}
+    assert wanted <= subs
     for sub in sorted(subs):
         host = FakeHost()
         ingress = Ingress(host, FakeTalker(), Source(), bot=BOT)
