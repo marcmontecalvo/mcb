@@ -73,13 +73,20 @@ def test_trial_is_on_no_surface():
 
 def test_every_mcb_subcommand_is_handled_by_the_ingress():
     subs = mcb_subcommands()
-    wanted = {"status", "stop", "goto", "gather", "build", "ask", "attack", "defense"}
-    assert wanted <= subs
+    wanted = {"status", "stop", "ready", "goto", "gather", "build", "ask", "attack"}
+    assert wanted | {"defense"} <= subs
     for sub in sorted(subs):
         host = FakeHost()
         ingress = Ingress(host, FakeTalker(), Source(), bot=BOT)
         ingress._command(Actor("command", "Owner", "u-1", None), {"command": sub})
         assert "Unknown command." not in [text for _, text in host.tells()], sub
+
+
+def test_mcb_ready_is_left_to_the_waiting_match():
+    host = FakeHost()
+    ingress = Ingress(host, FakeTalker(), Source(), bot=BOT)
+    ingress._command(Actor("command", "Owner", "u-1", None), {"command": "ready"})
+    assert host.tells() == []  # the mod said "Ready."; the match's wait answers
 
 
 def test_the_mcb_attack_command_takes_a_target_and_an_optional_weapon():

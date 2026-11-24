@@ -6,7 +6,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from mclab.paths import INSTANCE, RUNTIME, SERVER, config, lock
+from mclab.paths import INSTANCE, RUNTIME, SERVER, config, game_bind, lock
 
 
 def sha256(path: Path) -> str:
@@ -99,7 +99,7 @@ def _world_properties(settings: dict) -> dict:
     """server.properties for a normal-world instance (no flat generator)."""
     world = settings["world"]
     return {
-        "server-ip": settings["server_host"],
+        "server-ip": game_bind(settings),
         "server-port": settings["game_port"],
         "online-mode": str(settings["online_mode"]).lower(),
         "level-name": "world",
@@ -121,7 +121,7 @@ def _world_properties(settings: dict) -> dict:
 
 def _lab_properties(settings: dict) -> dict:
     return {
-        "server-ip": settings["server_host"],
+        "server-ip": game_bind(settings),
         "server-port": settings["game_port"],
         "online-mode": str(settings["online_mode"]).lower(),
         "level-name": "world",

@@ -68,6 +68,19 @@ match ends.
 made with friendly fire off, and it is removed afterwards. Won by the last team with a live member;
 `draw` is a loss with winner none.
 
+### Waiting for players
+
+A start refuses a named player who is offline (`participant_offline`). People join after the
+server comes up, so the dashboard's starts and every `arena-hunt.py` series first wait
+(`ArenaClient.wait_ready`, `mcplay arena start --ready-timeout S`; the dashboard waits 900 s,
+`arena-hunt.py` 900 s by default, the bare CLI not at all). The wait holds until every named player
+is online (`GET /players`) and every human among them has typed `/mcb ready` (or `ready` alone in
+chat) since the wait began. Fake players (the bot) need only be online. Each human is whispered
+how to start when they join; one who leaves must be ready again. A ready player hears who is still
+awaited, and everyone hears "Everyone is ready: the match starts." The wait's progress lines go to
+the session log; after the timeout the start fails with `players_not_ready`, naming who did not
+join or did not type ready. The mod answers `/mcb ready` with "Ready."; the companion ignores it.
+
 Chunks are forceloaded while a build or match needs them (refcounted; chunks someone else forced
 are never released). Each arena persists the chunks it forced, so a crash is cleaned up at the next
 start.
@@ -176,6 +189,7 @@ source, the food and potions used by purpose (`uses`) and the series summary.
 ```
 mcplay arena build <plan> --at X Y Z [--as NAME] [--dimension ID] [--wait] [--timeout S]
 mcplay arena start NAME [--mode waves|teams] [--waves PRESET|FILE] [--players A B] [--team red=A,B]
+                        [--ready-timeout S]
 mcplay arena stop NAME | status NAME | list | remove NAME [--restore]
 ```
 

@@ -2,6 +2,7 @@
   "schema_version": 1,
   "minecraft": "26.3",
   "server_host": "127.0.0.1",
+  "lan": true,
   "game_port": 25565,
   "bridge_port": 8775,
   "supervisor_port": 8776,

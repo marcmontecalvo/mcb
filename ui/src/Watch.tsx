@@ -23,15 +23,22 @@ export function ServerChips({
       {(Object.keys(NAMES) as ServerName[]).map((which) => {
         const state = states[which];
         const address = where.servers?.[which]?.address;
+        const lan = where.servers?.[which]?.lan_address;
         return (
           <div className="server" key={which} title={where.servers?.[which]?.label}>
             <Badge tone={state === "running" ? "working" : "quiet"}>
               {NAMES[which]}: {state}
             </Badge>
             {address && (
-              <span className="address">
+              <span className="address" title="Join from this PC">
                 <code>{address}</code>
                 <CopyButton text={address} />
+              </span>
+            )}
+            {lan && (
+              <span className="address" title="Join from another PC on your network">
+                LAN <code>{lan}</code>
+                <CopyButton text={lan} />
               </span>
             )}
             {state !== "running" && state !== "starting" && (
@@ -70,7 +77,21 @@ export function WatchCard({ job, where }: { job: Rec | null; where: Where }) {
           "(address unknown)"
         )}{" "}
         ({w.server === "play" ? "the play server" : "the lab server, a flat test world"}).
+        {w.lanAddress && (
+          <>
+            {" "}
+            From another PC on your network: <code>{w.lanAddress}</code>{" "}
+            <CopyButton text={w.lanAddress} />
+          </>
+        )}
       </li>
+      {w.humans.length > 0 && (
+        <li>
+          The match waits for {w.humans.join(", ")}: once in the game, type{" "}
+          <code>/mcb ready</code> <CopyButton text="/mcb ready" /> (or just{" "}
+          <code>ready</code> in chat). It starts when everyone named is ready.
+        </li>
+      )}
       {w.arena && w.teleport && (
         <li>
           Stand in the {w.arena.replaceAll("_", " ")} spectator box: type{" "}

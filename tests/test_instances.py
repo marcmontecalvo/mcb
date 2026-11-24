@@ -124,6 +124,46 @@ def test_loopback_and_heap_are_still_required(monkeypatch, tmp_path):
         _config(monkeypatch, tmp_path, "play", lab_mod=False, heap_gb=64)
 
 
+def test_lan_opens_only_the_game_port_and_must_be_a_yes_or_no(monkeypatch, tmp_path):
+    value = _config(monkeypatch, tmp_path, "play", lab_mod=False, lan=True)
+    assert value["server_host"] == "127.0.0.1"  # every other port stays loopback
+    assert paths.game_bind(value) == ""  # Minecraft: every interface
+    assert paths.game_bind(_config(monkeypatch, tmp_path, "play", lab_mod=False)) == (
+        "127.0.0.1"
+    )
+    assert paths.game_bind({}) == "127.0.0.1"
+    with pytest.raises(ValueError, match="lan"):
+        _config(monkeypatch, tmp_path, "play", lab_mod=False, lan="yes")
+
+
+def test_lan_ip_is_the_address_other_pcs_reach_this_one_at():
+    class Probe:
+        def __init__(self, address):
+            self.address = address
+
+        def connect(self, _target):  # UDP: picks the route, sends nothing
+            if self.address is None:
+                raise OSError("no network")
+
+        def getsockname(self):
+            return (self.address, 50000)
+
+        def close(self):
+            pass
+
+    assert paths.lan_ip(probe=lambda: Probe("192.168.1.20")) == "192.168.1.20"
+    assert paths.lan_ip(probe=lambda: Probe("127.0.0.1")) is None
+    assert paths.lan_ip(probe=lambda: Probe(None)) is None
+
+
+def test_the_shipped_play_server_is_open_to_the_lan(monkeypatch):
+    monkeypatch.setattr(paths, "INSTANCE", instance_paths("play"))
+    assert paths.config()["lan"] is True
+    assert paths.game_bind(json.loads((ROOT / "config/lab.json").read_text())) == (
+        "127.0.0.1"
+    )
+
+
 def test_config_ports_lists_what_the_instance_needs():
     assert paths.config_ports({}) == [
         "game_port",
@@ -230,6 +270,18 @@ def test_play_bootstrap_writes_a_normal_world(monkeypatch, tmp_path):
     assert (inst.server / "mods/fabric-api-x.jar").exists()
     assert (inst.server / "server.jar").exists()
     assert result["server"] == str(inst.server)
+
+
+def test_a_lan_bootstrap_binds_the_game_port_on_every_interface(monkeypatch, tmp_path):
+    _, props, _ = _bootstrap(
+        monkeypatch, tmp_path, "play", {**PLAY_SETTINGS, "lan": True}
+    )
+    assert props["server-ip"] == ""
+    (tmp_path / "lab").mkdir()
+    _, lab, _ = _bootstrap(
+        monkeypatch, tmp_path / "lab", "lab", {**LAB_SETTINGS, "lan": True}
+    )
+    assert lab["server-ip"] == ""
 
 
 def test_lab_bootstrap_still_writes_the_flat_lab_world(monkeypatch, tmp_path):

@@ -13,7 +13,7 @@ import net.minecraft.network.chat.Component;
 import java.util.Map;
 
 /**
- * /mcb status|stop|goto|gather|build|ask|attack|defense. Open to every player (permission 0): this only records the request;
+ * /mcb status|stop|ready|goto|gather|build|ask|attack|defense. Open to every player (permission 0): this only records the request;
  * the Python companion service checks the owner and allowlist before acting on anything but stop's cancel.
  */
 final class McbCommand {
@@ -23,6 +23,8 @@ final class McbCommand {
         dispatcher.register(Commands.literal("mcb")
                 .then(send("status"))
                 .then(send("stop"))
+                // /mcb ready: a waiting arena match starts once every named player has said it
+                .then(send("ready"))
                 .then(Commands.literal("goto")
                         .then(coordinate("x").then(coordinate("y").then(coordinate("z").executes(context ->
                                 run(context.getSource(), "goto", Map.of(
@@ -89,11 +91,20 @@ final class McbCommand {
         return Commands.argument(name, IntegerArgumentType.integer(-30_000_000, 30_000_000));
     }
 
+    /** The sender's own acknowledgement; a waiting match answers ready itself. */
+    static String reply(String sub) {
+        return switch (sub) {
+            case "stop" -> "Stopped.";
+            case "ready" -> "Ready.";
+            default -> "Sent.";
+        };
+    }
+
     private static int run(CommandSourceStack source, String sub, Map<String, Object> args) {
         var player = source.getPlayer();
         if (player == null) return 0; // console and command blocks are not players
         BodyRuntime.playerCommand(player, sub, args);
-        player.sendSystemMessage(Component.literal(sub.equals("stop") ? "Stopped." : "Sent."));
+        player.sendSystemMessage(Component.literal(reply(sub)));
         return 1;
     }
 }

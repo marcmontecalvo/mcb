@@ -42,6 +42,13 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--players", nargs="+", default=["MCBot"])
     parser.add_argument(
+        "--ready-timeout",
+        type=float,
+        default=900.0,
+        help="seconds to wait, before the first match, for every --players name to "
+        "be online and each human to type /mcb ready",
+    )
+    parser.add_argument(
         "--kit",
         default="all+armor+shield+trident+food+potions",
         help="the trial kit handed out each run (combat-trial weapons joined by +), "
@@ -87,6 +94,12 @@ def main(argv=None) -> int:
         api = ApiClient.from_runtime()
         api.events(0, wait=0)
         admin = arena.ArenaClient.from_state()
+        admin.wait_ready(
+            args.players,
+            timeout=args.ready_timeout,
+            arena=args.arena,
+            echo=lambda line: print(line, flush=True),
+        )
     except (ApiUnavailable, arena.ArenaError) as error:
         print(f"arena-hunt: {error}", file=sys.stderr)
         return 2

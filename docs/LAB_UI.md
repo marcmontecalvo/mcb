@@ -48,7 +48,10 @@ The header shows both servers with their state, the address to join (with
 **Copy**) and **Start** when stopped. **Live activity** opens with **Where to
 watch**: the server running the current job, its address and, for an arena, the
 `/tp` into its spectator box (from `GET /api/where`, polled every ten seconds).
-The lab is a flat test world on its own port, so joining it to watch an arena
+A server opened to the LAN (`"lan": true`) also shows the address another PC on
+the network joins at. A match that names people says to type `/mcb ready` once
+in the game: it waits for everyone named (see ARENA_RUNTIME.md "Waiting for
+players"). The lab is a flat test world on its own port, so joining it to watch an arena
 shows an empty world. **History & builds** lists results (when, what, who,
 outcome, median time; a row opens its `summary.json`) and house builds.
 

@@ -191,6 +191,62 @@ def test_start_respawns_a_console_killed_supervisor(monkeypatch, tmp_path):
     assert json.loads((tmp_path / "supervisor.json").read_text())["pid"] == 4002
 
 
+@pytest.mark.parametrize(
+    "lan, written, ok",
+    [
+        (False, "127.0.0.1", True),
+        (True, "", True),
+        (True, "127.0.0.1", False),  # the config opened the LAN; the file did not
+        (False, "", False),
+    ],
+)
+def test_start_checks_the_bind_address_the_config_asks_for(
+    monkeypatch, tmp_path, lan, written, ok
+):
+    settings = {
+        "game_port": 25565,
+        "bridge_port": 25566,
+        "lab_port": 25567,
+        "supervisor_port": 25568,
+        "lan": lan,
+    }
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    (server_dir / "fabric-server-launch.jar").write_bytes(b"")
+    (server_dir / "eula.txt").write_text("eula=true\n")
+    (server_dir / "server.properties").write_text(
+        f"server-ip={written}\nserver-port=25565\npause-when-empty-seconds=-1\n"
+    )
+    monkeypatch.setattr(server, "SERVER", server_dir)
+    monkeypatch.setattr(server, "RUNTIME", tmp_path)
+    monkeypatch.setattr(server, "STATE", tmp_path / "supervisor.json")
+    monkeypatch.setattr(server, "config", lambda: settings)
+    monkeypatch.setattr(server, "port_free", lambda *_: True)
+    monkeypatch.setattr(server, "java", lambda: None)
+    monkeypatch.setattr(server.time, "sleep", lambda *_: None)
+
+    class Alive:
+        pid = 4001
+
+        def poll(self):
+            return None
+
+    spawned = []
+    monkeypatch.setattr(
+        server, "_spawn_detached", lambda _output: spawned.append(Alive()) or Alive()
+    )
+    monkeypatch.setattr(
+        server, "status", lambda: {"state": "running" if spawned else "stopped"}
+    )
+    if ok:
+        assert server._start()["state"] == "running"
+        return
+    with pytest.raises(RuntimeError) as error:
+        server._start()
+    expected = "" if lan else "127.0.0.1"
+    assert f"server-ip={expected}" in str(error.value)
+
+
 def test_start_reports_a_foreign_supervisor_exit(monkeypatch, tmp_path):
     settings = {
         "game_port": 25565,

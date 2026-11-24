@@ -253,6 +253,8 @@ class Ingress:
             )
         if sub == "attack":
             return self._attack(actor, data)
+        if sub == "ready":  # a match's wait reads it (ArenaClient.wait_ready)
+            return None
         if sub == "defense":
             return self._defense(actor, data)
         self._tell(actor, "Unknown command.")

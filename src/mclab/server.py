@@ -1,4 +1,5 @@
-"""Local server lifecycle; supervisor and Minecraft each bind loopback."""
+"""Local server lifecycle; supervisor and Minecraft each bind loopback (Minecraft's
+game port also the LAN when the instance config says ``"lan": true``)."""
 
 import json
 import os
@@ -18,6 +19,7 @@ from mclab.paths import (
     SERVER,
     config,
     config_ports,
+    game_bind,
     read_json,
     write_json,
 )
@@ -166,11 +168,12 @@ def _start(accept_eula: bool = False) -> dict:
         for line in (SERVER / "server.properties").read_text().splitlines()
         if "=" in line and not line.startswith("#")
     )
-    if properties.get("server-ip") != "127.0.0.1" or properties.get(
-        "server-port"
-    ) != str(settings["game_port"]):
+    # With "lan" the game port listens on every interface (an empty server-ip).
+    bind, port = game_bind(settings), str(settings["game_port"])
+    if properties.get("server-ip") != bind or properties.get("server-port") != port:
         raise RuntimeError(
-            "Server properties host/port differ from " + str(INSTANCE.config_file)
+            f"Server properties host/port differ from {INSTANCE.config_file}: set "
+            f"server-ip={bind} and server-port={port} in {SERVER / 'server.properties'}"
         )
     if properties.get("pause-when-empty-seconds") != "-1":
         raise RuntimeError("Set pause-when-empty-seconds=-1 in lab server.properties")

@@ -37,6 +37,10 @@ public final class CompanionChatTest {
         check(rejectsTarget("naïve"), "non-ASCII rejected");
         check(rejectsTarget("x\n"), "trailing newline rejected");
 
+        check(McbCommand.reply("ready").equals("Ready."), "/mcb ready answers Ready.");
+        check(McbCommand.reply("stop").equals("Stopped."), "/mcb stop answers Stopped.");
+        check(McbCommand.reply("goto").equals("Sent."), "other subs answer Sent.");
+
         check(CompanionChat.speaker("Fennel").equals("Fennel"), "speaker is the body");
         check(CompanionChat.speaker(null).equals("MCB"), "no body: MCB");
         check(CompanionChat.broadcast("Fennel", "hi").equals("<Fennel> hi"), "broadcast format");

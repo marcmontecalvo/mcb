@@ -117,6 +117,14 @@ def _parser() -> argparse.ArgumentParser:
         metavar="TEAM=A,B",
         help="teams mode: a team and its players",
     )
+    start.add_argument(
+        "--ready-timeout",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help="first wait up to this long for each --players name to be online and "
+        "each human to type /mcb ready (0, the default: start at once)",
+    )
     for command, text in [
         ("stop", "end the match and discard its mobs"),
         ("status", "state, wave, mobs, participants"),
@@ -156,11 +164,24 @@ def _build(args, client, arenas: Path) -> dict:
     return {**ack, "built": event["data"]}
 
 
+def _echo(line: str) -> None:
+    print(line, file=sys.stderr, flush=True)  # stdout ends with the JSON answer
+
+
+def _wait_ready(args, client, names: list[str]) -> None:
+    if args.ready_timeout > 0 and names:
+        client.wait_ready(
+            names, timeout=args.ready_timeout, arena=args.name, echo=_echo
+        )
+
+
 def _start(args, client, arenas: Path) -> dict:
     teams = arena.parse_teams(args.team)
     if args.mode == "teams":
         if args.waves:
             raise arena.ArenaError("bad_request", "the teams mode takes no waves")
+        members = [p for team in (teams or {}).values() for p in team]
+        _wait_ready(args, client, (args.players or []) + members)
         return client.start(
             args.name, "teams", waves=None, participants=args.players, teams=teams
         )
@@ -174,6 +195,7 @@ def _start(args, client, arenas: Path) -> dict:
             + ")",
         )
     waves = arena.load_waves(args.waves, root=arenas / "waves")
+    _wait_ready(args, client, args.players or [])
     return client.start(
         args.name, "waves", waves=waves, participants=args.players, teams=None
     )

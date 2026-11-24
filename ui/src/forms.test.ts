@@ -188,11 +188,37 @@ describe("where to watch", () => {
     expect(watchFor(job, where)).toEqual({
       server: "play",
       address: "127.0.0.1:25565",
+      lanAddress: null,
       label: "Play server",
       arena: "vault",
       teleport: "/tp @s 1 2 3",
       built: true,
+      humans: [],
     });
+  });
+  it("gives the LAN address for another PC when the server has one", () => {
+    const lan = {
+      ...where,
+      servers: {
+        ...where.servers,
+        play: { ...where.servers.play, lan_address: "192.168.1.20:25565" },
+      },
+    };
+    const job = { kind: "combat", run_config: { run: { test: "combat" } } };
+    expect(watchFor(job, lan).lanAddress).toBe("192.168.1.20:25565");
+  });
+  it("names the human players a match waits for, not the bot", () => {
+    const job = (players: unknown) => ({
+      kind: "arena",
+      run_config: { run: { test: "arena", arena: "vault", players } },
+    });
+    const bot = { ...where, bot: "MCBot" };
+    expect(watchFor(job("mcbot, FlamableChkn,Ann"), bot).humans).toEqual([
+      "FlamableChkn",
+      "Ann",
+    ]);
+    expect(watchFor(job("MCBot"), bot).humans).toEqual([]);
+    expect(watchFor(job(null), bot).humans).toEqual([]);
   });
   it("a lab job names the lab server and no arena", () => {
     const job = { kind: "courses", run_config: { run: { test: "courses" } } };

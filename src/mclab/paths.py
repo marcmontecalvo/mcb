@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import socket
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -109,12 +110,39 @@ def config() -> dict:
     value.setdefault("lab_mod", True)
     if value["server_host"] != "127.0.0.1":
         raise ValueError("This desktop launch profile requires loopback binding")
+    if not isinstance(value.setdefault("lan", False), bool):
+        raise ValueError("lan is true or false (open the game port to the LAN)")
     ports = [value[key] for key in config_ports(value)]
     if len(set(ports)) != len(ports) or any(not 1024 <= p <= 65535 for p in ports):
         raise ValueError("Use distinct unprivileged game/bridge/lab/supervisor ports")
     if not 1 <= value["heap_gb"] <= 16:
         raise ValueError("Server heap must be between 1 and 16 GB")
     return value
+
+
+def game_bind(settings: dict) -> str:
+    """Minecraft's ``server-ip``. With ``lan`` the game port listens on every
+    interface (empty), so other PCs on the network can join; this PC still joins at
+    127.0.0.1. Every other port (bridge, supervisor, companion) stays loopback."""
+    return "" if settings.get("lan") else settings.get("server_host", "127.0.0.1")
+
+
+def _udp_probe():
+    return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+
+def lan_ip(*, probe=_udp_probe) -> str | None:
+    """This PC's address on its network: the source address of the default route
+    (a UDP connect picks the route and sends nothing). None when offline."""
+    sock = probe()
+    try:
+        sock.connect(("10.255.255.255", 1))
+        address = sock.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        sock.close()
+    return None if address.startswith("127.") or address == "0.0.0.0" else address
 
 
 def lock() -> dict:

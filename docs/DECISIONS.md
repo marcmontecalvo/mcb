@@ -520,6 +520,20 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   mace is not offered until the mod's `CombatLogic` knows its smash attack: a
   kit part the bot cannot fight with would only make runs fail. Rejected: a
   hand-written form per mission (it drifts from the scripts).
-- **Open:** LAN access for a second PC (the game port binds loopback for now),
-  rotating a long session's `events.sqlite3`, and the live night test of the
+- **A match waits for its people, who say `/mcb ready` (Nov 24).** Marc started a
+  match naming himself before the server was up; the mod refused it at once
+  (`participant_offline`). A fixed delay would guess wrong both ways, and starting
+  the moment a player joins drops them into a fight while the world loads. So the
+  start waits for each named player to be online and each human to say ready, with
+  a timeout and the dashboard's cancel as the way out. `ready` alone in chat counts
+  too, so it works before a new mod jar is installed.
+- **The play server is open to the LAN; nothing else is (Nov 24).** Marc wanted to
+  join from other PCs at home. `"lan": true` in an instance config sets an empty
+  `server-ip` (every interface) for Minecraft's game port only; `server_host`
+  stays 127.0.0.1 and the bridge, supervisor, companion API and dashboard stay
+  loopback, because they take commands with a bearer token over plain HTTP.
+  `online-mode` stays on, so joining still needs a real account. The lab keeps
+  loopback. `mclab server start` still refuses a `server.properties` whose
+  `server-ip` differs from the config, and says what to write.
+- **Open:** rotating a long session's `events.sqlite3`, and the live night test of the
   defence (built, not yet run against real mobs).

@@ -34,6 +34,7 @@ SECTION = "Arenas and combat"
 COORDINATE_LIMIT = 30_000_000
 WAVE_DELAY = 60  # ticks before each custom wave (arena-hunt.py --delay)
 PLAY_WAIT_S = 300.0  # a cold play server and its bot are ready within this
+READY_WAIT_S = 900.0  # a match waits this long for its players to join and say ready
 DEFAULT_KIT = "sword+axe+spear+bow+trident+shield+armor+food+potions"
 DEFAULT_WEAPONS = "sword,axe,spear,bow"
 DEFAULT_MOBS = "zombie,skeleton,creeper,pig"
@@ -76,7 +77,8 @@ HELP = {
     "players": (
         "Who fights",
         "The bot, and anyone else in the match: type your own Minecraft name to "
-        "join in.",
+        "join in. The match waits for each person named to join and type "
+        "/mcb ready.",
     ),
     "corner": (
         "Corner",
@@ -583,7 +585,10 @@ def arena_args(run: dict, *, scratch: Path | None = None) -> list[str]:
     else:
         args.append(run["waves"])
     players = _names(run["players"])
-    return args + (["--players", *players] if players else [])
+    if not players:
+        return args
+    # the named players join after the server comes up: wait for each to say ready
+    return args + ["--players", *players, "--ready-timeout", str(int(READY_WAIT_S))]
 
 
 def _env() -> dict:
@@ -647,21 +652,26 @@ SERVER_LABELS = {
 }
 
 
-def servers(root: Path = ROOT) -> dict:
-    """The address to join each server at, from its instance config."""
+def servers(root: Path = ROOT, *, lan_ip=None) -> dict:
+    """The address to join each server at from this PC, from its instance config,
+    and from another PC on the network when the config opens it to the LAN."""
     from mclab import paths
 
+    lan_ip = lan_ip or paths.lan_ip
     out = {}
     for name, label in SERVER_LABELS.items():
+        address = lan_address = None
         try:
             config = json.loads(
                 paths.instance_paths(name, root=root).config_file.read_text("utf-8")
             )
             host = config.get("server_host") or "127.0.0.1"
             address = f"{host}:{config['game_port']}"
+            ip = lan_ip() if config.get("lan") is True else None
+            lan_address = f"{ip}:{config['game_port']}" if ip else None
         except (OSError, ValueError, KeyError):
-            address = None
-        out[name] = {"address": address, "label": label}
+            pass
+        out[name] = {"address": address, "lan_address": lan_address, "label": label}
     return out
 
 
@@ -682,7 +692,7 @@ def where(
     cached = _where_cache.get(root)
     if cached is not None and cached[0] > now:
         return cached[1]
-    out: dict = {"servers": servers(root), "arenas": {}}
+    out: dict = {"servers": servers(root), "bot": DEFAULT_PLAYERS, "arenas": {}}
     try:
         answer = listing()
         if not answer.get("ok"):

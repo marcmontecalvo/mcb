@@ -312,6 +312,96 @@ class ArenaClient:
                 )
             self._sleep(0.5)
 
+    # -- players
+    def say(self, text: str, to: str | None = None) -> None:
+        """A line in game chat (from the bot, or MCB with no bot), to one player."""
+        self.transport.post("/say", {"text": text, **({"to": to} if to else {})})
+
+    def online(self) -> dict[str, dict]:
+        """Every player online by lowercased name: ``{"name", "fake", ...}``."""
+        return {p["name"].lower(): p for p in self.transport.get("/players")["players"]}
+
+    def wait_ready(
+        self,
+        names: list[str],
+        *,
+        timeout: float,
+        arena: str,
+        echo: Callable[[str], None] = print,
+    ) -> None:
+        """Hold until every named player is online and every human among them has
+        typed ``/mcb ready`` (or ``ready`` in chat) since the wait began. A player who
+        leaves must be ready again. Fake players (the bot) need only be online.
+
+        Each human is told how to start when they join. ``echo`` gets a line each
+        time the wait changes. Raises ``players_not_ready`` after ``timeout``."""
+        if not names:
+            return
+        wanted = {n.lower(): n for n in names}
+        self._cursor()  # a ready from before the wait does not count
+        deadline = self._clock() + timeout
+        greeted: set[str] = set()
+        ready: set[str] = set()
+        last = None
+        while True:
+            online = self.online()
+            humans = {k for k in wanted if k in online and not online[k].get("fake")}
+            for gone in (greeted | ready) - humans:
+                greeted.discard(gone)
+                ready.discard(gone)
+            heard = self._ready_lines(set(wanted) & humans)
+            for key in sorted(humans - greeted):
+                greeted.add(key)
+                self.say(
+                    f"Arena {arena} is waiting for you: type /mcb ready "
+                    "(or ready in chat) when you are set.",
+                    to=online[key]["name"],
+                )
+            absent = [wanted[k] for k in wanted if k not in online]
+            new = heard - ready
+            ready |= heard
+            unready = [wanted[k] for k in wanted if k in humans and k not in ready]
+            if not absent and not unready:
+                for key in sorted(humans):
+                    self.say(
+                        "Everyone is ready: the match starts.", to=online[key]["name"]
+                    )
+                return
+            awaited = ", ".join(absent + unready)
+            for key in sorted(new):
+                self.say(f"Ready. Waiting for {awaited}.", to=online[key]["name"])
+            line = (
+                f"Waiting for {', '.join(absent)} to join the server."
+                if absent
+                else f"Waiting for {', '.join(unready)} to type /mcb ready."
+            )
+            if line != last:
+                echo(line)
+                last = line
+            if self._clock() >= deadline:
+                missing = [f"{n} has not joined" for n in absent]
+                missing += [f"{n} has not typed /mcb ready" for n in unready]
+                raise ArenaError(
+                    "players_not_ready", f"{'; '.join(missing)} after {timeout:g}s"
+                )
+            self._sleep(1.0)
+
+    def _ready_lines(self, among: set[str]) -> set[str]:
+        """The lowercased names in ``among`` who said ready in the new events."""
+        out = set()
+        for event in self._poll():
+            data = event["data"]
+            said = (
+                event["type"] == "player_command" and data.get("command") == "ready"
+            ) or (
+                event["type"] == "player_chat"
+                and str(data.get("text", "")).strip().lower() == "ready"
+            )
+            name = str(data.get("player_name", "")).lower()
+            if said and name in among:
+                out.add(name)
+        return out
+
     # -- the ops
     def build(
         self,

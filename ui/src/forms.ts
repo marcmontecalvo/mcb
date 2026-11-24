@@ -164,7 +164,11 @@ export function buildRow(row: Rec) {
 }
 
 export type Where = {
-  servers?: Record<string, { address?: string | null; label?: string }>;
+  servers?: Record<
+    string,
+    { address?: string | null; lan_address?: string | null; label?: string }
+  >;
+  bot?: string;
   arenas?: Record<
     string,
     { built?: boolean; teleport?: string | null; match?: string | null }
@@ -173,20 +177,31 @@ export type Where = {
 };
 const PLAY = ["arena", "combat"]; // mclab.play_runs.FAMILIES
 
-/** Where to watch a job: the server to join and, for an arena, the command that
- * stands you in its spectator box. */
+/** Where to watch a job: the server to join (from this PC and from another one
+ * on the network), for an arena the command that stands you in its spectator
+ * box, and the human players a match waits on to type /mcb ready. */
 export function watchFor(job: Rec, where: Where) {
   const run = ((job.run_config as Rec | undefined)?.run as Rec | undefined) || {};
   const family = String(run.test || job.kind || "");
   const server = PLAY.includes(family) ? "play" : "lab";
   const arena = typeof run.arena === "string" ? run.arena : null;
   const known = arena ? where.arenas?.[arena] : undefined;
+  const bot = (where.bot || "").toLowerCase();
+  const humans =
+    family === "arena" && typeof run.players === "string"
+      ? run.players
+          .split(",")
+          .map((name) => name.trim())
+          .filter((name) => name && name.toLowerCase() !== bot)
+      : [];
   return {
     server,
     address: where.servers?.[server]?.address ?? null,
+    lanAddress: where.servers?.[server]?.lan_address ?? null,
     label: where.servers?.[server]?.label ?? server,
     arena,
     teleport: known?.teleport ?? null,
     built: known ? !!known.built : null,
+    humans,
   };
 }

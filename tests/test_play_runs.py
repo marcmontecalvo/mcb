@@ -245,7 +245,12 @@ def test_combat_command_matches_the_script(arenas, tmp_path):
         ({"arena_action": "remove", "restore": True}, ["remove", "vault", "--restore"]),
         (
             {"arena_action": "start", "waves": "mixed-10", "players": "Alex,MCBot"},
-            ["start", "vault", "--waves", "mixed-10", "--players", "Alex", "MCBot"],
+            "start vault --waves mixed-10 --players Alex MCBot --ready-timeout "
+            f"{int(pr.READY_WAIT_S)}".split(),
+        ),
+        (
+            {"arena_action": "start", "waves": "mixed-10", "players": None},
+            ["start", "vault", "--waves", "mixed-10"],
         ),
     ],
 )
@@ -670,6 +675,24 @@ def test_where_names_each_server_and_each_arenas_watch_spot(tmp_path):
     assert out["arenas"]["duel"]["built"] is False
     assert out["arenas"]["duel"]["teleport"] is None
     assert "arenas_error" not in out
+
+
+def test_a_lan_server_also_gives_the_address_other_pcs_join_at(tmp_path):
+    root = _configs(tmp_path)
+    play = root / "config/instances/play.json"
+    play.write_text(json.dumps({**json.loads(play.read_text()), "lan": True}))
+
+    out = pr.servers(root, lan_ip=lambda: "192.168.1.20")
+
+    assert out["play"]["address"] == "127.0.0.1:25565"  # this PC
+    assert out["play"]["lan_address"] == "192.168.1.20:25565"
+    assert out["lab"]["lan_address"] is None  # still loopback only
+    assert pr.servers(root, lan_ip=lambda: None)["play"]["lan_address"] is None
+
+
+def test_where_names_the_bot_so_the_page_can_tell_who_must_say_ready(tmp_path):
+    out = pr.where(listing=lambda: LISTING, root=_configs(tmp_path))
+    assert out["bot"] == pr.DEFAULT_PLAYERS
 
 
 def test_where_still_names_the_servers_when_the_play_server_is_down(tmp_path):
