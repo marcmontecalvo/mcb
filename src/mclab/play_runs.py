@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from mclab import arena_roster
 from mclab.arena.plan import TEAM_NAMES
 from mclab.paths import ROOT
 
@@ -52,6 +53,7 @@ DEFAULT_BOT = "MCBot"
 _PLAYER = re.compile(r"[A-Za-z0-9_]{1,16}")
 MAX_PLAYERS = 16  # 8v8
 WHERE_TTL_S = 10.0  # the arena list is asked of the arena server at most this often
+ONLINE_TIMEOUT_S = 2.0  # a stopped arena server must not hang the wizard
 
 # The game servers, and which one each family of run drives.
 SERVERS = ("play", "arena")
@@ -853,6 +855,100 @@ def where(
     return out
 
 
+# --- who can play: the people online and the saved roster ----------------------------
+
+
+def _arena_client(root: Path = ROOT):
+    """A client for the arena server's body bridge (its own instance, not the
+    lab's), with a short timeout."""
+    from mclab import paths
+    from mclab.arena.client import ArenaClient
+
+    instance = paths.instance_paths(server_for("arena"), root=root)
+    settings = json.loads(instance.config_file.read_text("utf-8"))
+    client = ArenaClient.from_state(state_file=instance.state, settings=settings)
+    client.transport.timeout = ONLINE_TIMEOUT_S
+    return client
+
+
+def online_players(*, client=None, root: Path = ROOT) -> dict:
+    """Who is online on the arena server now, for the wizard to offer: ``online``
+    (people first, by name; the bot and any other fake player marked ``bot``), the
+    ``bot``'s name, and a ``note`` saying why the list is empty when the server
+    cannot be asked. Reads the bridge's ``/players`` roster; never an error."""
+    from mclab.arena.client import ArenaError
+
+    out: dict = {"online": [], "bot": DEFAULT_BOT, "note": None}
+    try:
+        players = (client or _arena_client(root)).online().values()
+        out["online"] = sorted(
+            (
+                {
+                    "name": p["name"],
+                    "bot": p.get("fake") is True
+                    or p["name"].lower() == DEFAULT_BOT.lower(),
+                }
+                for p in players
+                if _PLAYER.fullmatch(p["name"])
+            ),
+            key=lambda p: (p["bot"], p["name"].lower()),
+        )
+    except ArenaError as error:
+        out["note"] = (
+            "The arena server is not running. Start it to see who is online."
+            if error.reason == "server_not_running"
+            else f"Couldn't ask the arena server who is online: {error}"
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        out["note"] = f"Couldn't ask the arena server who is online: {error!r}"
+    return out
+
+
+def roster_state(store=None) -> dict:
+    """The saved roster for the wizard: the names (pinned first, then the most
+    recently used), the last match's setup, and the bot's name."""
+    store = store or arena_roster.RosterStore()
+    return {
+        "players": store.players(),
+        "last_match": store.last_match(),
+        "bot": DEFAULT_BOT,
+    }
+
+
+def save_player(request: dict, store=None) -> dict:
+    """Save or change a name by hand (``name`` and optionally ``label`` and
+    ``pinned``); the roster after. A bad name, label or pin is a ValueError."""
+    store = store or arena_roster.RosterStore()
+    name = arena_roster.valid_name(request.get("name"))
+    if name.lower() == DEFAULT_BOT.lower():
+        raise ValueError(f"{DEFAULT_BOT} is the bot, not a player to save")
+    store.upsert(name, label=request.get("label"), pinned=request.get("pinned"))
+    return roster_state(store)
+
+
+def forget_player(request: dict, store=None) -> dict:
+    """Remove a name from the saved roster; the roster after."""
+    store = store or arena_roster.RosterStore()
+    store.remove(request.get("name"))
+    return roster_state(store)
+
+
+def remember_match(run: dict, *, store=None) -> None:
+    """A match is starting: save its players and its setup as the last match. A
+    roster that cannot be saved never stops the match."""
+    try:
+        (store or arena_roster.RosterStore()).record_match(
+            _roster(run),
+            arena=run["arena"],
+            game=_game(run),
+            waves=run["waves"],
+            custom_waves=run["custom_waves"],
+            bot=DEFAULT_BOT,
+        )
+    except (OSError, ValueError) as error:
+        print(f"could not save the arena roster: {error}", flush=True)
+
+
 def _spawn(argv: list[str], env: dict):
     flags = (
         subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
@@ -881,6 +977,8 @@ def execute(config: dict, *, spawn=_spawn, run_cli=_run_cli, results=None) -> di
     family = run["test"]
     if family == "arena" and run["arena_action"] != "match":
         return arena_action(run, run_cli=run_cli)
+    if family == "arena":
+        remember_match(run)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     folder = Path(results or RESULTS) / family / stamp
     folder.mkdir(parents=True)

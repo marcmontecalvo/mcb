@@ -951,6 +951,14 @@ def handler(dashboard):
                     from mclab import play_runs
 
                     return self.reply(200, play_runs.where())
+                if parsed.path == "/api/roster":
+                    from mclab import play_runs
+
+                    return self.reply(200, play_runs.roster_state())
+                if parsed.path == "/api/roster/online":
+                    from mclab import play_runs
+
+                    return self.reply(200, play_runs.online_players())
                 if parsed.path == "/api/sessions":
                     return self.reply(200, dashboard.sessions())
                 if parsed.path == "/api/baseline-progress":
@@ -1005,6 +1013,14 @@ def handler(dashboard):
                             )
                         },
                     )
+                if self.path == "/api/roster":
+                    from mclab import play_runs
+
+                    return self.reply(200, play_runs.save_player(request))
+                if self.path == "/api/roster/remove":
+                    from mclab import play_runs
+
+                    return self.reply(200, play_runs.forget_player(request))
                 if self.path == "/api/shutdown":
                     self.reply(
                         200,
