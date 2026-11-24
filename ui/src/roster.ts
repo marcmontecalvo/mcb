@@ -2,7 +2,7 @@
 // runtime/arena-roster.json by mclab.arena_roster): who is online on the arena
 // server now, the names saved from earlier matches and typed by hand, and the last
 // match's setup. Pure helpers; the screen is RosterPicker.tsx.
-import type { ArenaMeta, Slot } from "./forms";
+import { isBotName, type ArenaMeta, type Slot } from "./forms";
 
 /** GET /api/roster: a saved name (never anything but names and counts). */
 export type Saved = {
@@ -27,21 +27,24 @@ export type Book = { players: Saved[]; last_match: LastMatch | null; bot: string
 export type OnlinePlayer = { name: string; bot: boolean };
 export type Online = { online: OnlinePlayer[]; bot: string; note: string | null };
 
-/** One person the wizard offers: online now, saved, or both. */
+/** One person or bot the wizard offers: online now, saved, or both (a bot is only
+ * ever online: bots are not saved names). */
 export type Choice = {
   name: string;
   label: string;
   pinned: boolean;
   online: boolean;
   saved: boolean;
+  bot: boolean;
 };
 
 const key = (name: string) => name.toLowerCase();
 
-/** The people to offer: those online first, then saved names who are not; pinned
- * first within each, the server's order otherwise. The bot and everyone already in
- * the match are left out. A name matches in any case; the spelling the server has
- * wins, the label and pin come from the saved entry. */
+/** Who to offer: the people online, then our bots online (MCBot, MCBot2 ... put in
+ * on the server), then saved names who are not online; pinned first among the
+ * people, the server's order otherwise. Everyone already in the match is left out,
+ * and so is a fake player that is none of our bots. A name matches in any case; the
+ * spelling the server has wins, the label and pin come from the saved entry. */
 export function choicesFor(
   online: OnlinePlayer[],
   saved: Saved[],
@@ -49,31 +52,33 @@ export function choicesFor(
   bot: string,
 ): Choice[] {
   const skip = new Set(inMatch.map((p) => key(p.name)));
-  skip.add(key(bot));
   const book = new Map(saved.map((s) => [key(s.name), s]));
   const rows: Choice[] = [];
   const seen = new Set<string>();
-  const push = (name: string, isOnline: boolean) => {
+  const push = (name: string, isOnline: boolean, isBot = false) => {
     const k = key(name);
     if (skip.has(k) || seen.has(k)) return;
     seen.add(k);
-    const own = book.get(k);
+    const own = isBot ? undefined : book.get(k);
     rows.push({
       name,
       label: own?.label ?? "",
       pinned: own?.pinned ?? false,
       online: isOnline,
       saved: !!own,
+      bot: isBot,
     });
   };
-  for (const p of online) if (!p.bot) push(p.name, true);
-  for (const s of saved) push(s.name, false);
+  for (const p of online) if (!p.bot && !isBotName(p.name, bot)) push(p.name, true);
+  for (const p of online) if (p.bot && isBotName(p.name, bot)) push(p.name, true, true);
+  for (const s of saved) if (!isBotName(s.name, bot)) push(s.name, false);
   const pinnedFirst = (group: Choice[]) => [
     ...group.filter((r) => r.pinned),
     ...group.filter((r) => !r.pinned),
   ];
   return [
-    ...pinnedFirst(rows.filter((r) => r.online)),
+    ...pinnedFirst(rows.filter((r) => r.online && !r.bot)),
+    ...rows.filter((r) => r.bot),
     ...pinnedFirst(rows.filter((r) => !r.online)),
   ];
 }

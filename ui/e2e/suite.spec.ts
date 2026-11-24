@@ -166,9 +166,17 @@ test("an arena match: pick who is here instead of typing their names", async ({
   await page.getByLabel("Game", { exact: true }).selectOption({ label: "PvP" });
   await page.getByLabel("Waves", { exact: true }).selectOption({ label: "No mob waves" });
   const picker = page.locator(".roster-picker");
-  // The two people online are offered; the bot is not (it has its own button).
-  await expect(picker.locator(".choice")).toHaveCount(2);
-  await expect(picker).not.toContainText("MCBot");
+  // The two people online are offered, then the second bot that is online (MCBot is
+  // in the match already); a fake player that is none of our bots is not.
+  await expect(picker.locator(".choice strong")).toHaveText(["Dad_", "Son_", "MCBot2"]);
+  await expect(picker.locator(".choice", { hasText: "MCBot2" })).toContainText("a bot");
+  await expect(page.getByLabel("MCBot2 will be an operator")).toHaveCount(0);
+  await expect(page.getByLabel("Label MCBot2", { exact: true })).toHaveCount(0);
+  // "+ Add a bot" sits right under the match's players, above Who's here.
+  const addBot = page.getByRole("button", { name: "+ Add a bot (MCBot2)" });
+  const box = async (selector: string) => (await page.locator(selector).boundingBox())!;
+  expect((await addBot.boundingBox())!.y).toBeLessThan((await box(".roster-picker")).y);
+  expect((await addBot.boundingBox())!.y).toBeGreaterThan((await box(".roster-rows")).y);
   // A label and a pin are kept for next time.
   await page.getByLabel("Label Son_", { exact: true }).click();
   await page.getByLabel("Label for Son_").fill("Son");
@@ -183,6 +191,8 @@ test("an arena match: pick who is here instead of typing their names", async ({
   await page.getByLabel("Add Son_ to Blue").click();
   await page.getByLabel("Add Dad_ to Red").click();
   await expect(page.locator(".team-counts")).toHaveText("Red 2/2 · Blue 1/2");
+  await page.getByLabel("Add MCBot2 to Blue").click(); // the online bot, one click too
+  await expect(page.locator(".team-counts")).toHaveText("Red 2/2 · Blue 2/2");
   await expect(picker).toContainText("Everyone listed here is already in the match.");
   await page.getByRole("button", { name: "Check run list" }).click();
   const [job] = (await (await resolving).json()).jobs;
@@ -190,6 +200,7 @@ test("an arena match: pick who is here instead of typing their names", async ({
     { name: "MCBot", team: "red", op: false },
     { name: "Son_", team: "blue", op: true },
     { name: "Dad_", team: "red", op: false },
+    { name: "MCBot2", team: "blue", op: false },
   ]);
   // Taken out of the match, they are offered again; a name typed by hand can be saved.
   await page.getByLabel("Remove Son_", { exact: true }).click();

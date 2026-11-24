@@ -87,6 +87,8 @@ def main():
                 {"name": "Dad_", "bot": False},
                 {"name": "Son_", "bot": False},
                 {"name": "MCBot", "bot": True},
+                {"name": "MCBot2", "bot": True},  # a second bot, put in on the server
+                {"name": "Carpet_1", "bot": True},  # a fake player that is no bot of ours
             ],
             "bot": "MCBot",
             "note": None,

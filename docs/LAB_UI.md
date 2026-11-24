@@ -134,8 +134,11 @@ everyone against the mob waves), **PvP** (`teams`: team against team, waves
 optional: **Waves** then offers **No mob waves**) or **Kill race** (`race`: teams
 race to kill the most wave mobs). **Players** is `run.roster`, a list of
 `{name, team, op}` (`run_config.RosterEntry`): the bot's row, more bots from
-**+ Add a bot (MCBot2)** (the next free `MCBot<N>`, on the smaller team; a bot
-has no Op box and cannot be an operator; a removed bot's name is reused; see
+**+ Add a bot (MCBot2)**, a button right under the players (the next free
+`MCBot<N>`, on the smaller team; a bot has no Op box and cannot be an operator; a
+removed bot's name is reused). A bot already online on the arena server is also
+offered in **Who's here**, tagged "a bot", with the same one-click team buttons and
+no Op, pin or label; a fake player that is none of our bots is not offered (see
 [ARENA_RUNTIME.md](ARENA_RUNTIME.md#several-bots)), a row per person
 added by Minecraft name, a team select in PvP and Kill race (only the arena's
 own teams, read from its plan: `run.arena.enum_meta` gives `teams`, `per_team`

@@ -86,19 +86,40 @@ describe("choicesFor", () => {
     });
   });
 
-  it("leaves out the bot and the names already in the match", () => {
+  it("leaves out the names already in the match", () => {
     const rows = choicesFor(
       [
         { name: "MCBot", bot: true },
         { name: "Ann", bot: false },
         { name: "Bo", bot: false },
-        { name: "Carpet_1", bot: true },
       ],
-      [saved("mcbot"), saved("ann"), saved("Cy")],
-      [slot("ANN", "red")],
+      [saved("ann"), saved("Cy")],
+      [slot("ANN", "red"), slot("mcbot", "red")],
       "MCBot",
     );
     expect(rows.map((r) => r.name)).toEqual(["Bo", "Cy"]);
+  });
+
+  it("offers the bots online that are not in the match, after the people online", () => {
+    // MCBot2 put in on the server is one click away, like a person who is here; a
+    // fake player that is no bot of ours (Carpet_1) is never offered.
+    const rows = choicesFor(
+      [
+        { name: "MCBot2", bot: true },
+        { name: "Ann", bot: false },
+        { name: "Carpet_1", bot: true },
+        { name: "MCBot", bot: true },
+      ],
+      [saved("Cy"), saved("mcbot3")],
+      [],
+      "MCBot",
+    );
+    expect(rows.map((r) => [r.name, r.bot, r.online, r.saved])).toEqual([
+      ["Ann", false, true, false],
+      ["MCBot2", true, true, false],
+      ["MCBot", true, true, false],
+      ["Cy", false, false, true],
+    ]);
   });
 
   it("is empty when nobody is online and nothing is saved", () => {

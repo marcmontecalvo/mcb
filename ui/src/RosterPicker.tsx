@@ -120,18 +120,23 @@ function ChoiceRow({ choice, teams, full, onAdd, onSave, onForget }: RowProps) {
           <>
             <strong>{choice.label || choice.name}</strong>
             {choice.label && <small>{choice.name}</small>}
+            {choice.bot && <small>a bot</small>}
           </>
         )}
       </span>
-      <label className="op" title="Make them an operator on the arena server">
-        <input
-          type="checkbox"
-          aria-label={`${choice.name} will be an operator`}
-          checked={op}
-          onChange={(e) => setOp(e.target.checked)}
-        />
-        Op
-      </label>
+      {choice.bot ? (
+        <span className="op" aria-hidden="true" />
+      ) : (
+        <label className="op" title="Make them an operator on the arena server">
+          <input
+            type="checkbox"
+            aria-label={`${choice.name} will be an operator`}
+            checked={op}
+            onChange={(e) => setOp(e.target.checked)}
+          />
+          Op
+        </label>
+      )}
       <span className="adds">
         {teams.length ? (
           teams.map((team) => (
@@ -159,29 +164,33 @@ function ChoiceRow({ choice, teams, full, onAdd, onSave, onForget }: RowProps) {
         )}
       </span>
       <span className="tools">
-        <button
-          type="button"
-          className="link"
-          aria-pressed={choice.pinned}
-          aria-label={`${choice.pinned ? "Unpin" : "Pin"} ${choice.name}`}
-          title={choice.pinned ? "Unpin" : "Pin to the top"}
-          onClick={() => onSave(choice.name, { pinned: !choice.pinned })}
-        >
-          {choice.pinned ? "★" : "☆"}
-        </button>
-        <button
-          type="button"
-          className="link"
-          aria-label={`Label ${choice.name}`}
-          title="Give them a label, like Dad or Son"
-          onClick={() => {
-            settled.current = false;
-            setDraft(choice.label);
-            setEditing(true);
-          }}
-        >
-          ✎
-        </button>
+        {!choice.bot && ( // a bot is never pinned, labelled or saved
+          <>
+            <button
+              type="button"
+              className="link"
+              aria-pressed={choice.pinned}
+              aria-label={`${choice.pinned ? "Unpin" : "Pin"} ${choice.name}`}
+              title={choice.pinned ? "Unpin" : "Pin to the top"}
+              onClick={() => onSave(choice.name, { pinned: !choice.pinned })}
+            >
+              {choice.pinned ? "★" : "☆"}
+            </button>
+            <button
+              type="button"
+              className="link"
+              aria-label={`Label ${choice.name}`}
+              title="Give them a label, like Dad or Son"
+              onClick={() => {
+                settled.current = false;
+                setDraft(choice.label);
+                setEditing(true);
+              }}
+            >
+              ✎
+            </button>
+          </>
+        )}
         {choice.saved && (
           <button
             type="button"

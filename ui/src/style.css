@@ -732,6 +732,10 @@ code {
   align-items: center;
   font-size: 12px;
 }
+/* "+ Add a bot" sits right under the match's players, where the bots are. */
+.roster-bots {
+  margin-top: 8px;
+}
 .roster-add {
   display: flex;
   flex-wrap: wrap;

@@ -552,6 +552,18 @@ export function RosterInput({
           </div>
         ))}
       </div>
+      {nextBot && !full && (
+        <div className="roster-bots">
+          <button
+            type="button"
+            className="secondary-small"
+            title={sided ? "Another copy of the bot, on the smaller team" : "Another copy of the bot"}
+            onClick={() => set(addPlayer(roster, nextBot, sided, meta))}
+          >
+            + Add a bot ({nextBot})
+          </button>
+        </div>
+      )}
       <RosterPicker
         choices={choices}
         anyone={saved.length > 0 || (people.online?.online ?? []).some((p) => !p.bot)}
@@ -593,15 +605,6 @@ export function RosterInput({
         >
           Save name
         </button>
-        {nextBot && !full && (
-          <button
-            type="button"
-            className="link"
-            onClick={() => set(addPlayer(roster, nextBot, sided, meta))}
-          >
-            + Add a bot ({nextBot})
-          </button>
-        )}
       </div>
       {full && <small>The match is full: this arena holds {room}.</small>}
       {problems.map((problem) => (
