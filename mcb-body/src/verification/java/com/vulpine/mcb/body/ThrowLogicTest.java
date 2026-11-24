@@ -61,6 +61,18 @@ public final class ThrowLogicTest {
                 && ThrowLogic.DRAG == 0.99, "projectile constants of this version");
         check(ThrowLogic.SELF_PITCH == 90f, "self: straight down");
 
+        // the flight path, tick by tick: the throw op clips it against the blocks (vault raid 20261124T045928Z: a
+        // harming splash broke on a block in front and took the bot for 10)
+        var five = ThrowLogic.solve(0.5, EYE, 0.5, 5.5, 64, 0.5);
+        double[][] path = ThrowLogic.path(0.5, EYE, 0.5, five.yaw(), five.pitch(), five.flightTicks());
+        check(path.length == five.flightTicks() + 1, "a point per tick and the start");
+        check(Math.abs(path[0][1] - (EYE - ThrowLogic.SPAWN_BELOW_EYE)) < 1e-9 && path[0][0] == 0.5, "starts below the eye");
+        double[] last = path[path.length - 1];
+        check(last[1] <= 64 + 1e-9 && Math.hypot(last[0] - 5.5, last[2] - 0.5) < 1.0, "ends where it lands");
+        double[] copy = fly(0.5, EYE, 0.5, five.yaw(), five.pitch(), path[3][1] - 1e-9);
+        check(copy == null || copy[3] > 3, "the same physics as the independent copy");
+        check(ThrowLogic.BREAKS_NEAR == 4.75, "a potion broken nearer than this splashes the thrower");
+
         // flat targets at several distances and headings, aimed at the target's feet
         reaches(0, 0, 3, "3 ahead");
         reaches(0, 0, 5, "5 ahead");

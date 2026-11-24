@@ -340,8 +340,11 @@ is out of reach). The body should stand still: its own velocity adds to the thro
 model it. Nothing is restored afterwards (the fight op selects its weapon each call).
 `_done`: `{"potion", "item", "target": [x,y,z] (where it was aimed, the led point for a moving entity),
 "yaw", "pitch", "flight_ticks" (predicted; 0 for self), "inventory"}`. `_failed`: `bad_request`, `no_potion`,
-`not_found` (the entity uuid is not in the level or is dead), `out_of_range` (no pitch lands it), `no_effect`
-(the game refused the use), `busy`, `route_active`.
+`not_found` (the entity uuid is not in the level or is dead), `out_of_range` (no pitch lands it), `blocked`
+(the predicted flight, clipped tick by tick against block colliders, meets a block nearer the body's feet than
+`ThrowLogic.BREAKS_NEAR`, 4.75: it would break there and splash the body; a block farther off is allowed, it
+only falls short), `no_effect` (the game refused the use), `busy`, `route_active`. Every refusal comes before
+the slot or aim changes.
 
 ### Observation: effects and fire (`/state`, extended observation)
 A body spawned with `extended_observation` (the companion's) also reports `effects` (its active effects, each

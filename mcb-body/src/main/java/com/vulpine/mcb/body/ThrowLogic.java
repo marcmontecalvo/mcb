@@ -115,6 +115,32 @@ final class ThrowLogic {
 
     private static Solution accept(Aim aim, Solution s) { return s != null && aim.miss(s) <= TOLERANCE ? s : null; }
 
+    /** A potion that breaks nearer the thrower than this (a 4-block splash and a margin) splashes it too. */
+    static final double BREAKS_NEAR = 4.75;
+
+    /**
+     * Where a potion thrown from eye (ex, ey, ez) with this yaw and pitch is at the start and after each of
+     * {@code ticks} ticks, {x, y, z}: the throw op clips each step against the blocks.
+     */
+    static double[][] path(double ex, double ey, double ez, double yaw, double pitch, int ticks) {
+        double rad = Math.PI / 180;
+        double dx = -Math.sin(yaw * rad) * Math.cos(pitch * rad);
+        double dy = -Math.sin((pitch + PITCH_OFFSET) * rad);
+        double dz = Math.cos(yaw * rad) * Math.cos(pitch * rad);
+        double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        double vx = dx / length * SPEED, vy = dy / length * SPEED, vz = dz / length * SPEED;
+        double x = ex, y = ey - SPAWN_BELOW_EYE, z = ez;
+        var out = new double[Math.max(0, ticks) + 1][];
+        out[0] = new double[] {x, y, z};
+        for (int tick = 1; tick <= ticks; tick++) {
+            vy -= GRAVITY;
+            vx *= DRAG; vy *= DRAG; vz *= DRAG;
+            x += vx; y += vy; z += vz;
+            out[tick] = new double[] {x, y, z};
+        }
+        return out;
+    }
+
     /** The flight from the eye with this aim, to where it crosses height ty descending; null when it never does. */
     private static Landing fly(double ex, double ey, double ez, double yaw, double pitch, double ty) {
         double rad = Math.PI / 180;

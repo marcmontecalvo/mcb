@@ -86,10 +86,31 @@ final class BodyPotion {
     // ---- throw_potion
 
     /**
+     * Refuses ("blocked") a throw whose flight meets a block nearer the body than ThrowLogic.BREAKS_NEAR: it would
+     * break there and splash the body (vault raid 20261124T045928Z: a harming splash broke on a block in front and
+     * took the bot for 10). A block met farther off only breaks it short of the target.
+     */
+    private static void refuseBlockedNear(ServerPlayer player, Vec3 eye, float yaw, float pitch, int flight) {
+        double[][] path = ThrowLogic.path(eye.x, eye.y, eye.z, yaw, pitch, flight);
+        Vec3 feet = player.position();
+        for (int i = 1; i < path.length; i++) {
+            Vec3 from = new Vec3(path[i - 1][0], path[i - 1][1], path[i - 1][2]);
+            Vec3 to = new Vec3(path[i][0], path[i][1], path[i][2]);
+            var hit = player.level().clip(new net.minecraft.world.level.ClipContext(from, to,
+                    net.minecraft.world.level.ClipContext.Block.COLLIDER, net.minecraft.world.level.ClipContext.Fluid.NONE,
+                    player));
+            if (hit.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
+                if (hit.getLocation().distanceTo(feet) < ThrowLogic.BREAKS_NEAR) throw new BodyActions.Fail("blocked");
+                return;
+            }
+        }
+    }
+
+    /**
      * Throws a splash or lingering potion: at the body's feet (self, straight down), at an entity or at a point
-     * (the lowest arc ThrowLogic finds, an entity led by its velocity). The target is resolved before anything
-     * moves, so a refusal leaves the hand and the aim as they were. Nothing is restored afterwards: the fight op
-     * selects its weapon again each call.
+     * (the lowest arc ThrowLogic finds, an entity led by its velocity). The target is resolved and the flight
+     * checked against the blocks before anything moves, so a refusal leaves the hand and the aim as they were.
+     * Nothing is restored afterwards: the fight op selects its weapon again each call.
      */
     static Map<String, Object> throwPotion(ServerPlayer player, JsonObject request) {
         var throwing = PotionLogic.parseThrow(request);
@@ -126,6 +147,7 @@ final class BodyPotion {
                 flight = aim.flightTicks();
             }
         }
+        if (flight > 0) refuseBlockedNear(player, eye, yaw, pitch, flight);
         BodyBuild.selectSlot(player, slot);
         BodyBuild.aim(player, yaw, pitch);
         var stack = player.getMainHandItem();

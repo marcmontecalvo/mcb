@@ -156,7 +156,10 @@ A harmful splash is aimed where its targets will be when it lands (0.6 s on, by 
 melee mob of unknown course is taken to be charging), and never along a line some foe would catch
 it on nearer than 4.75 blocks, since the lowest arc flies 1 to 1.6 blocks up all the way and its
 splash would take the bot. No harmful splash flies while a vex or phantom is within 8 blocks. The
-vault raid 20261124T043026Z showed both: its own harming took it for 4 and 3. The same raid's
+vault raid 20261124T043026Z showed both: its own harming took it for 4 and 3. The body also clips the
+predicted flight against the blocks and refuses the throw (`blocked`) when it would break on one within
+4.75 blocks of its feet: raid 20261124T045928Z took 10 from a harming splash that broke on a block in
+front (the policy sees mobs, not blocks; the body sees both). The same raid's
 fight op refused a vex as a pet (a vex is `OwnableEntity`, its evoker the owner); a pet is now
 owned and not hostile (`ActionLogic.pet`).
 
