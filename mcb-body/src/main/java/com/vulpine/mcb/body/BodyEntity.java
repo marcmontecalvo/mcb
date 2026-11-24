@@ -314,7 +314,7 @@ final class BodyEntity {
         }
 
         private void credit(ServerPlayer player, LivingEntity target) {
-            if (kills.credit(target.getUUID().toString(), target.getHealth(), target.getKillCredit() == player)
+            if (kills.credit(target.getUUID().toString(), typeId(target), target.getHealth(), target.getKillCredit() == player)
                     && target.getUUID().equals(requested))
                 diedAt = java.util.List.of(target.getX(), target.getY(), target.getZ());
         }
@@ -835,6 +835,7 @@ final class BodyEntity {
             account(player);  // a last look: an arrow may have landed since the step
             var out = new LinkedHashMap<String, Object>();
             out.put("kills", kills.count());
+            if (kills.count() > 0) out.put("kill_types", new LinkedHashMap<>(new java.util.TreeMap<>(kills.types())));
             out.put("hits", hits);
             out.put("crits", crits);
             out.put("shots", shots);

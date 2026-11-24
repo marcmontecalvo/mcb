@@ -1411,7 +1411,8 @@ def test_defend_reports_the_fight_outcome_without_the_inventory(guard):
     ]  # fmt: skip
     outcome = session.defend(Action("fight", "fighting", target="z1", item=SWORD))
     assert outcome == {
-        "action": "fight", "ok": True, "reason": None, "kills": 1, "hits": 3,
+        "action": "fight", "weapon": SWORD, "ok": True, "reason": None, "kills": 1,
+        "hits": 3,
         "crits": 2, "shots": 0, "damage": 20.0, "style": "melee", "ticks": 80,
         "health": 18.0, "end": "clear", "flees": 1, "closest": 3.9,
     }  # fmt: skip
@@ -1427,6 +1428,27 @@ def test_defend_reports_a_spear_charges_evidence(guard):
     outcome = session.defend(Action("fight", "fighting", target="z1", item=SWORD))
     assert (outcome["lance"], outcome["charge_log"]) == ({"charge": 9}, [hit])
     assert "flee_log" not in outcome  # the step event stays small
+
+
+def test_defend_reports_what_a_fight_step_fought_with_what_and_killed(guard):
+    # a raid trial reads which weapon met which mob, and an evoker's vexes are
+    # counted as vexes, not as the evoker
+    session, _, _ = guard()
+    session.body.fights = [
+        Result(True, None, {"kills": 2, "style": "melee",
+                            "kill_types": {"minecraft:vex": 2}})
+    ]  # fmt: skip
+    evoker = Threat("e1", "minecraft:evoker", (5.5, 64.0, 0.5), 5.0)
+    action = Action("fight", "fighting", target="e1", item=SWORD, threats=(evoker,))
+
+    outcome = session.defend(action)
+
+    assert outcome["kill_types"] == {"minecraft:vex": 2}
+    assert (outcome["target_type"], outcome["weapon"]) == ("minecraft:evoker", SWORD)
+    # a target the scan did not list (engaged by uuid alone) has no type to report
+    session.body.fights = [Result(True, None, {"kills": 0})]
+    bare = session.defend(Action("fight", "fighting", target="z9", item=SWORD))
+    assert "target_type" not in bare and bare["weapon"] == SWORD
 
 
 def test_defend_reports_an_escape_and_a_step_with_no_body_op(guard):

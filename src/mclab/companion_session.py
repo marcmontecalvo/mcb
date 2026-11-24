@@ -75,6 +75,7 @@ OUTCOME_FIELDS = (
     "jumps", "flees", "closest",
     "distance", "nearest",
     "lance", "charge_log",  # a spear charge's ticks per move and first hits (small)
+    "kill_types",  # kills by mob type: an evoker's vexes are not the evoker
 )  # fmt: skip
 DEFEND_WAIT_TICKS = 10  # a step that could do nothing waits this long
 FLEE_DISTANCE = 12  # blocks: one flee step
@@ -779,6 +780,11 @@ class Session:
         }.get(action.kind)
         result = step(action) if step is not None else None
         outcome = {"action": action.kind}
+        if action.kind == "fight":  # which weapon met which mob (a raid's analysis)
+            outcome["weapon"] = action.item
+            types = (t.type for t in action.threats if t.uuid == action.target)
+            if (kind := next(types, None)) is not None:
+                outcome["target_type"] = kind
         if isinstance(result, Result):
             data = result.data or {}
             outcome.update(ok=result.ok, reason=result.reason)

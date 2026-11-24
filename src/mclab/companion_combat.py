@@ -48,6 +48,7 @@ MOB_HEALTH = {
         "hoglin": 40, "zoglin": 40, "piglin_brute": 50, "wither_skeleton": 20,
         "breeze": 30, "vex": 14, "evoker": 24, "skeleton": 20, "stray": 20,
         "bogged": 16, "pillager": 24, "enderman": 40, "creeper": 20,
+        "illusioner": 32, "ravager": 100,
     }.items()
 }  # fmt: skip
 DEFAULT_MOB_HEALTH = 20.0
@@ -176,12 +177,13 @@ def _profiles() -> dict[str, Profile]:
         # the breeze deflects arrows; a vex is too small and quick to shoot
         Profile(("melee",)): "breeze vex",
         Profile(("melee", "snipe"), first=True): "evoker",
-        Profile(("snipe", "melee")): "skeleton stray bogged pillager",
+        Profile(("snipe", "melee")): "skeleton stray bogged pillager illusioner",
         # the owner's order: the bow, the spear's charge past its fuse, then close in
         Profile(("snipe", "charge", "hit_and_back")): "creeper",
-        Profile(("snipe",)): "phantom blaze ghast",
+        # a ravager (100 health, a 12-point bite) is shot as it comes, never met
+        Profile(("snipe",)): "phantom blaze ghast ravager",
         Profile(("melee",), no_gaze=True): "enderman",
-        Profile(()): "warden ravager guardian elder_guardian ender_dragon wither",
+        Profile(()): "warden guardian elder_guardian ender_dragon wither",
     }
     for profile, names in groups.items():
         for name in names.split():
@@ -194,7 +196,9 @@ HUNT = Profile(("hunt",))  # anything without a profile: an animal
 # Hurt from range: walking calmly away from them only gets the bot shot in the back.
 RANGED = frozenset(
     M + n
-    for n in "skeleton stray bogged pillager witch blaze ghast breeze evoker".split()
+    for n in (
+        "skeleton stray bogged pillager illusioner witch blaze ghast breeze evoker"
+    ).split()
 )
 
 
@@ -224,6 +228,32 @@ Wear = Mapping[str, list[int]]  # remaining uses of each held piece, by item
 
 def mob_health(target: str) -> float:
     return MOB_HEALTH.get(target, DEFAULT_MOB_HEALTH)
+
+
+def kill_ticks(w: Weapon, health: float) -> float:
+    """Ticks from its first full-strength hit to the kill: the first lands on
+    arrival, then each further hit waits a cycle."""
+    return (w.hits_to_kill(health) - 1) * w.cycle()
+
+
+def _quickest(inventory, kinds, health: float) -> Weapon | None:
+    """The held weapon that kills ``health`` soonest; a tie goes to the higher
+    damage per second (the next mob comes sooner)."""
+    held = _held(inventory, kinds)
+    if not held:
+        return None
+    return min(held, key=lambda w: (kill_ticks(w, health), -w.dps(), w.item))
+
+
+def _fewest_hits(inventory, kinds, health: float) -> Weapon | None:
+    """The held swing weapon that kills ``health`` in the fewest plain (uncritted)
+    hits, for a fight where each hit is its own round trip; a tie goes to the
+    shorter cooldown."""
+    held = _held(inventory, kinds)
+    if not held:
+        return None
+    return min(held, key=lambda w: (math.ceil(health / w.damage - 1e-9), w.cooldown,
+                                    w.item))  # fmt: skip
 
 
 def charge_first(spear: Weapon, swing: Weapon, health: float) -> bool:
@@ -285,7 +315,10 @@ def _style(style: str, inventory, target: str = "", wear=None) -> Tactic | None:
         bow = _best(inventory, ("bow",))
         if bow is None or not _arrows(inventory):
             return None
-        backup = _best(inventory, MELEE_KINDS)
+        health = mob_health(target)
+        backup = _quickest(inventory, SWING_KINDS, health) or _best(
+            inventory, ("spear",)
+        )
         return Tactic(
             "snipe", bow.item, keep=SNIPE_KEEP, melee=backup.item if backup else None
         )
@@ -294,7 +327,7 @@ def _style(style: str, inventory, target: str = "", wear=None) -> Tactic | None:
         # weapon takes over up close (the mod hands back once it is far out), when
         # that kills sooner than the swing weapon alone (``charge_first``).
         spear = _best(inventory, ("spear",))
-        swing = _best(inventory, SWING_KINDS)
+        swing = _quickest(inventory, SWING_KINDS, mob_health(target))
         if swing is None:
             return Tactic("lance", spear.item) if spear else None
         if spear is not None and charge_first(spear, swing, mob_health(target)):
@@ -305,7 +338,7 @@ def _style(style: str, inventory, target: str = "", wear=None) -> Tactic | None:
         spear = _best(inventory, ("spear",))
         return Tactic("lance", spear.item) if spear else None
     if style == "hit_and_back":
-        best = _best(inventory, SWING_KINDS)
+        best = _fewest_hits(inventory, SWING_KINDS, mob_health(target))
         return Tactic("hit_and_back", best.item) if best else None
     if style == "hunt":
         best = hunt_weapon(target, inventory, wear)

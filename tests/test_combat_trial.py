@@ -698,6 +698,81 @@ def test_a_group_trial_ends_when_every_mob_is_killed():
     assert 2.0 <= out["first_kill"] < out["seconds"]
 
 
+def test_a_raid_trial_counts_kills_by_type_so_vexes_do_not_stand_in():
+    # an evoker's vexes die too: two vex kills are not the evoker's
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (0.5, _event(1, "defense", action="fight")),
+        (2.0, _event(2, "defense_step", action="fight", ok=True, kills=2,
+                     kill_types={M + "vex": 2})),
+        (7.0, _event(3, "defense_step", action="fight", ok=True, kills=1,
+                     kill_types={M + "evoker": 1})),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "all", "evoker", timeout=60, clock=clock)
+
+    assert out["killed"] is True and out["seconds"] == pytest.approx(7.0)
+    assert out["kill_types"] == {"evoker": 1, "vex": 2}
+    assert out["kills"] == 3
+
+
+def test_a_raid_trial_ends_only_when_every_kind_summoned_is_down():
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (0.5, _event(1, "defense", action="fight")),
+        (2.0, _event(2, "defense_step", action="fight", ok=True, kills=2,
+                     kill_types={M + "pillager": 2})),
+        (3.0, _event(3, "defense_end", end="died", steps=1, job=None)),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "all", "pillager+vindicator", timeout=60, clock=clock)
+
+    # two pillager kills (one a stray from outside the scene) leave the vindicator
+    assert out["killed"] is False and out["end"] == "defense_died"
+
+
+def test_kills_a_body_reports_without_types_count_toward_any_kind():
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (0.5, _event(1, "defense", action="fight")),
+        (2.0, _event(2, "defense_step", action="fight", ok=True, kills=1,
+                     kill_types={M + "pillager": 1})),
+        (4.0, _event(3, "defense_step", action="fight", ok=True, kills=1)),
+    ])  # fmt: skip
+
+    out = ct.run_one(client, "all", "pillager+vindicator", timeout=60, clock=clock)
+
+    assert out["killed"] is True and out["seconds"] == pytest.approx(4.0)
+
+
+def test_summary_records_which_weapon_and_style_met_which_mob():
+    events = [
+        _event(1, "defense", action="fight"),
+        _event(2, "defense_step", action="fight", target_type=M + "pillager",
+               weapon=M + "bow", style="snipe", kills=1,
+               kill_types={M + "pillager": 1}),
+        _event(3, "defense_step", action="fight", target_type=M + "pillager",
+               weapon=M + "bow", style="snipe", kills=0),
+        _event(4, "defense_step", action="fight", target_type=M + "vindicator",
+               weapon=M + "iron_sword", style="melee", kills=1,
+               kill_types={M + "vindicator": 1}),
+    ]  # fmt: skip
+
+    s = ct.summarize(events)
+
+    assert s["picks"] == {"pillager bow snipe": 2, "vindicator iron_sword melee": 1}
+    assert s["kill_types"] == {"pillager": 1, "vindicator": 1}
+    assert "picks" not in ct.summarize(events[:1])  # no fight step, no picks
+
+
+def test_the_all_kit_carries_every_weapon_the_bot_can_choose_between():
+    assert ct.kit("all") == (
+        ct.kit("sword") + ct.kit("axe") + ct.kit("spear") + ct.kit("bow")
+    )
+    with pytest.raises(ValueError, match="weapon"):
+        ct.kit("all+sword")
+
+
 def test_a_group_trial_with_one_left_alive_is_not_a_kill():
     clock = FakeClock()
     client = FakeClient(clock, feed=[

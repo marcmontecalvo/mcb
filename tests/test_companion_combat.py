@@ -59,7 +59,7 @@ def test_every_hostile_has_a_profile():
 
 
 def test_bosses_and_wardens_are_never_engaged():
-    for boss in ("warden", "ender_dragon", "wither", "ravager"):
+    for boss in ("warden", "ender_dragon", "wither"):
         armed = inv("netherite_sword", "bow", arrows=64)
         assert cc.tactic(M + boss, armed).style == "avoid"
         assert cc.never_engaged(M + boss)
@@ -67,13 +67,57 @@ def test_bosses_and_wardens_are_never_engaged():
     assert not cc.never_engaged(M + "creeper")
 
 
+def test_a_ravager_is_shot_from_range_and_never_met_in_melee():
+    # 100 health and a 12-point bite: a raid's ravager is shot as it comes, the
+    # bow's swing weapon only for one that closes in; without arrows, run
+    t = cc.tactic(M + "ravager", inv("iron_sword", "bow", arrows=64))
+    assert (t.style, t.weapon, t.melee) == ("snipe", M + "bow", M + "iron_sword")
+    assert cc.tactic(M + "ravager", inv("netherite_sword")).style == "avoid"
+    assert not cc.never_engaged(M + "ravager")
+    assert cc.mob_health(M + "ravager") == 100
+
+
+def test_raiders_that_shoot_are_shot_back():
+    for kind in ("pillager", "illusioner"):
+        t = cc.tactic(M + kind, inv("iron_sword", "bow", arrows=64))
+        assert (t.style, t.weapon) == ("snipe", M + "bow")
+        assert M + kind in cc.RANGED
+    assert cc.mob_health(M + "illusioner") == 32
+
+
 # --- tactic and weapon choice -------------------------------------------------------
 
 
-def test_a_zombie_gets_crit_melee_with_the_best_damage_per_second():
+def test_melee_takes_the_weapon_that_kills_this_mob_soonest():
+    # The first crit lands on arrival, so a kill takes (hits - 1) cycles. A zombie
+    # (20): the iron axe's two crits (13.5 each) in one 22.2-tick cycle beat the
+    # sword's three (9 each) in two 12.5-tick cycles, as measured (10x matrix
+    # 20261123T235754Z: zombie axe 2.3 s, sword 2.7; skeleton 2.2 against 2.6).
     t = cc.tactic(M + "zombie", inv("iron_axe", "iron_sword"))
-    # sword 6 x 1.5 every 12.5 ticks beats axe 9 x 1.5 every 22.2
-    assert (t.style, t.weapon, t.crit) == ("melee", M + "iron_sword", True)
+    assert (t.style, t.weapon, t.crit) == ("melee", M + "iron_axe", True)
+    assert cc.kill_ticks(cc.weapon(M + "iron_axe"), 20) == pytest.approx(20 / 0.9)
+    assert cc.kill_ticks(cc.weapon(M + "iron_sword"), 20) == pytest.approx(25.0)
+    # a vex (14): two sword crits (18) in one cycle; the axe's two (27) take longer
+    vex = cc.tactic(M + "vex", inv("iron_axe", "iron_sword"))
+    assert vex.weapon == M + "iron_sword"
+    # a tie goes to the higher damage per second (the next mob comes sooner)
+    assert cc.tactic(M + "silverfish", inv("iron_axe", "iron_sword")).weapon == (
+        M + "iron_sword"
+    )
+
+
+def test_hit_and_back_takes_the_weapon_with_the_fewest_hits():
+    # each hit is a sprint in and a retreat: no crits, and the round trip is the cost
+    t = cc.tactic(M + "creeper", inv("iron_axe", "iron_sword"))
+    assert (t.style, t.weapon) == ("hit_and_back", M + "iron_axe")  # 3 hits, not 4
+
+
+def test_a_snipers_hand_off_is_the_quickest_swing_weapon():
+    t = cc.tactic(M + "pillager", inv("bow", "iron_sword", "iron_axe", arrows=8))
+    assert (t.style, t.melee) == ("snipe", M + "iron_axe")  # 24: two crits, not three
+    # a spear is the hand-off only with no swing weapon
+    t = cc.tactic(M + "pillager", inv("bow", "iron_spear", arrows=8))
+    assert t.melee == M + "iron_spear"
 
 
 def test_a_lone_spear_charges():
@@ -89,7 +133,7 @@ def test_a_swing_weapon_carried_with_a_spear_fights_alone():
     # on arrival ((n - 1) cycles); after a charge the swap resets the cooldown, so
     # each of the m swings left waits a full cycle (m cycles).
     t = cc.tactic(M + "skeleton", inv("iron_spear", "iron_axe", "iron_sword"))
-    assert (t.style, t.weapon, t.melee) == ("melee", M + "iron_sword", None)
+    assert (t.style, t.weapon, t.melee) == ("melee", M + "iron_axe", None)
     # a netherite charge (7) beats a wooden sword's crit (6), and saves one swing on
     # a zombie (20: four crits, or the charge and three): a tie, so the sword alone
     t = cc.tactic(M + "zombie", inv("netherite_spear", "wooden_sword"))

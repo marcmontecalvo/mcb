@@ -229,16 +229,22 @@ final class FightLogic {
      */
     static final class Kills {
         private final java.util.Set<String> dead = new java.util.HashSet<>();
+        private final java.util.Map<String, Integer> byType = new java.util.TreeMap<>();
 
         /**
          * Counts the target when it is dead (health at or below 0) and ours and not yet counted; true when this
          * call counted it. A creeper that blew up, or a mob discarded, is removed with health left: no kill.
          */
-        boolean credit(String uuid, float health, boolean ours) {
-            return health <= 0 && ours && dead.add(uuid);
+        boolean credit(String uuid, String type, float health, boolean ours) {
+            if (health > 0 || !ours || !dead.add(uuid)) return false;
+            byType.merge(type, 1, Integer::sum);
+            return true;
         }
 
         int count() { return dead.size(); }
+
+        /** The kills by entity type (a trial of several kinds asks whether each kind died, not just how many). */
+        java.util.Map<String, Integer> types() { return java.util.Map.copyOf(byType); }
 
         /** Whether this target was counted (null: no target named). */
         boolean has(String uuid) { return uuid != null && dead.contains(uuid); }

@@ -63,10 +63,14 @@ STEP_SUMS = ("kills", "hits", "crits", "shots", "damage", "jumps", "ticks", "fle
 CHARGE_LOG = 8  # a fight's charge hits kept (the mod reports its first eight)
 
 
+ALL = "all"  # every weapon the bot chooses between (a raid trial): sword+axe+spear+bow
+
+
 def kit(weapon: str, *, tier: str = "iron") -> list[dict]:
     """The give entries for a weapon, or several joined by ``+`` (``spear+sword``):
-    one of each, and arrows for a bow. The fist is an empty kit of its own."""
-    parts = weapon.split("+")
+    one of each, and arrows for a bow. The fist is an empty kit of its own;
+    ``all`` is every weapon at once."""
+    parts = ["sword", "axe", "spear", "bow"] if weapon == ALL else weapon.split("+")
     known = len(parts) == len(set(parts)) and all(p in WEAPONS for p in parts)
     if not known or (len(parts) > 1 and "fist" in parts):
         raise ValueError(
@@ -139,6 +143,8 @@ def summarize(events: list[dict]) -> dict:
     steps, health, closest = 0, None, None
     lance: Counter = Counter()  # a spear charge's ticks per move, over its fights
     charge_log: list = []  # its first hits, fight by fight
+    picks: Counter = Counter()  # fight steps per "target weapon style"
+    kill_types: Counter = Counter()  # kills per mob type (an evoker's vexes apart)
     for event in events:
         data = event.get("data") or {}
         if event.get("type") == "defense":
@@ -162,6 +168,10 @@ def summarize(events: list[dict]) -> dict:
                 lance.update({k: v for k, v in data["lance"].items() if _number(v)})
             if isinstance(data.get("charge_log"), list):
                 charge_log += data["charge_log"][:CHARGE_LOG]
+            if data.get("action") == "fight" and data.get("weapon") is not None:
+                pick = (data.get("target_type"), data["weapon"], data.get("style"))
+                picks[" ".join(_bare(p) for p in pick)] += 1
+            kill_types.update(_typed_kills(data))
     out = {
         "actions": actions,
         "steps": steps,
@@ -174,7 +184,24 @@ def summarize(events: list[dict]) -> dict:
     if lance:
         out["lance"] = dict(sorted(lance.items()))
         out["charge_log"] = charge_log[: 2 * CHARGE_LOG]
+    if picks:
+        out["picks"] = dict(sorted(picks.items()))
+    if kill_types:
+        out["kill_types"] = dict(sorted(kill_types.items()))
     return out
+
+
+def _bare(name) -> str:
+    """A type or item id without its namespace (``?`` when unknown)."""
+    return "?" if name is None else str(name).removeprefix(M)
+
+
+def _typed_kills(data: dict) -> Counter:
+    """A step's kills by bare mob type (the body's ``kill_types``)."""
+    types = data.get("kill_types")
+    if not isinstance(types, dict):
+        return Counter()
+    return Counter({_bare(k): int(v) for k, v in types.items() if _number(v)})
 
 
 def _stop(client) -> None:
@@ -312,18 +339,26 @@ def settle(client, clock=time.monotonic) -> tuple[bool, float]:
         after = int(client.events(after, wait=wait).get("latest", after))
 
 
+def _all_down(need: Counter, got: Counter, untyped: int) -> bool:
+    """Whether every mob of the scene is killed: each type's count, kills of other
+    types (an evoker's vexes, a stray) aside; kills a body reported without their
+    types stand in for any kind still short."""
+    short = sum(max(0, n - got[kind]) for kind, n in need.items())
+    return untyped >= short
+
+
 def _defend(
-    client, after: int, started: float, timeout: float, clock, need: int = 1
+    client, after: int, started: float, timeout: float, clock, need: Counter
 ) -> dict:
-    """Follow the defence this trial set off until ``need`` kills (every mob of
-    the scene), a death or stop, or an end the guard does not take up again within
-    ``GRACE`` (a sniper's target walking back into sight is the same fight, not a
-    new trial). ``seconds`` is the time to the last kill, ``first_kill`` to the
-    first."""
+    """Follow the defence this trial set off until every mob of the scene is
+    killed (``need``: count by bare type), a death or stop, or an end the guard
+    does not take up again within ``GRACE`` (a sniper's target walking back into
+    sight is the same fight, not a new trial). ``seconds`` is the time to the last
+    kill, ``first_kill`` to the first."""
     deadline = started + timeout
     seen: list[dict] = []
     begun, ended, ended_at, killed_at = False, None, None, None
-    kills, first = 0, None
+    got, untyped, first = Counter(), 0, None
     while killed_at is None and ended not in FINAL:
         now = clock()
         limit = deadline if ended is None else min(deadline, ended_at + GRACE)
@@ -339,9 +374,11 @@ def _defend(
                 continue  # the tail of a defence from before this trial
             seen.append(event)
             if kind == "defense_step" and (data.get("kills") or 0) > 0:
-                kills += data["kills"]
+                typed = _typed_kills(data)
+                got.update(typed)
+                untyped += max(0, int(data["kills"]) - sum(typed.values()))
                 first = clock() if first is None else first
-                if kills >= need:
+                if _all_down(need, got, untyped):
                     killed_at = clock()
                     break
             if kind == "defense_end":
@@ -385,7 +422,7 @@ def run_one(
     head["scene"] = reply.get("result")
     if mob in ANIMAL_DROPS:
         return {**head, **_hunt(client, mob, started, timeout, clock)}
-    need = len(group(mob))
+    need = Counter(group(mob))
     row = {**head, **_defend(client, after, started, timeout, clock, need)}
     if not row["killed"]:
         row["cleanup"] = _cleanup(client)
