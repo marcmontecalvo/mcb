@@ -265,8 +265,10 @@ final class ArenaMatch {
             var old = scoreboard.getPlayerTeam(name);
             if (old != null) scoreboard.removePlayerTeam(old);
             var team = scoreboard.addPlayerTeam(name);
-            team.setColor(java.util.Optional.of(net.minecraft.world.scores.TeamColor.valueOf(
-                    ArenaLogic.teamColor(entry.getKey(), teamNames().indexOf(entry.getKey())).toUpperCase(Locale.ROOT))));
+            var tag = ArenaLogic.nameTag(entry.getKey(), teamNames().indexOf(entry.getKey()));
+            team.setColor(tag.nameColor().equals("reset") ? java.util.Optional.empty()
+                    : java.util.Optional.of(net.minecraft.world.scores.TeamColor.valueOf(tag.nameColor().toUpperCase(Locale.ROOT))));
+            team.setPlayerPrefix(ArenaBoard.text(tag.badge(), tag.badgeColor(), false, false));
             team.setAllowFriendlyFire(false);
             team.setSeeFriendlyInvisibles(true);
             var pads = arena.teams().get(entry.getKey()).pads();

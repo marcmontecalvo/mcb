@@ -171,6 +171,7 @@ export type Where = {
   arena_server?: string;
   lobby?: boolean;
   bot?: string;
+  bots?: BotBook;
   arenas?: Record<
     string,
     { built?: boolean; teleport?: string | null; match?: string | null }
@@ -189,12 +190,11 @@ export function watchFor(job: Rec, where: Where) {
   const server = SERVER[family] || "lab";
   const arena = typeof run.arena === "string" ? run.arena : null;
   const known = arena ? where.arenas?.[arena] : undefined;
-  const bot = where.bot || "";
   const humans =
     family === "arena"
       ? rosterOf(run.roster)
           .map((p) => p.name)
-          .filter((name) => name && !(bot && isBotName(name, bot)))
+          .filter((name) => name && !isBotName(name, where.bots))
       : [];
   return {
     server,
@@ -217,22 +217,55 @@ const PLAYER = /^[A-Za-z0-9_]{1,16}$/;
 export const MAX_PLAYERS = 16; // mclab.play_runs.MAX_PLAYERS
 export const BOT = "MCBot"; // mclab.companion_names.DEFAULT_NAME
 
-/** Whether a name is one of the bots: MCBot, then MCBot2 .. MCBot99 (any case;
- * mclab.companion_names.bot_id_for_name). ``bot`` is the first bot's name. */
-export function isBotName(name: string, bot: string = BOT): boolean {
-  const base = bot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^${base}(?:[2-9]|[1-9][0-9])?$`, "i").test(name);
+/** The bots the operator renamed on the arena server, id -> name (the others keep
+ * their slot name MCBot, MCBot2 ...): mclab.companion_names.BotNames, served as
+ * `bots` by /api/roster, /api/roster/online and /api/where. */
+export type BotBook = Record<string, string>;
+const SLOT = /^mcbot([2-9]|[1-9][0-9])?$/i;
+
+const slotId = (n: number) => (n === 1 ? "default" : `mcbot${n}`);
+
+/** The bot a name means: a renamed bot's new name, or a slot name (MCBot, then
+ * MCBot2 .. MCBot99, any case: still that bot after a rename); else null. */
+export function botIdFor(name: string, book: BotBook = {}): string | null {
+  const lower = name.toLowerCase();
+  for (const [id, renamed] of Object.entries(book)) if (renamed.toLowerCase() === lower) return id;
+  const slot = SLOT.exec(name);
+  return slot ? (slot[1] ? `mcbot${slot[1]}` : "default") : null;
 }
 
-/** The next bot to add: the first of MCBot, MCBot2, MCBot3 ... the roster lacks
- * (a removed bot's name is reused), or null when a match's bots are all in. */
-export function nextBotName(roster: Slot[], bot: string = BOT): string | null {
-  const taken = new Set(roster.map((p) => p.name.toLowerCase()));
-  for (let n = 1; n <= MAX_PLAYERS; n++) {
-    const name = n === 1 ? bot : `${bot}${n}`;
-    if (!taken.has(name.toLowerCase())) return name;
-  }
+/** A bot's current name: what it was renamed to, else its slot name. */
+export function botNameFor(id: string, book: BotBook = {}): string {
+  return book[id] || (id === "default" ? BOT : `${BOT}${id.slice("mcbot".length)}`);
+}
+
+/** Whether a name is one of the bots (mclab.companion_names.BotNames.is_bot). */
+export function isBotName(name: string, book: BotBook = {}): boolean {
+  return botIdFor(name, book) !== null;
+}
+
+/** The next bot to add, by its current name: the first slot (MCBot, MCBot2 ...) the
+ * roster lacks under any of its names (a removed bot's is reused), or null when a
+ * match's bots are all in. */
+export function nextBotName(roster: Slot[], book: BotBook = {}): string | null {
+  const taken = new Set(roster.map((p) => botIdFor(p.name, book)));
+  for (let n = 1; n <= MAX_PLAYERS; n++)
+    if (!taken.has(slotId(n))) return botNameFor(slotId(n), book);
   return null;
+}
+
+/** The roster with each bot spelled by its current name (a roster saved before a
+ * rename says MCBot2 for Rex); the same array when nothing changes. */
+export function currentBotNames(roster: Slot[], book: BotBook): Slot[] {
+  let changed = false;
+  const next = roster.map((p) => {
+    const id = botIdFor(p.name, book);
+    const name = id ? botNameFor(id, book) : p.name;
+    if (name === p.name) return p;
+    changed = true;
+    return { ...p, name };
+  });
+  return changed ? next : roster;
 }
 
 /** The well-formed players of a stored roster value. */
@@ -300,18 +333,22 @@ export function rosterProblems(
   roster: Slot[],
   sided: boolean,
   meta?: ArenaMeta,
-  bot: string = BOT,
+  book: BotBook = {},
 ): string[] {
   if (!roster.length) return ["Add at least one player."];
   const problems: string[] = [];
   const seen = new Set<string>();
+  const bots = new Map<string, string>(); // bot id -> the name it is in under
   for (const p of roster) {
+    const id = botIdFor(p.name, book);
     if (!PLAYER.test(p.name))
       problems.push(`"${p.name}" is not a Minecraft name (letters, digits and _, up to 16).`);
     else if (seen.has(p.name.toLowerCase())) problems.push(`${p.name} is in the match twice.`);
-    else if (p.op && isBotName(p.name, bot))
-      problems.push(`${p.name} is a bot and cannot be an operator.`);
+    else if (id && bots.has(id))
+      problems.push(`${p.name} is ${bots.get(id)} again: a bot plays once.`);
+    else if (p.op && id) problems.push(`${p.name} is a bot and cannot be an operator.`);
     seen.add(p.name.toLowerCase());
+    if (id && !bots.has(id)) bots.set(id, p.name);
   }
   if (roster.length > MAX_PLAYERS) problems.push(`A match holds at most ${MAX_PLAYERS} players.`);
   if (!meta) return problems;

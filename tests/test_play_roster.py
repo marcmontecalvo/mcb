@@ -13,6 +13,8 @@ from mclab import dashboard as ui
 from mclab import play_runs as pr
 from mclab.arena import client as arena_client
 from mclab.arena.client import ArenaError
+from mclab.companion_api import ApiUnavailable
+from mclab.companion_names import BotNames
 from mclab.run_config import resolve_config
 
 
@@ -80,6 +82,7 @@ def test_the_people_online_are_offered_and_the_bot_is_marked():
             {"name": "MCBot", "bot": True},
         ],
         "bot": "MCBot",
+        "bots": {},
         "note": None,
     }
 
@@ -190,7 +193,12 @@ def test_with_no_arena_config_the_real_client_path_gives_a_note(tmp_path):
 
 
 def test_the_saved_roster_starts_empty():
-    assert pr.roster_state() == {"players": [], "last_match": None, "bot": "MCBot"}
+    assert pr.roster_state() == {
+        "players": [],
+        "last_match": None,
+        "bot": "MCBot",
+        "bots": {},
+    }
 
 
 def test_saving_a_player_by_hand_answers_with_the_whole_roster():
@@ -232,6 +240,142 @@ def test_the_bot_is_not_a_name_to_save():
     with pytest.raises(ValueError, match="bot"):
         pr.save_player({"name": "mcbot"})
     assert pr.roster_state()["players"] == []
+
+
+def test_a_renamed_bot_is_not_a_name_to_save_either():
+    BotNames({"mcbot2": "Rex"}).save(pr.bots_runtime())
+    with pytest.raises(ValueError, match="bot"):
+        pr.save_player({"name": "rex"})
+
+
+# --- renaming a bot ------------------------------------------------------------------
+
+
+class Companions:
+    """The arena server's companion host: the bots running and what they do."""
+
+    def __init__(self, *rows, refuse=None):
+        self.rows, self.refuse, self.restarted = list(rows), refuse, []
+
+    def __call__(self):  # passed as the client factory: it makes itself
+        return self
+
+    def bots(self):
+        return list(self.rows)
+
+    def restart_bot(self, bot_id):
+        if self.refuse:
+            return {"ok": False, "error": self.refuse}
+        self.restarted.append(bot_id)
+        return {"ok": True, "bot": {"id": bot_id}}
+
+
+def test_a_bot_is_renamed_and_the_wizard_sees_its_new_name():
+    reply = pr.rename_bot({"name": "MCBot2", "to": "Rex"}, client=Companions())
+    assert reply == {
+        "bot": {"id": "mcbot2", "name": "Rex"},
+        "restarted": False,
+        "bots": {"mcbot2": "Rex"},
+    }
+    assert pr.bot_names().name_for("mcbot2") == "Rex"
+    assert pr.roster_state()["bots"] == {"mcbot2": "Rex"}
+    # renamed again, by its new name, and back to its slot name
+    pr.rename_bot({"name": "rex", "to": "Ace"}, client=Companions())
+    assert (
+        pr.rename_bot({"name": "Ace", "to": "MCBot2"}, client=Companions())["bots"]
+        == {}
+    )
+
+
+def test_a_bot_on_the_server_comes_back_under_its_new_name():
+    companions = Companions({"id": "default", "name": "MCBot", "job": None})
+    reply = pr.rename_bot({"name": "MCBot", "to": "Bolt"}, client=companions)
+    assert reply["restarted"] is True and companions.restarted == ["default"]
+
+
+def test_a_bot_in_the_middle_of_a_job_is_not_renamed():
+    busy = Companions({"id": "default", "name": "MCBot", "job": "attack"})
+    with pytest.raises(ValueError, match="busy"):
+        pr.rename_bot({"name": "MCBot", "to": "Bolt"}, client=busy)
+    assert pr.bot_names().renamed == {} and busy.restarted == []
+
+
+def test_a_bot_that_cannot_come_back_says_its_new_name_is_kept():
+    companions = Companions({"id": "default", "name": "MCBot", "job": None}, refuse="x")
+    with pytest.raises(ValueError, match="Bolt.*kept.*x"):
+        pr.rename_bot({"name": "MCBot", "to": "Bolt"}, client=companions)
+    assert pr.bot_names().name_for("default") == "Bolt"
+
+
+def test_with_the_companion_host_down_the_new_name_waits_for_the_next_start():
+    def down():
+        raise ApiUnavailable("host down")
+
+    reply = pr.rename_bot({"name": "MCBot", "to": "Bolt"}, client=down)
+    assert reply["restarted"] is False and pr.bot_names().name_for("default") == "Bolt"
+
+
+@pytest.mark.parametrize(
+    ("request_", "problem"),
+    [
+        ({"name": "Ann", "to": "Rex"}, "not one of the bots"),
+        ({"name": "MCBot2", "to": "MCBot3"}, "already another bot.s name"),
+        ({"name": "MCBot2", "to": "Dad"}, "saved player"),
+        ({"name": "MCBot2", "to": "ab"}, "3-16"),
+        ({"name": "MCBot2", "to": "a b"}, "Minecraft name"),
+        ({"name": "MCBot2"}, "Minecraft name"),
+    ],
+)
+def test_a_bad_rename_is_refused(request_, problem):
+    pr.save_player({"name": "Dad"})
+    with pytest.raises(ValueError, match=problem):
+        pr.rename_bot(request_, client=Companions())
+    assert pr.bot_names().renamed == {}
+
+
+def test_a_renamed_bot_online_is_marked_a_bot_and_its_name_is_served():
+    BotNames({"mcbot2": "Rex"}).save(pr.bots_runtime())
+    answer = pr.online_players(client=Online({"name": "Rex"}, {"name": "Ann"}))
+    assert [(p["name"], p["bot"]) for p in answer["online"]] == [
+        ("Ann", False),
+        ("Rex", True),
+    ]
+    assert answer["bots"] == {"mcbot2": "Rex"}
+
+
+def test_a_broken_name_book_leaves_the_wizard_working_with_a_note(capsys):
+    folder = pr.bots_runtime()
+    folder.mkdir(parents=True)
+    (folder / "bot-names.json").write_text("{nope", encoding="utf-8")
+    assert pr.roster_state()["bots"] == {}
+    assert "bot-names.json" in capsys.readouterr().out
+
+
+def test_a_renamed_bot_in_a_match_is_not_saved_as_a_player(arenas):
+    BotNames({"mcbot2": "Rex"}).save(pr.bots_runtime())
+    config = arena(arena="crash_site", game="teams", waves="mixed-10",
+                   roster=[slot("Dad", "red"), slot("Rex", "blue")])  # fmt: skip
+    pr.remember_match(config["run"])
+    assert [p["name"] for p in pr.roster_state()["players"]] == ["Dad"]
+
+
+def test_one_bot_under_two_names_is_refused():
+    BotNames({"mcbot2": "Rex"}).save(pr.bots_runtime())
+    with pytest.raises(ValueError, match="Rex is MCBot2 again"):
+        arena(arena="crash_site", game="teams",
+              roster=[slot("MCBot2", "red"), slot("Rex", "blue")])  # fmt: skip
+
+
+def test_where_serves_the_renamed_bots(monkeypatch):
+    BotNames({"mcbot2": "Rex"}).save(pr.bots_runtime())
+    monkeypatch.setattr(pr, "arena_listing", lambda **_: {"ok": True, "arenas": []})
+    assert pr.where(ttl=0)["bots"] == {"mcbot2": "Rex"}
+
+
+def test_a_renamed_bot_cannot_be_an_operator():
+    BotNames({"mcbot2": "Rex"}).save(pr.bots_runtime())
+    with pytest.raises(ValueError, match="operator"):
+        arena(arena="crash_site", game="teams", roster=[slot("Rex", "red", op=True)])
 
 
 def test_only_known_fields_are_read_from_a_save_request():
@@ -295,7 +439,12 @@ def test_a_match_with_no_roster_saves_the_bot_alone_as_the_last_setup(arenas, tm
 def test_an_arena_tool_saves_nothing(arenas, tmp_path):
     config = arena(arena_action="stop", arena="vault")
     pr.execute(config, run_cli=lambda argv, env: (0, '{"ok": true}'))
-    assert pr.roster_state() == {"players": [], "last_match": None, "bot": "MCBot"}
+    assert pr.roster_state() == {
+        "players": [],
+        "last_match": None,
+        "bot": "MCBot",
+        "bots": {},
+    }
 
 
 def test_a_combat_trial_saves_nothing(arenas, tmp_path):
@@ -439,6 +588,20 @@ def test_post_roster_refuses_a_bad_name_with_a_400_and_a_reason(dashboard):
     http, token = dashboard
     status, body = call(http, token, "POST", "/api/roster", {"name": "bad name"})
     assert status == 400 and "Minecraft name" in body["error"]
+
+
+def test_post_bots_rename_renames_a_bot_and_refuses_a_bad_name(dashboard, monkeypatch):
+    http, token = dashboard
+    monkeypatch.setattr(pr, "_client", lambda instance, **_: Companions())
+    status, body = call(
+        http, token, "POST", "/api/bots/rename", {"name": "MCBot2", "to": "Rex"}
+    )
+    assert status == 200 and body["bot"] == {"id": "mcbot2", "name": "Rex"}
+    status, body = call(
+        http, token, "POST", "/api/bots/rename", {"name": "Ann", "to": "Rex2"}
+    )
+    assert status == 400 and "not one of the bots" in body["error"]
+    assert call(http, "wrong", "POST", "/api/bots/rename", {})[0] == 403
 
 
 def test_post_roster_needs_the_dashboards_token(dashboard):

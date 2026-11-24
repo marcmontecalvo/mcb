@@ -34,7 +34,7 @@ from pathlib import Path
 
 from mclab import arena_roster
 from mclab.arena.plan import TEAM_NAMES
-from mclab.companion_names import is_bot_name
+from mclab.companion_names import NAMES_FILE, BotNames
 from mclab.paths import ROOT
 
 ARENAS = ROOT / "arenas"
@@ -530,7 +530,9 @@ def _check_roster(roster: list[dict] | None) -> None:
     roster = roster or []
     if len(roster) > MAX_PLAYERS:
         raise ValueError(f"a match holds at most {MAX_PLAYERS} players")
-    seen = set()
+    bots = bot_names()
+    seen: set[str] = set()
+    in_as: dict[str, str] = {}  # bot id -> the name it is in the match under
     for entry in roster:
         name = entry["name"]
         if not _PLAYER.fullmatch(name):
@@ -538,11 +540,16 @@ def _check_roster(roster: list[dict] | None) -> None:
         if name.lower() in seen:
             raise ValueError(f"{name} is in the match twice")
         seen.add(name.lower())
+        bot_id = bots.id_for(name)
+        if bot_id in in_as:
+            raise ValueError(f"{name} is {in_as[bot_id]} again: a bot plays once")
+        if bot_id is not None:
+            in_as[bot_id] = name
         if entry["team"] not in (None, *TEAM_NAMES):
             raise ValueError(
                 f"{name}'s team {entry['team']!r} is not one of {', '.join(TEAM_NAMES)}"
             )
-        if entry["op"] and is_bot_name(name):
+        if entry["op"] and bots.is_bot(name):
             raise ValueError(f"{name} is a bot and cannot be an operator")
 
 
@@ -825,12 +832,12 @@ def where(
 ) -> dict:
     """Where to watch: each server's address, whether the arena server's lobby is
     built, and each arena on it (built or not, its corner, its spectator box and
-    the command to stand in it). The arena list is asked at most every ``ttl``
-    seconds."""
+    the command to stand in it), and the bots renamed (``bots``, read every time).
+    The arena list is asked at most every ``ttl`` seconds."""
     now = clock()
     cached = _where_cache.get(root)
     if cached is not None and cached[0] > now:
-        return cached[1]
+        return {**cached[1], "bots": bot_names(root).renamed}
     out: dict = {
         "servers": servers(root),
         "arena_server": server_for("arena"),
@@ -860,7 +867,7 @@ def where(
     except (RuntimeError, OSError, KeyError, TypeError) as error:
         out["arenas_error"] = str(error)
     _where_cache[root] = (now + ttl, out)
-    return out
+    return {**out, "bots": bot_names(root).renamed}
 
 
 # --- who can play: the people online and the saved roster ----------------------------
@@ -886,15 +893,15 @@ def online_players(*, client=None, root: Path = ROOT) -> dict:
     cannot be asked. Reads the bridge's ``/players`` roster; never an error."""
     from mclab.arena.client import ArenaError
 
-    out: dict = {"online": [], "bot": DEFAULT_BOT, "note": None}
+    bots = bot_names()
+    out: dict = {"online": [], "bot": DEFAULT_BOT, "bots": bots.renamed, "note": None}
     try:
         players = (client or _arena_client(root)).online().values()
         out["online"] = sorted(
             (
                 {
                     "name": p["name"],
-                    "bot": p.get("fake") is True
-                    or p["name"].lower() == DEFAULT_BOT.lower(),
+                    "bot": p.get("fake") is True or bots.is_bot(p["name"]),
                 }
                 for p in players
                 if _PLAYER.fullmatch(p["name"])
@@ -912,14 +919,34 @@ def online_players(*, client=None, root: Path = ROOT) -> dict:
     return out
 
 
+def bots_runtime(root: Path = ROOT) -> Path:
+    """The arena server's runtime folder, where its name book lives."""
+    from mclab import paths
+
+    return paths.instance_paths(server_for("arena"), root=root).runtime
+
+
+def bot_names(root: Path = ROOT) -> BotNames:
+    """The arena server's bots by name (``bot-names.json``: the ones renamed). A
+    book that cannot be read is said on the console and read as no renames: the
+    wizard still works, and the host refuses to start a bot under it."""
+    try:
+        return BotNames.load(bots_runtime(root))
+    except ValueError as error:
+        print(f"could not read the bots' {NAMES_FILE}: {error}", flush=True)
+        return BotNames()
+
+
 def roster_state(store=None) -> dict:
     """The saved roster for the wizard: the names (pinned first, then the most
-    recently used), the last match's setup, and the bot's name."""
+    recently used), the last match's setup, the first bot's slot name (``bot``)
+    and the bots renamed (``bots``, id -> name)."""
     store = store or arena_roster.RosterStore()
     return {
         "players": store.players(),
         "last_match": store.last_match(),
         "bot": DEFAULT_BOT,
+        "bots": bot_names().renamed,
     }
 
 
@@ -928,10 +955,54 @@ def save_player(request: dict, store=None) -> dict:
     ``pinned``); the roster after. A bad name, label or pin is a ValueError."""
     store = store or arena_roster.RosterStore()
     name = arena_roster.valid_name(request.get("name"))
-    if name.lower() == DEFAULT_BOT.lower():
-        raise ValueError(f"{DEFAULT_BOT} is the bot, not a player to save")
+    if bot_names().is_bot(name):
+        raise ValueError(f"{name} is a bot, not a player to save")
     store.upsert(name, label=request.get("label"), pinned=request.get("pinned"))
     return roster_state(store)
+
+
+RENAME_TIMEOUT_S = 60.0  # a bot leaves (halts, despawns) and is built again
+
+
+def rename_bot(request: dict, *, store=None, client=None) -> dict:
+    """Rename one of the arena server's bots (``name``: what it is called now;
+    ``to``: the new name). The name book keeps it; a bot on the server leaves and
+    comes back under it, in its place. Refused: a name that is no bot, a new name
+    a saved player or another bot has, and a bot in the middle of a job (rename
+    it between matches). Answers the bot, whether it came back, and the book."""
+    from mclab.companion_api import ApiUnavailable
+
+    current = arena_roster.valid_name(request.get("name"))
+    new = arena_roster.valid_name(request.get("to"))
+    names = bot_names()
+    bot_id = names.id_for(current)
+    if bot_id is None:
+        raise ValueError(f"{current} is not one of the bots")
+    store = store or arena_roster.RosterStore()
+    if any(p["name"].lower() == new.lower() for p in store.players()):
+        raise ValueError(f"{new} is a saved player's name")
+    renamed = names.rename(bot_id, new)
+    make = client or (lambda: _client(server_for("arena"), timeout=RENAME_TIMEOUT_S))
+    try:
+        api = make()
+        row = next((r for r in api.bots() if r.get("id") == bot_id), None)
+    except ApiUnavailable:
+        api = row = None  # the host is down: the name shows when it next starts
+    if row is not None and row.get("job"):
+        busy = f"{names.name_for(bot_id)} is busy ({row['job']})"
+        raise ValueError(f"{busy}; rename it between matches")
+    renamed.save(bots_runtime())
+    if row is not None:
+        reply = api.restart_bot(bot_id)
+        if not reply.get("ok"):
+            raise ValueError(
+                f"{new} is kept, but the bot could not come back: {reply.get('error')}"
+            )
+    return {
+        "bot": {"id": bot_id, "name": renamed.name_for(bot_id)},
+        "restarted": row is not None,
+        "bots": renamed.renamed,
+    }
 
 
 def forget_player(request: dict, store=None) -> dict:
@@ -951,7 +1022,7 @@ def remember_match(run: dict, *, store=None) -> None:
             game=_game(run),
             waves=run["waves"],
             custom_waves=run["custom_waves"],
-            bot=DEFAULT_BOT,
+            bots=bot_names(),
         )
     except (OSError, ValueError) as error:
         print(f"could not save the arena roster: {error}", flush=True)

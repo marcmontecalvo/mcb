@@ -1063,6 +1063,25 @@ def test_load_bot_reads_the_profile_and_checks_the_name(tmp_path):
         companion_host.load_bot({"companion": {"bot": "pal"}}, tmp_path)
 
 
+def test_a_renamed_bot_is_loaded_under_its_new_name(tmp_path):
+    from mclab.companion_names import BotNames
+
+    own = tmp_path / "bots" / "mcbot3"
+    own.mkdir(parents=True)
+    (own / "bot.json").write_text('{"name": "Scout"}')
+    names = BotNames({"default": "Bolt", "mcbot2": "Rex", "mcbot3": "Dash"})
+    assert companion_host.load_bot({}, tmp_path, None, names=names)["name"] == "Bolt"
+    second = companion_host.load_bot({}, tmp_path, "mcbot2", names=names)
+    assert second == {"name": "Rex", "id": "mcbot2"}
+    # the book wins over a profile's own name too: the operator renamed it last
+    assert (
+        companion_host.load_bot({}, tmp_path, "mcbot3", names=names)["name"] == "Dash"
+    )
+    assert (
+        companion_host.load_bot({}, tmp_path, "mcbot4", names=names)["name"] == "MCBot4"
+    )
+
+
 def test_the_repo_default_bot_is_mcbot():
     assert companion_host.load_bot({"companion": {"bot": "default"}})["name"] == "MCBot"
 
@@ -1320,8 +1339,14 @@ def test_a_member_is_a_host_and_a_talker_under_the_bots_own_name(tmp_path, monke
     monkeypatch.setattr(
         companion_host,
         "load_bot",
-        lambda settings, root, fleet_id: {"name": f"Bot_{fleet_id}"},
+        lambda settings, root, fleet_id, names: {
+            "name": names.renamed.get(fleet_id) or f"Bot_{fleet_id}"
+        },
     )
+    # The name book beside the instance's files is read for every bot built.
+    from mclab.companion_names import BotNames
+
+    BotNames({"mcbot2": "Rex"}).save(tmp_path)
     monkeypatch.setattr(
         companion_host,
         "session_factory",
@@ -1342,7 +1367,7 @@ def test_a_member_is_a_host_and_a_talker_under_the_bots_own_name(tmp_path, monke
     talkers = [e for e in log if e[0] == "talker"]
     assert talkers == [
         ("talker", "Bot_default", "play", []),
-        ("talker", "Bot_mcbot2", "play", ["results_dir"]),
+        ("talker", "Rex", "play", ["results_dir"]),
     ]
     assert len(first.stop) == 1 and first.talker is not None
 
@@ -1360,7 +1385,9 @@ def test_a_talker_that_will_not_start_leaves_the_bot_playing(tmp_path, monkeypat
 
     monkeypatch.setattr(companion_host, "Host", FakeHost)
     monkeypatch.setattr(
-        companion_host, "load_bot", lambda settings, root, fleet_id: {"name": "MCBot"}
+        companion_host,
+        "load_bot",
+        lambda settings, root, fleet_id, names: {"name": "MCBot"},
     )
     monkeypatch.setattr(companion_host, "session_factory", lambda bot, **kw: None)
     member = companion_host.member_factory({}, tmp_path, None)("default")

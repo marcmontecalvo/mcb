@@ -399,6 +399,12 @@ class FakeFleet(FakeHost):
         self.routed.append(("remove", bot_id))
         return {"id": bot_id, "name": "MCBot2"}
 
+    def restart(self, bot_id):
+        if self.refuse:
+            raise self.refuse
+        self.routed.append(("restart", bot_id))
+        return {"id": bot_id, "name": "Rex"}
+
 
 @pytest.fixture
 def fleet():
@@ -467,6 +473,27 @@ def test_a_bot_is_added_and_removed(fleet_server, fleet):
     assert raw(fleet_server, "DELETE", "/call")[0] == 405
 
 
+def test_a_bot_is_restarted_in_its_place(fleet_server, fleet):
+    assert raw(fleet_server, "POST", "/bots/mcbot2/restart") == (
+        200,
+        {"ok": True, "bot": {"id": "mcbot2", "name": "Rex"}},
+    )
+    assert fleet.routed == [("restart", "mcbot2")]
+    assert raw(fleet_server, "POST", "/bots//restart")[0] == 404
+    assert raw(fleet_server, "POST", "/bots/mcbot2/restart", token="wrong")[0] == 401
+    from mclab.companion_protocol import HostError
+
+    fleet.refuse = HostError("No bot mcbot5; here: default")
+    assert raw(fleet_server, "POST", "/bots/mcbot5/restart") == (
+        200,
+        {"ok": False, "error": "No bot mcbot5; here: default"},
+    )
+
+
+def test_a_host_of_one_bot_has_no_restart(server):
+    assert raw(server, "POST", "/bots/default/restart")[0] == 404
+
+
 def test_a_bot_that_cannot_be_added_says_why(fleet_server, fleet):
     from mclab.companion_protocol import HostError
 
@@ -489,6 +516,7 @@ def test_the_client_names_bots(fleet_server, fleet):
     assert client.add_bot()["bot"]["id"] == "mcbot2"
     assert client.add_bot("mcbot4")["bot"]["id"] == "mcbot4"
     assert client.remove_bot("mcbot4")["bot"]["id"] == "mcbot4"
+    assert client.restart_bot("mcbot4")["bot"]["name"] == "Rex"
     assert [r for r in fleet.routed if r[1] == "mcbot2"] == [
         ("call", "mcbot2"),
         ("job", "mcbot2"),

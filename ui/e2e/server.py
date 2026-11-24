@@ -82,6 +82,21 @@ def main():
         dashboard_runs.natural_seeds = lambda: []
         # The saved roster lives in the temporary folder; who is online is fixed.
         arena_roster.ROSTER_FILE = root / "runtime/arena-roster.json"
+        # So does the bots' name book; the companion host has two idle bots, and a
+        # renamed one comes back at once.
+        play_runs.bots_runtime = lambda root_=None: root / "runtime/arena-bots"
+
+        class Companions:
+            def bots(self):
+                return [
+                    {"id": "default", "name": "MCBot", "job": None},
+                    {"id": "mcbot2", "name": "MCBot2", "job": None},
+                ]
+
+            def restart_bot(self, bot_id):
+                return {"ok": True, "bot": {"id": bot_id}}
+
+        play_runs._client = lambda instance, **_: Companions()
         play_runs.online_players = lambda **_: {
             "online": [
                 {"name": "Dad_", "bot": False},

@@ -1024,6 +1024,10 @@ def handler(dashboard):
                     from mclab import play_runs
 
                     return self.reply(200, play_runs.forget_player(request))
+                if self.path == "/api/bots/rename":
+                    from mclab import play_runs
+
+                    return self.reply(200, play_runs.rename_bot(request))
                 if self.path == "/api/shutdown":
                     self.reply(
                         200,

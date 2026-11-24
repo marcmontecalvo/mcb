@@ -18,6 +18,8 @@ takes ``"all"``. And:
 - ``POST /bots`` ``{id?}``  ->  ``{"ok": true, "bot": {id, name}}``: put a bot in
   (the next free name by default) or ``{"ok": false, "error"}``
 - ``DELETE /bots/<id>``  ->  as ``POST /bots``: the bot halts and leaves
+- ``POST /bots/<id>/restart``  ->  as ``POST /bots``: it leaves and comes back in its
+  place, its profile read again (a rename in ``bot-names.json`` shows)
 - ``POST /shutdown``  ->  202; the host halts and despawns the body and exits (the
   supervisor's stop; Windows ``terminate()`` would skip that)
 
@@ -30,6 +32,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import threading
 import urllib.error
 import urllib.parse
@@ -45,6 +48,7 @@ MAX_BODY = 64 * 1024
 MAX_DISCARD = 1024 * 1024  # an oversize body read and dropped so the 413 arrives
 MAX_WAIT = 60.0
 SOURCES = ("api", "mcp")
+RESTART = re.compile(r"/bots/([^/]+)/restart")
 RUNTIME_FILE = "companion-host.json"
 DEFAULT_INSTANCE = "play"
 HOST_DOWN = (
@@ -245,6 +249,11 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if url.path == "/bots" and self._fleet():
             return self._add_bot()
+        restart = RESTART.fullmatch(url.path)
+        if restart and self._fleet():
+            self._drain()
+            bot_id = urllib.parse.unquote(restart.group(1))
+            return self._bot_reply(lambda: self.host.restart(bot_id))
         if url.path != "/call":
             self._drain()
             return self._fail(404, "not found")
@@ -427,6 +436,12 @@ class ApiClient:
         """Take a bot out (it halts and leaves the world); shaped as ``add_bot``."""
         quoted = urllib.parse.quote(str(bot_id), safe="")
         return self._request("DELETE", f"/bots/{quoted}")[1]
+
+    def restart_bot(self, bot_id: str) -> dict:
+        """Have a bot leave and come back in its place, under its name in the book
+        (``bot-names.json``); shaped as ``add_bot``."""
+        quoted = urllib.parse.quote(str(bot_id), safe="")
+        return self._request("POST", f"/bots/{quoted}/restart", {})[1]
 
     def shutdown(self) -> bool:
         """Ask the host to wind down (halt and despawn the body, then exit)."""

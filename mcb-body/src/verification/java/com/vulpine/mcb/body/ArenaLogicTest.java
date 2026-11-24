@@ -48,6 +48,7 @@ public final class ArenaLogicTest {
         tally();
         stats();
         board();
+        nameTag();
         recap();
         misc();
         cursor();
@@ -402,6 +403,17 @@ public final class ArenaLogicTest {
         var out = new ArrayList<String>();
         for (var line : lines) out.add(line.text().strip() + "=" + line.value());
         return out;
+    }
+
+    /** A name above a player's head and in the tab list: a square in the team's colour, the name itself left readable. */
+    private static void nameTag() {
+        var red = ArenaLogic.nameTag("red", 0);
+        check(red.badge().equals("■ ") && red.badgeColor().equals("red"), "a red square before a Red name: " + red);
+        check(red.nameColor().equals("reset"), "the name keeps its own colour, not the team's: " + red);
+        var blue = ArenaLogic.nameTag("blue", 1);
+        check(blue.badgeColor().equals("blue") && blue.badge().equals(red.badge()), "the same square, in blue: " + blue);
+        var alpha = ArenaLogic.nameTag("alpha", 2);
+        check(alpha.badgeColor().equals(ArenaLogic.teamColor("alpha", 2)), "a team not named for a colour takes its palette colour");
     }
 
     /** The sidebar: teams with their players by kills, wave progress, a fit into 15 lines. */

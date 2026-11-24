@@ -38,7 +38,7 @@ from pathlib import Path
 
 from mclab.arena.client import ArenaError
 from mclab.arena.standings import player_totals, series_board, series_recap
-from mclab.companion_names import bot_id_for_name
+from mclab.companion_names import BotNames
 
 __all__ = [
     "ArenaError",
@@ -101,17 +101,25 @@ def _bots_of(bot: str | None, bots: dict[str, str | None] | None) -> dict:
     return {bot: None} if bot else {}
 
 
-def resolve_bots(api, people: Iterable[str], extra: Iterable[str] = ()) -> dict:
+def resolve_bots(
+    api,
+    people: Iterable[str],
+    extra: Iterable[str] = (),
+    *,
+    names: BotNames | None = None,
+) -> dict:
     """Which of ``people`` are bots, name -> fleet id (in the roster's spelling): the
-    ones running on the host, then ``MCBot`` / ``MCBot<N>`` (put in by
-    ``ensure_bots``). ``extra`` names bots the operator says are there (a profile
-    with another name); one that is not running is an error, not a human."""
+    ones running on the host, then the names in the book (``names``: a renamed bot,
+    or ``MCBot`` / ``MCBot<N>``; put in by ``ensure_bots``). ``extra`` names bots the
+    operator says are there (a profile with another name); one that is not running
+    is an error, not a human."""
     running = {r["name"].lower(): r["id"] for r in api.bots() if r.get("name")}
+    names = names or BotNames()
     wanted = {n.lower() for n in extra}
     found: dict[str, str | None] = {}
     for person in people:
         key = person.lower()
-        bot_id = running.get(key) or bot_id_for_name(person)
+        bot_id = running.get(key) or names.id_for(person)
         if bot_id is None and key in wanted:
             here = ", ".join(sorted(running.values())) or "none"
             raise BotsUnavailable(f"no bot named {person}; running: {here}")

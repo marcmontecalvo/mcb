@@ -35,7 +35,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mclab.companion_names import is_bot_name
+from mclab.companion_names import BotNames
 from mclab.paths import ROOT
 
 ROSTER_FILE = ROOT / "runtime/arena-roster.json"
@@ -256,15 +256,16 @@ class RosterStore:
         game: str | None = None,
         waves: str | None = None,
         custom_waves: str | None = None,
-        bot: str | None = None,
+        bots: BotNames | None = None,
     ) -> None:
-        """A match is starting: save every name in it (not the ``bot`` nor any other
-        bot of the fleet, MCBot2 and on: companion_names), count the
-        use, and keep the setup as the last match. Entries that are not a player
-        with a Minecraft name are skipped; an empty match changes nothing."""
+        """A match is starting: save every name in it but the bots (MCBot, MCBot2 ...
+        and the names ``bots`` renamed them to: companion_names), count the use, and
+        keep the setup as the last match. Entries that are not a player with a
+        Minecraft name are skipped; an empty match changes nothing."""
         slots = [s for s in map(_slot, roster) if s]
         if not slots:
             return
+        bots = bots or BotNames()
         with _LOCK:
             players, _ = self._read()
             now = _stamp(self._clock())
@@ -272,11 +273,7 @@ class RosterStore:
             counted = set()
             for one in slots:
                 key = one["name"].lower()
-                if (
-                    key in counted
-                    or is_bot_name(key)
-                    or (bot is not None and key == bot.lower())
-                ):
+                if key in counted or bots.is_bot(key):
                     continue
                 counted.add(key)
                 entry = by_name.get(key)

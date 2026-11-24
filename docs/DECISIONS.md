@@ -654,3 +654,21 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
 - **Open:** the live check (a 2-bot PvE match, then a 2v2 with one person and one bot a
   team), the same wave feed and event load with many bodies, and a `bot` argument for
   the MCP tools.
+
+## Bot names and team marks (November 24, 2026)
+
+- **Renamed bots keep their slot.** A rename is an entry in the server's name book
+  (`bot-names.json`, `companion_names.BotNames`), not a new bot: the fleet id, profile,
+  saved state and memory stay, and the slot name (`MCBot2`) still means that bot so old
+  rosters keep working. One book read by the host, the dashboard and the arena scripts
+  replaces "a bot is whatever matches `MCBot<N>`" everywhere a bot is told from a person.
+- **Rename restarts the bot in place.** The game name is the Carpet fake player's name,
+  so a new name needs a new body: `Fleet.restart` rebuilds the member under the same key,
+  so the first bot stays first (requests without `bot=` still reach it). A bot with a job
+  is not renamed: the dashboard says to do it between matches instead of breaking one.
+- **Team marks, not team colours.** Red or blue name text is hard to read over sky and
+  grass, so an arena team has no colour; its prefix is a `■` in the team's colour.
+- **Skins: not yet.** The client shows another player's skin only when Mojang signed its
+  textures (`SkinManager` asks for secure ones; authlib also limits texture hosts), so
+  red and blue skins need signed textures made once (for example through MineSkin) and
+  stored with the mod. That waits on choosing a source.

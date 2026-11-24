@@ -267,6 +267,44 @@ test("the arena wizard starts from the last match, and one click brings it back"
   expect(errors).toEqual([]);
 });
 
+test("an arena match: rename a bot and it plays under its new name", async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/");
+  await pick(page, "Arenas and combat", "Arena");
+  await page.getByLabel("Arena", { exact: true }).selectOption("duel");
+  await page.getByLabel("Game", { exact: true }).selectOption({ label: "PvP" });
+  await page.getByLabel("Waves", { exact: true }).selectOption({ label: "No mob waves" });
+  await page.getByRole("button", { name: "+ Add a bot (MCBot2)" }).click();
+  // The pencil by a bot's name opens its new name; Rename keeps it.
+  await page.getByRole("button", { name: "Rename MCBot2", exact: true }).click();
+  await page.getByLabel("New name for MCBot2").fill("Rex");
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  const rows = page.locator(".roster-row .who strong");
+  await expect(rows).toHaveText(["MCBot", "Rex"]);
+  await expect(page.getByLabel("Rex is an operator")).toBeDisabled();
+  // The renamed bot is still a bot: the next one is MCBot3, and Who's here does
+  // not offer MCBot2 (the same bot, online under its old name).
+  await expect(page.getByRole("button", { name: "+ Add a bot (MCBot3)" })).toBeVisible();
+  await expect(page.locator(".roster-picker .choice strong")).toHaveText(["Dad_", "Son_"]);
+  const resolving = page.waitForResponse((r) => r.url().endsWith("/api/resolve"));
+  await page.getByRole("button", { name: "Check run list" }).click();
+  const [job] = (await (await resolving).json()).jobs;
+  expect(job.run_config.run.roster.map((p: { name: string }) => p.name)).toEqual(["MCBot", "Rex"]);
+  // A name another bot has is refused, and says why.
+  await page.getByRole("button", { name: "Rename Rex", exact: true }).click();
+  await page.getByLabel("New name for Rex").fill("MCBot");
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect(page.locator(".bot-rename .field-error")).toContainText("MCBot is already another bot's name");
+  expect(await noSideScroll(page)).toBe(true);
+  await page.screenshot({ path: info.outputPath("rename.png"), fullPage: true });
+  // Back to its slot name, for the tests after this one.
+  await page.getByLabel("New name for Rex").fill("MCBot2");
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect(rows).toHaveText(["MCBot", "MCBot2"]);
+  expect(errors).toEqual([]);
+});
+
 test("every tab renders after switching back and forth", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

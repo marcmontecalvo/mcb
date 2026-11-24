@@ -15,6 +15,9 @@ import {
   type Slot,
   addPlayer,
   fitRoster,
+  botIdFor,
+  botNameFor,
+  currentBotNames,
   isBotName,
   nextBotName,
   rosterOf,
@@ -247,6 +250,16 @@ describe("where to watch", () => {
     };
     expect(watchFor(job, { ...where, bot: "MCBot" }).humans).toEqual(["Ann", "Bob"]);
   });
+  it("counts a renamed bot as no human", () => {
+    const job = {
+      kind: "arena",
+      run_config: {
+        run: { test: "arena", arena: "vault", roster: [{ name: "Rex", team: null, op: false }] },
+      },
+    };
+    expect(watchFor(job, { ...where, bots: { mcbot2: "Rex" } }).humans).toEqual([]);
+    expect(watchFor(job, where).humans).toEqual(["Rex"]);
+  });
   it("a lab job names the lab server and no arena", () => {
     const job = { kind: "courses", run_config: { run: { test: "courses" } } };
     expect(watchFor(job, where)).toMatchObject({
@@ -355,7 +368,45 @@ describe("the arena roster", () => {
       expect(isBotName(name)).toBe(true);
     for (const name of ["Ann", "MCBot1", "MCBot0", "MCBot100", "MCBotty", "xMCBot2", ""])
       expect(isBotName(name)).toBe(false);
-    expect(isBotName("Pal2", "Pal")).toBe(true);
+  });
+
+  it("knows a renamed bot by its new name and still by its slot name", () => {
+    const book = { mcbot2: "Rex", default: "Bolt" };
+    expect(botIdFor("rex", book)).toBe("mcbot2");
+    expect(botIdFor("MCBot2", book)).toBe("mcbot2");
+    expect(botIdFor("BOLT", book)).toBe("default");
+    expect(botIdFor("Ann", book)).toBeNull();
+    expect(isBotName("Rex", book) && !isBotName("Rex")).toBe(true);
+    expect([botNameFor("mcbot2", book), botNameFor("mcbot3", book), botNameFor("default")]).toEqual([
+      "Rex",
+      "MCBot3",
+      "MCBot",
+    ]);
+  });
+
+  it("names the next bot by its new name, and a slot taken under either name stays taken", () => {
+    const book = { mcbot2: "Rex" };
+    expect(nextBotName([slot("MCBot")], book)).toBe("Rex");
+    expect(nextBotName([slot("Rex")], book)).toBe("MCBot");
+    expect(nextBotName([slot("MCBot"), slot("MCBot2")], book)).toBe("MCBot3");
+  });
+
+  it("spells each bot of a roster by its current name", () => {
+    const book = { mcbot2: "Rex" };
+    const roster = [slot("MCBot2", "red"), slot("Ann", "blue")];
+    expect(currentBotNames(roster, book)).toEqual([slot("Rex", "red"), slot("Ann", "blue")]);
+    const settled = [slot("Rex", "red"), slot("MCBot")];
+    expect(currentBotNames(settled, book)).toBe(settled);
+  });
+
+  it("refuses one bot twice under two names, and a renamed bot as an operator", () => {
+    const book = { mcbot2: "Rex" };
+    expect(rosterProblems([slot("MCBot2", "red"), slot("Rex", "blue")], true, duel, book)).toEqual([
+      "Rex is MCBot2 again: a bot plays once.",
+    ]);
+    expect(rosterProblems([slot("Rex", "red", true), slot("Ann", "blue")], true, duel, book)).toEqual([
+      "Rex is a bot and cannot be an operator.",
+    ]);
   });
 
   it("names the next bot: the first free of MCBot, MCBot2, MCBot3 ...", () => {

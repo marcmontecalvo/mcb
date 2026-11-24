@@ -9,6 +9,7 @@ import {
   type Where,
   MAX_PLAYERS,
   addPlayer,
+  currentBotNames,
   fieldText,
   fitRoster,
   isBotName,
@@ -381,6 +382,77 @@ export function WavesInput({
 
 const PLAYER = /^[A-Za-z0-9_]{1,16}$/;
 
+/** A bot in the match: its name, and a pencil to rename it. The arena server's bot
+ * leaves and rejoins under the new name (mclab.play_runs.rename_bot); `onRename`
+ * answers why not, or null once it is done. */
+function BotName({ name, onRename }: { name: string; onRename: (to: string) => Promise<string | null> }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  const close = () => {
+    setEditing(false);
+    setProblem("");
+  };
+  const save = async () => {
+    const to = draft.trim();
+    if (to === name) return close();
+    setBusy(true);
+    const error = await onRename(to);
+    setBusy(false);
+    if (error) setProblem(error);
+    else close();
+  };
+  if (!editing)
+    return (
+      <span className="who">
+        <strong>{name}</strong> <small>a bot</small>{" "}
+        <button
+          type="button"
+          className="link"
+          aria-label={`Rename ${name}`}
+          title="Rename this bot: it rejoins the arena server under the new name"
+          onClick={() => {
+            setDraft(name);
+            setEditing(true);
+          }}
+        >
+          ✎
+        </button>
+      </span>
+    );
+  return (
+    <span className="who bot-rename">
+      <input
+        autoFocus
+        aria-label={`New name for ${name}`}
+        maxLength={16}
+        value={draft}
+        disabled={busy}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void save();
+          } else if (e.key === "Escape") close();
+        }}
+      />
+      <button
+        type="button"
+        className="secondary-small"
+        disabled={busy || !/^[A-Za-z0-9_]{3,16}$/.test(draft.trim())}
+        onClick={() => void save()}
+      >
+        {busy ? "Renaming…" : "Rename"}
+      </button>
+      <button type="button" className="link" aria-label="Keep the name" disabled={busy} onClick={close}>
+        ✕
+      </button>
+      {problem && <span className="field-error">{problem}</span>}
+    </span>
+  );
+}
+
 /** Who plays an arena match: bots (MCBot, MCBot2, ...) and people by Minecraft name,
  * each on one of the arena's teams in a team game, and whether the match makes
  * them an operator (never a bot). The roster follows the game and arena: a team
@@ -400,7 +472,6 @@ export function RosterInput({
   validity,
   sided,
   meta,
-  bot,
   max = MAX_PLAYERS,
   adopt,
   current,
@@ -415,7 +486,6 @@ export function RosterInput({
   validity: Validity;
   sided: boolean;
   meta?: ArenaMeta;
-  bot: string;
   max?: number;
   adopt?: (setup: Setup) => void;
   /** The roster, arena, game and waves as the form holds them (defaults included). */
@@ -444,13 +514,19 @@ export function RosterInput({
     const fitted = fitRoster(roster, sided, meta);
     if (fitted !== roster) set(fitted);
   }, [sided, JSON.stringify(meta), JSON.stringify(value)]);
-  const problems = rosterProblems(roster, sided, meta, bot);
+  const bots = people.book?.bots ?? people.online?.bots ?? {};
+  useEffect(() => {
+    // A roster from before a rename (the last match's) names each bot as it is now.
+    const named = currentBotNames(roster, bots);
+    if (named !== roster) set(named);
+  }, [JSON.stringify(bots), JSON.stringify(value)]);
+  const problems = rosterProblems(roster, sided, meta, bots);
   useEffect(() => {
     validity(id, problems.length === 0);
   }, [id, problems.length]);
   useEffect(() => () => validity(id, true), [id]);
-  const isBot = (p: Slot) => isBotName(p.name, bot);
-  const nextBot = nextBotName(roster, bot);
+  const isBot = (p: Slot) => isBotName(p.name, bots);
+  const nextBot = nextBotName(roster, bots);
   const edit = (i: number, change: Partial<Slot>) =>
     set(roster.map((p, j) => (j === i ? { ...p, ...change } : p)));
   const room = Math.min(max, (!sided && meta?.players) || max);
@@ -464,7 +540,7 @@ export function RosterInput({
   };
   const who = (p: Slot, i: number) => p.name || `Player ${i + 1}`;
   const saved = people.book?.players ?? [];
-  const choices = choicesFor(people.online?.online ?? [], saved, roster, bot);
+  const choices = choicesFor(people.online?.online ?? [], saved, roster, bots);
   const typedSaved = saved.some((s) => s.name.toLowerCase() === typed.toLowerCase());
   const again = last && lastSetup(last, current ?? { ...nothing, roster: value }, offered, true);
   const sameAsLast = !!last && sameRoster(roster, last.roster) && !again?.arena && !again?.game;
@@ -502,10 +578,14 @@ export function RosterInput({
         {roster.map((p, i) => (
           <div className="roster-row" key={i}>
             {isBot(p) ? (
-              <span className="who">
-                <strong>{p.name}</strong>{" "}
-                <small>{p.name.toLowerCase() === bot.toLowerCase() ? "the bot" : "a bot"}</small>
-              </span>
+              <BotName
+                name={p.name}
+                onRename={async (to) => {
+                  const done = await people.rename(p.name, to);
+                  if ("name" in done) edit(i, { name: done.name });
+                  return "error" in done ? done.error : null;
+                }}
+              />
             ) : (
               <input
                 className="who"
@@ -597,7 +677,7 @@ export function RosterInput({
           type="button"
           className="link"
           title="Keep this name in Who's here without adding it to the match"
-          disabled={!PLAYER.test(typed) || typedSaved || isBotName(typed, bot)}
+          disabled={!PLAYER.test(typed) || typedSaved || isBotName(typed, bots)}
           onClick={() => {
             people.save(typed);
             setName("");
@@ -773,7 +853,6 @@ export function Fields({
         validity={validity}
         sided={sided}
         meta={meta}
-        bot={node.bot || "MCBot"}
         max={node.max}
         adopt={adopt}
         current={{

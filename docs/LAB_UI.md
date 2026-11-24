@@ -136,7 +136,11 @@ race to kill the most wave mobs). **Players** is `run.roster`, a list of
 `{name, team, op}` (`run_config.RosterEntry`): the bot's row, more bots from
 **+ Add a bot (MCBot2)**, a button right under the players (the next free
 `MCBot<N>`, on the smaller team; a bot has no Op box and cannot be an operator; a
-removed bot's name is reused). A bot already online on the arena server is also
+removed bot's name is reused). Each bot row has a **✎** that renames the bot
+(`POST /api/bots/rename`, 3–16 letters, digits or `_`; refused for a saved
+player's or another bot's name and while the bot has a job): the arena server's
+name book keeps it and the bot rejoins under the new name; its slot name, e.g.
+`MCBot2`, still means it. A bot already online on the arena server is also
 offered in **Who's here**, tagged "a bot", with the same one-click team buttons and
 no Op, pin or label; a fake player that is none of our bots is not offered (see
 [ARENA_RUNTIME.md](ARENA_RUNTIME.md#several-bots)), a row per person

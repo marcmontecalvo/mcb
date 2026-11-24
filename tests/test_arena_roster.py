@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from mclab import arena_roster as ar
+from mclab.companion_names import BotNames
 
 T0 = datetime(2026, 11, 24, 12, 0, 0, tzinfo=UTC)
 
@@ -176,18 +177,24 @@ def test_a_name_twice_in_one_match_is_counted_once(store):
 
 
 def test_the_bot_is_not_saved_as_a_player(store):
-    store.record_match([slot("MCBot", "red"), slot("Ann", "blue")], bot="mcbot")
+    store.record_match([slot("mcbot", "red"), slot("Ann", "blue")])
     assert names(store) == ["Ann"]
-    assert [p["name"] for p in store.last_match()["roster"]] == ["MCBot", "Ann"]
+    assert [p["name"] for p in store.last_match()["roster"]] == ["mcbot", "Ann"]
 
 
 def test_no_bot_of_the_fleet_is_saved_as_a_player(store):
-    # MCBot2, MCBot3, ... are bots by name (companion_names), whatever ``bot`` says
+    # MCBot2, MCBot3, ... are bots by name (companion_names)
     roster = [slot("MCBot", "red"), slot("mcbot2", "red"), slot("Ann", "blue"),
               slot("MCBot100", "blue")]  # fmt: skip
-    store.record_match(roster, bot="MCBot")
+    store.record_match(roster)
     assert names(store) == ["Ann", "MCBot100"]  # MCBot100 is not a bot name
     assert len(store.last_match()["roster"]) == 4
+
+
+def test_a_renamed_bot_is_not_saved_as_a_player(store):
+    renamed = BotNames({"default": "Bolt", "mcbot2": "Rex"})
+    store.record_match([slot("bolt"), slot("Rex"), slot("Ann")], bots=renamed)
+    assert names(store) == ["Ann"]
 
 
 def test_a_match_keeps_the_label_and_pin_of_a_name_it_uses(store):
@@ -216,7 +223,6 @@ def test_the_last_match_remembers_the_setup_and_the_teams(store):
         game="teams",
         waves="mixed-10",
         custom_waves=None,
-        bot="MCBot",
     )
     last = store.last_match()
     assert last["arena"] == "crash_site" and last["game"] == "teams"

@@ -75,7 +75,10 @@ whose match is running is refused: it was left before chunk holding kept it load
 drops stay for the match.
 
 `mode: "teams"`: players go to their team's pads, a scoreboard team `mcb_<8 hex>` per arena team is
-made with friendly fire off and the team's colour (name tags show it), and it is removed afterwards.
+made with friendly fire off, and it is removed afterwards. Each name (over the head, in the tab list
+and in chat) gets a square in the team's colour before it, `■ Ann`; the name itself keeps its
+normal colour, since red or blue text reads badly (`ArenaLogic.nameTag`: the team has no colour of
+its own, the square is its prefix).
 Won by the last team with a live member; `draw` is a loss with winner none.
 
 ### Boards and recaps
@@ -364,7 +367,22 @@ mixed, up to 8 a team). Built, **live check pending**.
 - **Names.** The first bot is `MCBot` (fleet id `default`); the others are `MCBot2` … `MCBot99`
   (ids `mcbot2` …). `mclab.companion_names` holds the mapping (`bot_id_for`, `bot_name_for`,
   `bot_id_for_name`, `is_bot_name`); it imports nothing heavy, so the dashboard and `play_runs`
-  can use it. Nothing else names a bot: a roster name matching `MCBot` or `MCBot<N>` is a bot.
+  can use it. A roster name matching `MCBot` or `MCBot<N>` is a bot.
+- **Renaming.** Any bot can be renamed (`BotNames`, the arena instance's
+  `runtime/instances/arena/bot-names.json`, id -> name; only renamed slots are listed). Its id,
+  profile, saved state and memory stay; its old slot name still means it (a roster saved before
+  the rename never waits for a human `MCBot2`). The host reads the book every time it builds a bot
+  (`member_factory` -> `load_bot(names=)`; the book wins over a profile's own name), and
+  `POST /bots/<id>/restart` (`Fleet.restart`, `ApiClient.restart_bot`) has a bot leave and come
+  back in its place, still first if it was; meanwhile requests to it say it is restarting. The
+  dashboard's `POST /api/bots/rename {name, to}` (`play_runs.rename_bot`) refuses a name that is no
+  bot, a new name a saved player or another bot has, and a bot with a job (rename between
+  matches); then saves the book and restarts the bot if the host runs it. With the host down the
+  name waits for its next start. `/api/roster`, `/api/roster/online` and `/api/where` serve the
+  book as `bots`; `play_runs`, `arena_roster.record_match` and `arena-hunt.py` tell bots by it, and a
+  roster with one bot under two names is refused. The game sees a new player: an offline-mode
+  UUID comes from the name, so the bot's server-side inventory and position start fresh (a match
+  hands out its kit anyway).
 - **Bodies.** The mod's body hub gives each bot its own body, routed and tagged by body id. The
   companion `Fleet` (`companion_fleet.py`, up to 16) keeps one `Member` (host, session, talker) per
   bot with its own files. `ApiClient` routes by `bot=` (`bots()`, `add_bot(id)`; adding an
@@ -388,7 +406,9 @@ mixed, up to 8 a team). Built, **live check pending**.
   series summary adds `bots[name] = {runs, wins, bot_kills, deaths, min_health, hurt_by}`.
 - **Dashboard.** The Arena roster has "+ Add a bot (MCBot2)", which names the next free bot and
   puts it on the smaller team; a bot cannot be an operator (`play_runs` refuses it too) and
-  counts toward capacity. The "where to watch" card lists only the humans a match waits on.
+  counts toward capacity. The "where to watch" card lists only the humans a match waits on. A
+  bot's row has a ✎ to rename it (a name box, Rename and ✕; a refusal shows under it), and a
+  roster from before a rename is shown with each bot's current name.
 - **Not done.** The MCP tools (`goto`, `attack`, …) drive the first bot only: there is no `bot`
   argument yet.
 

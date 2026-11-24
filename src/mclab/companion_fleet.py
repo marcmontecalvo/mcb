@@ -79,15 +79,23 @@ class Fleet:
             if not self._members:
                 raise HostError("No bot is running; add one first")
             if bot_id is None:
-                return next(iter(self._members.values()))
+                bot_id = next(iter(self._members))
             if bot_id not in self._members:
                 raise HostError(f"No bot {bot_id}; here: {', '.join(self._members)}")
+            if bot_id in self._pending:  # only a restart has a member and is pending
+                raise HostError(f"{bot_id} is restarting; ask again in a moment")
             return self._members[bot_id]
 
     def bots(self) -> list[dict]:
         rows = []
+        with self._lock:
+            restarting = set(self._pending)
         for member in self._snapshot():
-            status = member.host.status()
+            status = (
+                {"session": "restarting"}
+                if member.id in restarting
+                else member.host.status()
+            )
             job = status.get("job")
             rows.append(
                 {
@@ -153,6 +161,37 @@ class Fleet:
             member = self._members.pop(bot_id)
         member.close()
         return self._described(member)
+
+    def restart(self, bot_id: str) -> dict:
+        """Take a bot out and build it again in the same place (its profile read
+        anew, so a rename shows): it stays the fleet's first if it was. Meanwhile a
+        request to it says it is restarting. One that cannot be built again is gone."""
+        with self._lock:
+            if self._stopping:
+                raise HostError("The fleet is stopping")
+            if bot_id in self._pending:
+                raise HostError(f"{bot_id} is restarting")
+            if bot_id not in self._members:
+                here = ", ".join(self._members) or "none"
+                raise HostError(f"No bot {bot_id}; here: {here}")
+            old = self._members[bot_id]
+            self._pending.add(bot_id)
+        try:
+            old.close()
+            member = self._factory(bot_id)
+        except BaseException:
+            with self._lock:
+                self._pending.discard(bot_id)
+                self._members.pop(bot_id, None)
+            raise
+        with self._lock:
+            self._pending.discard(bot_id)
+            if member is not None and not self._stopping and bot_id in self._members:
+                self._members[bot_id] = member  # an existing key keeps its place
+                return self._described(member)
+        if member is not None:  # the fleet began stopping while it was rebuilt
+            member.close()
+        raise HostError("The fleet is stopping")
 
     @staticmethod
     def _described(member: Member) -> dict:

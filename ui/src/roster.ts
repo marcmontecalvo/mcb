@@ -2,7 +2,7 @@
 // runtime/arena-roster.json by mclab.arena_roster): who is online on the arena
 // server now, the names saved from earlier matches and typed by hand, and the last
 // match's setup. Pure helpers; the screen is RosterPicker.tsx.
-import { isBotName, type ArenaMeta, type Slot } from "./forms";
+import { botIdFor, isBotName, type ArenaMeta, type BotBook, type Slot } from "./forms";
 
 /** GET /api/roster: a saved name (never anything but names and counts). */
 export type Saved = {
@@ -22,10 +22,23 @@ export type LastMatch = {
   custom_waves: string | null;
   roster: Slot[];
 };
-export type Book = { players: Saved[]; last_match: LastMatch | null; bot: string };
+/** GET /api/roster; `bots` are the bots renamed (id -> name). */
+export type Book = {
+  players: Saved[];
+  last_match: LastMatch | null;
+  bot: string;
+  bots?: BotBook;
+};
 /** GET /api/roster/online: `bot` marks the companion (and any fake player). */
 export type OnlinePlayer = { name: string; bot: boolean };
-export type Online = { online: OnlinePlayer[]; bot: string; note: string | null };
+export type Online = {
+  online: OnlinePlayer[];
+  bot: string;
+  bots?: BotBook;
+  note: string | null;
+};
+/** POST /api/bots/rename: the bot as it is now, whether it rejoined, the book. */
+export type Renamed = { bot: { id: string; name: string }; restarted: boolean; bots: BotBook };
 
 /** One person or bot the wizard offers: online now, saved, or both (a bot is only
  * ever online: bots are not saved names). */
@@ -49,15 +62,16 @@ export function choicesFor(
   online: OnlinePlayer[],
   saved: Saved[],
   inMatch: Slot[],
-  bot: string,
+  bots: BotBook = {},
 ): Choice[] {
   const skip = new Set(inMatch.map((p) => key(p.name)));
+  const botsIn = new Set(inMatch.map((p) => botIdFor(p.name, bots)).filter(Boolean));
   const book = new Map(saved.map((s) => [key(s.name), s]));
   const rows: Choice[] = [];
   const seen = new Set<string>();
   const push = (name: string, isOnline: boolean, isBot = false) => {
     const k = key(name);
-    if (skip.has(k) || seen.has(k)) return;
+    if (skip.has(k) || seen.has(k) || (isBot && botsIn.has(botIdFor(name, bots)))) return;
     seen.add(k);
     const own = isBot ? undefined : book.get(k);
     rows.push({
@@ -69,9 +83,9 @@ export function choicesFor(
       bot: isBot,
     });
   };
-  for (const p of online) if (!p.bot && !isBotName(p.name, bot)) push(p.name, true);
-  for (const p of online) if (p.bot && isBotName(p.name, bot)) push(p.name, true, true);
-  for (const s of saved) if (!isBotName(s.name, bot)) push(s.name, false);
+  for (const p of online) if (!p.bot && !isBotName(p.name, bots)) push(p.name, true);
+  for (const p of online) if (p.bot && isBotName(p.name, bots)) push(p.name, true, true);
+  for (const s of saved) if (!isBotName(s.name, bots)) push(s.name, false);
   const pinnedFirst = (group: Choice[]) => [
     ...group.filter((r) => r.pinned),
     ...group.filter((r) => !r.pinned),

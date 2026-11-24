@@ -40,9 +40,13 @@ def sessions():
 def fleet(sessions, monkeypatch):
     monkeypatch.setattr(companion_intents, "_allowlisted", lambda uuid, name="": True)
     closed = []
+    names = {}  # bot id -> a name it was renamed to, read each time it is built
+    holds = {}  # bot id -> an Event its next build waits on
 
     def factory(bot_id):
-        bot = {"id": bot_id, "name": bot_name_for(bot_id)}
+        if bot_id in holds:
+            assert holds.pop(bot_id).wait(5)
+        bot = {"id": bot_id, "name": names.get(bot_id) or bot_name_for(bot_id)}
 
         def session():
             made = FakeSession()
@@ -58,7 +62,7 @@ def fleet(sessions, monkeypatch):
         )
 
     value = Fleet(factory, limit=3)
-    value.closed = closed
+    value.closed, value.names, value.holds = closed, names, holds
     yield value
     for made in sessions.values():
         for session in made:
@@ -129,6 +133,58 @@ def test_a_removed_bot_is_stopped_and_gone(fleet):
     assert fleet.closed == ["mcbot2"] and fleet.ids() == ["default"]
     with pytest.raises(HostError, match="No bot mcbot2"):
         fleet.remove("mcbot2")
+
+
+def test_a_restarted_bot_comes_back_in_its_place_under_its_new_name(fleet):
+    fleet.add()
+    fleet.add()
+    fleet.names["default"] = "Rex"
+    assert fleet.restart("default") == {"id": "default", "name": "Rex"}
+    assert fleet.closed == ["default"]
+    # Still first: a request naming no bot reaches it, as before the restart.
+    assert fleet.ids() == ["default", "mcbot2"] and fleet.default_id() == "default"
+    assert [row["name"] for row in fleet.bots()] == ["Rex", "MCBot2"]
+    assert fleet.call("status", {}, OPERATOR)["ok"]
+
+
+def test_a_bot_that_is_restarting_says_so_until_it_is_back(fleet):
+    fleet.add()
+    gate = fleet.holds["default"] = threading.Event()
+    worker = threading.Thread(target=fleet.restart, args=("default",))
+    worker.start()
+    until(lambda: fleet.closed == ["default"])
+    reply = fleet.call("status", {}, OPERATOR)
+    assert not reply["ok"] and "restarting" in reply["error"]
+    assert fleet.bots()[0]["session"] == "restarting"
+    with pytest.raises(HostError, match="restarting"):
+        fleet.restart("default")
+    gate.set()
+    worker.join(5)
+    assert fleet.call("status", {}, OPERATOR)["ok"]
+
+
+def test_restarting_a_bot_that_is_not_here_is_refused(fleet):
+    with pytest.raises(HostError, match="No bot mcbot2"):
+        fleet.restart("mcbot2")
+
+
+def test_a_bot_that_cannot_come_back_is_gone_not_left_half_closed():
+    built = []
+
+    def factory(bot_id):
+        if built:
+            raise ValueError("broken profile")
+        built.append(bot_id)
+        host = Host(FakeSession, bot={"id": bot_id, "name": "MCBot"}, idle_s=0.01)
+        host.start()
+        return Member(bot_id, {"id": bot_id, "name": "MCBot"}, host)
+
+    fleet = Fleet(factory)
+    fleet.add()
+    with pytest.raises(ValueError, match="broken profile"):
+        fleet.restart("default")
+    assert fleet.ids() == []
+    fleet.shutdown()
 
 
 def test_a_factory_that_refuses_a_bot_leaves_the_fleet_as_it_was():

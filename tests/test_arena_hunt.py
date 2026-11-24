@@ -1289,6 +1289,18 @@ def test_the_bots_of_a_roster_are_the_running_ones_and_the_derived_names():
     assert ah.resolve_bots(api, ["Ann", "Bob"]) == {}
 
 
+def test_a_renamed_bot_is_found_by_its_new_name_even_before_it_runs():
+    from mclab.companion_names import BotNames
+
+    api = FleetApi(Clock())
+    api.running = {"default"}
+    names = BotNames({"default": "Bolt", "mcbot2": "Rex"})
+    assert ah.resolve_bots(api, ["bolt", "Rex", "Ann"], names=names) == {
+        "bolt": "default",
+        "Rex": "mcbot2",
+    }
+
+
 def test_a_bot_named_by_the_operator_must_be_running():
     api = FleetApi(Clock())
     api.known["pal"] = "Pal"

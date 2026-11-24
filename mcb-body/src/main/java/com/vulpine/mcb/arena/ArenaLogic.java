@@ -511,6 +511,14 @@ public final class ArenaLogic {
         return COLORS.contains(lower) ? lower : TEAM_PALETTE.get(Math.floorMod(index, TEAM_PALETTE.size()));
     }
 
+    /**
+     * How a team marks its players' names (over their heads, in the tab list and chat): a square in the team's colour
+     * before the name, which keeps its own colour ("reset"), since red or blue text reads badly against the sky.
+     */
+    public record NameTag(String badge, String badgeColor, String nameColor) {}
+
+    public static NameTag nameTag(String team, int index) { return new NameTag("■ ", teamColor(team, index), "reset"); }
+
     /** "red" as "Red". */
     public static String title(String word) { return word.isEmpty() ? word : Character.toUpperCase(word.charAt(0)) + word.substring(1); }
 

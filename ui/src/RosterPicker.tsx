@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { humanize } from "./forms";
-import type { Book, Choice, Online } from "./roster";
+import type { Book, Choice, Online, Renamed } from "./roster";
 
 const MAX_LABEL = 32; // mclab.arena_roster.MAX_LABEL
 
@@ -67,6 +67,17 @@ export function useRosterBook() {
     save: (name: string, fields: { label?: string; pinned?: boolean } = {}) =>
       change("/api/roster", { name, ...fields }),
     forget: (name: string) => change("/api/roster/remove", { name }),
+    /** Rename a bot: its new name, or why not. A bot on the server rejoins under it. */
+    rename: async (name: string, to: string): Promise<{ name: string } | { error: string }> => {
+      try {
+        const answer = await api<Renamed>("/api/bots/rename", "POST", { name, to });
+        if (alive.current) setBook((b) => b && { ...b, bots: answer.bots });
+        void refresh();
+        return { name: answer.bot.name };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    },
   };
 }
 

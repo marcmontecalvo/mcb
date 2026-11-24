@@ -72,7 +72,12 @@ def _hunt(tmp_path, monkeypatch, admin=None):
     admin = admin or FakeAdmin()
     monkeypatch.setattr(ah, "run_series", series)
     monkeypatch.setattr(arena.ArenaClient, "from_state", classmethod(lambda c: admin))
-    return _script("arena-hunt.py")["main"], seen, admin
+    main = _script("arena-hunt.py")["main"]
+    # The instance's files (its name book) are in the test's folder, not runtime/.
+    main.__globals__["runtime_file"] = (
+        lambda: tmp_path / "instance" / "companion-host.json"
+    )
+    return main, seen, admin
 
 
 def test_a_hunt_hands_out_its_kit_in_the_materials_asked(tmp_path, monkeypatch):
@@ -193,6 +198,19 @@ def test_a_match_of_two_bots_puts_the_missing_one_in_before_players_are_awaited(
     ((names, _),) = admin.waited
     assert names == ["MCBot", "Ann", "MCBot2", "Bob"]  # the bots join, never ready
     assert "put in mcbot2" in capsys.readouterr().out
+
+
+def test_a_renamed_bot_in_a_roster_is_put_in_under_its_slot(tmp_path, monkeypatch):
+    from mclab.companion_names import BotNames
+
+    main, seen, admin = _hunt(tmp_path, monkeypatch)
+    BotNames({"mcbot2": "Rex"}).save(tmp_path / "instance")
+
+    code = main(["--arena", "duel", "--mode", "teams", "--team", "red=Ann",
+                 "--team", "blue=Rex"])  # fmt: skip
+
+    assert code == 0
+    assert seen["bots"] == {"Rex": "mcbot2"} and seen["api"].added == ["mcbot2"]
 
 
 def test_a_bot_the_host_cannot_put_in_stops_the_hunt_before_it_starts(

@@ -47,7 +47,7 @@ describe("choicesFor", () => {
       ],
       [saved("Bo"), saved("Zed", { label: "Son" })],
       [],
-      "MCBot",
+      {},
     );
     expect(rows.map((r) => [r.name, r.online, r.saved])).toEqual([
       ["Ann", true, false],
@@ -65,7 +65,7 @@ describe("choicesFor", () => {
       ],
       [saved("Dee"), saved("Eve", { pinned: true }), saved("Cy", { pinned: true })],
       [],
-      "MCBot",
+      {},
     );
     expect(rows.map((r) => r.name)).toEqual(["Cy", "Ann", "Eve", "Dee"]);
   });
@@ -75,7 +75,7 @@ describe("choicesFor", () => {
       [{ name: "SonOfDad", bot: false }],
       [saved("sonofdad", { label: "Son", pinned: true })],
       [],
-      "MCBot",
+      {},
     );
     expect(row).toMatchObject({
       name: "SonOfDad",
@@ -95,7 +95,7 @@ describe("choicesFor", () => {
       ],
       [saved("ann"), saved("Cy")],
       [slot("ANN", "red"), slot("mcbot", "red")],
-      "MCBot",
+      {},
     );
     expect(rows.map((r) => r.name)).toEqual(["Bo", "Cy"]);
   });
@@ -112,7 +112,7 @@ describe("choicesFor", () => {
       ],
       [saved("Cy"), saved("mcbot3")],
       [],
-      "MCBot",
+      {},
     );
     expect(rows.map((r) => [r.name, r.bot, r.online, r.saved])).toEqual([
       ["Ann", false, true, false],
@@ -122,8 +122,23 @@ describe("choicesFor", () => {
     ]);
   });
 
+  it("offers a renamed bot as a bot, and not when the match has it under its old name", () => {
+    const online = [
+      { name: "Rex", bot: true },
+      { name: "Ann", bot: false },
+    ];
+    const book = { mcbot2: "Rex" };
+    expect(choicesFor(online, [], [], book).map((r) => [r.name, r.bot])).toEqual([
+      ["Ann", false],
+      ["Rex", true],
+    ]);
+    expect(choicesFor(online, [], [slot("MCBot2", "red")], book).map((r) => r.name)).toEqual([
+      "Ann",
+    ]);
+  });
+
   it("is empty when nobody is online and nothing is saved", () => {
-    expect(choicesFor([], [], [], "MCBot")).toEqual([]);
+    expect(choicesFor([], [], [], {})).toEqual([]);
   });
 });
 

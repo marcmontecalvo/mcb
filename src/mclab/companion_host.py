@@ -810,12 +810,23 @@ class Host:
 # --- the process ---------------------------------------------------------------------
 
 
-def load_bot(settings: dict, root=None, bot_id: str | None = None) -> dict:
+def load_bot(
+    settings: dict, root=None, bot_id: str | None = None, *, names=None
+) -> dict:
     """A bot's profile.
 
     Without ``bot_id`` (or for ``default``): ``bots/<config companion.bot>/bot.json``
     (default name MCBot). Another id is its own ``bots/<id>/bot.json`` if there is
-    one, else, for ``mcbot<N>``, a copy of the first bot's profile named MCBot<N>."""
+    one, else, for ``mcbot<N>``, a copy of the first bot's profile named MCBot<N>.
+    ``names`` (a ``BotNames``) is the operator's renames: they win over the profile."""
+    profile = _profile(settings, root, bot_id)
+    renamed = (names.renamed if names is not None else {}).get(bot_id or "default")
+    if renamed:
+        profile["name"] = renamed
+    return profile
+
+
+def _profile(settings: dict, root, bot_id: str | None) -> dict:
     from mclab.paths import ROOT, read_json
 
     root = root or ROOT
@@ -909,11 +920,13 @@ def session_factory(
 def member_factory(settings, runtime, world_spawn, *, root=None):
     """The fleet's factory: ``make(fleet_id)`` loads the bot's profile, starts its
     host (worker, session) and its talker. A talker that will not start is logged:
-    the bot still plays, it just cannot chat."""
+    the bot still plays, it just cannot chat. The name book (``bot-names.json`` in
+    ``runtime``) is read at every build, so a restarted bot comes back renamed."""
     from mclab.companion_fleet import Member
+    from mclab.companion_names import BotNames
 
     def make(fleet_id):
-        bot = load_bot(settings, root, fleet_id)
+        bot = load_bot(settings, root, fleet_id, names=BotNames.load(runtime))
         bot.setdefault("id", fleet_id)
         host = Host(
             session_factory(

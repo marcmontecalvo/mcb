@@ -39,7 +39,8 @@ from mclab import arena_hunt as ah
 from mclab import combat_trial as ct
 from mclab.arena import client as arena
 from mclab.arena import world
-from mclab.companion_api import ApiClient, ApiUnavailable
+from mclab.companion_api import ApiClient, ApiUnavailable, runtime_file
+from mclab.companion_names import BotNames
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -139,16 +140,18 @@ def _roster(parser, args) -> tuple[list[str] | None, dict | None]:
 def _bots(people: list[str], names: list[str], echo) -> tuple[object, dict]:
     """The companion api and the roster's bots (name -> fleet id), every one of them
     on the host: those it lacks are put in, so they join the server before the
-    wait for players. No bot in the roster needs no companion at all."""
+    wait for players. No bot in the roster needs no companion at all. A bot is
+    told by its name in the instance's name book (MCBot<N>, or what it was renamed
+    to) or by ``names`` (``--bot-name``)."""
+    book = BotNames.load(runtime_file().parent)
     wanted = any(
-        ah.bot_id_for_name(p) is not None or any(p.lower() == n.lower() for n in names)
-        for p in people
+        book.is_bot(p) or any(p.lower() == n.lower() for n in names) for p in people
     )
     if not wanted:
         return None, {}
     api = ApiClient.from_runtime()
     api.events(0, wait=0)
-    bots = ah.resolve_bots(api, people, extra=names)
+    bots = ah.resolve_bots(api, people, extra=names, names=book)
     for bot_id in ah.ensure_bots(api, bots):
         echo(f"put in {bot_id}")
     return (api if bots else None), bots

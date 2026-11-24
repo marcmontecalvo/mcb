@@ -726,6 +726,20 @@ code {
 .roster-row .who small {
   color: var(--lab-muted);
 }
+/* A bot's name being changed: the new name, then Rename and keep. */
+.roster-row .bot-rename {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.roster-row .bot-rename input {
+  flex: 1 1 8em;
+  min-width: 0;
+}
+.roster-row .bot-rename .field-error {
+  flex-basis: 100%;
+}
 .roster-row .op {
   display: flex;
   gap: 4px;
