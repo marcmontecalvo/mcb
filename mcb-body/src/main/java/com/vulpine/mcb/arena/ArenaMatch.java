@@ -225,8 +225,8 @@ final class ArenaMatch {
     private void closeBoard() {
         refreshBoard();
         board.retitle(endTitle() + (series == null ? "" : " · " + series[0] + "/" + series[1]));
-        var header = ArenaLogic.recapHeader(endTitle(), series, endTick - startTick);
-        ArenaRuntime.tell(level, participants, ArenaLogic.recap(header, teamNames(), tally.stats()));
+        var header = ArenaRecap.header(endTitle(), series, endTick - startTick);
+        ArenaRuntime.tell(level, participants, ArenaRecap.table(header, List.of(), teamNames(), tally.stats()));
     }
 
     void hideBoard() { board.hide(); }

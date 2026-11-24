@@ -35,8 +35,8 @@ class FakeArena:
     def board(self, name, title, rows):
         self.__dict__.setdefault("boards", []).append((name, title, rows))
 
-    def announce(self, name, lines):
-        self.__dict__.setdefault("said", []).append((name, lines))
+    def recap(self, name, title, players, *, teams=(), lines=()):
+        self.__dict__.setdefault("said", []).append((name, title))
 
     def status(self, name):
         self.reads += 1
@@ -485,8 +485,10 @@ class FakeContest:
             raise ah.ArenaError(self.refuse_board, "no")
         self.boards.append((name, title, rows))
 
-    def announce(self, name, lines):
-        self.said.append((name, lines))
+    def recap(self, name, title, players, *, teams=(), lines=()):
+        self.said.append(
+            (name, {"title": title, "players": players, "teams": teams, "lines": lines})
+        )
 
     def wait_ready(self, names, **kwargs):
         pass  # everyone is back and ready at once
@@ -791,18 +793,32 @@ def test_the_lobby_board_fits_eight_against_eight_into_fifteen_lines():
     assert texts[7] == "+2 more" and texts[8] == "Blue" and texts[14] == "+3 more"
 
 
-def test_the_series_recap_scores_the_teams_and_stars_the_top_damage_dealer():
-    lines = ah.series_recap(DUEL)
-    text = ["".join(seg["text"] for seg in line) for line in lines]
-    assert text[0] == "duel · stopped after 3 of 5"
-    assert text[1] == "Red 1 · Blue 1 · 1 draw"
-    assert text[2] == " ★ MCBot: 2 kills, 1 down · dealt 70 · took 32 · healed 18"
-    assert text[3] == " Ann: 1 kill, 1 down · dealt 20 · took 30 · healed 4"
-    assert text[4] == " Bob: 0 kills, 1 down · dealt 14 · took 26 · healed 0"
-    assert lines[0][0]["bold"] and lines[1][0]["color"] == "red"
-    assert {"text": "MCBot", "color": "red"} in lines[2]
-    coop = ["".join(s["text"] for s in line) for line in ah.series_recap(HUNT)]
-    assert coop[:2] == ["vault · final standings", "Won 1 of 2"]
+def test_the_series_recap_is_the_score_and_every_players_totals_for_the_table():
+    recap = ah.series_recap(DUEL)
+    assert recap["title"] == "duel · stopped after 3 of 5"
+    (score,) = recap["lines"]
+    assert "".join(seg["text"] for seg in score) == "Red 1 · Blue 1 · 1 draw"
+    assert score[0] == {"text": "Red 1", "color": "red", "bold": True}
+    assert recap["teams"] == ["red", "blue"]
+    assert recap["players"] == [  # the roster's order: the mod's table sorts
+        {"name": "MCBot", "team": "red", "mob_kills": 0, "player_kills": 2,
+         "deaths": 1, "dealt": 70, "taken": 32, "healing": 18},
+        {"name": "Ann", "team": "blue", "mob_kills": 0, "player_kills": 1,
+         "deaths": 1, "dealt": 20, "taken": 30, "healing": 4},
+        {"name": "Bob", "team": "blue", "mob_kills": 0, "player_kills": 0,
+         "deaths": 1, "dealt": 14, "taken": 26, "healing": 0},
+    ]  # fmt: skip
+    coop = ah.series_recap(HUNT)
+    assert coop["title"] == "vault · final standings" and coop["teams"] == []
+    assert coop["lines"] == [[{"text": "Won 1 of 2", "color": "gold"}]]
+    assert [p["name"] for p in coop["players"]] == ["MCBot", "Ann"]
+    assert "team" not in coop["players"][0] and coop["players"][1]["mob_kills"] == 9
+
+
+def test_a_series_recap_names_a_player_who_never_played_under_their_team():
+    record = {**DUEL, "teams": {"red": ["MCBot", "Cy"], "blue": ["Ann", "Bob"]}}
+    cy = next(p for p in ah.series_recap(record)["players"] if p["name"] == "Cy")
+    assert cy["team"] == "red" and cy["dealt"] == 0
 
 
 def test_a_series_posts_its_standings_after_every_match_and_a_recap_at_the_end(
@@ -819,8 +835,9 @@ def test_a_series_posts_its_standings_after_every_match_and_a_recap_at_the_end(
     assert [b[1] for b in contest.boards] == ["duel · 1 of 2 played", "duel · final"]
     assert contest.boards[1][2][0] == {"text": "Red", "value": "1 win",
                                        "color": "red", "bold": True}  # fmt: skip
-    ((name, lines),) = contest.said
-    assert name == "duel" and lines[0][0]["text"] == "duel · final standings"
+    ((name, recap),) = contest.said
+    assert name == "duel" and recap["title"] == "duel · final standings"
+    assert [p["name"] for p in recap["players"]] == ["MCBot", "Ann"]
     record = json.loads(path.read_text(encoding="utf-8"))
     assert record["repeat"] == 2
     assert record["summary"]["players"]["MCBot"]["wins"] == 1

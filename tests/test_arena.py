@@ -682,7 +682,7 @@ def test_the_bridge_routes_arena_ops_to_the_body_mod():
         "arena_op",
         "arena_kit",
         "arena_board",
-        "arena_say",
+        "arena_recap",
     )
 
 
@@ -693,15 +693,21 @@ def test_a_match_of_a_series_says_which_and_the_lobby_gets_its_board_and_chat():
     rows = [{"text": "Red", "value": "2 wins", "color": "red", "bold": True}]
     c.board("duel", "duel · 2 of 5", rows)
     c.clear_board("duel")
-    lines = [[{"text": "Series", "color": "gold", "bold": True}]]
-    c.announce("duel", lines)
+    lines = [[{"text": "Red 2", "color": "red", "bold": True}]]
+    players = [{"name": "Ann", "team": "red", "dealt": 70.5}]
+    c.recap("duel", "duel · final standings", players, teams=["red"], lines=lines)
+    c.recap("vault", "vault · final standings", [{"name": "Ann"}])
     fields = [{k: v for k, v in p.items() if k not in arena.ENVELOPE} for p in t.sent]
     assert fields[0]["series"] == {"match": 2, "of": 5}
     assert fields[1] == {"name": "duel", "title": "duel · 2 of 5", "rows": rows}
     assert fields[2] == {"name": "duel", "clear": True}
-    assert fields[3] == {"name": "duel", "lines": lines}
+    title = "duel · final standings"
+    assert fields[3] == {"name": "duel", "title": title, "players": players,
+                         "teams": ["red"], "lines": lines}  # fmt: skip
+    assert fields[4] == {"name": "vault", "title": "vault · final standings",
+                         "players": [{"name": "Ann"}]}  # fmt: skip
     assert [p["op"] for p in t.sent] == [
-        "arena_start", "arena_board", "arena_board", "arena_say",
+        "arena_start", "arena_board", "arena_board", "arena_recap", "arena_recap",
     ]  # fmt: skip
 
 

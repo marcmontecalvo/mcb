@@ -574,9 +574,31 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
     fight.
   - **Ownership.** The mod owns the match board and recap, since it knows them exactly
     as they happen. Python owns the series, since only it knows the series. It sends
-    the standings through two small, validated ops (`arena_board`, `arena_say`), never
+    the standings through two small, validated ops (`arena_board`, `arena_recap`), never
     a command string.
   - **Results.** Rows keep `players` (the full per-player tally) instead of `kills`.
+- **The after-action recap is a pixel-aligned table (Nov 24).** The first live recap was
+  free text, "Name: 9 kills, 1 down · dealt 212.2 · …". It ran across the chat, the
+  numbers didn't line up between players, and the bold ★ drew as a blob. Marc asked for
+  it to look nicer.
+  - **The layout.** Columns: Kills, Downs, Dealt, Taken, Healed.
+    - Numbers are whole, coloured by column, with zeros dimmed.
+    - In team games, team rows of totals sit in the same columns as the players.
+    - The top dealer's damage is gold, and a plain ★ sits after the last column.
+    - The exact tenths, and kills split into mobs and players, are on hover.
+  - **Alignment.** Words are measured in the default font's advances and the gaps are
+    padded with spaces (4 px) and bold spaces (5 px).
+    - It is exact from 12 px, and the minimum 8 px gap is off by a pixel only at 11.
+    - Rejected: fixed-width characters (the chat has none), and
+      tab-like separators (" | ") that still drift by name length.
+  - **Hover rather than more columns.** Mob and player kills, and health to a tenth, would
+    widen the table past the 320 px chat.
+  - **One renderer.** The series recap became `arena_recap`, which carries the numbers;
+    the mod draws them with the same `ArenaRecap.table`. It replaced the generic
+    `arena_say`, which nothing else used.
+    - Rejected: a Python copy of the font table. It would be a second renderer to keep in
+      step.
+    - The protocol moved to 3.
 - **The lab checks the arena mod's protocol before a match (Nov 24).** The new lab sent
   `series` to the old mod, which refused it. The match ended silently after `/mcb ready`.
   The series board and recap also treated a refusal as an older mod and went on, while the

@@ -43,11 +43,16 @@ public final class ArenaRequests {
     /** A sidebar board for an arena (the series standings between matches): title and rows, or clear to take it down. */
     public record Board(String name, String title, List<ArenaLogic.Line> rows, boolean clear) {}
 
-    /** Chat lines for the players at an arena: each line coloured parts. */
-    public record Say(String name, List<List<ArenaLogic.Seg>> lines) {}
+    /**
+     * An after-action table for the players at an arena (the series totals), drawn by {@link ArenaRecap#table}: its title,
+     * the lines under it (the score), the teams in order (none in co-op) and each player's numbers.
+     */
+    public record Recap(String name, String title, List<List<ArenaLogic.Seg>> lines, List<String> teams, List<ArenaLogic.Stat> players) {}
 
-    public static final int MAX_SERIES = 1000, MAX_TITLE = 64, MAX_ROW_TEXT = 40, MAX_ROW_VALUE = 16, MAX_SAY_LINES = 24,
-            MAX_SAY_PARTS = 16, MAX_SAY_TEXT = 120;
+    public static final int MAX_SERIES = 1000, MAX_TITLE = 64, MAX_ROW_TEXT = 40, MAX_ROW_VALUE = 16, MAX_RECAP_LINES = 4,
+            MAX_RECAP_PARTS = 16, MAX_RECAP_TEXT = 120, MAX_RECAP_PLAYERS = 64, MAX_RECAP_TEAMS = 8, MAX_COUNT = 1_000_000;
+    public static final double MAX_HEALTH_TOTAL = 1e9;
+    static final Set<String> RECAP_PLAYER_FIELDS = Set.of("name", "team", "mob_kills", "player_kills", "deaths", "dealt", "taken", "healing");
 
     /** Give or take away a player's operator status. */
     public record Op(String player, boolean op) {}
@@ -193,29 +198,73 @@ public final class ArenaRequests {
         return new Board(name, title, List.copyOf(rows), false);
     }
 
-    public static Say parseSay(JsonObject request) {
-        only(request, Set.of("name", "lines"));
+    public static Recap parseRecap(JsonObject request) {
+        only(request, Set.of("name", "title", "lines", "teams", "players"));
         String name = name(request);
-        var e = request.get("lines");
-        if (e == null || !e.isJsonArray() || e.getAsJsonArray().isEmpty() || e.getAsJsonArray().size() > MAX_SAY_LINES)
-            throw bad("lines must be a list of 1.." + MAX_SAY_LINES + " lines");
+        String title = bounded(text(request, "title"), "title", MAX_TITLE);
+        var lines = request.has("lines") ? lines(request.get("lines")) : List.<List<ArenaLogic.Seg>>of();
+        var teams = new ArrayList<String>();
+        if (request.has("teams")) {
+            var e = request.get("teams");
+            if (!e.isJsonArray() || e.getAsJsonArray().size() > MAX_RECAP_TEAMS) throw bad("teams must be a list of up to " + MAX_RECAP_TEAMS + " names");
+            for (var team : e.getAsJsonArray()) {
+                if (!team.isJsonPrimitive() || !ArenaPlan.NAME.matcher(team.getAsString()).matches() || teams.contains(team.getAsString()))
+                    throw bad("teams must be distinct names matching " + ArenaPlan.NAME.pattern());
+                teams.add(team.getAsString());
+            }
+        }
+        var e = request.get("players");
+        if (e == null || !e.isJsonArray() || e.getAsJsonArray().isEmpty() || e.getAsJsonArray().size() > MAX_RECAP_PLAYERS)
+            throw bad("players must be a list of 1.." + MAX_RECAP_PLAYERS + " players");
+        var players = new ArrayList<ArenaLogic.Stat>();
+        for (int i = 0; i < e.getAsJsonArray().size(); i++) {
+            String where = "players[" + i + "]";
+            if (!e.getAsJsonArray().get(i).isJsonObject()) throw bad(where + " must be an object");
+            var o = e.getAsJsonArray().get(i).getAsJsonObject();
+            for (var key : o.keySet()) if (!RECAP_PLAYER_FIELDS.contains(key)) throw bad(where + " has unknown field " + key);
+            String player = text(o, "name");
+            if (!PLAYER.matcher(player).matches()) throw bad(where + ".name must be a player name");
+            String team = o.has("team") ? text(o, "team") : "";
+            if (teams.isEmpty() ? !team.isEmpty() : !teams.contains(team)) throw bad(where + ".team must be one of " + teams);
+            players.add(new ArenaLogic.Stat(player, team, count(o, "mob_kills", where), count(o, "player_kills", where),
+                    count(o, "deaths", where), health(o, "dealt", where), health(o, "taken", where), health(o, "healing", where)));
+        }
+        return new Recap(name, title, lines, List.copyOf(teams), List.copyOf(players));
+    }
+
+    private static int count(JsonObject o, String key, String where) {
+        return o.has(key) ? whole(o.get(key), where + "." + key, 0, MAX_COUNT) : 0;
+    }
+
+    private static double health(JsonObject o, String key, String where) {
+        if (!o.has(key)) return 0;
+        var e = o.get(key);
+        if (!e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) throw bad(where + "." + key + " must be a number");
+        double v = e.getAsDouble();
+        if (!(v >= 0 && v <= MAX_HEALTH_TOTAL)) throw bad(where + "." + key + " must be 0.." + (long) MAX_HEALTH_TOTAL);
+        return v;
+    }
+
+    /** Chat lines of coloured parts ({text, color?, bold?}). */
+    private static List<List<ArenaLogic.Seg>> lines(JsonElement e) {
+        if (!e.isJsonArray() || e.getAsJsonArray().size() > MAX_RECAP_LINES) throw bad("lines must be a list of up to " + MAX_RECAP_LINES + " lines");
         var lines = new ArrayList<List<ArenaLogic.Seg>>();
         for (int i = 0; i < e.getAsJsonArray().size(); i++) {
             var line = e.getAsJsonArray().get(i);
             String where = "lines[" + i + "]";
-            if (!line.isJsonArray() || line.getAsJsonArray().isEmpty() || line.getAsJsonArray().size() > MAX_SAY_PARTS)
-                throw bad(where + " must be a list of 1.." + MAX_SAY_PARTS + " parts");
+            if (!line.isJsonArray() || line.getAsJsonArray().isEmpty() || line.getAsJsonArray().size() > MAX_RECAP_PARTS)
+                throw bad(where + " must be a list of 1.." + MAX_RECAP_PARTS + " parts");
             var parts = new ArrayList<ArenaLogic.Seg>();
             for (var part : line.getAsJsonArray()) {
                 if (!part.isJsonObject()) throw bad(where + " parts must be objects");
                 var o = part.getAsJsonObject();
                 for (var key : o.keySet())
                     if (!Set.of("text", "color", "bold").contains(key)) throw bad(where + " part has unknown field " + key);
-                parts.add(new ArenaLogic.Seg(bounded(text(o, "text"), where + ".text", MAX_SAY_TEXT), color(o, where), flag(o, "bold")));
+                parts.add(new ArenaLogic.Seg(bounded(text(o, "text"), where + ".text", MAX_RECAP_TEXT), color(o, where), flag(o, "bold")));
             }
             lines.add(List.copyOf(parts));
         }
-        return new Say(name, List.copyOf(lines));
+        return List.copyOf(lines);
     }
 
     private static String bounded(String value, String where, int max) {

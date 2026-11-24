@@ -1,10 +1,11 @@
 """A series' standings: what the lobby's sidebar shows between matches and the
-chat recap at the end of a series (pure; arena_hunt sends them with the
-``arena_board`` and ``arena_say`` ops).
+after-action table at the end of a series (pure; arena_hunt sends them with the
+``arena_board`` and ``arena_recap`` ops).
 
 The live match board and the per-match recap are the mod's (ArenaLogic
-matchBoard and recap); this module mirrors their colours, their fit into the
-sidebar's 15 lines and their recap line, so the two read alike.
+matchBoard, ArenaRecap); this module mirrors the board's colours and its fit into
+the sidebar's 15 lines, and hands the series totals to the mod's table, so the
+match and the series read alike.
 Docs: docs/ARENA_RUNTIME.md "Boards and recaps".
 """
 
@@ -44,12 +45,6 @@ def team_color(team: str, index: int) -> str:
     for its place in the plan (ArenaLogic.teamColor)."""
     lower = team.lower()
     return lower if lower in COLORS else TEAM_PALETTE[index % len(TEAM_PALETTE)]
-
-
-def fmt(value: float) -> str:
-    """Health points to a tenth, without a trailing ".0" (ArenaLogic.fmt)."""
-    tenth = round(value * 10) / 10
-    return str(int(tenth)) if tenth == int(tenth) else str(tenth)
 
 
 def count(n: int, what: str) -> str:
@@ -194,64 +189,53 @@ def _seg(text: str, color: str = "white", bold: bool = False) -> dict:
     return {"text": text, "color": color, **({"bold": True} if bold else {})}
 
 
-def series_recap(record: dict) -> list[list[dict]]:
-    """The chat recap when a series ends: how far it went, the score (team wins
-    and draws, or the co-op matches won), then every player by damage dealt over
-    the series (kills, downs, health dealt, taken and healed), the top one
-    starred."""
+def series_recap(record: dict) -> dict:
+    """The after-action table when a series ends, as ``ArenaClient.recap``'s
+    fields (the mod draws it like a match's own: ``ArenaRecap``): the ``title``
+    (how far the series went), the score under it (team wins and draws, or the
+    co-op matches won), the ``teams`` in order, and every player's series totals
+    (the roster's order; the table sorts them by damage dealt)."""
     played, repeat = _played(record)
     runs = record.get("runs") or []
     head = (
         "final standings" if played >= repeat else f"stopped after {played} of {repeat}"
     )
-    lines = [[_seg(f"{record['arena']} · {head}", "gold", bold=True)]]
-    teams = record.get("teams") or {}
-    color_of: dict[str, str] = {}
-    if record.get("mode") in SIDED and teams:
+    teams = (record.get("teams") or {}) if record.get("mode") in SIDED else {}
+    if teams:
         score: list[dict] = []
         for i, team in enumerate(teams):
-            color = team_color(team, i)
-            for n in teams[team]:
-                color_of[n] = color
             wins = sum(1 for r in runs if r.get("winner") == team)
             if score:
                 score.append(_seg(" · ", "gray"))
-            score.append(_seg(f"{team.capitalize()} {wins}", color, bold=True))
+            score.append(
+                _seg(f"{team.capitalize()} {wins}", team_color(team, i), bold=True)
+            )
         draws = sum(1 for r in runs if r.get("reason") == "draw")
         if draws:
             score.append(_seg(f" · {count(draws, 'draw')}", "gray"))
-        lines.append(score)
     else:
         won = sum(1 for r in runs if r.get("outcome") == "won")
-        lines.append([_seg(f"Won {won} of {played}", "gold")])
+        score = [_seg(f"Won {won} of {played}", "gold")]
+    team_of = {n: team for team, names in teams.items() for n in names}
     totals = player_totals(runs)
-    names = _roster(record) or list(totals)
-    ranked = sorted(names, key=lambda n: -totals.get(n, _blank())["damage_dealt"])
-    top = (
-        ranked[0]
-        if ranked and totals.get(ranked[0], _blank())["damage_dealt"] > 0
-        else None
-    )
-    for name in ranked:
+    players = []
+    for name in _roster(record) or list(totals):
         t = totals.get(name, _blank())
-        line = [_seg(" ")]
-        if name == top:
-            line.append(_seg("★ ", "gold", bold=True))
-        line.append(_seg(name, color_of.get(name, "white")))
-        line.append(_seg(_stat_text(t), "gray"))
-        lines.append(line)
-    return lines
-
-
-def _stat_text(t: dict) -> str:
-    """ ": 2 kills (1 player), 1 down · dealt 70 · took 32 · healed 18"
-    (ArenaLogic's recap line)."""
-    out = ": " + count(t["kills"], "kill")
-    if t["mob_kills"] > 0 and t["player_kills"] > 0:
-        out += f" ({count(t['player_kills'], 'player')})"
-    if t["deaths"] > 0:
-        out += ", " + count(t["deaths"], "down")
-    return out + (
-        f" · dealt {fmt(t['damage_dealt'])} · took {fmt(t['damage_taken'])}"
-        f" · healed {fmt(t['healing'])}"
-    )
+        row = {"name": name}
+        if teams:
+            row["team"] = team_of.get(name) or t.get("team")
+        row |= {
+            "mob_kills": t["mob_kills"],
+            "player_kills": t["player_kills"],
+            "deaths": t["deaths"],
+            "dealt": round(t["damage_dealt"], 1),
+            "taken": round(t["damage_taken"], 1),
+            "healing": round(t["healing"], 1),
+        }
+        players.append(row)
+    return {
+        "title": f"{record['arena']} · {head}",
+        "lines": [score],
+        "teams": list(teams),
+        "players": players,
+    }

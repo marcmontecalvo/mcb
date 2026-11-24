@@ -491,7 +491,7 @@ def run_series(
         if repeat > 1:
             _show(echo, "standings", lambda: arena.board(name, *series_board(record)))
     if repeat > 1 and record["runs"]:
-        _show(echo, "recap", lambda: arena.announce(name, series_recap(record)))
+        _show(echo, "recap", lambda: arena.recap(name, **series_recap(record)))
     path.write_text(json.dumps(record, indent=1), encoding="utf-8")
     return path
 

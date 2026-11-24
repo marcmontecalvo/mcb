@@ -421,26 +421,9 @@ public final class ArenaLogicTest {
         return out.toString();
     }
 
-    /** The chat recap after a match: who did what, the top damage dealer starred. */
+    /** Health figures to a tenth (the recap's hover; the table itself is ArenaRecapTest's). */
     private static void recap() {
         check(ArenaLogic.fmt(7.0).equals("7") && ArenaLogic.fmt(7.25).equals("7.3") && ArenaLogic.fmt(0).equals("0"), "a tenth, no .0");
-        check(ArenaLogic.recapHeader("Red wins!", new int[] {2, 5}, 2040).equals("Match 2 of 5 · Red wins! · 1:42")
-                && ArenaLogic.recapHeader("Victory!", null, 700).equals("Victory! · 0:35"), "the header: match, ending, time");
-        var stats = List.of(
-                new ArenaLogic.Stat("Ann", "red", 0, 1, 1, 34.5, 28, 12),
-                new ArenaLogic.Stat("Cy", "red", 2, 0, 0, 10, 4, 0),
-                new ArenaLogic.Stat("Bot", "blue", 1, 1, 1, 40.25, 44.5, 20));
-        var lines = ArenaLogic.recap("Match 1 of 1 · Red wins! · 0:50", List.of("red", "blue"), stats);
-        var text = lines.stream().map(ArenaLogicTest::plain).toList();
-        check(text.get(0).equals("Match 1 of 1 · Red wins! · 0:50") && lines.get(0).get(0).bold(), "the header first");
-        check(text.get(1).startsWith("Red") && text.get(1).contains("3 kills") && text.get(1).contains("dealt 44.5"), "a team's totals: " + text.get(1));
-        check(text.get(2).equals(" Ann: 1 kill, 1 down · dealt 34.5 · took 28 · healed 12"), "a player's line: " + text.get(2));
-        check(text.get(3).equals(" Cy: 2 kills · dealt 10 · took 4 · healed 0"), "no downs, nothing said: " + text.get(3));
-        check(text.get(5).equals(" ★ Bot: 2 kills (1 player), 1 down · dealt 40.3 · took 44.5 · healed 20"),
-                "the top damage dealer starred; mixed kills split: " + text.get(5));
-        check(lines.get(2).stream().anyMatch(s -> s.text().equals("Ann") && s.color().equals("red")), "names in their team's colour");
-        var coop = ArenaLogic.recap("Victory!", List.of(), List.of(new ArenaLogic.Stat("Ann", "", 5, 0, 0, 0, 0, 0)));
-        check(coop.size() == 2 && plain(coop.get(1)).equals(" Ann: 5 kills · dealt 0 · took 0 · healed 0"), "co-op: no teams, no star for nothing");
     }
 
     private static void misc() {
@@ -712,13 +695,14 @@ public final class ArenaLogicTest {
                 "\"title\":\"" + "t".repeat(65) + "\",\"rows\":[]", "\"title\":\"t\",\"rows\":[],\"clear\":true"))
             rejects(() -> ArenaRequests.parseBoard(json("{\"name\":\"duel\"," + bad + "}")), "bad_request", "board " + bad);
 
-        var say = ArenaRequests.parseSay(json("{\"name\":\"duel\",\"lines\":[[{\"text\":\"Series · final\",\"color\":\"gold\",\"bold\":true}],"
-                + "[{\"text\":\" Ann\",\"color\":\"red\"},{\"text\":\": 7 kills\"}]]}"));
-        check(say.lines().size() == 2 && say.lines().get(0).get(0).equals(new ArenaLogic.Seg("Series · final", "gold", true))
-                && say.lines().get(1).get(1).equals(new ArenaLogic.Seg(": 7 kills", "white", false)), "chat lines of coloured parts");
-        for (var bad : List.of("[]", "[[]]", "[[{\"text\":\"a\",\"color\":\"pink\"}]]", "[[{\"text\":\"" + "a".repeat(121) + "\"}]]", "[\"a\"]"))
-            rejects(() -> ArenaRequests.parseSay(json("{\"name\":\"duel\",\"lines\":" + bad + "}")), "bad_request", "say " + bad);
-        check(ArenaLogic.isOperationName("arena_board") && ArenaLogic.isOperationName("arena_say"), "the new ops are the arena's");
+        var recap = ArenaRequests.parseRecap(json("{\"name\":\"duel\",\"title\":\"t\",\"players\":[{\"name\":\"Ann\"}],"
+                + "\"lines\":[[{\"text\":\"Red 2\",\"color\":\"red\",\"bold\":true},{\"text\":\" · \"}]]}"));
+        check(recap.lines().get(0).get(1).equals(new ArenaLogic.Seg(" · ", "white", false)), "chat lines of coloured parts, white by default");
+        String fiveLines = "[" + String.join(",", java.util.Collections.nCopies(5, "[{\"text\":\"a\"}]")) + "]";
+        for (var bad : List.of("[[]]", "[[{\"text\":\"a\",\"color\":\"pink\"}]]", "[[{\"text\":\"" + "a".repeat(121) + "\"}]]", "[\"a\"]", fiveLines))
+            rejects(() -> ArenaRequests.parseRecap(json("{\"name\":\"duel\",\"title\":\"t\",\"players\":[{\"name\":\"Ann\"}],\"lines\":" + bad + "}")),
+                    "bad_request", "recap lines " + bad);
+        check(ArenaLogic.isOperationName("arena_board") && ArenaLogic.isOperationName("arena_recap"), "the new ops are the arena's");
 
         var many = new StringBuilder("{\"name\":\"v\",\"mode\":\"waves\",\"waves\":[");
         for (int i = 0; i < 51; i++) many.append(i == 0 ? "" : ",").append("{\"mobs\":{\"minecraft:zombie\":1}}");

@@ -44,6 +44,9 @@ def arenas(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(pr, "ARENAS", root)
     monkeypatch.setattr(pr, "WAVES", root / "waves")
+    # the arena server answers with the lab's own protocol: a match may start
+    current = {"ok": True, "arenas": [], "protocol": arena_client.PROTOCOL}
+    monkeypatch.setattr(pr, "arena_listing", lambda **_: current)
     pr._plans.clear()
     return root
 
