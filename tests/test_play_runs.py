@@ -930,3 +930,73 @@ def test_arena_listing_runs_the_arena_cli_on_the_arena_server():
     assert seen["argv"][-1] == "list" and seen["env"]["MCLAB_INSTANCE"] == "arena"
     with pytest.raises(RuntimeError, match="exit code 2"):
         pr.arena_listing(run_cli=lambda argv, env: (2, "Traceback ..."))
+
+
+# --- several bots in one match -------------------------------------------------
+
+
+def _mixed(**sizes):
+    """Teams of humans and bots: ``red=("MCBot", "Ann")`` as slots."""
+    return [slot(name, team) for team, names in sizes.items() for name in names]
+
+
+def test_a_match_holds_several_bots_beside_people(arenas):
+    validate_launch(
+        arena(arena_action="match", arena="crash_site", game="teams",
+              roster=_mixed(red=("MCBot", "Ann"), blue=("MCBot2", "Bob")))
+    )  # fmt: skip
+    validate_launch(
+        arena(arena_action="match", arena="crash_site", game="teams",
+              roster=_mixed(red=("MCBot", "MCBot2"), blue=("MCBot3", "MCBot4")))
+    )  # fmt: skip
+    validate_launch(
+        arena(arena_action="match", arena="vault", waves="mixed-10",
+              roster=[BOT, slot("MCBot2"), slot("Ann")])
+    )  # fmt: skip
+
+
+def test_bots_count_against_what_the_arena_holds(arenas):
+    roster = [slot("MCBot")] + [slot(f"MCBot{n}") for n in range(2, 6)]
+    with pytest.raises(ValueError, match="4"):
+        validate_launch(
+            arena(arena_action="match", arena="vault", waves="mixed-10", roster=roster)
+        )
+
+
+def test_a_bot_is_never_an_operator(arenas):
+    with pytest.raises(ValueError, match="MCBot2.*bot"):
+        arena(arena_action="match", arena="vault", roster=[slot("MCBot2", op=True)])
+
+
+def test_a_mixed_team_command_names_every_bot_and_never_ops_one(arenas, tmp_path):
+    run = arena(
+        arena_action="match", arena="crash_site", game="teams",
+        roster=[slot("MCBot", "red"), slot("Ann", "red", op=True),
+                slot("MCBot2", "blue"), slot("Bob", "blue")],
+    )["run"]  # fmt: skip
+    argv = pr.command(run, tmp_path)
+    teams = [argv[i + 1] for i, a in enumerate(argv) if a == "--team"]
+    assert teams == ["red=MCBot,Ann", "blue=MCBot2,Bob"]
+    assert [argv[i + 1] for i, a in enumerate(argv) if a == "--op"] == ["Ann"]
+
+
+def test_a_pve_command_with_two_bots_lists_them_as_players(arenas, tmp_path):
+    run = arena(arena_action="match", arena="vault", waves="mixed-10",
+                roster=[BOT, slot("MCBot2")])["run"]  # fmt: skip
+    argv = pr.command(run, tmp_path)
+    assert argv[argv.index("--players") + 1 :][:2] == ["MCBot", "MCBot2"]
+
+
+def test_a_multi_bot_summary_keeps_each_bots_row(arenas):
+    run = arena(arena_action="match", arena="crash_site", game="teams",
+                roster=_mixed(red=("MCBot",), blue=("MCBot2",)))["run"]  # fmt: skip
+    bots = {
+        "MCBot": {"team": "red", "bot_won": True, "min_health": 7.0},
+        "MCBot2": {"team": "blue", "bot_won": False, "min_health": 0.0},
+    }
+    record = {"runs": [{"outcome": "won", "winner": "red", "seconds": 20.0,
+                        "bots": bots}],
+              "summary": {"bots": {"MCBot": {"runs": 1, "wins": 1}}}}  # fmt: skip
+    summary = pr.summarize(run, record, run_id="R3")
+    assert summary["episodes"][0]["bots"] == bots
+    assert summary["series"]["bots"]["MCBot"]["wins"] == 1

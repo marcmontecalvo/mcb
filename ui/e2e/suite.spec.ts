@@ -98,6 +98,20 @@ test("an arena match: PvP with a friend, then PvE with my own waves", async ({
       { name: "Ann", team: "blue", op: true },
     ],
   });
+  // Another bot: "+ Add a bot" names the next free one, puts it on the smaller team
+  // and never makes it an operator. Taking it out frees its name again.
+  await page.getByRole("button", { name: "+ Add a bot (MCBot2)" }).click();
+  await expect(page.locator(".team-counts")).toHaveText("Red 2/2 · Blue 1/2");
+  await expect(page.getByLabel("MCBot2 is an operator")).toBeDisabled();
+  expect(await checked()).toMatchObject({
+    roster: [
+      { name: "MCBot", team: "red", op: false },
+      { name: "Ann", team: "blue", op: true },
+      { name: "MCBot2", team: "red", op: false },
+    ],
+  });
+  await page.getByRole("button", { name: "Remove MCBot2" }).click();
+  await expect(page.getByRole("button", { name: "+ Add a bot (MCBot2)" })).toBeVisible();
   // Both on one team is no team game: Start waits until it is fixed.
   await page.getByLabel("Ann team").selectOption("red");
   await expect(page.getByText("A team game needs players on at least two teams.")).toBeVisible();

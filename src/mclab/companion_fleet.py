@@ -15,46 +15,18 @@ Docs: ARENA_RUNTIME.md, "Several bots".
 from __future__ import annotations
 
 import logging
-import re
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from mclab.companion_host import DEFAULT_BOT, Host, HostError
+from mclab.companion_names import bot_id_for
 
 log = logging.getLogger(__name__)
 
 ALL = "all"
 MAX_BOTS = 16  # what the mod's body hub holds
-DEFAULT_ID = "default"
-BOT_ID = re.compile(r"mcbot([2-9]|[1-9][0-9])")
-
-
-def bot_id_for(number: int) -> str:
-    """The id of the ``number``-th bot (1 is the default one)."""
-    return DEFAULT_ID if number == 1 else f"mcbot{number}"
-
-
-def bot_name_for(bot_id: str) -> str:
-    """The in-game name that goes with a derived bot id."""
-    if bot_id == DEFAULT_ID:
-        return DEFAULT_BOT["name"]
-    found = BOT_ID.fullmatch(bot_id)
-    if found is None:
-        raise ValueError(f"bot id {bot_id!r} is not 'default' or 'mcbot<N>'")
-    return f"{DEFAULT_BOT['name']}{found.group(1)}"
-
-
-def bot_id_for_name(name: str) -> str | None:
-    """The derived id of an in-game name (``MCBot`` and ``MCBot<N>``, any case), or
-    None for any other name (a human, or a bot whose profile names it otherwise)."""
-    base = DEFAULT_BOT["name"].lower()
-    lowered = name.lower()
-    if lowered == base:
-        return DEFAULT_ID
-    candidate = "mcbot" + lowered[len(base) :] if lowered.startswith(base) else ""
-    return candidate if BOT_ID.fullmatch(candidate) else None
 
 
 @dataclass
@@ -275,6 +247,4 @@ __all__ = [
     "Fleet",
     "MAX_BOTS",
     "Member",
-    "bot_id_for",
-    "bot_name_for",
 ]

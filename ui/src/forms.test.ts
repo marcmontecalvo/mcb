@@ -15,6 +15,8 @@ import {
   type Slot,
   addPlayer,
   fitRoster,
+  isBotName,
+  nextBotName,
   rosterOf,
   rosterProblems,
   teamCounts,
@@ -228,6 +230,23 @@ describe("where to watch", () => {
     expect(watchFor(job([slot("MCBot")]), bot).humans).toEqual([]);
     expect(watchFor(job(null), bot).humans).toEqual([]);
   });
+  it("counts every bot of the match (MCBot2, MCBot3...) as no human", () => {
+    const job = {
+      kind: "arena",
+      run_config: {
+        run: {
+          test: "arena",
+          arena: "vault",
+          roster: ["MCBot", "Ann", "MCBot2", "mcbot3", "Bob"].map((name) => ({
+            name,
+            team: null,
+            op: false,
+          })),
+        },
+      },
+    };
+    expect(watchFor(job, { ...where, bot: "MCBot" }).humans).toEqual(["Ann", "Bob"]);
+  });
   it("a lab job names the lab server and no arena", () => {
     const job = { kind: "courses", run_config: { run: { test: "courses" } } };
     expect(watchFor(job, where)).toMatchObject({
@@ -313,5 +332,43 @@ describe("the arena roster", () => {
     ]);
     expect(rosterProblems([slot("A", "red"), slot("B", "blue")], true, duel)).toEqual([]);
     expect(rosterProblems([slot("A")], false, undefined)).toEqual([]);
+  });
+
+  it("tells a bot's name (MCBot, MCBot2, ...) from a player's", () => {
+    for (const name of ["MCBot", "mcbot", "MCBot2", "MCBot16", "MCBOT99"])
+      expect(isBotName(name)).toBe(true);
+    for (const name of ["Ann", "MCBot1", "MCBot0", "MCBot100", "MCBotty", "xMCBot2", ""])
+      expect(isBotName(name)).toBe(false);
+    expect(isBotName("Pal2", "Pal")).toBe(true);
+  });
+
+  it("names the next bot: the first free of MCBot, MCBot2, MCBot3 ...", () => {
+    expect(nextBotName([])).toBe("MCBot");
+    expect(nextBotName([slot("Ann")])).toBe("MCBot");
+    expect(nextBotName([slot("MCBot")])).toBe("MCBot2");
+    expect(nextBotName([slot("MCBot"), slot("MCBot3")])).toBe("MCBot2");
+    expect(nextBotName([slot("mcbot"), slot("MCBOT2"), slot("Ann")])).toBe("MCBot3");
+    const full = ["MCBot", ...Array.from({ length: 15 }, (_, i) => `MCBot${i + 2}`)];
+    expect(nextBotName(full.map((n) => slot(n)))).toBeNull();
+  });
+
+  it("puts the added bots on the smaller teams, beside the people", () => {
+    let roster = [slot("MCBot", "red"), slot("Ann", "red")];
+    roster = addPlayer(roster, nextBotName(roster)!, true, duel);
+    expect(roster.at(-1)).toEqual(slot("MCBot2", "blue"));
+    roster = addPlayer(roster, "Bob", true, duel);
+    expect(
+      rosterProblems(roster, true, duel),
+    ).toEqual([]);
+    expect(roster.map((p) => p.team)).toEqual(["red", "red", "blue", "blue"]);
+  });
+
+  it("accepts several bots and refuses to make one an operator", () => {
+    const bots = [slot("MCBot", "red"), slot("MCBot2", "blue"), slot("MCBot3", "red")];
+    expect(rosterProblems(bots, true, duel)).toEqual([]);
+    expect(rosterProblems([...bots, slot("MCBot4", "blue")], true, duel)).toEqual([]);
+    expect(rosterProblems([slot("MCBot2", "red", true), slot("Ann", "blue")], true, duel)).toEqual([
+      "MCBot2 is a bot and cannot be an operator.",
+    ]);
   });
 });

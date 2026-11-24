@@ -32,7 +32,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mclab.arena.client import ArenaError
-from mclab.companion_fleet import bot_id_for_name
+from mclab.companion_names import bot_id_for_name
 
 __all__ = [
     "ArenaError",

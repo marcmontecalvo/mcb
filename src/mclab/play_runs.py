@@ -33,6 +33,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mclab.arena.plan import TEAM_NAMES
+from mclab.companion_names import is_bot_name
 from mclab.paths import ROOT
 
 ARENAS = ROOT / "arenas"
@@ -534,6 +535,8 @@ def _check_roster(roster: list[dict] | None) -> None:
             raise ValueError(
                 f"{name}'s team {entry['team']!r} is not one of {', '.join(TEAM_NAMES)}"
             )
+        if entry["op"] and is_bot_name(name):
+            raise ValueError(f"{name} is a bot and cannot be an operator")
 
 
 def check(run: dict) -> None:
@@ -918,7 +921,9 @@ def _episode(status: str, seconds) -> dict:
 
 
 # what a match row says beyond its outcome (arena_hunt.hunt), kept when present
-_MATCH_KEYS = ("reason", "winner", "bot_won", "bot_kills", "kills", "team_kills")
+_MATCH_KEYS = (
+    "reason", "winner", "bot", "bot_won", "bot_kills", "bots", "kills", "team_kills",
+)  # fmt: skip
 
 
 def summarize(run: dict, record: dict | None, *, run_id: str) -> dict:

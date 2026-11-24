@@ -839,7 +839,7 @@ def load_bot(settings: dict, root=None, bot_id: str | None = None) -> dict:
     if own is not None:
         own.setdefault("id", bot_id)
         return checked(path, own)
-    from mclab.companion_fleet import bot_name_for
+    from mclab.companion_names import bot_name_for
 
     try:
         name = bot_name_for(bot_id)
