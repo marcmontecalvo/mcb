@@ -14,12 +14,27 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeApi:
+    """The companion host with one bot running; ``add_bot`` puts the others in."""
+
     @classmethod
     def from_runtime(cls, *args, **kwargs):
         return cls()
 
+    hosted = [{"id": "default", "name": "MCBot"}]
+
+    def __init__(self):
+        self.added = []
+        self.rows = list(self.hosted)
+
     def events(self, *args, **kwargs):
         return {"latest": 0}
+
+    def bots(self):
+        return list(self.rows)
+
+    def add_bot(self, bot_id=None):
+        self.added.append(bot_id)
+        return {"ok": True, "bot": {"id": bot_id}}
 
 
 def _script(name: str) -> dict:
@@ -113,6 +128,70 @@ def test_a_team_match_on_the_arena_server_readies_its_world_and_roster(
     assert seen["exit"] == (0, 102, 0)
     ((names, _),) = admin.waited
     assert names == ["MCBot", "Ann", "Bob"]
+
+
+def test_a_hunt_names_its_one_bot_by_the_fleet_id(tmp_path, monkeypatch):
+    main, seen, _ = _hunt(tmp_path, monkeypatch)
+
+    assert main(["--arena", "vault", "--waves", "mixed-10"]) == 0
+    assert seen["bots"] == {"MCBot": "default"} and seen["api"].added == []
+
+
+def test_a_match_of_two_bots_puts_the_missing_one_in_before_players_are_awaited(
+    tmp_path, monkeypatch, capsys
+):
+    main, seen, admin = _hunt(tmp_path, monkeypatch)
+    order = []
+    real = FakeApi.add_bot
+    monkeypatch.setattr(
+        FakeApi, "add_bot", lambda self, i=None: order.append("add") or real(self, i)
+    )
+    wait = admin.wait_ready
+    admin.wait_ready = lambda *a, **k: order.append("wait") or wait(*a, **k)
+
+    code = main(["--arena", "duel", "--mode", "teams", "--team", "red=MCBot,Ann",
+                 "--team", "blue=MCBot2,Bob"])  # fmt: skip
+
+    assert code == 0
+    assert seen["bots"] == {"MCBot": "default", "MCBot2": "mcbot2"}
+    assert seen["api"].added == ["mcbot2"] and order == ["add", "wait"]
+    ((names, _),) = admin.waited
+    assert names == ["MCBot", "Ann", "MCBot2", "Bob"]  # the bots join, never ready
+    assert "put in mcbot2" in capsys.readouterr().out
+
+
+def test_a_bot_the_host_cannot_put_in_stops_the_hunt_before_it_starts(
+    tmp_path, monkeypatch, capsys
+):
+    main, seen, admin = _hunt(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        FakeApi, "add_bot", lambda self, i=None: {"ok": False, "error": "no profile"}
+    )
+
+    code = main(["--arena", "duel", "--mode", "teams", "--team", "red=MCBot,Ann",
+                 "--team", "blue=MCBot2,Bob"])  # fmt: skip
+
+    assert code == 2 and seen == {} and admin.waited == []
+    assert "mcbot2" in capsys.readouterr().err
+
+
+def test_a_player_named_as_a_bot_must_be_one_the_host_runs(
+    tmp_path, monkeypatch, capsys
+):
+    main, seen, _ = _hunt(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        FakeApi,
+        "hosted",
+        [{"id": "default", "name": "MCBot"}, {"id": "pal", "name": "Pal"}],
+    )
+
+    code = main(["--arena", "vault", "--waves", "mixed-10", "--players", "MCBot",
+                 "Pal", "--bot", "Pal"])  # fmt: skip
+    assert code == 0 and seen["bots"] == {"MCBot": "default", "Pal": "pal"}
+
+    code = main(["--arena", "vault", "--waves", "mixed-10", "--players", "Ghost",
+                 "--bot", "Ghost"])  # fmt: skip
+    assert code == 2 and "Ghost" in capsys.readouterr().err
 
 
 def test_a_match_without_the_bot_needs_no_companion(tmp_path, monkeypatch):

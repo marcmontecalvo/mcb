@@ -12,6 +12,12 @@ second until it ends.
         --wave pillager*2 --wave pillager+vindicator --repeat 5 --label pairs
     uv run --env-file .env --locked python scripts/arena-hunt.py --arena duel \\
         --mode teams --team red=MCBot,Ann --team blue=Bob,Cy --op Ann --world
+    uv run --env-file .env --locked python scripts/arena-hunt.py --arena duel \\
+        --mode teams --team red=MCBot,Ann --team blue=MCBot2,Bob --world
+
+Several bots may play (MCBot, MCBot2, ...): each roster name that is one is put in
+on the companion host when missing, dressed, sent `attack` and measured on its own
+(`bots` in each run and in the summary); none is waited for as a human.
 
 Modes: `waves` (co-op: everyone against the mob waves), `teams` (team against
 team; mob waves optional) and `race` (teams race to kill the most wave mobs).
@@ -56,7 +62,14 @@ def _parser() -> argparse.ArgumentParser:
         metavar="TEAM=A,B",
         help="teams and race modes: a team and its players, one flag per team",
     )
-    parser.add_argument("--bot", default=ah.BOT, help="the bot's player name")
+    parser.add_argument(
+        "--bot",
+        action="append",
+        metavar="NAME",
+        help="a player that is one of the companion bots (repeat for several; "
+        f"default {ah.BOT}). MCBot and MCBot2..MCBot99 in the roster are bots "
+        "without it; the host puts in the ones it is missing",
+    )
     parser.add_argument(
         "--op",
         action="append",
@@ -117,10 +130,28 @@ def _roster(parser, args) -> tuple[list[str] | None, dict | None]:
     if args.mode == "waves":
         if teams:
             parser.error("--team belongs to --mode teams or race")
-        return args.players or [args.bot], None
+        return args.players or [(args.bot or [ah.BOT])[0]], None
     if args.players or not teams:
         parser.error(f"--mode {args.mode} takes its players by --team, one per team")
     return None, teams
+
+
+def _bots(people: list[str], names: list[str], echo) -> tuple[object, dict]:
+    """The companion api and the roster's bots (name -> fleet id), every one of them
+    on the host: those it lacks are put in, so they join the server before the
+    wait for players. No bot in the roster needs no companion at all."""
+    wanted = any(
+        ah.bot_id_for_name(p) is not None or any(p.lower() == n.lower() for n in names)
+        for p in people
+    )
+    if not wanted:
+        return None, {}
+    api = ApiClient.from_runtime()
+    api.events(0, wait=0)
+    bots = ah.resolve_bots(api, people, extra=names)
+    for bot_id in ah.ensure_bots(api, bots):
+        echo(f"put in {bot_id}")
+    return (api if bots else None), bots
 
 
 def main(argv=None) -> int:
@@ -154,10 +185,7 @@ def main(argv=None) -> int:
     exit_cell = tuple(args.exit) if args.exit else None
     echo = lambda line: print(line, flush=True)  # noqa: E731
     try:
-        api = None
-        if any(p.lower() == args.bot.lower() for p in people):
-            api = ApiClient.from_runtime()
-            api.events(0, wait=0)
+        api, bots = _bots(people, args.bot or [ah.BOT], echo)
         admin = arena.ArenaClient.from_state()
         if args.world:
             ready = world.prepare(admin, args.arena, echo=echo)
@@ -165,7 +193,7 @@ def main(argv=None) -> int:
         admin.wait_ready(
             people, timeout=args.ready_timeout, arena=args.arena, echo=echo
         )
-    except (ApiUnavailable, arena.ArenaError) as error:
+    except (ApiUnavailable, ah.BotsUnavailable, arena.ArenaError) as error:
         print(f"arena-hunt: {error}", file=sys.stderr)
         return 2
     path = ah.run_series(
@@ -181,7 +209,7 @@ def main(argv=None) -> int:
         teams=teams,
         exit=exit_cell,
         ops=ops,
-        bot=args.bot,
+        bots=bots,
         echo=echo,
         label=args.label,
         kit=kit,

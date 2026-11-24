@@ -181,7 +181,9 @@ def test_a_hunt_takes_the_nearest_wave_mob_however_far_it_is():
     far, near = wave_mob("r1", (60.5, 64, 0.5)), wave_mob("r2", (40.5, 64, 0.5))
     found = attack.hunt(match(far, near), state(), None)
     assert (found.uuid, found.type, found.position) == (
-        "r2", "minecraft:ravager", (40.5, 64.0, 0.5)
+        "r2",
+        "minecraft:ravager",
+        (40.5, 64.0, 0.5),
     )
     assert not found.seen  # 40 blocks off: out of sight, so the job walks to it
 
@@ -304,3 +306,20 @@ def test_the_arena_here_is_the_one_whose_bounds_hold_the_bot():
     assert attack.arena_here(listing, (20.9, 64.0, 0.5)) == "vault"  # the max cell
     assert attack.arena_here(listing, (21.5, 64.0, 0.5)) is None
     assert attack.arena_here({"arenas": []}, (0.5, 64.0, 0.5)) is None
+
+
+def test_another_bot_is_a_foe_on_the_other_team_and_never_on_mine():
+    # Several bots play one match: each reads the same roster with its own name, so a
+    # bot is a foe of exactly the bots across the teams, and a teammate of the rest.
+    first = fighter("MCBot", "red", (0.5, 64, 0.5))
+    mate = fighter("MCBot2", "red", (1.5, 64, 0.5))
+    rival = fighter("MCBot3", "blue", (12.5, 64, 0.5))
+    match = contest(first, mate, rival)["match"]
+    assert [r["name"] for r in attack.foes(match, "MCBot")] == ["MCBot3"]
+    assert [r["name"] for r in attack.foes(match, "MCBot2")] == ["MCBot3"]
+    assert sorted(r["name"] for r in attack.foes(match, "MCBot3")) == [
+        "MCBot",
+        "MCBot2",
+    ]
+    found = attack.hunt(contest(first, mate, rival), state(), None, "mcbot2")
+    assert (found.uuid, found.name) == ("u-MCBot3", "MCBot3")

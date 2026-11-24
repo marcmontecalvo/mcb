@@ -46,6 +46,17 @@ def bot_name_for(bot_id: str) -> str:
     return f"{DEFAULT_BOT['name']}{found.group(1)}"
 
 
+def bot_id_for_name(name: str) -> str | None:
+    """The derived id of an in-game name (``MCBot`` and ``MCBot<N>``, any case), or
+    None for any other name (a human, or a bot whose profile names it otherwise)."""
+    base = DEFAULT_BOT["name"].lower()
+    lowered = name.lower()
+    if lowered == base:
+        return DEFAULT_ID
+    candidate = "mcbot" + lowered[len(base) :] if lowered.startswith(base) else ""
+    return candidate if BOT_ID.fullmatch(candidate) else None
+
+
 @dataclass
 class Member:
     """One bot of the fleet. ``stop`` are the callables that wind its adapters down
