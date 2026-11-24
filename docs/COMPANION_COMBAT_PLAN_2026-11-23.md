@@ -426,7 +426,14 @@ what it threw on whom (`Marks`) until the effect wears off, and marks every thro
 flight for 1.5 s: the first live run (20261124T040230Z) threw two harming and a weakness at one
 vindicator in 0.2 s, before the first had landed. The same run died in a 29 s walk toward an
 unreachable vindicator with five heals held; a hunt's walks now end after 4 s (ARENA_RUNTIME,
-"The bot's hunt"). While something held heals, a fight
+"The bot's hunt").
+
+Measured (vault, rung 2: pillager x2 + vindicator x2, then pillager x3 + vindicator + witch, full
+kit with food and potions, `results/companion/arena/20261124T042619Z.json`): **5/5 won** (before
+food and potions, 1/5 in 20261124T032503Z), median 45.0 s, max 46.8 s, lowest health 5.1. Used:
+strong healing x9 (all splashed on itself up close), steak x4, strength x4, swiftness x1. Damage
+taken: vindicator 74, arrow 40.7, magic 39 (the witch's poison), the witch's splash 10, none of
+its own. No harming was thrown: the groups were out of the 5.5-block throw or already in reach. While something held heals, a fight
 op breaks off at `HEAL_AT` (`fight_floor`), and the bot heals and fights on. The guard does the
 same before each defence step. The combat-trial kit parts `food` (16 steak, 2 golden apples) and
 `potions` (drinkable healing II x2, strength, swiftness, regeneration, fire resistance; splash
