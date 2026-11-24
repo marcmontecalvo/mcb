@@ -765,6 +765,21 @@ def test_summary_records_which_weapon_and_style_met_which_mob():
     assert "picks" not in ct.summarize(events[:1])  # no fight step, no picks
 
 
+def test_summary_adds_the_damage_taken_by_source_and_what_killed_the_bot():
+    events = [
+        _event(1, "defense_step", action="fight", ok=False, reason="low_health",
+               hurt_by={M + "evoker_fangs": 12.0, M + "vex": 3.5}),
+        _event(2, "defense_step", action="fight", ok=False, reason="died",
+               hurt_by={M + "evoker_fangs": 6.0}, killed_by=M + "evoker_fangs"),
+    ]  # fmt: skip
+
+    s = ct.summarize(events)
+
+    assert s["hurt_by"] == {"evoker_fangs": 18.0, "vex": 3.5}
+    assert s["killed_by"] == "evoker_fangs"
+    assert "hurt_by" not in ct.summarize([]) and "killed_by" not in ct.summarize([])
+
+
 def test_the_all_kit_carries_every_weapon_the_bot_can_choose_between():
     assert ct.kit("all") == (
         ct.kit("sword") + ct.kit("axe") + ct.kit("spear") + ct.kit("bow")
@@ -850,6 +865,23 @@ def test_a_cell_summary_has_the_rates_and_spreads():
     assert cell["crit_rate"] == pytest.approx(9 / 16)
     assert cell["ends"] == {"killed": 4, "timeout": 1}
     assert cell["failures"] == {"fight: unreachable": 1}
+    assert "hurt_by" not in cell and "killed_by" not in cell
+
+
+def test_a_cell_summary_has_the_damage_taken_per_trial_and_the_killers():
+    rows = [
+        _row("all", "evoker", killed=False, hurt_by={"evoker_fangs": 18.0},
+             killed_by="evoker_fangs"),
+        _row("all", "evoker", killed=False, hurt_by={"evoker_fangs": 6.0, "vex": 4.0},
+             killed_by="vex"),
+        _row("all", "evoker"),
+    ]  # fmt: skip
+
+    cell = ct.summary(rows)["all/evoker"]
+
+    # per trial, over every trial of the cell
+    assert cell["hurt_by"] == {"evoker_fangs": 8.0, "vex": pytest.approx(4 / 3)}
+    assert cell["killed_by"] == {"evoker_fangs": 1, "vex": 1}
 
 
 def test_a_regression_is_flagged_against_the_baseline():

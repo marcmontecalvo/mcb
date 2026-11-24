@@ -159,6 +159,8 @@ def summarize(events: list[dict]) -> dict:
     charge_log: list = []  # its first hits, fight by fight
     picks: Counter = Counter()  # fight steps per "target weapon style"
     kill_types: Counter = Counter()  # kills per mob type (an evoker's vexes apart)
+    hurt: Counter = Counter()  # damage taken per source type, over the steps
+    killed_by = None
     for event in events:
         data = event.get("data") or {}
         if event.get("type") == "defense":
@@ -186,6 +188,12 @@ def summarize(events: list[dict]) -> dict:
                 pick = (data.get("target_type"), data["weapon"], data.get("style"))
                 picks[" ".join(_bare(p) for p in pick)] += 1
             kill_types.update(_typed_kills(data))
+            if isinstance(data.get("hurt_by"), dict):
+                hurt.update(
+                    {_bare(k): v for k, v in data["hurt_by"].items() if _number(v)}
+                )
+            if data.get("killed_by") is not None:
+                killed_by = _bare(data["killed_by"])
     out = {
         "actions": actions,
         "steps": steps,
@@ -202,6 +210,10 @@ def summarize(events: list[dict]) -> dict:
         out["picks"] = dict(sorted(picks.items()))
     if kill_types:
         out["kill_types"] = dict(sorted(kill_types.items()))
+    if hurt:
+        out["hurt_by"] = {k: round(v, 1) for k, v in sorted(hurt.items())}
+    if killed_by is not None:
+        out["killed_by"] = killed_by
     return out
 
 
@@ -530,6 +542,15 @@ def summary(trials: list[dict]) -> dict:
             "ends": dict(Counter(str(r.get("end")) for r in rows)),
             "failures": dict(failures),
         }
+        hurt: Counter = Counter()
+        for r in rows:
+            if isinstance(r.get("hurt_by"), dict):
+                hurt.update({k: v for k, v in r["hurt_by"].items() if _number(v)})
+        if hurt:  # per trial: the cell's sources of damage, side by side
+            out[cell]["hurt_by"] = {k: v / len(rows) for k, v in sorted(hurt.items())}
+        killers = Counter(r["killed_by"] for r in rows if r.get("killed_by"))
+        if killers:
+            out[cell]["killed_by"] = dict(killers)
     return out
 
 

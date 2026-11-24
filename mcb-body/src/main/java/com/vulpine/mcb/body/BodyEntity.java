@@ -39,6 +39,16 @@ final class BodyEntity {
 
     static String typeId(Entity entity) { return BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString(); }
 
+    /**
+     * What dealt the body's last damage: the direct entity's type (an evoker's fangs, an arrow, a vex), else the
+     * damage kind ("fall", "magic"); null once it is too old to be this tick's.
+     */
+    static String hurtSource(ServerPlayer player) {
+        var source = player.getLastDamageSource();
+        if (source == null) return null;
+        return source.getDirectEntity() != null ? typeId(source.getDirectEntity()) : source.getMsgId();
+    }
+
     static Entity find(ServerPlayer player, JsonObject request) {
         UUID id;
         try { id = UUID.fromString(request.get("entity").getAsString()); }
@@ -245,6 +255,8 @@ final class BodyEntity {
         int ticks, hits, crits, shots;
         /** Targets that died with the body as their killer (FightLogic.Kills). */
         final FightLogic.Kills kills = new FightLogic.Kills();
+        /** The damage the body took, by source; from the first tick's health. */
+        private FightLogic.Hurt hurt;
         /** Where the requested target died (its drops lie there, a hunt collects them), or null. */
         private java.util.List<Double> diedAt;
         /** The radius the fight looks in: params.radius widened to the tactic's stand-off band (FightLogic.reach). */
@@ -304,6 +316,8 @@ final class BodyEntity {
 
         /** Adds what the tracked target lost since the last look; a dead one is counted (an arrow's kill) and let go. */
         private void account(ServerPlayer player) {
+            if (hurt == null) hurt = new FightLogic.Hurt(player.getHealth());
+            hurt.seen(player.getHealth(), hurtSource(player));
             dealtNow = 0;
             if (tracked == null) return;
             dealtNow = FightLogic.dealt(trackedHealth, tracked.getHealth());
@@ -836,6 +850,8 @@ final class BodyEntity {
             var out = new LinkedHashMap<String, Object>();
             out.put("kills", kills.count());
             if (kills.count() > 0) out.put("kill_types", new LinkedHashMap<>(new java.util.TreeMap<>(kills.types())));
+            if (!hurt.taken().isEmpty()) out.put("hurt_by", new LinkedHashMap<>(new java.util.TreeMap<>(hurt.taken())));
+            if (!player.isAlive() && hurt.last() != null) out.put("killed_by", hurt.last());
             out.put("hits", hits);
             out.put("crits", crits);
             out.put("shots", shots);

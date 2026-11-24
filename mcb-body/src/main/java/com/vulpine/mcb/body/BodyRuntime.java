@@ -251,6 +251,7 @@ public final class BodyRuntime implements AutoCloseable {
         data.put("cause", player.getCombatTracker().getDeathMessage().getString());
         addSender(data, player);
         runtime.emit("body_died", "fabric_start", data);
+        runtime.actionDied(player);
     }
 
     /** The sender's position and dimension, shared by player_command and player_chat. */
@@ -1154,11 +1155,28 @@ public final class BodyRuntime implements AutoCloseable {
         }
     }
 
+    /**
+     * The body died with a task running (on its death, before Carpet removes the player): the task fails "died"
+     * with its counters so far and what killed it (a fight's killed_by), so a lost fight says how it was lost.
+     */
+    private void actionDied(ServerPlayer player) {
+        var task = actionTask;
+        if (task == null) return;
+        actionTask = null;
+        if (actionControlled) { body.release(); expiryTick = -1; actionControlled = false; }
+        task.stop(player);
+        var data = new LinkedHashMap<String, Object>(task.failure(player));
+        data.put("request_sequence", task.requestSequence());
+        data.put("reason", "died");
+        emit(task.name() + "_failed", "fabric_start", data);
+    }
+
     /** Ticks attack_entity / eat: the task acts on the player each tick and reports done or a reason. */
     private void tickAction() {
         if (actionTask == null) return;
         var task = actionTask;
         var player = body == null ? null : body.player();
+        if (player != null && player.isDeadOrDying()) { actionDied(player); return; }
         if (player == null || !player.isAlive() || !readyState.equals("ready")) {
             actionTask = null;
             emit(task.name() + "_failed", "fabric_start", Map.of("request_sequence", task.requestSequence(), "reason", "body_not_ready"));

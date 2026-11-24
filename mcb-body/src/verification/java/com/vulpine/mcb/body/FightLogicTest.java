@@ -142,6 +142,20 @@ public final class FightLogicTest {
         // a hunt asks whether its own animal died, not whether anything did
         check(kills.has("a") && kills.has("b") && !kills.has("c") && !kills.has(null), "which died");
 
+        // the damage the body took, by what dealt it (a raid's deaths are read from it)
+        var hurt = new FightLogic.Hurt(20f);
+        String fangs = "minecraft:evoker_fangs";
+        hurt.seen(14f, fangs);
+        hurt.seen(15f, fangs);  // regeneration: nothing taken
+        hurt.seen(11f, vex);
+        hurt.seen(11f, vex);    // no change
+        hurt.seen(5f, fangs);
+        check(hurt.taken().equals(java.util.Map.of(fangs, 12.0, vex, 4.0)), "hurt by source " + hurt.taken());
+        check(fangs.equals(hurt.last()), "the last source " + hurt.last());
+        hurt.seen(-3f, null);  // a kill counts only the health it had; an unknown source has a name too
+        check(hurt.taken().get("unknown") == 5.0 && "unknown".equals(hurt.last()), "unknown source, clamped");
+        check(new FightLogic.Hurt(20f).last() == null, "unhurt: no last source");
+
         check("minecraft:stone_sword".equals(FightLogic.desiredWeapon("minecraft:stone_sword", true, "minecraft:iron_sword")), "requested weapon carried");
         check("minecraft:iron_sword".equals(FightLogic.desiredWeapon("minecraft:stone_sword", false, "minecraft:iron_sword")), "requested broke, best instead");
         check(FightLogic.desiredWeapon(null, false, null) == null, "empty hand when nothing");

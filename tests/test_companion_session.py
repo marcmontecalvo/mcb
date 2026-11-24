@@ -1494,6 +1494,17 @@ def test_defend_reports_what_a_fight_step_fought_with_what_and_killed(guard):
     assert "target_type" not in bare and bare["weapon"] == SWORD
 
 
+def test_defend_reports_the_damage_a_fight_took_and_what_killed_the_body(guard):
+    session, _, _ = guard()
+    hurt = {"minecraft:ravager": 24.0}
+    session.body.fights = [
+        Result(False, "died", {"hurt_by": hurt, "killed_by": "minecraft:ravager"})
+    ]
+    outcome = session.defend(Action("fight", "fighting", target="r1", item=SWORD))
+    assert outcome["reason"] == "died"
+    assert (outcome["hurt_by"], outcome["killed_by"]) == (hurt, "minecraft:ravager")
+
+
 def test_defend_reports_an_escape_and_a_step_with_no_body_op(guard):
     session, _, _ = guard()
     data = {"end": "clear", "jumps": 9, "distance": 21.5, "nearest": 17.0, "ticks": 90}

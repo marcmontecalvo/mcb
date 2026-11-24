@@ -250,6 +250,33 @@ final class FightLogic {
         boolean has(String uuid) { return uuid != null && dead.contains(uuid); }
     }
 
+    /**
+     * The damage the body took in a fight, by the source that dealt it (the direct entity's type, an evoker's
+     * fangs rather than the evoker, or the damage kind), read off the health each tick: a raid's losses say what
+     * hurt. Health regained in between is not counted, so a fight that healed shows less than it took.
+     */
+    static final class Hurt {
+        private final java.util.Map<String, Double> bySource = new java.util.TreeMap<>();
+        private float health;
+        private String last;
+
+        Hurt(float health) { this.health = health; }
+
+        /** This tick's health and the source of the last damage (null: unknown). */
+        void seen(float now, String source) {
+            double lost = dealt(health, now);
+            health = now;
+            if (lost <= 0) return;
+            last = source == null ? "unknown" : source;
+            bySource.merge(last, Math.round(lost * 10) / 10.0, Double::sum);
+        }
+
+        java.util.Map<String, Double> taken() { return java.util.Map.copyOf(bySource); }
+
+        /** What dealt the last damage (null: none taken): for a body that died, what killed it. */
+        String last() { return last; }
+    }
+
     /** Damage the target took between two ticks: the health it lost, never negative, a kill counting what it had. */
     static double dealt(double before, double after) {
         return Math.max(0, before - Math.max(0, after));
