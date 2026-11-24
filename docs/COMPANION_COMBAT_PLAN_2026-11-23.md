@@ -441,6 +441,16 @@ healing II x3, harming II x2, weakness, slowness, poison) are given one entry pe
 potions never stack. The body side is in BODY_ACTION_OPS (`drink`, `throw_potion`, the rows'
 `potion`/`effects`, the observation's `effects`, `absorption`, `saturation`, `fire_ticks`).
 
+The full vault raid (6 waves, `20261124T051504Z.json`, after the caster priority, the short walks,
+the flight marks, the splash path geometry and the body's `blocked` throw refusal): **0/3**, waves
+4, 4 and 3 cleared (3.7 on average; 3.3 in 20261124T045928Z). Damage taken: vindicator 94.6,
+arrow 31.7, evoker fangs 31, magic 20.7, vex 15.7, ravager 13.9, witch splash 11, its own splash 6
+(one throw; 17 in the run before). `blocked` refused one harming throw live. Two of the three
+deaths came while eating a golden apple to heal (1.6 s) with vindicators in reach. Open: a slow
+heal taken in melee is fatal against two vindicators (about 8.6 a hit through iron), so the bot
+needs to back off or shield before a slow heal and keep its distance from more than one brute;
+bow accuracy against pillagers; no milk for the witch's poison.
+
 ## Slices (TDD each; one commit each)
 
 1. Done: `companion_combat.py`: weapons, profiles, tactic and weapon choice.
