@@ -126,9 +126,22 @@ def _defense_text(settings):
 
 
 class Ingress:
-    def __init__(self, host, talker, events_source, *, bot, poll_s=1.0, players=None):
+    def __init__(
+        self,
+        host,
+        talker,
+        events_source,
+        *,
+        bot=None,
+        poll_s=1.0,
+        players=None,
+        stop_all=False,
+    ):
+        """``host`` and ``talker`` may be a ``Fleet`` (several bots): then ``/mcb stop``
+        names every bot (``stop_all``), and the other commands reach the first bot,
+        which is also the one that tells the player the outcome."""
         self.host, self.talker, self.source = host, talker, events_source
-        self.bot, self.poll_s = bot, poll_s
+        self.bot, self.poll_s, self.stop_all = bot, poll_s, stop_all
         self.players = players  # () -> online player names, or None when unknown
         self.cursor: int | None = None
         self.launch_id = None
@@ -229,7 +242,10 @@ class Ingress:
         if sub == "status":
             return self._run_intent(actor, "status", {}, self._explain)
         if sub == "stop":
-            return self._run_intent(actor, "stop", {}, lambda r, a, i: "Stopped.")
+            route = {"bot": "all"} if self.stop_all else {}
+            return self._run_intent(
+                actor, "stop", {}, lambda r, a, i: "Stopped.", route=route
+            )
         if sub == "goto":
             coords = [_int(data.get(axis)) for axis in "xyz"]
             if None in coords:
@@ -303,9 +319,9 @@ class Ingress:
     def _defense_reply(result, args, intent):
         return _defense_text(result.get("defense") or {})
 
-    def _run_intent(self, actor, intent, args, describe):
+    def _run_intent(self, actor, intent, args, describe, *, route=None):
         try:
-            result = self.host.call(intent, args, actor)
+            result = self.host.call(intent, args, actor, **(route or {}))
         except Exception:
             return self._tell(actor, "Something went wrong.")
         if result.get("ok"):

@@ -12,21 +12,21 @@ import java.io.IOException;
 
 /** mcb-body: the Carpet body's nervous system. Independent of mcb-lab. */
 public final class BodyMod implements ModInitializer {
-    private BodyRuntime runtime;
+    private BodyHub hub;
 
     @Override
     public void onInitialize() {
         CommandRegistrationCallback.EVENT.register((dispatcher, registry, environment) -> McbCommand.register(dispatcher));
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) ->
-                BodyRuntime.playerChat(sender, message.signedContent()));
-        ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> BodyRuntime.bodyDied(entity, source));
+                BodyHub.playerChat(sender, message.signedContent()));
+        ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> BodyHub.bodyDied(entity, source));
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-            try { runtime = new BodyRuntime(server); }
+            try { hub = new BodyHub(server); }
             catch (IOException error) { throw new IllegalStateException("Cannot bind body bridge", error); }
         });
-        ServerTickEvents.START_SERVER_TICK.register(server -> { if (runtime != null) runtime.preTick(); });
-        ServerTickEvents.END_SERVER_TICK.register(server -> { if (runtime != null) runtime.postTick(); });
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> { if (runtime != null) runtime.close(); });
+        ServerTickEvents.START_SERVER_TICK.register(server -> { if (hub != null) hub.preTick(); });
+        ServerTickEvents.END_SERVER_TICK.register(server -> { if (hub != null) hub.postTick(); });
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> { if (hub != null) hub.close(); });
         LoggerFactory.getLogger("mcb-body").info("MCB body bridge loaded");
     }
 }

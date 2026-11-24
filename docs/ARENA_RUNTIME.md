@@ -98,18 +98,32 @@ everyone. That covers 1v1, 8v8, and 50 mobs against 7 players.
 - **When a match ends**, its board **stays up** with its final state, retitled "Red wins! · 2/5",
   "Victory!", "Defeated", "Draw" or "Stopped". It used to vanish, so a kill made on the last blow
   never showed.
-- **The chat recap**, sent to everyone in the arena's world and to the participants (`ArenaLogic.recap`):
-  - Header: "Match 2 of 5 · Red wins! · 1:42".
-  - Each team's kills and damage dealt.
-  - Each player by damage dealt: kills (players split out when they killed both mobs and
-    players), downs, health dealt, taken and healed. The top damage dealer is starred.
+- **The after-action table** is sent to chat for everyone in the arena's world and the
+  participants (`ArenaRecap.table`):
+  - **Header.** "Match 2 of 5 · Red wins! · 1:42". A lone match drops "1 of 1": "Stopped · 1:09".
+  - **Columns.** Kills, Downs, Dealt, Taken and Healed, right-aligned under gray titles.
+  - **Rows.** In a team game, each team's row of totals comes first, bold in its colour, with its
+    players indented under it in the team colour. In co-op, every player is listed in white.
+    Players are ordered by damage dealt.
+  - **Numbers.** Whole numbers, coloured by column: kills white, downs red, dealt yellow, taken
+    gray, healed green. A zero is dimmed.
+  - **Top damage.** The top dealer's damage is gold and bold, and the row ends in a gold ★. The star
+    sits after the last column: it isn't an ASCII glyph, so its width can't be measured.
+  - **Hover.** Hovering a row shows the exact figures to a tenth, and kills split into mobs and
+    players.
+  - **Alignment.** Chat uses a proportional font. Every word is measured in the default font's
+    advances (a glyph plus one pixel, one more when bold), and the gaps are padded with spaces
+    (4 px) and bold spaces (5 px). Padding is exact for any gap from 12 px; the minimum gap of
+    8 px is a pixel off only at 11.
+  - **Width.** 8-a-side with 16-character names fits the default 320 px chat.
+  - **Limits.** A client that forces the Unicode font sees the columns slightly off.
 - **Between the matches of a series** (more than one), `arena-hunt.py` puts the **series board** on
   the sidebar (`arena_board`, `mcbs_<8 hex>`): "duel · 2 of 5 played" (then "final"), each team's
   wins with its players' series kills and a draws line; in co-op, the matches won and everyone's
   kills.
-- **At the series' end** it sends a chat recap of everyone's totals (`arena_say`): the score
-  "Red 3 · Blue 2 · 1 draw" (or "Won 3 of 5"), then each player's series kills, downs, health dealt,
-  taken and healed, the top dealer starred.
+- **At the series' end** it sends everyone's totals (`arena_recap`). The mod draws them in the same
+  table, under "duel · final standings" and the score "Red 3 · Blue 2 · 1 draw" (or "Won 3 of 5").
+  Python sends the numbers, not the layout.
 - **A single match** keeps its own final board and recap.
 - Both board kinds are swept at server start, like the teams.
 
@@ -134,10 +148,15 @@ What counts (`ArenaLogic.Tally`, fed by `LivingStatsMixin` and `HealEffectMixin`
 - `arena_board {name, title, rows: [{text, value?, color?, bold?, struck?}]}`: at most 15 rows,
   title up to 64 characters, text 40, value 16. `color` is one of the 16 chat colours (default
   white). `{name, clear: true}` takes the board down.
-- `arena_say {name, lines: [[{text, color?, bold?}]]}`: up to 24 lines of up to 16 parts, each up
-  to 120 characters.
-- In both, an unknown field is refused (`bad_request`).
-- Python: `ArenaClient.board`, `clear_board`, `announce`.
+- `arena_recap {name, title, lines?, teams?, players}` draws the after-action table:
+  - `lines` (up to 4, each up to 16 parts of `{text, color?, bold?}`, each part up to 120
+    characters) go under the title.
+  - `teams` is up to 8 distinct names, in order.
+  - `players` is 1–64 entries of `{name, team?, mob_kills?, player_kills?, deaths?, dealt?, taken?,
+    healing?}`. Counts are whole numbers and health figures are 0 or more; a missing number is 0.
+  - `team` must be one of `teams`, and is absent in co-op.
+- In both ops, an unknown field is refused (`bad_request`).
+- Python: `ArenaClient.board`, `clear_board`, `recap`.
 - `arena_start` takes `series: {match, of}` (1 ≤ match ≤ of ≤ 1000) for the board and the recap.
 
 ### Protocol check
@@ -150,7 +169,8 @@ otherwise fail a match only after everyone had typed `/mcb ready`. This happened
   before the check reports nothing, which counts as 1.
 - **What the lab expects.** `mclab.arena.client.PROTOCOL`. A test keeps the two numbers equal.
 - **When to raise it.** Raise both together whenever an op is added or a request gains or changes
-  a field. Protocol 2 added `arena_board`, `arena_say` and `series`.
+  a field. Protocol 2 added `arena_board`, `arena_say` and `series`. Protocol 3 replaced
+  `arena_say` with `arena_recap`.
 - **Where it is checked.** Every match is checked before it starts:
   - The dashboard's Start checks before it launches the script, and shows the error on the run.
   - `arena-hunt.py` checks before it builds the world or waits for anyone
@@ -335,6 +355,42 @@ backs off to a stand-off band for `snipe` / `throw`):
 
 Evidence gaps: `fight_done` has no per-attacker damage, so "the other player did the damage" is
 read from where each stood (proximity), not from `hurt_by` uuids; the live check is pending.
+
+### Several bots
+
+A match can have several copies of the bot, on one team or on both (2v2, 3v3, bots and people
+mixed, up to 8 a team). Built, **live check pending**.
+
+- **Names.** The first bot is `MCBot` (fleet id `default`); the others are `MCBot2` … `MCBot99`
+  (ids `mcbot2` …). `mclab.companion_names` holds the mapping (`bot_id_for`, `bot_name_for`,
+  `bot_id_for_name`, `is_bot_name`); it imports nothing heavy, so the dashboard and `play_runs`
+  can use it. Nothing else names a bot: a roster name matching `MCBot` or `MCBot<N>` is a bot.
+- **Bodies.** The mod's body hub gives each bot its own body, routed and tagged by body id. The
+  companion `Fleet` (`companion_fleet.py`, up to 16) keeps one `Member` (host, session, talker) per
+  bot with its own files. `ApiClient` routes by `bot=` (`bots()`, `add_bot(id)`; adding an
+  existing id is a no-op).
+- **Hunt.** `arena-hunt.py --team red=MCBot,Ann --team blue=MCBot2,Bob --world` reads the roster,
+  asks the host which bots are running (`resolve_bots`), and puts in the missing ones
+  (`ensure_bots`, echoed `put in mcbot2`) before waiting for the humans. `--bot NAME` (repeatable)
+  names a bot that is not a derived name; it must already be running. A bot that cannot be put in
+  ends the script with exit 2 and a reason; bots are never waited for as humans and never made
+  operators. Each bot gets the kit, is sent to hunt its own foes (the live participants of the
+  other teams, so bots fight each other as well) and ends with the match; `_end` stops every bot
+  and then the match. A bot whose attack is refused is recorded (`outcome: refused`,
+  `refused_by`), not retried. When every bot's job is over (a bot died) but a human is still
+  alive in the running match (`match.participants[].alive`), the hunt keeps sampling until the
+  match ends or the timeout hits; it ends the match as `abandoned` only when no live human is
+  left.
+- **Results.** One bot keeps the flat row (`bot`, `bot_won`, `bot_kills`, …). Several give
+  totals (`bot_kills`, `hits`, `damage`, `hurt_by`, `uses`) and a `bots` object keyed by name with
+  each bot's `min_health`, `job_state`, `error`, `steps`, `hurt_by`, `killed_by`, `picks`,
+  `uses`, `hits`, `damage`, `bot_kills`, `team`, `bot_won`. Samples carry `bot_health` per bot. The
+  series summary adds `bots[name] = {runs, wins, bot_kills, deaths, min_health, hurt_by}`.
+- **Dashboard.** The Arena roster has "+ Add a bot (MCBot2)", which names the next free bot and
+  puts it on the smaller team; a bot cannot be an operator (`play_runs` refuses it too) and
+  counts toward capacity. The "where to watch" card lists only the humans a match waits on.
+- **Not done.** The MCP tools (`goto`, `attack`, …) drive the first bot only: there is no `bot`
+  argument yet.
 
 ## The arena server
 

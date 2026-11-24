@@ -40,7 +40,7 @@ from mclab.companion_intents import (
     authorized,
     validate,
 )
-from mclab.companion_protocol import EVENT_TYPES, TERMINAL_STATES
+from mclab.companion_protocol import EVENT_TYPES, TERMINAL_STATES, HostError
 from mclab.companion_session import Defend, JobCancelled, JobFailed
 from mclab.companion_status import STALL_SECONDS
 from mclab.progress_watch import BodyDied
@@ -59,10 +59,6 @@ QUIET_STAGES = {"waiting", "lost sight"}  # standing still is the job (follow)
 DEFENSE_REST_S = 10.0  # after a stop ends a fight the guard rests this long
 BOT_NAME = re.compile(r"[A-Za-z0-9_]{3,16}")
 DEFAULT_BOT = {"name": "MCBot"}
-
-
-class HostError(Exception):
-    """A request the host cannot serve now; the message is for the caller."""
 
 
 def _new_id() -> str:
@@ -186,6 +182,11 @@ class Host:
                 "or an allowlisted player may"
             )
 
+    def knows(self, job_id: str) -> bool:
+        """Whether this host has (or had) the job: a fleet routes by it."""
+        with self._cond:
+            return job_id in self._jobs
+
     def wait_job(self, job_id: str, timeout: float) -> dict | None:
         with self._cond:
             if job_id not in self._jobs:
@@ -230,6 +231,7 @@ class Host:
             job = self._jobs.get(self._active) if self._active else None
             value = {
                 "bot": self.bot.get("name"),
+                "bot_id": self.bot.get("id"),
                 "session": self._session_state,
                 "session_detail": self._session_detail,
                 **copy.deepcopy(self._snapshot),
@@ -808,17 +810,44 @@ class Host:
 # --- the process ---------------------------------------------------------------------
 
 
-def load_bot(settings: dict, root=None) -> dict:
-    """``bots/<config companion.bot>/bot.json`` (default name MCBot)."""
+def load_bot(settings: dict, root=None, bot_id: str | None = None) -> dict:
+    """A bot's profile.
+
+    Without ``bot_id`` (or for ``default``): ``bots/<config companion.bot>/bot.json``
+    (default name MCBot). Another id is its own ``bots/<id>/bot.json`` if there is
+    one, else, for ``mcbot<N>``, a copy of the first bot's profile named MCBot<N>."""
     from mclab.paths import ROOT, read_json
 
-    bot_id = (settings.get("companion") or {}).get("bot", "default")
-    path = (root or ROOT) / "bots" / bot_id / "bot.json"
-    profile = dict(read_json(path)) if path.is_file() else {}
-    profile.setdefault("name", DEFAULT_BOT["name"])
-    if not BOT_NAME.fullmatch(str(profile["name"])):
-        raise ValueError(f"{path}: name must be 3-16 letters, digits or _")
-    return profile
+    root = root or ROOT
+    base_id = (settings.get("companion") or {}).get("bot", "default")
+
+    def profile_at(identity):
+        path = root / "bots" / identity / "bot.json"
+        profile = dict(read_json(path)) if path.is_file() else None
+        return path, profile
+
+    def checked(path, profile):
+        profile.setdefault("name", DEFAULT_BOT["name"])
+        if not BOT_NAME.fullmatch(str(profile["name"])):
+            raise ValueError(f"{path}: name must be 3-16 letters, digits or _")
+        return profile
+
+    base_path, base = profile_at(base_id)
+    if bot_id in (None, "default"):
+        return checked(base_path, base if base is not None else {})
+    path, own = profile_at(bot_id)
+    if own is not None:
+        own.setdefault("id", bot_id)
+        return checked(path, own)
+    from mclab.companion_names import bot_name_for
+
+    try:
+        name = bot_name_for(bot_id)
+    except ValueError:
+        raise ValueError(f"No bot profile bots/{bot_id}/bot.json") from None
+    derived = copy.deepcopy(checked(base_path, base if base is not None else {}))
+    derived.update({"id": bot_id, "name": name})
+    return derived
 
 
 def world_spawn_for(settings: dict):
@@ -836,9 +865,15 @@ def world_spawn_for(settings: dict):
     raise ValueError(f"companion.spawn must be 'level' or 'lobby', not {spawn!r}")
 
 
-def session_factory(bot: dict, *, results=None, runtime=None, world_spawn=None):
+def session_factory(
+    bot: dict, *, results=None, runtime=None, world_spawn=None, slot=None
+):
     """New Session per (re)connect: its own results folder; one GatherState for the
-    host's life (stations and containers it learns)."""
+    host's life (stations and containers it learns).
+
+    ``slot`` is the bot's place in a fleet. The first one (``default``, or none) keeps
+    the files a single bot always had; every other bot gets its own results folder,
+    saved state, defence settings and world memory, so two bots never share a file."""
     from mclab.companion_defense import DefensePolicy
     from mclab.companion_session import Session, instance_runtime, level_spawn
     from mclab.gather_runner import GatherState
@@ -849,25 +884,73 @@ def session_factory(bot: dict, *, results=None, runtime=None, world_spawn=None):
     world_spawn = world_spawn or level_spawn
     gather_state = GatherState()
     defense = DefensePolicy.from_config(bot.get("defense"))  # a typo fails here
+    if slot in (None, "default"):
+        files, memory_root = runtime, None
+    else:
+        files = runtime / "bots" / slot
+        results, memory_root = results / slot, files / "world-memory"
 
     def make():
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         return Session(
             bot["name"],
             folder=results / stamp,
-            state_file=runtime / "companion-state.json",
+            state_file=files / "companion-state.json",
             gather_state=gather_state,
             defense=defense,
-            defense_file=runtime / "companion-defense.json",
+            defense_file=files / "companion-defense.json",
             world_spawn=world_spawn,
+            memory_root=memory_root,
         )
 
     return make
 
 
-def _start_adapters(host, bot, settings, token, runtime, *, on_shutdown=None):
-    """API, talker and ingress, each optional: a missing or failing one is logged.
-    ``on_shutdown`` is the API's ``POST /shutdown`` hook (the supervisor's stop)."""
+def member_factory(settings, runtime, world_spawn, *, root=None):
+    """The fleet's factory: ``make(fleet_id)`` loads the bot's profile, starts its
+    host (worker, session) and its talker. A talker that will not start is logged:
+    the bot still plays, it just cannot chat."""
+    from mclab.companion_fleet import Member
+
+    def make(fleet_id):
+        bot = load_bot(settings, root, fleet_id)
+        bot.setdefault("id", fleet_id)
+        host = Host(
+            session_factory(
+                bot, runtime=runtime, world_spawn=world_spawn, slot=fleet_id
+            ),
+            bot=bot,
+        )
+        member = Member(fleet_id, bot, host)
+        host.start()
+        try:
+            from mclab import companion_talker, paths
+
+            talker = companion_talker.start(
+                host, bot=bot, instance=paths.INSTANCE.name, **_talker_kwargs(fleet_id)
+            )
+            member.talker = talker
+            member.stop.append(talker.stop)
+        except Exception:  # noqa: BLE001
+            log.exception("talker for %s not started", fleet_id)
+        return member
+
+    return make
+
+
+def _talker_kwargs(fleet_id) -> dict:
+    """Every bot but the first logs its chats under its own results folder."""
+    if fleet_id in (None, "default"):
+        return {}
+    from mclab.paths import ROOT
+
+    return {"results_dir": ROOT / "results" / "companion-host" / fleet_id}
+
+
+def _start_adapters(fleet, settings, token, runtime, *, on_shutdown=None):
+    """API and chat ingress over the whole fleet, each optional: a missing or failing
+    one is logged. ``on_shutdown`` is the API's ``POST /shutdown`` hook (the
+    supervisor's stop)."""
     from mclab.companion_session import write_atomic
 
     stops = []
@@ -875,7 +958,7 @@ def _start_adapters(host, bot, settings, token, runtime, *, on_shutdown=None):
         from mclab import companion_api
 
         server = companion_api.serve(
-            host,
+            fleet,
             port=settings["companion_port"],
             token=token,
             on_shutdown=on_shutdown,
@@ -887,23 +970,15 @@ def _start_adapters(host, bot, settings, token, runtime, *, on_shutdown=None):
         )
     except Exception:  # noqa: BLE001 - the host still plays without it
         log.exception("control API not started")
-    talker = None
-    try:
-        from mclab import companion_talker, paths
-
-        talker = companion_talker.start(host, bot=bot, instance=paths.INSTANCE.name)
-        stops.append(talker.stop)
-    except Exception:  # noqa: BLE001
-        log.exception("talker not started")
     try:
         from mclab import companion_ingress
 
         ingress = companion_ingress.Ingress(
-            host,
-            talker,
+            fleet,
+            fleet,
             companion_ingress.bridge_events_source(),
-            bot=bot,
             players=companion_ingress.bridge_players_source(),
+            stop_all=True,
         )
         ingress.start()
         stops.append(ingress.stop)
@@ -913,24 +988,22 @@ def _start_adapters(host, bot, settings, token, runtime, *, on_shutdown=None):
 
 
 def main(argv=None) -> int:
-    """``python -m mclab.companion_host``: run the play instance's companion until
+    """``python -m mclab.companion_host``: run the play instance's companions until
     the control API's ``POST /shutdown`` (the supervisor) or SIGTERM / Ctrl+Break /
-    Ctrl+C. On the way out: adapters stop, the job is
-    cancelled, the body halts and despawns (a logout that saves), memory and
-    bridge close, ``companion-host.json`` is removed."""
+    Ctrl+C. One bot (MCBot) starts; the API adds and removes the others on demand
+    (``POST /bots``). On the way out: adapters stop, the jobs are cancelled, the
+    bodies halt and despawn (a logout that saves), memory and bridges close,
+    ``companion-host.json`` is removed."""
     from mclab import paths
+    from mclab.companion_fleet import Fleet
     from mclab.companion_session import instance_runtime
 
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     settings = paths.config()
-    bot = load_bot(settings)
     runtime = instance_runtime()
-    host = Host(
-        session_factory(bot, runtime=runtime, world_spawn=world_spawn_for(settings)),
-        bot=bot,
-    )
+    fleet = Fleet(member_factory(settings, runtime, world_spawn_for(settings)))
     stopping = threading.Event()
 
     def stop(*_):
@@ -939,9 +1012,9 @@ def main(argv=None) -> int:
     for name in ("SIGTERM", "SIGBREAK", "SIGINT"):
         if (number := getattr(signal, name, None)) is not None:
             signal.signal(number, stop)
-    host.start()
+    fleet.add()  # the first bot; a bad profile stops the host here, at start
     stops = _start_adapters(
-        host, bot, settings, secrets.token_urlsafe(32), runtime, on_shutdown=stop
+        fleet, settings, secrets.token_urlsafe(32), runtime, on_shutdown=stop
     )
     try:
         while not stopping.wait(0.5):
@@ -954,7 +1027,7 @@ def main(argv=None) -> int:
                 halt()
             except Exception:  # noqa: BLE001 - stop the rest anyway
                 log.exception("adapter stop failed")
-        host.shutdown()
+        fleet.shutdown()
         (runtime / "companion-host.json").unlink(missing_ok=True)
     return 0
 

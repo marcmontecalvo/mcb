@@ -16,10 +16,13 @@ class Clock:
 class FakeArena:
     """A waves match that clears one wave per `per_wave` status reads, or never."""
 
-    def __init__(self, clock, waves=2, per_wave=3, end="won", fail_start=None):
+    def __init__(
+        self, clock, waves=2, per_wave=3, end="won", fail_start=None, people=None
+    ):
         self.clock, self.waves, self.per_wave, self.end = clock, waves, per_wave, end
         self.reads, self.started, self.stopped = 0, [], []
         self.fail_start = fail_start
+        self.people = people  # the match's participants: {"name", "alive"} rows
 
     def start(
         self, name, mode, *, waves=None, participants=None, teams=None, exit=None,
@@ -35,8 +38,8 @@ class FakeArena:
     def board(self, name, title, rows):
         self.__dict__.setdefault("boards", []).append((name, title, rows))
 
-    def announce(self, name, lines):
-        self.__dict__.setdefault("said", []).append((name, lines))
+    def recap(self, name, title, players, *, teams=(), lines=()):
+        self.__dict__.setdefault("said", []).append((name, title))
 
     def status(self, name):
         self.reads += 1
@@ -56,7 +59,12 @@ class FakeArena:
         }
         if over:
             match["reason"] = "cleared"
+        if self.people is not None:
+            match["participants"] = [dict(p) for p in self.people]
         return {"name": name, "match": match, "match_state": match["state"]}
+
+    def kit(self, humans, kit):
+        self.kitted = (list(humans), kit)
 
     def stop(self, name):
         self.stopped.append(name)
@@ -157,6 +165,43 @@ def test_a_job_that_fails_mid_match_stops_the_match_for_the_next_run():
                   clock=clock)  # fmt: skip
     assert arena.stopped == ["vault"]
     assert row["outcome"] == "abandoned" and row["error"] == "I may not attack vault"
+
+
+def _after_the_bot_died(people, end="won"):
+    """The bot's job is over from the first look; the match is not."""
+    clock = Clock()
+    api = FakeApi(clock)
+    api.job = {"id": "j1", "state": "failed", "error": "MCBot died"}
+    arena = FakeArena(clock, end=end, people=people)
+    row = ah.hunt(api, arena, "vault", [], participants=["MCBot", "Ann"], timeout=60,
+                  clock=clock, sleep=lambda s: setattr(clock, "now", clock.now + s))  # fmt: skip
+    return row, arena
+
+
+def test_a_match_with_a_live_human_goes_on_after_the_bot_dies():
+    people = [{"name": "MCBot", "alive": False}, {"name": "Ann", "alive": True}]
+    row, arena = _after_the_bot_died(people)
+    assert row["outcome"] == "won" and row["reason"] == "cleared"
+    assert arena.stopped == []  # the match played out
+    assert row["job_state"] == "failed"  # the bot's own row still says what happened
+
+
+def test_a_match_with_no_live_human_ends_when_the_bot_dies():
+    people = [{"name": "MCBot", "alive": False}, {"name": "Ann", "alive": False}]
+    row, arena = _after_the_bot_died(people, end=None)
+    assert row["outcome"] == "abandoned" and arena.stopped == ["vault"]
+
+
+def test_a_live_human_does_not_hold_a_match_past_the_timeout():
+    people = [{"name": "MCBot", "alive": False}, {"name": "Ann", "alive": True}]
+    row, arena = _after_the_bot_died(people, end=None)
+    assert row["outcome"] == "timeout" and arena.stopped == ["vault"]
+
+
+def test_a_live_bot_is_no_human_to_wait_for():
+    people = [{"name": "MCBot", "alive": True}, {"name": "Ann", "alive": False}]
+    row, arena = _after_the_bot_died(people, end=None)
+    assert row["outcome"] == "abandoned" and arena.stopped == ["vault"]
 
 
 def test_a_hunt_keeps_its_job_steps_and_sums_what_hurt_the_bot():
@@ -485,8 +530,10 @@ class FakeContest:
             raise ah.ArenaError(self.refuse_board, "no")
         self.boards.append((name, title, rows))
 
-    def announce(self, name, lines):
-        self.said.append((name, lines))
+    def recap(self, name, title, players, *, teams=(), lines=()):
+        self.said.append(
+            (name, {"title": title, "players": players, "teams": teams, "lines": lines})
+        )
 
     def wait_ready(self, names, **kwargs):
         pass  # everyone is back and ready at once
@@ -711,7 +758,7 @@ def _p(team=None, mobs=0, players=0, deaths=0, dealt=0.0, taken=0.0, healing=0.0
     return {"team": team, **row} if team else row
 
 
-DUEL = {
+DUEL_SERIES = {
     "arena": "duel",
     "mode": "teams",
     "teams": {"red": ["MCBot"], "blue": ["Ann", "Bob"]},
@@ -745,7 +792,7 @@ HUNT = {
 
 
 def test_the_series_totals_add_each_players_matches():
-    totals = ah.player_totals(DUEL["runs"])
+    totals = ah.player_totals(DUEL_SERIES["runs"])
     assert totals["MCBot"] == {
         "team": "red", "matches": 3, "wins": 1, "kills": 2, "mob_kills": 0,
         "player_kills": 2, "deaths": 1, "damage_dealt": 70.0, "damage_taken": 32.0,
@@ -758,7 +805,7 @@ def test_the_series_totals_add_each_players_matches():
 
 
 def test_the_lobby_board_shows_each_teams_wins_and_each_players_kills():
-    title, rows = ah.series_board(DUEL)
+    title, rows = ah.series_board(DUEL_SERIES)
     assert title == "duel · 3 of 5 played"
     assert rows == [
         {"text": "Red", "value": "1 win", "color": "red", "bold": True},
@@ -791,18 +838,32 @@ def test_the_lobby_board_fits_eight_against_eight_into_fifteen_lines():
     assert texts[7] == "+2 more" and texts[8] == "Blue" and texts[14] == "+3 more"
 
 
-def test_the_series_recap_scores_the_teams_and_stars_the_top_damage_dealer():
-    lines = ah.series_recap(DUEL)
-    text = ["".join(seg["text"] for seg in line) for line in lines]
-    assert text[0] == "duel · stopped after 3 of 5"
-    assert text[1] == "Red 1 · Blue 1 · 1 draw"
-    assert text[2] == " ★ MCBot: 2 kills, 1 down · dealt 70 · took 32 · healed 18"
-    assert text[3] == " Ann: 1 kill, 1 down · dealt 20 · took 30 · healed 4"
-    assert text[4] == " Bob: 0 kills, 1 down · dealt 14 · took 26 · healed 0"
-    assert lines[0][0]["bold"] and lines[1][0]["color"] == "red"
-    assert {"text": "MCBot", "color": "red"} in lines[2]
-    coop = ["".join(s["text"] for s in line) for line in ah.series_recap(HUNT)]
-    assert coop[:2] == ["vault · final standings", "Won 1 of 2"]
+def test_the_series_recap_is_the_score_and_every_players_totals_for_the_table():
+    recap = ah.series_recap(DUEL_SERIES)
+    assert recap["title"] == "duel · stopped after 3 of 5"
+    (score,) = recap["lines"]
+    assert "".join(seg["text"] for seg in score) == "Red 1 · Blue 1 · 1 draw"
+    assert score[0] == {"text": "Red 1", "color": "red", "bold": True}
+    assert recap["teams"] == ["red", "blue"]
+    assert recap["players"] == [  # the roster's order: the mod's table sorts
+        {"name": "MCBot", "team": "red", "mob_kills": 0, "player_kills": 2,
+         "deaths": 1, "dealt": 70, "taken": 32, "healing": 18},
+        {"name": "Ann", "team": "blue", "mob_kills": 0, "player_kills": 1,
+         "deaths": 1, "dealt": 20, "taken": 30, "healing": 4},
+        {"name": "Bob", "team": "blue", "mob_kills": 0, "player_kills": 0,
+         "deaths": 1, "dealt": 14, "taken": 26, "healing": 0},
+    ]  # fmt: skip
+    coop = ah.series_recap(HUNT)
+    assert coop["title"] == "vault · final standings" and coop["teams"] == []
+    assert coop["lines"] == [[{"text": "Won 1 of 2", "color": "gold"}]]
+    assert [p["name"] for p in coop["players"]] == ["MCBot", "Ann"]
+    assert "team" not in coop["players"][0] and coop["players"][1]["mob_kills"] == 9
+
+
+def test_a_series_recap_names_a_player_who_never_played_under_their_team():
+    record = {**DUEL_SERIES, "teams": {"red": ["MCBot", "Cy"], "blue": ["Ann", "Bob"]}}
+    cy = next(p for p in ah.series_recap(record)["players"] if p["name"] == "Cy")
+    assert cy["team"] == "red" and cy["dealt"] == 0
 
 
 def test_a_series_posts_its_standings_after_every_match_and_a_recap_at_the_end(
@@ -819,8 +880,9 @@ def test_a_series_posts_its_standings_after_every_match_and_a_recap_at_the_end(
     assert [b[1] for b in contest.boards] == ["duel · 1 of 2 played", "duel · final"]
     assert contest.boards[1][2][0] == {"text": "Red", "value": "1 win",
                                        "color": "red", "bold": True}  # fmt: skip
-    ((name, lines),) = contest.said
-    assert name == "duel" and lines[0][0]["text"] == "duel · final standings"
+    ((name, recap),) = contest.said
+    assert name == "duel" and recap["title"] == "duel · final standings"
+    assert [p["name"] for p in recap["players"]] == ["MCBot", "Ann"]
     record = json.loads(path.read_text(encoding="utf-8"))
     assert record["repeat"] == 2
     assert record["summary"]["players"]["MCBot"]["wins"] == 1
@@ -853,3 +915,398 @@ def test_a_board_the_server_refuses_is_reported_and_the_series_goes_on(tmp_path)
     assert refused and all(
         line.startswith("error:") and "bad_request" in line for line in refused
     )
+
+
+# ---- several bots in one match ----------------------------------------------
+
+
+BOTS = {"MCBot": "default", "MCBot2": "mcbot2"}
+DUEL = {"red": ["MCBot", "Ann"], "blue": ["MCBot2", "Bob"]}
+GIVE = [{"item": "minecraft:iron_sword", "count": 1}]
+
+
+class FleetApi:
+    """The companion api of a server holding several bots: every call names the bot
+    it is for (none is the first), and each has its own health, kit, job and steps."""
+
+    def __init__(self, clock, ids=("default", "mcbot2"), health=None):
+        self.clock = clock
+        self.ids = list(ids)
+        self.health = {i: list((health or {}).get(i, (20.0,))) for i in self.ids}
+        self.looks = {i: 0 for i in self.ids}
+        self.held = {i: {} for i in self.ids}
+        self.calls, self.trials, self.added = [], [], []
+        self.jobs = {i: {"id": f"j-{i}", "state": "running"} for i in self.ids}
+        self.log = {i: [] for i in self.ids}
+        self.refuse = {}
+        self.known = {"default": "MCBot", "mcbot2": "MCBot2", "mcbot3": "MCBot3"}
+        self.running = {"default"}
+
+    def _id(self, bot):
+        return bot or "default"
+
+    def trial(self, spec, bot=None):
+        self.trials.append((self._id(bot), spec))
+        self.held[self._id(bot)] = {g["item"]: g["count"] for g in spec.get("give", ())}
+        return {"ok": True, "result": {}}
+
+    def call(self, intent, args=None, key=None, source="mcp", bot=None):
+        who = self._id(bot)
+        self.calls.append((who, intent, args))
+        if intent == "attack":
+            if who in self.refuse:
+                return {"ok": False, "error": self.refuse[who]}
+            return {"ok": True, "result": {"job": {"id": f"j-{who}"}}}
+        if intent == "status":
+            series = self.health[who]
+            h = series[min(self.looks[who], len(series) - 1)]
+            self.looks[who] += 1
+            return {"ok": True, "result": {"session": "ready", "body_state": "ready",
+                                           "health": h, "position": [0, 0, 0],
+                                           "inventory": dict(self.held[who])}}  # fmt: skip
+        return {"ok": True, "result": {}}
+
+    def wait_job(self, job_id, wait=0.0, bot=None):
+        self.clock.now += wait
+        return dict(self.jobs[self._id(bot)])
+
+    def events(self, after=0, wait=0.0, bot=None):
+        rows = [
+            {"seq": i + 1, "type": t, "data": d}
+            for i, (t, d) in enumerate(self.log[self._id(bot)])
+        ]
+        return {"latest": len(rows), "events": [r for r in rows if r["seq"] > after]}
+
+    def bots(self):
+        return [
+            {"id": i, "name": n} for i, n in self.known.items() if i in self.running
+        ]
+
+    def add_bot(self, bot_id=None):
+        if bot_id not in self.known:
+            return {"ok": False, "error": f"No bot profile bots/{bot_id}/bot.json"}
+        self.running.add(bot_id)
+        self.added.append(bot_id)
+        return {"ok": True, "bot": {"id": bot_id, "name": self.known[bot_id]}}
+
+
+def ends_with(api, contest, results):
+    """Each bot's job ends with the match, with its own result."""
+    original = contest.status
+
+    def status(name):
+        out = original(name)
+        if out["match"]["state"] != "running":
+            for who, result in results.items():
+                if api.jobs[who]["state"] == "running":
+                    api.jobs[who] = {"id": f"j-{who}", "state": "succeeded",
+                                     "result": result}  # fmt: skip
+        return out
+
+    contest.status = status
+
+
+def test_each_bot_of_a_match_gets_its_own_kit_job_and_row():
+    clock = Clock()
+    api, contest = FleetApi(clock), FakeContest(clock, DUEL)
+    ends_with(api, contest, {"default": {"kills": 3, "hits": 5},
+                             "mcbot2": {"kills": 1, "damage": 8.0}})  # fmt: skip
+    row = ah.hunt(api, contest, "duel", [], mode="teams", teams=DUEL, timeout=60,
+                  clock=clock, kit=GIVE, bots=BOTS)  # fmt: skip
+    spec = {"heal": True, "wear": True, "clear_inventory": True, "give": GIVE}
+    assert api.trials == [("default", spec), ("mcbot2", spec)]
+    assert contest.kits == [
+        (["Ann", "Bob"], GIVE)
+    ]  # the bots are never kitted as humans
+    attacks = [(who, args) for who, intent, args in api.calls if intent == "attack"]
+    assert attacks == [("default", {"arena": "duel"}), ("mcbot2", {"arena": "duel"})]
+    assert row["outcome"] == "won" and row["winner"] == "red"
+    mine, theirs = row["bots"]["MCBot"], row["bots"]["MCBot2"]
+    assert (mine["team"], mine["bot_won"], mine["bot_kills"]) == ("red", True, 3)
+    assert (theirs["team"], theirs["bot_won"], theirs["damage"]) == ("blue", False, 8.0)
+    assert mine["job_state"] == theirs["job_state"] == "succeeded"
+    assert row["bot_kills"] == 4 and row["hits"] == 5  # the whole side's totals
+    assert "bot_team" not in row and "bot_won" not in row
+
+
+def test_every_bots_health_is_sampled_and_kept_apart():
+    clock = Clock()
+    api = FleetApi(clock, health={"default": (20.0, 11.0), "mcbot2": (20.0, 6.5, 3.0)})
+    contest = FakeContest(clock, DUEL)
+    ends_with(api, contest, {"default": {}, "mcbot2": {}})
+    row = ah.hunt(api, contest, "duel", [], mode="teams", teams=DUEL, timeout=60,
+                  clock=clock, bots=BOTS)  # fmt: skip
+    assert row["samples"][0]["bot_health"] == {"MCBot": 20.0, "MCBot2": 20.0}
+    assert row["samples"][0]["health"] == 20.0  # the first bot's, as with one bot
+    assert row["bots"]["MCBot"]["min_health"] == 11.0
+    assert row["bots"]["MCBot2"]["min_health"] == 3.0
+    assert row["min_health"] == 3.0
+
+
+def test_the_match_runs_on_while_any_bots_job_is_still_going():
+    clock = Clock()
+    api, contest = FleetApi(clock), FakeContest(clock, DUEL, reads=6)
+    api.jobs["mcbot2"] = {"id": "j-mcbot2", "state": "failed", "error": "I died"}
+    ends_with(api, contest, {"default": {"kills": 2}})
+    row = ah.hunt(api, contest, "duel", [], mode="teams", teams=DUEL, timeout=60,
+                  clock=clock, bots=BOTS)  # fmt: skip
+    assert row["outcome"] == "won" and len(row["samples"]) >= 3
+    assert row["bots"]["MCBot2"]["job_state"] == "failed"
+    assert row["bots"]["MCBot2"]["error"] == "I died"
+    assert row["bots"]["MCBot"]["job_state"] == "succeeded"
+
+
+def test_each_bots_steps_come_from_its_own_events():
+    clock = Clock()
+    api, contest = FleetApi(clock), FakeContest(clock, DUEL)
+    ends_with(api, contest, {"default": {}, "mcbot2": {}})
+    real = api.call
+
+    def call(intent, args=None, key=None, source="mcp", bot=None):
+        out = real(intent, args, key, source, bot)
+        if intent == "attack":
+            who = bot or "default"
+            api.log[who].append(
+                (
+                    "job_step",
+                    {
+                        "id": f"j-{who}",
+                        "step": {
+                            "weapon": f"w-{who}",
+                            "target_type": "minecraft:player",
+                            "hurt_by": {
+                                "minecraft:player": 2.0 if who == "default" else 5.0
+                            },
+                        },
+                    },
+                )
+            )
+        return out  # fmt: skip
+
+    api.call = call
+    row = ah.hunt(api, contest, "duel", [], mode="teams", teams=DUEL, timeout=60,
+                  clock=clock, bots=BOTS)  # fmt: skip
+    assert [s["weapon"] for s in row["bots"]["MCBot"]["steps"]] == ["w-default"]
+    assert [s["weapon"] for s in row["bots"]["MCBot2"]["steps"]] == ["w-mcbot2"]
+    assert row["bots"]["MCBot2"]["hurt_by"] == {"minecraft:player": 5.0}
+    assert row["hurt_by"] == {"minecraft:player": 7.0}  # together
+
+
+def test_a_bot_whose_attack_is_refused_ends_the_match_and_every_bot():
+    clock = Clock()
+    api, contest = FleetApi(clock), FakeContest(clock, DUEL)
+    api.refuse["mcbot2"] = "I am not in an arena"
+    row = ah.hunt(api, contest, "duel", [], mode="teams", teams=DUEL, timeout=60,
+                  clock=clock, bots=BOTS)  # fmt: skip
+    assert row["outcome"] == "refused" and row["error"] == "I am not in an arena"
+    assert row["refused_by"] == "MCBot2"
+    assert contest.stopped == ["duel"]
+    stops = [who for who, intent, _ in api.calls if intent == "stop"]
+    assert sorted(stops) == ["default", "mcbot2"]
+
+
+def test_a_match_past_its_time_stops_every_bot():
+    clock = Clock()
+    api, contest = FleetApi(clock), FakeContest(clock, DUEL, reads=10_000)
+    row = ah.hunt(api, contest, "duel", [], mode="teams", teams=DUEL, timeout=5,
+                  clock=clock, bots=BOTS)  # fmt: skip
+    assert row["outcome"] == "timeout" and contest.stopped == ["duel"]
+    assert sorted(w for w, i, _ in api.calls if i == "stop") == ["default", "mcbot2"]
+
+
+def test_a_kit_that_never_shows_names_the_bot_it_never_reached():
+    clock = Clock()
+    api, contest = FleetApi(clock), FakeContest(clock, DUEL)
+    real = api.trial
+
+    def trial(spec, bot=None):
+        out = real(spec, bot)
+        if bot == "mcbot2":
+            api.held["mcbot2"] = {}  # given, never seen held
+        return out
+
+    api.trial = trial
+
+    def sleep(s):
+        clock.now += s
+
+    row = ah.hunt(api, contest, "duel", [], mode="teams", teams=DUEL, timeout=60,
+                  clock=clock, kit=GIVE, bots=BOTS, sleep=sleep)  # fmt: skip
+    assert row["outcome"] == "not_started" and "MCBot2" in row["error"]
+    assert contest.started == []
+
+
+def test_two_bots_play_a_wave_match_together_without_humans():
+    clock = Clock()
+    api, arena = FleetApi(clock), FakeArena(clock)
+    original = arena.status
+
+    def status(name):
+        out = original(name)
+        if out["match"]["state"] != "running":
+            for who in api.ids:
+                api.jobs[who] = {"id": f"j-{who}", "state": "succeeded", "result": {}}
+        return out
+
+    arena.status = status
+    row = ah.hunt(api, arena, "vault", [], participants=["MCBot", "MCBot2"],
+                  timeout=60, clock=clock, bots=BOTS)  # fmt: skip
+    assert row["outcome"] == "won" and set(row["bots"]) == {"MCBot", "MCBot2"}
+    assert arena.started[0][3] == ["MCBot", "MCBot2"]
+    assert "team" not in row["bots"]["MCBot"]
+
+
+def test_one_bot_keeps_its_flat_row_and_is_named_in_it():
+    clock = Clock()
+    teams = {"red": ["MCBot", "Ann"], "blue": ["Bob"]}
+    api, contest = FleetApi(clock, ids=("default",)), FakeContest(clock, teams)
+    ends_with(api, contest, {"default": {"kills": 2}})
+    row = ah.hunt(api, contest, "duel", [], mode="teams", teams=teams, timeout=60,
+                  clock=clock, bots={"MCBot": "default"})  # fmt: skip
+    assert row["bot"] == "MCBot" and row["bot_team"] == "red" and row["bot_won"]
+    assert row["bot_kills"] == 2 and "bots" not in row
+    assert [i for i, _ in api.trials] == ["default"]
+
+
+def test_a_bot_that_the_roster_does_not_name_is_left_out():
+    clock = Clock()
+    teams = {"red": ["MCBot", "Ann"], "blue": ["Bob"]}
+    api, contest = FleetApi(clock), FakeContest(clock, teams)
+    ends_with(api, contest, {"default": {}})
+    row = ah.hunt(api, contest, "duel", [], mode="teams", teams=teams, timeout=60,
+                  clock=clock, bots=BOTS)  # fmt: skip
+    assert [i for i, _ in api.trials] == ["default"]
+    assert contest.kits == [(["Ann", "Bob"], None)]
+    assert row["bot"] == "MCBot"
+
+
+def test_a_series_readies_every_bot_and_stops_naming_the_one_that_is_not(tmp_path):
+    clock = Clock()
+    api, contest = FleetApi(clock), FakeContest(clock, DUEL)
+    real = api.call
+
+    def call(intent, args=None, key=None, source="mcp", bot=None):
+        out = real(intent, args, key, source, bot)
+        if intent == "status" and bot == "mcbot2":
+            out["result"]["body_state"] = "dead"
+        return out
+
+    api.call = call
+    lines = []
+
+    def sleep(s):
+        clock.now += s
+
+    ah.run_series(api, contest, "duel", [], mode="teams", teams=DUEL, repeat=2,
+                  timeout=60, out_dir=tmp_path, echo=lines.append,
+                  clock=clock, sleep=sleep, bots=BOTS)  # fmt: skip
+    assert contest.started == [] and "MCBot2 is not ready" in lines[0]
+
+
+def test_a_series_of_bots_and_humans_waits_for_the_humans_and_counts_each_bot(tmp_path):
+    clock = Clock()
+    api, contest = FleetApi(clock), FakeContest(clock, DUEL)
+    ends_with(api, contest, {"default": {"kills": 1}, "mcbot2": {"kills": 0}})
+    waits = []
+    contest.wait_ready = lambda names, **kw: waits.append((names, kw["match"]))
+    path = ah.run_series(api, contest, "duel", [], mode="teams", teams=DUEL, repeat=2,
+                         timeout=60, out_dir=tmp_path, echo=lambda _l: None,
+                         clock=clock, bots=BOTS)  # fmt: skip
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert waits == [(["MCBot", "Ann", "MCBot2", "Bob"], (2, 2))]
+    assert record["bots"] == BOTS and len(record["runs"]) == 2
+    per = record["summary"]["bots"]
+    assert per["MCBot"]["runs"] == 2 and per["MCBot"]["wins"] == 2
+    assert per["MCBot2"]["wins"] == 0 and per["MCBot"]["bot_kills"] == 2
+    assert record["summary"]["bot_wins"] == 2
+
+
+def test_a_series_of_bots_alone_never_waits_for_a_human(tmp_path):
+    clock = Clock()
+    api, arena = FleetApi(clock), FakeArena(clock)  # FakeArena has no wait_ready
+    original = arena.status
+
+    def status(name):
+        out = original(name)
+        if out["match"]["state"] != "running":
+            for who in api.ids:
+                api.jobs[who] = {"id": f"j-{who}", "state": "succeeded", "result": {}}
+        return out
+
+    arena.status = status
+    path = ah.run_series(api, arena, "vault", [], repeat=2,
+                         participants=["MCBot", "MCBot2"], timeout=60,
+                         out_dir=tmp_path, echo=lambda _l: None, clock=clock,
+                         bots=BOTS)  # fmt: skip
+    assert len(json.loads(path.read_text(encoding="utf-8"))["runs"]) == 2
+
+
+def test_a_series_never_sets_a_bot_as_an_operator(tmp_path):
+    clock = Clock()
+    api, contest = FleetApi(clock), FakeContest(clock, DUEL)
+    ends_with(api, contest, {"default": {}, "mcbot2": {}})
+    ah.run_series(api, contest, "duel", [], mode="teams", teams=DUEL, repeat=1,
+                  timeout=60, out_dir=tmp_path, echo=lambda _l: None, clock=clock,
+                  ops={"Ann": True, "MCBot2": True}, bots=BOTS)  # fmt: skip
+    assert contest.ops == [("Ann", True)]
+
+
+def test_the_summary_counts_each_bots_wins_kills_deaths_and_damage():
+    def bot(team, won, kills, hurt, killed_by=None, health=20.0):
+        return {"team": team, "bot_won": won, "bot_kills": kills, "hurt_by": hurt,
+                "killed_by": killed_by, "min_health": health}  # fmt: skip
+
+    rows = [
+        {"outcome": "won", "winner": "red", "min_health": 4.0, "bots": {
+            "MCBot": bot("red", True, 2, {"a": 1.0}),
+            "MCBot2": bot("blue", False, 1, {"a": 2.0, "b": 4.0}, "b", 4.0)}},
+        {"outcome": "won", "winner": "blue", "min_health": 9.0, "bots": {
+            "MCBot": bot("red", False, 0, {"a": 3.0}, "a", 9.0),
+            "MCBot2": bot("blue", True, 3, {})}},
+    ]  # fmt: skip
+    s = ah.summary(rows)
+    assert s["bot_wins"] == 2 and s["min_health"] == 4.0
+    assert s["hurt_by"] == {"a": 6.0, "b": 4.0}
+    assert s["killed_by"] == {"b": 1, "a": 1}
+    assert s["bots"]["MCBot"] == {"runs": 2, "wins": 1, "bot_kills": 2, "deaths": 1,
+                                  "min_health": 9.0, "hurt_by": {"a": 4.0}}  # fmt: skip
+    assert s["bots"]["MCBot2"]["wins"] == 1 and s["bots"]["MCBot2"]["deaths"] == 1
+    assert "bots" not in ah.summary([{"outcome": "won"}])
+
+
+# ---- putting the roster's bots in -------------------------------------------
+
+
+def test_the_bots_of_a_roster_are_the_running_ones_and_the_derived_names():
+    api = FleetApi(Clock())
+    api.running = {"default", "mcbot3"}
+    people = ["Ann", "mcbot", "MCBot2", "MCBot3", "Bob"]
+    assert ah.resolve_bots(api, people) == {
+        "mcbot": "default",
+        "MCBot2": "mcbot2",
+        "MCBot3": "mcbot3",
+    }
+    assert ah.resolve_bots(api, ["Ann", "Bob"]) == {}
+
+
+def test_a_bot_named_by_the_operator_must_be_running():
+    api = FleetApi(Clock())
+    api.known["pal"] = "Pal"
+    api.running = {"default", "pal"}
+    assert ah.resolve_bots(api, ["Pal", "Ann"], extra=["Pal"]) == {"Pal": "pal"}
+    with pytest.raises(ah.BotsUnavailable, match="Ghost"):
+        ah.resolve_bots(api, ["Ghost"], extra=["Ghost"])
+
+
+def test_the_bots_a_match_needs_are_put_in_once():
+    api = FleetApi(Clock())
+    assert ah.ensure_bots(api, {"MCBot": "default", "MCBot2": "mcbot2"}) == ["mcbot2"]
+    assert api.added == ["mcbot2"]
+    assert ah.ensure_bots(api, {"MCBot": "default", "MCBot2": "mcbot2"}) == []
+    assert ah.ensure_bots(api, {}) == []
+
+
+def test_a_bot_that_cannot_be_put_in_stops_the_match_before_it_starts():
+    api = FleetApi(Clock())
+    with pytest.raises(ah.BotsUnavailable, match="mcbot9.*No bot profile"):
+        ah.ensure_bots(api, {"MCBot9": "mcbot9"})

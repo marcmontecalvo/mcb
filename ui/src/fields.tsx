@@ -11,6 +11,8 @@ import {
   addPlayer,
   fieldText,
   fitRoster,
+  isBotName,
+  nextBotName,
   rosterOf,
   rosterProblems,
   teamCounts,
@@ -379,9 +381,10 @@ export function WavesInput({
 
 const PLAYER = /^[A-Za-z0-9_]{1,16}$/;
 
-/** Who plays an arena match: the bot and people by Minecraft name, each on one of
- * the arena's teams in a team game, and whether the match makes them an operator.
- * The roster follows the game and arena: a team game puts everyone on a team.
+/** Who plays an arena match: bots (MCBot, MCBot2, ...) and people by Minecraft name,
+ * each on one of the arena's teams in a team game, and whether the match makes
+ * them an operator (never a bot). The roster follows the game and arena: a team
+ * game puts everyone on a team.
  *
  * People are picked, not typed: "Who's here" offers who is online on the arena
  * server and the names saved from earlier matches (RosterPicker), and a wizard
@@ -441,12 +444,13 @@ export function RosterInput({
     const fitted = fitRoster(roster, sided, meta);
     if (fitted !== roster) set(fitted);
   }, [sided, JSON.stringify(meta), JSON.stringify(value)]);
-  const problems = rosterProblems(roster, sided, meta);
+  const problems = rosterProblems(roster, sided, meta, bot);
   useEffect(() => {
     validity(id, problems.length === 0);
   }, [id, problems.length]);
   useEffect(() => () => validity(id, true), [id]);
-  const isBot = (p: Slot) => p.name.toLowerCase() === bot.toLowerCase();
+  const isBot = (p: Slot) => isBotName(p.name, bot);
+  const nextBot = nextBotName(roster, bot);
   const edit = (i: number, change: Partial<Slot>) =>
     set(roster.map((p, j) => (j === i ? { ...p, ...change } : p)));
   const room = Math.min(max, (!sided && meta?.players) || max);
@@ -499,7 +503,8 @@ export function RosterInput({
           <div className="roster-row" key={i}>
             {isBot(p) ? (
               <span className="who">
-                <strong>{p.name}</strong> <small>the bot</small>
+                <strong>{p.name}</strong>{" "}
+                <small>{p.name.toLowerCase() === bot.toLowerCase() ? "the bot" : "a bot"}</small>
               </span>
             ) : (
               <input
@@ -580,9 +585,7 @@ export function RosterInput({
           type="button"
           className="link"
           title="Keep this name in Who's here without adding it to the match"
-          disabled={
-            !PLAYER.test(typed) || typedSaved || typed.toLowerCase() === bot.toLowerCase()
-          }
+          disabled={!PLAYER.test(typed) || typedSaved || isBotName(typed, bot)}
           onClick={() => {
             people.save(typed);
             setName("");
@@ -590,13 +593,13 @@ export function RosterInput({
         >
           Save name
         </button>
-        {!roster.some(isBot) && !full && (
+        {nextBot && !full && (
           <button
             type="button"
             className="link"
-            onClick={() => set(addPlayer(roster, bot, sided, meta))}
+            onClick={() => set(addPlayer(roster, nextBot, sided, meta))}
           >
-            + Add the bot ({bot})
+            + Add a bot ({nextBot})
           </button>
         )}
       </div>

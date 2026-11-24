@@ -550,8 +550,8 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   roster is a list of `{name, team, op}` (`RosterEntry`) checked against the arena's
   own teams and `per_team` from its plan before launch. In a team game the bot fights
   the other teams' players as well as wave mobs; a teammate is never a target and never
-  in a harmful splash. Phase 1 has one bot; two bots and an "add a bot" button come
-  next.
+  in a harmful splash. Phase 1 had one bot; several bots and an "add a bot" button
+  followed (see "Several bots in an arena match" below).
 - **The arena's scoreboard keeps the match and the series (Nov 24).** The kill board
   vanished at every match end, so a fight's result showed as 0, 0, 0. Marc asked for each
   player's kills per match, a running total in the lobby, and damage dealt, taken and
@@ -574,9 +574,31 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
     fight.
   - **Ownership.** The mod owns the match board and recap, since it knows them exactly
     as they happen. Python owns the series, since only it knows the series. It sends
-    the standings through two small, validated ops (`arena_board`, `arena_say`), never
+    the standings through two small, validated ops (`arena_board`, `arena_recap`), never
     a command string.
   - **Results.** Rows keep `players` (the full per-player tally) instead of `kills`.
+- **The after-action recap is a pixel-aligned table (Nov 24).** The first live recap was
+  free text, "Name: 9 kills, 1 down · dealt 212.2 · …". It ran across the chat, the
+  numbers didn't line up between players, and the bold ★ drew as a blob. Marc asked for
+  it to look nicer.
+  - **The layout.** Columns: Kills, Downs, Dealt, Taken, Healed.
+    - Numbers are whole, coloured by column, with zeros dimmed.
+    - In team games, team rows of totals sit in the same columns as the players.
+    - The top dealer's damage is gold, and a plain ★ sits after the last column.
+    - The exact tenths, and kills split into mobs and players, are on hover.
+  - **Alignment.** Words are measured in the default font's advances and the gaps are
+    padded with spaces (4 px) and bold spaces (5 px).
+    - It is exact from 12 px, and the minimum 8 px gap is off by a pixel only at 11.
+    - Rejected: fixed-width characters (the chat has none), and
+      tab-like separators (" | ") that still drift by name length.
+  - **Hover rather than more columns.** Mob and player kills, and health to a tenth, would
+    widen the table past the 320 px chat.
+  - **One renderer.** The series recap became `arena_recap`, which carries the numbers;
+    the mod draws them with the same `ArenaRecap.table`. It replaced the generic
+    `arena_say`, which nothing else used.
+    - Rejected: a Python copy of the font table. It would be a second renderer to keep in
+      step.
+    - The protocol moved to 3.
 - **The lab checks the arena mod's protocol before a match (Nov 24).** The new lab sent
   `series` to the old mod, which refused it. The match ended silently after `/mcb ready`.
   The series board and recap also treated a refusal as an older mod and went on, while the
@@ -609,3 +631,26 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   rule.
 - **Open:** rotating a long session's `events.sqlite3`, and the live night test of the
   defence (built, not yet run against real mobs).
+
+## Several bots in an arena match (November 24, 2026)
+
+- **Decision:** a match can have several copies of the bot (2v2, 3v3, bots and people
+  mixed, up to 8 a team). Each bot is a body with its own host, session, talker and
+  files (`companion_fleet.Fleet`, up to 16); the mod's body hub routes and tags every
+  event and command by body id. The bots are `MCBot` (id `default`), then `MCBot2` …
+  `MCBot99` (`mcbot2` …): the roster name decides, so nothing else has to say which
+  names are bots. The naming lives in `mclab.companion_names`, which imports nothing
+  heavy, so the dashboard and `play_runs` share it with the host.
+- **Why not a "bot" argument everywhere yet:** the arena hunt is the only caller that
+  needs several bots now, so only it and the API routing (`bot=`) know about them. The
+  MCP tools still drive the first bot. Single-bot runs keep the flat result row and the
+  old call shapes (a `bot=` goes out only for a bot that is not the first), so history
+  and tools do not change.
+- **Bots fight each other:** a bot's foes are the live participants of the other teams,
+  bots included; a teammate bot is never a target or in a harmful splash. A bot cannot be
+  an operator (refused in `play_runs` and in the roster form).
+- **Failures:** a bot that cannot be put in stops the series with a reason (exit 2), and
+  a bot that is not ready stops it too; nothing counts failures or bans a bot.
+- **Open:** the live check (a 2-bot PvE match, then a 2v2 with one person and one bot a
+  team), the same wave feed and event load with many bodies, and a `bot` argument for
+  the MCP tools.

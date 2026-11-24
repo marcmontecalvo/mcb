@@ -59,6 +59,11 @@ def _name_pattern(name: str):
     )
 
 
+def mentions(text: str, name: str) -> bool:
+    """Whether ``text`` names the bot (``MCBot`` is not named by ``MCBot2``)."""
+    return bool(_name_pattern(name).search(str(text)))
+
+
 def _load_text(path):
     try:
         return path.read_text(encoding="utf-8").strip()
@@ -104,14 +109,19 @@ class Talker:
 
     # -- public ---------------------------------------------------------------
 
-    def hear(self, actor: Actor, text: str) -> None:
-        """A line the bot heard. Cheap and non-blocking apart from a stop."""
+    def hear(self, actor: Actor, text: str, *, engaged: bool = True) -> None:
+        """A line the bot heard. Cheap and non-blocking apart from a stop.
+
+        ``engaged=False`` (with several bots: the line is for another one) records the
+        line and still obeys a stop, but never answers or starts a reply."""
         text = str(text)
         self.host.note("chat_in", {"actor": actor.to_dict(), "text": text})
-        addressed = actor.source == "command" or bool(self._name.search(text))
+        addressed = engaged and (
+            actor.source == "command" or bool(self._name.search(text))
+        )
         if self._is_stop(text):
             if authorized(actor):
-                self._stop(actor, text)
+                self._stop(actor, text, speak=engaged)
             elif addressed:
                 self._speak(REFUSE_REPLY)
             return
@@ -153,7 +163,7 @@ class Talker:
             and any(w in STOP_WORDS for w in words)
         )
 
-    def _stop(self, actor, text):
+    def _stop(self, actor, text, *, speak=True):
         ok, error = True, None
         try:
             result = self.host.call("stop", {}, actor)
@@ -161,7 +171,8 @@ class Talker:
             error = None if ok else result.get("error")
         except Exception as exc:  # the reply must still go out
             ok, error = False, type(exc).__name__
-        self._speak(STOP_REPLY)
+        if speak:  # with several bots one of them says it
+            self._speak(STOP_REPLY)
         self._log(
             {
                 "fast_path": "stop",
@@ -325,6 +336,18 @@ class Talker:
             pass
 
 
+def _soul_for(bot) -> str:
+    """``bots/<id>/SOUL.md``; a bot with none of its own (a derived MCBot2) speaks
+    with the default bot's, under its own name."""
+    identity = str(bot.get("id") or "default")
+    own = _load_text(ROOT / "bots" / identity / "SOUL.md")
+    if own or identity == "default":
+        return own
+    shared = _load_text(ROOT / "bots" / "default" / "SOUL.md")
+    name = str(bot.get("name") or "MCBot")
+    return re.sub(r"(?<![A-Za-z0-9_])MCBot(?![A-Za-z0-9_])", lambda _: name, shared)
+
+
 def start(
     host,
     *,
@@ -352,7 +375,7 @@ def start(
     if prompt is None:
         prompt = _load_text(ROOT / "prompts/companion-talker-v1.md")
     if soul is None:
-        soul = _load_text(ROOT / "bots" / str(bot.get("id") or "default") / "SOUL.md")
+        soul = _soul_for(bot)
     return Talker(
         host,
         bot=bot,

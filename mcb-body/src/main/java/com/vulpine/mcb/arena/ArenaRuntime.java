@@ -148,7 +148,7 @@ public final class ArenaRuntime {
                 case "arena_op" -> data.putAll(op(request));
                 case "arena_kit" -> data.putAll(kit(request));
                 case "arena_board" -> data.putAll(board(request));
-                case "arena_say" -> data.putAll(say(request));
+                case "arena_recap" -> data.putAll(recap(request));
                 default -> throw new ArenaFail("unknown_op", op);
             }
         } catch (ArenaFail fail) {
@@ -430,11 +430,12 @@ public final class ArenaRuntime {
     }
 
     /** Chat lines for everyone in the arena's world. */
-    private Map<String, Object> say(JsonObject request) {
-        var req = ArenaRequests.parseSay(request);
+    /** The after-action table Python sends at a series' end (its totals), drawn like a match's own. */
+    private Map<String, Object> recap(JsonObject request) {
+        var req = ArenaRequests.parseRecap(request);
         var record = require(req.name());
         var level = requireLevel(record.dimension());
-        int told = tell(level, List.of(), req.lines());
+        int told = tell(level, List.of(), ArenaRecap.table(req.title(), req.lines(), req.teams(), req.players()));
         return Map.of("name", record.name(), "players", told);
     }
 

@@ -31,14 +31,15 @@ OPS = (
     "arena_op",
     "arena_kit",
     "arena_board",
-    "arena_say",
+    "arena_recap",
 )
 # The arena protocol this lab speaks (ArenaLogic.PROTOCOL, reported by arena_list).
 # Raise both together whenever an op is added or a request gains or changes a field:
 # the mod rejects a field it does not know, so a lab and a mod of different protocols
 # would fail a match only once it starts. 1: every mod from before the handshake.
-# 2: arena_board, arena_say and arena_start's series.
-PROTOCOL = 2
+# 2: arena_board, arena_say and arena_start's series. 3: arena_recap (the series
+# table, drawn by the mod like a match's) in place of arena_say.
+PROTOCOL = 3
 UPDATE_MOD = "stop the arena server, run `mcarena mod-install`, then start it again"
 ENVELOPE = frozenset(
     {
@@ -523,10 +524,29 @@ class ArenaClient:
     def clear_board(self, name: str) -> dict:
         return self.call("arena_board", name=name, clear=True)
 
-    def announce(self, name: str, lines: Sequence[Sequence[dict]]) -> dict:
-        """Chat lines for everyone in the arena's world: each line a list of
-        parts (``text``, optional ``color`` and ``bold``)."""
-        return self.call("arena_say", name=name, lines=[list(line) for line in lines])
+    def recap(
+        self,
+        name: str,
+        title: str,
+        players: Sequence[dict],
+        *,
+        teams: Sequence[str] = (),
+        lines: Sequence[Sequence[dict]] = (),
+    ) -> dict:
+        """An after-action table in chat for everyone in the arena's world, drawn
+        by the mod like a match's own (``ArenaRecap``): ``title``, the ``lines``
+        under it (parts of ``text``, optional ``color`` and ``bold``), then
+        ``players`` (``name``, ``team`` when there are ``teams``, and any of
+        ``mob_kills``, ``player_kills``, ``deaths``, ``dealt``, ``taken``,
+        ``healing``) grouped by ``teams`` in order."""
+        extra: dict = {}
+        if teams:
+            extra["teams"] = list(teams)
+        if lines:
+            extra["lines"] = [list(line) for line in lines]
+        return self.call(
+            "arena_recap", name=name, title=title, players=list(players), **extra
+        )
 
     # -- the world and its players
     def spawn(self, position) -> dict:

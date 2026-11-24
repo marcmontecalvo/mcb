@@ -1067,6 +1067,64 @@ def test_the_repo_default_bot_is_mcbot():
     assert companion_host.load_bot({"companion": {"bot": "default"}})["name"] == "MCBot"
 
 
+def test_more_bots_are_derived_from_the_default_profile(tmp_path):
+    folder = tmp_path / "bots" / "default"
+    folder.mkdir(parents=True)
+    (folder / "bot.json").write_text(
+        '{"id": "default", "name": "MCBot", "roles": {"talker": "q"},'
+        ' "talker": {"history_turns": 3}}'
+    )
+    second = companion_host.load_bot({}, tmp_path, "mcbot2")
+    assert second["id"] == "mcbot2" and second["name"] == "MCBot2"
+    assert second["roles"] == {"talker": "q"} and second["talker"]["history_turns"] == 3
+    # a profile of its own wins over the derived one
+    own = tmp_path / "bots" / "mcbot3"
+    own.mkdir()
+    (own / "bot.json").write_text('{"name": "Scout"}')
+    assert companion_host.load_bot({}, tmp_path, "mcbot3") == {
+        "name": "Scout",
+        "id": "mcbot3",
+    }
+    # the first bot is the default one unless the config says otherwise
+    assert companion_host.load_bot({}, tmp_path, "default")["id"] == "default"
+    # the derived profile is a copy: changing it leaves the default alone
+    second["talker"]["history_turns"] = 9
+    assert (
+        companion_host.load_bot({}, tmp_path, "mcbot4")["talker"]["history_turns"] == 3
+    )
+
+
+def test_a_bot_that_is_neither_a_profile_nor_derived_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="No bot profile bots/pal"):
+        companion_host.load_bot({}, tmp_path, "pal")
+
+
+def test_derived_bots_follow_the_configured_profile(tmp_path):
+    folder = tmp_path / "bots" / "pal"
+    folder.mkdir(parents=True)
+    (folder / "bot.json").write_text('{"name": "Pal_1", "roles": {"talker": "q"}}')
+    settings = {"companion": {"bot": "pal"}}
+    assert companion_host.load_bot(settings, tmp_path)["name"] == "Pal_1"
+    assert companion_host.load_bot(settings, tmp_path, "default")["name"] == "Pal_1"
+    second = companion_host.load_bot(settings, tmp_path, "mcbot2")
+    assert second["name"] == "MCBot2" and second["roles"] == {"talker": "q"}
+
+
+def test_the_host_knows_its_own_jobs_and_names_its_bot_id(made):
+    value = Host(
+        made_factory(made), bot={"id": "mcbot2", "name": "MCBot2"}, idle_s=0.01
+    )
+    value.start()
+    try:
+        assert value.wait_ready(5)
+        job = submit(value)
+        assert value.knows(job["id"]) and not value.knows("j-nope")
+        assert value.status()["bot_id"] == "mcbot2"
+    finally:
+        made[0].gate.set()
+        value.shutdown(timeout=5)
+
+
 def test_session_factory_makes_sessions_sharing_one_gather_state(tmp_path):
     make = companion_host.session_factory(
         {"name": "MCBot"}, results=tmp_path / "results", runtime=tmp_path / "rt"
@@ -1076,6 +1134,31 @@ def test_session_factory_makes_sessions_sharing_one_gather_state(tmp_path):
     assert first.gather_state is second.gather_state
     assert first.state_file == tmp_path / "rt" / "companion-state.json"
     assert first.folder.parent == tmp_path / "results"
+
+
+def test_the_first_bot_keeps_the_legacy_files_and_the_others_get_their_own(tmp_path):
+    results, runtime = tmp_path / "results", tmp_path / "rt"
+    first = companion_host.session_factory(
+        {"name": "MCBot", "id": "default"},
+        results=results,
+        runtime=runtime,
+        slot="default",
+    )()
+    second = companion_host.session_factory(
+        {"name": "MCBot2", "id": "mcbot2"},
+        results=results,
+        runtime=runtime,
+        slot="mcbot2",
+    )()
+    assert first.state_file == runtime / "companion-state.json"
+    assert first.defense_file == runtime / "companion-defense.json"
+    assert first.memory_root is None and first.folder.parent == results
+    assert second.bot_name == "MCBot2"
+    assert second.state_file == runtime / "bots" / "mcbot2" / "companion-state.json"
+    assert second.defense_file == runtime / "bots" / "mcbot2" / "companion-defense.json"
+    assert second.memory_root == runtime / "bots" / "mcbot2" / "world-memory"
+    assert second.folder.parent == results / "mcbot2"
+    assert second.gather_state is not first.gather_state
 
 
 def test_the_world_spawn_is_the_level_spawn_unless_the_instance_names_the_lobby():
@@ -1157,14 +1240,14 @@ def _fake_adapters(monkeypatch, log, *, fail=()):
         log.append(("on_shutdown", on_shutdown))
         return Adapter(log, "api")
 
-    def start(host, *, bot, instance):
+    def start(host, *, bot, instance, **kwargs):
         if "talker" in fail:
             raise RuntimeError("no model")
-        log.append(("talker", bot["name"], instance))
+        log.append(("talker", bot["name"], instance, sorted(kwargs)))
         return Adapter(log, "talker")
 
-    def ingress(host, talker, source, *, bot, players):
-        log.append(("ingress", talker is not None, source, players))
+    def ingress(host, talker, source, *, players, stop_all):
+        log.append(("ingress", host is talker, source, players, stop_all))
         return Adapter(log, "ingress")
 
     module("companion_api", serve=serve)
@@ -1190,66 +1273,126 @@ def test_adapters_are_wired_and_the_handshake_written(tmp_path, monkeypatch):
         pass
 
     stops = companion_host._start_adapters(
-        "host",
-        {"name": "MCBot"},
-        {"companion_port": 8777},
-        "tok",
-        tmp_path,
-        on_shutdown=hook,
+        "fleet", {"companion_port": 8777}, "tok", tmp_path, on_shutdown=hook
     )
     assert log == [
         ("serve", 8777, "tok"),
         ("on_shutdown", hook),
-        ("talker", "MCBot", "play"),
-        ("ingress", True, "events-source", "players-source"),
+        # one ingress for the fleet: the fleet is its host and its talker, and a
+        # stop names every bot
+        ("ingress", True, "events-source", "players-source", True),
         ("start", "ingress"),
     ]
     handshake = json.loads((tmp_path / "companion-host.json").read_text())
     assert handshake["port"] == 8777 and handshake["token"] == "tok"
     assert handshake["pid"] > 0
-    assert len(stops) == 3
+    assert len(stops) == 2
 
 
 def test_a_failing_adapter_does_not_stop_the_others(tmp_path, monkeypatch):
     log = []
-    _fake_adapters(monkeypatch, log, fail=("api", "talker"))
+    _fake_adapters(monkeypatch, log, fail=("api",))
     stops = companion_host._start_adapters(
-        "host", {"name": "MCBot"}, {"companion_port": 8777}, "tok", tmp_path
+        "fleet", {"companion_port": 8777}, "tok", tmp_path
     )
     assert log == [
-        ("ingress", False, "events-source", "players-source"),
+        ("ingress", True, "events-source", "players-source", True),
         ("start", "ingress"),
     ]
     assert not (tmp_path / "companion-host.json").exists()
     assert len(stops) == 1
 
 
-def test_main_runs_until_a_signal_then_cleans_up(tmp_path, monkeypatch):
-    from mclab import companion_session, paths
-
-    log, handlers = [], {}
-    made = []
+def test_a_member_is_a_host_and_a_talker_under_the_bots_own_name(tmp_path, monkeypatch):
+    log = []
+    _fake_adapters(monkeypatch, log)
+    started = []
 
     class FakeHost:
         def __init__(self, factory, *, bot):
-            made.append(self)
             self.bot = bot
+            started.append(("host", bot["id"], bot["name"]))
+
+        def start(self):
+            started.append(("start",))
+
+    monkeypatch.setattr(companion_host, "Host", FakeHost)
+    monkeypatch.setattr(
+        companion_host,
+        "load_bot",
+        lambda settings, root, fleet_id: {"name": f"Bot_{fleet_id}"},
+    )
+    monkeypatch.setattr(
+        companion_host,
+        "session_factory",
+        lambda bot, **kwargs: started.append(("session", kwargs["slot"])),
+    )
+    make = companion_host.member_factory({}, tmp_path, None)
+    first, second = make("default"), make("mcbot2")
+    assert (first.id, first.bot["id"], second.bot["id"]) == (
+        "default",
+        "default",
+        "mcbot2",
+    )
+    assert [e for e in started if e[0] == "session"] == [
+        ("session", "default"),
+        ("session", "mcbot2"),
+    ]
+    # the first bot logs where it always did; the others under their own folder
+    talkers = [e for e in log if e[0] == "talker"]
+    assert talkers == [
+        ("talker", "Bot_default", "play", []),
+        ("talker", "Bot_mcbot2", "play", ["results_dir"]),
+    ]
+    assert len(first.stop) == 1 and first.talker is not None
+
+
+def test_a_talker_that_will_not_start_leaves_the_bot_playing(tmp_path, monkeypatch):
+    log = []
+    _fake_adapters(monkeypatch, log, fail=("talker",))
+
+    class FakeHost:
+        def __init__(self, factory, *, bot):
+            pass
 
         def start(self):
             log.append("host start")
 
-        def shutdown(self):
-            log.append("host shutdown")
+    monkeypatch.setattr(companion_host, "Host", FakeHost)
+    monkeypatch.setattr(
+        companion_host, "load_bot", lambda settings, root, fleet_id: {"name": "MCBot"}
+    )
+    monkeypatch.setattr(companion_host, "session_factory", lambda bot, **kw: None)
+    member = companion_host.member_factory({}, tmp_path, None)("default")
+    assert log == ["host start"]
+    assert member.talker is None and member.stop == []
 
-    def fake_adapters(host, bot, settings, token, runtime, *, on_shutdown):
+
+def test_main_runs_until_a_signal_then_cleans_up(tmp_path, monkeypatch):
+    from mclab import companion_fleet, companion_session, paths
+
+    log, handlers = [], {}
+    made = []
+
+    class FakeFleet:
+        def __init__(self, factory):
+            made.append((self, factory))
+
+        def add(self):
+            log.append("fleet add")
+
+        def shutdown(self):
+            log.append("fleet shutdown")
+
+    def fake_adapters(fleet, settings, token, runtime, *, on_shutdown):
         (runtime / "companion-host.json").write_text("{}")
-        assert "SIGTERM" in handlers
+        assert "SIGTERM" in handlers and fleet is made[0][0]
         on_shutdown()  # the supervisor asks over the control API
         return [lambda: log.append("adapter stop"), lambda: 1 / 0]
 
-    monkeypatch.setattr(companion_host, "Host", FakeHost)
+    monkeypatch.setattr(companion_fleet, "Fleet", FakeFleet)
     monkeypatch.setattr(companion_host, "_start_adapters", fake_adapters)
-    monkeypatch.setattr(companion_host, "load_bot", lambda settings: {"name": "MCBot"})
+    monkeypatch.setattr(companion_host, "member_factory", lambda *args: "factory")
     monkeypatch.setattr(paths, "config", lambda: {"companion_port": 8777})
     monkeypatch.setattr(companion_session, "instance_runtime", lambda: tmp_path)
     monkeypatch.setattr(
@@ -1263,9 +1406,9 @@ def test_main_runs_until_a_signal_then_cleans_up(tmp_path, monkeypatch):
         ),
     )
     assert companion_host.main([]) == 0
-    assert log == ["host start", "adapter stop", "host shutdown"]
+    assert log == ["fleet add", "adapter stop", "fleet shutdown"]
     assert not (tmp_path / "companion-host.json").exists()
-    assert made[0].bot == {"name": "MCBot"}
+    assert made[0][1] == "factory"
 
 
 # --- attack: who may hit whom -------------------------------------------------------

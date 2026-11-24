@@ -18,7 +18,7 @@ public final class ArenaLogic {
 
     /** The ops the arena runtime owns. */
     public static final Set<String> OPS = Set.of("arena_build", "arena_remove", "arena_list", "arena_status", "arena_start", "arena_stop",
-            "arena_spawn", "arena_op", "arena_kit", "arena_board", "arena_say");
+            "arena_spawn", "arena_op", "arena_kit", "arena_board", "arena_recap");
 
     public static boolean isOperationName(String op) { return OPS.contains(op); }
 
@@ -26,9 +26,9 @@ public final class ArenaLogic {
      * The arena protocol, reported by arena_list so the lab can refuse a mismatch before a
      * match starts (mclab.arena.client.PROTOCOL; a test keeps the two equal). Raise it
      * whenever an op is added or a request gains or changes a field. 1: no report.
-     * 2: arena_board, arena_say and arena_start's series.
+     * 2: arena_board, arena_say and arena_start's series. 3: arena_recap (the series table) in place of arena_say.
      */
-    public static final int PROTOCOL = 2;
+    public static final int PROTOCOL = 3;
 
     /**
      * Whether a joining (or bedless respawning) player starts exactly at the world spawn, given the state of the arena
@@ -622,59 +622,12 @@ public final class ArenaLogic {
         return t == Math.rint(t) ? Long.toString((long) t) : Double.toString(t);
     }
 
-    /** The recap's first line: the match of the series, how it ended, how long it took (m:ss). */
-    public static String recapHeader(String end, int[] series, int ticks) {
-        int seconds = Math.max(0, ticks) / 20;
-        String time = (seconds / 60) + ":" + String.format(Locale.ROOT, "%02d", seconds % 60);
-        return (series == null ? "" : "Match " + series[0] + " of " + series[1] + " · ") + end + " · " + time;
-    }
-
-    /** A part of a chat line: its text, a colour of {@link #COLORS}, bold. */
-    public record Seg(String text, String color, boolean bold) {}
-
     /**
-     * The chat recap after a match: the header, then each team (its kills and damage dealt) with its players, or in
-     * co-op everyone, each by damage dealt: kills, downs, health dealt, taken and healed. The top damage dealer is starred.
+     * A part of a chat line: its text, a colour of {@link #COLORS}, bold, and the text shown when it is hovered (null:
+     * none). The after-action table is drawn in these ({@link ArenaRecap}).
      */
-    public static List<List<Seg>> recap(String header, List<String> teams, List<Stat> stats) {
-        var out = new ArrayList<List<Seg>>();
-        out.add(List.of(new Seg(header, "gold", true)));
-        Stat top = null;
-        for (var s : stats) if (s.dealt() > 0 && (top == null || s.dealt() > top.dealt())) top = s;
-        if (teams.isEmpty()) {
-            for (var s : byDealt(stats)) out.add(recapLine(s, "white", s == top));
-            return out;
-        }
-        for (int i = 0; i < teams.size(); i++) {
-            String team = teams.get(i), color = teamColor(team, i);
-            var members = byDealt(stats.stream().filter(s -> s.team().equals(team)).toList());
-            int kills = members.stream().mapToInt(Stat::kills).sum();
-            double dealt = members.stream().mapToDouble(Stat::dealt).sum();
-            out.add(List.of(new Seg(title(team), color, true), new Seg(" · " + count(kills, "kill") + " · dealt " + fmt(dealt), "gray", false)));
-            for (var s : members) out.add(recapLine(s, color, s == top));
-        }
-        return out;
-    }
-
-    private static List<Stat> byDealt(List<Stat> stats) {
-        var sorted = new ArrayList<>(stats);
-        sorted.sort((a, b) -> Double.compare(b.dealt(), a.dealt()));
-        return sorted;
-    }
-
-    private static String count(int n, String what) { return n + " " + what + (n == 1 ? "" : "s"); }
-
-    private static List<Seg> recapLine(Stat s, String color, boolean top) {
-        var line = new ArrayList<Seg>();
-        line.add(new Seg(" ", "white", false));
-        if (top) line.add(new Seg("★ ", "gold", true));
-        line.add(new Seg(s.name(), color, false));
-        var what = new StringBuilder(": ").append(count(s.kills(), "kill"));
-        if (s.mobKills() > 0 && s.playerKills() > 0) what.append(" (").append(count(s.playerKills(), "player")).append(")");
-        if (s.deaths() > 0) what.append(", ").append(count(s.deaths(), "down"));
-        what.append(" · dealt ").append(fmt(s.dealt())).append(" · took ").append(fmt(s.taken())).append(" · healed ").append(fmt(s.healing()));
-        line.add(new Seg(what.toString(), "gray", false));
-        return line;
+    public record Seg(String text, String color, boolean bold, String hover) {
+        public Seg(String text, String color, boolean bold) { this(text, color, bold, null); }
     }
 
     // ---- tags and small helpers

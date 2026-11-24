@@ -181,6 +181,15 @@ def test_the_bot_is_not_saved_as_a_player(store):
     assert [p["name"] for p in store.last_match()["roster"]] == ["MCBot", "Ann"]
 
 
+def test_no_bot_of_the_fleet_is_saved_as_a_player(store):
+    # MCBot2, MCBot3, ... are bots by name (companion_names), whatever ``bot`` says
+    roster = [slot("MCBot", "red"), slot("mcbot2", "red"), slot("Ann", "blue"),
+              slot("MCBot100", "blue")]  # fmt: skip
+    store.record_match(roster, bot="MCBot")
+    assert names(store) == ["Ann", "MCBot100"]  # MCBot100 is not a bot name
+    assert len(store.last_match()["roster"]) == 4
+
+
 def test_a_match_keeps_the_label_and_pin_of_a_name_it_uses(store):
     store.upsert("ann", label="Dad", pinned=True)
     store.record_match([slot("Ann")])

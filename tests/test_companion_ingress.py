@@ -145,6 +145,42 @@ def test_stop_command():
     assert host.calls[-1][2].source == "api"
 
 
+class Routed(FakeHost):
+    """A host of several bots: remembers which bot each call named."""
+
+    def __init__(self):
+        super().__init__()
+        self.routes = []
+
+    def call(self, intent, args, actor, *, key=None, bot=None):
+        self.routes.append((intent, bot))
+        return super().call(intent, args, actor, key=key)
+
+
+def test_stop_stops_every_bot_when_there_are_several():
+    host, talker = Routed(), FakeTalker()
+    source = Source(
+        batch(latest=10), batch([command(11, "stop"), command(12, "status")])
+    )
+    ingress = Ingress(host, talker, source, bot=None, stop_all=True)
+    ingress.poll_once()
+    ingress.poll_once()
+    # stop reaches every bot; anything else goes to the first (no bot named)
+    assert [r for r in host.routes if r[0] != "say"] == [
+        ("stop", "all"),
+        ("status", None),
+    ]
+
+
+def test_stop_names_no_bot_with_one():
+    host, talker = Routed(), FakeTalker()
+    source = Source(batch(latest=10), batch([command(11, "stop")]))
+    ingress = Ingress(host, talker, source, bot=BOT)
+    ingress.poll_once()
+    ingress.poll_once()
+    assert ("stop", None) in host.routes
+
+
 def test_stop_error_is_told():
     host = FakeHost()
     host.results["stop"] = {"ok": False, "error": "not allowed"}

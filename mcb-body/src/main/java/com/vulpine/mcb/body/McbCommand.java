@@ -103,7 +103,7 @@ final class McbCommand {
     private static int run(CommandSourceStack source, String sub, Map<String, Object> args) {
         var player = source.getPlayer();
         if (player == null) return 0; // console and command blocks are not players
-        BodyRuntime.playerCommand(player, sub, args);
+        BodyHub.playerCommand(player, sub, args);
         player.sendSystemMessage(Component.literal(reply(sub)));
         return 1;
     }

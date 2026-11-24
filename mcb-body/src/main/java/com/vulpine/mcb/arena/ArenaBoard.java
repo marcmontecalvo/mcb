@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Locale;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.numbers.BlankFormat;
 import net.minecraft.network.chat.numbers.FixedFormat;
@@ -85,10 +86,17 @@ final class ArenaBoard {
         return out;
     }
 
-    /** One chat line of coloured parts. */
+    /** One chat line of coloured parts, each with its hover text when it has one. */
     static Component line(List<ArenaLogic.Seg> parts) {
         var out = Component.empty();
-        for (var part : parts) out.append(text(part.text(), part.color(), part.bold(), false));
+        for (var part : parts) {
+            var piece = text(part.text(), part.color(), part.bold(), false);
+            if (part.hover() != null) {
+                var tip = new HoverEvent.ShowText(Component.literal(part.hover()));
+                piece = piece.withStyle(style -> style.withHoverEvent(tip));
+            }
+            out.append(piece);
+        }
         return out;
     }
 }

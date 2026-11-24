@@ -10,6 +10,8 @@
   "result", "error"}``; ``state`` in JOB_STATES; times are UNIX seconds or None.
 - ``events(after, wait)`` returns ``{"latest": n, "events": [{"seq", "at", "type",
   "data"}]}`` with ``type`` in EVENT_TYPES, oldest first, ``seq`` > ``after``.
+- A server with several bots answers through a ``Fleet`` (companion_fleet.py): the
+  same calls plus ``bot=<id>`` (none: the first bot; ``"all"``: ``stop`` only).
 
 Docs: COMPANION_LLM_PLAN_2026-11-23.md.
 """
@@ -39,6 +41,10 @@ EVENT_TYPES = (
     # "steps": n, "job": id | None}
     "defense_end",
 )
+
+
+class HostError(Exception):
+    """A request the host cannot serve now; the message is for the caller."""
 
 
 class Host(Protocol):
