@@ -2762,3 +2762,54 @@ def test_trial_sends_the_scene_as_given():
     }
     assert b.trial(**spec).ok
     assert bridge.sent[-1] == ("trial", spec)
+
+
+def test_arena_ops_send_only_the_fields_given_and_return_the_answer():
+    b, bridge, _ = body()
+    plan = {"schema": 1, "name": "vault"}
+    bridge.reply["arena_build"] = ("done", {"name": "vault", "state": "building"})
+    result = b.arena_build(plan, (4, 64, 4), name="v2")
+    assert result.ok and result.data["state"] == "building"
+    assert bridge.sent[-1] == (
+        "arena_build",
+        {"plan": plan, "origin": [4, 64, 4], "name": "v2"},
+    )
+    b.arena_build(plan, [0, 0, 0], dimension="minecraft:the_nether")
+    assert bridge.sent[-1] == (
+        "arena_build",
+        {"plan": plan, "origin": [0, 0, 0], "dimension": "minecraft:the_nether"},
+    )
+    b.arena_remove("vault")
+    assert bridge.sent[-1] == ("arena_remove", {"name": "vault", "restore": False})
+    b.arena_remove("vault", restore=True)
+    assert bridge.sent[-1] == ("arena_remove", {"name": "vault", "restore": True})
+    b.arena_list()
+    assert bridge.sent[-1] == ("arena_list", {})
+    b.arena_status("vault")
+    assert bridge.sent[-1] == ("arena_status", {"name": "vault"})
+    b.arena_stop("vault")
+    assert bridge.sent[-1] == ("arena_stop", {"name": "vault"})
+    waves = [{"mobs": {"minecraft:ravager": 5}, "delay_ticks": 100}]
+    b.arena_start("vault", "waves", waves=waves, participants=["Ann"])
+    assert bridge.sent[-1] == (
+        "arena_start",
+        {"name": "vault", "mode": "waves", "waves": waves, "participants": ["Ann"]},
+    )
+    b.arena_start("vault", "teams", teams={"red": ["A"], "blue": ["B"]})
+    assert bridge.sent[-1] == (
+        "arena_start",
+        {"name": "vault", "mode": "teams", "teams": {"red": ["A"], "blue": ["B"]}},
+    )
+
+
+def test_arena_ops_surface_the_mods_refusals():
+    b, bridge, _ = body()
+    bridge.reply["arena_start"] = (
+        "failed",
+        {"reason": "arena_not_ready", "detail": "state is building"},
+    )
+    result = b.arena_start("vault", "waves", waves=[])
+    assert (result.ok, result.reason) == (False, "arena_not_ready")
+    assert result.data["detail"] == "state is building"
+    bridge.reply["arena_build"] = ("failed", {"reason": "overlap"})
+    assert b.arena_build({}, [0, 0, 0]).reason == "overlap"

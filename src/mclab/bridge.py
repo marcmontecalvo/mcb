@@ -67,6 +67,13 @@ BODY_OPS = frozenset(
         "use_entity",
         "eat",
         "container",
+        # the arena runtime's ops (com.vulpine.mcb.arena; docs/ARENA_RUNTIME.md)
+        "arena_build",
+        "arena_remove",
+        "arena_list",
+        "arena_status",
+        "arena_start",
+        "arena_stop",
     }
 )
 # Lab ops that act on the current body by name.

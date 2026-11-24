@@ -145,6 +145,10 @@ def main() -> int:
         from mclab.run_history import main as runs_main
 
         return runs_main(sys.argv[2:])
+    if sys.argv[1:2] == ["arena"]:
+        from mclab.arena_cli import main as arena_main
+
+        return arena_main(sys.argv[2:])
     if sys.argv[1:2] == ["qual"]:
         from mclab import qualification_battery
 
@@ -283,13 +287,6 @@ def main() -> int:
     execute = course.add_parser("execution-check")
     execute.add_argument("--count", type=int, default=10)
     execute.add_argument("--development", action="store_true")
-    arena = sub.add_parser("arena").add_subparsers(dest="operation", required=True)
-    arena_plan = arena.add_parser("plan")
-    arena_plan.add_argument("name", help="vault, duel, hall, crossroads or all")
-    arena_plan.add_argument(
-        "--out", type=Path, help="write plans here and previews to OUT/previews"
-    )
-    arena_plan.add_argument("--no-previews", action="store_true")
     schem = sub.add_parser("schematic").add_subparsers(dest="operation", required=True)
     convert = schem.add_parser("convert")
     convert.add_argument("input", type=Path)
@@ -302,12 +299,6 @@ def main() -> int:
                 from mclab import companion_service
 
                 companion_service.run()
-            case "arena":
-                from mclab import arena_cli
-
-                result = arena_cli.plan(
-                    args.name, args.out, previews=not args.no_previews
-                )
             case "schematic":
                 from mclab import schematic
 
@@ -548,8 +539,6 @@ def main() -> int:
             return 0 if all(c.get("ok", True) for c in result["checks"]) else 1
         if args.command == "awareness" and args.operation == "check":
             return 0 if result["status"] == "passed" else 1
-        if args.command == "arena":
-            return 1 if any(a["problems"] for a in result["arenas"]) else 0
         if args.command == "natural":
             return 0 if all(a["status"] == "success" for a in result["attempts"]) else 1
         if args.command == "models":

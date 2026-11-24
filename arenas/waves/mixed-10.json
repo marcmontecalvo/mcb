@@ -1,0 +1,16 @@
+{
+  "description": "One wave of ten mixed mobs: melee, ranged, a climber, a creeper and two raiders.",
+  "waves": [
+    {
+      "mobs": {
+        "minecraft:zombie": 3,
+        "minecraft:skeleton": 2,
+        "minecraft:spider": 2,
+        "minecraft:creeper": 1,
+        "minecraft:pillager": 1,
+        "minecraft:vindicator": 1
+      },
+      "delay_ticks": 60
+    }
+  ]
+}

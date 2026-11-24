@@ -5,7 +5,7 @@
   "name": "MCB Body",
   "description": "Carpet body nervous system: sensing, controls and body events. No course or scoring logic.",
   "environment": "server",
-  "entrypoints": {"main": ["com.vulpine.mcb.body.BodyMod"]},
-  "mixins": ["mcb-body.mixins.json"],
+  "entrypoints": {"main": ["com.vulpine.mcb.body.BodyMod", "com.vulpine.mcb.arena.ArenaMod"]},
+  "mixins": ["mcb-body.mixins.json", "mcb-arena.mixins.json"],
   "depends": {"fabricloader": "0.19.5", "minecraft": "26.3", "java": ">=25", "fabric-api": "*", "carpet": "*"}
 }

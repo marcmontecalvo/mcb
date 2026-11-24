@@ -1,0 +1,11 @@
+{
+  "description": "Escalating raid for the vault arena: pillagers first, then vindicators, witches, evokers and ravagers. No wave exceeds the plan's 15-mob capacity (an evoker's vexes do not count).",
+  "waves": [
+    {"mobs": {"minecraft:pillager": 3}, "delay_ticks": 100},
+    {"mobs": {"minecraft:pillager": 3, "minecraft:vindicator": 2}, "delay_ticks": 200},
+    {"mobs": {"minecraft:vindicator": 3, "minecraft:witch": 2}, "delay_ticks": 200},
+    {"mobs": {"minecraft:pillager": 3, "minecraft:witch": 2, "minecraft:evoker": 1}, "delay_ticks": 300},
+    {"mobs": {"minecraft:vindicator": 3, "minecraft:evoker": 2, "minecraft:ravager": 1}, "delay_ticks": 300},
+    {"mobs": {"minecraft:pillager": 4, "minecraft:vindicator": 3, "minecraft:witch": 2, "minecraft:evoker": 1, "minecraft:ravager": 3}, "delay_ticks": 400}
+  ]
+}

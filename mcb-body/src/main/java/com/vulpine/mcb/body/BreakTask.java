@@ -46,6 +46,7 @@ final class BreakTask {
     static BreakTask start(ServerPlayer player, JsonObject request, long sequence) {
         BlockPos pos = BodyBuild.pos(request);
         var level = player.level();
+        BodyBuild.checkArena(player, pos);
         var state = level.getBlockState(pos);
         if (state.isAir()) throw new BodyActions.Fail("nothing_to_break");
         if (state.getDestroySpeed(level, pos) < 0) throw new BodyActions.Fail("unbreakable");
