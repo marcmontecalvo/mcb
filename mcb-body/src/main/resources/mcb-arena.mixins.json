@@ -9,7 +9,8 @@
     "BlockGriefMixin",
     "EndermanGriefMixin",
     "SilverfishGriefMixin",
-    "DoorGriefMixin"
+    "DoorGriefMixin",
+    "SpawnFinderMixin"
   ],
   "injectors": {
     "defaultRequire": 1

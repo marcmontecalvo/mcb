@@ -21,7 +21,9 @@ class FakeArena:
         self.reads, self.started, self.stopped = 0, [], []
         self.fail_start = fail_start
 
-    def start(self, name, mode, *, waves=None, participants=None, teams=None, exit=None):  # noqa: A002
+    def start(
+        self, name, mode, *, waves=None, participants=None, teams=None, exit=None
+    ):  # noqa: A002
         if self.fail_start:
             raise ah.ArenaError(self.fail_start, "no")
         self.started.append((name, mode, waves, participants))
@@ -456,7 +458,9 @@ class FakeContest:
         self.started, self.stopped, self.kits, self.ops = [], [], [], []
         self.refuse_op = set()
 
-    def start(self, name, mode, *, waves=None, participants=None, teams=None, exit=None):  # noqa: A002
+    def start(
+        self, name, mode, *, waves=None, participants=None, teams=None, exit=None
+    ):  # noqa: A002
         self.started.append({"name": name, "mode": mode, "waves": waves,
                              "teams": teams, "exit": exit})  # fmt: skip
         return {"name": name, "mode": mode, "teams": teams}
@@ -598,6 +602,58 @@ def test_a_series_sets_each_players_operator_status_once(tmp_path):
     assert record["mode"] == "teams" and record["teams"] == teams
     assert record["summary"]["winners"] == {"red": 1}
     assert any("red won" in line for line in lines)
+
+
+def test_a_series_waits_for_its_humans_again_before_every_later_match(tmp_path):
+    # The first match's wait is the script's; after it, a player may be on the
+    # death screen: the next match waits until they are back and ready.
+    clock = Clock()
+    teams = {"red": ["MCBot"], "blue": ["Ann"]}
+    api, contest = FakeApi(clock), FakeContest(clock, teams)
+    ended(api, contest)
+    waits = []
+
+    def wait_ready(names, **kwargs):
+        waits.append((names, kwargs["match"], kwargs["timeout"], kwargs["arena"]))
+
+    contest.wait_ready = wait_ready
+    ah.run_series(api, contest, "duel", [], mode="teams", teams=teams, repeat=3,
+                  timeout=60, out_dir=tmp_path, echo=lambda _line: None,
+                  clock=clock, ready_timeout=90)  # fmt: skip
+    assert waits == [
+        (["MCBot", "Ann"], (2, 3), 90, "duel"),
+        (["MCBot", "Ann"], (3, 3), 90, "duel"),
+    ]
+    assert len(contest.started) == 3
+
+
+def test_a_series_stops_when_its_humans_do_not_come_back_ready(tmp_path):
+    clock = Clock()
+    teams = {"red": ["MCBot"], "blue": ["Ann"]}
+    api, contest = FakeApi(clock), FakeContest(clock, teams)
+    ended(api, contest)
+
+    def wait_ready(names, **kwargs):
+        raise ah.ArenaError("players_not_ready", "Ann has not respawned after 90s")
+
+    contest.wait_ready = wait_ready
+    lines = []
+    path = ah.run_series(api, contest, "duel", [], mode="teams", teams=teams,
+                         repeat=3, timeout=60, out_dir=tmp_path, echo=lines.append,
+                         clock=clock, ready_timeout=90)  # fmt: skip
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert len(record["runs"]) == 1 and len(contest.started) == 1
+    assert any("Ann has not respawned" in line and "stops" in line for line in lines)
+
+
+def test_a_series_without_humans_never_waits_for_players(tmp_path):
+    clock = Clock()
+    api, arena = FakeApi(clock), FakeArena(clock)  # FakeArena has no wait_ready
+    finish(api, arena)
+    path = ah.run_series(api, arena, "vault", [], repeat=2, participants=["MCBot"],
+                         timeout=60, out_dir=tmp_path, echo=lambda _line: None,
+                         clock=clock, ready_timeout=90)  # fmt: skip
+    assert len(json.loads(path.read_text(encoding="utf-8"))["runs"]) == 2
 
 
 def test_summary_counts_the_winning_teams_and_the_bots_wins():

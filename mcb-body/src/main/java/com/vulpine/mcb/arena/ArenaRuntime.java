@@ -329,7 +329,7 @@ public final class ArenaRuntime {
             ArenaLogic.checkTeams(assignment, new LinkedHashSet<>(arenaTeams), padCounts(record), record.capacity().perTeam());
             assignment.forEach((team, members) -> {
                 var resolved = new ArrayList<ServerPlayer>();
-                for (var name : members) resolved.add(online(name));
+                for (var name : members) resolved.add(living(name));
                 teamPlayers.put(team, resolved);
                 players.addAll(resolved);
             });
@@ -339,7 +339,7 @@ public final class ArenaRuntime {
             var seen = new LinkedHashSet<String>();
             for (var name : names) {
                 if (!seen.add(name)) throw new ArenaFail("duplicate_participant", name);
-                players.add(online(name));
+                players.add(living(name));
             }
             ArenaLogic.wavePads(padCounts(record), players.size(), record.capacity().teams() * record.capacity().perTeam());
         }
@@ -393,7 +393,7 @@ public final class ArenaRuntime {
     private Map<String, Object> kit(JsonObject request) {
         var req = ArenaRequests.parseKit(request);
         var players = new ArrayList<ServerPlayer>();
-        for (var name : req.players()) players.add(online(name));
+        for (var name : req.players()) players.add(living(name));
         var given = new LinkedHashMap<String, Object>();
         try {
             var kit = com.vulpine.mcb.body.PlayerKit.check(players.get(0), req.kit());
@@ -453,6 +453,13 @@ public final class ArenaRuntime {
     private ServerPlayer online(String name) {
         var player = server.getPlayerList().getPlayerByName(name);
         if (player == null) throw new ArenaFail("participant_offline", name);
+        return player;
+    }
+
+    /** An online player who is not on the death screen: a match's participant, or one to kit. */
+    private ServerPlayer living(String name) {
+        var player = online(name);
+        ArenaLogic.requireAlive(player.getName().getString(), player.isDeadOrDying());
         return player;
     }
 

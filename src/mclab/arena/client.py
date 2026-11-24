@@ -331,13 +331,16 @@ class ArenaClient:
         timeout: float,
         arena: str,
         echo: Callable[[str], None] = print,
+        match: tuple[int, int] | None = None,
     ) -> None:
-        """Hold until every named player is online and every human among them has
-        typed ``/mcb ready`` (or ``ready`` in chat) since the wait began. A player who
-        leaves must be ready again. Fake players (the bot) need only be online.
+        """Hold until every named player is online and every human among them is
+        alive and has typed ``/mcb ready`` (or ``ready`` in chat) since the wait
+        began. A player who leaves must be ready again; one on the death screen is
+        waited for until they respawn. Fake players (the bot) need only be online.
 
-        Each human is told how to start when they join. ``echo`` gets a line each
-        time the wait changes. Raises ``players_not_ready`` after ``timeout``."""
+        Each human is told how to start when they join; ``match`` (number, of) names
+        a later match of a series. ``echo`` gets a line each time the wait changes.
+        Raises ``players_not_ready`` after ``timeout``."""
         if not names:
             return
         wanted = {n.lower(): n for n in names}
@@ -346,6 +349,9 @@ class ArenaClient:
         greeted: set[str] = set()
         ready: set[str] = set()
         last = None
+        which = f"Arena {arena}" + (
+            f", match {match[0]} of {match[1]}," if match is not None else ""
+        )
         while True:
             online = self.online()
             humans = {k for k in wanted if k in online and not online[k].get("fake")}
@@ -356,34 +362,42 @@ class ArenaClient:
             for key in sorted(humans - greeted):
                 greeted.add(key)
                 self.say(
-                    f"Arena {arena} is waiting for you: type /mcb ready "
+                    f"{which} is waiting for you: type /mcb ready "
                     "(or ready in chat) when you are set.",
                     to=online[key]["name"],
                 )
             absent = [wanted[k] for k in wanted if k not in online]
+            dead = [
+                wanted[k] for k in wanted
+                if k in humans and online[k].get("alive") is False
+            ]  # fmt: skip
             new = heard - ready
             ready |= heard
             unready = [wanted[k] for k in wanted if k in humans and k not in ready]
-            if not absent and not unready:
+            if not absent and not unready and not dead:
                 for key in sorted(humans):
                     self.say(
                         "Everyone is ready: the match starts.", to=online[key]["name"]
                     )
                 return
-            awaited = ", ".join(absent + unready)
+            awaited = ", ".join(absent + dead + [n for n in unready if n not in dead])
             for key in sorted(new):
                 self.say(f"Ready. Waiting for {awaited}.", to=online[key]["name"])
-            line = (
-                f"Waiting for {', '.join(absent)} to join the server."
-                if absent
-                else f"Waiting for {', '.join(unready)} to type /mcb ready."
-            )
+            if absent:
+                line = f"Waiting for {', '.join(absent)} to join the server."
+            elif dead:
+                line = f"Waiting for {', '.join(dead)} to respawn."
+            else:
+                line = f"Waiting for {', '.join(unready)} to type /mcb ready."
             if line != last:
                 echo(line)
                 last = line
             if self._clock() >= deadline:
                 missing = [f"{n} has not joined" for n in absent]
-                missing += [f"{n} has not typed /mcb ready" for n in unready]
+                missing += [f"{n} has not respawned" for n in dead]
+                missing += [
+                    f"{n} has not typed /mcb ready" for n in unready if n not in dead
+                ]
                 raise ArenaError(
                     "players_not_ready", f"{'; '.join(missing)} after {timeout:g}s"
                 )

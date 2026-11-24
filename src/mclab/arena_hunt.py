@@ -42,6 +42,7 @@ __all__ = [
 SAMPLE_S = 1.0  # one look at the match and the bot per second
 READY_WAIT_S = 90.0  # a bot that died last run respawns before the next
 KIT_WAIT_S = 10.0  # the kit handed out shows in the bot's status by then
+PLAYERS_WAIT_S = 900.0  # humans respawn and type /mcb ready before each match
 DONE = frozenset({"succeeded", "failed", "cancelled"})
 JOB_FIELDS = ("kills", "hits", "damage", "waves_cleared", "waves")
 USES = frozenset({"eat", "drink", "throw"})  # food and potion steps (consumables)
@@ -400,9 +401,17 @@ def run_series(
     sleep: Callable[[float], None] = time.sleep,
     label: str | None = None,
     kit: list[dict] | None = None,
+    ready_timeout: float = PLAYERS_WAIT_S,
 ) -> Path:
     """`repeat` matches of the same roster and waves, each written as it ends.
-    ``ops``: each human's operator status, set once before the first match."""
+    ``ops``: each human's operator status, set once before the first match.
+
+    Before each match after the first, every human is waited for again (up to
+    ``ready_timeout`` seconds): back on their feet and ``/mcb ready``. A player
+    who died is on the death screen when a match ends; starting the next one then
+    counted their team out at once and its kit's heal left them unable to respawn.
+    The first match's wait is the caller's (the script stops before anything
+    starts when nobody comes)."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = Path(out_dir) / f"{stamp}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -422,7 +431,20 @@ def run_series(
         "summary": {},
     }
     _set_ops(arena, ops or {}, bot, echo)
+    humans = [p for p in people if not _same(p, bot)]
     for i in range(repeat):
+        if i and humans:
+            try:
+                arena.wait_ready(
+                    people,
+                    timeout=ready_timeout,
+                    arena=name,
+                    echo=echo,
+                    match=(i + 1, repeat),
+                )
+            except ArenaError as error:
+                echo(f"run {i + 1}: {error.detail or error}; the series stops")
+                break
         if plays and not _ready(api, clock, sleep):
             echo(f"run {i + 1}: the bot is not ready; the series stops")
             break

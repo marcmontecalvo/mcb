@@ -278,6 +278,7 @@ public final class BodyRuntime implements AutoCloseable {
             entry.put("mode", player.isSpectator() ? "spectator" : player.isCreative() ? "creative" : "survival");
             entry.put("invulnerable", player.isInvulnerable());
             entry.put("fake", CarpetBodyAdapter.isFakePlayer(player));
+            entry.put("alive", !player.isDeadOrDying());  // false on the death screen: a match waits for the respawn
             out.add(Map.copyOf(entry));
         }
         roster = List.copyOf(out);

@@ -166,6 +166,47 @@ def test_the_wait_gives_up_naming_who_did_not_come():
     assert "Ann has not typed /mcb ready" in error.value.detail
 
 
+ANN_DEAD = {"name": "Ann", "fake": False, "alive": False}
+
+
+def test_a_dead_human_is_not_ready_until_they_respawn():
+    # Matches 2-5 of a series started while Ann lay on the death screen: her
+    # team counted as out at once, and the kit's heal left her unable to respawn.
+    lobby = Lobby([
+        ([BOT, ANN_DEAD], [ready_command("Ann")]),
+        ([BOT, ANN_DEAD], []),
+        ([BOT, ANN], []),
+    ])  # fmt: skip
+
+    lines = wait(lobby, ["MCBot", "Ann"])
+
+    assert "Waiting for Ann to respawn." in lines
+    assert lobby.round == 3  # her ready counts once she is back on her feet
+
+
+def test_the_wait_gives_up_naming_who_never_respawned():
+    lobby = Lobby([([ANN_DEAD], [ready_command("Ann")])])
+
+    with pytest.raises(arena.ArenaError) as error:
+        wait(lobby, ["Ann"], timeout=5)
+
+    assert "Ann has not respawned" in error.value.detail
+
+
+def test_a_later_match_of_a_series_says_which_one_is_waiting():
+    lobby = Lobby([([ANN], [ready_command("Ann")])])
+    clock = iter(range(10_000))
+    admin = arena.ArenaClient(lobby, clock=lambda: next(clock), sleep=lambda _s: None)
+
+    admin.wait_ready(
+        ["Ann"], timeout=100, arena="duel", echo=lambda _line: None, match=(2, 5)
+    )
+
+    greeting = told(lobby, "Ann")[0]
+    assert "duel" in greeting and "match 2 of 5" in greeting
+    assert "/mcb ready" in greeting
+
+
 def test_no_names_means_no_wait():
     lobby = Lobby([])
 

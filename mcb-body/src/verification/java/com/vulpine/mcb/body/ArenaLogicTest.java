@@ -50,7 +50,21 @@ public final class ArenaLogicTest {
         cursor();
         registry();
         requests();
+        spawn();
         System.out.println("ArenaLogicTest ok");
+    }
+
+    private static void spawn() {
+        // Outside adventure mode the game lifts a joining player to the top block above the world spawn: in the void
+        // world that is the lobby's roof. A spawn inside a built arena (the lobby) is kept exactly.
+        check(ArenaLogic.keepsSpawnExact("built"), "a spawn inside a built arena is kept exactly");
+        check(!ArenaLogic.keepsSpawnExact(null), "a spawn outside every arena is the game's own");
+        check(!ArenaLogic.keepsSpawnExact("building") && !ArenaLogic.keepsSpawnExact("incomplete")
+                && !ArenaLogic.keepsSpawnExact("clearing"), "a half-built or clearing arena is no room to start in");
+        // A player on the death screen is neither kitted, healed nor sent to a pad: healed, the game took them for
+        // alive and ignored their respawn click; their team was out before the match began.
+        ArenaLogic.requireAlive("Ann", false);
+        rejects(() -> ArenaLogic.requireAlive("Ann", true), "participant_dead", "a dead participant is refused");
     }
 
     private static void box() {

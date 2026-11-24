@@ -81,6 +81,19 @@ awaited, and everyone hears "Everyone is ready: the match starts." The wait's pr
 the session log; after the timeout the start fails with `players_not_ready`, naming who did not
 join or did not type ready. The mod answers `/mcb ready` with "Ready."; the companion ignores it.
 
+A human on the death screen (`GET /players` `alive: false`) is not ready: the wait says "Waiting for
+Ann to respawn." and gives up with "Ann has not respawned". A ready typed while dead counts once they
+are back. A series waits like this **before every match**, not only the first (`run_series`
+`ready_timeout`, `arena-hunt.py --ready-timeout`); later matches greet with "Arena duel, match 2 of
+5, is waiting for you". Before, a player killed in match 1 was still dead when match 2 started: their
+team counted as out at once (matches 2-5 "won" in 0.2 s), and the start's kit healed the dead player,
+so the game took them for alive and ignored their respawn click. The mod now also refuses a dead
+participant at `start` and `arena_kit` (`participant_dead`); a dead player is never healed or moved.
+
+Joining players start at the world spawn exactly when it lies inside a built arena (the arena
+server's lobby; `SpawnFinderMixin`, `ArenaLogic.keepsSpawnExact`). Outside adventure mode the game
+otherwise searches the spawn's column from the top down and stands them on the lobby's roof.
+
 Chunks are forceloaded while a build or match needs them (refcounted; chunks someone else forced
 are never released). Each arena persists the chunks it forced, so a crash is cleaned up at the next
 start.
@@ -103,7 +116,7 @@ Acks are `<op>_done` / `<op>_failed` (`reason`, `detail`) carrying `request_sequ
 forbidden mob such as the ender dragon), `bad_plan`, `bad_block`, `overlap`,
 `unknown_arena`, `unknown_dimension`, `arena_not_ready`, `match_running`, `no_match`,
 `no_mob_spawns`, `over_capacity`, `unknown_entity`, `not_a_mob`, `participant_offline`,
-`no_participants`, `duplicate_participant`, `busy` (at most 4 jobs at once), `internal`.
+`participant_dead`, `no_participants`, `duplicate_participant`, `busy` (at most 4 jobs at once), `internal`.
 
 ## Status shape (`arena_status`)
 

@@ -21,6 +21,22 @@ public final class ArenaLogic {
 
     public static boolean isOperationName(String op) { return OPS.contains(op); }
 
+    /**
+     * Whether a joining (or bedless respawning) player starts exactly at the world spawn, given the state of the arena
+     * holding it (null for none). Outside adventure mode the game lifts them to the top block above the spawn, which
+     * in the arena server's void world is the lobby's roof; inside a built arena the spawn was put there on purpose.
+     */
+    public static boolean keepsSpawnExact(String arenaState) { return "built".equals(arenaState); }
+
+    /**
+     * A match never takes, kits or heals a player on the death screen: healed, the game takes them for alive and
+     * ignores their respawn click; sent to a pad, their team is out before the match begins. The caller waits for
+     * them to respawn ({@code /mcb ready} again) instead.
+     */
+    public static void requireAlive(String name, boolean dead) {
+        if (dead) throw new ArenaFail("participant_dead", name + " is dead: wait for them to respawn");
+    }
+
     /** An item used within this many blocks of an arena's bounds counts as used on it (a bucket's ray reaches). */
     public static final int INTERACT_MARGIN = 6;
     /** A derived spawn (a vex, a split slime) is credited to a wave mob this near. */

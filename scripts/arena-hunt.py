@@ -83,9 +83,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ready-timeout",
         type=float,
-        default=900.0,
-        help="seconds to wait, before the first match, for every player to be "
-        "online and each human to type /mcb ready",
+        default=ah.PLAYERS_WAIT_S,
+        help="seconds to wait, before each match, for every player to be online "
+        "and each human to be alive and type /mcb ready",
     )
     parser.add_argument(
         "--kit",
@@ -185,6 +185,7 @@ def main(argv=None) -> int:
         echo=echo,
         label=args.label,
         kit=kit,
+        ready_timeout=args.ready_timeout,
     )
     record = json.loads(path.read_text(encoding="utf-8"))
     print(json.dumps(record["summary"]))

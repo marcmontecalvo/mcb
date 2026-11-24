@@ -74,6 +74,7 @@ def test_a_hunt_waits_for_its_players_before_the_first_match(tmp_path, monkeypat
     assert names == ["MCBot", "Ann"]
     assert kwargs["timeout"] == 120 and kwargs["arena"] == "vault"
     assert seen["participants"] == ["MCBot", "Ann"]
+    assert seen["ready_timeout"] == 120  # and again before every later match
 
 
 def test_a_hunt_whose_players_never_come_stops_before_it_starts(
