@@ -232,7 +232,10 @@ mixed, up to 8 a team). Built, **live check pending**.
   operators. Each bot gets the kit, is sent to hunt its own foes (the live participants of the
   other teams, so bots fight each other as well) and ends with the match; `_end` stops every bot
   and then the match. A bot whose attack is refused is recorded (`outcome: refused`,
-  `refused_by`), not retried.
+  `refused_by`), not retried. When every bot's job is over (a bot died) but a human is still
+  alive in the running match (`match.participants[].alive`), the hunt keeps sampling until the
+  match ends or the timeout hits; it ends the match as `abandoned` only when no live human is
+  left.
 - **Results.** One bot keeps the flat row (`bot`, `bot_won`, `bot_kills`, …). Several give
   totals (`bot_kills`, `hits`, `damage`, `hurt_by`, `uses`) and a `bots` object keyed by name with
   each bot's `min_health`, `job_state`, `error`, `steps`, `hurt_by`, `killed_by`, `picks`,

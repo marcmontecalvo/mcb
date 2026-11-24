@@ -16,10 +16,13 @@ class Clock:
 class FakeArena:
     """A waves match that clears one wave per `per_wave` status reads, or never."""
 
-    def __init__(self, clock, waves=2, per_wave=3, end="won", fail_start=None):
+    def __init__(
+        self, clock, waves=2, per_wave=3, end="won", fail_start=None, people=None
+    ):
         self.clock, self.waves, self.per_wave, self.end = clock, waves, per_wave, end
         self.reads, self.started, self.stopped = 0, [], []
         self.fail_start = fail_start
+        self.people = people  # the match's participants: {"name", "alive"} rows
 
     def start(
         self, name, mode, *, waves=None, participants=None, teams=None, exit=None
@@ -48,7 +51,12 @@ class FakeArena:
         }
         if over:
             match["reason"] = "cleared"
+        if self.people is not None:
+            match["participants"] = [dict(p) for p in self.people]
         return {"name": name, "match": match, "match_state": match["state"]}
+
+    def kit(self, humans, kit):
+        self.kitted = (list(humans), kit)
 
     def stop(self, name):
         self.stopped.append(name)
@@ -149,6 +157,43 @@ def test_a_job_that_fails_mid_match_stops_the_match_for_the_next_run():
                   clock=clock)  # fmt: skip
     assert arena.stopped == ["vault"]
     assert row["outcome"] == "abandoned" and row["error"] == "I may not attack vault"
+
+
+def _after_the_bot_died(people, end="won"):
+    """The bot's job is over from the first look; the match is not."""
+    clock = Clock()
+    api = FakeApi(clock)
+    api.job = {"id": "j1", "state": "failed", "error": "MCBot died"}
+    arena = FakeArena(clock, end=end, people=people)
+    row = ah.hunt(api, arena, "vault", [], participants=["MCBot", "Ann"], timeout=60,
+                  clock=clock, sleep=lambda s: setattr(clock, "now", clock.now + s))  # fmt: skip
+    return row, arena
+
+
+def test_a_match_with_a_live_human_goes_on_after_the_bot_dies():
+    people = [{"name": "MCBot", "alive": False}, {"name": "Ann", "alive": True}]
+    row, arena = _after_the_bot_died(people)
+    assert row["outcome"] == "won" and row["reason"] == "cleared"
+    assert arena.stopped == []  # the match played out
+    assert row["job_state"] == "failed"  # the bot's own row still says what happened
+
+
+def test_a_match_with_no_live_human_ends_when_the_bot_dies():
+    people = [{"name": "MCBot", "alive": False}, {"name": "Ann", "alive": False}]
+    row, arena = _after_the_bot_died(people, end=None)
+    assert row["outcome"] == "abandoned" and arena.stopped == ["vault"]
+
+
+def test_a_live_human_does_not_hold_a_match_past_the_timeout():
+    people = [{"name": "MCBot", "alive": False}, {"name": "Ann", "alive": True}]
+    row, arena = _after_the_bot_died(people, end=None)
+    assert row["outcome"] == "timeout" and arena.stopped == ["vault"]
+
+
+def test_a_live_bot_is_no_human_to_wait_for():
+    people = [{"name": "MCBot", "alive": True}, {"name": "Ann", "alive": False}]
+    row, arena = _after_the_bot_died(people, end=None)
+    assert row["outcome"] == "abandoned" and arena.stopped == ["vault"]
 
 
 def test_a_hunt_keeps_its_job_steps_and_sums_what_hurt_the_bot():

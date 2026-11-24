@@ -204,6 +204,19 @@ def wave_times(samples: list[dict]) -> list[dict]:
     return out
 
 
+def _humans_playing(match: dict, humans: list[str]) -> bool:
+    """Whether a running match still has a live human in it: it plays on when the
+    bots are out (dead, or their jobs over), and ends only when nobody is left."""
+    if match.get("state") != "running":
+        return False
+    return any(
+        isinstance(p, dict)
+        and p.get("alive")
+        and any(_same(p.get("name"), h) for h in humans)
+        for p in match.get("participants") or ()
+    )
+
+
 def _end(fighters: list[_Fighter], arena, name: str) -> None:
     """Stop every bot, then the match (each tried even when another fails)."""
     stops = [lambda f=f: f.call("stop", {}, source="api") for f in fighters]
@@ -305,7 +318,7 @@ def hunt(
                 jobs[f.name] = job
                 if job is None or job.get("state") in DONE:
                     over.add(f.name)
-            if len(over) == len(fighters):
+            if len(over) == len(fighters) and not _humans_playing(match, humans):
                 break
         elif match.get("state") != "running":
             break
@@ -313,7 +326,7 @@ def hunt(
             _end(fighters, arena, name)
             match = {**match, "state": "timeout"}
             break
-        if not fighters:
+        if len(over) == len(fighters):  # nothing left to wait on but the match itself
             sleep(sample)
     if match.get("state") == "running":  # the jobs ended first: read the match's end
         match = (arena.status(name) or {}).get("match") or match
