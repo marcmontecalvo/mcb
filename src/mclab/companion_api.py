@@ -6,8 +6,9 @@ Routes (all need ``Authorization: Bearer <token>``; JSON in and out):
 - ``GET /jobs/<id>?wait=<s>``  ->  the job (long-polled, wait capped at 60 s) or 404
 - ``GET /events?after=<n>&wait=<s>``  ->  the host's events
 - ``GET /health``  ->  ``{"ok": true}``
-- ``POST /trial`` ``{clear?, clear_inventory?, give?, wear?, heal?, time?, summon?}``  ->  as
-  ``/call``; sets the scene for an operator's combat trial (never an MCP tool)
+- ``POST /trial`` ``{clear?, clear_inventory?, give?, wear?, heal?, time?,
+  summon?}``  ->  as ``/call``; sets the scene for an operator's combat trial
+  (never an MCP tool)
 - ``POST /shutdown``  ->  202; the host halts and despawns the body and exits (the
   supervisor's stop; Windows ``terminate()`` would skip that)
 
