@@ -146,14 +146,40 @@ def hunt(status: dict, state: dict, chosen: str | None = None):
     if not mobs:
         return WAITING
     here = _position({"position": (state.get("body") or {}).get("position")})
-    keep = [m for m in mobs if str(m.get("uuid")) == chosen]
-    pick = _nearest(keep or mobs, here, lambda row: True)
+    pick = _threat(mobs, here, chosen)
     sighted = _nearest(
         state.get("visible_entities") or (),
         here,
         lambda row: str(row.get("uuid")) == pick.uuid,
     )
     return sighted or replace(pick, in_sight=False)
+
+
+# Casters first: what they do goes on all the while they live (an evoker's vexes and
+# fangs, a witch's harming and poison and the heals she throws her side). A hunt
+# weighs a mob's distance by this, so a witch at 12 comes before a pillager at 8 and a
+# vindicator already at 2 before an evoker at 15. Vault raid 20261124T044539Z: three
+# deaths in wave 4 sniping the nearest pillager, the witches' splashes and poison 100
+# of the damage taken.
+THREAT = {"minecraft:evoker": 3.0, "minecraft:witch": 2.5}
+
+
+def _threat(mobs, here, chosen: str | None) -> Victim:
+    """The wave mob to fight: the least distance / THREAT weight. The one already
+    chosen is kept while it lives, unless a mob of greater weight comes out ahead."""
+
+    def cost(row):
+        far = math.dist(_position(row), here) if here is not None else 0.0
+        return far / THREAT.get(row.get("type"), 1.0)
+
+    best = min(mobs, key=cost)
+    kept = next((m for m in mobs if str(m.get("uuid")) == chosen), None)
+    if kept is not None and THREAT.get(best.get("type"), 1.0) <= THREAT.get(
+        kept.get("type"), 1.0
+    ):
+        best = kept
+    uuid = str(best.get("uuid"))
+    return Victim(uuid, best["type"], _position(best), best.get("name"))
 
 
 def arena_here(listing: dict, position) -> str | None:

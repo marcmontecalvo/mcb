@@ -199,6 +199,34 @@ def test_a_hunt_keeps_its_mob_while_it_lives_then_takes_the_next_nearest():
     assert attack.hunt(match(a), state(), "b").uuid == "a"
 
 
+PILLAGER, WITCH, EVOKER = (f"minecraft:{k}" for k in ("pillager", "witch", "evoker"))
+
+
+def test_a_hunt_goes_for_the_casters_first():
+    # Vault raid 20261124T044539Z: three deaths in wave 4, sniping the nearest pillager
+    # while two witches' harming and poison (100 of the damage) and an evoker's vexes
+    # and fangs went on.
+    pillager = wave_mob("p", (8.5, 64, 0.5), PILLAGER)
+    witch = wave_mob("w", (12.5, 64, 0.5), WITCH)
+    evoker = wave_mob("e", (-15.5, 64, 0.5), EVOKER)
+    assert attack.hunt(match(pillager, witch), state(), None).uuid == "w"
+    assert attack.hunt(match(pillager, evoker), state(), None).uuid == "e"
+
+
+def test_a_brute_already_on_the_bot_comes_before_a_far_caster():
+    vindicator = wave_mob("v", (2.5, 64, 0.5), "minecraft:vindicator")
+    evoker = wave_mob("e", (-15.5, 64, 0.5), EVOKER)
+    assert attack.hunt(match(vindicator, evoker), state(), None).uuid == "v"
+
+
+def test_a_chosen_mob_gives_way_only_to_a_worse_threat_nearer_by_its_weight():
+    pillager = wave_mob("p", (8.5, 64, 0.5), PILLAGER)
+    witch = wave_mob("w", (12.5, 64, 0.5), WITCH)
+    assert attack.hunt(match(pillager, witch), state(), "p").uuid == "w"
+    near = wave_mob("p2", (4.5, 64, 0.5), PILLAGER)
+    assert attack.hunt(match(near, witch), state(), "w").uuid == "w"  # kept
+
+
 def test_a_hunt_waits_between_waves_and_ends_with_the_match():
     assert attack.hunt(match(next_wave=80), state(), None) == attack.WAITING
     assert attack.hunt(match(state="won"), state(), None) == "won"

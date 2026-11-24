@@ -118,8 +118,12 @@ second (the bot leads a thrown splash with it).
 ## The bot's hunt
 
 `attack {arena: NAME}` (or `arena: true`, the arena the bot stands in; in chat `/mcb attack arena`)
-is the bot's hunt mode. Each look reads `arena_status` and takes the nearest live wave mob, wherever
-it is in the bounds, keeping the one already chosen while it lives. If the body does not see it,
+is the bot's hunt mode. Each look reads `arena_status` and takes the live wave mob with the least
+distance / `THREAT` weight (evoker 3, witch 2.5, others 1: casters first, since what they do goes
+on while they live), wherever it is in the bounds. The one already chosen is kept while it lives,
+unless a mob of greater weight comes out ahead (`companion_attack._threat`). Vault raid
+20261124T044539Z died three times in wave 4 sniping the nearest pillager while the witches'
+splashes and poison did 100 of the damage. If the body does not see it,
 the bot walks to it; otherwise one `fight` op runs against it with the usual tactic. Between waves
 the bot eats if it needs to and waits. The job ends only with the match (`won`, `lost`, `stopped`),
 with the job's kills, hits and damage plus `waves_cleared`. Inside a hunt there is no threat
