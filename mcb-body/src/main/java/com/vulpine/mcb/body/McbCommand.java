@@ -1,6 +1,7 @@
 package com.vulpine.mcb.body;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -12,7 +13,7 @@ import net.minecraft.network.chat.Component;
 import java.util.Map;
 
 /**
- * /mcb status|stop|goto|gather|build. Open to every player (permission 0): this only records the request;
+ * /mcb status|stop|goto|gather|build|ask|attack|defense. Open to every player (permission 0): this only records the request;
  * the Python companion service checks the owner and allowlist before acting on anything but stop's cancel.
  */
 final class McbCommand {
@@ -47,7 +48,37 @@ final class McbCommand {
                 .then(Commands.literal("build")
                         .then(Commands.argument("name", StringArgumentType.word()).executes(context ->
                                 run(context.getSource(), "build", Map.of(
-                                        "name", StringArgumentType.getString(context, "name")))))));
+                                        "name", StringArgumentType.getString(context, "name"))))))
+                // /mcb attack <player|mob|hostile> [weapon]: one word, which Python resolves to an online player
+                // first, else a mob type; the owner and allowlist check is Python's too.
+                .then(Commands.literal("attack")
+                        .then(Commands.argument("target", StringArgumentType.word())
+                                .suggests(McbCommand::suggestPlayers)
+                                .executes(context -> run(context.getSource(), "attack", Map.of(
+                                        "target", StringArgumentType.getString(context, "target"))))
+                                .then(Commands.argument("weapon", StringArgumentType.word()).executes(context ->
+                                        run(context.getSource(), "attack", Map.of(
+                                                "target", StringArgumentType.getString(context, "target"),
+                                                "weapon", StringArgumentType.getString(context, "weapon")))))))
+                // /mcb defense: the settings; floor <hearts> and radius <blocks> change them
+                .then(Commands.literal("defense")
+                        .executes(context -> run(context.getSource(), "defense", Map.of()))
+                        .then(Commands.literal("floor")
+                                .then(Commands.argument("hearts", DoubleArgumentType.doubleArg(0.5, 9.5)).executes(context ->
+                                        run(context.getSource(), "defense", Map.of(
+                                                "floor_hearts", DoubleArgumentType.getDouble(context, "hearts"))))))
+                        .then(Commands.literal("radius")
+                                .then(Commands.argument("blocks", IntegerArgumentType.integer(2, 32)).executes(context ->
+                                        run(context.getSource(), "defense", Map.of(
+                                                "threat_radius", IntegerArgumentType.getInteger(context, "blocks"))))))));
+    }
+
+    /** Online player names, for tab completion of a target. */
+    private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions> suggestPlayers(
+            com.mojang.brigadier.context.CommandContext<CommandSourceStack> context,
+            com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+        return net.minecraft.commands.SharedSuggestionProvider.suggest(
+                context.getSource().getServer().getPlayerList().getPlayerNamesArray(), builder);
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> send(String sub) {

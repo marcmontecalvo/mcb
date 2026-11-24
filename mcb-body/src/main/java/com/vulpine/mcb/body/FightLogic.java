@@ -59,6 +59,17 @@ final class FightLogic {
                 integer(request, "max_ticks", DEFAULT_MAX_TICKS, 20, 2400), anchor, integer(request, "leash", DEFAULT_LEASH, 1, 32), weapon);
     }
 
+    /**
+     * Whether the request is a commanded attack that may name a player (absent: no). Python sets it only for an
+     * attack job against a player; the auto-defence never does.
+     */
+    static boolean allowPlayer(JsonObject request) {
+        if (!request.has("allow_player")) return false;
+        var flag = request.get("allow_player");
+        if (!flag.isJsonPrimitive() || !flag.getAsJsonPrimitive().isBoolean()) throw new BodyActions.Fail("bad_request");
+        return flag.getAsBoolean();
+    }
+
     /** Types the fight engages on its own: the hostile set minus the two it must not trade blows with. */
     static boolean fightable(String type) {
         return RouteReflex.HOSTILES.contains(type) && !avoidType(type);

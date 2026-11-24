@@ -90,6 +90,8 @@ public final class BodyRuntime implements AutoCloseable {
     private boolean nativeMode;
     private BreakTask breakTask;
     private BodyEntity.Task actionTask;
+    /** The players online, published each tick for GET /players (read on the HTTP thread). */
+    private volatile List<Map<String, Object>> roster = List.of();
     /** The running action task (fight) is holding movement controls that tickAction must release. */
     private boolean actionControlled;
 
@@ -139,6 +141,7 @@ public final class BodyRuntime implements AutoCloseable {
                     return;
                 }
                 if (path.equals("/state")) { respond(exchange, 200, snapshot); return; }
+                if (path.equals("/players")) { respond(exchange, 200, Map.of("schema_version", 1, "launch_id", launchId, "players", roster)); return; }
                 if (path.equals("/events")) {
                     String query = exchange.getRequestURI().getRawQuery();
                     long after = query == null ? 0 : Long.parseLong(query.replace("after=", ""));
@@ -251,6 +254,27 @@ public final class BodyRuntime implements AutoCloseable {
         data.put("cause", player.getCombatTracker().getDeathMessage().getString());
         addSender(data, player);
         runtime.emit("body_died", "fabric_start", data);
+    }
+
+    /**
+     * Every player online (the body's own fake player too, flagged fake), for GET /players: where they are, whether a
+     * commanded attack can hurt them, and whether they are still there (a logout drops them). Built each tick on the
+     * server thread; the HTTP thread reads the published copy.
+     */
+    private void updateRoster() {
+        var out = new java.util.ArrayList<Map<String, Object>>();
+        for (var player : server.getPlayerList().getPlayers()) {
+            var entry = new LinkedHashMap<String, Object>();
+            entry.put("name", player.getName().getString());
+            entry.put("uuid", player.getUUID().toString());
+            entry.put("position", List.of(player.getX(), player.getY(), player.getZ()));
+            entry.put("dimension", player.level().dimension().identifier().toString());
+            entry.put("mode", player.isSpectator() ? "spectator" : player.isCreative() ? "creative" : "survival");
+            entry.put("invulnerable", player.isInvulnerable());
+            entry.put("fake", CarpetBodyAdapter.isFakePlayer(player));
+            out.add(Map.copyOf(entry));
+        }
+        roster = List.copyOf(out);
     }
 
     /** The sender's position and dimension, shared by player_command and player_chat. */
@@ -1422,6 +1446,7 @@ public final class BodyRuntime implements AutoCloseable {
                 emit("infrastructure_failure", "fabric_end", Map.of("reason", "spawn_timeout"));
             }
         }
+        updateRoster();
         updatePolicySnapshot();
         if (body != null && traceEnabled) emit("phase", "fabric_end_observation", Map.of());
         var status = new LinkedHashMap<String,Object>(Map.of("schema_version", 1, "launch_id", launchId,
