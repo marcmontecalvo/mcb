@@ -33,6 +33,13 @@ OPS = (
     "arena_board",
     "arena_say",
 )
+# The arena protocol this lab speaks (ArenaLogic.PROTOCOL, reported by arena_list).
+# Raise both together whenever an op is added or a request gains or changes a field:
+# the mod rejects a field it does not know, so a lab and a mod of different protocols
+# would fail a match only once it starts. 1: every mod from before the handshake.
+# 2: arena_board, arena_say and arena_start's series.
+PROTOCOL = 2
+UPDATE_MOD = "stop the arena server, run `mcarena mod-install`, then start it again"
 ENVELOPE = frozenset(
     {
         "schema_version",
@@ -59,6 +66,26 @@ class ArenaError(Exception):
         super().__init__(f"{reason}: {detail}" if detail else reason)
         self.reason = reason
         self.detail = detail
+
+
+def check_protocol(listing: dict) -> None:
+    """Refuse an arena server whose mod speaks another protocol than this lab
+    (``listing``: its ``arena_list`` answer): ``mod_outdated`` when the mod is older,
+    with the steps that update it; ``lab_outdated`` when it is newer."""
+    got = listing.get("protocol")
+    got = got if isinstance(got, int) and not isinstance(got, bool) else 1
+    if got < PROTOCOL:
+        raise ArenaError(
+            "mod_outdated",
+            f"the arena server runs an older mcb-body mod (arena protocol {got}, "
+            f"this lab needs {PROTOCOL}): {UPDATE_MOD}",
+        )
+    if got > PROTOCOL:
+        raise ArenaError(
+            "lab_outdated",
+            f"the arena server runs a newer mcb-body mod (arena protocol {got}, this "
+            f"lab speaks {PROTOCOL}): update this checkout, or {UPDATE_MOD} from it",
+        )
 
 
 # ---- files -----------------------------------------------------------------
@@ -440,6 +467,14 @@ class ArenaClient:
 
     def list(self) -> dict:
         return self.call("arena_list")
+
+    def require_protocol(self) -> dict:
+        """The arena list, once the server's mod is known to speak this lab's
+        protocol (``check_protocol``). Asked before anything starts: a mismatch is
+        then said at once, not as a match that fails after everyone is ready."""
+        listing = self.list()
+        check_protocol(listing)
+        return listing
 
     def status(self, name: str) -> dict:
         return self.call("arena_status", name=name)

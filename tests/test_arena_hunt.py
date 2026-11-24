@@ -842,11 +842,14 @@ def test_a_board_the_server_refuses_is_reported_and_the_series_goes_on(tmp_path)
     clock = Clock()
     teams = {"red": ["MCBot"], "blue": ["Ann"]}
     api, contest = FakeApi(clock), FakeContest(clock, teams)
-    contest.refuse_board = "unknown_op"
+    contest.refuse_board = "bad_request"
     ended(api, contest)
     lines = []
     ah.run_series(api, contest, "duel", [], mode="teams", teams=teams, repeat=2,
                   timeout=60, out_dir=tmp_path, echo=lines.append,
                   clock=clock)  # fmt: skip
     assert len(contest.started) == 2
-    assert any("standings" in line and "unknown_op" in line for line in lines)
+    refused = [line for line in lines if "standings" in line]
+    assert refused and all(
+        line.startswith("error:") and "bad_request" in line for line in refused
+    )

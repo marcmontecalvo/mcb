@@ -180,6 +180,41 @@ def client(transport, ticks=None):
     )
 
 
+def test_the_lab_needs_the_arena_protocol_it_speaks():
+    current = {"arenas": [], "protocol": arena.PROTOCOL}
+    arena.check_protocol(current)  # the same protocol: nothing to say
+    for listing, reason in [
+        ({"arenas": []}, "mod_outdated"),  # a mod from before the handshake
+        ({"protocol": "2"}, "mod_outdated"),
+        ({"protocol": arena.PROTOCOL - 1}, "mod_outdated"),
+        ({"protocol": arena.PROTOCOL + 1}, "lab_outdated"),
+    ]:
+        with pytest.raises(arena.ArenaError) as caught:
+            arena.check_protocol(listing)
+        assert caught.value.reason == reason
+    with pytest.raises(arena.ArenaError) as caught:
+        arena.check_protocol({"arenas": []})
+    assert "mcarena mod-install" in caught.value.detail
+
+
+def test_require_protocol_asks_the_server_before_anything_starts():
+    answer = {"arenas": [], "protocol": arena.PROTOCOL}
+    t = FakeTransport({"arena_list": [("done", answer)]})
+    assert client(t).require_protocol() == answer
+    assert [p["op"] for p in t.sent] == ["arena_list"]
+    old = FakeTransport({"arena_list": [("done", {"arenas": []})]})
+    with pytest.raises(arena.ArenaError, match="mod_outdated"):
+        client(old).require_protocol()
+
+
+def test_the_lab_and_the_mod_name_the_same_arena_protocol():
+    from mclab.paths import ROOT
+
+    java = ROOT / "mcb-body/src/main/java/com/vulpine/mcb/arena/ArenaLogic.java"
+    found = re.search(r"int PROTOCOL = (\d+);", java.read_text("utf-8"))
+    assert found and int(found.group(1)) == arena.PROTOCOL
+
+
 def test_call_sends_the_envelope_and_returns_the_answer_without_the_echo():
     t = FakeTransport({"arena_list": [("done", {"arenas": []})]})
     assert client(t).call("arena_list") == {"arenas": []}

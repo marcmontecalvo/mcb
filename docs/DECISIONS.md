@@ -577,6 +577,20 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
     the standings through two small, validated ops (`arena_board`, `arena_say`), never
     a command string.
   - **Results.** Rows keep `players` (the full per-player tally) instead of `kills`.
+- **The lab checks the arena mod's protocol before a match (Nov 24).** The new lab sent
+  `series` to the old mod, which refused it. The match ended silently after `/mcb ready`.
+  The series board and recap also treated a refusal as an older mod and went on, while the
+  start failed outright: two answers to one gap.
+  - **The check.** One protocol number, reported by `arena_list` and checked for an exact
+    match before anyone is asked to ready. Both the dashboard's Start and `arena-hunt.py`
+    check it.
+  - **Why an exact match.** The lab and the mod ship from one checkout, so a difference
+    either way is a stale install.
+  - **Why a number.** A capability list would have to name fields as well as ops.
+  - **Why not tolerate old mods.** A board that degrades quietly hides the stale install the
+    check exists to report.
+  - **Later refusals.** A board or recap the server refuses after the check is reported as an
+    error. The series is not stopped for it, since its matches and record stand.
 - **The bot ranges a player it cannot catch and sticks to one it can (Nov 24).** The
   dad-and-son series (20261124T164259Z, 2 wins in 5) showed a sword chase after a player
   running at the bot's pace, shots 0, with a bow and a Loyalty trident held. Choices: the verdict

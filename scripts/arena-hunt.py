@@ -159,6 +159,7 @@ def main(argv=None) -> int:
             api = ApiClient.from_runtime()
             api.events(0, wait=0)
         admin = arena.ArenaClient.from_state()
+        admin.require_protocol()  # a mod of another protocol is said before anything
         if args.world:
             ready = world.prepare(admin, args.arena, echo=echo)
             exit_cell = exit_cell or tuple(ready["spawn"])

@@ -23,6 +23,14 @@ public final class ArenaLogic {
     public static boolean isOperationName(String op) { return OPS.contains(op); }
 
     /**
+     * The arena protocol, reported by arena_list so the lab can refuse a mismatch before a
+     * match starts (mclab.arena.client.PROTOCOL; a test keeps the two equal). Raise it
+     * whenever an op is added or a request gains or changes a field. 1: no report.
+     * 2: arena_board, arena_say and arena_start's series.
+     */
+    public static final int PROTOCOL = 2;
+
+    /**
      * Whether a joining (or bedless respawning) player starts exactly at the world spawn, given the state of the arena
      * holding it (null for none). Outside adventure mode the game lifts them to the top block above the spawn, which
      * in the arena server's void world is the lobby's roof; inside a built arena the spawn was put there on purpose.

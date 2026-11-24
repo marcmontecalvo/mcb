@@ -260,7 +260,7 @@ public final class ArenaRuntime {
     private Map<String, Object> list() {
         var out = new ArrayList<Map<String, Object>>();
         for (var record : registry.all()) out.add(summary(record));
-        return Map.of("arenas", out);
+        return Map.of("arenas", out, "protocol", ArenaLogic.PROTOCOL);
     }
 
     private Map<String, Object> status(JsonObject request) {

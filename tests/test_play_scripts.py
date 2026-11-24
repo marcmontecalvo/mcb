@@ -29,8 +29,15 @@ def _script(name: str) -> dict:
 
 
 class FakeAdmin:
-    def __init__(self, refuse=None):
-        self.waited, self.refuse = [], refuse
+    def __init__(self, refuse=None, outdated=False):
+        self.waited, self.refuse, self.outdated = [], refuse, outdated
+        self.checked = 0
+
+    def require_protocol(self):
+        self.checked += 1
+        if self.outdated:
+            raise arena.ArenaError("mod_outdated", "run `mcarena mod-install`")
+        return {"arenas": [], "protocol": arena.PROTOCOL}
 
     def wait_ready(self, names, **kwargs):
         self.waited.append((names, kwargs))
@@ -88,6 +95,21 @@ def test_a_hunt_whose_players_never_come_stops_before_it_starts(
     assert "Ann has not joined" in capsys.readouterr().err
 
 
+def test_a_hunt_on_an_older_mod_stops_before_anyone_is_asked_to_ready(
+    tmp_path, monkeypatch, capsys
+):
+    from mclab.arena import world
+
+    main, seen, admin = _hunt(tmp_path, monkeypatch, FakeAdmin(outdated=True))
+    monkeypatch.setattr(world, "prepare", lambda *a, **k: pytest.fail("prepared"))
+
+    code = main(["--arena", "duel", "--mode", "teams", "--team", "red=MCBot,Ann",
+                 "--team", "blue=Bob", "--world"])  # fmt: skip
+
+    assert code == 2 and seen == {} and admin.waited == []
+    assert "mod-install" in capsys.readouterr().err
+
+
 def test_a_team_match_on_the_arena_server_readies_its_world_and_roster(
     tmp_path, monkeypatch
 ):
@@ -106,7 +128,7 @@ def test_a_team_match_on_the_arena_server_readies_its_world_and_roster(
                  "--team", "blue=Bob", "--op", "Ann", "--deop", "Bob",
                  "--world"])  # fmt: skip
 
-    assert code == 0 and prepared == [(admin, "duel")]
+    assert code == 0 and prepared == [(admin, "duel")] and admin.checked == 1
     assert seen["mode"] == "teams"
     assert seen["teams"] == {"red": ["MCBot", "Ann"], "blue": ["Bob"]}
     assert seen["ops"] == {"Ann": True, "Bob": False}

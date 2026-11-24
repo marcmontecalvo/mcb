@@ -497,9 +497,11 @@ def run_series(
 
 
 def _show(echo, what: str, send: Callable[[], object]) -> None:
-    """The lobby's board or chat: a server that refuses it (an older mod) is
-    said, and the series goes on."""
+    """The lobby's board or chat. The mod's protocol was checked before the first
+    match (``ArenaClient.require_protocol``), so a refusal here is a fault, not an
+    older mod: it is said as an error, and the series goes on, since the matches
+    and their record are what it is for and a missing board does not change them."""
     try:
         send()
     except ArenaError as error:
-        echo(f"the series {what} were not shown ({error})")
+        echo(f"error: the series {what} could not be shown: {error}")

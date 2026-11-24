@@ -494,6 +494,52 @@ class FakeChild:
         return self.code
 
 
+def _listing(protocol=None):
+    """An ``mcarena arena list`` answer from a mod speaking ``protocol`` (None: the
+    lab's own; 0: a mod from before the handshake)."""
+    from mclab.arena import client as arena_client
+
+    answer = {"ok": True, "arenas": []}
+    if protocol != 0:
+        answer["protocol"] = arena_client.PROTOCOL if protocol is None else protocol
+
+    def run_cli(argv, env):
+        assert env["MCLAB_INSTANCE"] == "arena" and argv[-1] == "list"
+        return 0, json.dumps(answer) + "\n"
+
+    return run_cli
+
+
+def test_a_match_on_an_older_mod_fails_at_start_with_the_fix(arenas, tmp_path):
+    spawned = []
+    config = arena(arena_action="match", arena="vault", waves="mixed-10")
+
+    result = pr.execute(
+        config,
+        spawn=lambda argv, env: spawned.append(argv),
+        run_cli=_listing(protocol=0),
+        results=tmp_path / "results",
+    )
+
+    assert spawned == [] and result["status"] == "failed"
+    assert result["error"].startswith("mod_outdated")
+    assert "mcarena mod-install" in result["error"]
+    assert not (tmp_path / "results").exists()  # no run, so no history row
+
+
+def test_a_match_fails_at_start_when_the_arena_server_does_not_answer(arenas, tmp_path):
+    config = arena(arena_action="match", arena="vault", waves="mixed-10")
+
+    result = pr.execute(
+        config,
+        spawn=lambda argv, env: pytest.fail("spawned"),
+        run_cli=lambda argv, env: (1, "Traceback ..."),
+        results=tmp_path,
+    )
+
+    assert result["status"] == "failed" and "arena list" in result["error"]
+
+
 def test_execute_runs_a_match_on_the_arena_instance(arenas, tmp_path):
     seen = {}
 
@@ -509,7 +555,9 @@ def test_execute_runs_a_match_on_the_arena_instance(arenas, tmp_path):
         return FakeChild(argv[argv.index("-c") + 2 :], write=write)
 
     config = arena(arena_action="match", arena="vault", waves="mixed-10")
-    result = pr.execute(config, spawn=spawn, results=tmp_path / "results")
+    result = pr.execute(
+        config, spawn=spawn, run_cli=_listing(), results=tmp_path / "results"
+    )
     assert seen["env"]["MCLAB_INSTANCE"] == "arena"
     assert seen["argv"][0] == sys.executable
     assert result["status"] == "completed_arena"
@@ -549,7 +597,12 @@ def test_an_interrupted_match_is_stopped_and_cleaned_up(arenas, tmp_path, monkey
     )
     config = arena(arena_action="match", arena="vault", waves="mixed-10")
     with pytest.raises(KeyboardInterrupt):
-        pr.execute(config, spawn=lambda argv, env: Interrupted(argv), results=tmp_path)
+        pr.execute(
+            config,
+            spawn=lambda argv, env: Interrupted(argv),
+            run_cli=_listing(),
+            results=tmp_path,
+        )
     assert calls == ["stopped", ["stop", "vault"]]
 
 

@@ -130,6 +130,26 @@ What counts (`ArenaLogic.Tally`, fed by `LivingStatsMixin` and `HealEffectMixin`
 - Python: `ArenaClient.board`, `clear_board`, `announce`.
 - `arena_start` takes `series: {match, of}` (1 ≤ match ≤ of ≤ 1000) for the board and the recap.
 
+### Protocol check
+
+The mod refuses a request field it doesn't know. A lab newer than the installed mod would
+otherwise fail a match only after everyone had typed `/mcb ready`. This happened once: the
+`series` field reached an older mod, and the match ended at once.
+
+- **What the mod reports.** `arena_list` returns `protocol` (`ArenaLogic.PROTOCOL`). A mod from
+  before the check reports nothing, which counts as 1.
+- **What the lab expects.** `mclab.arena.client.PROTOCOL`. A test keeps the two numbers equal.
+- **When to raise it.** Raise both together whenever an op is added or a request gains or changes
+  a field. Protocol 2 added `arena_board`, `arena_say` and `series`.
+- **Where it is checked.** Every match is checked before it starts:
+  - The dashboard's Start checks before it launches the script, and shows the error on the run.
+  - `arena-hunt.py` checks before it builds the world or waits for anyone
+    (`ArenaClient.require_protocol`).
+- **The errors.** An older mod fails with `mod_outdated` and the fix: stop the server, run
+  `mcarena mod-install`, start it again. A newer mod fails with `lab_outdated`.
+- **Later refusals.** After the check passes, a series board or recap the server refuses is a
+  fault, not a version gap. It is logged as `error:`, and the series goes on.
+
 ### Waiting for players
 
 A start refuses a named player who is offline (`participant_offline`). People join after the

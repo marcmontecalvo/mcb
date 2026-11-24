@@ -881,6 +881,8 @@ def execute(config: dict, *, spawn=_spawn, run_cli=_run_cli, results=None) -> di
     family = run["test"]
     if family == "arena" and run["arena_action"] != "match":
         return arena_action(run, run_cli=run_cli)
+    if family == "arena" and (refused := _refused(run_cli)):
+        return {"status": "failed", "error": refused}
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     folder = Path(results or RESULTS) / family / stamp
     folder.mkdir(parents=True)
@@ -908,6 +910,20 @@ def execute(config: dict, *, spawn=_spawn, run_cli=_run_cli, results=None) -> di
     if code != 0:
         result["error"] = f"{Path(argv[0]).name} exit code {code}"
     return result
+
+
+def _refused(run_cli) -> str | None:
+    """Why a match cannot start on the arena server, asked before the script is
+    launched: no answer, or a mod of another arena protocol (``check_protocol``).
+    The script asks too, but its reason would show only in its log; this is the
+    error the dashboard shows at Start."""
+    from mclab.arena.client import ArenaError, check_protocol
+
+    try:
+        check_protocol(arena_listing(run_cli=run_cli))
+    except (RuntimeError, ArenaError) as error:
+        return str(error)
+    return None
 
 
 def _episode(status: str, seconds) -> dict:
