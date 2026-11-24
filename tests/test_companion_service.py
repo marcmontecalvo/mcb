@@ -63,6 +63,24 @@ def test_a_listed_player_name_is_allowed_like_a_uuid(calls):
     assert svc.handle(event(1, "status", uuid="x")) == "Not allowed."
 
 
+def test_listed_only_counts_someone_the_config_names(calls, tmp_path):
+    # hitting a player is stricter than commanding the bot: an empty config lets every
+    # player command it but names nobody, so nobody counts as listed
+    svc.CONFIG.write_text(json.dumps({"owners": [], "allowlist": []}))
+    assert svc.allowed("x", "steve") and not svc.allowed("x", "steve", listed=True)
+    svc.CONFIG.write_text("{}")
+    assert not svc.allowed("x", "steve", listed=True)
+    svc.CONFIG = tmp_path / "absent.json"
+    assert svc.allowed("x", "steve") and not svc.allowed("x", "steve", listed=True)
+    svc.CONFIG = tmp_path / "named.json"
+    svc.CONFIG.write_text(json.dumps({"owners": [OWNER], "allowlist": ["Steve"]}))
+    assert svc.allowed(OWNER, "p", listed=True)
+    assert svc.allowed("x", "steve", listed=True)
+    assert not svc.allowed("x", "alex", listed=True)
+    svc.CONFIG.write_text("{not json")
+    assert not svc.allowed(OWNER, "p", listed=True)
+
+
 def test_the_shipped_config_names_the_owner():
     shipped = json.loads((svc.ROOT / "config/companion.json").read_text())
     assert "243def0a-1a75-4518-8358-b4cb18a1cc54" in shipped["owners"]

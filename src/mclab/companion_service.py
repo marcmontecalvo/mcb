@@ -24,12 +24,13 @@ ITEM = re.compile(r"[a-z0-9_]{1,64}")
 BUILD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
 
 
-def allowed(uuid, name=""):
+def allowed(uuid, name="", *, listed=False):
     """Who may command the bot. Nobody listed (or no config file): every player in
     the game. Otherwise only the listed owners and allowlist, each a player UUID or
-    a name (case-insensitive). A config that cannot be read refuses everyone."""
+    a name (case-insensitive). A config that cannot be read refuses everyone.
+    ``listed``: only someone the config names (an empty list lets nobody in)."""
     if not CONFIG.is_file():
-        return True
+        return not listed
     try:
         value = read_json(CONFIG)
         people = {
@@ -40,7 +41,7 @@ def allowed(uuid, name=""):
     except (OSError, ValueError, AttributeError, TypeError):
         return False
     if not people:
-        return True
+        return not listed
     return bool({str(uuid).lower(), str(name).lower()} & people - {""})
 
 

@@ -1208,3 +1208,67 @@ def test_main_runs_until_a_signal_then_cleans_up(tmp_path, monkeypatch):
     assert log == ["host start", "adapter stop", "host shutdown"]
     assert not (tmp_path / "companion-host.json").exists()
     assert made[0].bot == {"name": "MCBot"}
+
+
+# --- attack: who may hit whom -------------------------------------------------------
+
+
+@pytest.fixture
+def listed(monkeypatch):
+    """Whom the config names, for the stricter player-attack rule."""
+    names = set()
+    monkeypatch.setattr(
+        companion_intents,
+        "_listed",
+        lambda uuid, name="": bool({uuid, name.lower()} & names),
+    )
+    return names
+
+
+def attack(host, actor, **args):
+    return host.call("attack", args, actor)
+
+
+def test_an_attack_on_a_player_needs_the_operator_or_a_listed_name(host, listed):
+    stranger = Actor("chat", name="Alex", uuid="u-9")
+    refused = attack(host, stranger, player="Bob")
+    assert not refused["ok"] and "player" in refused["error"]
+    assert host.status()["job"] is None
+    assert attack(host, PLAYER, player="Bob")["ok"] is False  # Steve is not listed
+    listed.add("steve")
+    assert attack(host, PLAYER, player="Bob")["ok"]
+
+
+def test_the_operator_may_attack_a_player_without_a_config_entry(host, listed):
+    assert attack(host, OPERATOR, player="Bob")["ok"]
+
+
+def test_mobs_and_the_nearest_hostile_need_only_the_ordinary_authority(host, listed):
+    assert attack(host, PLAYER, mob="zombie")["ok"]
+    assert attack(host, PLAYER, nearest_hostile=True)["ok"]
+
+
+def test_the_bot_may_not_be_ordered_to_attack_itself(host, listed):
+    for name in ("MCBot", "mcbot"):
+        reply = attack(host, OPERATOR, player=name)
+        assert not reply["ok"] and "itself" in reply["error"]
+    assert host.status()["job"] is None
+
+
+def test_the_owner_may_attack_themselves_only_by_asking_for_it(host, listed):
+    # decision: the target is whoever is named; the owner is not special-cased
+    listed.add("steve")
+    assert attack(host, PLAYER, player="Steve")["ok"]
+
+
+def test_a_running_job_knows_its_id_so_a_replan_keeps_its_stats(host, made):
+    seen = []
+
+    def note(session, args, actor, progress):
+        seen.append(session.current_job)
+        return {}
+
+    made[0].behaviour["goto"] = note
+    job = submit(host)
+    host.wait_job(job["id"], 5)
+    assert seen == [job["id"]]
