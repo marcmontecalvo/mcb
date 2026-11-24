@@ -254,13 +254,18 @@ export function fitRoster(roster: Slot[], sided: boolean, meta?: ArenaMeta): Slo
   return changed ? fitted : roster;
 }
 
+/** Add a player; `team` and `op` put them straight on a team or make them an
+ * operator (a team the arena lacks, or any team in a game against the waves, is
+ * dropped and the smallest team is used instead). */
 export function addPlayer(
   roster: Slot[],
   name: string,
   sided: boolean,
   meta?: ArenaMeta,
+  extra: { team?: string | null; op?: boolean } = {},
 ): Slot[] {
-  return fitRoster([...roster, { name, team: null, op: false }], sided, meta);
+  const player = { name, team: extra.team ?? null, op: extra.op === true };
+  return fitRoster([...roster, player], sided, meta);
 }
 
 export function teamCounts(roster: Slot[], meta: ArenaMeta) {

@@ -743,6 +743,98 @@ code {
   flex: 1 1 140px;
   min-width: 0;
 }
+/* "Who's here": who is online and the saved names, one click each. */
+.same-as-last {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.same-as-last .secondary-small {
+  margin-top: 0;
+}
+.roster-picker {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--lab-border);
+}
+.picker-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.choices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  gap: 8px;
+  align-items: center;
+}
+.choice .who {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.choice .who small {
+  margin-left: 6px;
+  color: var(--lab-muted);
+}
+.choice .who input {
+  width: 100%;
+}
+.choice .op {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 12px;
+}
+.choice .adds,
+.choice .tools {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.add-to {
+  background: none;
+  border: 1px solid var(--lab-border);
+  border-radius: 6px;
+  color: var(--lab-accent);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+.add-to:disabled {
+  color: var(--lab-muted);
+  cursor: not-allowed;
+}
+.presence {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--lab-muted);
+}
+.presence.on {
+  background: #4cc38a;
+  border-color: #4cc38a;
+}
+@media (max-width: 520px) {
+  .choice {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .choice .adds {
+    grid-column: 2;
+  }
+  .choice .tools {
+    grid-column: 3;
+  }
+}
 .field small.warn,
 .warn {
   color: #ffcf8a;

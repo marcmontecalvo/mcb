@@ -138,6 +138,35 @@ off. The form refuses, before Start, what the launch would refuse
 game on one team, a team over the arena's `per_team`, or a PvE match over the
 arena's player room. For 8v8 use `hall` or `crossroads` (10 a team).
 
+**Nobody retypes a name.** Under the match's players the roster shows **Who's
+here**: everyone online on the arena server now (a green dot) and the names saved
+from earlier, pinned first. It loads when the wizard opens and the **Refresh**
+button asks the server again; a stopped arena server gives an empty list and a
+note ("The arena server is not running"), never an error. The bot is not offered
+(it has its own button). Each person has an **Op** box and one button per team the
+arena has (**Red**, **Blue**, full teams left out), or a single **Add** in PvE; ☆
+pins them to the top, ✎ gives a label ("Dad", "Son") that is shown beside the
+name, ✕ forgets a saved name. **Save name** next to the typed-name box keeps a
+name without adding it to the match. Every name in a match that starts is saved
+automatically, and the match's arena, game, waves and roster (teams and Op) are
+kept as the **last match**. A wizard the user has not changed starts from it, and
+**Same as last time** brings it back in one click after changes.
+
+The roster is `runtime/arena-roster.json` (`mclab.arena_roster`; `runtime/` is
+git-ignored, so it survives dashboard and server restarts and code updates):
+`{"version": 1, "players": [{name, label, pinned, uses, last_used}], "last_match":
+{at, arena, game, waves, custom_waves, roster: [{name, team, op}]}}`. Player names
+only: no addresses, no UUIDs, nothing is looked up outside. Names are Minecraft
+names (`[A-Za-z0-9_]{1,16}`, checked on the server too); the same name in another
+case is one entry and keeps its spelling; at most 200 are kept (the oldest plain
+ones go first, pinned and labelled ones stay). A write goes to a temporary file
+and is swapped in with `os.replace`; a file that cannot be read is moved to
+`arena-roster.json.corrupt` and the roster starts again. Online players come from
+the arena server's bridge `/players` roster (`ArenaClient.online()`, 2 s timeout),
+never `/policy`. Routes: `GET /api/roster` (names and last match),
+`GET /api/roster/online`, `POST /api/roster` (`name`, optional `label`, `pinned`),
+`POST /api/roster/remove` (`name`).
+
 The choices come from the files, every time the page loads: **Arena** lists the
 plans in `arenas/*.json` (not the arena server's `lobby`), **Waves** the presets
 in `arenas/waves/*.json`, and the weapons and mobs are whatever `combat_trial`

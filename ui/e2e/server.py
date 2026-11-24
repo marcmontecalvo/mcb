@@ -7,7 +7,14 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from mclab import dashboard, dashboard_runs, dashboard_suites, play_runs, server
+from mclab import (
+    arena_roster,
+    dashboard,
+    dashboard_runs,
+    dashboard_suites,
+    play_runs,
+    server,
+)
 from mclab.paths import read_json
 from mclab.run_config import resolve_config
 from mclab.run_launch import validate_launch
@@ -73,6 +80,17 @@ def main():
             "companion": {},
         }
         dashboard_runs.natural_seeds = lambda: []
+        # The saved roster lives in the temporary folder; who is online is fixed.
+        arena_roster.ROSTER_FILE = root / "runtime/arena-roster.json"
+        play_runs.online_players = lambda **_: {
+            "online": [
+                {"name": "Dad_", "bot": False},
+                {"name": "Son_", "bot": False},
+                {"name": "MCBot", "bot": True},
+            ],
+            "bot": "MCBot",
+            "note": None,
+        }
         server.status = lambda: {"state": "fixture idle"}
         play_runs.server_states = lambda **_: {"play": "stopped", "arena": "stopped"}
         play_runs.where = lambda **_: {
