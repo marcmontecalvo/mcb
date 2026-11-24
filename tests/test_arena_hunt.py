@@ -62,6 +62,7 @@ class FakeApi:
 
     def trial(self, spec):
         self.trials.append(spec)
+        self.held = {g["item"]: g["count"] for g in spec.get("give", ())}
         return {"ok": True, "result": {}}
 
     def call(self, intent, args=None, key=None, source="mcp"):
@@ -80,6 +81,7 @@ class FakeApi:
                     "body_state": "ready",
                     "health": h,
                     "position": [0, 0, 0],
+                    "inventory": dict(getattr(self, "held", {})),
                 },
             }
         return {"ok": True, "result": {}}
@@ -201,6 +203,47 @@ def test_a_kit_is_handed_out_afresh_each_run():
         {"heal": True, "wear": True, "clear_inventory": True, "give": give}
     ]
     assert row["kit"] == ["minecraft:iron_sword"]
+
+
+def test_the_match_waits_until_the_bot_holds_the_kit_it_was_handed():
+    """Rung 2 run 3 fought bare-handed: the first look after the trial op still saw
+    the empty inventory of the death before. The match starts once the status shows
+    the kit."""
+    clock = Clock()
+    api, arena = FakeApi(clock), FakeArena(clock)
+    finish(api, arena)
+    sword = "minecraft:iron_sword"
+    real, looks = api.call, []
+
+    def call(intent, args=None, key=None, source="mcp"):
+        out = real(intent, args, key, source)
+        if intent == "status":
+            looks.append(1)
+            out["result"]["inventory"] = {sword: 1} if len(looks) >= 3 else {}
+        return out
+
+    api.call = call
+    slept = []
+    row = ah.hunt(api, arena, "vault", [], participants=["MCBot"], timeout=60,
+                  clock=clock, kit=[{"item": sword, "count": 1}],
+                  sleep=lambda s: slept.append(s))  # fmt: skip
+    assert row["outcome"] == "won" and len(slept) == 2
+    assert arena.started  # only after the third look held the sword
+
+
+def test_a_kit_that_never_shows_is_not_started():
+    clock = Clock()
+    api, arena = FakeApi(clock), FakeArena(clock)
+
+    def sleep(s):
+        clock.now += s
+
+    api.trial = lambda spec: {"ok": True, "result": {}}  # given, never seen held
+    row = ah.hunt(api, arena, "vault", [], participants=["MCBot"], timeout=60,
+                  clock=clock, kit=[{"item": "minecraft:bow", "count": 1}],
+                  sleep=sleep)  # fmt: skip
+    assert row["outcome"] == "not_started" and "kit" in row["error"]
+    assert not arena.started
 
 
 def test_a_hunt_past_its_time_stops_the_bot_and_the_match():

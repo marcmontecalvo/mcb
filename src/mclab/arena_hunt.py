@@ -26,6 +26,7 @@ __all__ = ["ArenaError", "hunt", "parse_wave", "run_series", "summary", "wave_ti
 
 SAMPLE_S = 1.0  # one look at the match and the bot per second
 READY_WAIT_S = 90.0  # a bot that died last run respawns before the next
+KIT_WAIT_S = 10.0  # the kit handed out shows in the bot's status by then
 DONE = frozenset({"succeeded", "failed", "cancelled"})
 JOB_FIELDS = ("kills", "hits", "damage", "waves_cleared", "waves")
 
@@ -40,6 +41,19 @@ def parse_wave(text: str, delay: int) -> dict:
         full = kind if ":" in kind else f"minecraft:{kind}"
         mobs[full] = mobs.get(full, 0) + (int(count) if count else 1)
     return {"mobs": mobs, "delay_ticks": delay}
+
+
+def _holds(api, kit: list[dict], clock, sleep, wait: float = KIT_WAIT_S) -> bool:
+    """Whether the bot's status shows every kit item before ``wait`` runs out: the
+    look right after the trial op can still be the empty inventory of a death."""
+    deadline = clock() + wait
+    while True:
+        held = _result(api.call("status", {}, source="api")).get("inventory") or {}
+        if all(held.get(g["item"], 0) >= 1 for g in kit):
+            return True
+        if clock() >= deadline:
+            return False
+        sleep(0.5)
 
 
 def _result(reply: dict) -> dict:
@@ -92,6 +106,7 @@ def hunt(
     clock: Callable[[], float] = time.monotonic,
     sample: float = SAMPLE_S,
     kit: list[dict] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict:
     """One match: the bot hunts it from a full-health start to its end. ``kit``:
     the trial op's give entries, handed out afresh (a bot that died last run left
@@ -103,6 +118,9 @@ def hunt(
     row: dict = {"participants": participants}
     if kit is not None:
         row["kit"] = [g["item"] for g in kit]
+        if not _holds(api, kit, clock, sleep):
+            return {**row, "outcome": "not_started",
+                    "error": "the kit never showed in the bot's inventory"}  # fmt: skip
     try:
         arena.start(name, "waves", waves=waves, participants=participants)
     except ArenaError as error:
@@ -264,6 +282,7 @@ def run_series(
             timeout=timeout,
             clock=clock,
             kit=kit,
+            sleep=sleep,
         )
         record["runs"].append(row)
         record["summary"] = summary(record["runs"])

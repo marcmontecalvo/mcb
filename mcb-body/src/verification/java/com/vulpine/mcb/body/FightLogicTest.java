@@ -63,6 +63,20 @@ public final class FightLogicTest {
         check(FightLogic.pick("gone", mobs, 12).uuid().equals("near"), "requested absent falls back");
         check(FightLogic.pick("cow", mobs, 12).uuid().equals("cow"), "requested need not be on the hostile list");
         check(FightLogic.pick(null, List.of(), 12) == null, "empty is clear");
+        // a mob pressing in on the body comes before a requested one at range: rung 2 of the arena raid sniped a
+        // pillager at 15 while a vindicator's axe, 8.6 a hit through iron, cut the bot down
+        var press = List.of(mob("pillager", "minecraft:pillager", 15, 0, true),
+                mob("vindicator", "minecraft:vindicator", 2.2, 0, true));
+        check(FightLogic.pick("pillager", press, 24).uuid().equals("vindicator"), "the axe in its face first");
+        var close = List.of(mob("pillager", "minecraft:pillager", 5, 0, true),
+                mob("vindicator", "minecraft:vindicator", 2.2, 0, true));
+        check(FightLogic.pick("pillager", close, 24).uuid().equals("pillager"), "a requested target near too is kept");
+        var walled = List.of(mob("pillager", "minecraft:pillager", 15, 0, true),
+                mob("vindicator", "minecraft:vindicator", 2.2, 0, false));
+        check(FightLogic.pick("pillager", walled, 24).uuid().equals("pillager"), "one it cannot see does not press");
+        var creeper = List.of(mob("pillager", "minecraft:pillager", 15, 0, true),
+                mob("creeper", "minecraft:creeper", 2.2, 0, true));
+        check(FightLogic.pick("pillager", creeper, 24).uuid().equals("pillager"), "a creeper is never fought for it");
 
         // a stand-off band past the radius widens it: a bow never backs out of its own fight
         check(FightLogic.reach(12, 0) == 12, "no band: the radius");

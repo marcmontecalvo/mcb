@@ -101,10 +101,26 @@ final class FightLogic {
         return null;
     }
 
-    /** The requested entity while present and within radius, else the nearest fightable mob in view; null when none. */
+    /** A fightable mob in view this near is pressing in: it is fought before a requested target past KEEP_FAR. */
+    static final double PRESS = 3.0;
+    static final double KEEP_FAR = 6.0;
+
+    /**
+     * The requested entity while present and within radius, else the nearest fightable mob in view; null when none.
+     * A mob pressing in (PRESS) comes first while the requested one is further than KEEP_FAR: the axe in the body's
+     * face before the archer across the room.
+     */
     static Mob pick(String requested, List<Mob> mobs, int radius) {
         if (requested != null)
-            for (var mob : mobs) if (mob.uuid().equals(requested) && mob.distance() <= radius) return mob;
+            for (var mob : mobs)
+                if (mob.uuid().equals(requested) && mob.distance() <= radius) {
+                    var pressing = mob.distance() > KEEP_FAR ? nearest(mobs, PRESS) : null;
+                    return pressing != null ? pressing : mob;
+                }
+        return nearest(mobs, radius);
+    }
+
+    private static Mob nearest(List<Mob> mobs, double radius) {
         Mob best = null;
         for (var mob : mobs) {
             if (!fightable(mob.type()) || mob.distance() > radius || Math.abs(mob.dy()) > MAX_DY || !mob.lineOfSight()) continue;
