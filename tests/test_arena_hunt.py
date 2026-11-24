@@ -21,7 +21,7 @@ class FakeArena:
         self.reads, self.started, self.stopped = 0, [], []
         self.fail_start = fail_start
 
-    def start(self, name, mode, *, waves=None, participants=None, teams=None):
+    def start(self, name, mode, *, waves=None, participants=None, teams=None, exit=None):  # noqa: A002
         if self.fail_start:
             raise ah.ArenaError(self.fail_start, "no")
         self.started.append((name, mode, waves, participants))
@@ -128,7 +128,7 @@ def test_a_hunt_heals_starts_the_match_sends_the_bot_and_samples_it():
     assert row["outcome"] == "won" and row["reason"] == "cleared"
     assert row["waves_cleared"] == 2 and row["waves"] == 2
     assert row["min_health"] == 9.5
-    assert row["kills"] == 4 and row["hits"] == 9
+    assert row["bot_kills"] == 4 and row["hits"] == 9
     assert row["job_state"] == "succeeded"
     assert [w["wave"] for w in row["wave_times"]] == [1, 2]
     assert row["samples"] and {"t", "wave", "alive", "killed", "health"} <= set(
@@ -442,3 +442,170 @@ def test_wave_times_mark_when_each_wave_is_cleared():
         {"t": 9.0, "wave": 3},
     ]
     assert ah.wave_times(samples) == [{"wave": 1, "t": 3.5}, {"wave": 3, "t": 9.0}]
+
+
+# ---- team matches, humans and the arena server ------------------------------
+
+
+class FakeContest:
+    """A teams (or race) match that ends after ``reads`` status reads with ``winner``."""
+
+    def __init__(self, clock, teams, reads=3, winner="red", mode="teams"):
+        self.clock, self.teams, self.left, self.winner = clock, teams, reads, winner
+        self.mode = mode
+        self.started, self.stopped, self.kits, self.ops = [], [], [], []
+        self.refuse_op = set()
+
+    def start(self, name, mode, *, waves=None, participants=None, teams=None, exit=None):  # noqa: A002
+        self.started.append({"name": name, "mode": mode, "waves": waves,
+                             "teams": teams, "exit": exit})  # fmt: skip
+        return {"name": name, "mode": mode, "teams": teams}
+
+    def status(self, name):
+        self.left -= 1
+        over = self.left <= 0
+        people = [{"name": n, "team": t, "alive": True,
+                   "mob_kills": 2 if t == "red" else 1,
+                   "player_kills": 1 if n == "MCBot" else 0}
+                  for t, names in self.teams.items() for n in names]  # fmt: skip
+        match = {"mode": self.mode, "state": "won" if over else "running",
+                 "participants": people,
+                 "team_kills": {t: 3 if t == "red" else 1 for t in self.teams}}  # fmt: skip
+        if over:
+            match.update(winner=self.winner, reason="team_standing")
+        return {"name": name, "match": match, "match_state": match["state"]}
+
+    def stop(self, name):
+        self.stopped.append(name)
+        return {"name": name}
+
+    def kit(self, players, give):
+        self.kits.append((list(players), give))
+        return {"players": list(players)}
+
+    def op(self, player, *, op=True):
+        if player in self.refuse_op:
+            raise ah.ArenaError("player_offline", player)
+        self.ops.append((player, op))
+        return {"player": player, "op": op, "changed": True}
+
+
+def ended(api, contest):
+    """The bot's job ends with the match."""
+    original = contest.status
+
+    def status(name):
+        out = original(name)
+        if out["match"]["state"] != "running":
+            api.job = {"id": "j1", "state": "succeeded", "result": {"kills": 1}}
+        return out
+
+    contest.status = status
+
+
+def test_a_team_match_starts_its_teams_dresses_everyone_and_reports_the_winner():
+    clock = Clock()
+    teams = {"red": ["MCBot", "Ann"], "blue": ["Bob"]}
+    api, contest = FakeApi(clock), FakeContest(clock, teams)
+    ended(api, contest)
+    give = [{"item": "minecraft:iron_sword", "count": 1}]
+    row = ah.hunt(api, contest, "duel", [], mode="teams", teams=teams,
+                  exit=(0, 102, 0), timeout=60, clock=clock, kit=give)  # fmt: skip
+    assert contest.started == [{"name": "duel", "mode": "teams", "waves": None,
+                                "teams": teams, "exit": (0, 102, 0)}]  # fmt: skip
+    assert contest.kits == [(["Ann", "Bob"], give)]  # the humans get the bot's kit
+    assert api.trials[0]["give"] == give
+    assert ("attack", {"arena": "duel"}) in api.calls
+    assert row["mode"] == "teams" and row["outcome"] == "won"
+    assert row["winner"] == "red" and row["bot_team"] == "red" and row["bot_won"]
+    assert row["kills"]["MCBot"] == {"team": "red", "mob_kills": 2, "player_kills": 1}
+    assert row["team_kills"] == {"red": 3, "blue": 1}
+    assert row["participants"] == ["MCBot", "Ann", "Bob"]
+
+
+def test_a_match_of_humans_only_is_watched_to_its_end_without_the_bot():
+    clock = Clock()
+    teams = {"red": ["Ann"], "blue": ["Bob"]}
+    api, contest = FakeApi(clock), FakeContest(clock, teams, reads=4, winner="blue")
+    slept = []
+
+    def sleep(s):
+        slept.append(s)
+        clock.now += s
+
+    row = ah.hunt(api, contest, "duel", [], mode="teams", teams=teams, timeout=60,
+                  clock=clock, sleep=sleep)  # fmt: skip
+    assert api.trials == [] and not [c for c in api.calls if c[0] == "attack"]
+    assert contest.kits == [(["Ann", "Bob"], None)]  # healed, keeping their gear
+    assert row["outcome"] == "won" and row["winner"] == "blue"
+    assert row["bot_team"] is None and "bot_won" not in row
+    assert len(row["samples"]) == 4 and slept
+    assert row["samples"][0]["health"] is None
+
+
+def test_a_match_without_the_bot_needs_no_companion_api():
+    clock = Clock()
+    teams = {"red": ["Ann"], "blue": ["Bob"]}
+    contest = FakeContest(clock, teams, reads=2)
+
+    def sleep(s):
+        clock.now += s
+
+    row = ah.hunt(None, contest, "duel", [], mode="teams", teams=teams, timeout=60,
+                  clock=clock, sleep=sleep)  # fmt: skip
+    assert row["outcome"] == "won"
+
+
+def test_a_match_of_humans_only_past_its_time_is_stopped():
+    clock = Clock()
+    teams = {"red": ["Ann"], "blue": ["Bob"]}
+    api, contest = FakeApi(clock), FakeContest(clock, teams, reads=10_000)
+
+    def sleep(s):
+        clock.now += s
+
+    row = ah.hunt(api, contest, "duel", [], mode="teams", teams=teams, timeout=5,
+                  clock=clock, sleep=sleep)  # fmt: skip
+    assert row["outcome"] == "timeout" and contest.stopped == ["duel"]
+
+
+def test_a_race_takes_its_waves_and_counts_the_bot_on_the_losing_side():
+    clock = Clock()
+    teams = {"red": ["Ann"], "blue": ["MCBot"]}
+    api, contest = FakeApi(clock), FakeContest(clock, teams, mode="race")
+    ended(api, contest)
+    waves = [{"mobs": {"minecraft:zombie": 4}, "delay_ticks": 0}]
+    row = ah.hunt(api, contest, "hall", waves, mode="race", teams=teams, timeout=60,
+                  clock=clock)  # fmt: skip
+    assert contest.started[0]["waves"] == waves and contest.started[0]["mode"] == "race"
+    assert row["bot_team"] == "blue" and row["bot_won"] is False
+
+
+def test_a_series_sets_each_players_operator_status_once(tmp_path):
+    clock = Clock()
+    teams = {"red": ["MCBot", "Ann"], "blue": ["Bob", "Cat"]}
+    api, contest = FakeApi(clock), FakeContest(clock, teams)
+    contest.refuse_op = {"Cat"}
+    ended(api, contest)
+    lines = []
+    path = ah.run_series(api, contest, "duel", [], mode="teams", teams=teams,
+                         ops={"Ann": True, "Bob": False, "Cat": True, "MCBot": True},
+                         repeat=1, timeout=60, out_dir=tmp_path, echo=lines.append,
+                         clock=clock)  # fmt: skip
+    assert contest.ops == [("Ann", True), ("Bob", False)]  # never the bot
+    assert any("Cat" in line and "player_offline" in line for line in lines)
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert record["mode"] == "teams" and record["teams"] == teams
+    assert record["summary"]["winners"] == {"red": 1}
+    assert any("red won" in line for line in lines)
+
+
+def test_summary_counts_the_winning_teams_and_the_bots_wins():
+    rows = [
+        {"outcome": "won", "winner": "red", "bot_won": True},
+        {"outcome": "won", "winner": "blue", "bot_won": False},
+        {"outcome": "lost", "reason": "draw"},
+    ]
+    s = ah.summary(rows)
+    assert s["winners"] == {"red": 1, "blue": 1}
+    assert s["bot_wins"] == 1 and s["won"] == 2

@@ -96,9 +96,11 @@ def bootstrap() -> dict:
 
 
 def _world_properties(settings: dict) -> dict:
-    """server.properties for a normal-world instance (no flat generator)."""
+    """server.properties for a play or arena instance: its world's type, and for a
+    flat world (the arena server's empty void) the generator layers, whether
+    structures generate and how many may join."""
     world = settings["world"]
-    return {
+    values = {
         "server-ip": game_bind(settings),
         "server-port": settings["game_port"],
         "online-mode": str(settings["online_mode"]).lower(),
@@ -108,7 +110,7 @@ def _world_properties(settings: dict) -> dict:
         "gamemode": "survival",
         "difficulty": world["difficulty"],
         "spawn-protection": 0,
-        "max-players": 8,
+        "max-players": world.get("max_players", 8),
         "view-distance": world["view_distance"],
         "simulation-distance": world["simulation_distance"],
         "pause-when-empty-seconds": -1,
@@ -117,6 +119,11 @@ def _world_properties(settings: dict) -> dict:
         "white-list": "false",
         "motd": world["motd"],
     }
+    if "generator_settings" in world:
+        values["generator-settings"] = world["generator_settings"]
+    if "generate_structures" in world:
+        values["generate-structures"] = str(world["generate_structures"]).lower()
+    return values
 
 
 def _lab_properties(settings: dict) -> dict:

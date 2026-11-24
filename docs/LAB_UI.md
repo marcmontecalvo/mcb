@@ -103,30 +103,50 @@ UI tests and the production build do not launch Minecraft and do not qualify bot
 behavior. Current full-suite and browser E2E verification status is tracked in
 [IMPLEMENTED.md](IMPLEMENTED.md).
 
-### Arenas and combat (the play server)
+### Arenas and combat (the arena and play servers)
 
-The **Arenas and combat** section drives the PLAY server, not the lab, through
-the same scripts and CLI an operator uses, each in a child process bound to the
-play instance (`MCLAB_INSTANCE=play`). `mclab.play_runs` owns these rows:
+The **Arenas and combat** section drives two game servers, not the lab, through
+the same scripts and CLI an operator uses, each in a child process bound to its
+instance (`MCLAB_INSTANCE=arena` or `play`). `mclab.play_runs` owns these rows
+(`FAMILY_SERVER`: arena runs go to the arena server, combat trials to the play
+server):
 
-| Row | What it runs |
-|---|---|
-| Bot clears an arena | `scripts/arena-hunt.py`: the bot fights a waves match in a built arena with the full kit, food and potions. `count` matches in a series. |
-| Start an arena match | `mcplay arena start <arena> --waves ...`: a match for you (and anyone named in Players) to play. |
-| Stop an arena match | `mcplay arena stop <arena>` |
-| Build an arena | `mcplay arena build <arena> --at X Y Z --wait` |
-| Remove an arena | `mcplay arena remove <arena>` (Restore clears it to air) |
-| Combat trials | `scripts/combat-trial.py`: each weapon against each mob, `count` times round. |
+| Row | Server | What it runs |
+|---|---|---|
+| Arena | arena | `scripts/arena-hunt.py --world --mode GAME`: a match, `count` in a series. The arena server builds the lobby and this arena first when they are missing (see [ARENA_RUNTIME.md](ARENA_RUNTIME.md#the-arena-server)). |
+| Combat trials | play | `scripts/combat-trial.py`: each weapon against each mob, `count` times round. |
+| Stop an arena's match *(Arena tools)* | arena | `mcarena arena stop <arena>` |
+| Build an arena *(Arena tools)* | arena | `mcarena arena build <arena> --at X Y Z --wait` |
+| Remove an arena *(Arena tools)* | arena | `mcarena arena remove <arena>` (Restore clears it to air) |
+
+**Arena tools** is an advanced section (hidden until lab tools are shown): a match
+builds what it needs, so these are for by-hand work and, later, random worlds.
+
+The **Arena** row is a short wizard: **Arena**, **Game**, **Players**, **Waves**,
+**Matches**. **Game** is `run.game` (`play_runs.GAMES`): **PvE** (`waves`:
+everyone against the mob waves), **PvP** (`teams`: team against team, waves
+optional: **Waves** then offers **No mob waves**) or **Kill race** (`race`: teams
+race to kill the most wave mobs). **Players** is `run.roster`, a list of
+`{name, team, op}` (`run_config.RosterEntry`): the bot's row, a row per person
+added by Minecraft name, a team select in PvP and Kill race (only the arena's
+own teams, read from its plan: `run.arena.enum_meta` gives `teams`, `per_team`
+and `players`), and an **Op** box that makes that person an operator on the
+arena server when the series starts (`--op`; never the bot). A team game puts
+every player on a team, the smallest first; switching to PvE takes the teams
+off. The form refuses, before Start, what the launch would refuse
+(`play_runs.require`): a duplicate or invalid name, more than 16 players, a team
+game on one team, a team over the arena's `per_team`, or a PvE match over the
+arena's player room. For 8v8 use `hall` or `crossroads` (10 a team).
 
 The choices come from the files, every time the page loads: **Arena** lists the
-plans in `arenas/*.json`, **Waves** the presets in `arenas/waves/*.json`, and the
-weapons and mobs are whatever `combat_trial` accepts. A new arena plan, wave
-preset or weapon appears without a dashboard change. **Make my own waves** opens
-the wave builder; it stores one wave per comma (`pillager*2,pillager+vindicator`)
-in `custom_waves` instead of a preset.
+plans in `arenas/*.json` (not the arena server's `lobby`), **Waves** the presets
+in `arenas/waves/*.json`, and the weapons and mobs are whatever `combat_trial`
+accepts. A new arena plan, wave preset or weapon appears without a dashboard
+change. **Make my own waves** opens the wave builder; it stores one wave per
+comma (`pillager*2,pillager+vindicator`) in `custom_waves` instead of a preset.
 
 The **Kit** is a checkbox per part of `combat_trial.KIT_PARTS` (weapons,
-protection, supplies), or **Keep what it carries** alone; nothing ticked is bare
+protection, supplies), handed to every player, or **Keep what they carry** alone; nothing ticked is bare
 hands. **Weapon material** (sword, axe, spear: `WEAPON_TIERS`, wooden to
 netherite) and **Armor material** (`ARMOR_TIERS`, leather to netherite) both
 default to iron and apply to arena hunts and combat trials alike (`--tier`,
@@ -135,19 +155,24 @@ weapon such as the mace needs the mod's `CombatLogic` to fight with it first. A 
 kind of play run is one `PlayRun` entry in `play_runs.RUNS` plus its command;
 each row locks the family fields it does not use, so they are hidden and refused.
 
-A session that holds a play run starts with **Start play server**: it does
-nothing when the play bot is already ready, and otherwise starts the play server
-(`mcplay server start`) and waits up to five minutes for the bot. The header shows
-a `play running` / `play stopped` badge next to the lab's (the companion host's
-`GET /health`, probed at most every five seconds) and a **Start play server**
-button. The dashboard must run with the model credentials the companion host
-needs: `uv run --env-file <.env> --locked python -m mclab.dashboard`.
+A session that holds an arena or combat run starts with **Start arena server**
+and/or **Start play server** (setup operations `arena-start` / `play-start`,
+`play_runs.ensure_server`): each does nothing when that server's bot is already
+ready, and otherwise starts the server (`mcarena` / `mcplay server start`) and
+waits up to five minutes for the bot. The header shows a badge, the join address
+(and the LAN address) and a **Start** button for each of the lab, play and arena
+servers; `/api/status` and the live snapshot carry `state` (lab), `play` and
+`arena` (each companion host's `GET /health`, probed at most every five seconds).
+The dashboard must run with the model credentials the companion hosts need:
+`uv run --env-file <.env> --locked python -m mclab.dashboard`.
 
-Hunts and trials write the script's own record plus a `summary.json` (a history
-row: one episode per match or fight) to `results/arena/<stamp>/` and
+Matches and trials write the script's own record plus a `summary.json` (a
+history row: one episode per match or fight, a match's with its `winner`,
+`bot_won`, per-player `kills` and `team_kills`) to `results/arena/<stamp>/` and
 `results/combat/<stamp>/`; CLI runs keep writing `results/companion/arena/` and
-`results/companion/trials/`. **Kill now** on a hunt also stops its match, so no
-mobs are left running. Positions (`corner`, `spot`, like `start`) are fields with
+`results/companion/trials/`. **Stop** / **Cancel** on a running match interrupts
+the script and then stops its match on the arena server (`mcarena arena stop`),
+so no mobs are left running and the players go back to the lobby. Positions (`corner`, `spot`, like `start`) are fields with
 `"format": "position"` in `/api/schema` and show as X Y Z boxes.
 
 ## Legacy dashboard page

@@ -20,8 +20,10 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.animal.equine.AbstractHorse;
@@ -47,6 +49,8 @@ public final class ArenaRuntime {
     static final String TRIAL_TAG = "mcb_trial";
     /** Names the arena's own scoreboard teams carry (ArenaLogic.teamName), swept at start after a crash. */
     private static final java.util.regex.Pattern TEAM_NAME = java.util.regex.Pattern.compile("mcb_[0-9a-f]{8}");
+    /** The kill boards' names (ArenaLogic.objectiveName), swept the same way. */
+    private static final java.util.regex.Pattern BOARD_NAME = java.util.regex.Pattern.compile("mcbk_[0-9a-f]{8}");
 
     private final MinecraftServer server;
     private final ArenaRegistry registry;
@@ -96,6 +100,9 @@ public final class ArenaRuntime {
         for (var team : new ArrayList<>(scoreboard.getPlayerTeams())) {
             if (TEAM_NAME.matcher(team.getName()).matches()) scoreboard.removePlayerTeam(team);
         }
+        for (var objective : new ArrayList<>(scoreboard.getObjectives())) {
+            if (BOARD_NAME.matcher(objective.getName()).matches()) scoreboard.removeObjective(objective);
+        }
         for (var level : server.getAllLevels()) {
             for (var entity : level.getAllEntities()) if (hasArenaTag(entity)) entity.discard();
         }
@@ -131,6 +138,9 @@ public final class ArenaRuntime {
                 case "arena_status" -> data.putAll(status(request));
                 case "arena_start" -> data.putAll(start(request));
                 case "arena_stop" -> data.putAll(stop(request));
+                case "arena_spawn" -> data.putAll(spawn(request));
+                case "arena_op" -> data.putAll(op(request));
+                case "arena_kit" -> data.putAll(kit(request));
                 default -> throw new ArenaFail("unknown_op", op);
             }
         } catch (ArenaFail fail) {
@@ -307,8 +317,9 @@ public final class ArenaRuntime {
         var existing = matches.get(record.name());
         if (existing != null && existing.running()) throw new ArenaFail("match_running", record.name());
         var level = requireLevel(record.dimension());
-        boolean teamMode = req.mode().equals("teams");
-        if (!teamMode) checkWaves(record, level, req.waves());
+        boolean teamMode = ArenaLogic.sided(req.mode());
+        if (!req.waves().isEmpty()) checkWaves(record, level, req.waves());
+        if (req.exit() != null) ArenaLogic.checkHeight(ArenaBox.of(req.exit(), new int[] {1, 2, 1}), level.getMinY(), level.getMaxY());
         var players = new ArrayList<ServerPlayer>();
         var teamPlayers = new LinkedHashMap<String, List<ServerPlayer>>();
         if (teamMode) {
@@ -333,7 +344,7 @@ public final class ArenaRuntime {
             ArenaLogic.wavePads(padCounts(record), players.size(), record.capacity().teams() * record.capacity().perTeam());
         }
         sweep(record, level);
-        var match = new ArenaMatch(server, emitter, record, level, req.mode(), req.waves(), players, teamPlayers);
+        var match = new ArenaMatch(server, emitter, record, level, req.mode(), req.waves(), players, teamPlayers, req.exit());
         matches.put(record.name(), match);
         holdChunks(record, level);
         registry.save();
@@ -343,9 +354,71 @@ public final class ArenaRuntime {
         out.put("name", record.name());
         out.put("mode", req.mode());
         out.put("participants", players.stream().map(p -> p.getName().getString()).toList());
-        if (!teamMode) out.put("waves", req.waves().size());
+        if (!req.waves().isEmpty()) out.put("waves", req.waves().size());
+        if (teamMode) {
+            var assigned = new LinkedHashMap<String, Object>();
+            teamPlayers.forEach((team, members) -> assigned.put(team, members.stream().map(p -> p.getName().getString()).toList()));
+            out.put("teams", assigned);
+        }
         afterAck.add(match::start);
         return out;
+    }
+
+    // ---- the world and its players (the arena server's lobby, operators, kits)
+
+    /** The overworld's spawn (new players, and everyone without a bed, appear there), exactly: no spawn radius. */
+    private Map<String, Object> spawn(JsonObject request) {
+        var cell = ArenaRequests.parseSpawn(request);
+        var level = server.overworld();
+        ArenaLogic.checkHeight(ArenaBox.of(cell, new int[] {1, 2, 1}), level.getMinY(), level.getMaxY());
+        var pos = new net.minecraft.core.BlockPos(cell[0], cell[1], cell[2]);
+        server.setRespawnData(net.minecraft.world.level.storage.LevelData.RespawnData.of(level.dimension(), pos, 0f, 0f));
+        server.getGameRules().set(net.minecraft.world.level.gamerules.GameRules.RESPAWN_RADIUS, 0, server);
+        return Map.of("position", cell(cell));
+    }
+
+    /** Operator status for an online player: an op can use every command (teleporting to an arena included). */
+    private Map<String, Object> op(JsonObject request) {
+        var req = ArenaRequests.parseOp(request);
+        var player = online(req.player());
+        var list = server.getPlayerList();
+        var who = new net.minecraft.server.players.NameAndId(player.getGameProfile());
+        boolean was = list.isOp(who);
+        if (req.op() && !was) list.op(who);
+        if (!req.op() && was) list.deop(who);
+        return Map.of("player", player.getName().getString(), "op", req.op(), "changed", req.op() != was);
+    }
+
+    /** The same kit for every player named, all checked before anyone's inventory changes. */
+    private Map<String, Object> kit(JsonObject request) {
+        var req = ArenaRequests.parseKit(request);
+        var players = new ArrayList<ServerPlayer>();
+        for (var name : req.players()) players.add(online(name));
+        var given = new LinkedHashMap<String, Object>();
+        try {
+            var kit = com.vulpine.mcb.body.PlayerKit.check(players.get(0), req.kit());
+            for (var player : players) given.put(player.getName().getString(), kit.dress(player));
+        } catch (com.vulpine.mcb.body.PlayerKit.Refused refused) {
+            throw new ArenaFail(refused.reason, refused.getMessage());
+        }
+        return Map.of("players", given);
+    }
+
+    // ---- deaths and hits (the entity events)
+
+    /** AFTER_DEATH: every running match hears of it (a wave mob's killer, a participant downed). */
+    public static void died(LivingEntity entity, DamageSource source) {
+        var runtime = active;
+        if (runtime == null) return;
+        for (var match : runtime.matches.values()) match.died(entity, source);
+    }
+
+    /** ALLOW_DAMAGE: false refuses a hit one participant lands on another outside team against team. */
+    public static boolean allowDamage(LivingEntity entity, DamageSource source) {
+        var runtime = active;
+        if (runtime == null) return true;
+        for (var match : runtime.matches.values()) if (!match.allowsDamage(entity, source)) return false;
+        return true;
     }
 
     /** Every wave fits the arena and names a real mob; one creation per type proves it can be spawned. */

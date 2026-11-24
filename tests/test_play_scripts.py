@@ -42,7 +42,7 @@ def _hunt(tmp_path, monkeypatch, admin=None):
     seen = {}
 
     def series(api, admin, name, waves, **kwargs):
-        seen.update(kwargs)
+        seen.update(kwargs, api=api, waves=waves)
         path = tmp_path / "hunt.json"
         path.write_text(json.dumps({"summary": {}}), "utf-8")
         return path
@@ -85,6 +85,58 @@ def test_a_hunt_whose_players_never_come_stops_before_it_starts(
 
     assert code == 2 and seen == {}
     assert "Ann has not joined" in capsys.readouterr().err
+
+
+def test_a_team_match_on_the_arena_server_readies_its_world_and_roster(
+    tmp_path, monkeypatch
+):
+    from mclab.arena import world
+
+    main, seen, admin = _hunt(tmp_path, monkeypatch)
+    prepared = []
+
+    def prepare(client, name, *, echo, **kwargs):
+        prepared.append((client, name))
+        return {"arena": name, "origin": (1, 2, 3), "spawn": (0, 102, 0), "built": []}
+
+    monkeypatch.setattr(world, "prepare", prepare)
+
+    code = main(["--arena", "duel", "--mode", "teams", "--team", "red=MCBot,Ann",
+                 "--team", "blue=Bob", "--op", "Ann", "--deop", "Bob",
+                 "--world"])  # fmt: skip
+
+    assert code == 0 and prepared == [(admin, "duel")]
+    assert seen["mode"] == "teams"
+    assert seen["teams"] == {"red": ["MCBot", "Ann"], "blue": ["Bob"]}
+    assert seen["ops"] == {"Ann": True, "Bob": False}
+    assert seen["exit"] == (0, 102, 0)
+    ((names, _),) = admin.waited
+    assert names == ["MCBot", "Ann", "Bob"]
+
+
+def test_a_match_without_the_bot_needs_no_companion(tmp_path, monkeypatch):
+    main, seen, _ = _hunt(tmp_path, monkeypatch)
+    apis = []
+    main.__globals__["ApiClient"] = type(
+        "Counted", (FakeApi,), {"from_runtime": classmethod(lambda c: apis.append(1))}
+    )
+
+    code = main(["--arena", "duel", "--mode", "teams", "--team", "red=Ann",
+                 "--team", "blue=Bob"])  # fmt: skip
+
+    assert code == 0 and apis == [] and seen["api"] is None and seen["waves"] == []
+
+
+def test_a_match_refuses_a_roster_its_mode_cannot_hold(capsys):
+    main = _script("arena-hunt.py")["main"]
+    for argv, says in [
+        (["--mode", "race", "--team", "red=Ann", "--team", "blue=Bob"], "--waves"),
+        (["--waves", "mixed-10", "--team", "red=Ann"], "--team"),
+        (["--mode", "teams", "--players", "Ann"], "--team"),
+    ]:
+        with pytest.raises(SystemExit):
+            main(["--arena", "duel", *argv])
+        assert says in capsys.readouterr().err
 
 
 def test_a_hunt_refuses_a_material_before_it_starts(capsys):

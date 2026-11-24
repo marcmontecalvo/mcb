@@ -1078,6 +1078,37 @@ def test_session_factory_makes_sessions_sharing_one_gather_state(tmp_path):
     assert first.folder.parent == tmp_path / "results"
 
 
+def test_the_world_spawn_is_the_level_spawn_unless_the_instance_names_the_lobby():
+    from mclab.arena import world
+    from mclab.companion_session import level_spawn
+
+    assert companion_host.world_spawn_for({}) is level_spawn
+    assert companion_host.world_spawn_for({"companion": {"bot": "x"}}) is level_spawn
+    lobby = companion_host.world_spawn_for({"companion": {"spawn": "lobby"}})
+    assert lobby is world.lobby_world_spawn
+    with pytest.raises(ValueError, match="spawn"):
+        companion_host.world_spawn_for({"companion": {"spawn": "moon"}})
+
+
+def test_session_factory_passes_the_world_spawn_to_every_session(tmp_path):
+    def spawn():
+        return (0, 102, 0)
+
+    make = companion_host.session_factory(
+        {"name": "MCBot"},
+        results=tmp_path / "results",
+        runtime=tmp_path / "rt",
+        world_spawn=spawn,
+    )
+    assert make()._world_spawn is spawn
+    default = companion_host.session_factory(
+        {"name": "MCBot"}, results=tmp_path / "results", runtime=tmp_path / "rt"
+    )
+    from mclab.companion_session import level_spawn
+
+    assert default()._world_spawn is level_spawn
+
+
 def test_session_factory_applies_the_bots_defense_settings(tmp_path):
     make = companion_host.session_factory(
         {"name": "MCBot", "defense": {"floor_health": 8}},

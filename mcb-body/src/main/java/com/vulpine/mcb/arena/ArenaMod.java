@@ -1,6 +1,7 @@
 package com.vulpine.mcb.arena;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import org.slf4j.LoggerFactory;
@@ -10,6 +11,8 @@ public final class ArenaMod implements ModInitializer {
     @Override
     public void onInitialize() {
         ArenaGuard.register();
+        ServerLivingEntityEvents.AFTER_DEATH.register(ArenaRuntime::died);
+        ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> ArenaRuntime.allowDamage(entity, source));
         ServerLifecycleEvents.SERVER_STARTED.register(ArenaRuntime::start);
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             var runtime = ArenaRuntime.active();

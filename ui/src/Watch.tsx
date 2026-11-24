@@ -5,10 +5,22 @@ import { CopyButton } from "./fields";
 import { type Where, watchFor } from "./forms";
 
 type Rec = Record<string, unknown>;
-const NAMES = { lab: "Lab server", play: "Play server" } as const;
-export type ServerName = keyof typeof NAMES;
+export const SERVER_LABELS = {
+  lab: "Lab server",
+  play: "Play server",
+  arena: "Arena server",
+} as const;
+export type ServerName = keyof typeof SERVER_LABELS;
+export const SERVER_NAMES = Object.keys(SERVER_LABELS) as ServerName[];
+const NAMES = SERVER_LABELS;
+// What each server is, in a few words, for the watch card.
+const WORLDS: Record<string, string> = {
+  lab: "the lab server, a flat test world",
+  play: "the play server, the bot's survival world",
+  arena: "the arena server: you start in the lobby and the match takes you in",
+};
 
-/** Both servers: running or not, the address to join, and a Start button. */
+/** Every server: running or not, the address to join, and a Start button. */
 export function ServerChips({
   states,
   where,
@@ -59,9 +71,11 @@ export function WatchCard({ job, where }: { job: Rec | null; where: Where }) {
     return (
       <p className="watch-idle">
         Lab missions run on the <b>lab server</b> (a flat test world,{" "}
-        <code>{where.servers?.lab?.address ?? "…"}</code>). Arenas and combat run
-        on the <b>play server</b> (<code>{where.servers?.play?.address ?? "…"}</code>
-        ). Joining the wrong one shows an empty world.
+        <code>{where.servers?.lab?.address ?? "…"}</code>). Arena matches run on the{" "}
+        <b>arena server</b> (<code>{where.servers?.arena?.address ?? "…"}</code>),
+        combat trials on the <b>play server</b> (
+        <code>{where.servers?.play?.address ?? "…"}</code>). Joining the wrong one
+        shows the wrong world.
       </p>
     );
   const w = watchFor(job, where);
@@ -76,7 +90,7 @@ export function WatchCard({ job, where }: { job: Rec | null; where: Where }) {
         ) : (
           "(address unknown)"
         )}{" "}
-        ({w.server === "play" ? "the play server" : "the lab server, a flat test world"}).
+        ({WORLDS[w.server] ?? w.server}).
         {w.lanAddress && (
           <>
             {" "}
@@ -94,14 +108,15 @@ export function WatchCard({ job, where }: { job: Rec | null; where: Where }) {
       )}
       {w.arena && w.teleport && (
         <li>
-          Stand in the {w.arena.replaceAll("_", " ")} spectator box: type{" "}
-          <code>{w.teleport}</code> <CopyButton text={w.teleport} />
+          To watch instead, an operator can stand in the{" "}
+          {w.arena.replaceAll("_", " ")} spectator box: type <code>{w.teleport}</code>{" "}
+          <CopyButton text={w.teleport} />
         </li>
       )}
       {w.arena && w.built === false && (
-        <li className="warn">
-          The {w.arena.replaceAll("_", " ")} arena is not built on the play server,
-          so this run will fail. Run “Build an arena” first.
+        <li>
+          The {w.arena.replaceAll("_", " ")} arena is being built first (a minute or
+          two); wait in the lobby.
         </li>
       )}
       {!w.arena && (

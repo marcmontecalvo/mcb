@@ -13,7 +13,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from mclab.paths import INSTANCE, ROOT, config, read_json
@@ -27,6 +27,9 @@ OPS = (
     "arena_status",
     "arena_start",
     "arena_stop",
+    "arena_spawn",
+    "arena_op",
+    "arena_kit",
 )
 ENVELOPE = frozenset(
     {
@@ -426,11 +429,26 @@ class ArenaClient:
         return self.call("arena_status", name=name)
 
     def start(
-        self, name: str, mode: str, *, waves=None, participants=None, teams=None
+        self,
+        name: str,
+        mode: str,
+        *,
+        waves=None,
+        participants=None,
+        teams=None,
+        exit=None,  # noqa: A002 - the mod's field name
     ) -> dict:
-        if waves is not None:
+        """A match: ``waves`` (co-op), ``teams`` (team against team; waves
+        optional, empty for none) or ``race`` (teams race to kill the waves).
+        ``exit``: the cell participants still in the arena go to at the end."""
+        if waves:
             check_waves(waves)
-        fields = {"waves": waves, "participants": participants, "teams": teams}
+        fields = {
+            "waves": waves or None,
+            "participants": participants,
+            "teams": teams,
+            "exit": None if exit is None else list(exit),
+        }
         return self.call(
             "arena_start",
             name=name,
@@ -440,3 +458,20 @@ class ArenaClient:
 
     def stop(self, name: str) -> dict:
         return self.call("arena_stop", name=name)
+
+    # -- the world and its players
+    def spawn(self, position) -> dict:
+        """The world spawn, exactly (no spawn radius): the arena server's lobby."""
+        return self.call("arena_spawn", position=list(position))
+
+    def op(self, player: str, *, op: bool = True) -> dict:
+        """Give (or take away) an online player's operator status."""
+        return self.call("arena_op", player=player, operator=op)
+
+    def kit(self, players: Sequence[str], give: Sequence[dict] | None) -> dict:
+        """Each player cleared, given ``give``, dressed and healed; ``give`` None
+        keeps what they carry and only heals."""
+        kit: dict = {"heal": True}
+        if give is not None:
+            kit = {"give": give, "clear_inventory": True, "heal": True, "wear": True}
+        return self.call("arena_kit", players=list(players), kit=kit)

@@ -226,6 +226,7 @@ def _plan(request):
         if operation not in {
             "server-start",
             "play-start",
+            "arena-start",
             "baritone-prepare",
             "baritone-launch",
         }:
@@ -715,8 +716,12 @@ def setup(operation):
     from mclab import baritone_client, natural, play_runs, server
     from mclab.recorder import exclusive_arena
 
-    if operation == "play-start":  # the play server: not the lab's arena lock
-        return {"status": "completed_setup", "details": play_runs.ensure_play()}
+    if operation in ("play-start", "arena-start"):  # not the lab's arena lock
+        instance = operation.partition("-")[0]
+        return {
+            "status": "completed_setup",
+            "details": play_runs.ensure_server(instance),
+        }
     with exclusive_arena():
         if operation == "server-start":
             state = server.status()["state"]

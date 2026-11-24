@@ -123,26 +123,56 @@ def find(target: dict, state: dict, roster, bot: str, chosen: str | None = None)
 
 # --- an arena hunt (docs/ARENA_RUNTIME.md: arena_status) --------------------------
 
-WAITING = "waiting"  # between waves: no wave mob is alive yet
-NO_MATCH = "no_match"  # the arena runs no waves match
+WAITING = "waiting"  # no foe is alive yet (between waves)
+NO_MATCH = "no_match"  # the arena runs no match
 MATCH_OVER = frozenset({"won", "lost", "stopped"})
+MODES = frozenset({"waves", "teams", "race"})  # co-op, team against team, kill race
 
 
-def hunt(status: dict, state: dict, chosen: str | None = None):
-    """The wave mob to fight now (a ``Victim``), WAITING, NO_MATCH, or how the match
-    ended (won, lost, stopped). Every live wave mob counts, wherever it is in the
-    arena: the match is won only when all are dead. The mob already chosen is kept
-    while it lives; else the nearest. Where the body sees it, its own sighting is
-    used (fresher than the status); ``seen`` is then only how the job reports it,
-    since the fight op tracks a wave mob in reach by uuid either way."""
+def foes(match: dict, bot: str | None) -> list[dict]:
+    """A match's foes, as status rows: every placed wave mob, then, in the teams
+    mode (the only one where players hurt players), each live participant of
+    another team than the bot's. A bot on no team has no enemies among players."""
+    rows = [m for m in match.get("wave_mobs") or () if _position(m) is not None]
+    if match.get("mode") != "teams" or not bot:
+        return rows
+    people = match.get("participants") or ()
+    me = next(
+        (p for p in people if str(p.get("name", "")).lower() == bot.lower()), None
+    )
+    side = (me or {}).get("team")
+    if not side:
+        return rows
+    for p in people:
+        if p.get("alive") and p.get("team") and p["team"] != side:
+            if _position(p) is not None:
+                rows.append(
+                    {
+                        "uuid": p.get("uuid"),
+                        "type": PLAYER,
+                        "position": p["position"],
+                        "name": p.get("name"),
+                    }
+                )
+    return rows
+
+
+def hunt(status: dict, state: dict, chosen: str | None = None, bot: str | None = None):
+    """The foe to fight now (a ``Victim``), WAITING, NO_MATCH, or how the match ended
+    (won, lost, stopped). Every live wave mob counts, wherever it is in the arena
+    (a waves match is won only when all are dead), and in the teams mode every
+    live enemy of ``bot``'s team. The foe already chosen is kept while it lives;
+    else the nearest. Where the body sees it, its own sighting is used (fresher
+    than the status); ``seen`` is then only how the job reports it, since the
+    fight op tracks a foe in reach by uuid either way."""
     match = status.get("match")
-    if not isinstance(match, dict) or match.get("mode") != "waves":
+    if not isinstance(match, dict) or match.get("mode") not in MODES:
         return NO_MATCH
     if match.get("state") in MATCH_OVER:
         return match["state"]
     if match.get("state") != "running":
         return NO_MATCH
-    mobs = [m for m in match.get("wave_mobs") or () if _position(m) is not None]
+    mobs = foes(match, bot)
     if not mobs:
         return WAITING
     here = _position({"position": (state.get("body") or {}).get("position")})

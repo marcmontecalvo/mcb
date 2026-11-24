@@ -428,12 +428,40 @@ def test_an_arena_hunt_outside_any_arena_or_match_fails_plainly(fighter):
         _attack(session, arena=True)
     _arena(session, Result(True, None, {"name": "vault", "match_state": "none"}))
     _look(bridge, inv=_sword())
-    with pytest.raises(cs.JobFailed, match="no wave match"):
+    with pytest.raises(cs.JobFailed, match="runs no match"):
         _attack(session, arena="vault")
     _arena(session, Result(False, "unknown_arena", {}))
     _look(bridge, inv=_sword())
     with pytest.raises(cs.JobFailed, match="unknown_arena"):
         _attack(session, arena="vault")
+
+
+def _contest(*people, state="running", winner=None):
+    """An arena_status reply for a teams match (no waves); a person is (name, team,
+    position)."""
+    rows = [{"uuid": f"u-{n}", "name": n, "team": t, "alive": True,
+             "position": list(at)} for n, t, at in people]  # fmt: skip
+    match = {"mode": "teams", "state": state, "participants": rows}
+    if winner:
+        match["winner"] = winner
+    return Result(True, None, {"name": "duel", "match_state": state, "match": match})
+
+
+def test_a_team_match_hunts_the_enemy_players_and_only_them(fighter):
+    session, bridge = fighter
+    people = [("MCBot", "red", (0.5, 64.0, 0.5)), ("Ann", "red", (1.5, 64.0, 0.5)),
+              ("Bob", "blue", (5.5, 64.0, 0.5))]  # fmt: skip
+    _arena(session, _contest(*people), _contest(*people[:2], state="won", winner="red"))
+    bob = {"type": PLAYER, "uuid": "u-Bob", "name": "Bob", "position": [5.5, 64, 0.5]}
+    _look(bridge, bob, inv=_sword())
+    _look(bridge, inv=_sword())
+    session.body.fights = [Result(True, None, {"kills": 1, "killed": True, "hits": 4})]
+
+    result = _attack(session, arena="duel")
+
+    assert result["outcome"] == "won" and result["kills"] == 1
+    ((_, fields),) = _logged(session.body, "fight")
+    assert fields["entity"] == "u-Bob" and fields["allow_player"]
 
 
 def test_attack_a_mob_never_allows_a_player_target(fighter):

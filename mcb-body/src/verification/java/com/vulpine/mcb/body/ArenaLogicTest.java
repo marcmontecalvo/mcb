@@ -44,6 +44,8 @@ public final class ArenaLogicTest {
         protection();
         derived();
         clock();
+        game();
+        tally();
         misc();
         cursor();
         registry();
@@ -214,6 +216,89 @@ public final class ArenaLogicTest {
         rejects(() -> new ArenaLogic.WaveClock(List.of(-1)), "bad_request", "negative delay");
     }
 
+    private static Map<String, Integer> sides(int red, int blue) {
+        var out = new LinkedHashMap<String, Integer>();
+        out.put("red", red); out.put("blue", blue);
+        return out;
+    }
+
+    private static ArenaLogic.Step step(ArenaLogic.Kind kind) { return new ArenaLogic.Step(kind, 0); }
+
+    /** How each game ends: co-op waves, team against team (waves or not), and the kill race. */
+    private static void game() {
+        check(ArenaLogic.MODES.equals(java.util.Set.of("waves", "teams", "race")), "three games");
+        check(!ArenaLogic.sided("waves") && ArenaLogic.sided("teams") && ArenaLogic.sided("race"), "teams and the race start on team pads");
+        check(ArenaLogic.pvp("teams") && !ArenaLogic.pvp("waves") && !ArenaLogic.pvp("race"),
+                "players hurt each other only team against team");
+
+        var none = sides(0, 0);
+        check(ArenaLogic.decide("waves", step(ArenaLogic.Kind.SPAWN), none, none) == null, "co-op: a wave spawning plays on");
+        var won = ArenaLogic.decide("waves", step(ArenaLogic.Kind.WON), none, none);
+        check(won.won() && won.winner() == null && won.reason() == null, "co-op: the last wave cleared wins");
+        var lost = ArenaLogic.decide("waves", step(ArenaLogic.Kind.LOST), none, none);
+        check(!lost.won() && lost.reason().equals("participants_down"), "co-op: everyone down loses");
+
+        check(ArenaLogic.decide("teams", null, sides(1, 2), none) == null, "teams, no waves: two sides alive play on");
+        var blue = ArenaLogic.decide("teams", null, sides(0, 2), none);
+        check(blue.won() && blue.winner().equals("blue"), "the last team standing wins");
+        var draw = ArenaLogic.decide("teams", null, sides(0, 0), none);
+        check(!draw.won() && draw.reason().equals("draw") && draw.winner() == null, "nobody left is a draw");
+        check(ArenaLogic.decide("teams", step(ArenaLogic.Kind.WON), sides(1, 1), none) == null,
+                "teams with waves: the waves running out ends nothing while two sides stand");
+        check(ArenaLogic.decide("teams", step(ArenaLogic.Kind.CLEARED), sides(3, 1), none) == null, "a wave cleared plays on");
+        var mobbed = ArenaLogic.decide("teams", step(ArenaLogic.Kind.LOST), sides(0, 0), none);
+        check(!mobbed.won() && mobbed.reason().equals("draw"), "the mobs taking everyone is a draw");
+        check(ArenaLogic.decide("teams", step(ArenaLogic.Kind.NONE), sides(0, 1), none).winner().equals("blue"),
+                "the mobs can finish a team off");
+
+        check(ArenaLogic.decide("race", step(ArenaLogic.Kind.CLEARED), sides(1, 1), sides(4, 2)) == null, "race: plays on between waves");
+        check(ArenaLogic.decide("race", step(ArenaLogic.Kind.NONE), sides(0, 1), sides(4, 2)) == null,
+                "race: a team out of fighters does not end it while another kills on");
+        var race = ArenaLogic.decide("race", step(ArenaLogic.Kind.WON), sides(1, 1), sides(4, 2));
+        check(race.won() && race.winner().equals("red") && race.reason() == null, "race: the most kills when the waves are done");
+        var tie = ArenaLogic.decide("race", step(ArenaLogic.Kind.WON), sides(1, 1), sides(3, 3));
+        check(!tie.won() && tie.reason().equals("draw"), "race: level kills are a draw");
+        var down = ArenaLogic.decide("race", step(ArenaLogic.Kind.LOST), sides(0, 0), sides(1, 5));
+        check(down.won() && down.winner().equals("blue") && down.reason().equals("participants_down"),
+                "race: everyone down ends it, the kills so far decide");
+        rejects(() -> ArenaLogic.decide("duel", null, none, none), "bad_request", "an unknown game");
+
+        check(ArenaLogic.raceWinner(sides(2, 5)).equals("blue"), "the highest tally");
+        check(ArenaLogic.raceWinner(sides(0, 0)).isEmpty() && ArenaLogic.raceWinner(sides(2, 2)).isEmpty(), "level is no winner");
+        var three = new LinkedHashMap<String, Integer>();
+        three.put("red", 4); three.put("blue", 4); three.put("green", 1);
+        check(ArenaLogic.raceWinner(three).isEmpty(), "a tie at the top is a draw, whatever is below");
+    }
+
+    /** Who killed what: mobs per player and team, and players in a team match. */
+    private static void tally() {
+        var teamOf = new LinkedHashMap<String, String>();
+        teamOf.put("Ann", "red"); teamOf.put("Bob", "blue"); teamOf.put("Cy", "red");
+        var tally = new ArenaLogic.Tally(teamOf, List.of("red", "blue"));
+        check(tally.byTeam().equals(sides(0, 0)), "every team starts at nothing, in plan order");
+        check(tally.mob("Ann") && tally.mob("Ann") && tally.mob("Bob") && tally.mob("Cy"), "participants' mob kills count");
+        check(!tally.mob("Zed") && !tally.mob(null), "a kill by anyone else (or no one) is nobody's");
+        check(tally.mobs("Ann") == 2 && tally.mobs("Bob") == 1 && tally.mobs("Zed") == 0, "per player");
+        check(tally.byTeam().equals(sides(3, 1)), "per team: its players' mob kills");
+        check(tally.player("Bob", "Ann"), "Bob took Ann down");
+        check(!tally.player("Cy", "Ann") && !tally.player("Ann", "Ann") && !tally.player("Zed", "Ann") && !tally.player(null, "Ann"),
+                "a teammate, yourself, an outsider or no one scores nothing");
+        check(tally.players("Bob") == 1 && tally.score("Bob") == 2 && tally.score("Ann") == 2, "score: mobs and players");
+        check(tally.byTeam().equals(sides(3, 1)), "the race counts mobs only");
+        var rows = tally.rows();
+        check(rows.get("Ann").get("mobs").equals(2) && rows.get("Bob").get("players").equals(1)
+                && rows.get("Cy").get("team").equals("red") && rows.keySet().equals(teamOf.keySet()), "rows for the reports");
+
+        var coop = new LinkedHashMap<String, String>();
+        coop.put("Ann", ""); coop.put("MCBot", "");
+        var solo = new ArenaLogic.Tally(coop, List.of());
+        check(solo.mob("MCBot") && solo.byTeam().isEmpty() && !solo.rows().get("Ann").containsKey("team"), "co-op: no teams");
+        check(!solo.player("Ann", "MCBot"), "co-op: no player kills");
+
+        check(ArenaLogic.objectiveName("vault").length() <= 16 && ArenaLogic.objectiveName("vault").startsWith("mcbk_"), "objective name fits");
+        check(!ArenaLogic.objectiveName("vault").equals(ArenaLogic.objectiveName("hall")), "one per arena");
+    }
+
     private static void misc() {
         check(ArenaLogic.spawnMarker(0, 3) == 0 && ArenaLogic.spawnMarker(4, 3) == 1 && ArenaLogic.spawnMarker(5, 1) == 0,
                 "mobs go round the spawn markers in turn");
@@ -277,7 +362,9 @@ public final class ArenaLogicTest {
         check(ArenaLogic.percent(0, 0) == 100 && ArenaLogic.percent(1, 4) == 25 && ArenaLogic.percent(4, 4) == 100, "progress percent");
         check(ArenaLogic.isOperationName("arena_build") && ArenaLogic.isOperationName("arena_stop")
                 && !ArenaLogic.isOperationName("trial") && !ArenaLogic.isOperationName("arena_bogus"), "the ops the runtime owns");
-        check(ArenaLogic.OPS.size() == 6, "six ops");
+        check(ArenaLogic.isOperationName("arena_spawn") && ArenaLogic.isOperationName("arena_op")
+                && ArenaLogic.isOperationName("arena_kit"), "the world's spawn, ops and kits");
+        check(ArenaLogic.OPS.size() == 9, "nine ops");
     }
 
     private static void cursor() {
@@ -404,8 +491,43 @@ public final class ArenaLogicTest {
         check(mapped.teams().get("red").equals(List.of("a")) && mapped.participants().equals(List.of("a", "b")), "explicit teams");
         rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\",\"teams\":{\"red\":[\"a\"]},\"participants\":[\"a\"]}")),
                 "bad_request", "teams and participants together");
-        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\",\"waves\":[{\"mobs\":{\"minecraft:zombie\":1}}]}")),
-                "bad_request", "waves in teams mode");
+        var mobbed = ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\",\"waves\":[{\"mobs\":{\"minecraft:zombie\":1}}],"
+                + "\"teams\":{\"red\":[\"a\"],\"blue\":[\"b\"]}}"));
+        check(mobbed.waves().size() == 1 && mobbed.teams().size() == 2, "team against team, with mob waves too");
+        check(mobbed.exit() == null, "no exit: participants stay where the match ends");
+        var race = ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"race\",\"waves\":[{\"mobs\":{\"minecraft:zombie\":2}}],"
+                + "\"participants\":[\"a\",\"b\"],\"exit\":[0,101,-3]}"));
+        check(race.mode().equals("race") && race.participants().size() == 2, "a kill race, teams dealt out");
+        check(race.exit()[0] == 0 && race.exit()[1] == 101 && race.exit()[2] == -3, "the exit cell");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"race\",\"participants\":[\"a\",\"b\"]}")),
+                "bad_request", "a race needs waves to race on");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"race\",\"waves\":[]}")), "bad_request", "empty race waves");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"waves\",\"waves\":[{\"mobs\":{\"minecraft:zombie\":1}}],"
+                + "\"exit\":[1,2]}")), "bad_request", "exit arity");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"waves\",\"waves\":[{\"mobs\":{\"minecraft:zombie\":1}}],"
+                + "\"teams\":{\"red\":[\"a\"],\"blue\":[\"b\"]}}")), "bad_request", "co-op has no teams");
+
+        var spawn = ArenaRequests.parseSpawn(json("{\"position\":[0,102,-1]}"));
+        check(spawn[0] == 0 && spawn[1] == 102 && spawn[2] == -1, "the world spawn cell");
+        rejects(() -> ArenaRequests.parseSpawn(json("{}")), "bad_request", "spawn needs a position");
+        rejects(() -> ArenaRequests.parseSpawn(json("{\"position\":[0,1,2],\"radius\":3}")), "bad_request", "spawn takes a position only");
+
+        var op = ArenaRequests.parseOp(json("{\"player\":\"Ann_2\",\"operator\":true}"));
+        check(op.player().equals("Ann_2") && op.op(), "op a player");
+        check(!ArenaRequests.parseOp(json("{\"player\":\"Ann\",\"operator\":false}")).op(), "or take it away");
+        rejects(() -> ArenaRequests.parseOp(json("{\"player\":\"no way\",\"operator\":true}")), "bad_request", "op: a player name");
+        rejects(() -> ArenaRequests.parseOp(json("{\"player\":\"Ann\"}")), "bad_request", "op: say which");
+        rejects(() -> ArenaRequests.parseOp(json("{\"player\":\"Ann\",\"operator\":\"yes\"}")), "bad_request", "op: a flag");
+
+        var kit = ArenaRequests.parseKit(json("{\"players\":[\"Ann\",\"Bob\"],\"kit\":{\"give\":[{\"item\":\"minecraft:iron_sword\","
+                + "\"count\":1}],\"clear_inventory\":true,\"heal\":true,\"wear\":true}}"));
+        check(kit.players().equals(List.of("Ann", "Bob")) && kit.kit().getAsJsonArray("give").size() == 1, "a kit for two");
+        rejects(() -> ArenaRequests.parseKit(json("{\"players\":[\"Ann\"],\"kit\":{\"summon\":[]}}")), "bad_request",
+                "a kit gives, heals, clears and dresses; nothing else");
+        rejects(() -> ArenaRequests.parseKit(json("{\"players\":[],\"kit\":{}}")), "bad_request", "a kit for nobody");
+        rejects(() -> ArenaRequests.parseKit(json("{\"players\":[\"Ann\"]}")), "bad_request", "no kit");
+        var parsed = TrialLogic.parse(kit.kit());
+        check(parsed.give().size() == 1 && parsed.heal() && parsed.wear() && parsed.clearInventory(), "the kit reads as a trial's");
         rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"waves\"}")), "bad_request", "waves need waves");
         rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"waves\",\"waves\":[]}")), "bad_request", "empty waves");
         rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"duel\"}")), "bad_request", "unknown mode");

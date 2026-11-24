@@ -168,6 +168,8 @@ export type Where = {
     string,
     { address?: string | null; lan_address?: string | null; label?: string }
   >;
+  arena_server?: string;
+  lobby?: boolean;
   bot?: string;
   arenas?: Record<
     string,
@@ -175,7 +177,8 @@ export type Where = {
   >;
   arenas_error?: string;
 };
-const PLAY = ["arena", "combat"]; // mclab.play_runs.FAMILIES
+// mclab.play_runs.FAMILY_SERVER: the game server each family of run drives
+const SERVER: Record<string, string> = { arena: "arena", combat: "play" };
 
 /** Where to watch a job: the server to join (from this PC and from another one
  * on the network), for an arena the command that stands you in its spectator
@@ -183,15 +186,14 @@ const PLAY = ["arena", "combat"]; // mclab.play_runs.FAMILIES
 export function watchFor(job: Rec, where: Where) {
   const run = ((job.run_config as Rec | undefined)?.run as Rec | undefined) || {};
   const family = String(run.test || job.kind || "");
-  const server = PLAY.includes(family) ? "play" : "lab";
+  const server = SERVER[family] || "lab";
   const arena = typeof run.arena === "string" ? run.arena : null;
   const known = arena ? where.arenas?.[arena] : undefined;
   const bot = (where.bot || "").toLowerCase();
   const humans =
-    family === "arena" && typeof run.players === "string"
-      ? run.players
-          .split(",")
-          .map((name) => name.trim())
+    family === "arena"
+      ? rosterOf(run.roster)
+          .map((p) => p.name)
           .filter((name) => name && name.toLowerCase() !== bot)
       : [];
   return {
@@ -204,4 +206,95 @@ export function watchFor(job: Rec, where: Where) {
     built: known ? !!known.built : null,
     humans,
   };
+}
+
+// --- the arena roster (run.roster: mclab.run_config.RosterEntry) ---------------
+
+export type Slot = { name: string; team: string | null; op: boolean };
+/** An arena's teams and room (run.arena.enum_meta, from its plan). */
+export type ArenaMeta = { teams: string[]; per_team: number | null; players: number | null };
+const PLAYER = /^[A-Za-z0-9_]{1,16}$/;
+export const MAX_PLAYERS = 16; // mclab.play_runs.MAX_PLAYERS
+
+/** The well-formed players of a stored roster value. */
+export function rosterOf(value: unknown): Slot[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (p): p is Record<string, unknown> =>
+        !!p && typeof p === "object" && typeof (p as Rec).name === "string",
+    )
+    .map((p) => ({
+      name: String(p.name),
+      team: typeof p.team === "string" ? p.team : null,
+      op: p.op === true,
+    }));
+}
+
+/** A team game puts everyone on one of the arena's teams (the smallest first);
+ * a game against the waves has no teams. Unchanged, the same array comes back. */
+export function fitRoster(roster: Slot[], sided: boolean, meta?: ArenaMeta): Slot[] {
+  if (!sided) {
+    return roster.some((p) => p.team !== null)
+      ? roster.map((p) => ({ ...p, team: null }))
+      : roster;
+  }
+  const teams = meta?.teams || [];
+  if (!teams.length) return roster;
+  const counts = new Map(teams.map((t) => [t, 0]));
+  for (const p of roster) if (p.team && counts.has(p.team)) counts.set(p.team, counts.get(p.team)! + 1);
+  let changed = false;
+  const fitted = roster.map((p) => {
+    if (p.team && counts.has(p.team)) return p;
+    const team = teams.reduce((a, b) => (counts.get(b)! < counts.get(a)! ? b : a));
+    counts.set(team, counts.get(team)! + 1);
+    changed = true;
+    return { ...p, team };
+  });
+  return changed ? fitted : roster;
+}
+
+export function addPlayer(
+  roster: Slot[],
+  name: string,
+  sided: boolean,
+  meta?: ArenaMeta,
+): Slot[] {
+  return fitRoster([...roster, { name, team: null, op: false }], sided, meta);
+}
+
+export function teamCounts(roster: Slot[], meta: ArenaMeta) {
+  return meta.teams.map((team) => ({
+    team,
+    count: roster.filter((p) => p.team === team).length,
+    room: meta.per_team,
+  }));
+}
+
+/** What stops a roster from starting (mclab.play_runs.require, in words). */
+export function rosterProblems(roster: Slot[], sided: boolean, meta?: ArenaMeta): string[] {
+  if (!roster.length) return ["Add at least one player."];
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  for (const p of roster) {
+    if (!PLAYER.test(p.name))
+      problems.push(`"${p.name}" is not a Minecraft name (letters, digits and _, up to 16).`);
+    else if (seen.has(p.name.toLowerCase())) problems.push(`${p.name} is in the match twice.`);
+    seen.add(p.name.toLowerCase());
+  }
+  if (roster.length > MAX_PLAYERS) problems.push(`A match holds at most ${MAX_PLAYERS} players.`);
+  if (!meta) return problems;
+  if (!sided) {
+    if (meta.players !== null && roster.length > meta.players)
+      problems.push(`This arena holds ${meta.players} players; the match has ${roster.length}.`);
+    return problems;
+  }
+  if (roster.some((p) => !p.team)) problems.push("Every player needs a team.");
+  const counts = teamCounts(roster, meta);
+  if (counts.filter((c) => c.count > 0).length < 2)
+    problems.push("A team game needs players on at least two teams.");
+  for (const c of counts)
+    if (c.room !== null && c.count > c.room)
+      problems.push(`Team ${c.team} has ${c.count} players; this arena holds ${c.room} a team.`);
+  return problems;
 }

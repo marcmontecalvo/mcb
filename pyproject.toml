@@ -8,6 +8,7 @@ dependencies = []
 [project.scripts]
 mclab = "mclab.cli:main"
 mcplay = "mclab.play_cli:main"
+mcarena = "mclab.play_cli:arena_main"
 mcb-mcp = "mclab.mcb_mcp:main"
 
 [build-system]

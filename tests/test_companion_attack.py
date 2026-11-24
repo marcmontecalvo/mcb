@@ -233,9 +233,64 @@ def test_a_hunt_waits_between_waves_and_ends_with_the_match():
     assert attack.hunt(match(state="lost"), state(), None) == "lost"
     assert attack.hunt(match(state="stopped"), state(), None) == "stopped"
     assert attack.hunt({"name": "vault"}, state(), None) == attack.NO_MATCH
-    teams = match()
-    teams["match"]["mode"] = "teams"
-    assert attack.hunt(teams, state(), None) == attack.NO_MATCH  # waves only
+    odd = match()
+    odd["match"]["mode"] = "tag"
+    assert attack.hunt(odd, state(), None) == attack.NO_MATCH
+
+
+def fighter(name, team, pos, alive=True):
+    return {"uuid": f"u-{name}", "name": name, "team": team, "alive": alive,
+            "position": list(pos)}  # fmt: skip
+
+
+def contest(*people, mobs=(), mode="teams"):
+    status = match(*mobs, participants=list(people))
+    status["match"]["mode"] = mode
+    return status
+
+
+def test_a_team_match_hunts_the_nearest_live_enemy_never_a_teammate():
+    me = fighter("MCBot", "red", (0.5, 64, 0.5))
+    mate = fighter("Ann", "red", (2.5, 64, 0.5))
+    far = fighter("Bob", "blue", (30.5, 64, 0.5))
+    near = fighter("Cat", "blue", (10.5, 64, 0.5))
+    dead = fighter("Dan", "blue", (3.5, 64, 0.5), alive=False)
+    found = attack.hunt(contest(me, mate, far, near, dead), state(), None, "MCBot")
+    assert (found.uuid, found.type, found.name) == ("u-Cat", PLAYER, "Cat")
+    assert not found.seen
+
+
+def test_a_team_match_with_waves_weighs_enemies_and_mobs_together():
+    me = fighter("mcbot", "red", (0.5, 64, 0.5))  # names match in any case
+    enemy = fighter("Bob", "blue", (20.5, 64, 0.5))
+    mob = wave_mob("z", (5.5, 64, 0.5), "minecraft:zombie")
+    match = contest(me, enemy, mobs=[mob])
+    assert attack.hunt(match, state(), None, "MCBot").uuid == "z"
+    seen = state(entity(PLAYER, "u-Bob", (19.5, 64, 0.5), name="Bob"))
+    found = attack.hunt(contest(me, enemy), seen, None, "MCBot")
+    assert found.seen and found.position == (19.5, 64.0, 0.5)
+
+
+def test_a_race_or_a_bot_outside_the_teams_hunts_only_wave_mobs():
+    me = fighter("MCBot", "red", (0.5, 64, 0.5))
+    rival = fighter("Bob", "blue", (2.5, 64, 0.5))
+    mob = wave_mob("z", (30.5, 64, 0.5), "minecraft:zombie")
+    race = contest(me, rival, mobs=[mob], mode="race")
+    assert attack.hunt(race, state(), None, "MCBot").uuid == "z"
+    assert attack.hunt(contest(rival, mobs=[mob]), state(), None, "MCBot").uuid == "z"
+    mate = fighter("Ann", "red", (1.5, 64, 1.5))
+    assert attack.hunt(contest(me, mate), state(), None, "MCBot") == attack.WAITING
+
+
+def test_the_foes_of_a_match_are_its_wave_mobs_and_live_enemies():
+    me = fighter("MCBot", "red", (0.5, 64, 0.5))
+    enemy = fighter("Bob", "blue", (9.5, 64, 0.5))
+    offline = {"uuid": "x", "name": "Eve", "team": "blue", "alive": True}
+    mob = wave_mob("z", (5.5, 64, 0.5), "minecraft:zombie")
+    rows = attack.foes(contest(me, enemy, offline, mobs=[mob])["match"], "MCBot")
+    assert [r["uuid"] for r in rows] == ["z", "u-Bob"]
+    assert rows[1]["type"] == PLAYER and rows[1]["name"] == "Bob"
+    assert attack.foes({"mode": "waves", "wave_mobs": [mob]}, "MCBot") == [mob]
 
 
 def test_the_arena_here_is_the_one_whose_bounds_hold_the_bot():

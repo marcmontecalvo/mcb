@@ -49,6 +49,16 @@ class FleeSettings:
 
 
 @dataclass
+class RosterEntry:
+    """One player in an arena match: who, on which team (None in a waves match)
+    and whether the match makes them an operator."""
+
+    name: str = ""
+    team: str | None = None
+    op: bool = False
+
+
+@dataclass
 class RunSettings:
     test: str = ""
     start: list[int] | None = None
@@ -100,15 +110,16 @@ class RunSettings:
     baritone_settings: dict[str, bool] | None = None
     flee: FleeSettings | None = None
     origin: list[int] | None = None
-    # play-server runs (mclab.play_runs): arena actions and hunts, combat trials
+    # play and arena server runs (mclab.play_runs): arena matches and tools, combat
     arena: str | None = None
     arena_action: str | None = None
+    game: str | None = None
     waves: str | None = None
     custom_waves: str | None = None
     kit: str | None = None
     weapon_material: str | None = None
     armor_material: str | None = None
-    players: str | None = None
+    roster: list[RosterEntry] | None = None
     corner: list[int] | None = None
     restore: bool = False
     weapons: str | None = None

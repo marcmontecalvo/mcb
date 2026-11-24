@@ -40,14 +40,14 @@ final class BodyTrial {
     /** Entities a trial summoned carry this tag; a later clear removes them first. */
     static final String TAG = "mcb_trial";
 
-    static Map<String, Object> run(MinecraftServer server, ServerPlayer player, JsonObject request) {
-        var trial = TrialLogic.parse(request);
+    /** The give entries as item stacks: every item, potion and enchantment id checked before anything changes. */
+    static List<ItemStack> stacks(ServerPlayer player, List<TrialLogic.Give> gives) {
         var stacks = new ArrayList<ItemStack>();
-        for (var give : trial.give()) {
+        for (var give : gives) {
             var id = Identifier.tryParse(give.item());
             if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) throw new BodyActions.Fail("unknown_item");
             var stack = new ItemStack(BuiltInRegistries.ITEM.getValue(id), give.count());
-            if (give.potion() != null) {  // checked with the items, before anything changes
+            if (give.potion() != null) {
                 var potion = BodyPotion.lookup(give.potion());
                 if (potion == null) throw new BodyActions.Fail("unknown_potion");
                 stack.set(DataComponents.POTION_CONTENTS, new PotionContents(potion));
@@ -62,6 +62,37 @@ final class BodyTrial {
             }
             stacks.add(stack);
         }
+        return stacks;
+    }
+
+    /** Copies of the stacks into the inventory (more than a stack goes in as several); one that does not fit fails. */
+    static int give(ServerPlayer player, List<ItemStack> stacks) {
+        int given = 0;
+        for (var stack : stacks) {
+            int left = stack.getCount();
+            while (left > 0) {
+                int n = Math.min(left, stack.getMaxStackSize());
+                if (!player.getInventory().add(stack.copyWithCount(n))) throw new BodyActions.Fail("inventory_full");
+                left -= n;
+            }
+            given++;
+        }
+        if (given > 0) player.containerMenu.broadcastChanges();
+        return given;
+    }
+
+    /** Full health and food, no fire, no effects. */
+    static void heal(ServerPlayer player) {
+        player.setHealth(player.getMaxHealth());
+        player.getFoodData().setFoodLevel(20);
+        player.getFoodData().setSaturation(5f);
+        player.clearFire();
+        player.removeAllEffects();
+    }
+
+    static Map<String, Object> run(MinecraftServer server, ServerPlayer player, JsonObject request) {
+        var trial = TrialLogic.parse(request);
+        var stacks = stacks(player, trial.give());
         for (var summon : trial.summon()) {
             var id = Identifier.tryParse(summon.type());
             if (id == null || !BuiltInRegistries.ENTITY_TYPE.containsKey(id)) throw new BodyActions.Fail("unknown_entity");
@@ -80,27 +111,10 @@ final class BodyTrial {
         }
         if (trial.clear() > 0) out.put("cleared", clear(player, trial.clear()));
         if (trial.clearInventory()) player.getInventory().clearContent();
-        int given = 0;
-        for (var stack : stacks) {
-            // more than a stack goes in as several; a trial that does not fit is a bad setup
-            int left = stack.getCount();
-            while (left > 0) {
-                int n = Math.min(left, stack.getMaxStackSize());
-                if (!player.getInventory().add(stack.copyWithCount(n))) throw new BodyActions.Fail("inventory_full");
-                left -= n;
-            }
-            given++;
-        }
-        if (given > 0) player.containerMenu.broadcastChanges();
+        int given = give(player, stacks);  // a trial that does not fit is a bad setup
         // on before the summon: the session dresses only an idle body, and the summon wakes the guard at once
         if (trial.wear()) out.put("wear", BodyGear.wear(player));
-        if (trial.heal()) {
-            player.setHealth(player.getMaxHealth());
-            player.getFoodData().setFoodLevel(20);
-            player.getFoodData().setSaturation(5f);
-            player.clearFire();
-            player.removeAllEffects();
-        }
+        if (trial.heal()) heal(player);
         if (trial.time() != null) {
             long now = level.getDefaultClockTime(), day = now - Math.floorMod(now, 24000L);
             long total = day + trial.time() < now ? day + 24000L + trial.time() : day + trial.time();  // forward only

@@ -1,4 +1,4 @@
-import type { Choices } from "./forms";
+import type { ArenaMeta, Choices } from "./forms";
 
 export type Json =
   null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -26,6 +26,15 @@ export type Schema = {
   maximum?: number;
   // Hints from mclab.play_runs.decorate_schema and run_config.config_schema:
   enum_help?: Record<string, string>;
+  enum_labels?: Record<string, string>;
+  enum_meta?: Record<string, ArenaMeta>;
+  // run.game: the games played on teams; run.waves: when "none" may be chosen
+  sided?: string[];
+  optional?: { field: string; values: string[]; label: string };
+  // run.roster: the bot's name, how many may play, the team names
+  bot?: string;
+  max?: number;
+  teams?: string[];
   custom?: { field: string; label: string };
   choices?: Choices;
   mobs?: string[];

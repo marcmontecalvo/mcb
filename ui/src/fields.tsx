@@ -3,9 +3,17 @@
 // help for each choice, and text that fits the kind of run being set up.
 import { createContext, useContext, useEffect, useState } from "react";
 import {
+  type ArenaMeta,
   type Choices,
+  type Slot,
   type Where,
+  MAX_PLAYERS,
+  addPlayer,
   fieldText,
+  fitRoster,
+  rosterOf,
+  rosterProblems,
+  teamCounts,
   humanize,
   joinChoices,
   joinWaves,
@@ -358,35 +366,190 @@ export function WavesInput({
   );
 }
 
-/** Whether the chosen arena is built, and how to stand where you can watch it. */
+const PLAYER = /^[A-Za-z0-9_]{1,16}$/;
+
+/** Who plays an arena match: the bot and people by Minecraft name, each on one of
+ * the arena's teams in a team game, and whether the match makes them an operator.
+ * The roster follows the game and arena: a team game puts everyone on a team. */
+export function RosterInput({
+  id,
+  title,
+  help,
+  value,
+  onChange,
+  validity,
+  sided,
+  meta,
+  bot,
+  max = MAX_PLAYERS,
+}: {
+  id: string;
+  title: string;
+  help?: string;
+  value: Json;
+  onChange: (v: Json) => void;
+  validity: Validity;
+  sided: boolean;
+  meta?: ArenaMeta;
+  bot: string;
+  max?: number;
+}) {
+  const roster = rosterOf(value);
+  const [name, setName] = useState("");
+  const set = (next: Slot[]) => onChange(next as unknown as Json);
+  useEffect(() => {
+    const fitted = fitRoster(roster, sided, meta);
+    if (fitted !== roster) set(fitted);
+  }, [sided, JSON.stringify(meta), JSON.stringify(value)]);
+  const problems = rosterProblems(roster, sided, meta);
+  useEffect(() => {
+    validity(id, problems.length === 0);
+  }, [id, problems.length]);
+  useEffect(() => () => validity(id, true), [id]);
+  const isBot = (p: Slot) => p.name.toLowerCase() === bot.toLowerCase();
+  const edit = (i: number, change: Partial<Slot>) =>
+    set(roster.map((p, j) => (j === i ? { ...p, ...change } : p)));
+  const room = Math.min(max, (!sided && meta?.players) || max);
+  const full = roster.length >= room;
+  const typed = name.trim();
+  const taken = roster.some((p) => p.name.toLowerCase() === typed.toLowerCase());
+  const addable = PLAYER.test(typed) && !taken && !full;
+  const add = () => {
+    set(addPlayer(roster, typed, sided, meta));
+    setName("");
+  };
+  const who = (p: Slot, i: number) => p.name || `Player ${i + 1}`;
+  return (
+    <fieldset className="field wide roster" id={id}>
+      <legend>{title}</legend>
+      {help && <small>{help}</small>}
+      {sided && meta && (
+        <p className="team-counts">
+          {teamCounts(roster, meta)
+            .map((c) => `${humanize(c.team)} ${c.count}${c.room ? `/${c.room}` : ""}`)
+            .join(" · ")}
+        </p>
+      )}
+      <div className="roster-rows">
+        {roster.map((p, i) => (
+          <div className="roster-row" key={i}>
+            {isBot(p) ? (
+              <span className="who">
+                <strong>{p.name}</strong> <small>the bot</small>
+              </span>
+            ) : (
+              <input
+                className="who"
+                aria-label={`Player ${i + 1} name`}
+                value={p.name}
+                onChange={(e) => edit(i, { name: e.target.value.trim() })}
+              />
+            )}
+            {sided && meta && (
+              <select
+                aria-label={`${who(p, i)} team`}
+                value={p.team ?? ""}
+                onChange={(e) => edit(i, { team: e.target.value || null })}
+              >
+                {p.team && !meta.teams.includes(p.team) && (
+                  <option value={p.team}>{humanize(p.team)}</option>
+                )}
+                {!p.team && <option value="">Choose…</option>}
+                {meta.teams.map((t) => (
+                  <option key={t} value={t}>
+                    {humanize(t)}
+                  </option>
+                ))}
+              </select>
+            )}
+            <label className="op" title="An operator on the arena server">
+              <input
+                type="checkbox"
+                aria-label={`${who(p, i)} is an operator`}
+                checked={p.op}
+                disabled={isBot(p)}
+                onChange={(e) => edit(i, { op: e.target.checked })}
+              />
+              Op
+            </label>
+            <button
+              type="button"
+              className="link"
+              aria-label={`Remove ${who(p, i)}`}
+              onClick={() => set(roster.filter((_, j) => j !== i))}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="roster-add">
+        <input
+          aria-label="New player's Minecraft name"
+          placeholder="Minecraft name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && addable) {
+              e.preventDefault();
+              add();
+            }
+          }}
+        />
+        <button type="button" className="secondary-small" disabled={!addable} onClick={add}>
+          + Add player
+        </button>
+        {!roster.some(isBot) && !full && (
+          <button
+            type="button"
+            className="link"
+            onClick={() => set(addPlayer(roster, bot, sided, meta))}
+          >
+            + Add the bot ({bot})
+          </button>
+        )}
+      </div>
+      {full && <small>The match is full: this arena holds {room}.</small>}
+      {problems.map((problem) => (
+        <span className="field-error" key={problem}>
+          {problem}
+        </span>
+      ))}
+    </fieldset>
+  );
+}
+
+/** Whether the chosen arena is built on the arena server, and how to stand where
+ * you can watch it. */
 function ArenaStatus({ name }: { name: string | null }) {
   const where = useContext(WhereCtx);
+  const server = where.servers?.[where.arena_server || "arena"];
   if (!name) return <small>Choose an arena.</small>;
   if (!where.arenas)
     return (
       <small>
         {where.arenas_error
-          ? `Couldn't ask the play server about arenas: ${where.arenas_error}`
-          : "Checking the play server…"}
+          ? `Couldn't ask the arena server about arenas: ${where.arenas_error}`
+          : "Checking the arena server…"}
       </small>
     );
   const arena = where.arenas[name];
   if (!arena?.built)
     return (
-      <small className="warn">
-        Not built on the play server yet. Run “Build an arena” first.
+      <small>
+        Not built yet: the arena server builds it when the match starts (a minute or
+        two).
       </small>
     );
   return (
     <small className="ok">
-      Built. To watch, join the play server ({where.servers?.play?.address}) and
-      type{" "}
-      {arena.teleport ? (
+      Built. Join the arena server ({server?.address ?? "…"}): you start in the lobby
+      and the match takes you in.{" "}
+      {arena.teleport && (
         <>
-          <code>{arena.teleport}</code> <CopyButton text={arena.teleport} />
+          An operator can watch from the spectator box: <code>{arena.teleport}</code>{" "}
+          <CopyButton text={arena.teleport} />
         </>
-      ) : (
-        "nothing: it has no spectator box"
       )}
     </small>
   );
@@ -473,6 +636,34 @@ export function Fields({
         validity={validity}
       />
     );
+  if (node.format === "roster") {
+    const parent = path.slice(0, -1);
+    const game = read([...parent, "game"]);
+    const arena = read([...parent, "arena"]);
+    const gameNode = schemaAt(root, [...parent, "game"]);
+    const arenaNode = schemaAt(root, [...parent, "arena"]);
+    const sided = (gameNode ? nonNullSchema(gameNode).sided || [] : []).includes(
+      String(game ?? "waves"),
+    );
+    const meta =
+      typeof arena === "string" && arenaNode
+        ? nonNullSchema(arenaNode).enum_meta?.[arena]
+        : undefined;
+    return (
+      <RosterInput
+        id={id}
+        title={title}
+        help={help}
+        value={effective}
+        onChange={(v) => change(path, v)}
+        validity={validity}
+        sided={sided}
+        meta={meta}
+        bot={node.bot || "MCBot"}
+        max={node.max}
+      />
+    );
+  }
   if (node.format === "choices" && node.choices)
     return (
       <ChoicesInput
@@ -533,6 +724,11 @@ export function Fields({
       .filter((x) => x !== null && x !== text.placeholder)
       .map(String);
     const chosen = usingCustom ? CUSTOM : effective === null ? "" : String(effective);
+    // "none" is a choice only where the field is optional (no mob waves in PvP)
+    const optional = node.optional;
+    const none =
+      !!optional &&
+      optional.values.includes(String(read([...path.slice(0, -1), optional.field]) ?? ""));
     return (
       <div className={"field" + (usingCustom ? " wide" : "")}>
         <label htmlFor={id}>{title}</label>
@@ -550,14 +746,18 @@ export function Fields({
             if (custom) change(customPath, null);
           }}
         >
-          {(effective === null && !usingCustom) || text.placeholder ? (
+          {(effective === null && !usingCustom) || text.placeholder || none ? (
             <option value="">
-              {text.placeholder ? `${humanize(text.placeholder)} (default)` : "Choose…"}
+              {none
+                ? optional!.label
+                : text.placeholder
+                  ? `${humanize(text.placeholder)} (default)`
+                  : "Choose…"}
             </option>
           ) : null}
           {options.map((x) => (
             <option key={x} value={x}>
-              {humanize(x)}
+              {node.enum_labels?.[x] ?? humanize(x)}
             </option>
           ))}
           {custom && <option value={CUSTOM}>{custom.label}…</option>}

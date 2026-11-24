@@ -821,16 +821,32 @@ def load_bot(settings: dict, root=None) -> dict:
     return profile
 
 
-def session_factory(bot: dict, *, results=None, runtime=None):
+def world_spawn_for(settings: dict):
+    """Where a bot without a saved position comes in: the level's spawn, or on the
+    arena server (``companion.spawn: "lobby"``) the lobby, built first."""
+    from mclab.companion_session import level_spawn
+
+    spawn = (settings.get("companion") or {}).get("spawn", "level")
+    if spawn == "level":
+        return level_spawn
+    if spawn == "lobby":
+        from mclab.arena import world
+
+        return world.lobby_world_spawn
+    raise ValueError(f"companion.spawn must be 'level' or 'lobby', not {spawn!r}")
+
+
+def session_factory(bot: dict, *, results=None, runtime=None, world_spawn=None):
     """New Session per (re)connect: its own results folder; one GatherState for the
     host's life (stations and containers it learns)."""
     from mclab.companion_defense import DefensePolicy
-    from mclab.companion_session import Session, instance_runtime
+    from mclab.companion_session import Session, instance_runtime, level_spawn
     from mclab.gather_runner import GatherState
     from mclab.paths import ROOT
 
     results = results or ROOT / "results/companion-host"
     runtime = runtime or instance_runtime()
+    world_spawn = world_spawn or level_spawn
     gather_state = GatherState()
     defense = DefensePolicy.from_config(bot.get("defense"))  # a typo fails here
 
@@ -843,6 +859,7 @@ def session_factory(bot: dict, *, results=None, runtime=None):
             gather_state=gather_state,
             defense=defense,
             defense_file=runtime / "companion-defense.json",
+            world_spawn=world_spawn,
         )
 
     return make
@@ -910,7 +927,10 @@ def main(argv=None) -> int:
     settings = paths.config()
     bot = load_bot(settings)
     runtime = instance_runtime()
-    host = Host(session_factory(bot, runtime=runtime), bot=bot)
+    host = Host(
+        session_factory(bot, runtime=runtime, world_spawn=world_spawn_for(settings)),
+        bot=bot,
+    )
     stopping = threading.Event()
 
     def stop(*_):

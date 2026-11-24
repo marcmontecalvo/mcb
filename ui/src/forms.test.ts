@@ -11,6 +11,13 @@ import {
   splitChoices,
   toggleChoice,
   watchFor,
+  type ArenaMeta,
+  type Slot,
+  addPlayer,
+  fitRoster,
+  rosterOf,
+  rosterProblems,
+  teamCounts,
 } from "./forms";
 
 const kit: Choices = {
@@ -177,6 +184,7 @@ describe("where to watch", () => {
     servers: {
       lab: { address: "127.0.0.1:25575", label: "Lab server" },
       play: { address: "127.0.0.1:25565", label: "Play server" },
+      arena: { address: "127.0.0.1:25566", label: "Arena server" },
     },
     arenas: {
       vault: { built: true, teleport: "/tp @s 1 2 3", match: "running" },
@@ -186,10 +194,10 @@ describe("where to watch", () => {
   it("names the server a job runs on and the arena's spectator box", () => {
     const job = { kind: "arena", run_config: { run: { test: "arena", arena: "vault" } } };
     expect(watchFor(job, where)).toEqual({
-      server: "play",
-      address: "127.0.0.1:25565",
+      server: "arena",
+      address: "127.0.0.1:25566",
       lanAddress: null,
-      label: "Play server",
+      label: "Arena server",
       arena: "vault",
       teleport: "/tp @s 1 2 3",
       built: true,
@@ -208,16 +216,16 @@ describe("where to watch", () => {
     expect(watchFor(job, lan).lanAddress).toBe("192.168.1.20:25565");
   });
   it("names the human players a match waits for, not the bot", () => {
-    const job = (players: unknown) => ({
+    const job = (roster: unknown) => ({
       kind: "arena",
-      run_config: { run: { test: "arena", arena: "vault", players } },
+      run_config: { run: { test: "arena", arena: "vault", roster } },
     });
     const bot = { ...where, bot: "MCBot" };
-    expect(watchFor(job("mcbot, FlamableChkn,Ann"), bot).humans).toEqual([
-      "FlamableChkn",
-      "Ann",
-    ]);
-    expect(watchFor(job("MCBot"), bot).humans).toEqual([]);
+    const slot = (name: string) => ({ name, team: null, op: false });
+    expect(
+      watchFor(job([slot("mcbot"), slot("FlamableChkn"), slot("Ann")]), bot).humans,
+    ).toEqual(["FlamableChkn", "Ann"]);
+    expect(watchFor(job([slot("MCBot")]), bot).humans).toEqual([]);
     expect(watchFor(job(null), bot).humans).toEqual([]);
   });
   it("a lab job names the lab server and no arena", () => {
@@ -234,5 +242,76 @@ describe("where to watch", () => {
     expect(watchFor(job, where)).toMatchObject({ built: false, teleport: null });
     const combat = { kind: "combat", run_config: { run: { test: "combat" } } };
     expect(watchFor(combat, where)).toMatchObject({ server: "play", arena: null });
+  });
+});
+
+describe("the arena roster", () => {
+  const duel: ArenaMeta = { teams: ["red", "blue"], per_team: 2, players: 4 };
+  const slot = (name: string, team: string | null = null, op = false): Slot => ({
+    name,
+    team,
+    op,
+  });
+
+  it("reads only well-formed players from a stored value", () => {
+    expect(rosterOf(null)).toEqual([]);
+    expect(rosterOf("MCBot")).toEqual([]);
+    expect(rosterOf([{ name: "Ann", team: "red", op: true }, { bad: 1 }, 3])).toEqual([
+      slot("Ann", "red", true),
+    ]);
+  });
+
+  it("puts everyone on a team for a team game, the smallest team first", () => {
+    const fitted = fitRoster([slot("MCBot"), slot("Ann"), slot("Bo", "red")], true, duel);
+    expect(fitted.map((p) => p.team)).toEqual(["blue", "red", "red"]);
+    // a team the arena does not have is replaced too
+    expect(fitRoster([slot("Ann", "green")], true, duel)[0].team).toBe("red");
+  });
+
+  it("takes the teams off for a game against the waves", () => {
+    expect(fitRoster([slot("Ann", "red", true)], false, duel)).toEqual([
+      slot("Ann", null, true),
+    ]);
+  });
+
+  it("leaves an already fitting roster alone (same object)", () => {
+    const roster = [slot("MCBot", "red"), slot("Ann", "blue")];
+    expect(fitRoster(roster, true, duel)).toBe(roster);
+    const plain = [slot("Ann")];
+    expect(fitRoster(plain, false, duel)).toBe(plain);
+  });
+
+  it("adds a player to the smallest team", () => {
+    const roster = [slot("MCBot", "red")];
+    expect(addPlayer(roster, "Ann", true, duel)).toEqual([...roster, slot("Ann", "blue")]);
+    expect(addPlayer(roster, "Ann", false, duel).at(-1)).toEqual(slot("Ann"));
+  });
+
+  it("counts each team against its room", () => {
+    expect(teamCounts([slot("A", "red"), slot("B", "red")], duel)).toEqual([
+      { team: "red", count: 2, room: 2 },
+      { team: "blue", count: 0, room: 2 },
+    ]);
+  });
+
+  it("says what stops a roster from starting", () => {
+    expect(rosterProblems([], false, duel)).toEqual(["Add at least one player."]);
+    expect(rosterProblems([slot("MCBot"), slot("mcbot")], false, duel)).toEqual([
+      "mcbot is in the match twice.",
+    ]);
+    expect(rosterProblems([slot("not a name")], false, duel)[0]).toMatch(
+      /not a Minecraft name/,
+    );
+    expect(rosterProblems([slot("A", "red"), slot("B", "red")], true, duel)).toEqual([
+      "A team game needs players on at least two teams.",
+    ]);
+    expect(
+      rosterProblems([slot("A", "red"), slot("B", "red"), slot("C", "red"), slot("D", "blue")], true, duel),
+    ).toEqual(["Team red has 3 players; this arena holds 2 a team."]);
+    expect(rosterProblems(["A", "B", "C", "D", "E"].map((n) => slot(n)), false, duel)).toEqual([
+      "This arena holds 4 players; the match has 5.",
+    ]);
+    expect(rosterProblems([slot("A", "red"), slot("B", "blue")], true, duel)).toEqual([]);
+    expect(rosterProblems([slot("A")], false, undefined)).toEqual([]);
   });
 });

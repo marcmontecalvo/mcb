@@ -86,13 +86,13 @@ class EventBroker:
         dashboard,
         *,
         server_state=None,
-        play_state=None,
+        game_states=None,
         interval: float = 1.0,
         max_listeners: int = 8,
     ):
         self.dashboard = dashboard
         self.server_state = server_state or self._server_state
-        self.play_state = play_state or self._play_state
+        self.game_states = game_states or self._game_states
         self.interval = interval
         self.max_listeners = min(max_listeners, 8)
         self.condition = threading.Condition()
@@ -111,15 +111,16 @@ class EventBroker:
         return server.status()["state"]
 
     @staticmethod
-    def _play_state() -> str:
+    def _game_states() -> dict[str, str]:
         from mclab import play_runs
 
-        return play_runs.play_state()  # cached: a host probe at most every 5 s
+        # the play and arena servers, cached: a host probe at most every 5 s each
+        return play_runs.server_states()
 
     def snapshot(self) -> dict:
         return redact(
             {
-                "status": {"state": self.server_state(), "play": self.play_state()},
+                "status": {"state": self.server_state(), **self.game_states()},
                 "sessions": self.dashboard.sessions(),
                 "results": self.dashboard.history(),
             }

@@ -169,7 +169,9 @@ def test_sse_snapshot_uses_durable_views_and_redacts_secrets(monkeypatch):
     monkeypatch.setattr(lab_server, "status", status)
     from mclab import play_runs
 
-    monkeypatch.setattr(play_runs, "play_state", lambda: "stopped")
+    monkeypatch.setattr(
+        play_runs, "server_states", lambda: {"play": "stopped", "arena": "running"}
+    )
     value = SimpleNamespace(sessions=sessions, history=history)
     handler = dashboard.handler(value)
     handler.events.interval = 5
@@ -192,7 +194,11 @@ def test_sse_snapshot_uses_durable_views_and_redacts_secrets(monkeypatch):
         data = json.loads(
             next(line[6:] for line in lines if line.startswith(b"data: "))
         )
-        assert data["status"] == {"state": "running", "play": "stopped"}
+        assert data["status"] == {
+            "state": "running",
+            "play": "stopped",
+            "arena": "running",
+        }
         assert data["sessions"][0]["token"] == "[REDACTED]"
         assert "abc123" not in data["sessions"][0]["log"]
         assert data["results"] == [{"status": "passed"}]

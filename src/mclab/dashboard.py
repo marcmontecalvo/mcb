@@ -300,18 +300,23 @@ def job_outputs(job):
 def needs_lab_server(job):
     """Every world run needs the lab server; setup jobs manage it themselves and
     a battery restarts it unless told to use it as it is."""
-    if job.get("kind") == "setup" or needs_play_server(job):
+    if job.get("kind") == "setup" or play_server(job):
         return False
     if job.get("kind") == "battery":
         return bool(((job.get("run_config") or {}).get("run") or {}).get("no_restart"))
     return True
 
 
-def needs_play_server(job):
-    """Arena and combat runs drive the play server (mclab.play_runs)."""
-    from mclab.play_runs import FAMILIES
+def play_server(job) -> str | None:
+    """The game server an arena or combat run drives (mclab.play_runs), else None."""
+    from mclab.play_runs import server_for
 
-    return job.get("kind") in FAMILIES
+    return server_for(job.get("kind"))
+
+
+def play_servers(jobs) -> list[str]:
+    """The game servers a session's jobs drive, in the order first needed."""
+    return list(dict.fromkeys(filter(None, map(play_server, jobs))))
 
 
 def start_line(job) -> str:
@@ -696,11 +701,12 @@ class Dashboard:
                     {**job, "id": "lab-start", "label": "Start lab server"}
                     for job in runs.plan({"kind": "setup", "operation": "server-start"})
                 ] + jobs
-        if worker_target == "session" and any(map(needs_play_server, jobs)):
-            # Cheap when the play bot is already ready; boots the server otherwise.
+        if worker_target == "session":
+            # Cheap when the server's bot is already ready; boots it otherwise.
             jobs = [
-                {**job, "id": "play-start", "label": "Start play server"}
-                for job in runs.plan({"kind": "setup", "operation": "play-start"})
+                {**job, "id": f"{name}-start", "label": f"Start {name} server"}
+                for name in play_servers(jobs)
+                for job in runs.plan({"kind": "setup", "operation": f"{name}-start"})
             ] + jobs
         # sessions() also reconciles workers that died unexpectedly.
         if any(s["status"] in ACTIVE for s in self.sessions()):
@@ -938,7 +944,7 @@ def handler(dashboard):
                         200,
                         {
                             "state": server.status()["state"],
-                            "play": play_runs.play_state(),
+                            **play_runs.server_states(),
                         },
                     )
                 if parsed.path == "/api/where":

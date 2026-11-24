@@ -888,15 +888,16 @@ class Session:
         foods = getattr(self.body, "foods", None) or {}
         return consumables.held(body.get("inventory"), foods)
 
-    def _friends(self, state: dict, foe: str | None = None) -> list:
-        """Where the players in sight stand (but ``foe``): no harmful splash breaks
-        beside them."""
+    def _friends(self, state: dict, foe: str | None = None, enemies=()) -> list:
+        """Where the players in sight stand (but ``foe`` and a team match's
+        ``enemies``, by uuid): no harmful splash breaks beside them."""
+        skip = {foe, *enemies}
         return [
             tuple(e["position"])
             for e in state.get("visible_entities") or ()
             if e.get("type") == PLAYER
             and e.get("position")
-            and str(e.get("uuid")) != foe
+            and str(e.get("uuid")) not in skip
             and e.get("name") != self.bot_name
         ]
 
@@ -1186,12 +1187,14 @@ class Session:
             raise JobFailed(f"arena {arena}: {reply.reason}")
         return reply.data or {}
 
-    @staticmethod
-    def _attack_foes(state: dict, status: dict | None, target: dict, found) -> list:
-        """What a splash may be thrown at: every wave mob of an arena match, else the
-        hostiles in sight and the player the owner named."""
+    def _attack_foes(
+        self, state: dict, status: dict | None, target: dict, found
+    ) -> list:
+        """What a splash may be thrown at: every foe of an arena match (its wave mobs
+        and, team against team, the live enemies), else the hostiles in sight and
+        the player the owner named."""
         if status is not None:
-            rows = (status.get("match") or {}).get("wave_mobs") or ()
+            rows = commanded.foes(status.get("match") or {}, self.bot_name)
         else:
             rows = [
                 e
@@ -1213,9 +1216,9 @@ class Session:
             status = None
             if arena is not None:
                 status = self._arena_status(arena)
-                found = commanded.hunt(status, state, chosen)
+                found = commanded.hunt(status, state, chosen, self.bot_name)
                 if found == commanded.NO_MATCH:
-                    raise JobFailed(f"arena {arena} runs no wave match")
+                    raise JobFailed(f"arena {arena} runs no match")
                 if found == commanded.WAITING:
                     progress(stage="waiting", detail=f"{arena}: the next wave")
                     self._recover(body, progress)
@@ -1237,7 +1240,8 @@ class Session:
             if "player" not in target:
                 chosen = found.uuid  # this one, not whichever is nearest next look
             foes = self._attack_foes(state, status, target, found)
-            used = self._consume(body, foes, self._friends(state, found.uuid))
+            enemies = [f.uuid for f in foes if f.type == PLAYER]
+            used = self._consume(body, foes, self._friends(state, found.uuid, enemies))
             if used is not None:
                 progress(step=used)
                 if used["ok"]:
@@ -1278,7 +1282,7 @@ class Session:
                 floor=floor,
                 max_ticks=FIGHT_TICKS,
                 tactic=plan.wire(),
-                allow_player="player" in target,
+                allow_player="player" in target or found.type == PLAYER,
             )
             data = result.data or {}
             tally.add(data)

@@ -19,7 +19,7 @@ def main():
     args = parser.parse_args()
     original_root = dashboard.ROOT
     # The real arena mission (its fields and defaults) from the real catalog.
-    arena = next(t for t in dashboard_suites.test_catalog() if t["id"] == "arena:hunt")
+    arena = next(t for t in dashboard_suites.test_catalog() if t["id"] == "arena")
     with TemporaryDirectory(prefix="mcb-ui-e2e-") as temporary:
         root = Path(temporary)
         dashboard.ROOT = dashboard_runs.ROOT = dashboard_suites.ROOT = root
@@ -74,12 +74,16 @@ def main():
         }
         dashboard_runs.natural_seeds = lambda: []
         server.status = lambda: {"state": "fixture idle"}
-        play_runs.play_state = lambda **_: "stopped"
+        play_runs.server_states = lambda **_: {"play": "stopped", "arena": "stopped"}
         play_runs.where = lambda **_: {
             "servers": {
                 "lab": {"address": "127.0.0.1:25575", "label": "Lab server"},
                 "play": {"address": "127.0.0.1:25565", "label": "Play server"},
+                "arena": {"address": "127.0.0.1:25566", "label": "Arena server"},
             },
+            "arena_server": "arena",
+            "lobby": True,
+            "bot": "MCBot",
             "arenas": {
                 name: {
                     "built": name == "vault",

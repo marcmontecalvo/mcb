@@ -1,13 +1,23 @@
-"""Play-server runs in the lab dashboard: arena actions, arena hunts and combat trials.
+"""Play and arena server runs in the lab dashboard: arena matches, arena tools and
+combat trials.
 
-The dashboard's lab runs drive the lab server; these drive the PLAY server, through
-the same scripts and CLI an operator uses (``scripts/arena-hunt.py``,
-``scripts/combat-trial.py``, ``mcplay arena``), each in a child process bound to the
-play instance. What the dashboard offers is read from the sources, not listed here:
-the arenas are the plan files in ``arenas/``, the wave presets ``arenas/waves/``, the
-weapons and mobs whatever ``combat_trial`` accepts. A new arena, wave preset or
-weapon shows up without a change here; a new kind of play run is one ``PlayRun``
-in ``RUNS`` (and its command). Docs: docs/LAB_UI.md "Arenas and combat".
+The dashboard's lab runs drive the lab server; these drive the two game servers
+people play on, through the same scripts and CLI an operator uses
+(``scripts/arena-hunt.py``, ``scripts/combat-trial.py``, ``mcarena arena``), each
+in a child process bound to its instance:
+
+* the ARENA server (``config/instances/arena.json``): an empty void world. A match
+  builds the lobby and its arena there when they are missing, makes the lobby
+  everyone's spawn and sends the players back to it when the match ends, so the
+  people who join need no operator rights.
+* the PLAY server: the survival world. Combat trials fight there, next to the bot.
+
+What the dashboard offers is read from the sources, not listed here: the arenas are
+the plan files in ``arenas/`` (their teams and team sizes too), the wave presets
+``arenas/waves/``, the weapons and mobs whatever ``combat_trial`` accepts. A new
+arena, wave preset or weapon shows up without a change here; a new kind of run is
+one ``PlayRun`` in ``RUNS`` (and its command). Docs: docs/LAB_UI.md "Arenas and
+combat", docs/ARENA_RUNTIME.md "The arena server".
 """
 
 from __future__ import annotations
@@ -17,72 +27,106 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from mclab.arena.plan import TEAM_NAMES
 from mclab.paths import ROOT
 
 ARENAS = ROOT / "arenas"
 WAVES = ARENAS / "waves"
 SCRIPTS = ROOT / "scripts"
 RESULTS = ROOT / "results"
-INSTANCE = "play"
 SECTION = "Arenas and combat"
+TOOLS_SECTION = "Arena tools"  # advanced: build, stop and remove by hand
+LOBBY = "lobby"  # the arena server's spawn (mclab.arena.world): never a match arena
 COORDINATE_LIMIT = 30_000_000
 WAVE_DELAY = 60  # ticks before each custom wave (arena-hunt.py --delay)
-PLAY_WAIT_S = 300.0  # a cold play server and its bot are ready within this
-READY_WAIT_S = 900.0  # a match waits this long for its players to join and say ready
+SERVER_WAIT_S = 300.0  # a cold server and its bot are ready within this
 DEFAULT_KIT = "sword+axe+spear+bow+trident+shield+armor+food+potions"
 DEFAULT_WEAPONS = "sword,axe,spear,bow"
 DEFAULT_MOBS = "zombie,skeleton,creeper,pig"
-DEFAULT_PLAYERS = "MCBot"
+DEFAULT_BOT = "MCBot"
 _PLAYER = re.compile(r"[A-Za-z0-9_]{1,16}")
-MAX_PLAYERS = 16
-WHERE_TTL_S = 10.0  # the arena list is asked of the play server at most this often
+MAX_PLAYERS = 16  # 8v8
+WHERE_TTL_S = 10.0  # the arena list is asked of the arena server at most this often
+
+# The game servers, and which one each family of run drives.
+SERVERS = ("play", "arena")
+FAMILY_SERVER = {"arena": "arena", "combat": "play"}
 
 # run.<field> -> family; every one is None/False by default (run_config.RunSettings)
 MATERIALS = ("weapon_material", "armor_material")
 FIELDS = {
     "arena": (
-        "arena", "arena_action", "waves", "custom_waves", "kit", *MATERIALS,
-        "players", "corner", "restore", "count", "timeout",
+        "arena", "arena_action", "game", "waves", "custom_waves", "roster", "kit",
+        *MATERIALS, "corner", "restore", "count", "timeout",
     ),
     "combat": ("weapons", "mobs", "spot", *MATERIALS, "count", "timeout"),
 }  # fmt: skip
 FAMILIES = tuple(FIELDS)
 POSITIONS = ("corner", "spot")
 SHARED = ("count", "timeout")  # run fields other families use too
+# game -> (label, help): arena-hunt.py --mode
+GAMES = {
+    "waves": (
+        "PvE",
+        "Everyone on one side against the mob waves; the match is won when the "
+        "last wave is cleared.",
+    ),
+    "teams": (
+        "PvP",
+        "Team against team, bot and people alike; the last team standing wins. "
+        "Mob waves are optional and fight everyone.",
+    ),
+    "race": (
+        "Kill race",
+        "Teams race to kill the most wave mobs; the scoreboard counts each "
+        "team's kills.",
+    ),
+}
+SIDED = ("teams", "race")  # games played on teams
+WAVE_GAMES = ("waves", "race")  # games that need mob waves
+ACTIONS = {
+    "match": "Play a match: the arena server builds the arena when it is missing.",
+    "stop": "End the arena's match and discard its mobs.",
+    "build": "Build the arena at a corner on the arena server.",
+    "remove": "Unregister the arena (Restore clears it to air).",
+}
 # label, help: shown by the dashboard next to the field
 HELP = {
-    "arena": ("Arena", "Which arena. It has to be built on the play server first."),
-    "arena_action": ("Arena action", "hunt, start, stop, build or remove."),
-    "waves": ("Waves", "Which mobs come at the bot, and how many waves of them."),
+    "arena": (
+        "Arena",
+        "Which arena. The arena server builds it the first time it is played.",
+    ),
+    "arena_action": ("Arena action", "match, stop, build or remove."),
+    "game": ("Game", "How the match is won."),
+    "waves": ("Waves", "Which mobs come, and how many waves of them."),
     "custom_waves": (
         "Your waves",
         "Each wave is the mobs that come at once; the next wave comes 3 seconds "
         "after the last one is cleared.",
     ),
+    "roster": (
+        "Players",
+        "The bot, and everyone else in the match: add your own Minecraft name to "
+        "join in. Each person joins the arena server and types /mcb ready; the "
+        "match waits for them. Op makes a person an operator on the arena server.",
+    ),
     "kit": (
         "Kit",
-        "What the bot is handed at the start of each match.",
+        "What every player is handed at the start of each match.",
     ),
     "weapon_material": (
         "Weapon material",
         "What the sword, axe and spear are made of.",
     ),
     "armor_material": ("Armor material", "What the armor is made of."),
-    "players": (
-        "Who fights",
-        "The bot, and anyone else in the match: type your own Minecraft name to "
-        "join in. The match waits for each person named to join and type "
-        "/mcb ready.",
-    ),
     "corner": (
         "Corner",
-        "Where the arena's lowest north-west corner goes (X Y Z on the play server).",
+        "Where the arena's lowest north-west corner goes (X Y Z on the arena server).",
     ),
     "restore": ("Clear the blocks", "Also turn the arena's blocks back into air."),
     "weapons": (
@@ -128,7 +172,9 @@ BY_TEST = {
 
 @dataclass(frozen=True)
 class PlayRun:
-    """One dashboard row: the fields it uses, the ones shown up front, defaults."""
+    """One dashboard row: the fields it uses, the ones shown up front, defaults,
+    the server it drives, the catalog section it sits in and, for an arena row,
+    its arena action."""
 
     id: str
     family: str
@@ -137,51 +183,55 @@ class PlayRun:
     uses: tuple[str, ...]
     basic: tuple[str, ...]
     defaults: dict = field(default_factory=dict)
+    section: str = SECTION
+    action: str | None = None
 
 
-ACTIONS = {
-    "hunt": "The bot clears a waves match on its own, measured.",
-    "start": "Start a waves match for you (and anyone named) to play.",
-    "stop": "End the arena's match and discard its mobs.",
-    "build": "Build the arena at a corner on the play server.",
-    "remove": "Unregister the arena (Restore clears it to air).",
-}
+def _slot(name: str, team: str | None = None, op: bool = False) -> dict:
+    """A roster entry (run_config.RosterEntry)."""
+    return {"name": name, "team": team, "op": op}
+
+
 RUNS = (
     PlayRun(
-        "arena:hunt", "arena", "Bot clears an arena",
-        "The bot fights waves of mobs in a built arena with a full kit, food and "
-        "potions; wins, time and damage taken are recorded.",
-        ("arena", "waves", "custom_waves", "kit", *MATERIALS, "players", "count",
-         "timeout"),
-        ("arena", "waves", "count"),
-        {"players": DEFAULT_PLAYERS, "kit": DEFAULT_KIT},
+        "arena", "arena", "Arena",
+        "A match on the arena server: PvE against mob waves, PvP team against team, "
+        "or a kill race. The bot and people play together; wins, kills, time and "
+        "damage taken are recorded.",
+        ("arena", "game", "roster", "waves", "custom_waves", "kit", *MATERIALS,
+         "count", "timeout"),
+        ("arena", "game", "roster", "waves", "count"),
+        {"game": "waves", "roster": [_slot(DEFAULT_BOT)], "kit": DEFAULT_KIT},
+        action="match",
     ),
     PlayRun(
-        "arena:start", "arena", "Start an arena match", ACTIONS["start"],
-        ("arena", "waves", "custom_waves", "players"),
-        ("arena", "waves", "players"),
-    ),
-    PlayRun(
-        "arena:stop", "arena", "Stop an arena match", ACTIONS["stop"],
-        ("arena",), ("arena",),
+        "arena:stop", "arena", "Stop an arena's match", ACTIONS["stop"],
+        ("arena",), ("arena",), section=TOOLS_SECTION, action="stop",
     ),
     PlayRun(
         "arena:build", "arena", "Build an arena", ACTIONS["build"],
-        ("arena", "corner"), ("arena", "corner"),
+        ("arena", "corner"), ("arena", "corner"), section=TOOLS_SECTION,
+        action="build",
     ),
     PlayRun(
         "arena:remove", "arena", "Remove an arena", ACTIONS["remove"],
-        ("arena", "restore"), ("arena", "restore"),
+        ("arena", "restore"), ("arena", "restore"), section=TOOLS_SECTION,
+        action="remove",
     ),
     PlayRun(
         "combat", "combat", "Combat trials",
-        "Each weapon against each mob, one fight at a time, measured (kill rate, "
-        "time to kill, health left).",
+        "Each weapon against each mob, one fight at a time on the play server, "
+        "measured (kill rate, time to kill, health left).",
         ("weapons", "mobs", "spot", *MATERIALS, "count", "timeout"),
         ("weapons", "mobs", "count"),
         {"weapons": DEFAULT_WEAPONS, "mobs": DEFAULT_MOBS},
     ),
 )  # fmt: skip
+
+
+def server_for(family: str) -> str | None:
+    """The game server a family of run drives (None: the lab's own runs)."""
+    return FAMILY_SERVER.get(family)
 
 
 # --- choices, read from the files ---------------------------------------------------
@@ -194,8 +244,8 @@ def _stems(directory: Path) -> list[str]:
 
 
 def arena_names() -> list[str]:
-    """Every arena plan (``arenas/<name>.json``)."""
-    return _stems(ARENAS)
+    """Every arena plan (``arenas/<name>.json``) but the arena server's lobby."""
+    return [name for name in _stems(ARENAS) if name != LOBBY]
 
 
 def wave_presets() -> list[str]:
@@ -211,6 +261,8 @@ _plans: dict = {}  # path -> (mtime, plan head): plan files run to 150 KB
 
 
 def _plan_head(path: Path) -> dict:
+    """What the dashboard needs of a plan: its size, capacity, description and
+    team names (in the plan's order)."""
     mtime = path.stat().st_mtime
     cached = _plans.get(path)
     if cached is None or cached[0] != mtime:
@@ -219,8 +271,22 @@ def _plan_head(path: Path) -> dict:
         except ValueError:
             data = {}
         head = {k: data.get(k) for k in ("size", "capacity", "description")}
+        teams = ((data.get("markers") or {}).get("teams")) or {}
+        head["teams"] = list(teams) if isinstance(teams, dict) else []
         cached = _plans[path] = (mtime, head)
     return cached[1]
+
+
+def arena_meta(name: str) -> dict:
+    """An arena's teams, how many fit on a team, and how many players in all."""
+    head = _plan_head(ARENAS / f"{name}.json")
+    per_team = (head.get("capacity") or {}).get("per_team")
+    teams = head["teams"]
+    return {
+        "teams": teams,
+        "per_team": per_team,
+        "players": per_team * len(teams) if isinstance(per_team, int) else None,
+    }
 
 
 def arena_help() -> dict[str, str]:
@@ -260,7 +326,7 @@ def _words(name: str) -> str:
 
 def kit_choices() -> dict:
     """The kit as checkboxes: ``combat_trial.KIT_PARTS`` in its groups, or keep
-    what the bot carries instead."""
+    what each player carries instead."""
     from mclab import combat_trial as ct
 
     options = [
@@ -270,9 +336,9 @@ def kit_choices() -> dict:
     options.append(
         {
             "value": "keep",
-            "label": "Keep what it carries",
+            "label": "Keep what they carry",
             "group": "Instead",
-            "help": "Hand out nothing: the bot fights with whatever it has on it.",
+            "help": "Hand out nothing: everyone fights with whatever they have.",
         }
     )
     return _choices(options, "+", empty="fist", exclusive=["keep"])
@@ -331,18 +397,6 @@ def mob_choices() -> dict:
     )
 
 
-def player_choices() -> dict:
-    bot = {
-        "value": DEFAULT_PLAYERS,
-        "label": f"{DEFAULT_PLAYERS} (the bot)",
-        "group": None,
-        "help": None,
-    }
-    return _choices(
-        [bot], ",", other="Add players by Minecraft name (yours, to join the match)"
-    )
-
-
 def field_families() -> dict[str, list[str]]:
     """run.<field> -> the play families that use it (count and timeout are shared
     with other families, so run_config lists those)."""
@@ -357,16 +411,31 @@ def field_families() -> dict[str, list[str]]:
 def decorate_schema(run: dict) -> None:
     """Fill in the play fields of the run schema (``config_schema``'s
     ``properties.run.properties``): choices read from the files and the catalogs,
-    labels and help, and per-family text for the shared fields. Built each time
-    the dashboard asks, so a new arena, preset or kit part shows up at once."""
+    each arena's teams and team size, labels and help, and per-family text for the
+    shared fields. Built each time the dashboard asks, so a new arena, preset or
+    kit part shows up at once."""
     from mclab import combat_trial as ct
 
-    run["arena"]["enum"] = arena_names()
+    names = arena_names()
+    run["arena"]["enum"] = names
     run["arena"]["enum_help"] = arena_help()
+    run["arena"]["enum_meta"] = {name: arena_meta(name) for name in names}
     run["waves"]["enum"] = wave_presets()
     run["waves"]["enum_help"] = wave_help()
     run["waves"]["custom"] = {"field": "custom_waves", "label": "Make my own waves"}
+    run["waves"]["optional"] = {
+        "field": "game",
+        "values": [g for g in GAMES if g not in WAVE_GAMES],
+        "label": "No mob waves",
+    }
     run["arena_action"]["enum"] = list(ACTIONS)
+    run["game"]["enum"] = list(GAMES)
+    run["game"]["enum_labels"] = {name: label for name, (label, _) in GAMES.items()}
+    run["game"]["enum_help"] = {name: text for name, (_, text) in GAMES.items()}
+    run["game"]["sided"] = list(SIDED)
+    run["roster"].update(
+        format="roster", bot=DEFAULT_BOT, max=MAX_PLAYERS, teams=list(TEAM_NAMES)
+    )
     run["custom_waves"]["format"] = "waves"
     run["custom_waves"]["mobs"] = [
         m for m, group in ct.MOBS.items() if group != ct.ANIMALS
@@ -379,7 +448,6 @@ def decorate_schema(run: dict) -> None:
         ("kit", kit_choices()),
         ("weapons", weapon_choices()),
         ("mobs", mob_choices()),
-        ("players", player_choices()),
     ):
         run[name].update(format="choices", choices=choices)
     for name in POSITIONS:
@@ -398,7 +466,7 @@ def catalog_rows() -> list[dict]:
     for spec in RUNS:
         run = {**spec.defaults}
         if spec.family == "arena":
-            run["arena_action"] = spec.id.partition(":")[2]
+            run["arena_action"] = spec.action
             run["arena"] = _first(arena_names(), "vault")
             if "waves" in spec.uses:
                 run["waves"] = _first(wave_presets(), "mixed-10")
@@ -409,8 +477,8 @@ def catalog_rows() -> list[dict]:
                 "label": spec.label,
                 "family": spec.family,
                 "description": spec.description,
-                "section": SECTION,
-                "server": "play",
+                "section": spec.section,
+                "server": server_for(spec.family),
                 "overrides": {"run": run},
                 "locked_fields": ["run.test", *(f"run.{f}" for f in unused)],
                 "basic_fields": [f"run.{f}" for f in spec.basic],
@@ -450,9 +518,27 @@ def _position(value, name: str) -> None:
         raise ValueError(f"run.{name} must be three whole coordinates")
 
 
+def _check_roster(roster: list[dict] | None) -> None:
+    roster = roster or []
+    if len(roster) > MAX_PLAYERS:
+        raise ValueError(f"a match holds at most {MAX_PLAYERS} players")
+    seen = set()
+    for entry in roster:
+        name = entry["name"]
+        if not _PLAYER.fullmatch(name):
+            raise ValueError(f"{name!r} is not a Minecraft name")
+        if name.lower() in seen:
+            raise ValueError(f"{name} is in the match twice")
+        seen.add(name.lower())
+        if entry["team"] not in (None, *TEAM_NAMES):
+            raise ValueError(
+                f"{name}'s team {entry['team']!r} is not one of {', '.join(TEAM_NAMES)}"
+            )
+
+
 def check(run: dict) -> None:
-    """Refuse bad play-run settings (shape and choices); completeness is
-    ``require``'s, at launch."""
+    """Refuse bad play-run settings (shape and choices); completeness and what the
+    chosen arena can hold are ``require``'s, at launch."""
     from mclab import combat_trial as ct
 
     family = run["test"]
@@ -464,6 +550,8 @@ def check(run: dict) -> None:
     if family == "arena":
         if run["arena_action"] not in (None, *ACTIONS):
             raise ValueError(f"arena action must be one of {', '.join(ACTIONS)}")
+        if run["game"] not in (None, *GAMES):
+            raise ValueError(f"game must be one of {', '.join(GAMES)}")
         if run["arena"] is not None and run["arena"] not in arena_names():
             raise ValueError(
                 f"unknown arena {run['arena']!r}; plans: {', '.join(arena_names())}"
@@ -479,9 +567,7 @@ def check(run: dict) -> None:
             custom_waves(run["custom_waves"])
         if run["kit"] not in (None, "keep"):
             ct.kit(run["kit"], **gear)
-        players = _names(run["players"])
-        if len(players) > MAX_PLAYERS or not all(map(_PLAYER.fullmatch, players)):
-            raise ValueError("players are Minecraft names, comma separated")
+        _check_roster(run["roster"])
         _position(run["corner"], "corner")
     elif family == "combat":
         for name, one in (
@@ -517,19 +603,65 @@ def _gear_args(run: dict) -> list[str]:
     return argv
 
 
+def _game(run: dict) -> str:
+    return run["game"] or "waves"
+
+
+def _roster(run: dict) -> list[dict]:
+    """The match's players; none given is the bot alone (arena-hunt's default)."""
+    return [_slot(DEFAULT_BOT)] if run["roster"] is None else run["roster"]
+
+
+def teams_of(roster: list[dict]) -> dict[str, list[str]]:
+    """team -> its players, teams in the order they first appear."""
+    teams: dict[str, list[str]] = {}
+    for entry in roster:
+        teams.setdefault(entry["team"], []).append(entry["name"])
+    return teams
+
+
+def _require_match(run: dict) -> None:
+    game = _game(run)
+    label = GAMES[game][0]
+    if game in WAVE_GAMES and run["waves"] is None and not run["custom_waves"]:
+        raise ValueError(f"a {label} match needs a wave preset or custom waves")
+    roster = _roster(run)
+    if not roster:
+        raise ValueError("a match needs at least one player")
+    meta = arena_meta(run["arena"])
+    per_team, arena = meta["per_team"], run["arena"]
+    if game not in SIDED:
+        if meta["players"] is not None and len(roster) > meta["players"]:
+            raise ValueError(
+                f"{arena} holds {meta['players']} players; the match has {len(roster)}"
+            )
+        return
+    missing = [e["name"] for e in roster if e["team"] is None]
+    if missing:
+        raise ValueError(f"every player in a {label} match needs a team: {missing[0]}")
+    teams = teams_of(roster)
+    if len(teams) < 2:
+        raise ValueError(f"a {label} match needs players on at least two teams")
+    for team, names in teams.items():
+        if team not in meta["teams"]:
+            raise ValueError(
+                f"{arena} has no {team} team; its teams: {', '.join(meta['teams'])}"
+            )
+        if per_team is not None and len(names) > per_team:
+            raise ValueError(
+                f"team {team} has {len(names)} players; {arena} holds {per_team} a team"
+            )
+
+
 def require(run: dict) -> None:
-    """What a play run needs before it may start."""
+    """What a play run needs before it may start, the roster against the arena."""
     if run["test"] == "arena":
         if run["arena_action"] is None:
             raise ValueError("choose an arena action")
         if run["arena"] is None:
             raise ValueError("choose an arena")
-        if (
-            run["arena_action"] in ("hunt", "start")
-            and run["waves"] is None
-            and not run["custom_waves"]
-        ):
-            raise ValueError("choose a wave preset or custom waves")
+        if run["arena_action"] == "match":
+            _require_match(run)
         if run["arena_action"] == "build" and run["corner"] is None:
             raise ValueError("a build needs the arena's corner X Y Z")
     elif not _names(run["weapons"]) or not _names(run["mobs"]):
@@ -540,7 +672,7 @@ def require(run: dict) -> None:
 
 
 def command(run: dict, out: Path) -> list[str]:
-    """The script and its arguments for a hunt or a combat trial series."""
+    """The script and its arguments for a match series or a combat trial series."""
     if run["test"] == "combat":
         argv = [str(SCRIPTS / "combat-trial.py"), "--weapons", run["weapons"]]
         argv += ["--mobs", run["mobs"], "--repeat", str(run["count"])]
@@ -551,14 +683,22 @@ def command(run: dict, out: Path) -> list[str]:
             # "=": argparse would read a negative coordinate as a flag
             argv.append("--arena=" + ",".join(map(str, run["spot"])))
         return argv
+    game = _game(run)
     argv = [str(SCRIPTS / "arena-hunt.py"), "--arena", run["arena"]]
+    argv += ["--mode", game, "--world"]
     if run["waves"] is not None:
         argv += ["--waves", run["waves"]]
     for wave in _names(run["custom_waves"]):
         argv += ["--wave", wave]
-    players = _names(run["players"])
-    if players:
-        argv += ["--players", *players]
+    roster = _roster(run)
+    if game in SIDED:
+        for team, names in teams_of(roster).items():
+            argv += ["--team", f"{team}={','.join(names)}"]
+    elif roster:
+        argv += ["--players", *(e["name"] for e in roster)]
+    for entry in roster:
+        if entry["op"]:
+            argv += ["--op", entry["name"]]
     if run["kit"] is not None:
         argv += ["--kit", run["kit"]]
     argv += _gear_args(run) + ["--repeat", str(run["count"])]
@@ -567,9 +707,8 @@ def command(run: dict, out: Path) -> list[str]:
     return argv + ["--out", str(out)]
 
 
-def arena_args(run: dict, *, scratch: Path | None = None) -> list[str]:
-    """``mcplay arena`` arguments for an arena action other than a hunt; custom
-    waves for a match go through a waves file in ``scratch``."""
+def arena_args(run: dict) -> list[str]:
+    """``mcarena arena`` arguments for an arena tool (stop, build, remove)."""
     action, name = run["arena_action"], run["arena"]
     if action == "build":
         return ["build", name, "--at", *map(str, run["corner"]), "--wait"]
@@ -577,24 +716,13 @@ def arena_args(run: dict, *, scratch: Path | None = None) -> list[str]:
         return ["remove", name, *(["--restore"] if run["restore"] else [])]
     if action == "stop":
         return ["stop", name]
-    args = ["start", name, "--waves"]
-    if run["custom_waves"]:
-        path = Path(scratch or tempfile.mkdtemp(prefix="mcb-waves-")) / "waves.json"
-        path.write_text(json.dumps(custom_waves(run["custom_waves"])), "utf-8")
-        args.append(str(path))
-    else:
-        args.append(run["waves"])
-    players = _names(run["players"])
-    if not players:
-        return args
-    # the named players join after the server comes up: wait for each to say ready
-    return args + ["--players", *players, "--ready-timeout", str(int(READY_WAIT_S))]
+    raise ValueError(f"arena action {action!r} is not an arena tool")
 
 
-def _env() -> dict:
+def _env(instance: str) -> dict:
     return {
         **os.environ,
-        "MCLAB_INSTANCE": INSTANCE,  # never the lab
+        "MCLAB_INSTANCE": instance,  # never the lab
         "PYTHONUNBUFFERED": "1",
         "PYTHONUTF8": "1",
         "PYTHONIOENCODING": "utf-8",
@@ -617,11 +745,9 @@ def _run_cli(argv: list[str], env: dict) -> tuple[int, str]:
 
 
 def arena_action(run: dict, *, run_cli=_run_cli) -> dict:
-    """One ``mcplay arena`` command on the play server; its JSON answer."""
-    with tempfile.TemporaryDirectory(prefix="mcb-arena-") as scratch:
-        argv = [sys.executable, "-u", "-c", _ARENA_CLI]
-        argv += arena_args(run, scratch=Path(scratch))
-        code, out = run_cli(argv, _env())
+    """One ``mcarena arena`` command on the arena server; its JSON answer."""
+    argv = [sys.executable, "-u", "-c", _ARENA_CLI, *arena_args(run)]
+    code, out = run_cli(argv, _env(server_for("arena")))
     print(out.strip(), flush=True)
     try:
         answer = json.loads(out.strip().splitlines()[-1])
@@ -636,8 +762,9 @@ def arena_action(run: dict, *, run_cli=_run_cli) -> dict:
 
 
 def arena_listing(*, run_cli=_run_cli) -> dict:
-    """``mcplay arena list`` on the play server: every registered arena."""
-    code, out = run_cli([sys.executable, "-u", "-c", _ARENA_CLI, "list"], _env())
+    """``mcarena arena list``: every arena registered on the arena server."""
+    argv = [sys.executable, "-u", "-c", _ARENA_CLI, "list"]
+    code, out = run_cli(argv, _env(server_for("arena")))
     if code != 0:
         raise RuntimeError(f"arena list: exit code {code}")
     try:
@@ -648,7 +775,8 @@ def arena_listing(*, run_cli=_run_cli) -> dict:
 
 SERVER_LABELS = {
     "lab": "Lab server: the flat test world the lab missions run in",
-    "play": "Play server: the survival world with the arenas",
+    "play": "Play server: the survival world the bot lives in",
+    "arena": "Arena server: the lobby and the arenas, floating in an empty world",
 }
 
 
@@ -685,20 +813,30 @@ def where(
     clock=time.monotonic,
     ttl: float = WHERE_TTL_S,
 ) -> dict:
-    """Where to watch: each server's address, and each arena on the play server
-    (built or not, its corner, its spectator box and the command to stand in it).
-    The arena list is asked at most every ``ttl`` seconds."""
+    """Where to watch: each server's address, whether the arena server's lobby is
+    built, and each arena on it (built or not, its corner, its spectator box and
+    the command to stand in it). The arena list is asked at most every ``ttl``
+    seconds."""
     now = clock()
     cached = _where_cache.get(root)
     if cached is not None and cached[0] > now:
         return cached[1]
-    out: dict = {"servers": servers(root), "bot": DEFAULT_PLAYERS, "arenas": {}}
+    out: dict = {
+        "servers": servers(root),
+        "arena_server": server_for("arena"),
+        "bot": DEFAULT_BOT,
+        "lobby": False,
+        "arenas": {},
+    }
     try:
         answer = listing()
         if not answer.get("ok"):
             raise RuntimeError(f"{answer.get('reason')}: {answer.get('detail', '')}")
         for item in answer.get("arenas") or []:
             built = item.get("state") == "built"
+            if item["name"] == LOBBY:
+                out["lobby"] = built
+                continue
             spot = item.get("spectator")
             out["arenas"][item["name"]] = {
                 "built": built,
@@ -734,24 +872,26 @@ def _stop_child(child) -> None:
 
 
 def execute(config: dict, *, spawn=_spawn, run_cli=_run_cli, results=None) -> dict:
-    """Run one play run for the dashboard worker. Hunts and trials write their
-    record and a ``summary.json`` (a history row) to ``results/<family>/<stamp>/``."""
+    """Run one play run for the dashboard worker on its server. Matches and trials
+    write their record and a ``summary.json`` (a history row) to
+    ``results/<family>/<stamp>/``; an arena tool answers at once."""
     from mclab.dashboard_runs import _SHIM
 
     run = config["run"]
     family = run["test"]
-    if family == "arena" and run["arena_action"] != "hunt":
+    if family == "arena" and run["arena_action"] != "match":
         return arena_action(run, run_cli=run_cli)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     folder = Path(results or RESULTS) / family / stamp
     folder.mkdir(parents=True)
+    argv = command(run, folder)
     # The shim turns the dashboard's Ctrl+Break into KeyboardInterrupt in the script.
-    child = spawn([sys.executable, "-u", "-c", _SHIM, *command(run, folder)], _env())
+    child = spawn([sys.executable, "-u", "-c", _SHIM, *argv], _env(server_for(family)))
     try:
         code = child.wait()
     except KeyboardInterrupt:
         _stop_child(child)
-        if family == "arena":  # a hunt left mid-match: end it, or it runs on
+        if family == "arena":  # a match left running: end it, or it plays on
             arena_action({**run, "arena_action": "stop"})
         raise
     records = sorted(p for p in folder.glob("*.json") if p.name != "summary.json")
@@ -766,7 +906,7 @@ def execute(config: dict, *, spawn=_spawn, run_cli=_run_cli, results=None) -> di
         "run_id": stamp,
     }
     if code != 0:
-        result["error"] = f"{Path(command(run, folder)[0]).name} exit code {code}"
+        result["error"] = f"{Path(argv[0]).name} exit code {code}"
     return result
 
 
@@ -777,8 +917,13 @@ def _episode(status: str, seconds) -> dict:
     return row
 
 
+# what a match row says beyond its outcome (arena_hunt.hunt), kept when present
+_MATCH_KEYS = ("reason", "winner", "bot_won", "bot_kills", "kills", "team_kills")
+
+
 def summarize(run: dict, record: dict | None, *, run_id: str) -> dict:
-    """A hunt or trial record as a dashboard history row (results/*/*/summary.json)."""
+    """A match or trial record as a dashboard history row
+    (results/*/*/summary.json)."""
     family = run["test"]
     if family == "arena":
         rows = (record or {}).get("runs") or []
@@ -790,10 +935,14 @@ def summarize(run: dict, record: dict | None, *, run_id: str) -> dict:
                 ),
                 **{k: r.get(k) for k in ("waves_cleared", "waves", "min_health")},
                 "killed_by": r.get("killed_by"),
+                **{k: r[k] for k in _MATCH_KEYS if k in r},
             }
             for r in rows
         ]
-        stage = f"{run['arena']} · {run['waves'] or run['custom_waves']}"
+        parts = [run["arena"], GAMES[_game(run)][0]]
+        if run["waves"] or run["custom_waves"]:
+            parts.append(run["waves"] or run["custom_waves"])
+        stage = " · ".join(parts)
         extra = {"series": (record or {}).get("summary") or {}}
     else:
         rows = (record or {}).get("trials") or []
@@ -825,53 +974,65 @@ def summarize(run: dict, record: dict | None, *, run_id: str) -> dict:
     }
 
 
-# --- the play server ----------------------------------------------------------------
+# --- the play and arena servers -----------------------------------------------------
 
 
-def _client(**kwargs):
+def _client(instance: str, **kwargs):
     from mclab import companion_api, paths
 
-    runtime = paths.instance_paths(INSTANCE).runtime / companion_api.RUNTIME_FILE
+    runtime = paths.instance_paths(instance).runtime / companion_api.RUNTIME_FILE
     return companion_api.ApiClient.from_runtime(runtime, **kwargs)
 
 
-def bot_ready(client=_client) -> bool:
-    """The play bot is spawned and idle-ready (as arena-hunt waits for)."""
+def bot_ready(client=None, *, instance: str = "play") -> bool:
+    """The server's bot is spawned and idle-ready (as arena-hunt waits for)."""
     from mclab.companion_api import ApiUnavailable
 
+    make = client or (lambda: _client(instance))
     try:
-        reply = client().call("status", {}, source="api")
+        reply = make().call("status", {}, source="api")
     except ApiUnavailable:
         return False
     bot = reply.get("result") or {}
     return bot.get("session") == "ready" and bot.get("body_state") == "ready"
 
 
-_cached: dict = {}
+_cached: dict = {}  # instance -> (until, state)
 
 
-def play_state(*, client=None, ttl: float = 5.0, clock=time.monotonic) -> str:
-    """``running`` while the play companion host answers, else ``stopped``. Cached
-    for ``ttl`` seconds: the dashboard asks every second."""
+def server_state(
+    instance: str, *, client=None, ttl: float = 5.0, clock=time.monotonic
+) -> str:
+    """``running`` while the server's companion host answers, else ``stopped``.
+    Cached for ``ttl`` seconds: the dashboard asks every second."""
     from mclab.companion_api import ApiUnavailable
 
     now = clock()
-    if ttl and _cached.get("until", -1.0) > now:
-        return _cached["state"]
-    make = client or (lambda: _client(timeout=1.0))
+    cached = _cached.get(instance)
+    if ttl and cached is not None and cached[0] > now:
+        return cached[1]
+    make = client or (lambda: _client(instance, timeout=1.0))
     try:
         state = "running" if make().health() else "stopped"
     except ApiUnavailable:
         state = "stopped"
-    _cached.update(state=state, until=now + ttl)
+    _cached[instance] = (now + ttl, state)
     return state
 
 
-def _server_state() -> str:
+def server_states(*, client=None, ttl: float = 5.0) -> dict[str, str]:
+    """Each game server's state; ``client(instance)`` makes a host client."""
+    return {
+        name: server_state(name, client=client and client(name), ttl=ttl)
+        for name in SERVERS
+    }
+
+
+def _server_state(instance: str) -> str:
     code, out = _run_cli(
         [sys.executable, "-c",
          "import json\nfrom mclab import server\nprint(json.dumps(server.status()))"],
-        _env(),
+        _env(instance),
     )  # fmt: skip
     try:
         return json.loads(out.strip().splitlines()[-1])["state"]
@@ -879,28 +1040,37 @@ def _server_state() -> str:
         return "unknown"
 
 
-def _start_server() -> None:
+def _start_server(instance: str) -> None:
     code, out = _run_cli(
-        [sys.executable, "-m", "mclab.play_cli", "server", "start"], _env()
-    )
+        [sys.executable, "-c",
+         "import sys\nfrom mclab import play_cli\n"
+         f"raise SystemExit(play_cli.run({instance!r}))",
+         "server", "start"],
+        _env(instance),
+    )  # fmt: skip
     print(out.strip(), flush=True)
     if code != 0:
-        raise RuntimeError(f"mcplay server start failed (exit code {code})")
+        raise RuntimeError(f"the {instance} server did not start (exit code {code})")
 
 
-def ensure_play(
+def ensure_server(
+    instance: str,
     *,
-    ready=bot_ready,
-    state=_server_state,
-    start=_start_server,
-    clock=time.monotonic,
-    sleep=time.sleep,
-    wait: float = PLAY_WAIT_S,
+    ready=None,
+    state=None,
+    start=None,
+    clock=None,
+    sleep=None,
+    wait: float = SERVER_WAIT_S,
 ) -> dict:
-    """Have the play server up with its bot ready: start it if it is stopped, then
+    """Have a game server up with its bot ready: start it if it is stopped, then
     wait for the bot."""
+    ready = ready or (lambda: bot_ready(instance=instance))
     if ready():
         return {"state": "ready", "started": False}
+    state = state or (lambda: _server_state(instance))
+    start = start or (lambda: _start_server(instance))
+    clock, sleep = clock or time.monotonic, sleep or time.sleep
     started = False
     if state() in ("stopped", "exited"):
         start()
@@ -909,8 +1079,8 @@ def ensure_play(
     while not ready():
         if clock() >= deadline:
             raise RuntimeError(
-                f"the play server's bot is not ready after {wait:.0f}s; see "
-                "runtime/instances/play/companion-host.log"
+                f"the {instance} server's bot is not ready after {wait:.0f}s; see "
+                f"runtime/instances/{instance}/companion-host.log"
             )
         sleep(2.0)
     return {"state": "ready", "started": started}

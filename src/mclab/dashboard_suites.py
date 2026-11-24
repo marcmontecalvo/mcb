@@ -26,7 +26,8 @@ SECTIONS = {
     "Getting around": False,
     "Big jobs": False,
     "Obstacle courses": False,
-    "Arenas and combat": False,  # play_runs.SECTION: runs on the play server
+    "Arenas and combat": False,  # play_runs.SECTION: the arena and play servers
+    "Arena tools": True,  # play_runs.TOOLS_SECTION: build, stop, remove by hand
     "Baritone comparison": True,
     "AI model trials": True,
     "Regression checks": True,
@@ -38,8 +39,9 @@ SECTION_TEXT = {
     "Getting around": "Walking, climbing, wading and remembering the way.",
     "Big jobs": "Long tasks from start to finish: tools, mining, building houses.",
     "Obstacle courses": "Set courses to a goal, scored for comparison.",
-    "Arenas and combat": "Fights on the play server: clear an arena, or test "
-    "weapons against mobs.",
+    "Arenas and combat": "Matches on the arena server, PvE or PvP, with the bot "
+    "and friends; or test weapons against mobs on the play server.",
+    "Arena tools": "Build, stop or remove an arena by hand on the arena server.",
     "Baritone comparison": "The same routes run by Baritone, for comparison.",
     "AI model trials": "Language-model planners tried on set tasks.",
     "Regression checks": "Single checks from the qualification battery.",
@@ -372,7 +374,7 @@ def test_catalog():
         )
     for row in rows:
         row.setdefault("server", "lab")
-        if row["server"] == "play":  # play_runs owns its rows' text and fields
+        if row["server"] in play_runs.SERVERS:  # play_runs owns its rows' fields
             row["advanced"] = SECTIONS[row["section"]]
             continue
         locked = ["run.test"]

@@ -643,6 +643,9 @@ def test_the_bridge_routes_arena_ops_to_the_body_mod():
         "arena_status",
         "arena_start",
         "arena_stop",
+        "arena_spawn",
+        "arena_op",
+        "arena_kit",
     )
 
 
@@ -650,3 +653,43 @@ def test_names_match_the_runtime_rule():
     assert re.fullmatch(arena.NAME.pattern, "vault-2_a")
     assert not arena.NAME.fullmatch("Vault")
     assert not arena.NAME.fullmatch("a" * 33)
+
+
+def test_the_world_ops_and_a_match_with_an_exit_send_their_fields():
+    t = FakeTransport()
+    c = client(t)
+    c.start(
+        "hall", "race", waves=[{"mobs": {"minecraft:zombie": 2}}],
+        teams={"red": ["Ann"], "blue": ["Bo"]}, exit=(0, 102, 0),
+    )  # fmt: skip
+    c.start("hall", "teams", teams={"red": ["Ann"], "blue": ["Bo"]}, waves=[])
+    c.spawn((0, 102, 0))
+    c.op("Ann")
+    c.op("Bo", op=False)
+    kit = [{"item": "minecraft:iron_sword", "count": 1}]
+    c.kit(["Ann", "Bo"], kit)
+    fields = [{k: v for k, v in p.items() if k not in arena.ENVELOPE} for p in t.sent]
+    assert fields[0] == {
+        "name": "hall", "mode": "race", "waves": [{"mobs": {"minecraft:zombie": 2}}],
+        "teams": {"red": ["Ann"], "blue": ["Bo"]}, "exit": [0, 102, 0],
+    }  # fmt: skip
+    assert fields[1] == {
+        "name": "hall", "mode": "teams", "teams": {"red": ["Ann"], "blue": ["Bo"]}
+    }, "no waves: a team match without mobs"
+    assert fields[2] == {"position": [0, 102, 0]}
+    assert fields[3] == {"player": "Ann", "operator": True}
+    assert fields[4] == {"player": "Bo", "operator": False}
+    assert fields[5] == {
+        "players": ["Ann", "Bo"],
+        "kit": {"give": kit, "clear_inventory": True, "heal": True, "wear": True},
+    }
+    assert [p["op"] for p in t.sent][2:] == [
+        "arena_spawn", "arena_op", "arena_op", "arena_kit",
+    ]  # fmt: skip
+
+
+def test_a_kit_can_keep_what_each_player_carries():
+    t = FakeTransport()
+    client(t).kit(["Ann"], None)
+    (sent,) = t.sent
+    assert sent["kit"] == {"heal": True}, "no kit: healed, inventory untouched"

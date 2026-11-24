@@ -958,6 +958,38 @@ def crash_site() -> Plan:
     return b.to_plan(Capacity(teams=2, per_team=4, mobs=12))
 
 
+# --- the arena server's lobby (not an arena: never in DESIGNS) ---------------
+
+
+def lobby() -> Plan:
+    """The room the arena server's players spawn in: a sealed, lit hall floating in the void.
+
+    Glass walls look out on the sky; sixteen pads (one red team) hold an 8v8 roster
+    while it waits, and the team entry at the centre is the world spawn.  A match
+    sends its players from here to the arena's pads, and back to the spawn when it
+    ends, so nobody needs to be an operator to play.
+    """
+    wall, floor, glass = _mc("quartz_bricks"), _mc("smooth_quartz"), _mc("glass")
+    trim, glow = _mc("cut_copper"), _mc("sea_lantern")
+    b = Builder("lobby", (25, 12, 25))
+    top = b.top
+    b.shell(wall, interior=((2, 2, 2), (22, top, 22)))
+    b.box((2, 1, 2), (22, 1, 22), floor)
+    for side in range(4):  # a window band in every wall, below the roof
+        with b.rotated(side, (12, 12)):
+            b.box((5, 4, 0), (19, top - 1, 1), glass)
+    b.disc(12, 12, 3, 1, 1, trim)
+    b.point((12, 1, 12), glow)
+    pads = [(x, 2, z) for z in (16, 19) for x in range(5, 21, 2)]
+    for x, _, z in pads:
+        b.point((x, 1, z), trim)
+    b.team("red", pads, entry=(12, 2, 12))
+    b.gallery_north(12, width=4, depth=3, raise_by=3, wall=wall)
+    b.hang_lanterns([(x, z) for x in (5, 12, 19) for z in (9, 14, 20)])
+    b.ensure_light(glow)
+    return b.to_plan(Capacity(teams=1, per_team=len(pads), mobs=0))
+
+
 DESIGNS: dict[str, Callable[..., Plan]] = {
     "vault": vault,
     "duel": duel,

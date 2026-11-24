@@ -16,7 +16,8 @@ public final class ArenaLogic {
     private ArenaLogic() {}
 
     /** The ops the arena runtime owns. */
-    public static final Set<String> OPS = Set.of("arena_build", "arena_remove", "arena_list", "arena_status", "arena_start", "arena_stop");
+    public static final Set<String> OPS = Set.of("arena_build", "arena_remove", "arena_list", "arena_status", "arena_start", "arena_stop",
+            "arena_spawn", "arena_op", "arena_kit");
 
     public static boolean isOperationName(String op) { return OPS.contains(op); }
 
@@ -248,6 +249,124 @@ public final class ArenaLogic {
     /** A vanilla scoreboard team name for one arena's team: 12 characters, unique per arena and team. */
     public static String teamName(String arena, String team) {
         return String.format("mcb_%08x", (arena + "/" + team).hashCode());
+    }
+
+    /** The match's kill board (the sidebar objective): 13 characters, one per arena. */
+    public static String objectiveName(String arena) { return String.format("mcbk_%08x", arena.hashCode()); }
+
+    // ---- the games
+
+    /**
+     * waves: everyone on one side against the mob waves (co-op). teams: team against team, the last team standing wins;
+     * mob waves come too when the match has any. race: teams on their own pads race to kill the most wave mobs.
+     */
+    public static final Set<String> MODES = Set.of("waves", "teams", "race");
+
+    /** Whether the game's players start on their own team's pads (else every pad is one side's). */
+    public static boolean sided(String mode) { return mode.equals("teams") || mode.equals("race"); }
+
+    /** Whether participants may hurt each other: only team against team (and never a teammate: friendly fire is off). */
+    public static boolean pvp(String mode) { return mode.equals("teams"); }
+
+    /** How a match ended: won (by {@code winner} when teams play), else lost; {@code reason} says why when it is not plain. */
+    public record Outcome(boolean won, String winner, String reason) {}
+
+    /**
+     * Whether the match ends this tick, and how; null plays on. {@code step}: the wave clock's answer this tick (null when the
+     * match has no waves); {@code live}: each team's live participants; {@code kills}: each team's wave mob kills.
+     */
+    public static Outcome decide(String mode, Step step, Map<String, Integer> live, Map<String, Integer> kills) {
+        var kind = step == null ? Kind.NONE : step.kind();
+        switch (mode) {
+            case "waves" -> {
+                if (kind == Kind.WON) return new Outcome(true, null, null);
+                if (kind == Kind.LOST) return new Outcome(false, null, "participants_down");
+                return null;
+            }
+            case "teams" -> {
+                var left = teamResult(live);
+                if (left == null) return null;
+                return left.isEmpty() ? new Outcome(false, null, "draw") : new Outcome(true, left, null);
+            }
+            case "race" -> {
+                if (kind != Kind.WON && kind != Kind.LOST) return null;
+                var best = raceWinner(kills);
+                if (best.isEmpty()) return new Outcome(false, null, "draw");
+                return new Outcome(true, best, kind == Kind.LOST ? "participants_down" : null);
+            }
+            default -> throw new ArenaFail("bad_request", "unknown game " + mode);
+        }
+    }
+
+    /** The team with the most kills, or "" when the top is shared (none at all included). */
+    public static String raceWinner(Map<String, Integer> kills) {
+        String best = "";
+        int top = -1;
+        boolean shared = false;
+        for (var entry : kills.entrySet()) {
+            if (entry.getValue() > top) { top = entry.getValue(); best = entry.getKey(); shared = false; }
+            else if (entry.getValue() == top) shared = true;
+        }
+        return shared || top <= 0 ? "" : best;
+    }
+
+    /**
+     * A match's kills: wave mobs per participant (and so per team), and in a team match, enemy players. {@code teamOf}:
+     * every participant's team, "" in co-op; {@code teams}: the teams in plan order.
+     */
+    public static final class Tally {
+        private final Map<String, String> teamOf;
+        private final List<String> teams;
+        private final Map<String, Integer> mobs = new LinkedHashMap<>(), players = new LinkedHashMap<>();
+
+        public Tally(Map<String, String> teamOf, List<String> teams) {
+            this.teamOf = new LinkedHashMap<>(teamOf);
+            this.teams = List.copyOf(teams);
+        }
+
+        /** A wave mob killed by {@code killer}: counted when the killer is a participant. */
+        public boolean mob(String killer) {
+            if (killer == null || !teamOf.containsKey(killer)) return false;
+            mobs.merge(killer, 1, Integer::sum);
+            return true;
+        }
+
+        /** {@code victim} taken down by {@code killer}: counted only for an enemy on another team. */
+        public boolean player(String killer, String victim) {
+            if (killer == null || killer.equals(victim) || !teamOf.containsKey(killer) || !teamOf.containsKey(victim)) return false;
+            String team = teamOf.get(killer);
+            if (team.isEmpty() || team.equals(teamOf.get(victim))) return false;
+            players.merge(killer, 1, Integer::sum);
+            return true;
+        }
+
+        public int mobs(String name) { return mobs.getOrDefault(name, 0); }
+
+        public int players(String name) { return players.getOrDefault(name, 0); }
+
+        /** What the kill board shows for a player: every kill. */
+        public int score(String name) { return mobs(name) + players(name); }
+
+        /** Each team's wave mob kills, every team in plan order (the race's count). */
+        public Map<String, Integer> byTeam() {
+            var out = new LinkedHashMap<String, Integer>();
+            for (var team : teams) out.put(team, 0);
+            mobs.forEach((name, n) -> { var team = teamOf.get(name); if (out.containsKey(team)) out.merge(team, n, Integer::sum); });
+            return out;
+        }
+
+        /** Per participant, in order: mobs, players and team (when there are teams). */
+        public Map<String, Map<String, Object>> rows() {
+            var out = new LinkedHashMap<String, Map<String, Object>>();
+            teamOf.forEach((name, team) -> {
+                var row = new LinkedHashMap<String, Object>();
+                row.put("mobs", mobs(name));
+                row.put("players", players(name));
+                if (!team.isEmpty()) row.put("team", team);
+                out.put(name, row);
+            });
+            return out;
+        }
     }
 
     // ---- tags and small helpers

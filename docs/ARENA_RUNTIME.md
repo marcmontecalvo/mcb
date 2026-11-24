@@ -184,6 +184,52 @@ owned and not hostile (`ActionLogic.pet`).
 second; the file under `results/companion/arena/` keeps every run's samples, steps, damage by
 source, the food and potions used by purpose (`uses`) and the series summary.
 
+### Team games: the bot against players
+
+`arena-hunt.py --mode teams|race --team red=MCBot,Ann --team blue=Bob` plays team matches. The
+bot's foes (`companion_attack.foes`) are the placed wave mobs and, in `teams` mode only, the live
+participants of every team but its own (names matched case-insensitively): it hunts the nearest
+weighted foe as above, fights a player with `allow_player`, and never splashes a harmful potion
+where a teammate would be caught (the enemies are not "friends"). In `race` it hunts only wave
+mobs; teammates are never targets. Each match row keeps the scoreboard (`winner`, per-player
+`kills` with `mob_kills` / `player_kills`, `team_kills`), the bot's own job kills as `bot_kills`,
+and `bot_won` when the bot played on a team; the summary counts `winners` and `bot_wins`. With no
+bot in the roster the script needs no companion host: it starts the match and samples it until it
+ends or times out. `--op NAME` / `--deop NAME` set operator status once before the first match
+(`arena_op`; the bot is skipped), and every player gets the same kit (`arena_kit`).
+
+## The arena server
+
+A third instance, `config/instances/arena.json` (`mcarena`, like `mcplay`; game `25566`, bridge
+`8785`, supervisor `8786`, companion `8787`, LAN on, 20 players): an empty void world (flat, one air
+layer, `the_void` biome, no structures), so people who join need no operator rights and see
+nothing but the lobby and the arenas. The play world is untouched.
+
+`mclab.arena.world.prepare` (`arena-hunt.py --world`, which the dashboard always passes) readies it
+before the first match:
+
+1. the **lobby** (`designs.lobby`, never offered as a match arena): a 25 × 25 lit quartz hall with
+   glass windows and a spectator gallery, built at `LOBBY_ORIGIN` so its entry is `(0, 102, 0)`;
+2. `arena_spawn` at the lobby's entry: everyone who joins (or dies outside a match) starts there;
+3. the chosen arena, when it is not built, at the first free slot east of the lobby
+   (`slot_origin`: `MAX_FOOTPRINT + 64` apart, never overlapping a registered arena). An arena
+   already registered keeps its origin; one left half-built is removed and rebuilt; one still
+   clearing refuses with `arena_busy`. Build progress is echoed (`vault: 40%`); a build that
+   aborts stops the series.
+
+The lobby and the spawn are not left to the first match: the bot joins as soon as the server is
+up, and under the level's spawn there is only void (it fell out of the world at every retry). The
+instance's `companion.spawn: "lobby"` makes the companion host's world spawn
+`world.lobby_world_spawn`, which builds the lobby when it is missing, sets `arena_spawn` and returns
+its entry; the session starts there and comes back there after a death. A lobby that cannot be
+built fails the session start, and the host retries it. Other instances keep the level's spawn
+(`companion.spawn` `"level"`, the default).
+
+The match then takes the players from the lobby to their pads and, at its end, back to the lobby
+(`start`'s `exit`). Matches wait for every named human to join and type `/mcb ready` as before.
+Bootstrapping the instance needs the EULA accepted in `runtime/instances/arena/server/eula.txt`
+(as for play) and the mod installed (`mcarena mod-install` after `scripts/build-mod.ps1`).
+
 ## CLI
 
 ```

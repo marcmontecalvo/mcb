@@ -32,8 +32,20 @@ public final class ArenaRequests {
         public int total() { return mobs.values().stream().mapToInt(Integer::intValue).sum(); }
     }
 
-    /** participants: player names, or null for every player inside the bounds; teams: an explicit team to names map, or null. */
-    public record Start(String name, String mode, List<Wave> waves, List<String> participants, Map<String, List<String>> teams) {}
+    /**
+     * participants: player names, or null for every player inside the bounds; teams: an explicit team to names map, or
+     * null; exit: the cell participants still in the arena are sent to when the match ends (null: they stay).
+     */
+    public record Start(String name, String mode, List<Wave> waves, List<String> participants, Map<String, List<String>> teams,
+                        int[] exit) {}
+
+    /** Give or take away a player's operator status. */
+    public record Op(String player, boolean op) {}
+
+    /** The same kit for each player: the trial op's give, clear_inventory, heal and wear (TrialLogic reads it). */
+    public record Kit(List<String> players, JsonObject kit) {}
+
+    static final Set<String> KIT_FIELDS = Set.of("give", "clear_inventory", "heal", "wear");
 
     private static ArenaFail bad(String detail) { return new ArenaFail("bad_request", detail); }
 
@@ -67,14 +79,18 @@ public final class ArenaRequests {
         return e.getAsBoolean();
     }
 
+    private static int[] cell(JsonElement e, String where) {
+        if (e == null || !e.isJsonArray() || e.getAsJsonArray().size() != 3) throw bad(where + " must be [x,y,z]");
+        var cell = new int[3];
+        for (int i = 0; i < 3; i++) cell[i] = whole(e.getAsJsonArray().get(i), where, -30_000_000, 30_000_000);
+        return cell;
+    }
+
     public static Build parseBuild(JsonObject request) {
         only(request, Set.of("plan", "origin", "name", "dimension"));
         if (!request.has("plan") || !request.get("plan").isJsonObject()) throw bad("plan must be the plan object");
         var plan = ArenaPlan.parse(request.getAsJsonObject("plan"));
-        var origin = request.get("origin");
-        if (origin == null || !origin.isJsonArray() || origin.getAsJsonArray().size() != 3) throw bad("origin must be [x,y,z]");
-        var cell = new int[3];
-        for (int i = 0; i < 3; i++) cell[i] = whole(origin.getAsJsonArray().get(i), "origin", -30_000_000, 30_000_000);
+        var cell = cell(request.get("origin"), "origin");
         String name = request.has("name") ? name(request) : plan.name();
         String dimension = "minecraft:overworld";
         if (request.has("dimension")) {
@@ -95,20 +111,24 @@ public final class ArenaRequests {
         return new Remove(name(request), flag(request, "restore"));
     }
 
+    /**
+     * A match: waves (co-op: waves required, no teams), teams (team against team, waves optional) or race (teams race to
+     * kill the waves: waves required).
+     */
     public static Start parseStart(JsonObject request) {
-        only(request, Set.of("name", "mode", "waves", "participants", "teams"));
+        only(request, Set.of("name", "mode", "waves", "participants", "teams", "exit"));
         String name = name(request), mode = text(request, "mode");
-        if (!mode.equals("waves") && !mode.equals("teams")) throw bad("mode must be waves or teams");
+        if (!ArenaLogic.MODES.contains(mode)) throw bad("mode must be waves, teams or race");
+        if (!ArenaLogic.sided(mode) && request.has("teams")) throw bad("teams belong to the teams and race modes");
         var waves = new ArrayList<Wave>();
-        if (mode.equals("waves")) {
-            if (request.has("teams")) throw bad("teams belong to the teams mode");
+        boolean optional = mode.equals("teams");
+        if (request.has("waves") || !optional) {
             if (!request.has("waves") || !request.get("waves").isJsonArray()) throw bad("waves must be a list of waves");
             var list = request.getAsJsonArray("waves");
-            if (list.isEmpty() || list.size() > MAX_WAVES) throw bad("waves must hold 1.." + MAX_WAVES + " waves");
+            if ((list.isEmpty() && !optional) || list.size() > MAX_WAVES) throw bad("waves must hold 1.." + MAX_WAVES + " waves");
             for (int i = 0; i < list.size(); i++) waves.add(wave(list.get(i), "waves[" + i + "]"));
-        } else if (request.has("waves") && !(request.get("waves").isJsonArray() && request.getAsJsonArray("waves").isEmpty())) {
-            throw bad("the teams mode takes no waves");
         }
+        int[] exit = request.has("exit") ? cell(request.get("exit"), "exit") : null;
         List<String> participants = null;
         Map<String, List<String>> teams = null;
         if (request.has("participants")) participants = players(request.get("participants"), "participants");
@@ -126,7 +146,31 @@ public final class ArenaRequests {
             }
             participants = flat;
         }
-        return new Start(name, mode, List.copyOf(waves), participants == null ? null : List.copyOf(participants), teams);
+        return new Start(name, mode, List.copyOf(waves), participants == null ? null : List.copyOf(participants), teams, exit);
+    }
+
+    /** The world spawn: where new players and everyone without a bed appear (the arena server's lobby). */
+    public static int[] parseSpawn(JsonObject request) {
+        only(request, Set.of("position"));
+        return cell(request.get("position"), "position");
+    }
+
+    /** {@code operator}: true gives operator status, false takes it away (the envelope's own {@code op} names the op). */
+    public static Op parseOp(JsonObject request) {
+        only(request, Set.of("player", "operator"));
+        var player = request.get("player");
+        if (player == null || !player.isJsonPrimitive() || !PLAYER.matcher(player.getAsString()).matches()) throw bad("player must be a player name");
+        if (!request.has("operator")) throw bad("operator must be true or false");
+        return new Op(player.getAsString(), flag(request, "operator"));
+    }
+
+    public static Kit parseKit(JsonObject request) {
+        only(request, Set.of("players", "kit"));
+        var players = players(request.get("players"), "players");
+        if (!request.has("kit") || !request.get("kit").isJsonObject()) throw bad("kit must be an object");
+        var kit = request.getAsJsonObject("kit");
+        for (var key : kit.keySet()) if (!KIT_FIELDS.contains(key)) throw bad("a kit has no " + key + " (only " + KIT_FIELDS + ")");
+        return new Kit(List.copyOf(players), kit.deepCopy());
     }
 
     private static Wave wave(JsonElement e, String where) {

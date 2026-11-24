@@ -195,6 +195,29 @@ def test_the_shipped_play_config_is_valid_and_independent_of_the_lab(monkeypatch
     assert play["companion_port"] not in lab.values()
 
 
+def test_the_shipped_arena_config_is_a_void_world_apart_from_lab_and_play(
+    monkeypatch,
+):
+    monkeypatch.setattr(paths, "INSTANCE", instance_paths("arena"))
+    arena = paths.config()
+    lab = json.loads((ROOT / "config/lab.json").read_text())
+    play = json.loads((ROOT / "config/instances/play.json").read_text())
+    assert arena["lab_mod"] is False and arena["lan"] is True
+    # the bot comes in at the lobby, built first: under the world spawn is only void
+    assert arena["companion"] == {"bot": "default", "spawn": "lobby"}
+    world = arena["world"]
+    assert world["level_type"] == "minecraft:flat"
+    generator = json.loads(world["generator_settings"])
+    assert generator["layers"] == [{"block": "minecraft:air", "height": 1}]
+    assert generator["biome"] == "minecraft:the_void"
+    assert world["generate_structures"] is False
+    assert world["max_players"] >= 17  # 8v8 and the bot
+    ports = {arena[key] for key in paths.config_ports(arena)}
+    others = {lab[k] for k in paths.config_ports(lab)}
+    others |= {play[k] for k in paths.config_ports(play)}
+    assert not ports & others
+
+
 # ----------------------------------------------------------------- bootstrap
 
 ARTIFACTS = {
@@ -265,6 +288,7 @@ def test_play_bootstrap_writes_a_normal_world(monkeypatch, tmp_path):
     assert props["white-list"] == "false"
     assert props["motd"] == "MCB companion"
     assert "generator-settings" not in props
+    assert "generate-structures" not in props
     assert (inst.server / "eula.txt").read_text().endswith("eula=false\n")
     assert (inst.server / "mods/carpet-x.jar").exists()
     assert (inst.server / "mods/fabric-api-x.jar").exists()
@@ -282,6 +306,28 @@ def test_a_lan_bootstrap_binds_the_game_port_on_every_interface(monkeypatch, tmp
         monkeypatch, tmp_path / "lab", "lab", {**LAB_SETTINGS, "lan": True}
     )
     assert lab["server-ip"] == ""
+
+
+def test_arena_bootstrap_writes_an_empty_void_world(monkeypatch, tmp_path):
+    void = (
+        '{"layers":[{"block":"minecraft:air","height":1}],"biome":"minecraft:the_void"}'
+    )
+    world = {
+        **PLAY_SETTINGS["world"],
+        "level_type": "minecraft:flat",
+        "generator_settings": void,
+        "generate_structures": False,
+        "max_players": 20,
+        "motd": "MCB arena",
+    }
+    settings = {**PLAY_SETTINGS, "game_port": 25566, "world": world}
+    _, props, _ = _bootstrap(monkeypatch, tmp_path, "arena", settings)
+    assert props["level-type"] == "minecraft:flat"
+    assert props["generator-settings"] == void
+    assert props["generate-structures"] == "false"
+    assert props["max-players"] == "20"
+    assert props["motd"] == "MCB arena"
+    assert props["spawn-protection"] == "0"
 
 
 def test_lab_bootstrap_still_writes_the_flat_lab_world(monkeypatch, tmp_path):

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "minecraft": "26.3",
+  "server_host": "127.0.0.1",
+  "lan": true,
+  "game_port": 25566,
+  "bridge_port": 8785,
+  "supervisor_port": 8786,
+  "companion_port": 8787,
+  "heap_gb": 4,
+  "online_mode": true,
+  "lab_mod": false,
+  "world": {
+    "seed": 20261124,
+    "level_type": "minecraft:flat",
+    "generator_settings": "{\"layers\":[{\"block\":\"minecraft:air\",\"height\":1}],\"biome\":\"minecraft:the_void\",\"structure_overrides\":[]}",
+    "generate_structures": false,
+    "max_players": 20,
+    "difficulty": "normal",
+    "view_distance": 10,
+    "simulation_distance": 8,
+    "motd": "MCB arena"
+  },
+  "companion": {
+    "bot": "default",
+    "spawn": "lobby"
+  }
+}

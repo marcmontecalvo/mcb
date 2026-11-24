@@ -535,5 +535,22 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   `online-mode` stays on, so joining still needs a real account. The lab keeps
   loopback. `mclab server start` still refuses a `server.properties` whose
   `server-ip` differs from the config, and says what to write.
+- **Arena matches get their own server: a void world with a lobby (Nov 24).** Marc
+  wanted PvE, PvP and kill-race matches with friends who are not operators, teams of
+  2v2 to 8v8, and a real stop. Choices: a third instance (`arena`, `mcarena`, game port
+  25566, LAN) with an empty void world, so the play world is untouched and nobody needs
+  `/tp`; a lobby at spawn that the first match builds (`mclab.arena.world`), arenas
+  built beside it on demand, and the match taking players from the lobby to their pads
+  and back (`start`'s `exit`). The dashboard collapses to two cards, **Arena** (one
+  wizard: arena, game, players with teams and an Op box, waves, matches) and **Combat
+  trials**; build, stop and remove go to an advanced **Arena tools** section, kept for
+  random worlds later. Every match runs through the long-lived `arena-hunt.py` job (the
+  old **Start an arena match** row returned at once, so the dashboard thought nothing
+  ran and could not stop it); cancelling it stops the match on the arena server. The
+  roster is a list of `{name, team, op}` (`RosterEntry`) checked against the arena's
+  own teams and `per_team` from its plan before launch. In a team game the bot fights
+  the other teams' players as well as wave mobs; a teammate is never a target and never
+  in a harmful splash. Phase 1 has one bot; two bots and an "add a bot" button come
+  next.
 - **Open:** rotating a long session's `events.sqlite3`, and the live night test of the
   defence (built, not yet run against real mobs).

@@ -24,7 +24,13 @@ import {
   sessionName,
   splitSessions,
 } from "./model";
-import { type ServerName, ServerChips, WatchCard } from "./Watch";
+import {
+  SERVER_LABELS,
+  SERVER_NAMES,
+  type ServerName,
+  ServerChips,
+  WatchCard,
+} from "./Watch";
 
 type Test = {
   id: string;
@@ -241,7 +247,11 @@ function App() {
     }
   }
   const status = String(snapshot.status?.state || "unknown");
-  const playStatus = String(snapshot.status?.play || "unknown");
+  const states: Record<ServerName, string> = {
+    lab: status,
+    play: String(snapshot.status?.play || "unknown"),
+    arena: String(snapshot.status?.arena || "unknown"),
+  };
   async function start() {
     if (!(await resolve())) return;
     try {
@@ -250,10 +260,9 @@ function App() {
       const servers = new Set(
         entries.map((e) => tests.find((t) => t.id === e.test_id)?.server || "lab"),
       );
-      const booting = [
-        servers.has("lab") && status !== "running" && "lab",
-        servers.has("play") && playStatus !== "running" && "play",
-      ].filter(Boolean);
+      const booting = SERVER_NAMES.filter(
+        (which) => servers.has(which) && states[which] !== "running",
+      );
       setNotice(
         booting.length
           ? `Starting the ${booting.join(" and ")} server first (a minute or two), then your missions run.`
@@ -267,7 +276,7 @@ function App() {
     try {
       await api("/api/start", "POST", {
         kind: "setup",
-        operation: which === "lab" ? "server-start" : "play-start",
+        operation: which === "lab" ? "server-start" : `${which}-start`,
       });
       setNotice(`Starting the ${which} server. Its badge says running when it's ready.`);
     } catch (e) {
@@ -417,7 +426,7 @@ function App() {
                     </p>
                   </div>
                   <ServerChips
-                    states={{ lab: status, play: playStatus }}
+                    states={states}
                     where={where}
                     start={startServer}
                   />
@@ -484,7 +493,7 @@ function App() {
                                     <strong>{t.label}</strong>
                                     <small>{t.description}</small>
                                     <span className="count">
-                                      {t.server === "play" ? "Play server" : "Lab server"}
+                                      {SERVER_LABELS[t.server || "lab"]}
                                       {picked ? ` · in your list${picked > 1 ? ` ×${picked}` : ""}` : ""}
                                     </span>
                                   </button>

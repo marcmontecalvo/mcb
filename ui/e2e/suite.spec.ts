@@ -62,17 +62,49 @@ test("choose, set up, save, check, start and follow a mixed list", async ({
   expect(errors).toEqual([]);
 });
 
-test("an arena hunt with my own waves, a lighter kit and diamond weapons", async ({
+test("an arena match: PvP with a friend, then PvE with my own waves", async ({
   page,
 }, info) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  const start = page.locator(".queue-actions").getByRole("button", { name: /Start$/ });
+  async function checked() {
+    const resolving = page.waitForResponse((r) => r.url().endsWith("/api/resolve"));
+    await page.getByRole("button", { name: "Check run list" }).click();
+    const [job] = (await (await resolving).json()).jobs;
+    return job.run_config.run;
+  }
   await page.goto("/");
-  await pick(page, "Arenas and combat", "Bot clears an arena");
+  await pick(page, "Arenas and combat", "Arena");
   await page.getByLabel("Arena", { exact: true }).selectOption("vault");
   await expect(page.getByText("/tp @s -325 82 -56")).toBeVisible();
   await page.getByLabel("Arena", { exact: true }).selectOption("duel");
-  await expect(page.getByText("Not built on the play server yet")).toBeVisible();
+  await expect(page.getByText("Not built yet: the arena server builds it")).toBeVisible();
+  // PvP: everyone goes on a team, the friend added is made an operator.
+  await page.getByLabel("Game", { exact: true }).selectOption({ label: "PvP" });
+  await page.getByLabel("Waves", { exact: true }).selectOption({ label: "No mob waves" });
+  await page.getByLabel("New player's Minecraft name").fill("Ann");
+  await page.getByRole("button", { name: "+ Add player" }).click();
+  await expect(page.locator(".team-counts")).toHaveText("Red 1/2 · Blue 1/2");
+  await page.getByLabel("Ann is an operator").check();
+  await expect(page.getByLabel("MCBot is an operator")).toBeDisabled();
+  expect(await checked()).toMatchObject({
+    arena: "duel",
+    game: "teams",
+    waves: null,
+    custom_waves: null,
+    roster: [
+      { name: "MCBot", team: "red", op: false },
+      { name: "Ann", team: "blue", op: true },
+    ],
+  });
+  // Both on one team is no team game: Start waits until it is fixed.
+  await page.getByLabel("Ann team").selectOption("red");
+  await expect(page.getByText("A team game needs players on at least two teams.")).toBeVisible();
+  await expect(start).toBeDisabled();
+  // PvE: one side against the waves, no teams.
+  await page.getByLabel("Game", { exact: true }).selectOption({ label: "PvE" });
+  await expect(page.locator(".team-counts")).toHaveCount(0);
   await page.getByLabel("Arena", { exact: true }).selectOption("vault");
   await page.getByLabel("Waves", { exact: true }).selectOption({ label: "Make my own waves…" });
   await page.getByLabel("Wave 1 mob 1").selectOption("skeleton");
@@ -83,19 +115,21 @@ test("an arena hunt with my own waves, a lighter kit and diamond weapons", async
   await page.getByRole("checkbox", { name: /^Potions/ }).uncheck();
   await page.getByLabel("Weapon material").selectOption("diamond");
   await expect(page.locator(".run-item small")).toContainText("skeleton*3,creeper*2");
-  const resolving = page.waitForResponse((r) => r.url().endsWith("/api/resolve"));
-  await page.getByRole("button", { name: "Check run list" }).click();
-  const [job] = (await (await resolving).json()).jobs;
-  expect(job.run_config.run).toMatchObject({
+  expect(await checked()).toMatchObject({
     arena: "vault",
+    game: "waves",
     waves: null,
     custom_waves: "skeleton*3,creeper*2",
+    roster: [
+      { name: "MCBot", team: null, op: false },
+      { name: "Ann", team: null, op: true },
+    ],
     kit: "sword+axe+spear+bow+trident+shield+armor+food",
     weapon_material: "diamond",
     armor_material: null,
   });
-  // Ticking "keep what it carries" clears the rest of the kit.
-  await page.getByRole("checkbox", { name: /^Keep what it carries/ }).check();
+  // Ticking "keep what they carry" clears the rest of the kit.
+  await page.getByRole("checkbox", { name: /^Keep what they carry/ }).check();
   await expect(page.getByRole("checkbox", { name: /^Sword/ })).not.toBeChecked();
   // Removing every wave blocks Start instead of sending an empty list.
   await page.getByRole("button", { name: "Remove wave" }).first().click();
