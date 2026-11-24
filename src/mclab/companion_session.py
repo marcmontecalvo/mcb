@@ -78,6 +78,7 @@ OUTCOME_FIELDS = (
     "lance", "charge_log",  # a spear charge's ticks per move and first hits (small)
     "kill_types",  # kills by mob type: an evoker's vexes are not the evoker
     "hurt_by", "killed_by",  # damage taken per source type; what landed the last
+    "raises", "block_ticks",  # the shield: times raised, ticks up
 )  # fmt: skip
 DEFEND_WAIT_TICKS = 10  # a step that could do nothing waits this long
 FLEE_DISTANCE = 12  # blocks: one flee step

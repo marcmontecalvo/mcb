@@ -69,7 +69,8 @@ def test_summary_adds_the_steps_and_keeps_the_order_of_actions():
                ticks=40, health=18.0, damage=12.5, flees=1, closest=3.4),
         _event(3, "chat_out", text="hi"),
         _event(4, "defense_step", action="fight", ok=True, kills=1, hits=1, crits=1,
-               ticks=25, health=17.0, end="clear", damage=7.5, flees=1, closest=4.1),
+               ticks=25, health=17.0, end="clear", damage=7.5, flees=1, closest=4.1,
+               raises=3, block_ticks=40),
     ]  # fmt: skip
 
     s = ct.summarize(events)
@@ -85,6 +86,8 @@ def test_summary_adds_the_steps_and_keeps_the_order_of_actions():
         "jumps": 0,
         "ticks": 65,
         "flees": 2,
+        "raises": 3,  # the shield: times raised, and ticks up
+        "block_ticks": 40,
         "closest": 3.4,  # the nearest any step let its target come
         "health": 17.0,
         "ends": ["clear"],

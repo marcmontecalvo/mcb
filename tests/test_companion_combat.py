@@ -77,6 +77,19 @@ def test_a_ravager_is_shot_from_range_and_never_met_in_melee():
     assert cc.mob_health(M + "ravager") == 100
 
 
+def test_a_ravager_is_met_behind_a_shield_when_the_bot_carries_one():
+    # a blocked bite can stun it (the opening to strike); the shield in the off
+    # hand is the mod's to raise, the tactic only picks the swing weapon
+    kit = inv("iron_sword", "iron_axe", "bow", "shield", arrows=64)
+    t = cc.tactic(M + "ravager", kit)
+    assert (t.style, t.weapon) == ("melee", M + "iron_axe")
+    no_bow = cc.tactic(M + "ravager", inv("iron_sword", "shield"))
+    assert (no_bow.style, no_bow.weapon) == ("melee", M + "iron_sword")
+    # a shield and nothing to swing: the bow as before, and with nothing, run
+    assert cc.tactic(M + "ravager", inv("shield", "bow", arrows=64)).style == "snipe"
+    assert cc.tactic(M + "ravager", inv("shield")).style == "avoid"
+
+
 def test_raiders_that_shoot_are_shot_back():
     for kind in ("pillager", "illusioner"):
         t = cc.tactic(M + kind, inv("iron_sword", "bow", arrows=64))

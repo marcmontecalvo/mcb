@@ -285,6 +285,10 @@ final class BodyEntity {
         private final java.util.List<Map<String, Object>> fleeLog = new java.util.ArrayList<>();
         /** The mobs this tick ({x, z}), steered away from by a flee. */
         private final java.util.List<double[]> around = new java.util.ArrayList<>();
+        /** The mobs the fight sees this tick (a raised shield answers any of them, not just the target). */
+        private final java.util.List<LivingEntity> near = new java.util.ArrayList<>();
+        /** Times the shield went up, and ticks it was up. */
+        private int raises, blockTicks;
         /** Poke: the eye-to-box gap a tick ago (NaN for a new target), to lead the band by its closing. */
         private double lastEye = Double.NaN;
         /** The nearest the target came (feet to feet), the fuse margin's evidence. */
@@ -418,7 +422,8 @@ final class BodyEntity {
             LivingEntity target = entities.get(pick.uuid());
             track(target);
             around.clear();
-            for (var e : entities.values()) around.add(new double[] {e.getX(), e.getZ()});
+            near.clear();
+            for (var e : entities.values()) { around.add(new double[] {e.getX(), e.getZ()}); near.add(e); }
             double distance = Math.sqrt(player.distanceToSqr(target));
             closest = Math.min(closest, distance);
             if (noPathSince >= 0) {
@@ -430,10 +435,10 @@ final class BodyEntity {
             switch (tactic.style()) {
                 case "snipe" -> {
                     if (CombatLogic.snipeClose(distance, tactic.melee() != null)) { stopDraw(player); melee(player, target, tactic.melee()); }
-                    else snipe(player, target, distance);
+                    else { lowerShield(player); snipe(player, target, distance); }
                 }
-                case "poke" -> poke(player, target);
-                case "lance" -> lance(player, target, distance);
+                case "poke" -> { lowerShield(player); poke(player, target); }
+                case "lance" -> { lowerShield(player); lance(player, target, distance); }
                 case "hit_and_back" -> hitAndBack(player, target, distance);
                 default -> melee(player, target, params.weapon());  // melee and hunt
             }
@@ -447,6 +452,53 @@ final class BodyEntity {
         }
 
         /**
+         * The off-hand shield (ShieldLogic): up while a melee mob would reach the body before a late raise blocks,
+         * down the tick a strike is ready in reach. One an axe disabled is on cooldown: none until it ends.
+         */
+        private void guard(ServerPlayer player, boolean reach) {
+            ItemStack off = player.getOffhandItem();
+            boolean shield = off.has(DataComponents.BLOCKS_ATTACKS) && !player.getCooldowns().isOnCooldown(off);
+            boolean blocking = shielded(player);
+            if (blocking) blockTicks++;
+            boolean strike = reach && player.getAttackStrengthScale(0.5f) > CombatLogic.STRONG;
+            switch (ShieldLogic.act(shield, blocking, strike, shield && meleeThreat(player))) {
+                case RAISE -> { player.gameMode.useItem(player, player.level(), off, InteractionHand.OFF_HAND); raises++; }
+                case LOWER -> player.stopUsingItem();
+                case HOLD, NONE -> { }
+            }
+        }
+
+        private static boolean shielded(ServerPlayer player) {
+            return player.isUsingItem() && player.getUsedItemHand() == InteractionHand.OFF_HAND;
+        }
+
+        /** A shield the fight raised comes down before a technique that uses the main hand (a draw, a charge). */
+        private void lowerShield(ServerPlayer player) { if (shielded(player)) player.stopUsingItem(); }
+
+        /**
+         * Whether some mob in the fight hits in melee and will be in reach before a raise blocks: archers,
+         * spellcasters and creepers do not swing, and a stunned ravager is the opening to strike, not a threat.
+         */
+        private boolean meleeThreat(ServerPlayer player) {
+            var body = player.getBoundingBox();
+            for (var e : near) {
+                if (e instanceof net.minecraft.world.entity.monster.RangedAttackMob
+                        || e instanceof net.minecraft.world.entity.monster.illager.SpellcasterIllager
+                        || e instanceof net.minecraft.world.entity.monster.Creeper) continue;
+                if (e instanceof net.minecraft.world.entity.monster.Ravager r && r.getStunnedTick() > 0) continue;
+                var box = e.getBoundingBox();
+                double gx = Math.max(0, Math.max(box.minX - body.maxX, body.minX - box.maxX));
+                double gy = Math.max(0, Math.max(box.minY - body.maxY, body.minY - box.maxY));
+                double gz = Math.max(0, Math.max(box.minZ - body.maxZ, body.minZ - box.maxZ));
+                double dx = player.getX() - e.getX(), dz = player.getZ() - e.getZ(), d = Math.hypot(dx, dz);
+                Vec3 v = e.getDeltaMovement();
+                double closing = d < 1e-6 ? 0 : (v.x * dx + v.z * dz) / d;
+                if (ShieldLogic.threatened(Math.sqrt(gx * gx + gy * gy + gz * gz), closing)) return true;
+            }
+            return false;
+        }
+
+        /**
          * Crit melee: jump so the strike on the way down lands where the target will be (CritForecast:
          * in place, backward from a mob walking in, walking or sprinting at one backing off), and step
          * on the ground until a hop will land. Round an obstacle or out of sight, it walks in as before.
@@ -455,6 +507,7 @@ final class BodyEntity {
             holdWeapon(player, weapon);
             aim(player, target);
             boolean reach = inReach(player, target);
+            guard(player, reach);
             if (tactic.crit() && CombatLogic.kind(heldId(player)).crits() && critHere(player) && chase == null
                     && player.hasLineOfSight(target)) {
                 forecastMelee(player, target, reach);
@@ -704,6 +757,7 @@ final class BodyEntity {
         private void hitAndBack(ServerPlayer player, LivingEntity target, double distance) {
             holdWeapon(player, params.weapon());
             boolean reach = inReach(player, target);
+            guard(player, reach);
             String plan = CombatLogic.hitAndBack(retreating, distance, swollen(target), reach, player.getAttackStrengthScale(0.5f));
             switch (plan) {
                 case "strike" -> { aim(player, target); player.setSprinting(true); strike(player, target); retreating = true; }
@@ -742,7 +796,9 @@ final class BodyEntity {
         }
 
         /** Ends a draw without loosing the arrow (the fight turns to its melee weapon). */
-        private void stopDraw(ServerPlayer player) { if (player.isUsingItem()) player.stopUsingItem(); }
+        private void stopDraw(ServerPlayer player) {
+            if (player.isUsingItem() && player.getUsedItemHand() == InteractionHand.MAIN_HAND) player.stopUsingItem();
+        }
 
         private void strike(ServerPlayer player, LivingEntity target) {
             if (BodyEntity.strike(player, target)) crits++;
@@ -852,6 +908,7 @@ final class BodyEntity {
             if (kills.count() > 0) out.put("kill_types", new LinkedHashMap<>(new java.util.TreeMap<>(kills.types())));
             if (!hurt.taken().isEmpty()) out.put("hurt_by", new LinkedHashMap<>(new java.util.TreeMap<>(hurt.taken())));
             if (!player.isAlive() && hurt.last() != null) out.put("killed_by", hurt.last());
+            if (raises > 0) { out.put("raises", raises); out.put("block_ticks", blockTicks); }
             out.put("hits", hits);
             out.put("crits", crits);
             out.put("shots", shots);

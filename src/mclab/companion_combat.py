@@ -23,6 +23,7 @@ SNIPE_KEEP = (8.0, 15.0)  # outside a skeleton's comfort, inside its 15-block ra
 # (a panicked animal zigzags, and the nearer shot lands more often).
 HUNT_KEEP = (0.0, 8.0)
 ARROWS = frozenset({M + "arrow", M + "spectral_arrow", M + "tipped_arrow"})
+SHIELD = M + "shield"
 MELEE_KINDS = ("sword", "axe", "trident", "spear")
 SWING_KINDS = ("sword", "axe", "trident")  # swung through Player.attack: they crit
 # Max health of the animals hunted for drops (LivingEntity attributes, 26.3);
@@ -180,8 +181,10 @@ def _profiles() -> dict[str, Profile]:
         Profile(("snipe", "melee")): "skeleton stray bogged pillager illusioner",
         # the owner's order: the bow, the spear's charge past its fuse, then close in
         Profile(("snipe", "charge", "hit_and_back")): "creeper",
-        # a ravager (100 health, a 12-point bite) is shot as it comes, never met
-        Profile(("snipe",)): "phantom blaze ghast ravager",
+        # a ravager (100 health, a 12-point bite) is met only behind a shield (a
+        # blocked bite can stun it); else it is shot as it comes, never met
+        Profile(("shielded", "snipe")): "ravager",
+        Profile(("snipe",)): "phantom blaze ghast",
         Profile(("melee",), no_gaze=True): "enderman",
         Profile(()): "warden guardian elder_guardian ender_dragon wither",
     }
@@ -333,6 +336,13 @@ def _style(style: str, inventory, target: str = "", wear=None) -> Tactic | None:
         if spear is not None and charge_first(spear, swing, mob_health(target)):
             return Tactic("lance", spear.item, crit=True, melee=swing.item)
         return Tactic("melee", swing.item, crit=True)
+    if style == "shielded":
+        # melee behind the off-hand shield (the mod raises it): each strike drops
+        # it, so the swing weapon with the fewest hits to the kill
+        if inventory.get(SHIELD, 0) <= 0:
+            return None
+        best = _fewest_hits(inventory, SWING_KINDS, mob_health(target))
+        return Tactic("melee", best.item, crit=True) if best else None
     if style == "charge":
         # a creeper: never handed to a swing weapon, outrun after each hit
         spear = _best(inventory, ("spear",))

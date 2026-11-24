@@ -1498,10 +1498,12 @@ def test_defend_reports_the_damage_a_fight_took_and_what_killed_the_body(guard):
     session, _, _ = guard()
     hurt = {"minecraft:ravager": 24.0}
     session.body.fights = [
-        Result(False, "died", {"hurt_by": hurt, "killed_by": "minecraft:ravager"})
-    ]
+        Result(False, "died", {"hurt_by": hurt, "killed_by": "minecraft:ravager",
+                               "raises": 4, "block_ticks": 52})
+    ]  # fmt: skip
     outcome = session.defend(Action("fight", "fighting", target="r1", item=SWORD))
     assert outcome["reason"] == "died"
+    assert (outcome["raises"], outcome["block_ticks"]) == (4, 52)  # the shield's use
     assert (outcome["hurt_by"], outcome["killed_by"]) == (hurt, "minecraft:ravager")
 
 

@@ -61,7 +61,8 @@ ANIMAL_DROPS = {
     "rabbit": "rabbit",
 }
 _NAME = re.compile(r"[a-z][a-z_]{0,31}")
-STEP_SUMS = ("kills", "hits", "crits", "shots", "damage", "jumps", "ticks", "flees")
+STEP_SUMS = ("kills", "hits", "crits", "shots", "damage", "jumps", "ticks", "flees",
+             "raises", "block_ticks")  # fmt: skip
 CHARGE_LOG = 8  # a fight's charge hits kept (the mod reports its first eight)
 
 
@@ -536,7 +537,7 @@ def summary(trials: list[dict]) -> dict:
             "health": _spread([r["health"] for r in rows if _number(r.get("health"))]),
             **{
                 key: _mean(rows, key)
-                for key in ("hits", "crits", "shots", "flees", "damage")
+                for key in ("hits", "crits", "shots", "flees", "damage", "raises")
             },
             "crit_rate": crits / hits if hits else None,
             "ends": dict(Counter(str(r.get("end")) for r in rows)),
