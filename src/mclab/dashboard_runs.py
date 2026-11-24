@@ -123,6 +123,7 @@ def catalog():
 
     value.update(
         tests=dashboard_suites.test_catalog(),
+        sections=dashboard_suites.sections(),
         presets=dashboard_suites.presets(),
         suites=dashboard_suites.list_suites(),
     )

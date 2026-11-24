@@ -53,12 +53,26 @@ def main(argv=None) -> int:
         help="X,Y,Z every trial is fought at (default: where the bot stands at the "
         "start); a bot that drifted more than a few blocks walks back first",
     )
+    parser.add_argument(
+        "--tier",
+        default=ct.DEFAULT_TIER,
+        help=f"sword, axe and spear material ({', '.join(ct.WEAPON_TIERS)})",
+    )
+    parser.add_argument(
+        "--armor",
+        default=ct.DEFAULT_TIER,
+        help=f"armor material ({', '.join(ct.ARMOR_TIERS)})",
+    )
     args = parser.parse_args(argv)
     os.environ.setdefault("MCLAB_INSTANCE", "play")  # never the lab
     weapons = [w for w in args.weapons.split(",") if w]
     mobs = [m for m in args.mobs.split(",") if m]
+    gear = {"tier": args.tier, "armor": args.armor}
     for weapon in weapons:
-        ct.kit(weapon)  # refuse an unknown weapon before anything runs
+        try:  # refuse an unknown weapon or material before anything runs
+            ct.kit(weapon, **gear)
+        except ValueError as error:
+            parser.error(str(error))
     for mob in mobs:
         ct.scene("fist", mob)
     if args.repeat < 1:
@@ -89,6 +103,7 @@ def main(argv=None) -> int:
         arena=arena,
         repeat=args.repeat,
         baseline=baseline,
+        gear=gear,
     )
     record = json.loads(path.read_text(encoding="utf-8"))
     print()

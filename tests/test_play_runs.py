@@ -502,3 +502,215 @@ def test_dashboard_sessions_start_the_play_server_not_the_lab(arenas, monkeypatc
         "details": {"state": "ready"},
     }
     assert called == [1]
+
+
+# --- the dashboard's friendlier fields: checkboxes, materials, help, where to watch ---
+
+
+def _run_schema():
+    return config_schema()["properties"]["run"]["properties"]
+
+
+def _values(field):
+    return [o["value"] for o in field["choices"]["options"]]
+
+
+def test_materials_are_offered_for_hunts_and_trials_from_the_game_lists(arenas):
+    from mclab import combat_trial as ct
+
+    run = _run_schema()
+    assert run["weapon_material"]["enum"] == list(ct.WEAPON_TIERS)
+    assert run["armor_material"]["enum"] == list(ct.ARMOR_TIERS)
+    for name in ("weapon_material", "armor_material"):
+        assert sorted(run[name]["supported_tests"]) == ["arena", "combat"]
+        assert run[name]["placeholder"] == ct.DEFAULT_TIER
+    rows = {row["id"]: row for row in pr.catalog_rows()}
+    assert "run.weapon_material" not in rows["arena:hunt"]["locked_fields"]
+    assert "run.weapon_material" not in rows["combat"]["locked_fields"]
+    assert "run.weapon_material" in rows["arena:start"]["locked_fields"]
+
+
+def test_the_kit_is_checkboxes_from_the_kit_catalog(arenas):
+    from mclab import combat_trial as ct
+
+    kit = _run_schema()["kit"]
+    assert kit["format"] == "choices"
+    assert _values(kit) == [*ct.KIT_PARTS, "keep"]
+    for option in kit["choices"]["options"][:-1]:
+        label, group, text = ct.KIT_PARTS[option["value"]]
+        assert (option["label"], option["group"], option["help"]) == (
+            label,
+            group,
+            text,
+        )
+    assert kit["choices"]["separator"] == "+"
+    assert kit["choices"]["empty"] == "fist"
+    assert kit["choices"]["exclusive"] == ["keep"]
+
+
+def test_weapons_mobs_and_players_are_checkboxes_with_room_for_more(arenas):
+    from mclab import combat_trial as ct
+
+    run = _run_schema()
+    weapons = [p for p, (_, group, _) in ct.KIT_PARTS.items() if group == "Weapons"]
+    assert _values(run["weapons"]) == [*weapons, "fist"]
+    assert _values(run["mobs"]) == list(ct.MOBS)
+    assert _values(run["players"]) == [pr.DEFAULT_PLAYERS]
+    for name in ("weapons", "mobs", "players"):
+        assert run[name]["format"] == "choices"
+        assert run[name]["choices"]["separator"] == ","
+        assert run[name]["choices"]["other"]  # a typed extra: spear+sword, zombie*3
+
+
+def test_waves_offer_the_presets_with_their_text_or_a_wave_builder(arenas):
+    from mclab import combat_trial as ct
+
+    run = _run_schema()
+    assert run["waves"]["custom"]["field"] == "custom_waves"
+    assert run["waves"]["enum_help"]["mixed-10"] == "One mixed wave."
+    assert "vault-raid" not in run["waves"]["enum_help"]  # a bare list: no text
+    assert run["custom_waves"]["format"] == "waves"
+    assert run["custom_waves"]["mobs"] == [
+        m for m, group in ct.MOBS.items() if group != ct.ANIMALS
+    ]
+
+
+def test_each_arena_is_described_from_its_design_and_plan(arenas):
+    from mclab.arena import designs
+
+    (arenas / "vault.json").write_text(
+        json.dumps({"name": "vault", "size": [41, 15, 47], "capacity": {"mobs": 15}})
+    )
+    help_ = _run_schema()["arena"]["enum_help"]
+    first = designs.DESIGNS["vault"].__doc__.strip().splitlines()[0]
+    assert help_["vault"].startswith(first)
+    assert "41 × 47" in help_["vault"] and "15 mobs" in help_["vault"]
+    assert help_["crash_site"]  # a plan without size or capacity still has its text
+
+
+def test_count_and_timeout_say_what_they_mean_for_each_kind_of_run(arenas):
+    run = _run_schema()
+    assert run["count"]["by_test"]["arena"]["label"] == "Matches"
+    assert run["count"]["by_test"]["combat"]["label"] == "Rounds"
+    assert run["timeout"]["by_test"]["arena"]["placeholder"] == "600"
+    assert run["timeout"]["by_test"]["combat"]["placeholder"] == "90"
+    for by in (run["count"]["by_test"], run["timeout"]["by_test"]):
+        assert all(text["help"] for text in by.values())
+
+
+@pytest.mark.parametrize(
+    "family, run",
+    [
+        ("arena", {"weapon_material": "leather"}),
+        ("arena", {"armor_material": "stone"}),
+        ("combat", {"weapon_material": "obsidian"}),
+        ("combat", {"armor_material": "wooden", "weapons": "armor"}),
+    ],
+)
+def test_a_material_the_game_does_not_have_is_refused(arenas, family, run):
+    with pytest.raises(ValueError, match="material"):
+        resolve_config(family, overrides={"run": run})
+
+
+def test_commands_carry_the_materials_only_when_chosen(arenas, tmp_path):
+    hunt = arena(
+        arena_action="hunt",
+        arena="vault",
+        waves="mixed-10",
+        weapon_material="diamond",
+        armor_material="netherite",
+    )
+    argv = pr.command(hunt["run"], tmp_path)
+    assert argv[argv.index("--tier") + 1] == "diamond"
+    assert argv[argv.index("--armor") + 1] == "netherite"
+    trial = combat(weapons="sword", mobs="zombie", weapon_material="wooden")
+    argv = pr.command(trial["run"], tmp_path)
+    assert argv[argv.index("--tier") + 1] == "wooden" and "--armor" not in argv
+    plain = pr.command(
+        arena(arena_action="hunt", arena="vault", waves="mixed-10")["run"], tmp_path
+    )
+    assert "--tier" not in plain and "--armor" not in plain
+
+
+LISTING = {
+    "ok": True,
+    "arenas": [
+        {"name": "vault", "state": "built", "origin": [-345, 77, -60],
+         "spectator": [-325, 82, -56], "match_state": "lost"},
+        {"name": "duel", "state": "planned", "origin": None, "spectator": None},
+    ],
+}  # fmt: skip
+
+
+def _configs(tmp_path):
+    (tmp_path / "config/instances").mkdir(parents=True)
+    (tmp_path / "config/lab.json").write_text(json.dumps({"game_port": 25575}))
+    (tmp_path / "config/instances/play.json").write_text(
+        json.dumps({"game_port": 25565, "server_host": "127.0.0.1"})
+    )
+    return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _fresh_where():
+    pr._where_cache.clear()
+    yield
+    pr._where_cache.clear()
+
+
+def test_where_names_each_server_and_each_arenas_watch_spot(tmp_path):
+    out = pr.where(listing=lambda: LISTING, root=_configs(tmp_path))
+    assert out["servers"]["lab"]["address"] == "127.0.0.1:25575"
+    assert out["servers"]["play"]["address"] == "127.0.0.1:25565"
+    assert out["servers"]["lab"]["label"] and out["servers"]["play"]["label"]
+    assert out["arenas"]["vault"] == {
+        "built": True, "corner": [-345, 77, -60], "spectator": [-325, 82, -56],
+        "match": "lost", "teleport": "/tp @s -325 82 -56",
+    }  # fmt: skip
+    assert out["arenas"]["duel"]["built"] is False
+    assert out["arenas"]["duel"]["teleport"] is None
+    assert "arenas_error" not in out
+
+
+def test_where_still_names_the_servers_when_the_play_server_is_down(tmp_path):
+    def down():
+        raise RuntimeError("bridge port 8775: refused")
+
+    out = pr.where(listing=down, root=_configs(tmp_path))
+    assert out["servers"]["play"]["address"] == "127.0.0.1:25565"
+    assert out["arenas"] == {}
+    assert "refused" in out["arenas_error"]
+    pr._where_cache.clear()
+    refused = pr.where(
+        listing=lambda: {"ok": False, "reason": "unreachable", "detail": "x"},
+        root=_configs(tmp_path / "b"),
+    )
+    assert refused["arenas"] == {} and "unreachable" in refused["arenas_error"]
+
+
+def test_where_asks_the_play_server_at_most_every_few_seconds(tmp_path):
+    calls = []
+    now = [0.0]
+
+    def listing():
+        calls.append(now[0])
+        return LISTING
+
+    root = _configs(tmp_path)
+    for at in (0.0, 5.0, 11.0):
+        now[0] = at
+        pr.where(listing=listing, root=root, clock=lambda: now[0], ttl=10)
+    assert calls == [0.0, 11.0]
+
+
+def test_arena_listing_runs_the_arena_cli_on_the_play_server():
+    seen = {}
+
+    def cli(argv, env):
+        seen.update(argv=argv, env=env)
+        return 0, 'log line\n{"ok": true, "arenas": []}\n'
+
+    assert pr.arena_listing(run_cli=cli) == {"ok": True, "arenas": []}
+    assert seen["argv"][-1] == "list" and seen["env"]["MCLAB_INSTANCE"] == "play"
+    with pytest.raises(RuntimeError, match="exit code 2"):
+        pr.arena_listing(run_cli=lambda argv, env: (2, "Traceback ..."))

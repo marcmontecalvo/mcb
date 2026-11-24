@@ -34,55 +34,94 @@ SECTION = "Arenas and combat"
 COORDINATE_LIMIT = 30_000_000
 WAVE_DELAY = 60  # ticks before each custom wave (arena-hunt.py --delay)
 PLAY_WAIT_S = 300.0  # a cold play server and its bot are ready within this
-DEFAULT_KIT = "all+armor+shield+trident+food+potions"
+DEFAULT_KIT = "sword+axe+spear+bow+trident+shield+armor+food+potions"
 DEFAULT_WEAPONS = "sword,axe,spear,bow"
 DEFAULT_MOBS = "zombie,skeleton,creeper,pig"
 DEFAULT_PLAYERS = "MCBot"
 _PLAYER = re.compile(r"[A-Za-z0-9_]{1,16}")
 MAX_PLAYERS = 16
+WHERE_TTL_S = 10.0  # the arena list is asked of the play server at most this often
 
 # run.<field> -> family; every one is None/False by default (run_config.RunSettings)
+MATERIALS = ("weapon_material", "armor_material")
 FIELDS = {
     "arena": (
-        "arena", "arena_action", "waves", "custom_waves", "kit", "players",
-        "corner", "restore", "count", "timeout",
+        "arena", "arena_action", "waves", "custom_waves", "kit", *MATERIALS,
+        "players", "corner", "restore", "count", "timeout",
     ),
-    "combat": ("weapons", "mobs", "spot", "count", "timeout"),
+    "combat": ("weapons", "mobs", "spot", *MATERIALS, "count", "timeout"),
 }  # fmt: skip
 FAMILIES = tuple(FIELDS)
 POSITIONS = ("corner", "spot")
+SHARED = ("count", "timeout")  # run fields other families use too
 # label, help: shown by the dashboard next to the field
 HELP = {
-    "arena": ("Arena", "An arena plan in arenas/ (build it first)."),
+    "arena": ("Arena", "Which arena. It has to be built on the play server first."),
     "arena_action": ("Arena action", "hunt, start, stop, build or remove."),
-    "waves": ("Waves", "A wave preset in arenas/waves/."),
+    "waves": ("Waves", "Which mobs come at the bot, and how many waves of them."),
     "custom_waves": (
-        "Custom waves",
-        "Instead of a preset: one wave per comma, e.g. pillager*2, "
-        "pillager+vindicator (each after 3 seconds).",
+        "Your waves",
+        "Each wave is the mobs that come at once; the next wave comes 3 seconds "
+        "after the last one is cleared.",
     ),
     "kit": (
         "Kit",
-        "What the bot is handed each match: weapons and extras joined by + "
-        f"(default {DEFAULT_KIT}), or keep for what it carries.",
+        "What the bot is handed at the start of each match.",
     ),
-    "players": ("Players", "Names, comma separated."),
-    "corner": ("Corner", "The arena's minimum corner X Y Z."),
-    "restore": ("Restore", "Clear the arena's blocks to air when removing it."),
+    "weapon_material": (
+        "Weapon material",
+        "What the sword, axe and spear are made of.",
+    ),
+    "armor_material": ("Armor material", "What the armor is made of."),
+    "players": (
+        "Who fights",
+        "The bot, and anyone else in the match: type your own Minecraft name to "
+        "join in.",
+    ),
+    "corner": (
+        "Corner",
+        "Where the arena's lowest north-west corner goes (X Y Z on the play server).",
+    ),
+    "restore": ("Clear the blocks", "Also turn the arena's blocks back into air."),
     "weapons": (
         "Weapons",
-        "Comma separated: sword, axe, spear, bow, trident, shield, armor, fist, "
-        "food, potions or all; join with + for one kit (spear+sword).",
+        "Each weapon ticked is fought with on its own, against each mob.",
     ),
     "mobs": (
         "Mobs",
-        "Comma separated: a mob, or a group like zombie*2+skeleton (an animal alone).",
+        "Each mob ticked is fought on its own, with each weapon.",
     ),
     "spot": (
         "Fight spot",
-        "X Y Z every trial is fought at (blank: where the bot stands).",
+        "X Y Z on the play server where every fight happens. Blank: where the bot "
+        "stands now.",
     ),
 }
+# Per kind of run: run.count and run.timeout mean something different to each.
+BY_TEST = {
+    "count": {
+        "arena": {
+            "label": "Matches",
+            "help": "Matches in a row, each from full health.",
+        },
+        "combat": {
+            "label": "Rounds",
+            "help": "Times round every weapon against every mob.",
+        },
+    },
+    "timeout": {
+        "arena": {
+            "label": "Time limit per match (seconds)",
+            "help": "A match not won by then counts as lost.",
+            "placeholder": "600",
+        },
+        "combat": {
+            "label": "Time limit per fight (seconds)",
+            "help": "A fight not over by then counts as a timeout.",
+            "placeholder": "90",
+        },
+    },
+}  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -110,7 +149,8 @@ RUNS = (
         "arena:hunt", "arena", "Bot clears an arena",
         "The bot fights waves of mobs in a built arena with a full kit, food and "
         "potions; wins, time and damage taken are recorded.",
-        ("arena", "waves", "custom_waves", "kit", "players", "count", "timeout"),
+        ("arena", "waves", "custom_waves", "kit", *MATERIALS, "players", "count",
+         "timeout"),
         ("arena", "waves", "count"),
         {"players": DEFAULT_PLAYERS, "kit": DEFAULT_KIT},
     ),
@@ -135,7 +175,7 @@ RUNS = (
         "combat", "combat", "Combat trials",
         "Each weapon against each mob, one fight at a time, measured (kill rate, "
         "time to kill, health left).",
-        ("weapons", "mobs", "spot", "count", "timeout"),
+        ("weapons", "mobs", "spot", *MATERIALS, "count", "timeout"),
         ("weapons", "mobs", "count"),
         {"weapons": DEFAULT_WEAPONS, "mobs": DEFAULT_MOBS},
     ),
@@ -163,6 +203,189 @@ def wave_presets() -> list[str]:
 
 def _first(names: list[str], preferred: str) -> str | None:
     return preferred if preferred in names else (names[0] if names else None)
+
+
+_plans: dict = {}  # path -> (mtime, plan head): plan files run to 150 KB
+
+
+def _plan_head(path: Path) -> dict:
+    mtime = path.stat().st_mtime
+    cached = _plans.get(path)
+    if cached is None or cached[0] != mtime:
+        try:
+            data = json.loads(path.read_text("utf-8"))
+        except ValueError:
+            data = {}
+        head = {k: data.get(k) for k in ("size", "capacity", "description")}
+        cached = _plans[path] = (mtime, head)
+    return cached[1]
+
+
+def arena_help() -> dict[str, str]:
+    """A line per arena: its design's description, size and mob limit."""
+    from mclab.arena import designs
+
+    out = {}
+    for name in arena_names():
+        head = _plan_head(ARENAS / f"{name}.json")
+        design = designs.DESIGNS.get(name)
+        doc = (design.__doc__ or "") if design else ""
+        text = head.get("description") or " ".join(doc.strip().split("\n\n")[0].split())
+        size, mobs = head.get("size"), (head.get("capacity") or {}).get("mobs")
+        if isinstance(size, list) and len(size) == 3:
+            text += f" {size[0]} × {size[2]} blocks"
+            text += f", up to {mobs} mobs at once." if mobs else "."
+        out[name] = text.strip() or name
+    return out
+
+
+def wave_help() -> dict[str, str]:
+    """The description of each wave preset that has one."""
+    out = {}
+    for name in wave_presets():
+        try:
+            data = json.loads((WAVES / f"{name}.json").read_text("utf-8"))
+        except ValueError:
+            continue
+        if isinstance(data, dict) and data.get("description"):
+            out[name] = data["description"]
+    return out
+
+
+def _words(name: str) -> str:
+    return name.replace("_", " ").capitalize()
+
+
+def kit_choices() -> dict:
+    """The kit as checkboxes: ``combat_trial.KIT_PARTS`` in its groups, or keep
+    what the bot carries instead."""
+    from mclab import combat_trial as ct
+
+    options = [
+        {"value": part, "label": label, "group": group, "help": text}
+        for part, (label, group, text) in ct.KIT_PARTS.items()
+    ]
+    options.append(
+        {
+            "value": "keep",
+            "label": "Keep what it carries",
+            "group": "Instead",
+            "help": "Hand out nothing: the bot fights with whatever it has on it.",
+        }
+    )
+    return _choices(options, "+", empty="fist", exclusive=["keep"])
+
+
+def _choices(
+    options: list[dict],
+    separator: str,
+    *,
+    empty: str | None = None,
+    exclusive: list[str] | None = None,
+    other: str | None = None,
+) -> dict:
+    """A checkbox field (``format: "choices"``): the options, how ticked ones are
+    joined, the value when none is ticked, options that stand alone, and the
+    prompt of a box for names off the list (None: no box)."""
+    return {
+        "options": options,
+        "separator": separator,
+        "empty": empty,
+        "exclusive": exclusive or [],
+        "other": other,
+    }
+
+
+def weapon_choices() -> dict:
+    """Combat-trial weapons: each ticked one is a trial of its own."""
+    from mclab import combat_trial as ct
+
+    options = [
+        {"value": part, "label": label, "group": None, "help": text}
+        for part, (label, group, text) in ct.KIT_PARTS.items()
+        if group == "Weapons"
+    ]
+    fist = {"value": "fist", "label": "Bare hands", "group": None, "help": None}
+    options.append({**fist, "help": "No weapon at all."})
+    return _choices(
+        options,
+        ",",
+        other="Or type kits of their own, joined by +: spear+sword, sword+shield+armor",
+    )
+
+
+def mob_choices() -> dict:
+    from mclab import combat_trial as ct
+
+    options = [
+        {"value": mob, "label": _words(mob), "group": group, "help": None}
+        for mob, group in ct.MOBS.items()
+    ]
+    return _choices(
+        options,
+        ",",
+        other="Or type a group fought at once: zombie*3, zombie*2+skeleton, "
+        "or any other mob's name",
+    )
+
+
+def player_choices() -> dict:
+    bot = {
+        "value": DEFAULT_PLAYERS,
+        "label": f"{DEFAULT_PLAYERS} (the bot)",
+        "group": None,
+        "help": None,
+    }
+    return _choices(
+        [bot], ",", other="Add players by Minecraft name (yours, to join the match)"
+    )
+
+
+def field_families() -> dict[str, list[str]]:
+    """run.<field> -> the play families that use it (count and timeout are shared
+    with other families, so run_config lists those)."""
+    out: dict[str, list[str]] = {}
+    for family, names in FIELDS.items():
+        for name in names:
+            if name not in SHARED:
+                out.setdefault(name, []).append(family)
+    return out
+
+
+def decorate_schema(run: dict) -> None:
+    """Fill in the play fields of the run schema (``config_schema``'s
+    ``properties.run.properties``): choices read from the files and the catalogs,
+    labels and help, and per-family text for the shared fields. Built each time
+    the dashboard asks, so a new arena, preset or kit part shows up at once."""
+    from mclab import combat_trial as ct
+
+    run["arena"]["enum"] = arena_names()
+    run["arena"]["enum_help"] = arena_help()
+    run["waves"]["enum"] = wave_presets()
+    run["waves"]["enum_help"] = wave_help()
+    run["waves"]["custom"] = {"field": "custom_waves", "label": "Make my own waves"}
+    run["arena_action"]["enum"] = list(ACTIONS)
+    run["custom_waves"]["format"] = "waves"
+    run["custom_waves"]["mobs"] = [
+        m for m, group in ct.MOBS.items() if group != ct.ANIMALS
+    ]
+    run["weapon_material"]["enum"] = list(ct.WEAPON_TIERS)
+    run["armor_material"]["enum"] = list(ct.ARMOR_TIERS)
+    for name in MATERIALS:
+        run[name]["placeholder"] = ct.DEFAULT_TIER
+    for name, choices in (
+        ("kit", kit_choices()),
+        ("weapons", weapon_choices()),
+        ("mobs", mob_choices()),
+        ("players", player_choices()),
+    ):
+        run[name].update(format="choices", choices=choices)
+    for name in POSITIONS:
+        run[name]["format"] = "position"
+    for name, (label, text) in HELP.items():
+        run[name].update(label=label, help=text, description=text)
+    for name, by_test in BY_TEST.items():
+        run[name].setdefault("by_test", {}).update(by_test)
 
 
 def catalog_rows() -> list[dict]:
@@ -231,6 +454,11 @@ def check(run: dict) -> None:
     from mclab import combat_trial as ct
 
     family = run["test"]
+    gear = _gear(run)
+    if run["weapon_material"] not in (None, *ct.WEAPON_TIERS):
+        raise ValueError(f"weapon material must be one of {', '.join(ct.WEAPON_TIERS)}")
+    if run["armor_material"] not in (None, *ct.ARMOR_TIERS):
+        raise ValueError(f"armor material must be one of {', '.join(ct.ARMOR_TIERS)}")
     if family == "arena":
         if run["arena_action"] not in (None, *ACTIONS):
             raise ValueError(f"arena action must be one of {', '.join(ACTIONS)}")
@@ -248,13 +476,16 @@ def check(run: dict) -> None:
         if run["custom_waves"] is not None:
             custom_waves(run["custom_waves"])
         if run["kit"] not in (None, "keep"):
-            ct.kit(run["kit"])
+            ct.kit(run["kit"], **gear)
         players = _names(run["players"])
         if len(players) > MAX_PLAYERS or not all(map(_PLAYER.fullmatch, players)):
             raise ValueError("players are Minecraft names, comma separated")
         _position(run["corner"], "corner")
     elif family == "combat":
-        for name, one in (("weapons", ct.kit), ("mobs", lambda m: ct.scene("fist", m))):
+        for name, one in (
+            ("weapons", lambda w: ct.kit(w, **gear)),
+            ("mobs", lambda m: ct.scene("fist", m)),
+        ):
             if run[name] is None:
                 continue
             if not _names(run[name]):
@@ -262,6 +493,26 @@ def check(run: dict) -> None:
             for part in _names(run[name]):
                 one(part)
         _position(run["spot"], "spot")
+
+
+def _gear(run: dict) -> dict:
+    """The kit's materials as ``combat_trial.kit`` takes them (iron unless chosen;
+    the scripts' defaults)."""
+    from mclab import combat_trial as ct
+
+    return {
+        "tier": run["weapon_material"] or ct.DEFAULT_TIER,
+        "armor": run["armor_material"] or ct.DEFAULT_TIER,
+    }
+
+
+def _gear_args(run: dict) -> list[str]:
+    argv = []
+    if run["weapon_material"] is not None:
+        argv += ["--tier", run["weapon_material"]]
+    if run["armor_material"] is not None:
+        argv += ["--armor", run["armor_material"]]
+    return argv
 
 
 def require(run: dict) -> None:
@@ -293,7 +544,7 @@ def command(run: dict, out: Path) -> list[str]:
         argv += ["--mobs", run["mobs"], "--repeat", str(run["count"])]
         if run["timeout"] is not None:
             argv += ["--timeout", str(run["timeout"])]
-        argv += ["--out", str(out)]
+        argv += _gear_args(run) + ["--out", str(out)]
         if run["spot"] is not None:
             # "=": argparse would read a negative coordinate as a flag
             argv.append("--arena=" + ",".join(map(str, run["spot"])))
@@ -306,9 +557,9 @@ def command(run: dict, out: Path) -> list[str]:
     players = _names(run["players"])
     if players:
         argv += ["--players", *players]
-    if run["kit"] is not None and run["kit"] != DEFAULT_KIT:
+    if run["kit"] is not None:
         argv += ["--kit", run["kit"]]
-    argv += ["--repeat", str(run["count"])]
+    argv += _gear_args(run) + ["--repeat", str(run["count"])]
     if run["timeout"] is not None:
         argv += ["--timeout", str(run["timeout"])]
     return argv + ["--out", str(out)]
@@ -377,6 +628,81 @@ def arena_action(run: dict, *, run_cli=_run_cli) -> dict:
         "status": "failed",
         "error": f"{answer.get('reason', 'failed')}: {answer.get('detail', '')}",
     }
+
+
+def arena_listing(*, run_cli=_run_cli) -> dict:
+    """``mcplay arena list`` on the play server: every registered arena."""
+    code, out = run_cli([sys.executable, "-u", "-c", _ARENA_CLI, "list"], _env())
+    if code != 0:
+        raise RuntimeError(f"arena list: exit code {code}")
+    try:
+        return json.loads(out.strip().splitlines()[-1])
+    except (IndexError, ValueError) as error:
+        raise RuntimeError(f"arena list: no answer ({error})") from error
+
+
+SERVER_LABELS = {
+    "lab": "Lab server: the flat test world the lab missions run in",
+    "play": "Play server: the survival world with the arenas",
+}
+
+
+def servers(root: Path = ROOT) -> dict:
+    """The address to join each server at, from its instance config."""
+    from mclab import paths
+
+    out = {}
+    for name, label in SERVER_LABELS.items():
+        try:
+            config = json.loads(
+                paths.instance_paths(name, root=root).config_file.read_text("utf-8")
+            )
+            host = config.get("server_host") or "127.0.0.1"
+            address = f"{host}:{config['game_port']}"
+        except (OSError, ValueError, KeyError):
+            address = None
+        out[name] = {"address": address, "label": label}
+    return out
+
+
+_where_cache: dict = {}
+
+
+def where(
+    *,
+    listing=arena_listing,
+    root: Path = ROOT,
+    clock=time.monotonic,
+    ttl: float = WHERE_TTL_S,
+) -> dict:
+    """Where to watch: each server's address, and each arena on the play server
+    (built or not, its corner, its spectator box and the command to stand in it).
+    The arena list is asked at most every ``ttl`` seconds."""
+    now = clock()
+    cached = _where_cache.get(root)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    out: dict = {"servers": servers(root), "arenas": {}}
+    try:
+        answer = listing()
+        if not answer.get("ok"):
+            raise RuntimeError(f"{answer.get('reason')}: {answer.get('detail', '')}")
+        for item in answer.get("arenas") or []:
+            built = item.get("state") == "built"
+            spot = item.get("spectator")
+            out["arenas"][item["name"]] = {
+                "built": built,
+                "corner": item.get("origin"),
+                "spectator": spot,
+                "match": item.get("match_state"),
+                "teleport": f"/tp @s {spot[0]} {spot[1]} {spot[2]}"
+                if built and spot
+                else None,
+            }
+    except (RuntimeError, OSError, KeyError, TypeError) as error:
+        out["arenas_error"] = str(error)
+    _where_cache[root] = (now + ttl, out)
+    return out
 
 
 def _spawn(argv: list[str], env: dict):

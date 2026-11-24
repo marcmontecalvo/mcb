@@ -1,3 +1,5 @@
+import type { Choices } from "./forms";
+
 export type Json =
   null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Entry = {
@@ -22,6 +24,13 @@ export type Schema = {
   anyOf?: Schema[];
   minimum?: number;
   maximum?: number;
+  // Hints from mclab.play_runs.decorate_schema and run_config.config_schema:
+  enum_help?: Record<string, string>;
+  custom?: { field: string; label: string };
+  choices?: Choices;
+  mobs?: string[];
+  placeholder?: string;
+  by_test?: Record<string, { label?: string; help?: string; placeholder?: string }>;
 };
 export function setPath(
   value: Record<string, Json>,
@@ -159,9 +168,15 @@ export function positionFrom(parts: string[]): number[] | null | undefined {
 type Rec = Record<string, unknown>;
 export const RECENT_RUNS = 5;
 const stateOf = (s: Rec) => String(s.status || s.state || "unknown");
+/** A session is named after the missions asked for; the server-start steps the
+ * dashboard puts in front of them only name a session that has nothing else. */
 export function sessionName(s: Rec): string {
+  if (s.label || s.title) return String(s.label || s.title);
   const jobs = (s.jobs as Rec[] | undefined) || [];
-  return String(s.label || s.title || jobs[0]?.label || jobs[0]?.kind || s.id || "Run");
+  const asked = jobs.filter((j) => j.kind !== "setup");
+  const shown = asked.length ? asked : jobs;
+  const first = shown[0] ? String(shown[0].label || shown[0].kind) : String(s.id || "Run");
+  return asked.length > 1 ? `${first} + ${asked.length - 1} more` : first;
 }
 /** Live activity layout: running sessions, waiting sessions, newest-first finished ones (capped), and how many were cut. */
 export function splitSessions(sessions: Rec[]) {

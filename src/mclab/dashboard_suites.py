@@ -32,6 +32,30 @@ SECTIONS = {
     "Regression checks": True,
     "Developer checks": True,
 }
+# What each section tests, in a line: the dashboard's first question.
+SECTION_TEXT = {
+    "Skills": "One thing at a time: crafting, blocks, animals, chests.",
+    "Getting around": "Walking, climbing, wading and remembering the way.",
+    "Big jobs": "Long tasks from start to finish: tools, mining, building houses.",
+    "Obstacle courses": "Set courses to a goal, scored for comparison.",
+    "Arenas and combat": "Fights on the play server: clear an arena, or test "
+    "weapons against mobs.",
+    "Baritone comparison": "The same routes run by Baritone, for comparison.",
+    "AI model trials": "Language-model planners tried on set tasks.",
+    "Regression checks": "Single checks from the qualification battery.",
+    "Developer checks": "Body and protocol checks for developers.",
+}
+
+
+def sections() -> list[dict]:
+    """Every section in display order: its name, what it tests, and whether it is
+    a lab tool (hidden until asked for)."""
+    return [
+        {"name": name, "description": SECTION_TEXT[name], "advanced": advanced}
+        for name, advanced in SECTIONS.items()
+    ]
+
+
 _COURSE_GOAL = " Goal: reach the oak log, break it and pick it up."
 PLAIN = {
     "companion:crafting": (

@@ -106,6 +106,8 @@ class RunSettings:
     waves: str | None = None
     custom_waves: str | None = None
     kit: str | None = None
+    weapon_material: str | None = None
+    armor_material: str | None = None
     players: str | None = None
     corner: list[int] | None = None
     restore: bool = False
@@ -909,31 +911,23 @@ def config_schema() -> dict:
         "check": ["companion"],
         "arguments": ["companion"],
         "test": list(TESTS),
-        **{
-            name: [family]
-            for family, names in play_runs.FIELDS.items()
-            for name in names
-            if name not in ("count", "timeout")
-        },
+        **play_runs.field_families(),
     }
     for name, families in capabilities.items():
         run[name]["supported_tests"] = families
-    # Play-run choices are read from the files each time (a new arena plan or wave
-    # preset is offered at once); positions are shown as X Y Z inputs.
-    run["arena"]["enum"] = play_runs.arena_names()
-    run["waves"]["enum"] = play_runs.wave_presets()
-    run["arena_action"]["enum"] = list(play_runs.ACTIONS)
-    for name in ("start", "origin", "preview_offset", *play_runs.POSITIONS):
+    # Positions are shown as X Y Z inputs. Play-run choices are read from the files
+    # and catalogs each time (a new arena, wave preset or kit part shows up at once).
+    for name in ("start", "origin", "preview_offset"):
         run[name]["format"] = "position"
-    for name, (label, text) in play_runs.HELP.items():
-        run[name].update(label=label, help=text, description=text)
-    run["count"]["help"] = run["count"]["description"] = (
-        "Courses and models: episodes. Arena hunts: matches in the series. "
-        "Combat trials: times round every weapon and mob."
+    play_runs.decorate_schema(run)
+    run["count"]["by_test"].update(
+        courses={"label": "Episodes", "help": "Times through the course."},
+        models={"label": "Episodes", "help": "Episodes per model."},
     )
-    run["timeout"]["help"] = run["timeout"]["description"] = (
-        "Seconds: per check (battery), per match (arena hunt), per fight (combat)."
-    )
+    run["timeout"]["by_test"]["battery"] = {
+        "label": "Time limit per check (seconds)",
+        "help": "A check not done by then fails.",
+    }
     for name in ("routes", "route_ids", "condition"):
         run[name]["supported_tests"] = []
         run[name]["supported"] = False

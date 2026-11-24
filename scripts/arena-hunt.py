@@ -47,6 +47,16 @@ def main(argv=None) -> int:
         help="the trial kit handed out each run (combat-trial weapons joined by +), "
         "or 'keep' for what the bot carries",
     )
+    parser.add_argument(
+        "--tier",
+        default=ct.DEFAULT_TIER,
+        help=f"the kit's sword, axe and spear material ({', '.join(ct.WEAPON_TIERS)})",
+    )
+    parser.add_argument(
+        "--armor",
+        default=ct.DEFAULT_TIER,
+        help=f"the kit's armor material ({', '.join(ct.ARMOR_TIERS)})",
+    )
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument(
         "--timeout", type=float, default=600.0, help="seconds per match"
@@ -66,7 +76,11 @@ def main(argv=None) -> int:
             else [ah.parse_wave(w, args.delay) for w in args.wave]
         )
         arena.check_waves(waves)
-        kit = None if args.kit == "keep" else ct.kit(args.kit)
+        kit = (
+            None
+            if args.kit == "keep"
+            else ct.kit(args.kit, tier=args.tier, armor=args.armor)
+        )
     except (ValueError, arena.ArenaError) as error:
         parser.error(str(error))
     try:

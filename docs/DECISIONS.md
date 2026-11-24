@@ -508,6 +508,18 @@ design is [COMPANION_LLM_PLAN_2026-11-23.md](COMPANION_LLM_PLAN_2026-11-23.md).
   wave presets, `combat_trial`'s weapons and mobs); a new kind of play run is one
   `PlayRun` entry. Rejected: generating forms from each script's argparse. It loses
   types and choices, and it would let the page run any script with any flag.
+- **The dashboard is a wizard fed by schema hints (Nov 24).** Marc found the
+  one-page form of checkboxes and `+`-joined strings unusable without reading the
+  code. Now: what to test, then which mission, then its settings, into a run list.
+  Fields stay generated: the server adds hints to the schema (help per choice,
+  checkbox catalogs, a wave builder, per-kind labels), so a new kit part, mob,
+  arena or wave preset shows up as a new checkbox or option with its text, and
+  the stored config stays the same plain string the scripts already take.
+  Weapon and armor materials are separate dropdowns (default iron) rather than
+  one checkbox per tier per item, so diamond or netherite gear is one choice. A
+  mace is not offered until the mod's `CombatLogic` knows its smash attack: a
+  kit part the bot cannot fight with would only make runs fail. Rejected: a
+  hand-written form per mission (it drifts from the scripts).
 - **Open:** LAN access for a second PC (the game port binds loopback for now),
   rotating a long session's `events.sqlite3`, and the live night test of the
   defence (built, not yet run against real mobs).

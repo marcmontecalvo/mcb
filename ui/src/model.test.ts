@@ -8,6 +8,7 @@ import {
   supportsSeeds,
   isLocked,
   loadedSuite,
+  sessionName,
 } from "./model";
 describe("suite inputs", () => {
   it("changes a nested override without mutating its source", () => {
@@ -137,5 +138,19 @@ describe("splitSessions", () => {
     expect(r.waiting.map((s) => s.id)).toEqual(["q"]);
     expect(r.recent.map((s) => s.id)).toEqual(["d6", "d5", "d4", "d3", "d2"]);
     expect(r.hidden).toBe(2);
+  });
+});
+describe("session names", () => {
+  it("names a session after what was asked for, not the server it started first", () => {
+    const setup = { kind: "setup", label: "Start play server" };
+    const hunt = { kind: "arena", label: "Bot clears an arena" };
+    const combat = { kind: "combat", label: "Combat trials" };
+    expect(sessionName({ jobs: [setup, hunt] })).toBe("Bot clears an arena");
+    expect(sessionName({ jobs: [setup, hunt, combat] })).toBe(
+      "Bot clears an arena + 1 more",
+    );
+    expect(sessionName({ jobs: [setup] })).toBe("Start play server");
+    expect(sessionName({ label: "Mine", jobs: [setup, hunt] })).toBe("Mine");
+    expect(sessionName({ id: "x" })).toBe("x");
   });
 });

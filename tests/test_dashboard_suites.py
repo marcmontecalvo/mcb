@@ -234,3 +234,13 @@ def test_houses_list_small_and_large_with_friendly_names():
     labels = {h["path"]: h["label"] for h in runs.houses()}
     assert labels["tests/fixtures/schematics/small-house.build.json"] == "Small house"
     assert labels["tests/fixtures/schematics/house-large.build.json"] == "Large house"
+
+
+def test_every_section_says_in_a_line_what_it_tests():
+    sections = suites.sections()
+    assert [s["name"] for s in sections] == list(suites.SECTIONS)
+    for section in sections:
+        assert section["description"]
+        assert section["advanced"] is suites.SECTIONS[section["name"]]
+    used = {row["section"] for row in suites.test_catalog()}
+    assert used <= set(suites.SECTIONS)

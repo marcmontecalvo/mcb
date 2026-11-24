@@ -1062,3 +1062,36 @@ def test_companion_events_stay_stable_among_many_policy_samples(tmp_path):
     rows = runs.companion_events(path, 12)
     assert len(rows) == 12
     assert rows[-1]["result"] == "failed" and rows[-1]["target"] == "[9, 9, 9]"
+
+
+def test_api_where_answers_where_to_watch(workspace, monkeypatch):
+    from mclab import play_runs
+
+    answer = {"servers": {"play": {"address": "127.0.0.1:25565"}}, "arenas": {}}
+    monkeypatch.setattr(play_runs, "where", lambda: answer)
+    with ThreadingHTTPServer(("127.0.0.1", 0), ui.handler(ui.Dashboard())) as http:
+        thread = threading.Thread(target=http.serve_forever, daemon=True)
+        thread.start()
+        connection = HTTPConnection("127.0.0.1", http.server_port)
+        try:
+            connection.request("GET", "/api/where")
+            response = connection.getresponse()
+            assert response.status == 200
+            assert json.loads(response.read()) == answer
+        finally:
+            connection.close()
+            http.shutdown()
+            thread.join(timeout=3)
+
+
+def test_a_job_starts_its_log_with_its_label_when_it_has_one():
+    hunt = {
+        "label": "Bot clears an arena",
+        "entrant": "arena",
+        "kind": "arena",
+        "course": None,
+    }
+    assert ui.start_line(hunt) == "Starting Bot clears an arena"
+    course = {"entrant": "v8_goal", "kind": "courses", "course": "C2"}
+    assert ui.start_line(course) == "Starting v8_goal / C2"
+    assert ui.start_line({"entrant": "x", "kind": "setup"}) == "Starting x / setup"

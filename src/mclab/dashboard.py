@@ -314,6 +314,13 @@ def needs_play_server(job):
     return job.get("kind") in FAMILIES
 
 
+def start_line(job) -> str:
+    """The log line a job starts with: its label, else entrant / course or kind."""
+    if job.get("label"):
+        return f"Starting {job['label']}"
+    return f"Starting {job['entrant']} / {job.get('course') or job['kind']}"
+
+
 def worker(path):
     session = read_json(path)
     done = threading.Event()
@@ -334,10 +341,7 @@ def worker(path):
                     ],
                 )
                 save(path, session)
-                print(
-                    f"Starting {job['entrant']} / {job.get('course', job['kind'])}",
-                    flush=True,
-                )
+                print(start_line(job), flush=True)
                 try:
                     result = runs.execute(job)
                     if job["kind"] == "setup":
@@ -937,6 +941,10 @@ def handler(dashboard):
                             "play": play_runs.play_state(),
                         },
                     )
+                if parsed.path == "/api/where":
+                    from mclab import play_runs
+
+                    return self.reply(200, play_runs.where())
                 if parsed.path == "/api/sessions":
                     return self.reply(200, dashboard.sessions())
                 if parsed.path == "/api/baseline-progress":

@@ -32,6 +32,45 @@ credentials. Without a built `ui/dist`, `/` falls back to the previous page;
 `/legacy` explicitly serves that page when the React app is built. See
 [ui/README.md](../ui/README.md) for build, test, and UI contribution instructions.
 
+### Choosing a mission (Run something)
+
+**Run something** goes in three steps, with a breadcrumb back: **What do you
+want to test?** (one card per catalog section, with its line from
+`dashboard_suites.SECTION_TEXT`; the developer sections show after **Show
+developer tools**), then the section's missions, then the chosen mission's
+settings. Its main fields (`basic_fields`) come first; the rest sit under **More
+settings**, with the preset picker only when a preset applies. Choosing a mission
+adds it to **Your run list** on the right; a row opens its settings again, ✕
+removes it, **Start** runs the list top to bottom and **Check run list** shows
+each run's exact settings. **Saved sets** load and save a list.
+
+The header shows both servers with their state, the address to join (with
+**Copy**) and **Start** when stopped. **Live activity** opens with **Where to
+watch**: the server running the current job, its address and, for an arena, the
+`/tp` into its spectator box (from `GET /api/where`, polled every ten seconds).
+The lab is a flat test world on its own port, so joining it to watch an arena
+shows an empty world. **History & builds** lists results (when, what, who,
+outcome, median time; a row opens its `summary.json`) and house builds.
+
+Fields read hints from `/api/schema` (`mclab.play_runs.decorate_schema`), so a
+new choice is a catalog entry, not UI work:
+
+| Hint | Shown as |
+|---|---|
+| `enum` + `enum_help` | A list with readable names and the chosen item's description under it. |
+| `placeholder` | The default, named in the list ("Iron (default)") or the empty box. |
+| `by_test` | Label, help and placeholder for one family (`count` is Matches, Rounds or Episodes). |
+| `format: "choices"` + `choices` | Grouped checkboxes with one line of help each; `exclusive` options stand alone, `other` adds a box for names off the list, `empty` is the value when nothing is ticked. |
+| `custom` (on `waves`) | A last list item that opens the field it names (`custom_waves`, `format: "waves"`) as a wave builder: waves of mob × count rows from `mobs`. |
+| `format: "position"` | X Y Z boxes; an optional one may stay blank. |
+
+`ui/src/forms.ts` holds the pure helpers (joining checkbox values, the wave text,
+history rows, where to watch), unit-tested in `forms.test.ts`.
+`effects.test.ts` fails the build of any `useEffect(() => expr)`: React calls the
+returned value as the cleanup, and `window.scrollTo` returns a Promise in current
+Chrome, which unmounted the whole app on the first tab switch (the blank Live
+activity and History pages).
+
 ### Catalog, configuration, and queue
 
 The dynamic catalog exposes nine families: gather, build, natural routes,
@@ -79,8 +118,17 @@ play instance (`MCLAB_INSTANCE=play`). `mclab.play_runs` owns these rows:
 The choices come from the files, every time the page loads: **Arena** lists the
 plans in `arenas/*.json`, **Waves** the presets in `arenas/waves/*.json`, and the
 weapons and mobs are whatever `combat_trial` accepts. A new arena plan, wave
-preset or weapon appears without a dashboard change. **Custom waves** takes one
-wave per comma (`pillager*2, pillager+vindicator`) instead of a preset. A new
+preset or weapon appears without a dashboard change. **Make my own waves** opens
+the wave builder; it stores one wave per comma (`pillager*2,pillager+vindicator`)
+in `custom_waves` instead of a preset.
+
+The **Kit** is a checkbox per part of `combat_trial.KIT_PARTS` (weapons,
+protection, supplies), or **Keep what it carries** alone; nothing ticked is bare
+hands. **Weapon material** (sword, axe, spear: `WEAPON_TIERS`, wooden to
+netherite) and **Armor material** (`ARMOR_TIERS`, leather to netherite) both
+default to iron and apply to arena hunts and combat trials alike (`--tier`,
+`--armor`). A new kit part is one `KIT_PARTS` entry and its items in `kit()`; a
+weapon such as the mace needs the mod's `CombatLogic` to fight with it first. A new
 kind of play run is one `PlayRun` entry in `play_runs.RUNS` plus its command;
 each row locks the family fields it does not use, so they are hidden and refused.
 

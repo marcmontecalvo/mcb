@@ -45,9 +45,35 @@ FINAL = ("died", "stopped")  # defence ends nothing takes up again
 ARENA_SLACK = 4.0
 ARENA_WAIT = 120.0
 DONE = ("succeeded", "failed", "cancelled")
-WEAPONS = ("sword", "axe", "spear", "bow", "trident", "shield", "armor", "fist",
-           "food", "potions")  # fmt: skip
+# The parts a kit is made of, in the dashboard's order: part -> (label, group, what
+# it is). A new part is one entry here and its give entries in ``kit``; the dashboard
+# offers it at once. (A mace waits on the bot fighting with one: CombatLogic.kind.)
+KIT_GROUPS = ("Weapons", "Protection", "Supplies")
+KIT_PARTS = {
+    "sword": ("Sword", "Weapons", "Quick hits; a jump makes a critical hit."),
+    "axe": ("Axe", "Weapons", "Slow, heavy hits."),
+    "spear": ("Spear", "Weapons", "Long reach, with a charge attack."),
+    "bow": ("Bow and 64 arrows", "Weapons", "Shoots from range."),
+    "trident": ("Trident", "Weapons", "Thrown or held; Loyalty III brings it back."),
+    "shield": ("Shield", "Protection", "Blocks hits and arrows."),
+    "armor": ("Armor", "Protection", "Helmet, chestplate, leggings and boots."),
+    "food": ("Food", "Supplies", "16 cooked beef and 2 golden apples."),
+    "potions": (
+        "Potions",
+        "Supplies",
+        "Drinks healing, strength, swiftness, regeneration and fire resistance; "
+        "splashes healing on itself; throws harming, weakness, slowness and poison.",
+    ),
+}  # fmt: skip
+WEAPONS = (*KIT_PARTS, "fist")
 ARMOR = ("helmet", "chestplate", "leggings", "boots")
+# Materials, weakest first: the ones the bot's weapon table knows
+# (companion_combat.WEAPONS) and the armor sets the game has.
+WEAPON_TIERS = ("wooden", "stone", "copper", "golden", "iron", "diamond", "netherite")
+ARMOR_TIERS = ("leather", "chainmail", "copper", "golden", "iron", "diamond",
+               "netherite")  # fmt: skip
+DEFAULT_TIER = "iron"
+TIERED = ("sword", "axe", "spear")  # the parts made of the weapon material
 FOOD = ((M + "cooked_beef", 16), (M + "golden_apple", 2))
 # (item, potion, how many): what companion_consumables drinks, splashes on itself
 # and throws. A potion never stacks, so each is a give entry of its own.
@@ -76,6 +102,17 @@ ANIMAL_DROPS = {
     "chicken": "chicken",
     "rabbit": "rabbit",
 }
+# The mobs the dashboard offers, by group (any entity name is accepted): the hostile
+# ones a fight or an arena wave is made of, and the animals hunted for food.
+ANIMALS = "Animals (hunted for food)"
+MOBS = {
+    **dict.fromkeys(
+        ("zombie", "husk", "drowned", "skeleton", "stray", "bogged", "spider",
+         "cave_spider", "creeper", "witch", "pillager", "vindicator"),
+        "Hostile",
+    ),
+    **dict.fromkeys(ANIMAL_DROPS, ANIMALS),
+}  # fmt: skip
 _NAME = re.compile(r"[a-z][a-z_]{0,31}")
 STEP_SUMS = ("kills", "hits", "crits", "shots", "damage", "jumps", "ticks", "flees",
              "raises", "block_ticks")  # fmt: skip
@@ -86,12 +123,15 @@ ALL = "all"  # every weapon the bot chooses between (a raid trial): sword+axe+sp
 ALL_PARTS = ("sword", "axe", "spear", "bow")
 
 
-def kit(weapon: str, *, tier: str = "iron") -> list[dict]:
+def kit(
+    weapon: str, *, tier: str = DEFAULT_TIER, armor: str | None = None
+) -> list[dict]:
     """The give entries for a kit: a weapon, or several parts joined by ``+``
     (``spear+sword``): one of each, arrows for a bow, Loyalty on a trident, a
-    shield, ``armor`` (a full set of the tier), ``food`` (FOOD) and ``potions``
-    (POTIONS, one entry each). The fist is an empty kit of its own; ``all`` is
-    every weapon at once (``all+armor+shield``)."""
+    shield, ``armor`` (a full set), ``food`` (FOOD) and ``potions`` (POTIONS, one
+    entry each). The fist is an empty kit of its own; ``all`` is every weapon at
+    once (``all+armor+shield``). Swords, axes and spears are made of ``tier``
+    (WEAPON_TIERS), the armor of ``armor`` (ARMOR_TIERS; default: ``tier``)."""
     parts = []
     for part in weapon.split("+"):
         parts += ALL_PARTS if part == ALL else [part]
@@ -101,6 +141,11 @@ def kit(weapon: str, *, tier: str = "iron") -> list[dict]:
             f"weapon must be one of {', '.join(WEAPONS)} or {ALL}, or several "
             "joined by +"
         )
+    armor = armor or tier
+    if any(p in TIERED for p in parts) and tier not in WEAPON_TIERS:
+        raise ValueError(f"weapon material must be one of {', '.join(WEAPON_TIERS)}")
+    if "armor" in parts and armor not in ARMOR_TIERS:
+        raise ValueError(f"armor material must be one of {', '.join(ARMOR_TIERS)}")
     out = []
     for part in parts:
         if part == "bow":
@@ -111,7 +156,7 @@ def kit(weapon: str, *, tier: str = "iron") -> list[dict]:
         elif part == "shield":
             out.append({"item": M + "shield", "count": 1})
         elif part == "armor":
-            out += [{"item": f"{M}{tier}_{piece}", "count": 1} for piece in ARMOR]
+            out += [{"item": f"{M}{armor}_{piece}", "count": 1} for piece in ARMOR]
         elif part == "food":
             out += [{"item": item, "count": n} for item, n in FOOD]
         elif part == "potions":
@@ -151,7 +196,8 @@ def scene(
     weapon: str,
     mob: str,
     *,
-    tier: str = "iron",
+    tier: str = DEFAULT_TIER,
+    armor: str | None = None,
     distance: int = DISTANCE,
     time: int = DAY,
 ) -> dict:
@@ -167,7 +213,7 @@ def scene(
         "clear_inventory": True,
         "heal": True,
         "time": time,
-        "give": kit(weapon, tier=tier),
+        "give": kit(weapon, tier=tier, armor=armor),
         # the kit's armor and shield go on before the summon: the session dresses
         # only an idle bot, and the summon sets the guard off at once
         "wear": True,
@@ -453,11 +499,18 @@ def _defend(
 
 
 def run_one(
-    client, weapon: str, mob: str, timeout: float, clock=time.monotonic, arena=None
+    client,
+    weapon: str,
+    mob: str,
+    timeout: float,
+    clock=time.monotonic,
+    arena=None,
+    gear: dict | None = None,
 ) -> dict:
     """Wait for a quiet bot, bring it back to the arena (when one is given), set
-    the scene, let the bot act, and measure it."""
-    spec = scene(weapon, mob)
+    the scene, let the bot act, and measure it. ``gear``: the kit's materials
+    (``{"tier": ..., "armor": ...}``, as ``scene`` takes them)."""
+    spec = scene(weapon, mob, **(gear or {}))
     settled, waited = settle(client, clock)
     back = None
     if arena is not None:
@@ -498,6 +551,7 @@ def run_matrix(
     arena=None,
     repeat: int = 1,
     baseline: dict | None = None,
+    gear: dict | None = None,
 ) -> Path:
     """Every weapon against every mob (or group), ``repeat`` times round the whole
     matrix (so drift over the run spreads over every cell), each on ``arena`` when
@@ -510,11 +564,14 @@ def run_matrix(
     path = out_dir / f"{stamp}.json"
     record = {"started": stamp, "timeout": timeout, "repeat": repeat,
               "arena": list(arena) if arena is not None else None,
-              "summary": {}, "regressions": [], "trials": []}  # fmt: skip
+              "gear": gear, "summary": {}, "regressions": [],
+              "trials": []}  # fmt: skip
     for n in range(1, repeat + 1):
         for weapon in weapons:
             for mob in mobs:
-                row = run_one(client, weapon, mob, timeout, clock, arena=arena)
+                row = run_one(
+                    client, weapon, mob, timeout, clock, arena=arena, gear=gear
+                )
                 record["trials"].append({**row, "repeat": n})
                 record["summary"] = summary(record["trials"])
                 if baseline is not None:

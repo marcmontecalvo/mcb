@@ -612,7 +612,7 @@ def test_an_operator_names_the_arena_as_three_whole_numbers():
 def test_the_matrix_passes_its_arena_and_records_it(tmp_path):
     seen = []
 
-    def one(client, weapon, mob, timeout, clock, arena=None):
+    def one(client, weapon, mob, timeout, clock, arena=None, gear=None):
         seen.append(arena)
         return {"weapon": weapon, "mob": mob, "end": "killed"}
 
@@ -628,7 +628,7 @@ def test_the_matrix_passes_its_arena_and_records_it(tmp_path):
 def test_the_matrix_echoes_a_header_once_then_rows(tmp_path):
     printed = []
 
-    def one(client, weapon, mob, timeout, clock, arena=None):
+    def one(client, weapon, mob, timeout, clock, arena=None, gear=None):
         return {"weapon": weapon, "mob": mob, "end": "killed"}
 
     ct.run_matrix(object(), ["sword"], ["zombie", "skeleton"], out_dir=tmp_path,
@@ -652,7 +652,7 @@ def test_the_matrix_runs_every_pair_and_writes_one_file(tmp_path):
     clock = FakeClock()
     seen = []
 
-    def one(client, weapon, mob, timeout, clock, arena=None):
+    def one(client, weapon, mob, timeout, clock, arena=None, gear=None):
         seen.append((weapon, mob))
         return {"weapon": weapon, "mob": mob, "end": "killed", "killed": True}
 
@@ -863,7 +863,7 @@ def test_a_group_trial_with_one_left_alive_is_not_a_kill():
 def test_repeats_go_round_the_whole_matrix_each_time(tmp_path):
     seen = []
 
-    def one(client, weapon, mob, timeout, clock, arena=None):
+    def one(client, weapon, mob, timeout, clock, arena=None, gear=None):
         seen.append((weapon, mob))
         return {"weapon": weapon, "mob": mob, "end": "killed", "killed": True,
                 "seconds": 3.0}  # fmt: skip
@@ -945,3 +945,108 @@ def test_the_summary_table_has_a_row_per_cell():
     text = ct.summary_table(ct.summary([_row("sword", "zombie"), _row("bow", "pig")]))
 
     assert len(text.splitlines()) == 4 and "sword" in text and "pig" in text
+
+
+# --- materials, the kit catalog and the mob list (the dashboard's checkboxes) ---
+
+
+def test_weapons_and_armor_take_their_own_material():
+    assert ct.kit("sword+armor", tier="diamond", armor="netherite") == [
+        {"item": M + "diamond_sword", "count": 1},
+        *({"item": M + f"netherite_{p}", "count": 1} for p in ct.ARMOR),
+    ]
+    assert ct.kit("spear+axe", tier="wooden") == [
+        {"item": M + "wooden_spear", "count": 1},
+        {"item": M + "wooden_axe", "count": 1},
+    ]
+    assert ct.kit("armor", armor="leather")[0] == {
+        "item": M + "leather_helmet",
+        "count": 1,
+    }
+    # bow, trident and shield have no material
+    assert ct.kit("bow+trident+shield", tier="golden") == ct.kit("bow+trident+shield")
+
+
+def test_a_material_the_item_does_not_come_in_is_refused():
+    with pytest.raises(ValueError, match="weapon material"):
+        ct.kit("sword", tier="leather")
+    with pytest.raises(ValueError, match="armor material"):
+        ct.kit("armor", tier="wooden")  # no wooden armor: the armor follows the tier
+    with pytest.raises(ValueError, match="armor material"):
+        ct.kit("armor", armor="stone")
+    assert ct.kit("sword+armor", tier="wooden", armor="leather")  # both named: fine
+    assert ct.kit("sword", tier="wooden")  # no armor asked for: no armor material
+
+
+def test_every_material_is_one_the_bot_fights_with():
+    from mclab import companion_combat as cc
+
+    for tier in ct.WEAPON_TIERS:
+        for kind in ("sword", "axe", "spear"):
+            assert f"{M}{tier}_{kind}" in cc.WEAPONS
+    assert ct.WEAPON_TIERS[ct.WEAPON_TIERS.index("iron")] == ct.DEFAULT_TIER
+    assert set(ct.ARMOR_TIERS) >= {
+        "leather",
+        "chainmail",
+        "iron",
+        "diamond",
+        "netherite",
+    }
+
+
+def test_the_kit_catalog_is_every_part_but_the_fist():
+    assert ct.WEAPONS == (*ct.KIT_PARTS, "fist")
+    for part, (label, group, text) in ct.KIT_PARTS.items():
+        assert ct.kit(part), part
+        assert label and text and group in ct.KIT_GROUPS
+    assert ct.kit("+".join(ct.KIT_PARTS))  # every part at once is one kit
+
+
+def test_every_listed_mob_sets_a_scene_and_animals_are_grouped_apart():
+    for mob, group in ct.MOBS.items():
+        ct.scene("fist", mob)
+        assert (group == ct.ANIMALS) == (mob in ct.ANIMAL_DROPS)
+    assert set(ct.ANIMAL_DROPS) <= set(ct.MOBS)
+
+
+def test_the_matrix_hands_its_gear_to_every_trial_and_records_it(tmp_path):
+    seen = []
+
+    def one(client, weapon, mob, timeout, clock, arena=None, gear=None):
+        seen.append(gear)
+        return {"weapon": weapon, "mob": mob, "end": "killed"}
+
+    gear = {"tier": "diamond", "armor": "netherite"}
+    path = ct.run_matrix(
+        object(),
+        ["sword"],
+        ["zombie"],
+        out_dir=tmp_path,
+        timeout=5,
+        run_one=one,
+        gear=gear,
+    )
+
+    import json
+
+    assert seen == [gear]
+    assert json.loads(path.read_text(encoding="utf-8"))["gear"] == gear
+
+
+def test_a_trial_dresses_the_bot_in_its_gear():
+    clock = FakeClock()
+    client = FakeClient(clock)
+
+    ct.run_one(
+        client,
+        "sword+armor",
+        "zombie",
+        timeout=60,
+        clock=clock,
+        gear={"tier": "diamond", "armor": "iron"},
+    )
+
+    assert client.trials[0] == ct.scene(
+        "sword+armor", "zombie", tier="diamond", armor="iron"
+    )
+    assert {"item": M + "diamond_sword", "count": 1} in client.trials[0]["give"]
