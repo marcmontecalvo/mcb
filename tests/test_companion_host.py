@@ -1109,8 +1109,8 @@ def _fake_adapters(monkeypatch, log, *, fail=()):
         log.append(("talker", bot["name"], instance))
         return Adapter(log, "talker")
 
-    def ingress(host, talker, source, *, bot):
-        log.append(("ingress", talker is not None, source))
+    def ingress(host, talker, source, *, bot, players):
+        log.append(("ingress", talker is not None, source, players))
         return Adapter(log, "ingress")
 
     module("companion_api", serve=serve)
@@ -1119,6 +1119,7 @@ def _fake_adapters(monkeypatch, log, *, fail=()):
         "companion_ingress",
         Ingress=ingress,
         bridge_events_source=lambda: "events-source",
+        bridge_players_source=lambda: "players-source",
     )
     monkeypatch.setattr(
         paths, "INSTANCE", pytypes.SimpleNamespace(name="play"), raising=False
@@ -1146,7 +1147,7 @@ def test_adapters_are_wired_and_the_handshake_written(tmp_path, monkeypatch):
         ("serve", 8777, "tok"),
         ("on_shutdown", hook),
         ("talker", "MCBot", "play"),
-        ("ingress", True, "events-source"),
+        ("ingress", True, "events-source", "players-source"),
         ("start", "ingress"),
     ]
     handshake = json.loads((tmp_path / "companion-host.json").read_text())
@@ -1161,7 +1162,10 @@ def test_a_failing_adapter_does_not_stop_the_others(tmp_path, monkeypatch):
     stops = companion_host._start_adapters(
         "host", {"name": "MCBot"}, {"companion_port": 8777}, "tok", tmp_path
     )
-    assert log == [("ingress", False, "events-source"), ("start", "ingress")]
+    assert log == [
+        ("ingress", False, "events-source", "players-source"),
+        ("start", "ingress"),
+    ]
     assert not (tmp_path / "companion-host.json").exists()
     assert len(stops) == 1
 

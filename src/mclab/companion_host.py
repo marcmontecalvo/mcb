@@ -872,7 +872,11 @@ def _start_adapters(host, bot, settings, token, runtime, *, on_shutdown=None):
         from mclab import companion_ingress
 
         ingress = companion_ingress.Ingress(
-            host, talker, companion_ingress.bridge_events_source(), bot=bot
+            host,
+            talker,
+            companion_ingress.bridge_events_source(),
+            bot=bot,
+            players=companion_ingress.bridge_players_source(),
         )
         ingress.start()
         stops.append(ingress.stop)
