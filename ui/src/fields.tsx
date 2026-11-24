@@ -1,7 +1,7 @@
 // Settings fields drawn from /api/schema. The schema carries the hints that make
 // them friendly (mclab.play_runs.decorate_schema): checkbox lists, a wave builder,
 // help for each choice, and text that fits the kind of run being set up.
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   type ArenaMeta,
   type Choices,
@@ -22,6 +22,17 @@ import {
   toggleChoice,
   type WaveMob,
 } from "./forms";
+import { RosterPicker, useRosterBook } from "./RosterPicker";
+import {
+  type Current,
+  type Known,
+  type Setup,
+  choicesFor,
+  lastSetup,
+  lastSummary,
+  sameRoster,
+  teamsOnOffer,
+} from "./roster";
 import {
   type Json,
   type Schema,
@@ -370,7 +381,13 @@ const PLAYER = /^[A-Za-z0-9_]{1,16}$/;
 
 /** Who plays an arena match: the bot and people by Minecraft name, each on one of
  * the arena's teams in a team game, and whether the match makes them an operator.
- * The roster follows the game and arena: a team game puts everyone on a team. */
+ * The roster follows the game and arena: a team game puts everyone on a team.
+ *
+ * People are picked, not typed: "Who's here" offers who is online on the arena
+ * server and the names saved from earlier matches (RosterPicker), and a wizard
+ * that has not been set up starts from the last match's roster, teams and setup
+ * (`adopt` writes them into the form; `current` and `known` say what is set and
+ * what still exists). */
 export function RosterInput({
   id,
   title,
@@ -382,6 +399,10 @@ export function RosterInput({
   meta,
   bot,
   max = MAX_PLAYERS,
+  adopt,
+  current,
+  chosen,
+  known,
 }: {
   id: string;
   title: string;
@@ -393,10 +414,29 @@ export function RosterInput({
   meta?: ArenaMeta;
   bot: string;
   max?: number;
+  adopt?: (setup: Setup) => void;
+  /** The roster, arena, game and waves as the form holds them (defaults included). */
+  current?: Current;
+  /** The same, but only what the user has changed: null where they have not. */
+  chosen?: Current;
+  known?: Known;
 }) {
   const roster = rosterOf(value);
   const [name, setName] = useState("");
   const set = (next: Slot[]) => onChange(next as unknown as Json);
+  const people = useRosterBook();
+  const last = people.book?.last_match ?? null;
+  const offered = known ?? { arenas: [], games: [], waves: [] };
+  const nothing: Current = { roster: null, arena: null, game: null, waves: null, custom_waves: null };
+  const started = useRef(false);
+  useEffect(() => {
+    // Once, when the saved roster arrives: a wizard the user has not touched starts
+    // from the last match.
+    if (started.current || !people.book) return;
+    started.current = true;
+    const setup = lastSetup(people.book.last_match, chosen ?? nothing, offered);
+    if (setup) adopt ? adopt(setup) : set(setup.roster);
+  }, [people.book]);
   useEffect(() => {
     const fitted = fitRoster(roster, sided, meta);
     if (fitted !== roster) set(fitted);
@@ -419,10 +459,34 @@ export function RosterInput({
     setName("");
   };
   const who = (p: Slot, i: number) => p.name || `Player ${i + 1}`;
+  const saved = people.book?.players ?? [];
+  const choices = choicesFor(people.online?.online ?? [], saved, roster, bot);
+  const typedSaved = saved.some((s) => s.name.toLowerCase() === typed.toLowerCase());
+  const again = last && lastSetup(last, current ?? { ...nothing, roster: value }, offered, true);
+  const sameAsLast = !!last && sameRoster(roster, last.roster) && !again?.arena && !again?.game;
   return (
     <fieldset className="field wide roster" id={id}>
       <legend>{title}</legend>
       {help && <small>{help}</small>}
+      {last &&
+        (sameAsLast ? (
+          <small className="ok">Same as last time.</small>
+        ) : (
+          <div className="same-as-last">
+            <button
+              type="button"
+              className="secondary-small"
+              onClick={() => {
+                if (!again) return;
+                if (adopt) adopt(again);
+                else set(again.roster);
+              }}
+            >
+              Same as last time
+            </button>
+            <small>{lastSummary(last.roster)}</small>
+          </div>
+        ))}
       {sided && meta && (
         <p className="team-counts">
           {teamCounts(roster, meta)
@@ -483,6 +547,19 @@ export function RosterInput({
           </div>
         ))}
       </div>
+      <RosterPicker
+        choices={choices}
+        anyone={saved.length > 0 || (people.online?.online ?? []).some((p) => !p.bot)}
+        teams={teamsOnOffer(sided, meta, roster)}
+        full={full}
+        loading={people.loading}
+        note={people.online?.note ?? null}
+        problem={people.problem}
+        onRefresh={people.refresh}
+        onAdd={(who, extra) => set(addPlayer(roster, who, sided, meta, extra))}
+        onSave={people.save}
+        onForget={people.forget}
+      />
       <div className="roster-add">
         <input
           aria-label="New player's Minecraft name"
@@ -498,6 +575,20 @@ export function RosterInput({
         />
         <button type="button" className="secondary-small" disabled={!addable} onClick={add}>
           + Add player
+        </button>
+        <button
+          type="button"
+          className="link"
+          title="Keep this name in Who's here without adding it to the match"
+          disabled={
+            !PLAYER.test(typed) || typedSaved || typed.toLowerCase() === bot.toLowerCase()
+          }
+          onClick={() => {
+            people.save(typed);
+            setName("");
+          }}
+        >
+          Save name
         </button>
         {!roster.some(isBot) && !full && (
           <button
@@ -649,6 +740,23 @@ export function Fields({
       typeof arena === "string" && arenaNode
         ? nonNullSchema(arenaNode).enum_meta?.[arena]
         : undefined;
+    // What the schema offers, so last time's arena, game and waves are only
+    // brought back while they still exist.
+    const offered = (field: string): string[] => {
+      const at = schemaAt(root, [...parent, field]);
+      const choice = at ? nonNullSchema(at) : undefined;
+      return (choice?.enum ?? []).filter((x): x is string => typeof x === "string");
+    };
+    const own = (at: string[]) => getPath(overrides, at) ?? null;
+    const adopt = (setup: Setup) => {
+      if (setup.arena !== undefined) change([...parent, "arena"], setup.arena);
+      if (setup.game !== undefined) change([...parent, "game"], setup.game);
+      if ("waves" in setup) {
+        change([...parent, "waves"], setup.waves ?? null);
+        change([...parent, "custom_waves"], setup.custom_waves ?? null);
+      }
+      change(path, setup.roster as unknown as Json);
+    };
     return (
       <RosterInput
         id={id}
@@ -661,6 +769,26 @@ export function Fields({
         meta={meta}
         bot={node.bot || "MCBot"}
         max={node.max}
+        adopt={adopt}
+        current={{
+          roster: effective,
+          arena,
+          game,
+          waves: read([...parent, "waves"]),
+          custom_waves: read([...parent, "custom_waves"]),
+        }}
+        chosen={{
+          roster: own(path),
+          arena: own([...parent, "arena"]),
+          game: own([...parent, "game"]),
+          waves: own([...parent, "waves"]),
+          custom_waves: own([...parent, "custom_waves"]),
+        }}
+        known={{
+          arenas: offered("arena"),
+          games: offered("game"),
+          waves: offered("waves"),
+        }}
       />
     );
   }

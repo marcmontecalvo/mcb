@@ -287,6 +287,22 @@ describe("the arena roster", () => {
     expect(addPlayer(roster, "Ann", false, duel).at(-1)).toEqual(slot("Ann"));
   });
 
+  it("adds a person straight onto a chosen team, as an operator when asked", () => {
+    const roster = [slot("MCBot", "red")];
+    expect(addPlayer(roster, "Ann", true, duel, { team: "red", op: true })).toEqual([
+      ...roster,
+      slot("Ann", "red", true),
+    ]);
+    // no teams in a game against the waves, whatever the choice said
+    expect(addPlayer(roster, "Ann", false, duel, { team: "red" }).at(-1)).toEqual(
+      slot("Ann"),
+    );
+    // a team the arena does not have falls back to the smallest
+    expect(addPlayer(roster, "Ann", true, duel, { team: "green" }).at(-1)).toEqual(
+      slot("Ann", "blue"),
+    );
+  });
+
   it("counts each team against its room", () => {
     expect(teamCounts([slot("A", "red"), slot("B", "red")], duel)).toEqual([
       { team: "red", count: 2, room: 2 },

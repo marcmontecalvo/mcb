@@ -141,6 +141,107 @@ test("an arena match: PvP with a friend, then PvE with my own waves", async ({
   expect(errors).toEqual([]);
 });
 
+test("an arena match: pick who is here instead of typing their names", async ({
+  page,
+}, info) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/");
+  await pick(page, "Arenas and combat", "Arena");
+  await page.getByLabel("Arena", { exact: true }).selectOption("duel");
+  await page.getByLabel("Game", { exact: true }).selectOption({ label: "PvP" });
+  await page.getByLabel("Waves", { exact: true }).selectOption({ label: "No mob waves" });
+  const picker = page.locator(".roster-picker");
+  // The two people online are offered; the bot is not (it has its own button).
+  await expect(picker.locator(".choice")).toHaveCount(2);
+  await expect(picker).not.toContainText("MCBot");
+  // A label and a pin are kept for next time.
+  await page.getByLabel("Label Son_", { exact: true }).click();
+  await page.getByLabel("Label for Son_").fill("Son");
+  await page.getByLabel("Label for Son_").press("Enter");
+  await expect(picker.locator(".choice", { hasText: "Son_" })).toContainText("Son");
+  await page.getByLabel("Pin Son_", { exact: true }).click();
+  await expect(page.getByLabel("Unpin Son_", { exact: true })).toBeVisible();
+  await expect(picker.locator(".choice").first()).toContainText("Son_"); // pinned: first
+  // One click puts each on a team; the Op box is ticked first for the son.
+  const resolving = page.waitForResponse((r) => r.url().endsWith("/api/resolve"));
+  await page.getByLabel("Son_ will be an operator").check();
+  await page.getByLabel("Add Son_ to Blue").click();
+  await page.getByLabel("Add Dad_ to Red").click();
+  await expect(page.locator(".team-counts")).toHaveText("Red 2/2 · Blue 1/2");
+  await expect(picker).toContainText("Everyone listed here is already in the match.");
+  await page.getByRole("button", { name: "Check run list" }).click();
+  const [job] = (await (await resolving).json()).jobs;
+  expect(job.run_config.run.roster).toEqual([
+    { name: "MCBot", team: "red", op: false },
+    { name: "Son_", team: "blue", op: true },
+    { name: "Dad_", team: "red", op: false },
+  ]);
+  // Taken out of the match, they are offered again; a name typed by hand can be saved.
+  await page.getByLabel("Remove Son_", { exact: true }).click();
+  await expect(picker.locator(".choice", { hasText: "Son_" })).toContainText("Son");
+  await page.getByLabel("New player's Minecraft name").fill("Ann");
+  await page.getByRole("button", { name: "Save name" }).click();
+  await expect(picker.locator(".choice", { hasText: "Ann" })).toBeVisible();
+  await expect(page.getByLabel("New player's Minecraft name")).toHaveValue("");
+  await page.getByLabel("Refresh who is online").click();
+  await expect(picker.locator(".choice")).toHaveCount(2); // Son_ and Ann (Dad_ plays)
+  expect(await noSideScroll(page)).toBe(true);
+  await page.screenshot({ path: info.outputPath("roster.png"), fullPage: true });
+  // Forgetting a saved name leaves the person who is online.
+  await page.getByLabel("Forget Ann", { exact: true }).click();
+  await expect(picker.locator(".choice", { hasText: "Ann" })).toHaveCount(0);
+  await page.getByLabel("Forget Son_", { exact: true }).click();
+  await expect(page.getByLabel("Forget Son_", { exact: true })).toHaveCount(0);
+  await expect(picker.locator(".choice strong")).toHaveText(["Son_"]);
+  expect(errors).toEqual([]);
+});
+
+test("the arena wizard starts from the last match, and one click brings it back", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  // The saved roster as the dashboard serves it after a match was started.
+  const book = {
+    players: [
+      { name: "Dad_", label: "Dad", pinned: true, uses: 3, last_used: "2026-11-24T12:00:00Z" },
+    ],
+    bot: "MCBot",
+    last_match: {
+      at: "2026-11-24T12:00:00Z",
+      arena: "duel",
+      game: "teams",
+      waves: null,
+      custom_waves: null,
+      roster: [
+        { name: "MCBot", team: "red", op: false },
+        { name: "Dad_", team: "blue", op: true },
+      ],
+    },
+  };
+  await page.route("**/api/roster", (route) =>
+    route.request().method() === "GET" ? route.fulfill({ json: book }) : route.continue(),
+  );
+  await page.goto("/");
+  await pick(page, "Arenas and combat", "Arena");
+  // Nothing was chosen, and the wizard already holds last time's match.
+  await expect(page.getByLabel("Arena", { exact: true })).toHaveValue("duel");
+  await expect(page.getByLabel("Game", { exact: true })).toHaveValue("teams");
+  await expect(page.locator(".team-counts")).toHaveText("Red 1/2 · Blue 1/2");
+  await expect(page.getByLabel("Dad_ is an operator")).toBeChecked();
+  await expect(page.getByLabel("Dad_ team")).toHaveValue("blue");
+  await expect(page.getByText("Same as last time.")).toBeVisible();
+  // Change the game: the teams go; one click brings last time back.
+  await page.getByLabel("Game", { exact: true }).selectOption({ label: "PvE" });
+  await expect(page.locator(".team-counts")).toHaveCount(0);
+  await page.getByRole("button", { name: "Same as last time" }).click();
+  await expect(page.getByLabel("Game", { exact: true })).toHaveValue("teams");
+  await expect(page.getByLabel("Dad_ team")).toHaveValue("blue");
+  await expect(page.getByText("Same as last time.")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("every tab renders after switching back and forth", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

@@ -24,3 +24,13 @@ def no_real_orphan_kills(monkeypatch):
     from mclab import server
 
     monkeypatch.setattr(server, "orphans", lambda: [])
+
+
+@pytest.fixture(autouse=True)
+def isolated_arena_roster(tmp_path, monkeypatch):
+    """A match a test starts must never write the real saved player names."""
+    from mclab import arena_roster
+
+    monkeypatch.setattr(
+        arena_roster, "ROSTER_FILE", tmp_path / "runtime/arena-roster.json"
+    )

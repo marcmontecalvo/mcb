@@ -525,6 +525,8 @@ def test_a_match_on_an_older_mod_fails_at_start_with_the_fix(arenas, tmp_path):
     assert result["error"].startswith("mod_outdated")
     assert "mcarena mod-install" in result["error"]
     assert not (tmp_path / "results").exists()  # no run, so no history row
+    # ...but the setup is kept, so "Same as last time" brings it back after the fix
+    assert pr.roster_state()["last_match"]["arena"] == "vault"
 
 
 def test_a_match_fails_at_start_when_the_arena_server_does_not_answer(arenas, tmp_path):
