@@ -24,9 +24,10 @@ CALL_WORKERS = 8
 
 INSTRUCTIONS = (
     "Drives one Minecraft companion bot. Call status first to see what it is "
-    "doing. Job tools (goto, follow, gather, build) return a job id: follow it "
-    "with wait_job until the state is succeeded, failed or cancelled, and do not "
-    "submit the same job again while it runs. stop is always safe."
+    "doing. Job tools (goto, follow, gather, build, attack) return a job id: "
+    "follow it with wait_job until the state is succeeded, failed or cancelled, "
+    "and do not submit the same job again while it runs. stop is always safe, "
+    "and ends an attack at once."
 )
 
 WAIT_JOB_TOOL = {
