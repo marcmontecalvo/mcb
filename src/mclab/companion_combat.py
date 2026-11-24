@@ -49,6 +49,7 @@ MOB_HEALTH = {
         "breeze": 30, "vex": 14, "evoker": 24, "skeleton": 20, "stray": 20,
         "bogged": 16, "pillager": 24, "enderman": 40, "creeper": 20,
         "illusioner": 32, "ravager": 100,
+        "player": 20,  # a commanded attack on a player (no armour counted)
     }.items()
 }  # fmt: skip
 DEFAULT_MOB_HEALTH = 20.0
@@ -171,9 +172,12 @@ def _profiles() -> dict[str, Profile]:
     melee = Profile(("melee", "snipe"))
     out = {}
     groups = {
+        # "player" is a commanded attack's target (the owner's order): a 20-health
+        # melee target, never an animal to hunt. The auto-defence never meets it:
+        # players are no threat.
         melee: "zombie husk drowned zombie_villager spider cave_spider silverfish "
         "endermite slime magma_cube witch vindicator hoglin zoglin "
-        "piglin_brute wither_skeleton",
+        "piglin_brute wither_skeleton player",
         # the breeze deflects arrows; a vex is too small and quick to shoot
         Profile(("melee",)): "breeze vex",
         Profile(("melee", "snipe"), first=True): "evoker",
@@ -308,6 +312,37 @@ def tactic(
                 else chosen
             )
     return AVOID
+
+
+def fists() -> Tactic:
+    """Bare hands: what a commanded attack falls back to with nothing to wield."""
+    return Tactic("melee", None, crit=False, sweep=False)
+
+
+def forced_tactic(
+    weapon: str, target: str, inventory: Mapping[str, int]
+) -> Tactic | None:
+    """The tactic for a named weapon (the owner's order), or None when it is not held
+    (a bow also needs arrows). The weapon decides the style: a bow snipes (a held
+    swing weapon backs it up close in), a spear charges, a sword, axe or trident
+    swings for crits, and any other item is a plain hit."""
+    if inventory.get(weapon, 0) <= 0:
+        return None
+    w = WEAPONS.get(weapon)
+    if w is None:
+        return Tactic("melee", weapon, crit=False, sweep=False)
+    if w.kind == "bow":
+        if not _arrows(inventory):
+            return None
+        backup = _quickest(inventory, SWING_KINDS, mob_health(target)) or _best(
+            inventory, ("spear",)
+        )
+        return Tactic(
+            "snipe", w.item, keep=SNIPE_KEEP, melee=backup.item if backup else None
+        )
+    if w.kind == "spear":
+        return Tactic("lance", w.item)
+    return Tactic("melee", w.item, crit=True)
 
 
 def _style(style: str, inventory, target: str = "", wear=None) -> Tactic | None:

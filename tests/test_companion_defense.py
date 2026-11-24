@@ -360,3 +360,23 @@ def test_every_action_says_why():
         situation(health=2.0, can_burrow=False),
     ):
         assert cd.decide(s, POLICY).reason
+
+
+def test_auto_defence_never_fights_a_player():
+    # only an owner's attack command (allow_player) may hit a player: the guard sees
+    # hostile types only, whoever stands near and whatever the bot holds
+    sword = {M + "iron_sword": 1}
+    for kind_health in (20.0, 3.0):
+        action = cd.decide(
+            situation(
+                entities=(player("Marc", at=(2.5, 64.0, 0.5)),),
+                inventory=sword,
+                health=kind_health,
+            ),
+            POLICY,
+        )
+        assert action.kind == "none"
+    fight = cd.decide(
+        situation(entities=(player(), mob()), inventory=sword), POLICY
+    )
+    assert fight.kind == "fight" and fight.target == mob()["uuid"]  # the zombie, not Marc
