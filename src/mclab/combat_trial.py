@@ -45,8 +45,24 @@ FINAL = ("died", "stopped")  # defence ends nothing takes up again
 ARENA_SLACK = 4.0
 ARENA_WAIT = 120.0
 DONE = ("succeeded", "failed", "cancelled")
-WEAPONS = ("sword", "axe", "spear", "bow", "trident", "shield", "armor", "fist")
+WEAPONS = ("sword", "axe", "spear", "bow", "trident", "shield", "armor", "fist",
+           "food", "potions")  # fmt: skip
 ARMOR = ("helmet", "chestplate", "leggings", "boots")
+FOOD = ((M + "cooked_beef", 16), (M + "golden_apple", 2))
+# (item, potion, how many): what companion_consumables drinks, splashes on itself
+# and throws. A potion never stacks, so each is a give entry of its own.
+POTIONS = (
+    ("potion", "strong_healing", 2),
+    ("potion", "strength", 1),
+    ("potion", "swiftness", 1),
+    ("potion", "regeneration", 1),
+    ("potion", "fire_resistance", 1),
+    ("splash_potion", "strong_healing", 3),
+    ("splash_potion", "strong_harming", 2),
+    ("splash_potion", "weakness", 1),
+    ("splash_potion", "slowness", 1),
+    ("splash_potion", "poison", 1),
+)
 LOYALTY = 3  # a thrown trident flies back: Loyalty III, the quickest return
 # Undead that burn by day get a helmet so a day trial is a fight, not a sunburn.
 BURNS = frozenset(
@@ -73,8 +89,9 @@ ALL_PARTS = ("sword", "axe", "spear", "bow")
 def kit(weapon: str, *, tier: str = "iron") -> list[dict]:
     """The give entries for a kit: a weapon, or several parts joined by ``+``
     (``spear+sword``): one of each, arrows for a bow, Loyalty on a trident, a
-    shield, and ``armor`` (a full set of the tier). The fist is an empty kit of its
-    own; ``all`` is every weapon at once (``all+armor+shield``)."""
+    shield, ``armor`` (a full set of the tier), ``food`` (FOOD) and ``potions``
+    (POTIONS, one entry each). The fist is an empty kit of its own; ``all`` is
+    every weapon at once (``all+armor+shield``)."""
     parts = []
     for part in weapon.split("+"):
         parts += ALL_PARTS if part == ALL else [part]
@@ -95,6 +112,14 @@ def kit(weapon: str, *, tier: str = "iron") -> list[dict]:
             out.append({"item": M + "shield", "count": 1})
         elif part == "armor":
             out += [{"item": f"{M}{tier}_{piece}", "count": 1} for piece in ARMOR]
+        elif part == "food":
+            out += [{"item": item, "count": n} for item, n in FOOD]
+        elif part == "potions":
+            out += [
+                {"item": M + item, "count": 1, "potion": M + potion}
+                for item, potion, n in POTIONS
+                for _ in range(n)
+            ]
         elif part != "fist":
             out.append({"item": f"{M}{tier}_{part}", "count": 1})
     return out

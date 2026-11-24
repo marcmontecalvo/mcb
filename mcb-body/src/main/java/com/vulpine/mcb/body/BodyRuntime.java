@@ -1080,7 +1080,9 @@ public final class BodyRuntime implements AutoCloseable {
             case "escape" -> startAction("escape", sequence, player -> EscapeTask.start(player, request, sequence, this::localReader));
             case "trial" -> bodyAction("trial", sequence, player -> { requireFree(); return BodyTrial.run(server, player, request); });
             case "wear" -> bodyAction("wear", sequence, player -> { requireFree(); return BodyGear.wear(player); });
-            case "eat" -> startAction("eat", sequence, player -> BodyEntity.EatTask.start(player, request, sequence));
+            case "eat" -> startAction("eat", sequence, player -> ConsumeTask.eat(player, request, sequence));
+            case "drink" -> startAction("drink", sequence, player -> ConsumeTask.drink(player, request, sequence));
+            case "throw_potion" -> bodyAction("throw_potion", sequence, player -> { requireFree(); return BodyPotion.throwPotion(player, request); });
             case "use_entity" -> bodyAction("use_entity", sequence, player -> { requireFree(); return BodyEntity.use(player, request); });
             case "container" -> bodyAction("container", sequence, player -> { requireFree(); return BodyContainer.run(player, request); });
             case "cancel_route" -> {
@@ -1527,6 +1529,9 @@ public final class BodyRuntime implements AutoCloseable {
             // their frozen observation contract.
             if(extendedObservation) {
                 var player=body.player();
+                // potion, absorption and fire state; the frozen course contract above does not carry them
+                for(String key:List.of("effects","absorption","saturation","fire_ticks"))
+                    filtered.put(key,observed.get(key));
                 filtered.put("survival",Map.of("eye_height",player.getEyeHeight(),
                         "air",player.getAirSupply(),"max_air",player.getMaxAirSupply(),
                         "in_water",player.isInWater(),"eye_in_water",player.isUnderWater(),

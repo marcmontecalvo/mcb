@@ -8,6 +8,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
@@ -369,6 +370,20 @@ final class BodyBuild {
         var json = new JsonObject();
         json.addProperty("item", item);
         BodyActions.equip(player, json);
+    }
+
+    /**
+     * Hold the stack in inventory slot {@code slot} (0-35): where it is on the hotbar, else swapped up into the
+     * first empty hotbar slot as selectItem does. For items that share an id and differ by contents (potions).
+     */
+    static void selectSlot(ServerPlayer player, int slot) {
+        var inventory = player.getInventory();
+        var wanted = inventory.getItem(slot);
+        if (wanted.isEmpty()) throw new BodyActions.Fail("missing_item");
+        int hotbar = BodyActions.toHotbar(player, slot, -1);
+        if (inventory.getItem(hotbar) != wanted && !ItemStack.matches(inventory.getItem(hotbar), wanted))
+            throw new BodyActions.Fail("swap_failed");
+        inventory.setSelectedSlot(hotbar);
     }
 
     static String render(BlockState state) {

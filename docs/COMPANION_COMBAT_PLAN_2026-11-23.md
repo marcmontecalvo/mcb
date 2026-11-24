@@ -402,6 +402,34 @@ to the nearest hostile, else a mob type. Tab-completion lists online names.
 re-anchoring loop beside `follow`; the defence already fights beside an ally within
 the ally radius (`anchor`, `leash`), so it waits for the shield and trident work.
 
+### 15. Food and potions (Nov 24)
+
+The owner asked for food and for potions, drunk and splashed, with different effects, each used
+in the circumstances that suit it. `companion_consumables.decide` (pure) picks at most one use
+per look; the session carries it out (`eat`, `drink`, `throw_potion`) and looks again. First
+match wins:
+
+| # | When | Use |
+|---|---|---|
+| 1 | burning, no fire resistance running | fire resistance: splashed on itself (instant), else drunk |
+| 2 | health at `HEAL_AT` (10) or below, a foe within `CLOSE` (6) | healing splashed on itself, else a golden apple, else healing drunk, else regeneration |
+| 2 | the same with foes farther off | healing drunk (the splash is kept), golden apple, regeneration |
+| 2 | the same with no foe within `QUIET` (16) | eat to a full bar (the fastest regeneration); a potion only when the bar cannot regenerate |
+| 3 | food at 6 or less (no sprinting), no foe close | eat |
+| 4 | a splash can reach foes: it aims at a point 5..5.25 blocks out toward a foe (outside its own 4-block splash, inside the ~5.5-block throw), never past a foe already within 2.5 blocks of that line, at least 4.5 blocks from any friend; each point is scored by the game's 1 - d/4 intensity on every foe it takes, and a throw needs 1.2 of weighted effect (0.5 when it is alone with a brute) | harming on the living (not witches, which shrug it off; never where undead would be healed); healing on the undead (one healing splash kept back); weakness on melee brutes; slowness on a melee pack; poison on the living (not spiders) |
+| 5 | a group or a brute within 16 | strength; swiftness when archers are in the group; fire resistance against blazes, ghasts and magma cubes. Drunk while every foe is 7+ blocks off, else splashed on itself while none is within 5 |
+| 6 | no foe within 16, hungry or hurt | eat the best plain food (golden apples are kept for fights) |
+
+A throw needs two foes in the splash, or one brute at its centre. No harmful splash breaks within
+4.5 blocks of a player in sight. The body cannot see a mob's effects, so the session remembers
+what it threw on whom (`Marks`) until the effect wears off. While something held heals, a fight
+op breaks off at `HEAL_AT` (`fight_floor`), and the bot heals and fights on. The guard does the
+same before each defence step. The combat-trial kit parts `food` (16 steak, 2 golden apples) and
+`potions` (drinkable healing II x2, strength, swiftness, regeneration, fire resistance; splash
+healing II x3, harming II x2, weakness, slowness, poison) are given one entry per potion, since
+potions never stack. The body side is in BODY_ACTION_OPS (`drink`, `throw_potion`, the rows'
+`potion`/`effects`, the observation's `effects`, `absorption`, `saturation`, `fire_ticks`).
+
 ## Slices (TDD each; one commit each)
 
 1. Done: `companion_combat.py`: weapons, profiles, tactic and weapon choice.

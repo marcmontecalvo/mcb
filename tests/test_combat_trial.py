@@ -32,6 +32,23 @@ def test_a_kit_may_carry_several_weapons():
             ct.kit(bad)
 
 
+def test_a_kit_may_carry_food_and_potions_one_per_entry_as_potions_never_stack():
+    food = ct.kit("food")
+    assert {"item": M + "cooked_beef", "count": 16} in food
+    assert {"item": M + "golden_apple", "count": 2} in food
+    potions = ct.kit("potions")
+    assert all(g["count"] == 1 and g["potion"].startswith(M) for g in potions)
+    kinds = {(g["item"], g["potion"]) for g in potions}
+    assert (M + "potion", M + "strong_healing") in kinds  # drunk
+    assert (M + "splash_potion", M + "strong_healing") in kinds  # splashed on itself
+    assert (M + "splash_potion", M + "strong_harming") in kinds  # thrown at mobs
+    assert {M + "strength", M + "swiftness", M + "regeneration",
+            M + "fire_resistance", M + "weakness", M + "slowness",
+            M + "poison"} <= {p for _, p in kinds}  # fmt: skip
+    # the raid kit fits the trial op's 36 give entries
+    assert len(ct.kit("all+armor+shield+trident+food+potions")) <= 36
+
+
 def test_scene_clears_heals_arms_and_summons_at_a_distance():
     spec = ct.scene("sword", "zombie", distance=9, time=6000)
 

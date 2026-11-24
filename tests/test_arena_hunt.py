@@ -173,13 +173,44 @@ def test_a_hunt_keeps_its_job_steps_and_sums_what_hurt_the_bot():
     }
 
 
-def test_summary_sums_damage_taken_across_runs():
+def test_a_hunt_counts_the_food_and_potions_used_by_purpose():
+    clock = Clock()
+    api, arena = FakeApi(clock), FakeArena(clock)
+    finish(api, arena)
+    real = api.call
+    heal = {"action": "throw", "purpose": "heal", "potion": "minecraft:strong_healing",
+            "ok": True}  # fmt: skip
+
+    def call(intent, args=None, key=None, source="mcp"):
+        out = real(intent, args, key, source)
+        if intent == "attack":
+            api.log += [
+                ("job_step", {"id": "j1", "step": heal}),
+                ("job_step", {"id": "j1", "step": {**heal, "ok": False}}),
+                ("job_step", {"id": "j1", "step": {
+                    "action": "eat", "purpose": "heal",
+                    "item": "minecraft:golden_apple", "ok": True}}),
+            ]  # fmt: skip
+        return out
+
+    api.call = call
+    row = ah.hunt(
+        api, arena, "vault", [], participants=["MCBot"], timeout=60, clock=clock
+    )
+    assert row["uses"] == {
+        "heal": {"minecraft:strong_healing": 1, "minecraft:golden_apple": 1}
+    }  # a refused use is not counted
+
+
+def test_summary_sums_damage_taken_and_uses_across_runs():
     rows = [
-        {"outcome": "won", "hurt_by": {"a": 2.0}},
-        {"outcome": "lost", "hurt_by": {"a": 1.0, "b": 3.0}, "killed_by": "b"},
-    ]
+        {"outcome": "won", "hurt_by": {"a": 2.0}, "uses": {"heal": {"p": 1}}},
+        {"outcome": "lost", "hurt_by": {"a": 1.0, "b": 3.0}, "killed_by": "b",
+         "uses": {"heal": {"p": 2}, "harm": {"q": 1}}},
+    ]  # fmt: skip
     s = ah.summary(rows)
     assert s["hurt_by"] == {"a": 3.0, "b": 3.0} and s["killed_by"] == {"b": 1}
+    assert s["uses"] == {"heal": {"p": 3}, "harm": {"q": 1}}
 
 
 def test_a_kit_is_handed_out_afresh_each_run():

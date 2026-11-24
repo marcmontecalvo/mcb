@@ -66,6 +66,8 @@ BODY_OPS = frozenset(
         "wear",
         "use_entity",
         "eat",
+        "drink",
+        "throw_potion",
         "container",
         # the arena runtime's ops (com.vulpine.mcb.arena; docs/ARENA_RUNTIME.md)
         "arena_build",

@@ -129,9 +129,18 @@ it by uuid. A mob the guard would avoid (a ravager with only a sword) is fought 
 weapon held (`combat.ordered_tactic`). Each fight lands as a host `job_step` event (weapon, target
 type, `hurt_by`, `killed_by`). Code: `companion_attack.hunt` / `arena_here`, `Session.attack`.
 
-`scripts/arena-hunt.py` (`mclab.arena_hunt`) measures hunts: each run hands the kit out afresh,
-heals, starts the match and samples it once a second; the file under `results/companion/arena/`
-keeps every run's samples, steps, damage by source and the series summary.
+Food and potions (`companion_consumables`): before every fight the hunt asks what the moment
+calls for, with every wave mob as a foe and the players in sight as friends no harmful splash may
+reach. A use is a step of its own (`action` eat / drink / throw, `purpose`, `potion` or `item`).
+While a heal is held (a healing or regeneration potion, a golden apple) the fight breaks off at
+`HEAL_AT` (10 health) so the bot heals and fights on; the "no floor" rule applies once nothing heals.
+Between waves it eats to a full bar, which regenerates fastest. A use the body refuses waits
+`USE_RETRY_S` before it is tried again. The rules are in COMPANION_COMBAT_PLAN section 15.
+
+`scripts/arena-hunt.py` (`mclab.arena_hunt`) measures hunts: each run hands the kit out afresh
+(default `all+armor+shield+trident+food+potions`), heals, starts the match and samples it once a
+second; the file under `results/companion/arena/` keeps every run's samples, steps, damage by
+source, the food and potions used by purpose (`uses`) and the series summary.
 
 ## CLI
 

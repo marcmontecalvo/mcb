@@ -48,9 +48,11 @@ def _order(weapon=None, **target):
     return {"target": target, "weapon": weapon, "when": "now"}
 
 
-def _look(bridge, *entities, health=20.0, inv=(), tick=10):
-    """The next observation the attack loop reads."""
-    bridge.rows.append(_day_row(*entities, health=health, inv=inv, tick=tick))
+def _look(bridge, *entities, health=20.0, inv=(), tick=10, **body):
+    """The next observation the attack loop reads (``body``: more fields, food...)."""
+    row = _day_row(*entities, health=health, inv=inv, tick=tick)
+    row["body"].update(body)
+    bridge.rows.append(row)
 
 
 def _online(bridge, *people):
@@ -111,12 +113,14 @@ RAVAGER = "minecraft:ravager"
 
 
 def _match(*mobs, state="running", next_wave=0, cleared=0):
-    """An arena_status reply for the vault's waves match."""
+    """An arena_status reply for the vault's waves match; a mob is (uuid, position)
+    or (uuid, position, type), a ravager when no type is given."""
+    rows = [{"uuid": m[0], "type": m[2] if len(m) > 2 else RAVAGER,
+             "position": list(m[1]), "health": 100.0} for m in mobs]  # fmt: skip
     data = {"name": "vault", "match_state": state,
             "match": {"mode": "waves", "state": state, "wave_index": cleared,
                       "waves": 2, "next_wave_in_ticks": next_wave, "killed": cleared,
-                      "wave_mobs": [{"uuid": u, "type": RAVAGER, "position": list(p),
-                                     "health": 100.0} for u, p in mobs]}}  # fmt: skip
+                      "wave_mobs": rows}}  # fmt: skip
     return Result(True, None, data)
 
 
@@ -196,6 +200,125 @@ def test_each_fight_of_an_attack_is_reported_as_a_step(fighter):
         "reason": None, "kills": 1, "hits": 3, "style": "melee", "health": 14.0,
         "hurt_by": {"minecraft:arrow": 6.0},
     }]  # fmt: skip - never the inventory
+
+
+def _potion(slot, name, effect, item="splash_potion", amplifier=1):
+    return {"slot": slot, "item": "minecraft:" + item, "count": 1,
+            "potion": "minecraft:" + name,
+            "effects": [{"id": "minecraft:" + effect, "amplifier": amplifier,
+                         "duration": 1}]}  # fmt: skip
+
+
+SPLASH_HEAL = _potion(5, "strong_healing", "instant_health")
+HARM = _potion(6, "strong_harming", "instant_damage")
+KILL = Result(True, None, {"kills": 1, "killed": True, "hits": 3})
+
+
+def _uses(session):
+    return [use for _, use in _logged(session.body, "consume")]
+
+
+def test_a_hurt_hunter_splashes_healing_on_itself_then_fights_on(fighter):
+    session, bridge = fighter
+    v = ("v1", (2.5, 64.0, 0.5))
+    seen = {"type": RAVAGER, "uuid": "v1", "position": list(v[1])}
+    _arena(session, _match(v), _match(v), _match(state="won", cleared=2))
+    _look(bridge, seen, inv=[*_sword(), SPLASH_HEAL], health=8.0)
+    _look(bridge, seen, inv=_sword(), health=15.0)
+    _look(bridge, inv=_sword())
+    session.body.fights = [KILL]
+
+    assert _attack(session, arena="vault")["outcome"] == "won"
+
+    (use,) = _uses(session)
+    assert (use.op, use.at, use.reason) == ("throw", "self", "heal")
+    steps = [r["step"] for r in session.reported if "step" in r]
+    assert [s["action"] for s in steps] == ["throw", "fight"]
+    assert steps[0]["ok"] is True and steps[0]["potion"] == "minecraft:strong_healing"
+
+
+def test_a_hunt_holding_a_heal_breaks_off_at_the_heal_floor_and_heals(fighter):
+    """No floor in an arena means fighting to the death only once nothing heals:
+    with a heal held the fight stops at HEAL_AT, the bot heals, the hunt goes on."""
+    session, bridge = fighter
+    v = ("v1", (2.5, 64.0, 0.5))
+    seen = {"type": RAVAGER, "uuid": "v1", "position": list(v[1])}
+    _arena(session, _match(v), _match(v), _match(v), _match(state="won", cleared=2))
+    _look(bridge, seen, inv=[*_sword(), SPLASH_HEAL], health=20.0)
+    _look(bridge, seen, inv=[*_sword(), SPLASH_HEAL], health=9.0)
+    _look(bridge, seen, inv=_sword(), health=17.0)
+    _look(bridge, inv=_sword())
+    session.body.fights = [Result(False, "low_health", {"ticks": 40}), KILL]
+
+    assert _attack(session, arena="vault")["outcome"] == "won"
+
+    floors = [f["floor"] for _, f in _logged(session.body, "fight")]
+    assert floors == [cs.consumables.HEAL_AT, 0]
+    assert [u.reason for u in _uses(session)] == ["heal"]
+
+
+def test_a_hunt_splashes_harming_on_a_group_at_range_before_closing_in(fighter):
+    session, bridge = fighter
+    a, b = ("a", (6.5, 64.0, 0.5), "minecraft:pillager"), ("b", (7.0, 64.0, 1.5))
+    _arena(session, _match(a, b), _match(a, b), _match(state="won", cleared=2))
+    _look(bridge, inv=[*_sword(), HARM])
+    _look(bridge, inv=_sword())
+    _look(bridge, inv=_sword())
+    session.body.fights = [KILL]
+
+    _attack(session, arena="vault")
+
+    (use,) = _uses(session)
+    assert (use.op, use.reason, use.potion) == (
+        "throw", "harm", "minecraft:strong_harming")
+    assert set(use.targets) == {"a", "b"}
+    assert "position" in use.fields()["at"]  # a point short of them: out of its reach
+
+
+def test_a_use_the_body_refuses_is_not_tried_again_at_once(fighter):
+    session, bridge = fighter
+    a, b = ("a", (6.5, 64.0, 0.5)), ("b", (7.0, 64.0, 1.5))
+    _arena(session, _match(a, b), _match(a, b), _match(state="won", cleared=2))
+    _look(bridge, inv=[*_sword(), HARM])
+    _look(bridge, inv=[*_sword(), HARM])
+    _look(bridge, inv=_sword())
+    session.body.uses = [Result(False, "out_of_range", {})]
+
+    _attack(session, arena="vault")
+
+    assert len(_uses(session)) == 1
+    assert len(_logged(session.body, "fight")) == 2  # it fought on both looks
+
+
+def test_between_waves_a_hungry_hunter_eats(fighter):
+    session, bridge = fighter
+    bread = {"slot": 3, "item": "minecraft:bread", "count": 8}
+    _arena(session, _match(next_wave=60, cleared=1), _match(state="won", cleared=2))
+    _look(bridge, inv=[*_sword(), bread], food=9)
+    _look(bridge, inv=[*_sword(), bread])
+
+    _attack(session, arena="vault")
+
+    (use,) = _uses(session)
+    assert (use.op, use.item, use.reason) == ("eat", "minecraft:bread", "feed")
+
+
+def test_the_guard_heals_before_it_fights_and_breaks_off_to_heal(guard):  # noqa: F811
+    session, bridge, _ = guard()
+    zombie = _mob(pos=(2.5, 64.0, 0.5))
+    bridge.samples.append(_day_row(zombie, inv=[*_sword(), SPLASH_HEAL], health=7.0))
+    out = session.defend(session.threat())
+    assert (out["action"], out["purpose"], out["ok"]) == ("throw", "heal", True)
+    assert not _logged(session.body, "fight")
+
+    bridge.samples.append(
+        _day_row(zombie, inv=[*_sword(), SPLASH_HEAL], health=20.0, tick=11)
+    )
+    session.defend(session.threat())
+    ((_, fields),) = _logged(session.body, "fight")
+    assert fields["floor"] == max(
+        cs.consumables.HEAL_AT, int(session.defense_policy.floor_health)
+    )
 
 
 def test_an_arena_hunt_stands_down_the_guard_while_its_match_runs(fighter):

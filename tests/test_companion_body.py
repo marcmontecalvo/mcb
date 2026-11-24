@@ -2752,6 +2752,31 @@ def test_wear_asks_the_body_to_dress_and_rows_keep_the_slots():
     assert b.rows() == rows and b.rows() is not b._rows
 
 
+def test_drink_and_throw_potion_send_their_fields():
+    b, bridge, _ = body()
+    bridge.reply["drink"] = ("done", {"potion": "minecraft:healing"})
+    assert b.drink("minecraft:healing").ok
+    assert bridge.sent[-1] == ("drink", {"potion": "minecraft:healing"})
+    bridge.reply["throw_potion"] = ("done", {"flight_ticks": 9})
+    at = {"entity": "u-1"}
+    assert b.throw_potion("minecraft:harming", at, item="minecraft:splash_potion").ok
+    assert bridge.sent[-1] == ("throw_potion", {"potion": "minecraft:harming",
+                                                "item": "minecraft:splash_potion",
+                                                "at": at})  # fmt: skip
+    assert cb.OP_TIMEOUTS["drink"] >= cb.OP_TIMEOUTS["eat"]
+    # a consumables choice goes to the op it names
+    from mclab.companion_consumables import Use
+
+    bridge.reply["eat"] = ("done", {})
+    b.consume(Use("eat", "minecraft:bread", "feed"))
+    assert bridge.sent[-1] == ("eat", {"item": "minecraft:bread"})
+    b.consume(Use("drink", "minecraft:potion", "heal", potion="minecraft:healing"))
+    assert bridge.sent[-1] == ("drink", {"potion": "minecraft:healing"})
+    b.consume(Use("throw", "minecraft:splash_potion", "heal",
+                  potion="minecraft:healing", at="self"))  # fmt: skip
+    assert bridge.sent[-1][1]["at"] == "self"
+
+
 def test_trial_sends_the_scene_as_given():
     b, bridge, _ = body()
     bridge.reply["trial"] = ("done", {"given": 1, "summoned": []})

@@ -43,7 +43,7 @@ def main(argv=None) -> int:
     parser.add_argument("--players", nargs="+", default=["MCBot"])
     parser.add_argument(
         "--kit",
-        default="all+armor+shield+trident",
+        default="all+armor+shield+trident+food+potions",
         help="the trial kit handed out each run (combat-trial weapons joined by +), "
         "or 'keep' for what the bot carries",
     )

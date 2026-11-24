@@ -31,6 +31,7 @@ from pathlib import Path
 from mclab import companion_attack as commanded
 from mclab import companion_burrow as burrow
 from mclab import companion_combat as combat
+from mclab import companion_consumables as consumables
 from mclab import companion_defense as defense
 from mclab import companion_gear as gear
 from mclab import paths
@@ -123,6 +124,7 @@ BASE_NEAR = 2.0  # at the base place
 BASE_EXTENT = 16.0  # known containers this close to the base place are the base's
 BASE_PLACES = ("base", "home")  # a home recorded at the first spawn is no base
 HEAL_MARGIN = 4  # leave a burrow at the floor plus this much health
+USE_RETRY_S = 5.0  # a food or potion use the body refused is not tried again sooner
 BURROW_WAIT_TICKS = 20
 DUSK = 12000  # time_of_day from here to the end of the day: night, mobs about
 NO_THREAT = defense.Action("none", "no threat near")
@@ -403,6 +405,8 @@ class Session:
         self._spent_chests: set = set()  # this defence: a chest that failed
         self._burrow_failed = None  # this defence: feet where a burrow failed
         self._out_of_reach: dict[str, float] = {}  # uuid -> clock() until
+        self._marks = consumables.Marks()  # potion effects thrown on mobs
+        self._use_failed: dict[tuple, float] = {}  # a refused use -> clock() until
         # the host sets the running job's id: a job re-run after a defence keeps its
         # tally
         self.current_job: str | None = None
@@ -827,11 +831,18 @@ class Session:
     def defend(self, action: defense.Action) -> dict:
         """One step of ``action``; the host's guard decides again after it. Returns
         the step's outcome: the action, and for a body op (fight, escape) its ok,
-        reason and scalar result fields (OUTCOME_FIELDS; never the inventory)."""
+        reason and scalar result fields (OUTCOME_FIELDS; never the inventory). Food
+        or a potion the moment calls for comes first (a heal before a fight, a
+        splash on a pack): that use is the step."""
         self.knowledge()  # body.foods: eat_when_needed knows what is food
         rows = getattr(self.body, "rows", None)
         if rows is not None:
             self._dress(rows())  # armor picked up mid-job goes on before the fight
+        state = self._latest()
+        foes = [consumables.Foe(t.uuid, t.type, t.position) for t in action.threats]
+        used = self._consume(state.get("body") or {}, foes, self._friends(state))
+        if used is not None and used["ok"]:
+            return used
         step = {
             "fight": self._fight,
             "walk_away": self._walk_away,
@@ -862,18 +873,87 @@ class Session:
 
     def _rest(self) -> None:
         """Nothing to move for: eat if hungry or hurt, and let a few ticks pass."""
-        self.body.eat_when_needed()
+        self._recover(self._latest().get("body") or {})
         self.body.wait_ticks(DEFEND_WAIT_TICKS)
+
+    # --- food and potions (companion_consumables) ----------------------------------
+    def _latest(self) -> dict:
+        """The newest sample the bridge holds, without a poll (the guard runs inside
+        bridge.state())."""
+        samples = getattr(self.bridge, "samples", None) or ()
+        return samples[-1] if samples else {}
+
+    def _held(self, body: dict) -> tuple:
+        foods = getattr(self.body, "foods", None) or {}
+        return consumables.held(body.get("inventory"), foods)
+
+    def _friends(self, state: dict, foe: str | None = None) -> list:
+        """Where the players in sight stand (but ``foe``): no harmful splash breaks
+        beside them."""
+        return [
+            tuple(e["position"])
+            for e in state.get("visible_entities") or ()
+            if e.get("type") == PLAYER
+            and e.get("position")
+            and str(e.get("uuid")) != foe
+            and e.get("name") != self.bot_name
+        ]
+
+    def _consume(self, body: dict, foes=(), friends=()) -> dict | None:
+        """Eat, drink or throw what the moment calls for (``consumables.decide``).
+        Returns the use as a step with the op's outcome, or None: nothing suits, or
+        the same use was refused a moment ago (USE_RETRY_S)."""
+        items = self._held(body)
+        if not items or body.get("position") is None:
+            return None
+        me = consumables.Body.from_observation(body)
+        now = self.clock()
+        use = consumables.decide(
+            me,
+            items,
+            consumables.ranged(foes, me.position),
+            self._marks.active(now),
+            friends,
+        )
+        if use is None:
+            return None
+        key = (use.op, use.item, use.potion, use.at)
+        if self._use_failed.get(key, -math.inf) > now:
+            return None
+        result = self.body.consume(use)
+        if result.ok:
+            self._marks.record(use, now)
+            self._use_failed.pop(key, None)
+        else:
+            log.info("%s %s refused: %s", use.op, use.potion or use.item, result.reason)
+            self._use_failed[key] = now + USE_RETRY_S
+        return {**use.summary(), **_outcome(result)}
+
+    def _recover(self, body: dict, progress=None) -> None:
+        """No foe at hand: eat or heal as the moment calls for, else as hunger does."""
+        used = self._consume(body)
+        if used is None:
+            self.body.eat_when_needed()
+        elif progress is not None:
+            progress(step=used)
+
+    def _fight_floor(self, body: dict, floor: int) -> int:
+        """The fight breaks off at HEAL_AT while something held heals."""
+        me = consumables.Body.from_observation(body)
+        return consumables.fight_floor(me, self._held(body), floor)
 
     def _fight(self, action: defense.Action) -> Result:
         policy = self.defense_policy
+        floor = self._fight_floor(
+            self._latest().get("body") or {}, int(policy.floor_health)
+        )
 
         def once(entity):
             return self.body.fight(
                 entity=entity,
                 weapon=action.item,
                 radius=defense.fight_radius(action.threats, policy),
-                floor=int(policy.floor_health),
+                floor=floor,
                 max_ticks=FIGHT_TICKS,
                 anchor=action.anchor,
                 leash=int(action.leash) if action.leash is not None else None,
@@ -975,7 +1055,7 @@ class Session:
                 raise BodyDied("died in the burrow")
             if self._may_leave(state.get("body") or {}):
                 break
-            self.body.eat_when_needed()
+            self._recover(state.get("body") or {})
             self.body.wait_ticks(BURROW_WAIT_TICKS)
         burrow.dig_out(self.body, plan)
 
@@ -990,10 +1070,13 @@ class Session:
         )
 
     def _can_heal(self, body: dict, inventory: dict) -> bool:
-        """Health regenerates: the food bar is high enough, or food is held."""
+        """Health comes back: the food bar is high enough to regenerate, or food, a
+        healing potion or a golden apple is held."""
         foods = getattr(self.knowledge(), "foods", None) or {}
-        return int(body.get("food", 20)) >= REGEN_FOOD or any(
-            inventory.get(item, 0) > 0 for item in foods
+        return (
+            int(body.get("food", 20)) >= REGEN_FOOD
+            or any(inventory.get(item, 0) > 0 for item in foods)
+            or consumables.can_heal(self._held(body))
         )
 
     # --- jobs ------------------------------------------------------------------------
@@ -1079,6 +1162,7 @@ class Session:
             )
         )
         self.hunting = arena is not None
+        self.knowledge()  # body.foods: what of the inventory is food
         try:
             return self._attack_loop(target, weapon, tally, arena, label, progress)
         finally:
@@ -1101,6 +1185,25 @@ class Session:
             raise JobFailed(f"arena {arena}: {reply.reason}")
         return reply.data or {}
 
+    @staticmethod
+    def _attack_foes(state: dict, status: dict | None, target: dict, found) -> list:
+        """What a splash may be thrown at: every wave mob of an arena match, else the
+        hostiles in sight and the player the owner named."""
+        if status is not None:
+            rows = (status.get("match") or {}).get("wave_mobs") or ()
+        else:
+            rows = [
+                e
+                for e in state.get("visible_entities") or ()
+                if e.get("type") in defense.HOSTILE
+                or ("player" in target and str(e.get("uuid")) == found.uuid)
+            ]
+        return [
+            consumables.Foe(str(r.get("uuid")), r["type"], tuple(r["position"]))
+            for r in rows
+            if isinstance(r.get("type"), str) and len(r.get("position") or ()) == 3
+        ]
+
     def _attack_loop(self, target, weapon, tally, arena, label, progress) -> dict:
         chosen = None
         while True:
@@ -1109,6 +1212,7 @@ class Session:
             here = body.get("position")
             if here is None:
                 raise BodyDied("observation has no position: the body is dead")
+            status = None
             if arena is not None:
                 status = self._arena_status(arena)
                 found = commanded.hunt(status, state, chosen)
@@ -1116,7 +1220,7 @@ class Session:
                     raise JobFailed(f"arena {arena} runs no wave match")
                 if found == commanded.WAITING:
                     progress(stage="waiting", detail=f"{arena}: the next wave")
-                    self.body.eat_when_needed()
+                    self._recover(body, progress)
                     self.body.wait_ticks(ARENA_WAIT_TICKS)
                     continue
                 if isinstance(found, str):
@@ -1134,9 +1238,16 @@ class Session:
                 label = found.label
             if "player" not in target:
                 chosen = found.uuid  # this one, not whichever is nearest next look
-            floor = 0 if arena is not None else int(self.defense_policy.floor_health)
-            if float(body.get("health", 20.0)) <= floor:
+            foes = self._attack_foes(state, status, target, found)
+            used = self._consume(body, foes, self._friends(state, found.uuid))
+            if used is not None:
+                progress(step=used)
+                if used["ok"]:
+                    continue  # look again: the heal, the splash, the buff took
+            base = 0 if arena is not None else int(self.defense_policy.floor_health)
+            if float(body.get("health", 20.0)) <= base:
                 return self._attack_over(tally, commanded.LOW_HEALTH, label)
+            floor = self._fight_floor(body, base)  # breaks off to heal while it can
             rows = body.get("inventory")
             plan = self._attack_tactic(
                 found.type, weapon, _counts(rows), label, combat.loyal(rows)
@@ -1186,6 +1297,8 @@ class Session:
                 reason = result.reason or ""
                 if reason.startswith("cancelled"):
                     raise JobCancelled  # /mcb stop cancelled the fight op itself
+                if reason == commanded.LOW_HEALTH and floor > base:
+                    continue  # broke off at the heal floor: the next look heals
                 if reason == commanded.LOW_HEALTH:
                     return self._attack_over(tally, commanded.LOW_HEALTH, label)
                 if reason == commanded.INVULNERABLE:

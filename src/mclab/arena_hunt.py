@@ -29,6 +29,7 @@ READY_WAIT_S = 90.0  # a bot that died last run respawns before the next
 KIT_WAIT_S = 10.0  # the kit handed out shows in the bot's status by then
 DONE = frozenset({"succeeded", "failed", "cancelled"})
 JOB_FIELDS = ("kills", "hits", "damage", "waves_cleared", "waves")
+USES = frozenset({"eat", "drink", "throw"})  # food and potion steps (consumables)
 
 
 def parse_wave(text: str, delay: int) -> dict:
@@ -184,6 +185,7 @@ def _steps(api, cursor: int, job_id: str) -> dict:
     ]
     hurt: dict = {}
     picks: dict = {}
+    uses: dict = {}
     killed_by = None
     for s in steps:
         _add(hurt, s.get("hurt_by"))
@@ -191,7 +193,12 @@ def _steps(api, cursor: int, job_id: str) -> dict:
         if s.get("target_type") and s.get("weapon"):
             kind = picks.setdefault(s["target_type"], {})
             kind[s["weapon"]] = kind.get(s["weapon"], 0) + 1
-    return {"steps": steps, "hurt_by": hurt, "killed_by": killed_by, "picks": picks}
+        if s.get("action") in USES and s.get("ok") and s.get("purpose"):
+            what = s.get("potion") or s.get("item")
+            used = uses.setdefault(s["purpose"], {})
+            used[what] = used.get(what, 0) + 1
+    return {"steps": steps, "hurt_by": hurt, "killed_by": killed_by, "picks": picks,
+            "uses": uses}  # fmt: skip
 
 
 def summary(rows: list[dict]) -> dict:
@@ -200,8 +207,13 @@ def summary(rows: list[dict]) -> dict:
     if not rows:
         return {"runs": 0}
     hurt: dict = {}
+    uses: dict = {}
     for r in rows:
         _add(hurt, r.get("hurt_by"))
+        for purpose, used in (r.get("uses") or {}).items():
+            total = uses.setdefault(purpose, {})
+            for what, n in used.items():
+                total[what] = total.get(what, 0) + n
     killers = Counter(r["killed_by"] for r in rows if r.get("killed_by"))
     won = [r for r in rows if r.get("outcome") == "won"]
     times = [r["seconds"] for r in won if isinstance(r.get("seconds"), (int, float))]
@@ -222,6 +234,7 @@ def summary(rows: list[dict]) -> dict:
         "mean_waves_cleared": statistics.mean(cleared) if cleared else None,
         "hurt_by": dict(sorted(hurt.items(), key=lambda kv: -kv[1])),
         "killed_by": dict(killers),
+        "uses": uses,
     }
 
 

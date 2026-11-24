@@ -1204,6 +1204,11 @@ class DefenseBody(FakeBody):
         self.fights, self.containers, self.escapes, self.trials = [], [], [], []
         self.stance_ok = True
         self.ate = 0
+        self.uses = []  # consume replies in turn, then ok
+
+    def consume(self, use):
+        self.log.append(("consume", use))
+        return self.uses.pop(0) if self.uses else Result(True, None, {})
 
     def fight(self, **fields):
         self.log.append(("fight", fields))

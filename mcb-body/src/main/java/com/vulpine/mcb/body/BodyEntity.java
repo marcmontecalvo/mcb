@@ -54,8 +54,14 @@ final class BodyEntity {
     }
 
     static Entity find(ServerPlayer player, JsonObject request) {
+        try { return find(player, request.get("entity").getAsString()); }
+        catch (RuntimeException e) { throw e instanceof BodyActions.Fail ? e : new BodyActions.Fail("not_found"); }
+    }
+
+    /** The live entity with this uuid in the body's level, or not_found. */
+    static Entity find(ServerPlayer player, String uuid) {
         UUID id;
-        try { id = UUID.fromString(request.get("entity").getAsString()); }
+        try { id = UUID.fromString(uuid); }
         catch (RuntimeException e) { throw new BodyActions.Fail("not_found"); }
         Entity entity = player.level().getEntity(id);
         if (entity == null || !entity.isAlive()) throw new BodyActions.Fail("not_found");
@@ -1072,56 +1078,4 @@ final class BodyEntity {
         return entity instanceof Sheep sheep ? "sheared=" + sheep.isSheared() : entity instanceof LivingEntity living ? "health=" + living.getHealth() : "";
     }
 
-    // ---- eat
-    static final class EatTask implements Task {
-        final long sequence;
-        final String item;
-        final int foodBefore;
-        final int stackBefore;
-        int ticks;
-
-        private EatTask(long sequence, String item, int foodBefore, int stackBefore) {
-            this.sequence = sequence; this.item = item; this.foodBefore = foodBefore; this.stackBefore = stackBefore;
-        }
-
-        static EatTask start(ServerPlayer player, JsonObject request, long sequence) {
-            var foods = new LinkedHashMap<String, Integer>();
-            var inv = player.getInventory();
-            for (int i = 0; i < 36; i++) {
-                var food = inv.getItem(i).get(DataComponents.FOOD);
-                if (food != null) foods.put(BuiltInRegistries.ITEM.getKey(inv.getItem(i).getItem()).toString(), food.nutrition());
-            }
-            String item = request.has("item") ? request.get("item").getAsString() : ActionLogic.bestFood(foods);
-            if (item == null || !foods.containsKey(item)) throw new BodyActions.Fail("no_food");
-            BodyBuild.selectItem(player, item);
-            var stack = player.getMainHandItem();
-            if (!player.canEat(stack.get(DataComponents.FOOD).canAlwaysEat())) throw new BodyActions.Fail("not_hungry");
-            int before = player.getFoodData().getFoodLevel();
-            var result = player.gameMode.useItem(player, player.level(), stack, InteractionHand.MAIN_HAND);
-            if (!result.consumesAction() || !player.isUsingItem()) throw new BodyActions.Fail("interrupted");
-            return new EatTask(sequence, item, before, stack.getCount());
-        }
-
-        @Override public String name() { return "eat"; }
-        @Override public long requestSequence() { return sequence; }
-
-        @Override public String step(ServerPlayer player) {
-            ticks++;
-            if (player.isUsingItem()) return ticks > 200 ? "interrupted" : null;
-            // Finished using: eaten when the stack shrank (it is the held stack, so compare against its start count).
-            return player.getMainHandItem().getCount() < stackBefore || player.getMainHandItem().isEmpty() ? "done" : "interrupted";
-        }
-
-        @Override public void stop(ServerPlayer player) { if (player.isUsingItem()) player.stopUsingItem(); }
-
-        @Override public Map<String, Object> result(ServerPlayer player) {
-            var out = new LinkedHashMap<String, Object>();
-            out.put("item", item);
-            out.put("food_before", foodBefore);
-            out.put("food_after", player.getFoodData().getFoodLevel());
-            out.put("saturation_after", player.getFoodData().getSaturationLevel());
-            out.put("ticks", ticks);
-            return out;
-        }
-    }
 }

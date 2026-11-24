@@ -107,6 +107,7 @@ OP_TIMEOUTS = {
     "break_block": 45.0,
     "attack_entity": 30.0,
     "eat": 20.0,
+    "drink": 20.0,  # 1.6 s of drinking, as long as an eat may take
     "fight": 2400 / 20 + 10.0,  # the longest fight the body accepts, and a margin
     "escape": 1200 / 20 + 10.0,  # the longest escape the body accepts, and a margin
 }
@@ -1426,6 +1427,27 @@ class CompanionBody:
 
     def eat(self, item: str | None = None) -> Result:
         return self.op("eat", **({"item": item} if item else {}))
+
+    def drink(self, potion: str) -> Result:
+        """Drink the first held potion of that id (BODY_ACTION_OPS ``drink``)."""
+        return self.op("drink", potion=potion)
+
+    def throw_potion(
+        self, potion: str, at, *, item: str = "minecraft:splash_potion"
+    ) -> Result:
+        """Throw a splash (or lingering) potion of that id (BODY_ACTION_OPS
+        ``throw_potion``); ``at``: "self" (at its feet), ``{"entity": uuid}`` or
+        ``{"position": [x, y, z]}``. The body aims the arc."""
+        return self.op("throw_potion", potion=potion, item=item, at=at)
+
+    def consume(self, use) -> Result:
+        """Carry out a ``companion_consumables.Use``."""
+        fields = use.fields()
+        if use.op == "eat":
+            return self.eat(fields["item"])
+        if use.op == "drink":
+            return self.drink(fields["potion"])
+        return self.throw_potion(fields["potion"], fields["at"], item=fields["item"])
 
     def container(self, pos: Pos, action: str, items: list[dict] | None = None):
         extra = {"items": items} if items is not None else {}

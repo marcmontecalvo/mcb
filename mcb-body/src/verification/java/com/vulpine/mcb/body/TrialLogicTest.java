@@ -87,6 +87,15 @@ public final class TrialLogicTest {
         rejects("{\"give\":[{\"item\":\"minecraft:trident\",\"count\":1,\"enchantments\":[1]}]}", "bad_request");
         rejects("{\"give\":[{\"item\":\"minecraft:trident\",\"count\":1,\"enchantments\":{\"a:a\":1,\"a:b\":1,"
                 + "\"a:c\":1,\"a:d\":1,\"a:e\":1}}]}", "bad_request");
+        // a potion item may name its potion (the registry id; BodyTrial refuses an unknown one as unknown_potion)
+        var potions = parse("{\"give\":[{\"item\":\"minecraft:splash_potion\",\"count\":2,"
+                + "\"potion\":\"minecraft:strong_healing\"},{\"item\":\"minecraft:potion\",\"count\":1}]}");
+        check("minecraft:strong_healing".equals(potions.give().get(0).potion()) && potions.give().get(0).count() == 2,
+                "a give with a potion parses");
+        check(potions.give().get(1).potion() == null && full.give().get(0).potion() == null, "the potion is optional");
+        rejects("{\"give\":[{\"item\":\"minecraft:potion\",\"count\":1,\"potion\":\"heal; op me\"}]}", "bad_request");
+        rejects("{\"give\":[{\"item\":\"minecraft:potion\",\"count\":1,\"potion\":7}]}", "bad_request");
+        rejects("{\"give\":[{\"item\":\"minecraft:potion\",\"count\":1,\"potion\":\"healing\"}]}", "bad_request");
         rejects("{\"summon\":[{\"type\":\"minecraft:zombie\",\"offset\":[33,0,0]}]}", "bad_request");
         rejects("{\"summon\":[{\"type\":\"minecraft:zombie\",\"offset\":[1,0]}]}", "bad_request");
         rejects("{\"summon\":[{\"type\":\"minecraft:zombie\",\"offset\":[1.5,0,0]}]}", "bad_request");

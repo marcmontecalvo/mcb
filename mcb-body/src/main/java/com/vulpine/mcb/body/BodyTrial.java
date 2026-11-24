@@ -2,6 +2,8 @@ package com.vulpine.mcb.body;
 
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.alchemy.PotionContents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
@@ -45,6 +47,11 @@ final class BodyTrial {
             var id = Identifier.tryParse(give.item());
             if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) throw new BodyActions.Fail("unknown_item");
             var stack = new ItemStack(BuiltInRegistries.ITEM.getValue(id), give.count());
+            if (give.potion() != null) {  // checked with the items, before anything changes
+                var potion = BodyPotion.lookup(give.potion());
+                if (potion == null) throw new BodyActions.Fail("unknown_potion");
+                stack.set(DataComponents.POTION_CONTENTS, new PotionContents(potion));
+            }
             var enchantments = player.level().registryAccess().lookupOrThrow(Registries.ENCHANTMENT);
             for (var level : give.enchantments().entrySet()) {
                 var key = Identifier.tryParse(level.getKey());

@@ -109,7 +109,11 @@ permission checks as the packet path apply: spawn protection and `mayInteract`
 `use_block`, `use_entity` and `container` fail with `protected` when
 `MinecraftServer.isUnderSpawnProtection`, `ServerLevel.mayInteract` or the build limits refuse the position.
 Observations: `observe()` inventory entries gain `damage` and `max_damage` for damageable stacks (A3), and
-`enchantments` (`{id: level}`) for enchanted ones;
+`enchantments` (`{id: level}`) for enchanted ones. A stack with potion contents (`potion`, `splash_potion`,
+`lingering_potion`, `tipped_arrow`) also carries `potion` (the registry id, e.g. `minecraft:strong_healing`;
+omitted when the contents name none) and `effects` (`[{"id": "minecraft:instant_health", "amplifier": 1,
+"duration": 1}]` for every effect of the contents, the potion's and any custom ones; durations are the base
+ticks, a splash potion applies 0.75 of them and a lingering one 0.25);
 `PolicySensor.entities` entries carry `uuid`, `sheared` (sheep) and `baby` (animals).
 
 Notes on built behaviour (differences from the first contract text):
@@ -248,11 +252,13 @@ Sets the scene for a combat trial on the play server (`scripts/combat-trial.py` 
 control API, `POST /trial`, which keeps the mod's request sequence). Structured fields only, never a
 command string; any other key is `bad_request`:
 `{"surface":bool?, "clear":0..48?, "clear_inventory":bool?, "give":[{"item","count":1..256,
-"enchantments":{id: 1..10}? (max 4; a trident's Loyalty)}]? (max 36),
+"enchantments":{id: 1..10}? (max 4; a trident's Loyalty), "potion":"<potion id>"? (a registry id such as
+`minecraft:strong_healing`; sets the stack's potion contents, for `minecraft:potion`, `splash_potion`,
+`lingering_potion` or `tipped_arrow`)}]? (max 36),
 "wear":bool?, "heal":bool?, "time":0..23999?, "summon":[{"type", "offset":[dx,dy,dz] (each -32..32) | "distance":2..32,
 "helmet":bool?}]? (max 8)}`; each summon has exactly one of `offset` and `distance`.
-Order: check every item and entity id against the registries first (`unknown_item`, `unknown_entity`;
-nothing changes on a bad id), then `surface` (the body moves to the top of its column, the first free
+Order: check every item, potion, enchantment and entity id against the registries first (`unknown_item`,
+`unknown_potion`, `unknown_enchantment`, `unknown_entity`; nothing changes on a bad id), then `surface` (the body moves to the top of its column, the first free
 cell over the top non-leaf block, so a trial never starts in a hole or a cave), then `clear` (discards earlier trial mobs (tag `mcb_trial`), hostiles,
 dropped items, XP orbs and projectiles within that radius; never players), `clear_inventory`, `give`
 (split into stacks, `inventory_full`), `wear` (the `wear` op's choice of armor and shield goes on; its
@@ -270,7 +276,7 @@ guard, which reacts to what it sees, never knew it was there. The Ender Dragon a
 A summoned mob is finalized as a natural spawn (a skeleton gets its bow, a zombie may get gear).
 `_done`: `{"surface": y?, "cleared": n?, "time"?, "given": n (give entries), "summoned":[{type,uuid,at}],
 "health"}`.
-`_failed`: `bad_request`, `not_allowed`, `unknown_item`, `unknown_enchantment`, `unknown_entity`,
+`_failed`: `bad_request`, `not_allowed`, `unknown_item`, `unknown_potion`, `unknown_enchantment`, `unknown_entity`,
 `inventory_full`, `cannot_create_entity`, `no_room`, `no_spot`, `busy`.
 
 ### `wear`
@@ -296,9 +302,52 @@ cow. Reach and line of sight as above.
 Request: `{"item":"<food item>"?}` (default: the held food that restores the most).
 The body holds use until the item is consumed (about 32 ticks), and is not allowed
 to move meanwhile.
-`_done`: `{"item", "food_before", "food_after", "saturation_after"}`. `_failed`:
+`_done`: `{"item", "food_before", "food_after", "saturation_after", "ticks"}`. `_failed`:
 `no_food`, `not_hungry` (food is full and the item can't always be eaten),
 `interrupted`, `cancelled:<why>`.
+`eat` and `drink` are one task (`ConsumeTask`): it is done when the held stack shrank, emptied or became
+another item (the last potion leaves a glass bottle), `interrupted` when the use stops with the stack whole or
+runs past 200 ticks.
+
+### `drink`
+Request: exactly one of `{"potion":"<potion id>"}` (e.g. `minecraft:strong_healing`; `"milk"` for a milk
+bucket) or `{"slot": 0..35}`. The first inventory slot 0-35 holding a `minecraft:potion` of that potion id
+(never a splash or lingering one), a milk bucket for `"milk"`, or the named slot if it holds a potion or milk,
+is moved into the hand as `equip` does (a main-inventory stack swaps up into the first empty hotbar slot) and
+used with `ServerPlayerGameMode.useItem` for about 32 ticks, as `eat`. A `busy`/`route_active` body refuses, as
+`eat`. The hotbar is not restored.
+`_done`: `{"item", "potion"? (the id drunk; "milk" for milk), "health_before", "health_after", "effects" (the
+body's active effects after, `{id, amplifier, duration}`), "ticks", "inventory"}`. `_failed`: `bad_request`
+(neither or both of `potion` and `slot`, a malformed id or a slot outside 0..35), `no_potion` (nothing matches),
+`interrupted`, `busy`, `route_active`, `cancelled:<why>`.
+
+### `throw_potion`
+Request: `{"potion":"<potion id>", "item":"minecraft:splash_potion"|"minecraft:lingering_potion"?,
+"at":"self"|{"entity":"<uuid>"}|{"position":[x,y,z]}}` (`item` defaults to the splash potion; `at` is
+required). The first slot 0-35 holding that item with that potion is moved into the hand and thrown with
+`ServerPlayerGameMode.useItem`, in the same server tick (a one-shot action like `equip`, not a task). Aim:
+`self` looks straight down (pitch 90, the yaw kept) so the potion shatters at the body's feet. An entity or a
+position goes through `ThrowLogic`, a ballistic solver of this game version's flight (read from the 26.3
+bytecode): `ThrowablePotionItem.use` calls `Projectile.spawnProjectileFromRotation(..., -20, 0.5, 1)`, so the
+launch direction is `(-sin yaw cos pitch, -sin(pitch - 20 deg), cos yaw cos pitch)` normalised and scaled to
+speed 0.5 (with inaccuracy 1: a triangular noise of up to 0.017 per axis); the potion starts 0.1 below the eye;
+each tick gravity 0.05 is subtracted from the vertical speed, then all three speeds are multiplied by 0.99
+(0.8 in water), then it moves; it shatters on the first block or entity (`AbstractThrownPotion`). The solver
+finds the lowest arc whose simulated path falls through the target's height within 0.5 block of it (an entity's
+target is its feet, led by its horizontal velocity times the flight time). The reach of a 0.5-speed lob is
+short: about 5.5 blocks on the flat from standing eye height, less uphill (a target 3 blocks up at 3 blocks away
+is out of reach). The body should stand still: its own velocity adds to the throw's and the solver does not
+model it. Nothing is restored afterwards (the fight op selects its weapon each call).
+`_done`: `{"potion", "item", "target": [x,y,z] (where it was aimed, the led point for a moving entity),
+"yaw", "pitch", "flight_ticks" (predicted; 0 for self), "inventory"}`. `_failed`: `bad_request`, `no_potion`,
+`not_found` (the entity uuid is not in the level or is dead), `out_of_range` (no pitch lands it), `no_effect`
+(the game refused the use), `busy`, `route_active`.
+
+### Observation: effects and fire (`/state`, extended observation)
+A body spawned with `extended_observation` (the companion's) also reports `effects` (its active effects, each
+`{"id": "minecraft:regeneration", "amplifier": 0, "duration": ticks}`, duration -1 for infinite), `absorption`
+(float, health points of absorption: 2 per heart), `saturation` (float food saturation) and `fire_ticks` (remaining
+burning ticks, 0 when not burning). The frozen course observation does not carry them.
 
 ### `container`
 Chests, barrels and shulker boxes. Request:

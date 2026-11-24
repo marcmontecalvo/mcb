@@ -330,6 +330,7 @@ public final class CarpetBodyAdapter {
                     e.getKey().unwrapKey().ifPresent(key -> levels.put(key.identifier().toString(), e.getIntValue()));
                 entry.put("enchantments", levels);
             }
+            BodyPotion.describe(stack, entry);  // a potion's id and effects (also splash, lingering and tipped arrows)
             inventory.add(entry);
         }
         var p = player.position();
@@ -349,6 +350,10 @@ public final class CarpetBodyAdapter {
                 Map.entry("yaw", player.getYRot()), Map.entry("pitch", player.getXRot()),
                 Map.entry("on_ground", player.onGround()), Map.entry("health", player.getHealth()),
                 Map.entry("food", player.getFoodData().getFoodLevel()),
+                Map.entry("saturation", player.getFoodData().getSaturationLevel()),
+                Map.entry("absorption", player.getAbsorptionAmount()),
+                Map.entry("effects", BodyPotion.activeEffects(player)),
+                Map.entry("fire_ticks", Math.max(0, player.getRemainingFireTicks())),
                 Map.entry("time_of_day", (int) Math.floorMod(player.level().getDefaultClockTime(), 24000L)),
                 Map.entry("mode", player.gameMode.getGameModeForPlayer().getName()),
                 Map.entry("pose", player.getPose().toString()), Map.entry("alive", player.isAlive()),
