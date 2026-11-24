@@ -137,6 +137,18 @@ def test_a_hunt_heals_starts_the_match_sends_the_bot_and_samples_it():
     assert arena.stopped == []  # the match ended by itself
 
 
+def test_a_job_that_fails_mid_match_stops_the_match_for_the_next_run():
+    # Vault raid 20261124T043026Z: the job failed in wave 3, the match ran on, and
+    # the next run could not start (match_running).
+    clock = Clock()
+    api, arena = FakeApi(clock), FakeArena(clock, end=None)
+    api.job = {"id": "j1", "state": "failed", "error": "I may not attack vault"}
+    row = ah.hunt(api, arena, "vault", [], participants=["MCBot"], timeout=60,
+                  clock=clock)  # fmt: skip
+    assert arena.stopped == ["vault"]
+    assert row["outcome"] == "abandoned" and row["error"] == "I may not attack vault"
+
+
 def test_a_hunt_keeps_its_job_steps_and_sums_what_hurt_the_bot():
     clock = Clock()
     api, arena = FakeApi(clock), FakeArena(clock)

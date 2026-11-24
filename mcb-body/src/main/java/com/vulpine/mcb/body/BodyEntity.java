@@ -72,7 +72,8 @@ final class BodyEntity {
 
     /** Why the body may not hit target (ActionLogic.refusal), or null; allowPlayer: a commanded attack (a player may be named). */
     static String refusal(ServerPlayer body, Entity target, boolean allowPlayer) {
-        boolean tamed = target instanceof OwnableEntity owned && owned.getOwnerReference() != null;
+        boolean tamed = ActionLogic.pet(target instanceof OwnableEntity owned && owned.getOwnerReference() != null,
+                target instanceof net.minecraft.world.entity.monster.Enemy);
         var other = target instanceof net.minecraft.world.entity.player.Player p ? p : null;
         return ActionLogic.refusal(target instanceof Animal, target instanceof net.minecraft.world.entity.monster.Enemy, tamed,
                 other != null, target instanceof net.minecraft.world.entity.npc.villager.AbstractVillager, allowPlayer,

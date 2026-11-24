@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 M = "minecraft:"
 POTION = M + "potion"
@@ -62,8 +62,16 @@ THROW_SAFE = 5.0  # a throw breaks at least this far off: its splash misses the 
 # look) reaches about 5.5 blocks on level ground (ThrowLogic): a throw breaks between
 # THROW_SAFE and THROW_REACH toward the foes, past the near ones, short of the far.
 THROW_REACH = 5.25
-CLIP = 2.5  # a foe this near in the throw's direction would catch the potion
-CLIP_ANGLE = 35.0  # degrees either side of the throw that count as its direction
+# The body throws the lowest arc that lands (ThrowLogic): 1-1.6 blocks up all the way,
+# landing 5 blocks out in 11 ticks. A foe on its line catches it, and one caught
+# nearer than SELF_CLEAR splashes the bot (vault raid 20261124T043026Z).
+LAND_S = 0.6  # the throw's flight: foes are judged where they will be by then
+PATH_CLEAR = 1.0  # a foe this near the throw's line catches the potion
+SELF_CLEAR = SPLASH_RADIUS + 0.75  # a potion caught nearer splashes the bot too
+CHARGE_SPEED = 6.0  # blocks/s a melee foe of unknown course is taken to close at
+MELEE_REACH = 1.0  # a charging foe stops this near the bot
+FLYERS = frozenset(M + k for k in ("vex", "phantom"))  # too quick to lead
+FLYER_CLEAR = 8.0  # no harmful splash while one is this near
 FRIEND_CLEAR = SPLASH_RADIUS + 0.5  # a harmful splash breaks no nearer an ally
 NEED = 1.2  # a throw is worth it at this much splash, summed over the foes it takes
 NEED_BRUTE = 0.5  # or this much with a brute taken at BRUTE_WEIGHT or more
@@ -207,6 +215,7 @@ class Foe:
     type: str
     position: tuple[float, float, float]
     distance: float = 0.0
+    velocity: tuple[float, float, float] | None = None  # blocks/s; None: not known
 
 
 def ranged(foes: Iterable[Foe], here) -> tuple[Foe, ...]:
@@ -214,11 +223,23 @@ def ranged(foes: Iterable[Foe], here) -> tuple[Foe, ...]:
     at = tuple(here)
     return tuple(
         sorted(
-            (Foe(f.uuid, f.type, tuple(f.position), math.dist(at, f.position))
-             for f in foes),  # fmt: skip
+            (replace(f, position=tuple(f.position),
+                     distance=math.dist(at, f.position)) for f in foes),  # fmt: skip
             key=lambda f: f.distance,
         )
     )
+
+
+def read_foe(row) -> Foe | None:
+    """A foe from an entity row (``uuid``, ``type``, ``position``, ``velocity`` in
+    blocks/s when the row has it), or None for a malformed row."""
+    at, kind = row.get("position"), row.get("type")
+    if not isinstance(kind, str) or not at or len(at) != 3:
+        return None
+    v = row.get("velocity")
+    velocity = tuple(float(c) for c in v) if v and len(v) == 3 else None
+    return Foe(str(row.get("uuid")), kind, tuple(float(c) for c in at),
+               velocity=velocity)  # fmt: skip
 
 
 def foes_from(rows, here, kinds: Iterable[str] | None = None) -> tuple[Foe, ...]:
@@ -227,12 +248,9 @@ def foes_from(rows, here, kinds: Iterable[str] | None = None) -> tuple[Foe, ...]
     keep = frozenset(kinds) if kinds is not None else None
     out = []
     for row in rows or ():
-        at, kind = row.get("position"), row.get("type")
-        if not isinstance(kind, str) or not at or len(at) != 3:
-            continue
-        if keep is not None and kind not in keep:
-            continue
-        out.append(Foe(str(row.get("uuid")), kind, tuple(float(v) for v in at)))
+        f = read_foe(row)
+        if f is not None and (keep is None or f.type in keep):
+            out.append(f)
     return ranged(out, here)
 
 
@@ -454,39 +472,63 @@ def _flat(a, b) -> float:
     return math.hypot(a[0] - b[0], a[2] - b[2])
 
 
+def _at(f: Foe, here, t: float) -> tuple[float, float, float]:
+    """Where the foe will be ``t`` seconds on: along its velocity, else (a melee foe
+    of unknown course) charging the bot at CHARGE_SPEED up to MELEE_REACH, else
+    where it is (an archer keeps its distance)."""
+    x, y, z = f.position
+    if f.velocity is not None:
+        vx, _, vz = f.velocity
+        return (x + vx * t, y, z + vz * t)
+    if f.type not in MELEE:
+        return (x, y, z)
+    flat = _flat(f.position, here)
+    step = min(CHARGE_SPEED * t, max(0.0, flat - MELEE_REACH))
+    if flat < 1e-6 or step <= 0:
+        return (x, y, z)
+    return (x + (here[0] - x) / flat * step, y, z + (here[2] - z) / flat * step)
+
+
+def _catches(f: Foe, here, ux: float, uz: float, r: float) -> bool:
+    """Whether the foe, now or while the potion flies, stands on the throw's line
+    nearer than SELF_CLEAR: it would catch the potion inside the bot's own splash."""
+    for t in (0.0, LAND_S / 2, LAND_S):
+        q = _at(f, here, t)
+        dx, dz = q[0] - here[0], q[2] - here[2]
+        along = dx * ux + dz * uz
+        if 0.0 < along <= min(r, SELF_CLEAR) and abs(dx * uz - dz * ux) <= PATH_CLEAR:
+            return True
+    return False
+
+
 def _points(here, foes: tuple[Foe, ...], friends) -> list[tuple[float, ...]]:
-    """Where a throw may break: toward each foe, as near it as the arc reaches
-    (``THROW_SAFE`` .. ``THROW_REACH`` from the bot, past a foe that is nearer),
-    at its height. Never over a foe within ``CLIP`` in that direction (it would
-    break on it, beside the bot), nor within ``FRIEND_CLEAR`` of a friend."""
+    """Where a throw may break: toward where each foe will be when it lands (LAND_S),
+    as near it as the arc reaches (``THROW_SAFE`` .. ``THROW_REACH`` from the bot),
+    at its height. Never along a line some foe would catch the potion on beside the
+    bot (``_catches``), within ``FRIEND_CLEAR`` of a friend, or while a vex or
+    phantom flies within FLYER_CLEAR."""
+    if any(f.type in FLYERS and _flat(f.position, here) < FLYER_CLEAR for f in foes):
+        return []
     out = []
     for c in foes:
-        flat = _flat(c.position, here)
-        if flat < CLIP:
+        q = _at(c, here, LAND_S)
+        flat = _flat(q, here)
+        if flat < 1e-6:
             continue
-        ux, uz = (c.position[0] - here[0]) / flat, (c.position[2] - here[2]) / flat
-        if any(_in_line(f, here, ux, uz) for f in foes):
-            continue
+        ux, uz = (q[0] - here[0]) / flat, (q[2] - here[2]) / flat
         r = min(max(flat, THROW_SAFE), THROW_REACH)
-        point = (here[0] + ux * r, c.position[1], here[2] + uz * r)
+        if any(_catches(f, here, ux, uz, r) for f in foes):
+            continue
+        point = (here[0] + ux * r, q[1], here[2] + uz * r)
         if all(math.dist(point, p) > FRIEND_CLEAR for p in friends):
             out.append(point)
     return out
 
 
-def _in_line(f: Foe, here, ux: float, uz: float) -> bool:
-    flat = _flat(f.position, here)
-    if flat >= CLIP:
-        return False
-    if flat < 1e-6:
-        return True
-    cos = ((f.position[0] - here[0]) * ux + (f.position[2] - here[2]) * uz) / flat
-    return cos >= math.cos(math.radians(CLIP_ANGLE))
-
-
-def _intensity(f: Foe, point) -> float:
-    """How strongly a splash breaking at ``point`` takes the foe (1 - d/4)."""
-    return max(0.0, 1.0 - math.dist(f.position, point) / SPLASH_RADIUS)
+def _intensity(f: Foe, here, point) -> float:
+    """How strongly a splash breaking at ``point`` takes the foe where it will be by
+    then (the game's 1 - d/4)."""
+    return max(0.0, 1.0 - math.dist(_at(f, here, LAND_S), point) / SPLASH_RADIUS)
 
 
 def _throw(items, foes: tuple[Foe, ...], marks, friends, here) -> Use | None:
@@ -504,7 +546,7 @@ def _throw(items, foes: tuple[Foe, ...], marks, friends, here) -> Use | None:
         for point in points:
             total, hit, brute = 0.0, [], False
             for f in foes:
-                weight = _intensity(f, point)
+                weight = _intensity(f, here, point)
                 if weight <= 0:
                     continue
                 marked = set(marks.get(f.uuid, ()))

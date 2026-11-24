@@ -114,9 +114,12 @@ RAVAGER = "minecraft:ravager"
 
 def _match(*mobs, state="running", next_wave=0, cleared=0):
     """An arena_status reply for the vault's waves match; a mob is (uuid, position)
-    or (uuid, position, type), a ravager when no type is given."""
+    or (uuid, position, type[, velocity]), a ravager when no type is given."""
     rows = [{"uuid": m[0], "type": m[2] if len(m) > 2 else RAVAGER,
              "position": list(m[1]), "health": 100.0} for m in mobs]  # fmt: skip
+    for row, m in zip(rows, mobs, strict=True):
+        if len(m) > 3:
+            row["velocity"] = list(m[3])
     data = {"name": "vault", "match_state": state,
             "match": {"mode": "waves", "state": state, "wave_index": cleared,
                       "waves": 2, "next_wave_in_ticks": next_wave, "killed": cleared,
@@ -274,7 +277,8 @@ def test_a_hunt_holding_a_heal_breaks_off_at_the_heal_floor_and_heals(fighter):
 
 def test_a_hunt_splashes_harming_on_a_group_at_range_before_closing_in(fighter):
     session, bridge = fighter
-    a, b = ("a", (6.5, 64.0, 0.5), "minecraft:pillager"), ("b", (7.0, 64.0, 1.5))
+    a = ("a", (6.5, 64.0, 0.5), "minecraft:pillager")
+    b = ("b", (7.0, 64.0, 1.5), RAVAGER, (0.0, 0.0, 0.0))  # standing: the status says
     _arena(session, _match(a, b), _match(a, b), _match(state="won", cleared=2))
     _look(bridge, inv=[*_sword(), HARM])
     _look(bridge, inv=_sword())
@@ -290,9 +294,25 @@ def test_a_hunt_splashes_harming_on_a_group_at_range_before_closing_in(fighter):
     assert "position" in use.fields()["at"]  # a point short of them: out of its reach
 
 
+def test_a_hunt_throws_no_harming_at_a_ravager_the_status_shows_charging(fighter):
+    session, bridge = fighter
+    a = ("a", (6.5, 64.0, 0.5), "minecraft:pillager")
+    b = ("b", (7.0, 64.0, 1.5), RAVAGER, (-6.0, 0.0, -1.0))  # on the bot in 0.6 s
+    _arena(session, _match(a, b), _match(state="won", cleared=2))
+    _look(bridge, inv=[*_sword(), HARM])
+    _look(bridge, inv=_sword())
+    session.body.fights = [KILL]
+
+    _attack(session, arena="vault")
+
+    assert _uses(session) == []
+
+
 def test_a_use_the_body_refuses_is_not_tried_again_at_once(fighter):
     session, bridge = fighter
-    a, b = ("a", (6.5, 64.0, 0.5)), ("b", (7.0, 64.0, 1.5))
+    still = (0.0, 0.0, 0.0)
+    a = ("a", (6.5, 64.0, 0.5), RAVAGER, still)
+    b = ("b", (7.0, 64.0, 1.5), RAVAGER, still)
     _arena(session, _match(a, b), _match(a, b), _match(state="won", cleared=2))
     _look(bridge, inv=[*_sword(), HARM])
     _look(bridge, inv=[*_sword(), HARM])

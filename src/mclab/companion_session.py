@@ -1199,11 +1199,8 @@ class Session:
                 if e.get("type") in defense.HOSTILE
                 or ("player" in target and str(e.get("uuid")) == found.uuid)
             ]
-        return [
-            consumables.Foe(str(r.get("uuid")), r["type"], tuple(r["position"]))
-            for r in rows
-            if isinstance(r.get("type"), str) and len(r.get("position") or ()) == 3
-        ]
+        foes = (consumables.read_foe(r) for r in rows)  # with velocity where known
+        return [f for f in foes if f is not None]
 
     def _attack_loop(self, target, weapon, tally, arena, label, progress) -> dict:
         chosen = None

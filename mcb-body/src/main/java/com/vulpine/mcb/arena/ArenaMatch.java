@@ -32,6 +32,7 @@ final class ArenaMatch {
     private static final class Tracked {
         final String type;
         double x, y, z;
+        double vx, vy, vz;  // blocks per tick: where a thrown potion will meet it
         float health;
         Tracked(String type, double x, double y, double z, float health) { this.type = type; this.x = x; this.y = y; this.z = z; this.health = health; }
     }
@@ -220,6 +221,8 @@ final class ArenaMatch {
                 killed++;
             } else {
                 t.x = entity.getX(); t.y = entity.getY(); t.z = entity.getZ();
+                var v = entity.getDeltaMovement();
+                t.vx = v.x; t.vy = v.y; t.vz = v.z;
                 if (entity instanceof LivingEntity living) t.health = living.getHealth();
             }
         }
@@ -398,6 +401,7 @@ final class ArenaMatch {
                 m.put("type", t.type);
                 m.put("position", List.of(round(t.x), round(t.y), round(t.z)));
                 m.put("health", (double) t.health);
+                m.put("velocity", List.of(round(t.vx * 20), round(t.vy * 20), round(t.vz * 20)));  // blocks/s
                 list.add(m);
             }
             out.put("wave_mobs", list);

@@ -146,6 +146,9 @@ def hunt(
             break
     if match.get("state") == "running":  # the job ended first: read the match's end
         match = (arena.status(name) or {}).get("match") or match
+    if match.get("state") == "running":  # the job gave up on a live match: end it, or
+        _end(api, arena, name)  # the next run finds it still going (match_running)
+        match = {**match, "state": "abandoned"}
     result = (job or {}).get("result") or {}
     health = [s["health"] for s in samples if isinstance(s.get("health"), (int, float))]
     row.update(

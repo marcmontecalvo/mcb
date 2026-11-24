@@ -8,6 +8,10 @@ public final class ActionLogicTest {
 
     public static void main(String[] args) {
         check(ActionLogic.allowedTarget(true, false, false, false, false), "cow ok");
+        // a vex is Ownable (its evoker), not a pet: the vault raid's fight op refused one (20261124T043026Z)
+        check(!ActionLogic.pet(true, true), "an owned monster is no pet");
+        check(ActionLogic.pet(true, false), "an owned animal is a pet");
+        check(!ActionLogic.pet(false, false), "no owner, no pet");
         check(!ActionLogic.allowedTarget(true, false, true, false, false), "tamed refused");
         check(!ActionLogic.allowedTarget(false, false, false, false, true), "villager refused");
         check(!ActionLogic.allowedTarget(true, false, false, true, false), "player refused");

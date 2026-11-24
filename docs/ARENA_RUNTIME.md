@@ -103,7 +103,8 @@ forbidden mob such as the ender dragon), `bad_plan`, `bad_block`, `overlap`,
  "blocked_spawns": 12,
  "match": {"name": "vault", "mode": "waves", "state": "running", "ticks": 340,
            "wave_index": 1, "waves": 3, "next_wave_in_ticks": 0, "spawned": 9, "killed": 4,
-           "wave_mobs": [{"uuid": "..", "type": "minecraft:zombie", "position": [..], "health": 20.0}],
+           "wave_mobs": [{"uuid": "..", "type": "minecraft:zombie", "position": [..], "health": 20.0,
+                          "velocity": [vx, vy, vz]}],
            "participants": [{"uuid": "..", "name": "Ann", "alive": true, "team": "red"}],
            "teams_alive": {"red": 1}}}
 ```
@@ -111,7 +112,8 @@ forbidden mob such as the ender dragon), `bad_plan`, `bad_block`, `overlap`,
 `build` appears only while a job runs; `match` only after a match has started (it keeps the result
 after the end). A finished match reports `state` won, lost or stopped with `reason` and `winner`.
 Waves mode carries `wave_index`, `waves`, `next_wave_in_ticks`, `spawned`, `killed`, `wave_mobs`;
-teams mode carries `teams_alive`.
+teams mode carries `teams_alive`. A wave mob's `velocity` is its motion this tick in blocks per
+second (the bot leads a thrown splash with it).
 
 ## The bot's hunt
 
@@ -145,6 +147,17 @@ one `walk_to` under `walk_wall(ARENA_WALK_S)` (4 s), never `walk_far`'s legs: a 
 fight back, and the look after it can. Run 20261124T040230Z died in a 29 s walk toward an
 unreachable vindicator with five heals held. Damage the bot did to itself (its own splash) is
 counted as `self:<id>` in `hurt_by` and `killed_by`.
+
+A harmful splash is aimed where its targets will be when it lands (0.6 s on, by `velocity`; a
+melee mob of unknown course is taken to be charging), and never along a line some foe would catch
+it on nearer than 4.75 blocks, since the lowest arc flies 1 to 1.6 blocks up all the way and its
+splash would take the bot. No harmful splash flies while a vex or phantom is within 8 blocks. The
+vault raid 20261124T043026Z showed both: its own harming took it for 4 and 3. The same raid's
+fight op refused a vex as a pet (a vex is `OwnableEntity`, its evoker the owner); a pet is now
+owned and not hostile (`ActionLogic.pet`).
+
+`arena-hunt.py` stops a match whose job ended while it still ran and records the run as
+`abandoned` (before, the next run found it running and could not start).
 
 `scripts/arena-hunt.py` (`mclab.arena_hunt`) measures hunts: each run hands the kit out afresh
 (default `all+armor+shield+trident+food+potions`), heals, starts the match and samples it once a

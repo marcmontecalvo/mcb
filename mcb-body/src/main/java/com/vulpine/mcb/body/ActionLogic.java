@@ -33,6 +33,12 @@ final class ActionLogic {
         return animal || hostile;
     }
 
+    /**
+     * Whether a target is someone's pet, never to be hit: it has an owner and is not hostile. A vex is Ownable (its
+     * evoker is the owner) and a monster, so it is fought.
+     */
+    static boolean pet(boolean owned, boolean hostile) { return owned && !hostile; }
+
     /** A player can be hurt unless in creative or spectator mode or invulnerable. */
     static boolean hurtable(boolean creative, boolean spectator, boolean invulnerable) {
         return !creative && !spectator && !invulnerable;

@@ -41,8 +41,14 @@ def body(health=20.0, **kw):
     return cons.Body(health=health, position=(0.0, 64.0, 0.0), **kw)
 
 
-def foe(kind, x, z=0.0, uuid=None):
-    return cons.Foe(uuid or f"{kind}-{x}-{z}", M + kind, (float(x), 64.0, float(z)))
+STILL = (0.0, 0.0, 0.0)
+
+
+def foe(kind, x, z=0.0, uuid=None, v=STILL):
+    """A foe standing still unless ``v`` (blocks/s) says otherwise; None: its course
+    is unknown."""
+    return cons.Foe(uuid or f"{kind}-{x}-{z}", M + kind, (float(x), 64.0, float(z)),
+                    velocity=v)  # fmt: skip
 
 
 def decide(b, rows, foes=(), marks=None):
@@ -159,17 +165,59 @@ def test_a_group_of_living_mobs_gets_a_harming_splash_out_of_the_bots_reach():
     assert use.fields()["at"] == {"position": [round(v, 2) for v in use.point]}
 
 
-def test_a_group_closing_in_is_splashed_past_them_never_at_the_bots_feet():
-    use = decide(body(), [HARM], [foe("pillager", 3), foe("vindicator", 4, 0.5)])
-    assert use.reason == "harm" and _from_bot(use) >= cons.THROW_SAFE
+def test_no_harmful_splash_at_a_group_already_inside_the_bots_own_splash():
+    # The lowest arc flies 1-1.6 blocks up all the way: a foe on the line catches it,
+    # and at 3-4 blocks its splash takes the bot too (vault raid 20261124T043026Z:
+    # the bot's own harming took 4 and 3).
+    close = [foe("pillager", 3), foe("vindicator", 4, 0.5)]
+    assert decide(body(), [HARM], close) is None
+    assert decide(body(), [HARM], [foe("vindicator", 3.5)]) is None
 
 
 def test_no_throw_over_a_foe_right_in_front_it_would_break_on():
-    assert decide(body(), [HARM], [foe("vindicator", 1.5), foe("pillager", 4)]) is None
+    assert decide(body(), [HARM], [foe("vindicator", 1.5), foe("pillager", 6),
+                                   foe("pillager", 6.5, 1)]) is None  # fmt: skip
     # another way round is clear
-    use = decide(body(), [HARM], [foe("vindicator", 1.5), foe("pillager", -4),
-                                   foe("pillager", -4.5, 1)])  # fmt: skip
+    use = decide(body(), [HARM], [foe("vindicator", 1.5), foe("pillager", -6),
+                                   foe("pillager", -6.5, 1)])  # fmt: skip
     assert use is not None and use.point[0] < 0
+
+
+def test_a_charging_brute_would_meet_the_potion_beside_the_bot_so_none_is_thrown():
+    charging = foe("vindicator", 6.5, v=(-5.0, 0.0, 0.0))  # 3.5 off when it lands
+    assert decide(body(), [HARM], [charging]) is None
+    standing = foe("vindicator", 6.5)
+    use = decide(body(), [HARM], [standing])
+    assert use is not None and use.reason == "harm"
+
+
+def test_a_melee_mob_of_unknown_course_is_taken_to_be_charging():
+    assert decide(body(), [HARM], [foe("vindicator", 6.5, v=None)]) is None
+    archers = [foe("pillager", 6, v=None), foe("pillager", 6.5, 1, v=None)]
+    assert decide(body(), [HARM], archers) is not None  # they keep their distance
+
+
+def test_a_brute_backing_off_is_led_to_where_it_will_be():
+    leaving = foe("vindicator", 5.0, v=(3.0, 0.0, 0.0))  # 6.8 off when it lands
+    use = decide(body(), [HARM], [leaving])
+    assert use is not None and use.point[0] > 0
+    assert cons.THROW_SAFE <= _from_bot(use) <= cons.THROW_REACH
+
+
+def test_no_harmful_splash_while_a_vex_flies_near():
+    # vexes dart about faster than any lead: one caught the bot's own harming
+    group = [foe("pillager", 6), foe("pillager", 6.5, 1)]
+    assert decide(body(), [HARM], [*group, foe("vex", -3, 2)]) is None
+    assert decide(body(), [HARM], [*group, foe("vex", -12, 2)]) is not None
+
+
+def test_foes_read_from_rows_carry_their_velocity():
+    rows = [{"uuid": "v1", "type": M + "vindicator", "position": [5, 64, 0],
+             "velocity": [-4.0, 0.0, 0.5]},
+            {"uuid": "p1", "type": M + "pillager", "position": [7, 64, 0]}]  # fmt: skip
+    got = {f.uuid: f for f in cons.foes_from(rows, (0.0, 64.0, 0.0))}
+    assert got["v1"].velocity == (-4.0, 0.0, 0.5) and got["p1"].velocity is None
+    assert cons.ranged(list(got.values()), (0.0, 64.0, 0.0))[0].velocity is not None
 
 
 def test_a_group_out_of_reach_of_any_splash_is_left_for_later():
