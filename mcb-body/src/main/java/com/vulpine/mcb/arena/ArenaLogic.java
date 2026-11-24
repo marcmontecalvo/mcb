@@ -217,6 +217,24 @@ public final class ArenaLogic {
         }
     }
 
+    /** A start pad: the team marker it belongs to and its index among that team's pads. */
+    public record Pad(String team, int index) {}
+
+    /**
+     * Where a waves match's players start: one pad each, every team's pads in plan order (they all
+     * fight the waves on one side). `pads`: pad count per team in plan order; `capacity`: the most
+     * players the arena takes.
+     */
+    public static List<Pad> wavePads(Map<String, Integer> pads, int players, int capacity) {
+        if (players < 1) throw new ArenaFail("no_participants", "a waves match needs a player");
+        if (players > capacity) throw new ArenaFail("over_capacity", players + " players, the arena allows " + capacity);
+        var out = new ArrayList<Pad>();
+        for (var entry : pads.entrySet())
+            for (int i = 0; i < entry.getValue() && out.size() < players; i++) out.add(new Pad(entry.getKey(), i));
+        if (out.size() < players) throw new ArenaFail("not_enough_pads", players + " players, " + out.size() + " pads");
+        return out;
+    }
+
     /** null while two or more teams have live members; else the one team left, or "" when none is (a draw). */
     public static String teamResult(Map<String, Integer> liveByTeam) {
         String last = "";

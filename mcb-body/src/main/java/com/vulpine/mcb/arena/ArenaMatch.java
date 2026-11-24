@@ -90,6 +90,7 @@ final class ArenaMatch {
     void start() {
         startTick = server.getTickCount();
         if (mode.equals("teams")) enterTeams();
+        else enterWaves();
         var data = base();
         data.put("mode", mode);
         data.put("participants", participantNames());
@@ -157,8 +158,6 @@ final class ArenaMatch {
 
     private void enterTeams() {
         var scoreboard = server.getScoreboard();
-        var box = arena.box();
-        double cx = (box.minX() + box.maxX() + 1) / 2.0, cz = (box.minZ() + box.maxZ() + 1) / 2.0;
         for (var entry : teams.entrySet()) {
             String name = ArenaLogic.teamName(arena.name(), entry.getKey());
             var old = scoreboard.getPlayerTeam(name);
@@ -172,12 +171,30 @@ final class ArenaMatch {
                 var player = server.getPlayerList().getPlayer(id);
                 if (player == null) continue;
                 scoreboard.addPlayerToTeam(player.getScoreboardName(), team);
-                var pad = arena.world(pads.get(i++));
-                double dx = cx - (pad[0] + .5), dz = cz - (pad[2] + .5);
-                float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
-                player.teleportTo(level, pad[0] + .5, pad[1], pad[2] + .5, Set.of(), yaw, 0f, true);
+                place(player, pads.get(i++));
             }
         }
+    }
+
+    /** Every participant onto a pad (ArenaRuntime checked there are enough): the waves come to them there. */
+    private void enterWaves() {
+        var seats = ArenaLogic.wavePads(ArenaRuntime.padCounts(arena), participants.size(), Integer.MAX_VALUE);
+        for (int i = 0; i < participants.size(); i++) {
+            var player = server.getPlayerList().getPlayer(participants.get(i));
+            if (player == null) continue;
+            var seat = seats.get(i);
+            place(player, arena.teams().get(seat.team()).pads().get(seat.index()));
+        }
+    }
+
+    /** A player onto a pad cell, facing the arena's centre. */
+    private void place(ServerPlayer player, int[] padCell) {
+        var box = arena.box();
+        double cx = (box.minX() + box.maxX() + 1) / 2.0, cz = (box.minZ() + box.maxZ() + 1) / 2.0;
+        var pad = arena.world(padCell);
+        double dx = cx - (pad[0] + .5), dz = cz - (pad[2] + .5);
+        float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+        player.teleportTo(level, pad[0] + .5, pad[1], pad[2] + .5, Set.of(), yaw, 0f, true);
     }
 
     private void leaveTeams() {

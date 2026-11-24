@@ -293,6 +293,13 @@ public final class ArenaRuntime {
 
     // ---- matches
 
+    /** Each team marker's pad count, in plan order. */
+    static Map<String, Integer> padCounts(ArenaRecord record) {
+        var pads = new LinkedHashMap<String, Integer>();
+        record.teams().forEach((team, t) -> pads.put(team, t.pads().size()));
+        return pads;
+    }
+
     private Map<String, Object> start(JsonObject request) {
         var req = ArenaRequests.parseStart(request);
         var record = require(req.name());
@@ -308,9 +315,7 @@ public final class ArenaRuntime {
             var arenaTeams = record.teams().keySet();
             var names = req.participants() != null ? req.participants() : inBounds(record, level);
             var assignment = req.teams() != null ? req.teams() : ArenaLogic.assignTeams(new ArrayList<>(arenaTeams), names);
-            var pads = new LinkedHashMap<String, Integer>();
-            record.teams().forEach((team, t) -> pads.put(team, t.pads().size()));
-            ArenaLogic.checkTeams(assignment, new LinkedHashSet<>(arenaTeams), pads, record.capacity().perTeam());
+            ArenaLogic.checkTeams(assignment, new LinkedHashSet<>(arenaTeams), padCounts(record), record.capacity().perTeam());
             assignment.forEach((team, members) -> {
                 var resolved = new ArrayList<ServerPlayer>();
                 for (var name : members) resolved.add(online(name));
@@ -325,6 +330,7 @@ public final class ArenaRuntime {
                 if (!seen.add(name)) throw new ArenaFail("duplicate_participant", name);
                 players.add(online(name));
             }
+            ArenaLogic.wavePads(padCounts(record), players.size(), record.capacity().teams() * record.capacity().perTeam());
         }
         sweep(record, level);
         var match = new ArenaMatch(server, emitter, record, level, req.mode(), req.waves(), players, teamPlayers);

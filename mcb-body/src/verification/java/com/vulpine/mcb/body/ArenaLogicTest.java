@@ -252,6 +252,16 @@ public final class ArenaLogicTest {
         rejects(() -> ArenaLogic.checkTeams(lonely, java.util.Set.of("red", "blue"), Map.of("red", 2, "blue", 2), 2),
                 "not_enough_teams", "a team with nobody");
 
+        // a waves match puts its players on pads, all one side: each team's pads in plan order
+        var padCounts = new LinkedHashMap<String, Integer>();
+        padCounts.put("red", 2); padCounts.put("blue", 2);
+        check(ArenaLogic.wavePads(padCounts, 3, 8).equals(List.of(new ArenaLogic.Pad("red", 0),
+                new ArenaLogic.Pad("red", 1), new ArenaLogic.Pad("blue", 0))), "red's pads, then blue's");
+        check(ArenaLogic.wavePads(padCounts, 1, 8).equals(List.of(new ArenaLogic.Pad("red", 0))), "one player, the first pad");
+        rejects(() -> ArenaLogic.wavePads(padCounts, 5, 8), "not_enough_pads", "more players than pads");
+        rejects(() -> ArenaLogic.wavePads(padCounts, 3, 2), "over_capacity", "more players than the arena takes");
+        rejects(() -> ArenaLogic.wavePads(padCounts, 0, 8), "no_participants", "nobody to place");
+
         check(ArenaLogic.teamResult(Map.of("red", 2, "blue", 1)) == null, "two teams alive: play on");
         check(ArenaLogic.teamResult(Map.of("red", 0, "blue", 3)).equals("blue"), "one team left wins");
         check(ArenaLogic.teamResult(Map.of("red", 0, "blue", 0)).isEmpty(), "none left is a draw");

@@ -54,7 +54,10 @@ turtle-egg trampling, and `/` commands run by an operator.
 
 ## Matches
 
-`mode: "waves"`: a wave is a `{mobs: {type: count}, delay_ticks}`; mobs spawn round-robin over the
+`mode: "waves"`: the participants all fight on one side. Each starts on a pad (every team marker's
+pads in plan order, so the sealed arenas need no door) facing the centre; more players than pads, or
+than `capacity.teams * capacity.per_team`, is refused (`not_enough_pads`, `over_capacity`). Code:
+`ArenaLogic.wavePads`. A wave is a `{mobs: {type: count}, delay_ticks}`; mobs spawn round-robin over the
 `mob_spawns` markers (room-checked, `COMMAND` spawn reason), are persistent, and are retargeted to
 the nearest live participant every 10 ticks. `delay_ticks` counts from the match start for wave 0
 and from the previous wave being cleared afterwards. Won when the last wave is cleared; lost when no
