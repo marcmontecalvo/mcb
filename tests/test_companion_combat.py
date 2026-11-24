@@ -76,23 +76,34 @@ def test_a_zombie_gets_crit_melee_with_the_best_damage_per_second():
     assert (t.style, t.weapon, t.crit) == ("melee", M + "iron_sword", True)
 
 
-def test_a_spear_charges_in_and_hands_over_to_the_best_swing_weapon():
-    # The owner's rule: open with the charge from range, then swap to what hits
-    # hardest up close (the mod hands back to the spear once the target is far out).
+def test_a_lone_spear_charges():
     t = cc.tactic(M + "zombie", inv("iron_spear"))
     assert (t.style, t.weapon, t.melee) == ("lance", M + "iron_spear", None)
-    t = cc.tactic(M + "zombie", inv("iron_spear", "wooden_sword"))
-    assert t == cc.Tactic(
-        "lance", M + "iron_spear", crit=True, melee=M + "wooden_sword"
-    )
+    assert t.wire() == {"style": "lance", "crit": False, "sweep": True}
+
+
+def test_a_swing_weapon_carried_with_a_spear_fights_alone():
+    # Opening with the charge then swapping was measured slower (10x matrix
+    # 20261123T235754Z: zombie 3.5 s against the sword's 2.7, skeleton 2.9 against
+    # 2.6). The charge opens only when it kills sooner: alone, the first crit lands
+    # on arrival ((n - 1) cycles); after a charge the swap resets the cooldown, so
+    # each of the m swings left waits a full cycle (m cycles).
     t = cc.tactic(M + "skeleton", inv("iron_spear", "iron_axe", "iron_sword"))
-    assert (t.style, t.melee, t.crit) == ("lance", M + "iron_sword", True)
-    assert t.wire() == {
-        "style": "lance",
-        "crit": True,
-        "sweep": True,
-        "melee": M + "iron_sword",
-    }
+    assert (t.style, t.weapon, t.melee) == ("melee", M + "iron_sword", None)
+    # a netherite charge (7) beats a wooden sword's crit (6), and saves one swing on
+    # a zombie (20: four crits, or the charge and three): a tie, so the sword alone
+    t = cc.tactic(M + "zombie", inv("netherite_spear", "wooden_sword"))
+    assert t == cc.Tactic("melee", M + "wooden_sword", crit=True)
+    assert (
+        cc.charge_first(
+            cc.weapon(M + "netherite_spear"), cc.weapon(M + "wooden_sword"), 20.0
+        )
+        is False
+    )
+    # the rule itself: a charge that saves two swings opens the fight
+    big = cc.Weapon(M + "x_spear", "spear", 3, 19, charge=2.2)  # 1 + floor(12.3)
+    assert cc.charge_first(big, cc.weapon(M + "wooden_sword"), 20.0) is True
+    assert cc.mob_health(M + "zombie") == 20 and cc.mob_health(M + "x") == 20
 
 
 def test_a_spear_charge_is_modelled_by_its_speed_not_its_jab():

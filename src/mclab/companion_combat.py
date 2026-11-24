@@ -37,6 +37,20 @@ ANIMAL_HEALTH = {
     }.items()
 }  # fmt: skip
 DEFAULT_ANIMAL_HEALTH = 10.0
+# Max health of the mobs fought in melee (26.3 attributes; a slime or magma cube is
+# taken at its biggest common size); a mob not listed is taken as a zombie's.
+MOB_HEALTH = {
+    M + n: float(hp)
+    for n, hp in {
+        "zombie": 20, "husk": 20, "drowned": 20, "zombie_villager": 20,
+        "spider": 16, "cave_spider": 12, "silverfish": 8, "endermite": 8,
+        "slime": 16, "magma_cube": 16, "witch": 26, "vindicator": 24,
+        "hoglin": 40, "zoglin": 40, "piglin_brute": 50, "wither_skeleton": 20,
+        "breeze": 30, "vex": 14, "evoker": 24, "skeleton": 20, "stray": 20,
+        "bogged": 16, "pillager": 24, "enderman": 40, "creeper": 20,
+    }.items()
+}  # fmt: skip
+DEFAULT_MOB_HEALTH = 20.0
 
 
 @dataclass(frozen=True)
@@ -208,6 +222,22 @@ def _best(inventory, kinds) -> Weapon | None:
 Wear = Mapping[str, list[int]]  # remaining uses of each held piece, by item
 
 
+def mob_health(target: str) -> float:
+    return MOB_HEALTH.get(target, DEFAULT_MOB_HEALTH)
+
+
+def charge_first(spear: Weapon, swing: Weapon, health: float) -> bool:
+    """Whether a spear's charge before the swing weapon kills sooner than the swing
+    weapon alone. Alone, its first hit lands on arrival: (n - 1) cycles. After the
+    charge the swap resets its cooldown, so each of the m swings left waits a full
+    cycle: m cycles. Measured: an iron spear before an iron sword took a zombie
+    3.5 s against 2.7 (10x matrix 20261123T235754Z)."""
+    alone = swing.hits_to_kill(health) - 1
+    rest = health - spear.hit()
+    after = 0 if rest <= 0 else swing.hits_to_kill(rest)
+    return after < alone
+
+
 def _arrows(inventory: Mapping[str, int]) -> bool:
     return any(inventory.get(a, 0) > 0 for a in ARROWS)
 
@@ -260,14 +290,16 @@ def _style(style: str, inventory, target: str = "", wear=None) -> Tactic | None:
             "snipe", bow.item, keep=SNIPE_KEEP, melee=backup.item if backup else None
         )
     if style == "melee":
-        # The owner's rule: a carried spear opens with its charge from range, and the
-        # best swing weapon takes over up close (the mod hands back once it is far out).
+        # The owner's rule: the spear's charge opens from range and the best swing
+        # weapon takes over up close (the mod hands back once it is far out), when
+        # that kills sooner than the swing weapon alone (``charge_first``).
         spear = _best(inventory, ("spear",))
         swing = _best(inventory, SWING_KINDS)
-        if spear is not None:
-            backup = swing.item if swing else None
-            return Tactic("lance", spear.item, crit=swing is not None, melee=backup)
-        return Tactic("melee", swing.item, crit=True) if swing else None
+        if swing is None:
+            return Tactic("lance", spear.item) if spear else None
+        if spear is not None and charge_first(spear, swing, mob_health(target)):
+            return Tactic("lance", spear.item, crit=True, melee=swing.item)
+        return Tactic("melee", swing.item, crit=True)
     if style == "charge":
         # a creeper: never handed to a swing weapon, outrun after each hit
         spear = _best(inventory, ("spear",))
