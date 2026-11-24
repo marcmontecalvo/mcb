@@ -143,6 +143,9 @@ def scene(
         "heal": True,
         "time": time,
         "give": kit(weapon, tier=tier),
+        # the kit's armor and shield go on before the summon: the session dresses
+        # only an idle bot, and the summon sets the guard off at once
+        "wear": True,
         # the trial op picks a cell about this far off, in sight and level with the bot
         "summon": [
             {"type": M + m, "distance": distance + i, "helmet": m in BURNS}
@@ -447,6 +450,7 @@ def run_one(
         return {**head, "end": "scene_refused", "killed": False,
                 "error": reply.get("error")}  # fmt: skip
     head["scene"] = reply.get("result")
+    head["armor"] = ((head["scene"] or {}).get("wear") or {}).get("armor")
     if mob in ANIMAL_DROPS:
         return {**head, **_hunt(client, mob, started, timeout, clock)}
     need = Counter(group(mob))
@@ -537,7 +541,9 @@ def summary(trials: list[dict]) -> dict:
             "health": _spread([r["health"] for r in rows if _number(r.get("health"))]),
             **{
                 key: _mean(rows, key)
-                for key in ("hits", "crits", "shots", "flees", "damage", "raises")
+                for key in (
+                    "hits", "crits", "shots", "flees", "damage", "raises", "armor"
+                )  # fmt: skip
             },
             "crit_rate": crits / hits if hits else None,
             "ends": dict(Counter(str(r.get("end")) for r in rows)),

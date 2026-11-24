@@ -27,7 +27,7 @@ import java.util.Map;
 /**
  * The trial op (TrialLogic parses it): sets the scene for one combat trial on the play
  * server. Order: move to the surface (when asked), clear the area, then the inventory,
- * give, heal, set the time, summon. Every registry id is checked before anything
+ * give, wear (when asked), heal, set the time, summon. Every registry id is checked before anything
  * changes; a summon with no room where it would stand fails (never left to suffocate in
  * a hillside). Docs:
  * COMPANION_COMBAT_PLAN_2026-11-23.md section 5.
@@ -85,6 +85,8 @@ final class BodyTrial {
             given++;
         }
         if (given > 0) player.containerMenu.broadcastChanges();
+        // on before the summon: the session dresses only an idle body, and the summon wakes the guard at once
+        if (trial.wear()) out.put("wear", BodyGear.wear(player));
         if (trial.heal()) {
             player.setHealth(player.getMaxHealth());
             player.getFoodData().setFoodLevel(20);

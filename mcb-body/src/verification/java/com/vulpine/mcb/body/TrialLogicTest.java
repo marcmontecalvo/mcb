@@ -19,6 +19,8 @@ public final class TrialLogicTest {
         var none = parse("{}");
         check(none.clear() == 0 && !none.clearInventory() && !none.heal() && none.time() == null, "defaults do nothing");
         check(none.give().isEmpty() && none.summon().isEmpty(), "nothing given or summoned");
+        check(!none.wear() && parse("{\"wear\":true}").wear(), "wear puts the kit's gear on before the summon");
+        rejects("{\"wear\":1}", "bad_request");
 
         var full = parse("{\"clear\":32,\"clear_inventory\":true,\"heal\":true,\"time\":18000,"
                 + "\"give\":[{\"item\":\"minecraft:iron_sword\",\"count\":1},{\"item\":\"minecraft:arrow\",\"count\":64}],"

@@ -18,7 +18,8 @@ final class TrialLogic {
     private TrialLogic() {}
 
     static final int MAX_CLEAR = 48, MAX_COUNT = 256, MAX_GIVE = 36, MAX_SUMMON = 8, MAX_OFFSET = 32;
-    static final Set<String> FIELDS = Set.of("clear", "clear_inventory", "heal", "time", "give", "summon", "surface");
+    static final Set<String> FIELDS = Set.of("clear", "clear_inventory", "heal", "time", "give", "summon", "surface",
+            "wear");
     /** Every request carries these (bridge.py envelope); anything else unknown is refused. */
     static final Set<String> ENVELOPE = Set.of("schema_version", "run_id", "episode_id", "body_id", "sequence", "op");
     /** Bosses turn the world over: a trial never summons one. */
@@ -30,9 +31,12 @@ final class TrialLogic {
     record Give(String item, int count, java.util.Map<String, Integer> enchantments) {}
     /** An offset summon stands at (dx, dy, dz); a distance summon (offset 0) at a cell BodyTrial picks from ring(). */
     record Summon(String type, int dx, int dy, int dz, boolean helmet, Integer distance) {}
-    /** surface: the body moves to the top of its column first and summons stand on their columns' ground. */
+    /**
+     * surface: the body moves to the top of its column first and summons stand on their columns' ground.
+     * wear: the given armor and shield go on (the wear op's choice) before anything is summoned.
+     */
     record Trial(int clear, boolean clearInventory, boolean heal, Integer time, List<Give> give, List<Summon> summon,
-                 boolean surface) {}
+                 boolean surface, boolean wear) {}
 
     /**
      * The feet y of a summon: dy above its column's ground (the first free cell over the top block) with
@@ -148,6 +152,6 @@ final class TrialLogic {
             summon.add(new Summon(type, dx, dy, dz, flag(o, "helmet"), null));
         }
         return new Trial(clear, flag(request, "clear_inventory"), flag(request, "heal"), time, List.copyOf(give),
-                List.copyOf(summon), flag(request, "surface"));
+                List.copyOf(summon), flag(request, "surface"), flag(request, "wear"));
     }
 }

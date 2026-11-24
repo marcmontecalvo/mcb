@@ -249,13 +249,15 @@ control API, `POST /trial`, which keeps the mod's request sequence). Structured 
 command string; any other key is `bad_request`:
 `{"surface":bool?, "clear":0..48?, "clear_inventory":bool?, "give":[{"item","count":1..256,
 "enchantments":{id: 1..10}? (max 4; a trident's Loyalty)}]? (max 36),
-"heal":bool?, "time":0..23999?, "summon":[{"type", "offset":[dx,dy,dz] (each -32..32) | "distance":2..32,
+"wear":bool?, "heal":bool?, "time":0..23999?, "summon":[{"type", "offset":[dx,dy,dz] (each -32..32) | "distance":2..32,
 "helmet":bool?}]? (max 8)}`; each summon has exactly one of `offset` and `distance`.
 Order: check every item and entity id against the registries first (`unknown_item`, `unknown_entity`;
 nothing changes on a bad id), then `surface` (the body moves to the top of its column, the first free
 cell over the top non-leaf block, so a trial never starts in a hole or a cave), then `clear` (discards earlier trial mobs (tag `mcb_trial`), hostiles,
 dropped items, XP orbs and projectiles within that radius; never players), `clear_inventory`, `give`
-(split into stacks, `inventory_full`), `heal` (full health and food, saturation 5, no fire, no effects),
+(split into stacks, `inventory_full`), `wear` (the `wear` op's choice of armor and shield goes on; its
+`put_on`, `worn` and `armor` come back as `wear`: the session dresses only an idle body, and the summon
+wakes the guard at once), `heal` (full health and food, saturation 5, no fire, no effects),
 `time` (moves the clock forward to that day time, never back), then `summon` (at the feet cell plus the
 offset; with `surface`, dy counts from the ground of the summon's own column instead; tagged `mcb_trial`,
 spawned as by a command; `helmet` adds a leather helmet that never drops, so undead do not burn by day).

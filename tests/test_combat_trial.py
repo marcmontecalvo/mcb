@@ -42,6 +42,9 @@ def test_scene_clears_heals_arms_and_summons_at_a_distance():
         "heal": True,
         "time": 6000,
         "give": [{"item": M + "iron_sword", "count": 1}],
+        # the kit's armor and shield are on before the mob is: the session only
+        # dresses an idle bot, and the summon sets the guard off at once
+        "wear": True,
         # anywhere about 9 blocks off, in sight, on ground level with the bot
         "summon": [{"type": M + "zombie", "distance": 9, "helmet": True}],
     }
@@ -155,6 +158,7 @@ class FakeClient:
         self.feed = list(feed)  # [(at_time, event)]
         self.job = job
         self.trial_ok = trial_ok
+        self.armor = 0
         self.statuses = list(statuses)  # each status call takes the next; then quiet
         self.trials, self.calls, self.waits = [], [], []
         self.status_at, self.trial_at = [], None
@@ -169,7 +173,8 @@ class FakeClient:
         self.trials.append(spec)
         if not self.trial_ok:
             return {"ok": False, "error": "trial failed: unknown_entity"}
-        return {"ok": True, "result": {"summoned": [{"type": "x", "uuid": "u1"}]}}
+        return {"ok": True, "result": {"summoned": [{"type": "x", "uuid": "u1"}],
+                                       "wear": {"armor": self.armor}}}  # fmt: skip
 
     def events(self, after=0, wait=0.0):
         ready = [e for at, e in self.feed if at <= self.clock.now + wait]
@@ -213,6 +218,21 @@ def test_a_hostile_trial_ends_at_the_kill():
     assert out["killed"] is True and out["end"] == "killed"
     assert (out["kills"], out["crits"], out["steps"]) == (1, 2, 1)
     assert out["seconds"] == pytest.approx(2.0)
+    assert out["armor"] == 0
+
+
+def test_a_trial_row_and_its_cell_carry_the_armor_worn():
+    clock = FakeClock()
+    client = FakeClient(clock, feed=[
+        (0.5, _event(1, "defense", action="fight", reason="fighting the zombie")),
+        (2.0, _event(2, "defense_step", action="fight", ok=True, kills=1, hits=3)),
+    ])  # fmt: skip
+    client.armor = 15  # a full iron set on: what the ravager trials lacked
+
+    out = ct.run_one(client, "sword+armor", "zombie", timeout=60, clock=clock)
+
+    assert out["armor"] == 15
+    assert ct.summary([out])["sword+armor/zombie"]["armor"] == 15
 
 
 def test_a_hostile_trial_ends_with_the_defence_when_nothing_is_killed():
