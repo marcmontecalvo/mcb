@@ -78,11 +78,23 @@ test("an arena match: PvP with a friend, then PvE with my own waves", async ({
   await pick(page, "Arenas and combat", "Arena");
   await page.getByLabel("Arena", { exact: true }).selectOption("vault");
   await expect(page.getByText("/tp @s -325 82 -56")).toBeVisible();
+  await expect(page.getByLabel("Game", { exact: true }).locator("option")).toHaveText(["PvE"]);
   await page.getByLabel("Arena", { exact: true }).selectOption("duel");
   await expect(page.getByText("Not built yet: the arena server builds it")).toBeVisible();
-  // PvP: everyone goes on a team, the friend added is made an operator.
+  await expect(page.getByLabel("Game", { exact: true }).locator("option")).toHaveText([
+    "PvE",
+    "PvP",
+    "Kill race",
+  ]);
+  // PvP: fresh PvP defaults to mob-free, explicitly chosen hazards are preserved, and the friend added is made an operator.
   await page.getByLabel("Game", { exact: true }).selectOption({ label: "PvP" });
+  await expect(page.getByLabel("Waves", { exact: true })).toHaveValue("");
+  await expect(page.locator(".run-item").first()).toContainText("PvP");
+  await expect(page.locator(".run-item").first()).toContainText("No mob waves");
+  await page.getByLabel("Waves", { exact: true }).selectOption("mixed-10");
+  await expect(page.getByLabel("Waves", { exact: true })).toHaveValue("mixed-10");
   await page.getByLabel("Waves", { exact: true }).selectOption({ label: "No mob waves" });
+  await expect(page.locator(".run-item").first()).toContainText("No mob waves");
   await page.getByLabel("New player's Minecraft name").fill("Ann");
   await page.getByRole("button", { name: "+ Add player" }).click();
   await expect(page.locator(".team-counts")).toHaveText("Red 1/2 · Blue 1/2");

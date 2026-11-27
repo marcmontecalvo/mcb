@@ -5,7 +5,7 @@ import "@homenet/ui/styles.css";
 import "./style.css";
 import { api, token } from "./api";
 import { Fields, type House, HousesCtx, SchemaCtx, WhereCtx } from "./fields";
-import { type Where, fieldText, humanize } from "./forms";
+import { type Where, fieldText, humanize, optionalLabel } from "./forms";
 import { History } from "./History";
 import { LiveSession, RecentRun } from "./LiveSession";
 import {
@@ -203,9 +203,47 @@ function App() {
       if (step === "settings") setStep(section ? "mission" : "category");
     } else if (selected > i) setSelected(selected - 1);
   };
+  const applyArenaGameDefaults = (
+    overrides: Record<string, Json>,
+    game: Json,
+    base: Record<string, Json>,
+  ) => {
+    const run =
+      overrides.run && typeof overrides.run === "object" && !Array.isArray(overrides.run)
+        ? (overrides.run as Record<string, Json>)
+        : null;
+    if (game === "teams") {
+      overrides = setPath(overrides, ["run", "waves"], null);
+      return setPath(overrides, ["run", "custom_waves"], null);
+    }
+    if (run && "respawn_mode" in run)
+      overrides = setPath(overrides, ["run", "respawn_mode"], null);
+    if (run && "respawn_count" in run)
+      overrides = setPath(overrides, ["run", "respawn_count"], null);
+    const effectiveWaves =
+      getPath(overrides, ["run", "waves"]) !== undefined
+        ? getPath(overrides, ["run", "waves"])
+        : getPath(base, ["run", "waves"]);
+    const effectiveCustom =
+      getPath(overrides, ["run", "custom_waves"]) !== undefined
+        ? getPath(overrides, ["run", "custom_waves"])
+        : getPath(base, ["run", "custom_waves"]);
+    if (!effectiveWaves && !effectiveCustom) {
+      const wavesEnum = schema
+        ? nonNullSchema(schemaAt(schema, ["run", "waves"]) || {}).enum
+        : undefined;
+      const fallback =
+        getPath(base, ["run", "waves"]) ??
+        wavesEnum?.find((x): x is string => typeof x === "string") ??
+        null;
+      if (fallback) overrides = setPath(overrides, ["run", "waves"], fallback);
+    }
+    return overrides;
+  };
   const change = (path: string[], value: Json) =>
     update((e) => {
       let overrides = setPath(e.overrides || {}, path, value);
+      const base = configOf(e);
       if (
         path.join(".") === "model.backend" ||
         path.join(".") === "model.planner_backend"
@@ -217,6 +255,24 @@ function App() {
           model.planner_model = null;
           model.prompt_identity = null;
           model.planner_prompt_identity = null;
+        }
+      } else if (path.join(".") === "run.game") {
+        overrides = applyArenaGameDefaults(overrides, value, base);
+      } else if (path.join(".") === "run.arena" && typeof value === "string") {
+        const arenaNode = schema ? schemaAt(schema, ["run", "arena"]) : undefined;
+        const compatible = arenaNode
+          ? nonNullSchema(arenaNode).enum_meta?.[value]?.games
+          : undefined;
+        const curGame =
+          getPath(overrides, ["run", "game"]) !== undefined
+            ? getPath(overrides, ["run", "game"])
+            : getPath(base, ["run", "game"]);
+        if (
+          compatible?.length &&
+          (typeof curGame !== "string" || !compatible.includes(curGame))
+        ) {
+          overrides = setPath(overrides, ["run", "game"], compatible[0]);
+          overrides = applyArenaGameDefaults(overrides, compatible[0], base);
         }
       }
       return { ...e, overrides };
@@ -324,16 +380,32 @@ function App() {
         const own = getPath(entry.overrides || {}, at);
         const v = own !== undefined ? own : getPath(config, at);
         const node = schemaAt(schema, at);
-        const label = node ? fieldText(nonNullSchema(node), t.family).label : "";
-        const custom = node?.custom;
+        const nonNull = node ? nonNullSchema(node) : undefined;
+        const label = nonNull ? fieldText(nonNull, t.family).label : "";
+        const custom = nonNull?.custom;
         if ((v === null || v === undefined) && custom) {
           const field = [...at.slice(0, -1), custom.field];
           const mine = getPath(entry.overrides || {}, field) ?? getPath(config, field);
-          return typeof mine === "string" && mine ? `${label}: ${mine}` : "";
+          if (typeof mine === "string" && mine) return `${label}: ${mine}`;
         }
-        if (v === null || v === undefined || Array.isArray(v)) return "";
-        if (typeof v === "string")
-          return humanize(v.split(/[\\/]/).pop()!.replace(/\.json$/, ""));
+        if (v === null || v === undefined) {
+          const opt = nonNull?.optional;
+          if (opt) {
+            const sibPath = [...at.slice(0, -1), opt.field];
+            const sibOwn = getPath(entry.overrides || {}, sibPath);
+            const sibVal = sibOwn !== undefined ? sibOwn : getPath(config, sibPath);
+            const optText = optionalLabel(nonNull, sibVal);
+            if (optText) return optText;
+          }
+          return "";
+        }
+        if (Array.isArray(v)) return "";
+        if (typeof v === "string") {
+          return (
+            nonNull?.enum_labels?.[v] ??
+            humanize(v.split(/[\\/]/).pop()!.replace(/\.json$/, ""))
+          );
+        }
         return `${label} ${v}`;
       })
       .filter(Boolean)

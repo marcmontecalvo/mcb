@@ -211,8 +211,32 @@ export function watchFor(job: Rec, where: Where) {
 // --- the arena roster (run.roster: mclab.run_config.RosterEntry) ---------------
 
 export type Slot = { name: string; team: string | null; op: boolean };
-/** An arena's teams and room (run.arena.enum_meta, from its plan). */
-export type ArenaMeta = { teams: string[]; per_team: number | null; players: number | null };
+/** An arena's teams, room and compatible games (run.arena.enum_meta, from its plan). */
+export type ArenaMeta = {
+  teams: string[];
+  per_team: number | null;
+  players: number | null;
+  mobs?: number | null;
+  games?: string[];
+};
+
+/** Modes supported by the selected arena (or all offered modes when unknown). */
+export function compatibleGames(meta: ArenaMeta | undefined, games: string[]): string[] {
+  if (!meta?.games?.length) return games;
+  const allowed = new Set(meta.games);
+  const filtered = games.filter((g) => allowed.has(g));
+  return filtered.length ? filtered : games;
+}
+
+/** Optional label (e.g. "No mob waves") when an optional field's sibling condition matches. */
+export function optionalLabel(
+  node: { optional?: { field: string; values: string[]; label: string } } | undefined,
+  siblingValue: unknown,
+): string | null {
+  const opt = node?.optional;
+  if (!opt) return null;
+  return opt.values.includes(String(siblingValue ?? "")) ? opt.label : null;
+}
 const PLAYER = /^[A-Za-z0-9_]{1,16}$/;
 export const MAX_PLAYERS = 16; // mclab.play_runs.MAX_PLAYERS
 export const BOT = "MCBot"; // mclab.companion_names.DEFAULT_NAME

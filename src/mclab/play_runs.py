@@ -64,14 +64,30 @@ FAMILY_SERVER = {"arena": "arena", "combat": "play"}
 MATERIALS = ("weapon_material", "armor_material")
 FIELDS = {
     "arena": (
-        "arena", "arena_action", "game", "waves", "custom_waves", "roster", "kit",
-        *MATERIALS, "corner", "restore", "count", "timeout",
+        "arena", "arena_action", "game", "waves", "custom_waves", "respawn_mode",
+        "respawn_count", "roster", "kit", *MATERIALS, "corner", "restore", "count",
+        "timeout",
     ),
     "combat": ("weapons", "mobs", "spot", *MATERIALS, "count", "timeout"),
 }  # fmt: skip
 FAMILIES = tuple(FIELDS)
 POSITIONS = ("corner", "spot")
 SHARED = ("count", "timeout")  # run fields other families use too
+MAX_RESPAWNS = 99
+RESPAWN_MODES = {
+    "elimination": (
+        "Elimination",
+        "One life each; death eliminates the participant.",
+    ),
+    "player": (
+        "Per player",
+        "Each participant (human or bot) gets the chosen number of extra respawns.",
+    ),
+    "team": (
+        "Shared team pool",
+        "Each active team shares one pool of extra respawns across humans and bots.",
+    ),
+}
 # game -> (label, help): arena-hunt.py --mode
 GAMES = {
     "waves": (
@@ -112,6 +128,15 @@ HELP = {
         "Each wave is the mobs that come together; a wave bigger than the arena's "
         "mob limit sends the rest in as mobs fall. The next wave comes 3 seconds "
         "after the last one is cleared.",
+    ),
+    "respawn_mode": (
+        "Respawns",
+        "PvP respawn rule: elimination (default), per-participant extra respawns, "
+        "or an equal per-team shared pool.",
+    ),
+    "respawn_count": (
+        "Extra respawns",
+        "Extra respawns per participant or team pool (0 for elimination).",
     ),
     "roster": (
         "Players",
@@ -202,8 +227,8 @@ RUNS = (
         "A match on the arena server: PvE against mob waves, PvP team against team, "
         "or a kill race. The bot and people play together; wins, kills, time and "
         "damage taken are recorded.",
-        ("arena", "game", "roster", "waves", "custom_waves", "kit", *MATERIALS,
-         "count", "timeout"),
+        ("arena", "game", "roster", "waves", "custom_waves", "respawn_mode",
+         "respawn_count", "kit", *MATERIALS, "count", "timeout"),
         ("arena", "game", "roster", "waves", "count"),
         {"game": "waves", "roster": [_slot(DEFAULT_BOT)], "kit": DEFAULT_KIT},
         action="match",
@@ -282,14 +307,27 @@ def _plan_head(path: Path) -> dict:
 
 
 def arena_meta(name: str) -> dict:
-    """An arena's teams, how many fit on a team, and how many players in all."""
+    """An arena's teams, per-team size, player/mob caps, and compatible games."""
     head = _plan_head(ARENAS / f"{name}.json")
-    per_team = (head.get("capacity") or {}).get("per_team")
+    cap = head.get("capacity") or {}
+    per_team = cap.get("per_team")
+    mobs = cap.get("mobs")
     teams = head["teams"]
+    games: list[str] = []
+    if mobs is None or (isinstance(mobs, int) and mobs > 0):
+        games.append("waves")
+    if len(teams) >= 2:
+        games.append("teams")
+        if mobs is None or (isinstance(mobs, int) and mobs > 0):
+            games.append("race")
+    if not games:
+        games.append("waves")
     return {
         "teams": teams,
         "per_team": per_team,
         "players": per_team * len(teams) if isinstance(per_team, int) else None,
+        "mobs": mobs if isinstance(mobs, int) else None,
+        "games": games,
     }
 
 
@@ -441,6 +479,15 @@ def decorate_schema(run: dict) -> None:
     run["game"]["enum_labels"] = {name: label for name, (label, _) in GAMES.items()}
     run["game"]["enum_help"] = {name: text for name, (_, text) in GAMES.items()}
     run["game"]["sided"] = list(SIDED)
+    run["respawn_mode"]["enum"] = list(RESPAWN_MODES)
+    run["respawn_mode"]["enum_labels"] = {
+        name: label for name, (label, _) in RESPAWN_MODES.items()
+    }
+    run["respawn_mode"]["enum_help"] = {
+        name: text for name, (_, text) in RESPAWN_MODES.items()
+    }
+    run["respawn_count"]["minimum"] = 0
+    run["respawn_count"]["maximum"] = MAX_RESPAWNS
     run["roster"].update(
         format="roster", bot=DEFAULT_BOT, max=MAX_PLAYERS, teams=list(TEAM_NAMES)
     )
@@ -582,6 +629,7 @@ def check(run: dict) -> None:
             raise ValueError("choose a wave preset or custom waves, not both")
         if run["custom_waves"] is not None:
             custom_waves(run["custom_waves"])
+        _check_respawns(run)
         if run["kit"] not in (None, "keep"):
             ct.kit(run["kit"], **gear)
         _check_roster(run["roster"])
@@ -637,15 +685,67 @@ def teams_of(roster: list[dict]) -> dict[str, list[str]]:
     return teams
 
 
+def _check_respawns(run: dict) -> None:
+    mode, count = run["respawn_mode"], run["respawn_count"]
+    if mode not in (None, *RESPAWN_MODES):
+        raise ValueError(
+            f"respawn mode must be one of {', '.join(RESPAWN_MODES)}"
+        )
+    if count is not None and (
+        type(count) is not int or not 0 <= count <= MAX_RESPAWNS
+    ):
+        raise ValueError(f"respawn_count must be 0..{MAX_RESPAWNS}")
+    if mode == "elimination" and count not in (None, 0):
+        raise ValueError("elimination allows 0 respawns")
+    if mode is None and count not in (None, 0):
+        raise ValueError(
+            "choose a respawn mode (player or team) when respawn_count is set"
+        )
+    if run["game"] is not None and run["game"] != "teams":
+        if (mode in ("player", "team") and count != 0) or (count or 0) > 0:
+            raise ValueError("respawns are only supported in PvP (teams) matches")
+
+
+def _respawn_args(run: dict) -> list[str]:
+    mode, count = run["respawn_mode"], run["respawn_count"]
+    if mode is None:
+        return []
+    count = 0 if count is None else count
+    if mode in ("player", "team") and count == 0:
+        mode = "elimination"
+    return ["--respawn-mode", mode, "--respawn-count", str(count)]
+
+
 def _require_match(run: dict) -> None:
     game = _game(run)
     label = GAMES[game][0]
+    meta = arena_meta(run["arena"])
+    if game not in meta["games"]:
+        allowed = " or ".join(GAMES[g][0] for g in meta["games"])
+        if len(meta["teams"]) < 2:
+            raise ValueError(
+                f"{run['arena']} has only {len(meta['teams'])} team "
+                f"and supports {allowed} only"
+            )
+        raise ValueError(f"{run['arena']} supports {allowed} only")
+    if game == "teams" and meta.get("mobs") == 0 and (
+        run["waves"] is not None or run["custom_waves"]
+    ):
+        raise ValueError(
+            f"{run['arena']} supports mob-free PvP only (0 mob capacity)"
+        )
     if game in WAVE_GAMES and run["waves"] is None and not run["custom_waves"]:
         raise ValueError(f"a {label} match needs a wave preset or custom waves")
+    mode, count = run["respawn_mode"], run["respawn_count"]
+    if game != "teams" and (
+        (mode in ("player", "team") and count != 0) or (count or 0) > 0
+    ):
+        raise ValueError("respawns are only supported in PvP (teams) matches")
+    if mode in ("player", "team") and count is None:
+        raise ValueError(f"{mode} respawns require respawn_count")
     roster = _roster(run)
     if not roster:
         raise ValueError("a match needs at least one player")
-    meta = arena_meta(run["arena"])
     per_team, arena = meta["per_team"], run["arena"]
     if game not in SIDED:
         if meta["players"] is not None and len(roster) > meta["players"]:
@@ -718,6 +818,7 @@ def command(run: dict, out: Path) -> list[str]:
             argv += ["--op", entry["name"]]
     if run["kit"] is not None:
         argv += ["--kit", run["kit"]]
+    argv += _respawn_args(run)
     argv += _gear_args(run) + ["--repeat", str(run["count"])]
     if run["timeout"] is not None:
         argv += ["--timeout", str(run["timeout"])]
@@ -1113,6 +1214,7 @@ def _episode(status: str, seconds) -> dict:
 # what a match row says beyond its outcome (arena_hunt.hunt), kept when present
 _MATCH_KEYS = (
     "reason", "winner", "bot", "bot_won", "bot_kills", "bots", "players", "team_kills",
+    "respawn_mode", "respawn_count", "respawns",
 )  # fmt: skip
 
 

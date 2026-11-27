@@ -9,6 +9,7 @@ import {
   type Where,
   MAX_PLAYERS,
   addPlayer,
+  compatibleGames,
   currentBotNames,
   fieldText,
   fitRoster,
@@ -765,6 +766,11 @@ export function Fields({
     const own = getPath(overrides, at);
     return own !== undefined ? own : (getPath(value, at) ?? null);
   };
+  if (
+    (path.join(".") === "run.respawn_mode" || path.join(".") === "run.respawn_count") &&
+    String(read([...path.slice(0, -1), "game"]) ?? "waves") !== "teams"
+  )
+    return null;
   if (node.properties) {
     return (
       <div className={path.length ? "field-group" : ""}>
@@ -942,6 +948,15 @@ export function Fields({
     const none =
       !!optional &&
       optional.values.includes(String(read([...path.slice(0, -1), optional.field]) ?? ""));
+    const keyName = path.at(-1);
+    const arenaVal = keyName === "game" ? read([...path.slice(0, -1), "arena"]) : null;
+    const arenaMeta =
+      typeof arenaVal === "string"
+        ? nonNullSchema(schemaAt(root, [...path.slice(0, -1), "arena"]) || {}).enum_meta?.[
+            arenaVal
+          ]
+        : undefined;
+    const offeredOptions = keyName === "game" ? compatibleGames(arenaMeta, options) : options;
     return (
       <div className={"field" + (usingCustom ? " wide" : "")}>
         <label htmlFor={id}>{title}</label>
@@ -968,7 +983,7 @@ export function Fields({
                   : "Choose…"}
             </option>
           ) : null}
-          {options.map((x) => (
+          {offeredOptions.map((x) => (
             <option key={x} value={x}>
               {node.enum_labels?.[x] ?? humanize(x)}
             </option>

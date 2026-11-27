@@ -23,6 +23,8 @@ import {
   rosterOf,
   rosterProblems,
   teamCounts,
+  compatibleGames,
+  optionalLabel,
 } from "./forms";
 
 const kit: Choices = {
@@ -437,5 +439,28 @@ describe("the arena roster", () => {
     expect(rosterProblems([slot("MCBot2", "red", true), slot("Ann", "blue")], true, duel)).toEqual([
       "MCBot2 is a bot and cannot be an operator.",
     ]);
+  });
+});
+
+describe("arena mode compatibility and optional labels", () => {
+  it("filters game options to modes supported by the chosen arena", () => {
+    const vault: ArenaMeta = { teams: ["red"], per_team: 4, players: 4, mobs: 12, games: ["waves"] };
+    const duel: ArenaMeta = {
+      teams: ["red", "blue"],
+      per_team: 2,
+      players: 4,
+      mobs: 12,
+      games: ["waves", "teams", "race"],
+    };
+    expect(compatibleGames(vault, ["waves", "teams", "race"])).toEqual(["waves"]);
+    expect(compatibleGames(duel, ["waves", "teams", "race"])).toEqual(["waves", "teams", "race"]);
+    expect(compatibleGames(undefined, ["waves", "teams"])).toEqual(["waves", "teams"]);
+  });
+
+  it("shows optional field labels such as No mob waves when the sibling condition matches", () => {
+    const node = { optional: { field: "game", values: ["teams"], label: "No mob waves" } };
+    expect(optionalLabel(node, "teams")).toBe("No mob waves");
+    expect(optionalLabel(node, "waves")).toBeNull();
+    expect(optionalLabel(undefined, "teams")).toBeNull();
   });
 });

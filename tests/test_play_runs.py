@@ -108,8 +108,29 @@ def test_schema_lists_the_current_arenas_waves_games_and_actions(arenas):
 
 def test_each_arena_says_its_teams_and_how_many_fit_on_a_team(arenas):
     meta = config_schema()["properties"]["run"]["properties"]["arena"]["enum_meta"]
-    assert meta["crash_site"] == {"teams": ["red", "blue"], "per_team": 4, "players": 8}
-    assert meta["vault"] == {"teams": ["red"], "per_team": 4, "players": 4}
+    assert meta["crash_site"] == {
+        "teams": ["red", "blue"],
+        "per_team": 4,
+        "players": 8,
+        "mobs": 12,
+        "games": ["waves", "teams", "race"],
+    }
+    assert meta["vault"] == {
+        "teams": ["red"],
+        "per_team": 4,
+        "players": 4,
+        "mobs": 12,
+        "games": ["waves"],
+    }
+
+
+def test_arena_meta_omits_wave_games_when_mob_capacity_is_zero(arenas):
+    (arenas / "duel_clean.json").write_text(
+        json.dumps(_plan("duel_clean", {"red": 2, "blue": 2}, 2, mobs=0))
+    )
+    meta = pr.arena_meta("duel_clean")
+    assert meta["games"] == ["teams"]
+    assert meta["mobs"] == 0
 
 
 def test_the_roster_knows_the_bot_and_the_teams_an_arena_can_have(arenas):
@@ -252,11 +273,30 @@ def _teams(**sizes):
         (
             {
                 "arena_action": "match",
-                "arena": "vault",
+                "arena": "crash_site",
                 "game": "race",
                 "roster": _teams(red=1, blue=1),
             },
             "waves",
+        ),  # fmt: skip
+        (
+            {
+                "arena_action": "match",
+                "arena": "vault",
+                "game": "teams",
+                "roster": _teams(red=1, blue=1),
+            },
+            "PvE only",
+        ),  # fmt: skip
+        (
+            {
+                "arena_action": "match",
+                "arena": "vault",
+                "game": "race",
+                "waves": "mixed-10",
+                "roster": _teams(red=1, blue=1),
+            },
+            "PvE only",
         ),  # fmt: skip
         (
             {
@@ -331,6 +371,17 @@ def test_complete_runs_pass(arenas):
         arena(arena_action="match", arena="crash_site", game="teams",
               roster=[slot("MCBot", "red"), slot("Ann", "blue", op=True)])
     )  # fmt: skip
+    # Explicit optional hazards in PvP are preserved and valid
+    validate_launch(
+        arena(arena_action="match", arena="crash_site", game="teams",
+              waves="mixed-10",
+              roster=[slot("MCBot", "red"), slot("Ann", "blue", op=True)])
+    )  # fmt: skip
+    validate_launch(
+        arena(arena_action="match", arena="crash_site", game="teams",
+              custom_waves="zombie*2",
+              roster=[slot("MCBot", "red"), slot("Ann", "blue", op=True)])
+    )  # fmt: skip
     validate_launch(
         arena(arena_action="match", arena="crash_site", game="race", waves="mixed-10",
               roster=_teams(red=4, blue=4))
@@ -340,6 +391,39 @@ def test_complete_runs_pass(arenas):
     validate_launch(
         combat(weapons="sword,spear+sword", mobs="zombie,zombie*2+skeleton")
     )
+
+
+def test_mob_free_zero_capacity_arena_refuses_wave_modes(arenas):
+    (arenas / "duel_clean.json").write_text(
+        json.dumps(_plan("duel_clean", {"red": 2, "blue": 2}, 2, mobs=0))
+    )
+    validate_launch(
+        arena(
+            arena_action="match",
+            arena="duel_clean",
+            game="teams",
+            roster=[slot("MCBot", "red"), slot("Ann", "blue")],
+        )
+    )
+    with pytest.raises(ValueError, match="PvP only"):
+        validate_launch(
+            arena(
+                arena_action="match",
+                arena="duel_clean",
+                game="waves",
+                waves="mixed-10",
+            )
+        )
+    with pytest.raises(ValueError, match="PvP only"):
+        validate_launch(
+            arena(
+                arena_action="match",
+                arena="duel_clean",
+                game="teams",
+                waves="mixed-10",
+                roster=[slot("MCBot", "red"), slot("Ann", "blue")],
+            )
+        )
 
 
 # --- the commands the worker runs -----------------------------------------------
@@ -390,6 +474,18 @@ def test_combat_command_matches_the_script(arenas, tmp_path):
         "--weapons", "sword,bow", "--mobs", "zombie", "--repeat", "2",
         "--out", str(tmp_path), "--arena=-281,77,-37",
     ]  # fmt: skip
+
+
+@pytest.mark.parametrize("kind", ["team", "player"])
+def test_pvp_respawns_reach_the_match_runner(arenas, tmp_path, kind):
+    run = arena(
+        arena_action="match", arena="crash_site", game="teams",
+        roster=[slot("MCBot", "red"), slot("Ann", "blue")],
+        respawn_mode=kind, respawn_count=2,
+    )["run"]
+    argv = pr.command(run, tmp_path)
+    assert argv[argv.index("--respawn-mode") + 1] == kind
+    assert argv[argv.index("--respawn-count") + 1] == "2"
 
 
 @pytest.mark.parametrize(
@@ -1068,3 +1164,95 @@ def test_a_multi_bot_summary_keeps_each_bots_row(arenas):
     summary = pr.summarize(run, record, run_id="R3")
     assert summary["episodes"][0]["bots"] == bots
     assert summary["series"]["bots"]["MCBot"]["wins"] == 1
+
+
+# --- PvP respawns ---------------------------------------------------------------
+
+
+def test_respawn_fields_are_in_schema_and_locked_out_of_tools(arenas):
+    run = _run_schema()
+    assert run["respawn_mode"]["enum"] == ["elimination", "player", "team"]
+    assert run["respawn_mode"]["supported_tests"] == ["arena"]
+    assert run["respawn_count"]["supported_tests"] == ["arena"]
+    assert run["respawn_count"]["minimum"] == 0
+    rows = {row["id"]: row for row in pr.catalog_rows()}
+    assert "run.respawn_mode" not in rows["arena"]["locked_fields"]
+    assert "run.respawn_count" not in rows["arena"]["locked_fields"]
+    assert "run.respawn_mode" in rows["arena:stop"]["locked_fields"]
+    assert "run.respawn_count" in rows["arena:build"]["locked_fields"]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"respawn_mode": "bogus"},
+        {"respawn_count": -1},
+        {"respawn_count": 100},
+        {"respawn_mode": "elimination", "respawn_count": 1},
+        {"respawn_count": 2},
+        {"game": "waves", "respawn_mode": "player", "respawn_count": 1},
+        {"game": "race", "respawn_mode": "team", "respawn_count": 2},
+    ],
+)
+def test_bad_respawn_settings_are_refused(arenas, bad):
+    with pytest.raises(ValueError):
+        arena(**bad)
+
+
+def test_respawn_mode_requires_count_at_launch_and_normalizes_zero(arenas, tmp_path):
+    with pytest.raises(ValueError, match="respawn_count"):
+        validate_launch(
+            arena(
+                arena_action="match",
+                arena="crash_site",
+                game="teams",
+                roster=_teams(red=1, blue=1),
+                respawn_mode="player",
+            )
+        )
+    zero = arena(
+        arena_action="match",
+        arena="crash_site",
+        game="teams",
+        roster=_teams(red=1, blue=1),
+        respawn_mode="team",
+        respawn_count=0,
+    )
+    validate_launch(zero)
+    argv = pr.command(zero["run"], tmp_path)
+    assert argv[argv.index("--respawn-mode") + 1] == "elimination"
+    assert argv[argv.index("--respawn-count") + 1] == "0"
+
+
+def test_respawn_evidence_is_preserved_in_match_summary(arenas):
+    run = arena(
+        arena_action="match",
+        arena="crash_site",
+        game="teams",
+        roster=_teams(red=1, blue=1),
+        respawn_mode="team",
+        respawn_count=1,
+    )["run"]
+    respawns = {
+        "mode": "team",
+        "count": 1,
+        "events": [{"type": "reserved", "player": "R0"}],
+    }
+    record = {
+        "runs": [
+            {
+                "outcome": "won",
+                "winner": "red",
+                "seconds": 25.0,
+                "respawn_mode": "team",
+                "respawn_count": 1,
+                "respawns": respawns,
+            }
+        ],
+        "summary": {"winners": {"red": 1}},
+    }
+    summary = pr.summarize(run, record, run_id="R4")
+    ep = summary["episodes"][0]
+    assert ep["respawn_mode"] == "team"
+    assert ep["respawn_count"] == 1
+    assert ep["respawns"] == respawns
