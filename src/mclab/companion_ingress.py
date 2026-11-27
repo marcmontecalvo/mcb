@@ -136,6 +136,8 @@ class Ingress:
         poll_s=1.0,
         players=None,
         stop_all=False,
+        lobby=None,
+        board=None,
     ):
         """``host`` and ``talker`` may be a ``Fleet`` (several bots): then ``/mcb stop``
         names every bot (``stop_all``), and the other commands reach the first bot,
@@ -143,6 +145,8 @@ class Ingress:
         self.host, self.talker, self.source = host, talker, events_source
         self.bot, self.poll_s, self.stop_all = bot, poll_s, stop_all
         self.players = players  # () -> online player names, or None when unknown
+        self.lobby = lobby
+        self.board = board
         self.cursor: int | None = None
         self.launch_id = None
         self.gaps = 0
@@ -200,6 +204,13 @@ class Ingress:
             except Exception as error:  # one bad event must not drop the batch
                 print(f"companion-ingress: {type(error).__name__}", flush=True)
         self.cursor = max(self.cursor, batch.get("latest_sequence", 0))
+        if self.lobby is not None:
+            try:
+                self.lobby.tick()
+            except Exception as error:
+                print(
+                    f"companion-ingress: lobby tick {type(error).__name__}", flush=True
+                )
 
     # -- events ---------------------------------------------------------------
 
@@ -273,7 +284,40 @@ class Ingress:
             return None
         if sub == "defense":
             return self._defense(actor, data)
+        if sub == "lobby":
+            return self._lobby(actor, data)
         self._tell(actor, "Unknown command.")
+
+    def _resolve_lobby(self):
+        if self.lobby is not None:
+            return self.lobby
+        if hasattr(self.host, "add") and hasattr(self.host, "bots"):
+            from mclab import arena_lobby
+
+            self.lobby = arena_lobby.default_lobby(fleet=self.host)
+            return self.lobby
+        return None
+
+    def _lobby(self, actor, data):
+        lobby = self._resolve_lobby()
+        if lobby is None:
+            return self._tell(actor, "Lobby is not enabled on this server.")
+        from mclab.arena_lobby import LobbyError
+
+        try:
+            result = lobby.handle_action(actor.name, data)
+        except LobbyError as error:
+            return self._tell(actor, f"Lobby: {error}")
+        except Exception:
+            return self._tell(actor, "Lobby: something went wrong.")
+        message = result.get("message") or "Lobby updated."
+        self._tell(actor, message)
+        if self.board is not None:
+            try:
+                title, rows = lobby.board_rows(result.get("lobby"))
+                self.board("lobby", title, rows)
+            except Exception:
+                pass
 
     def _attack(self, actor, data):
         """``/mcb attack <word> [weapon]``: the word is an online player's name first,

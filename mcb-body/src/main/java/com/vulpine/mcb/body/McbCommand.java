@@ -6,18 +6,36 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.suggestion.Suggestions;
+import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
- * /mcb status|stop|ready|goto|gather|build|ask|attack|defense. Open to every player (permission 0): this only records the request;
- * the Python companion service checks the owner and allowlist before acting on anything but stop's cancel.
+ * /mcb status|stop|ready|goto|gather|build|ask|attack|defense|lobby. Open to every player (permission 0): this only
+ * records the request; the Python companion service checks authority before acting on anything but stop's cancel.
  */
-final class McbCommand {
+public final class McbCommand {
+    private static final List<String> TEAMS = List.of("red", "blue", "green", "yellow");
+    private static final List<String> MAPS = List.of("crossroads", "duel", "hall", "crash_site", "vault");
+    private static final List<String> MODES = List.of("teams", "waves", "race");
+    private static final List<String> TOGGLES = List.of("on", "off");
+    private static final List<String> RESPAWN_MODES = List.of("elimination", "player", "team");
+
     private McbCommand() {}
+
+    /** Emits a structured player command event from in-world interactions (such as lobby stations). */
+    public static void dispatch(ServerPlayer player, String sub, Map<String, Object> args) {
+        BodyHub.playerCommand(player, sub, args);
+    }
 
     static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("mcb")
@@ -72,14 +90,113 @@ final class McbCommand {
                         .then(Commands.literal("radius")
                                 .then(Commands.argument("blocks", IntegerArgumentType.integer(2, 32)).executes(context ->
                                         run(context.getSource(), "defense", Map.of(
-                                                "threat_radius", IntegerArgumentType.getInteger(context, "blocks"))))))));
+                                                "threat_radius", IntegerArgumentType.getInteger(context, "blocks")))))))
+                .then(lobbyCommand()));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> lobbyCommand() {
+        return Commands.literal("lobby")
+                .executes(context -> run(context.getSource(), "lobby", Map.of("action", "status")))
+                .then(lobbyAction("status"))
+                .then(lobbyAction("play"))
+                .then(lobbyAction("watch"))
+                .then(lobbyAction("rematch"))
+                .then(lobbyAction("spectate"))
+                .then(lobbyAction("leave"))
+                .then(lobbyAction("unready"))
+                .then(lobbyAction("reopen"))
+                .then(Commands.literal("ready")
+                        .executes(context -> run(context.getSource(), "lobby", Map.of("action", "ready")))
+                        .then(Commands.argument("revision", IntegerArgumentType.integer(1)).executes(context ->
+                                run(context.getSource(), "lobby", Map.of(
+                                        "action", "ready",
+                                        "seen_revision", IntegerArgumentType.getInteger(context, "revision"))))))
+                .then(Commands.literal("join")
+                        .then(Commands.argument("team", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(TEAMS, builder))
+                                .executes(context -> run(context.getSource(), "lobby", Map.of(
+                                        "action", "join",
+                                        "team", StringArgumentType.getString(context, "team"))))))
+                .then(Commands.literal("map")
+                        .then(Commands.argument("name", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(MAPS, builder))
+                                .executes(context -> run(context.getSource(), "lobby", Map.of(
+                                        "action", "map",
+                                        "map", StringArgumentType.getString(context, "name"))))))
+                .then(Commands.literal("mode")
+                        .then(Commands.argument("mode", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(MODES, builder))
+                                .executes(context -> run(context.getSource(), "lobby", Map.of(
+                                        "action", "mode",
+                                        "mode", StringArgumentType.getString(context, "mode"))))))
+                .then(Commands.literal("uneven")
+                        .then(Commands.argument("state", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(TOGGLES, builder))
+                                .executes(context -> run(context.getSource(), "lobby", Map.of(
+                                        "action", "uneven",
+                                        "value", StringArgumentType.getString(context, "state"))))))
+                .then(Commands.literal("respawns")
+                        .then(Commands.argument("mode", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(RESPAWN_MODES, builder))
+                                .executes(context -> run(context.getSource(), "lobby", Map.of(
+                                        "action", "respawns",
+                                        "respawn_mode", StringArgumentType.getString(context, "mode"),
+                                        "respawn_count", 0)))
+                                .then(Commands.argument("count", IntegerArgumentType.integer(0, 99)).executes(context ->
+                                        run(context.getSource(), "lobby", Map.of(
+                                                "action", "respawns",
+                                                "respawn_mode", StringArgumentType.getString(context, "mode"),
+                                                "respawn_count", IntegerArgumentType.getInteger(context, "count")))))))
+                .then(Commands.literal("host")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .suggests(McbCommand::suggestPlayers)
+                                .executes(context -> run(context.getSource(), "lobby", Map.of(
+                                        "action", "host",
+                                        "player", StringArgumentType.getString(context, "player"))))))
+                .then(Commands.literal("bot")
+                        .then(Commands.literal("add")
+                                .then(Commands.argument("team", StringArgumentType.word())
+                                        .suggests((context, builder) -> SharedSuggestionProvider.suggest(TEAMS, builder))
+                                        .executes(context -> run(context.getSource(), "lobby", Map.of(
+                                                "action", "bot_add",
+                                                "team", StringArgumentType.getString(context, "team"))))
+                                        .then(Commands.argument("name", StringArgumentType.word()).executes(context ->
+                                                run(context.getSource(), "lobby", Map.of(
+                                                        "action", "bot_add",
+                                                        "team", StringArgumentType.getString(context, "team"),
+                                                        "name", StringArgumentType.getString(context, "name")))))))
+                        .then(Commands.literal("rename")
+                                .then(Commands.argument("bot", StringArgumentType.word())
+                                        .then(Commands.argument("name", StringArgumentType.word()).executes(context ->
+                                                run(context.getSource(), "lobby", Map.of(
+                                                        "action", "bot_rename",
+                                                        "bot", StringArgumentType.getString(context, "bot"),
+                                                        "name", StringArgumentType.getString(context, "name")))))))
+                        .then(Commands.literal("move")
+                                .then(Commands.argument("bot", StringArgumentType.word())
+                                        .then(Commands.argument("team", StringArgumentType.word())
+                                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(TEAMS, builder))
+                                                .executes(context -> run(context.getSource(), "lobby", Map.of(
+                                                        "action", "bot_move",
+                                                        "bot", StringArgumentType.getString(context, "bot"),
+                                                        "team", StringArgumentType.getString(context, "team")))))))
+                        .then(Commands.literal("remove")
+                                .then(Commands.argument("bot", StringArgumentType.word()).executes(context ->
+                                        run(context.getSource(), "lobby", Map.of(
+                                                "action", "bot_remove",
+                                                "bot", StringArgumentType.getString(context, "bot")))))));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> lobbyAction(String action) {
+        return Commands.literal(action).executes(context ->
+                run(context.getSource(), "lobby", Map.of("action", action)));
     }
 
     /** Online player names, for tab completion of a target. */
-    private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions> suggestPlayers(
-            com.mojang.brigadier.context.CommandContext<CommandSourceStack> context,
-            com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
-        return net.minecraft.commands.SharedSuggestionProvider.suggest(
+    private static CompletableFuture<Suggestions> suggestPlayers(
+            CommandContext<CommandSourceStack> context,
+            SuggestionsBuilder builder) {
+        return SharedSuggestionProvider.suggest(
                 context.getSource().getServer().getPlayerList().getPlayerNamesArray(), builder);
     }
 

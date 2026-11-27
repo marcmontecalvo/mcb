@@ -67,7 +67,15 @@ def parse(data):
         if not isinstance(data.get("name"), str) or not BUILD.fullmatch(data["name"]):
             raise ValueError("Bad build name.")
         return command, {"name": data["name"]}
+    if command == "lobby":
+        return command, dict(data)
     raise ValueError("Unknown command.")
+
+
+def _lobby():
+    from mclab import arena_lobby
+
+    return arena_lobby.default_lobby()
 
 
 def _start(request):
@@ -114,6 +122,10 @@ def handle(event, tail=()):
             )
         if command == "status":
             return _status(tail)
+        if command == "lobby":
+            player = str(data.get("player_name") or "")
+            result = _lobby().handle_action(player, args)
+            return str(result.get("message") or "Lobby updated.")[:200]
         if command == "goto":
             return "goto not supported yet."
         if command == "gather":

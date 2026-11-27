@@ -984,15 +984,47 @@ def _start_adapters(fleet, settings, token, runtime, *, on_shutdown=None):
     except Exception:  # noqa: BLE001 - the host still plays without it
         log.exception("control API not started")
     try:
-        from mclab import companion_ingress
+        from mclab import companion_ingress, paths
 
-        ingress = companion_ingress.Ingress(
-            fleet,
-            fleet,
-            companion_ingress.bridge_events_source(),
-            players=companion_ingress.bridge_players_source(),
-            stop_all=True,
-        )
+        if paths.INSTANCE.name == "arena":
+            from mclab import arena_lobby
+            from mclab.arena import client as arena_client
+
+            def _lobby_board(arena_name: str, title: str, rows: list[dict]) -> None:
+                try:
+                    arena_client.ArenaClient.from_state().board(
+                        arena_name, title, rows
+                    )
+                except Exception:  # noqa: BLE001
+                    log.debug("lobby board update failed", exc_info=True)
+
+            launcher = arena_lobby.make_arena_launcher(
+                runtime_dir=runtime,
+                lobby_getter=lambda: arena_lobby.default_lobby(
+                    fleet=fleet, runtime_dir=runtime
+                ),
+                board=_lobby_board,
+            )
+            lobby = arena_lobby.default_lobby(
+                fleet=fleet, runtime_dir=runtime, on_launch=launcher
+            )
+            ingress = companion_ingress.Ingress(
+                fleet,
+                fleet,
+                companion_ingress.bridge_events_source(),
+                players=companion_ingress.bridge_players_source(),
+                stop_all=True,
+                lobby=lobby,
+                board=_lobby_board,
+            )
+        else:
+            ingress = companion_ingress.Ingress(
+                fleet,
+                fleet,
+                companion_ingress.bridge_events_source(),
+                players=companion_ingress.bridge_players_source(),
+                stop_all=True,
+            )
         ingress.start()
         stops.append(ingress.stop)
     except Exception:  # noqa: BLE001

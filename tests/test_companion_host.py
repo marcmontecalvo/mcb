@@ -1265,8 +1265,18 @@ def _fake_adapters(monkeypatch, log, *, fail=()):
         log.append(("talker", bot["name"], instance, sorted(kwargs)))
         return Adapter(log, "talker")
 
-    def ingress(host, talker, source, *, players, stop_all):
-        log.append(("ingress", host is talker, source, players, stop_all))
+    def ingress(host, talker, source, *, players, stop_all, **kwargs):
+        log.append(
+            (
+                "ingress",
+                host is talker,
+                source,
+                players,
+                stop_all,
+                kwargs.get("lobby"),
+                kwargs.get("board"),
+            )
+        )
         return Adapter(log, "ingress")
 
     module("companion_api", serve=serve)
@@ -1299,7 +1309,7 @@ def test_adapters_are_wired_and_the_handshake_written(tmp_path, monkeypatch):
         ("on_shutdown", hook),
         # one ingress for the fleet: the fleet is its host and its talker, and a
         # stop names every bot
-        ("ingress", True, "events-source", "players-source", True),
+        ("ingress", True, "events-source", "players-source", True, None, None),
         ("start", "ingress"),
     ]
     handshake = json.loads((tmp_path / "companion-host.json").read_text())
@@ -1315,11 +1325,32 @@ def test_a_failing_adapter_does_not_stop_the_others(tmp_path, monkeypatch):
         "fleet", {"companion_port": 8777}, "tok", tmp_path
     )
     assert log == [
-        ("ingress", True, "events-source", "players-source", True),
+        ("ingress", True, "events-source", "players-source", True, None, None),
         ("start", "ingress"),
     ]
     assert not (tmp_path / "companion-host.json").exists()
     assert len(stops) == 1
+
+
+def test_arena_instance_wires_lobby_and_board_into_ingress(tmp_path, monkeypatch):
+    import types as pytypes
+
+    from mclab import paths
+
+    log = []
+    _fake_adapters(monkeypatch, log)
+    monkeypatch.setattr(
+        paths, "INSTANCE", pytypes.SimpleNamespace(name="arena"), raising=False
+    )
+    stops = companion_host._start_adapters(
+        "fleet", {"companion_port": 8777}, "tok", tmp_path
+    )
+    ingress_call = next(e for e in log if e[0] == "ingress")
+    lobby_obj, board_cb = ingress_call[5], ingress_call[6]
+    assert lobby_obj is not None
+    assert callable(lobby_obj._on_launch)
+    assert callable(board_cb)
+    assert len(stops) == 2
 
 
 def test_a_member_is_a_host_and_a_talker_under_the_bots_own_name(tmp_path, monkeypatch):

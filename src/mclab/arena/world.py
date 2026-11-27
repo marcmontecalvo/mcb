@@ -39,6 +39,26 @@ def lobby_spawn(lobby: ap.Plan) -> ap.Cell:
     return tuple(o + e for o, e in zip(LOBBY_ORIGIN, team.entry, strict=True))
 
 
+def lobby_station_world_pos(station: designs.LobbyStation) -> ap.Cell:
+    """World coordinates of a lobby station block inside the floating arena lobby."""
+    return tuple(o + c for o, c in zip(LOBBY_ORIGIN, station.local_pos, strict=True))
+
+
+def lobby_stations() -> list[dict]:
+    """All clickable lobby stations with their world coordinates and action payloads."""
+    return [
+        {
+            "label": st.label,
+            "local_pos": list(st.local_pos),
+            "world_pos": list(lobby_station_world_pos(st)),
+            "block": st.block,
+            "action": st.action,
+            "args": dict(st.args),
+        }
+        for st in designs.LOBBY_STATIONS
+    ]
+
+
 def _box(origin, size) -> tuple[ap.Cell, ap.Cell]:
     lo = tuple(int(v) for v in origin)
     return lo, tuple(a + int(s) - 1 for a, s in zip(lo, size, strict=True))

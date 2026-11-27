@@ -1,5 +1,6 @@
 package com.vulpine.mcb.arena;
 
+import com.vulpine.mcb.body.McbCommand;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
@@ -7,6 +8,8 @@ import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
@@ -73,10 +76,22 @@ public final class ArenaGuard {
     public static void register() {
         PlayerBlockBreakEvents.BEFORE.register((level, player, pos, state, entity) -> !protectedCell(level, pos));
         UseBlockCallback.EVENT.register((player, level, hand, hit) -> {
+            var clicked = hit.getBlockPos();
+            var arena = arenaAt(level, clicked);
+            if (arena != null && ArenaLobbyStations.LOBBY_ARENA.equals(arena.name())) {
+                var payload = ArenaLobbyStations.payloadFor(
+                        arena.origin(), clicked.getX(), clicked.getY(), clicked.getZ());
+                if (payload != null) {
+                    if (level instanceof ServerLevel && hand == InteractionHand.MAIN_HAND
+                            && player instanceof ServerPlayer serverPlayer) {
+                        McbCommand.dispatch(serverPlayer, "lobby", payload);
+                    }
+                    return InteractionResult.SUCCESS;
+                }
+            }
             var stack = player.getItemInHand(hand);
             if (!restricted(stack)) return InteractionResult.PASS;
             int reach = reach(stack);
-            var clicked = hit.getBlockPos();
             return nearArena(level, clicked, reach) || nearArena(level, clicked.relative(hit.getDirection()), reach)
                     ? InteractionResult.FAIL : InteractionResult.PASS;
         });

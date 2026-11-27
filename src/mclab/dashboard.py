@@ -962,6 +962,10 @@ def handler(dashboard):
                     from mclab import play_runs
 
                     return self.reply(200, play_runs.online_players())
+                if parsed.path == "/api/lobby":
+                    from mclab import arena_lobby
+
+                    return self.reply(200, arena_lobby.default_lobby().snapshot())
                 if parsed.path == "/api/sessions":
                     return self.reply(200, dashboard.sessions())
                 if parsed.path == "/api/baseline-progress":
@@ -1028,6 +1032,48 @@ def handler(dashboard):
                     from mclab import play_runs
 
                     return self.reply(200, play_runs.rename_bot(request))
+                if self.path == "/api/lobby/action":
+                    from mclab import arena_lobby
+
+                    actor = str(request.get("actor") or "operator")
+                    operator = bool(request.get("operator", False))
+                    try:
+                        return self.reply(
+                            200,
+                            arena_lobby.default_lobby().handle_action(
+                                actor, request, operator=operator
+                            ),
+                        )
+                    except (
+                        arena_lobby.StaleRevisionError,
+                        arena_lobby.LobbyFrozenError,
+                    ) as error:
+                        return self.reply(
+                            409,
+                            {
+                                "error": str(error),
+                                "code": error.code,
+                                "revision": error.revision,
+                            },
+                        )
+                    except arena_lobby.PermissionError_ as error:
+                        return self.reply(
+                            403,
+                            {
+                                "error": str(error),
+                                "code": error.code,
+                                "revision": error.revision,
+                            },
+                        )
+                    except arena_lobby.LobbyError as error:
+                        return self.reply(
+                            400,
+                            {
+                                "error": str(error),
+                                "code": error.code,
+                                "revision": error.revision,
+                            },
+                        )
                 if self.path == "/api/shutdown":
                     self.reply(
                         200,
