@@ -358,7 +358,7 @@ public final class ArenaRuntime {
         }
         sweep(record, level);
         var match = new ArenaMatch(server, emitter, record, level, req.mode(), req.waves(), players, teamPlayers, req.exit(), req.series(),
-                req.keepInventory());
+                req.keepInventory(), req.respawns());
         matches.put(record.name(), match);
         holdChunks(record, level);
         registry.save();
@@ -368,6 +368,9 @@ public final class ArenaRuntime {
         out.put("name", record.name());
         out.put("mode", req.mode());
         out.put("participants", players.stream().map(p -> p.getName().getString()).toList());
+        out.put("respawn_mode", req.respawns().mode().wireName());
+        out.put("respawn_count", req.respawns().count());
+        out.put("respawn_delay_ticks", req.respawns().delayTicks());
         if (!req.waves().isEmpty()) out.put("waves", req.waves().size());
         if (teamMode) {
             var assigned = new LinkedHashMap<String, Object>();
@@ -517,8 +520,10 @@ public final class ArenaRuntime {
         var runtime = active;
         if (runtime == null) return ArenaLogic.DeathInventory.DROP;
         var action = runtime.deathRule(player);
-        if (action == ArenaLogic.DeathInventory.KEEP) runtime.keepOnRespawn.add(player.getUUID());
-        else runtime.keepOnRespawn.remove(player.getUUID());
+        if (action == ArenaLogic.DeathInventory.KEEP) {
+            runtime.keepOnRespawn.add(player.getUUID());
+            for (var match : runtime.matches.values()) match.captureDeathInventory(player);
+        } else runtime.keepOnRespawn.remove(player.getUUID());
         return action;
     }
 
@@ -532,6 +537,13 @@ public final class ArenaRuntime {
     public static boolean consumeKeepOnRespawn(UUID playerId) {
         var runtime = active;
         return runtime != null && runtime.keepOnRespawn.remove(playerId);
+    }
+
+    /** ServerPlayer.restoreFrom: notifies running matches that a participant respawned (e.g. awaiting countdown re-entry). */
+    public static void respawned(ServerPlayer player) {
+        var runtime = active;
+        if (runtime == null || runtime.matches.isEmpty()) return;
+        for (var match : runtime.matches.values()) match.onPlayerRespawned(player);
     }
 
     /**

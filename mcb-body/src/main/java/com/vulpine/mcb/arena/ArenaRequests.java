@@ -39,7 +39,7 @@ public final class ArenaRequests {
      * let participants keep what they carry across death (still dropping nothing), false to clear their inventory on death.
      */
     public record Start(String name, String mode, List<Wave> waves, List<String> participants, Map<String, List<String>> teams,
-                        int[] exit, int[] series, boolean keepInventory) {}
+                        int[] exit, int[] series, boolean keepInventory, ArenaRespawns.Config respawns) {}
 
     /** A sidebar board for an arena (the series standings between matches): title and rows, or clear to take it down. */
     public record Board(String name, String title, List<ArenaLogic.Line> rows, boolean clear) {}
@@ -132,7 +132,8 @@ public final class ArenaRequests {
      * kill the waves: waves required).
      */
     public static Start parseStart(JsonObject request) {
-        only(request, Set.of("name", "mode", "waves", "participants", "teams", "exit", "series", "keep_inventory"));
+        only(request, Set.of("name", "mode", "waves", "participants", "teams", "exit", "series", "keep_inventory",
+                "respawn_mode", "respawn_count", "respawn_delay_ticks"));
         String name = name(request), mode = text(request, "mode");
         if (!ArenaLogic.MODES.contains(mode)) throw bad("mode must be waves, teams or race");
         if (!ArenaLogic.sided(mode) && request.has("teams")) throw bad("teams belong to the teams and race modes");
@@ -163,8 +164,28 @@ public final class ArenaRequests {
             participants = flat;
         }
         int[] series = request.has("series") ? series(request.get("series")) : null;
+        var respawns = parseRespawns(request, mode);
         return new Start(name, mode, List.copyOf(waves), participants == null ? null : List.copyOf(participants), teams, exit, series,
-                flag(request, "keep_inventory"));
+                flag(request, "keep_inventory"), respawns);
+    }
+
+    private static ArenaRespawns.Config parseRespawns(JsonObject request, String mode) {
+        boolean hasMode = request.has("respawn_mode");
+        boolean hasCount = request.has("respawn_count");
+        boolean hasDelay = request.has("respawn_delay_ticks");
+        var rMode = hasMode ? ArenaRespawns.Mode.parse(text(request, "respawn_mode")) : ArenaRespawns.Mode.ELIMINATION;
+        int rCount = hasCount ? whole(request.get("respawn_count"), "respawn_count", 0, ArenaRespawns.MAX_RESPAWNS) : 0;
+        int rDelay = hasDelay
+                ? whole(request.get("respawn_delay_ticks"), "respawn_delay_ticks", 0, ArenaRespawns.MAX_DELAY_TICKS)
+                : ArenaRespawns.DEFAULT_DELAY_TICKS;
+        if (rMode != ArenaRespawns.Mode.ELIMINATION && !hasCount) {
+            throw bad("respawn_count is required for " + rMode.wireName() + " respawns");
+        }
+        var cfg = ArenaRespawns.Config.of(rMode, rCount, rDelay);
+        if (!ArenaLogic.pvp(mode) && (cfg.enabled() || hasDelay || (hasMode && rMode != ArenaRespawns.Mode.ELIMINATION) || rCount > 0)) {
+            throw bad("respawns belong to the teams mode");
+        }
+        return cfg;
     }
 
     private static int[] series(JsonElement e) {

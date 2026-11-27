@@ -28,8 +28,9 @@ public final class ArenaLogic {
      * whenever an op is added or a request gains or changes a field. 1: no report.
      * 2: arena_board, arena_say and arena_start's series. 3: arena_recap (the series table) in place of arena_say.
      * 4: arena_start's keep_inventory (arena deaths never drop; keep_inventory keeps what they carry across death).
+     * 5: arena_start's respawn_mode, respawn_count and respawn_delay_ticks (PvP respawns).
      */
-    public static final int PROTOCOL = 4;
+    public static final int PROTOCOL = 5;
 
     /** What happens to a player's inventory when they die. */
     public enum DeathInventory { DROP, CLEAR, KEEP }
@@ -542,8 +543,13 @@ public final class ArenaLogic {
     /** A block of the sidebar: a head line that always shows (null for none) and members that fold when space runs out. */
     public record Section(Line head, List<Line> members) {}
 
-    /** A participant as the match board shows them. */
-    public record Player(String name, String team, int kills, boolean alive) {}
+    /** A participant as the match board shows them (alive, returning with countdown, or eliminated). */
+    public record Player(String name, String team, int kills, boolean alive, boolean returning, int respawnsLeft,
+                         int returnSeconds) {
+        public Player(String name, String team, int kills, boolean alive) {
+            this(name, team, kills, alive, false, 0, 0);
+        }
+    }
 
     /** The wave the match is on (1-based), of how many, and the wave mobs still alive. */
     public record WaveInfo(int wave, int waves, int left) {}
@@ -595,32 +601,65 @@ public final class ArenaLogic {
      * its kills) with its players by kills, or in co-op everyone by kills. A downed player is greyed out.
      */
     public static List<Section> matchBoard(String mode, List<String> teams, List<Player> players, WaveInfo waves) {
+        return matchBoard(mode, teams, players, waves, null);
+    }
+
+    /**
+     * The match's sidebar, with optional PvP respawn counts (alive, returning, and remaining respawns per team, plus
+     * returning countdowns and per-player remaining counts when applicable).
+     */
+    public static List<Section> matchBoard(String mode, List<String> teams, List<Player> players, WaveInfo waves,
+                                           ArenaRespawns.BoardSummary respawns) {
         var out = new ArrayList<Section>();
         if (waves != null) {
             out.add(new Section(new Line("Wave", waves.wave() + "/" + waves.waves(), "yellow", false, false), List.of()));
             out.add(new Section(new Line("Mobs left", Integer.toString(waves.left()), "yellow", false, false), List.of()));
         }
         if (!sided(mode)) {
-            out.add(new Section(null, playerLines(players, "white", "")));
+            out.add(new Section(null, playerLines(players, "white", "", null)));
             return out;
         }
+        boolean showRespawns = respawns != null && respawns.enabled();
         for (int i = 0; i < teams.size(); i++) {
             String team = teams.get(i), color = teamColor(team, i);
             var members = players.stream().filter(p -> p.team().equals(team)).toList();
-            int alive = (int) members.stream().filter(Player::alive).count();
             int kills = members.stream().mapToInt(Player::kills).sum();
-            var head = new Line(title(team) + " · " + alive + " alive", Integer.toString(kills), color, true, false);
-            out.add(new Section(head, playerLines(members, color, " ")));
+            String heading;
+            if (showRespawns) {
+                var tb = respawns.teams().get(team);
+                int alive = tb != null ? tb.alive() : (int) members.stream().filter(Player::alive).count();
+                int returning = tb != null ? tb.returning() : (int) members.stream().filter(Player::returning).count();
+                int left = tb != null ? tb.respawnsLeft() : 0;
+                var sb = new StringBuilder(title(team)).append(" · ").append(alive).append(" alive");
+                if (returning > 0) sb.append(" · ").append(returning).append(" returning");
+                sb.append(" · ").append(left).append(left == 1 ? " respawn left" : " respawns left");
+                heading = sb.toString();
+            } else {
+                int alive = (int) members.stream().filter(Player::alive).count();
+                heading = title(team) + " · " + alive + " alive";
+            }
+            var head = new Line(heading, Integer.toString(kills), color, true, false);
+            out.add(new Section(head, playerLines(members, color, " ", respawns)));
         }
         return out;
     }
 
-    private static List<Line> playerLines(List<Player> players, String color, String indent) {
+    private static List<Line> playerLines(List<Player> players, String color, String indent,
+                                          ArenaRespawns.BoardSummary respawns) {
         var sorted = new ArrayList<>(players);
         sorted.sort((a, b) -> Integer.compare(b.kills(), a.kills()));
+        boolean perPlayer = respawns != null && respawns.enabled() && respawns.mode() == ArenaRespawns.Mode.PLAYER;
         var out = new ArrayList<Line>();
         for (var p : sorted) {
-            out.add(new Line(indent + p.name(), Integer.toString(p.kills()), p.alive() ? color : "dark_gray", false, !p.alive()));
+            if (p.returning()) {
+                String suffix = p.returnSeconds() > 0 ? " (" + p.returnSeconds() + "s)" : " (returning)";
+                out.add(new Line(indent + p.name() + suffix, Integer.toString(p.kills()), "yellow", false, false));
+            } else if (p.alive()) {
+                String suffix = perPlayer ? " · " + p.respawnsLeft() + " left" : "";
+                out.add(new Line(indent + p.name() + suffix, Integer.toString(p.kills()), color, false, false));
+            } else {
+                out.add(new Line(indent + p.name(), Integer.toString(p.kills()), "dark_gray", false, true));
+            }
         }
         return out;
     }

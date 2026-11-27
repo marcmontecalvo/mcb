@@ -1,7 +1,9 @@
 package com.vulpine.mcb.arena;
 
+import carpet.patches.EntityPlayerMPFake;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -10,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -20,6 +23,8 @@ import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * One match in one arena: co-op against mob waves, team against team (with mob waves or without), or a kill race between
@@ -52,15 +57,20 @@ final class ArenaMatch {
     private final ArenaLogic.WaveClock clock;
     private final List<UUID> participants;
     private final Map<UUID, String> names = new HashMap<>();
+    private final Map<String, UUID> idByName = new HashMap<>();
+    private final Set<UUID> fakePlayers = new HashSet<>();
     /** teams mode: team to its players, in plan order; empty in waves mode. */
     private final Map<String, List<UUID>> teams;
     private final Map<UUID, String> teamOf = new HashMap<>();
     private final Map<UUID, Tracked> mobs = new LinkedHashMap<>();
+    private final Map<UUID, List<ItemStack>> startKits = new HashMap<>();
+    private final Map<UUID, List<ItemStack>> deathKits = new HashMap<>();
     private final String tag;
     private final double followRange;
     /** Where participants still in the arena go when it ends, or null (they stay). */
     private final int[] exit;
     private final ArenaLogic.Tally tally;
+    private final ArenaRespawns respawns;
     /** {match, of} when this match is one of a series, else null. */
     private final int[] series;
     private final boolean keepInventory;
@@ -76,7 +86,7 @@ final class ArenaMatch {
 
     ArenaMatch(MinecraftServer server, ArenaEmit emit, ArenaRecord arena, ServerLevel level, String mode,
                List<ArenaRequests.Wave> waves, List<ServerPlayer> players, Map<String, List<ServerPlayer>> teams, int[] exit,
-               int[] series, boolean keepInventory) {
+               int[] series, boolean keepInventory, ArenaRespawns.Config respawnConfig) {
         this.server = server;
         this.emit = emit;
         this.arena = arena;
@@ -90,19 +100,36 @@ final class ArenaMatch {
         this.tag = ArenaLogic.waveTag(arena.name());
         this.followRange = ArenaLogic.followRange(arena.box());
         this.participants = new ArrayList<>();
+        var fakeNames = new HashSet<String>();
         for (var p : players) {
             participants.add(p.getUUID());
-            names.put(p.getUUID(), p.getName().getString());
+            String name = p.getName().getString();
+            names.put(p.getUUID(), name);
+            idByName.put(name, p.getUUID());
+            if (p instanceof EntityPlayerMPFake) {
+                fakePlayers.add(p.getUUID());
+                fakeNames.add(name);
+            }
         }
         this.teams = new LinkedHashMap<>();
+        var teamRoster = new LinkedHashMap<String, List<String>>();
         teams.forEach((team, members) -> {
             var ids = new ArrayList<UUID>();
-            for (var p : members) { ids.add(p.getUUID()); teamOf.put(p.getUUID(), team); }
+            var memberNames = new ArrayList<String>();
+            for (var p : members) {
+                ids.add(p.getUUID());
+                teamOf.put(p.getUUID(), team);
+                memberNames.add(p.getName().getString());
+            }
             this.teams.put(team, ids);
+            teamRoster.put(team, memberNames);
         });
         var sides = new LinkedHashMap<String, String>();
         for (var id : participants) sides.put(names.get(id), teamOf.getOrDefault(id, ""));
         this.tally = new ArenaLogic.Tally(sides, new ArrayList<>(this.teams.keySet()));
+        this.respawns = this.teams.isEmpty()
+                ? ArenaRespawns.coop(participantNames(), fakeNames)
+                : new ArenaRespawns(respawnConfig == null ? ArenaRespawns.Config.ELIMINATION : respawnConfig, teamRoster, fakeNames);
         this.clock = waves.isEmpty() ? null : new ArenaLogic.WaveClock(waves.stream().map(ArenaRequests.Wave::delay).toList());
     }
 
@@ -118,10 +145,17 @@ final class ArenaMatch {
         startTick = server.getTickCount();
         if (ArenaLogic.sided(mode)) enterTeams();
         else enterWaves();
+        for (var id : participants) {
+            var player = resolvePlayer(id);
+            if (player != null) startKits.put(id, copyInventory(player));
+        }
         refreshBoard();
         var data = base();
         data.put("mode", mode);
         data.put("participants", participantNames());
+        data.put("respawn_mode", respawns.config().mode().wireName());
+        data.put("respawn_count", respawns.config().count());
+        data.put("respawn_delay_ticks", respawns.config().delayTicks());
         if (clock != null) data.put("waves", waves.size());
         if (!teams.isEmpty()) data.put("teams", teamNames());
         emit.emit("arena_match_started", data);
@@ -132,11 +166,12 @@ final class ArenaMatch {
     void tick(int serverTick) {
         if (state != State.RUNNING) return;
         ticks++;
+        processRespawns();
         ArenaLogic.Step step = null;
         if (clock != null) {
             prune();
             reinforce();
-            step = clock.tick(mobs.size() + queued(), anyLive());
+            step = clock.tick(mobs.size() + queued(), anyLive() || respawns.anyReturning());
             switch (step.kind()) {
                 case SPAWN -> spawnWave(step.wave());
                 case CLEARED -> {
@@ -149,7 +184,7 @@ final class ArenaMatch {
             }
             if (state != State.RUNNING) return;  // a wave nothing of could spawn stopped it
         }
-        var outcome = ArenaLogic.decide(mode, step, liveByTeam(), tally.byTeam());
+        var outcome = ArenaLogic.decide(mode, step, activeByTeam(), tally.byTeam());
         if (outcome != null) {
             winner = outcome.winner();
             if (outcome.won()) finish(State.WON, outcome.reason(), "arena_match_won");
@@ -160,10 +195,150 @@ final class ArenaMatch {
         if (ticks % BOARD_TICKS == 0) refreshBoard();
     }
 
-    private Map<String, Integer> liveByTeam() {
-        var live = new LinkedHashMap<String, Integer>();
-        teams.forEach((team, members) -> live.put(team, (int) members.stream().filter(this::live).count()));
-        return live;
+    private void processRespawns() {
+        var online = new HashMap<String, Boolean>();
+        var aliveOnline = new HashMap<String, Boolean>();
+        for (var id : participants) {
+            String name = names.get(id);
+            var player = resolvePlayer(id);
+            boolean isOnline = player != null;
+            boolean isAlive = isOnline && player.isAlive();
+            online.put(name, isOnline);
+            aliveOnline.put(name, isAlive);
+        }
+        boolean boardDirty = false;
+        for (var cancel : respawns.tickDisconnects(ticks, online, aliveOnline)) {
+            if (cancel.hadPendingReturn()) {
+                var data = base();
+                data.put("player", cancel.player());
+                if (!cancel.team().isEmpty()) data.put("team", cancel.team());
+                data.put("tick", cancel.tick());
+                data.put("reservation_id", cancel.reservationId());
+                data.put("reason", cancel.reason());
+                emit.emit("arena_respawn_cancelled", data);
+                announce(cancel.player() + " forfeited their respawn (" + cancel.reason() + ").", "gray");
+            }
+            boardDirty = true;
+        }
+        if (respawns.config().enabled()) {
+            for (var id : participants) {
+                String name = names.get(id);
+                int sec = respawns.pollCountdownSecond(name, ticks);
+                if (sec > 0) {
+                    var player = resolvePlayer(id);
+                    if (player != null) {
+                        player.sendSystemMessage(ArenaBoard.text("Returning to arena in " + sec + "s...", "yellow", true, false), true);
+                    }
+                    boardDirty = true;
+                }
+            }
+            for (var playerName : respawns.dueToReturn(ticks, aliveOnline)) {
+                UUID id = idByName.get(playerName);
+                if (id == null) continue;
+                var player = resolvePlayer(id);
+                if (player == null || !player.isAlive()) continue;
+                String team = teamOf.get(id);
+                if (team == null || !arena.teams().containsKey(team)) continue;
+                var pads = arena.teams().get(team).pads();
+                int padIndex = ArenaRespawns.choosePadIndex(respawns.padSlot(playerName), pads.size(), respawns.respawnsUsed(playerName));
+                int[] padCell = pads.get(padIndex);
+                ensureScoreboardTeam(player, team);
+                restoreKitOnReturn(id, player);
+                healForReturn(player);
+                place(player, padCell);
+                var ret = respawns.completeReturn(playerName, ticks, arena.world(padCell));
+                if (ret != null) {
+                    var data = base();
+                    data.put("player", ret.player());
+                    data.put("team", ret.team());
+                    data.put("tick", ret.tick());
+                    data.put("reservation_id", ret.reservationId());
+                    if (ret.pad() != null) data.put("pad", List.of(ret.pad()[0], ret.pad()[1], ret.pad()[2]));
+                    data.put("respawns_left", ret.respawnsLeft());
+                    emit.emit("arena_respawn_returned", data);
+                    announce(playerName + " returned to the fight!", ArenaLogic.teamColor(team, teamNames().indexOf(team)));
+                    boardDirty = true;
+                }
+            }
+        }
+        if (boardDirty) refreshBoard();
+    }
+
+    private Map<String, Boolean> liveMap() {
+        var map = new HashMap<String, Boolean>();
+        for (var id : participants) map.put(names.get(id), live(id));
+        return map;
+    }
+
+    private Map<String, Integer> activeByTeam() {
+        return respawns.activeByTeam(liveMap());
+    }
+
+    /** Captures a participant's inventory on death in {@code keep_inventory} matches so bots can restore it on return. */
+    void captureDeathInventory(ServerPlayer player) {
+        if (state == State.RUNNING && keepInventory && names.containsKey(player.getUUID())) {
+            deathKits.put(player.getUUID(), copyInventory(player));
+        }
+    }
+
+    /** Notifies a human returning from the death screen how long remains on their respawn countdown. */
+    void onPlayerRespawned(ServerPlayer player) {
+        if (state != State.RUNNING || !respawns.config().enabled()) return;
+        String name = names.get(player.getUUID());
+        if (name == null || !respawns.isReturning(name)) return;
+        int sec = respawns.secondsRemaining(name, ticks);
+        String msg = sec > 0 ? "Returning to arena in " + sec + "s..." : "Returning to arena...";
+        player.sendSystemMessage(ArenaBoard.text(msg, "yellow", true, false), true);
+    }
+
+    private static List<ItemStack> copyInventory(ServerPlayer player) {
+        var inv = player.getInventory();
+        var copy = new ArrayList<ItemStack>(inv.getContainerSize());
+        for (int i = 0; i < inv.getContainerSize(); i++) copy.add(inv.getItem(i).copy());
+        return copy;
+    }
+
+    private void restoreKitOnReturn(UUID id, ServerPlayer player) {
+        if (!keepInventory) {
+            var saved = startKits.get(id);
+            if (saved != null) applyInventory(player, saved);
+            return;
+        }
+        if (fakePlayers.contains(id) && player.getInventory().isEmpty()) {
+            var saved = deathKits.remove(id);
+            if (saved != null) applyInventory(player, saved);
+        } else {
+            deathKits.remove(id);
+        }
+    }
+
+    private static void applyInventory(ServerPlayer player, List<ItemStack> snapshot) {
+        var inv = player.getInventory();
+        inv.clearContent();
+        player.containerMenu.setCarried(ItemStack.EMPTY);
+        int limit = Math.min(inv.getContainerSize(), snapshot.size());
+        for (int i = 0; i < limit; i++) inv.setItem(i, snapshot.get(i).copy());
+        player.containerMenu.broadcastChanges();
+    }
+
+    private static void healForReturn(ServerPlayer player) {
+        player.setHealth(player.getMaxHealth());
+        player.getFoodData().setFoodLevel(20);
+        player.getFoodData().setSaturation(5f);
+        player.clearFire();
+        player.removeAllEffects();
+        player.setDeltaMovement(Vec3.ZERO);
+        player.resetFallDistance();
+    }
+
+    private void ensureScoreboardTeam(ServerPlayer player, String teamName) {
+        var scoreboard = server.getScoreboard();
+        var sbTeam = scoreboard.getPlayerTeam(ArenaLogic.teamName(arena.name(), teamName));
+        if (sbTeam != null) scoreboard.addPlayerToTeam(player.getScoreboardName(), sbTeam);
+    }
+
+    private void announce(String text, String color) {
+        ArenaRuntime.tell(level, participants, List.of(List.of(new ArenaLogic.Seg(text, color, false))));
     }
 
     // ---- kills
@@ -178,6 +353,39 @@ final class ArenaMatch {
             String victim = names.get(entity.getUUID());
             tally.down(victim);
             tally.player(killer, victim);
+            var outcome = respawns.onDeath(victim, ticks, killer);
+            if (!outcome.ignored()) {
+                var diedData = base();
+                diedData.put("player", outcome.player());
+                if (!outcome.team().isEmpty()) diedData.put("team", outcome.team());
+                if (killer != null) diedData.put("killer", killer);
+                diedData.put("tick", outcome.tick());
+                diedData.put("reserved", outcome.reserved());
+                diedData.put("respawn_mode", respawns.config().mode().wireName());
+                diedData.put("respawns_left", outcome.respawnsLeft());
+                diedData.put("return_in_ticks", outcome.delayTicks());
+                if (outcome.reserved()) diedData.put("reservation_id", outcome.reservationId());
+                emit.emit("arena_participant_died", diedData);
+                if (outcome.reserved()) {
+                    var resData = base();
+                    resData.put("player", outcome.player());
+                    if (!outcome.team().isEmpty()) resData.put("team", outcome.team());
+                    resData.put("tick", outcome.tick());
+                    resData.put("return_at_tick", outcome.returnAtTick());
+                    resData.put("delay_ticks", outcome.delayTicks());
+                    resData.put("respawn_mode", respawns.config().mode().wireName());
+                    resData.put("respawns_left", outcome.respawnsLeft());
+                    resData.put("reservation_id", outcome.reservationId());
+                    emit.emit("arena_respawn_reserved", resData);
+                    if (respawns.config().enabled()) {
+                        int sec = respawns.secondsRemaining(victim, ticks);
+                        String leftText = outcome.respawnsLeft() == 1 ? "1 respawn left" : outcome.respawnsLeft() + " respawns left";
+                        announce(victim + " down · returning in " + sec + "s (" + leftText + ")", "yellow");
+                    }
+                } else if (respawns.config().enabled()) {
+                    announce(victim + " eliminated!", "gray");
+                }
+            }
         } else return;
         refreshBoard();
     }
@@ -214,16 +422,21 @@ final class ArenaMatch {
 
     // ---- the kill board and the recap
 
-    /** The live sidebar (ArenaLogic.matchBoard): the waves, each team and its players by kills, who is down. */
+    /** The live sidebar (ArenaLogic.matchBoard): the waves, each team and its players by kills, who is down or returning. */
     private void refreshBoard() {
+        var live = liveMap();
         var players = new ArrayList<ArenaLogic.Player>();
         for (var id : participants) {
             String name = names.get(id);
-            players.add(new ArenaLogic.Player(name, teamOf.getOrDefault(id, ""), tally.score(name), live(id)));
+            boolean returning = respawns.isReturning(name);
+            players.add(new ArenaLogic.Player(name, teamOf.getOrDefault(id, ""), tally.score(name),
+                    Boolean.TRUE.equals(live.get(name)), returning, respawns.respawnsLeft(name),
+                    returning ? respawns.secondsRemaining(name, ticks) : 0));
         }
         ArenaLogic.WaveInfo info = clock == null ? null
                 : new ArenaLogic.WaveInfo(Math.min(clock.index() + 1, waves.size()), waves.size(), mobs.size() + queued());
-        var lines = ArenaLogic.fit(ArenaLogic.matchBoard(mode, teamNames(), players, info), ArenaLogic.BOARD_LINES);
+        var boardSummary = respawns.boardSummary(live, ticks);
+        var lines = ArenaLogic.fit(ArenaLogic.matchBoard(mode, teamNames(), players, info, boardSummary), ArenaLogic.BOARD_LINES);
         board.show(ArenaLogic.matchTitle(arena.name(), series), lines);
     }
 
@@ -243,8 +456,15 @@ final class ArenaMatch {
 
     // ---- participants
 
-    private boolean live(UUID id) {
+    private ServerPlayer resolvePlayer(UUID id) {
         var player = server.getPlayerList().getPlayer(id);
+        if (player != null) return player;
+        String name = names.get(id);
+        return name == null ? null : server.getPlayerList().getPlayerByName(name);
+    }
+
+    private boolean live(UUID id) {
+        var player = resolvePlayer(id);
         return player != null && player.isAlive() && player.level() == level
                 && arena.box().containsPoint(player.getX(), player.getY(), player.getZ());
     }
@@ -479,6 +699,9 @@ final class ArenaMatch {
         sendToExit();
         var data = base();
         data.put("mode", mode);
+        data.put("respawn_mode", respawns.config().mode().wireName());
+        data.put("respawn_count", respawns.config().count());
+        data.put("respawn_delay_ticks", respawns.config().delayTicks());
         if (winner != null) data.put("winner", winner);
         if (why != null) data.put("reason", why);
         if (clock != null) {
@@ -488,6 +711,8 @@ final class ArenaMatch {
         data.put("kills", tally.rows());
         if (!teams.isEmpty()) data.put("team_kills", tally.byTeam());
         data.put("duration_ticks", endTick - startTick);
+        startKits.clear();
+        deathKits.clear();
         emit.emit(event, data);
     }
 
@@ -517,6 +742,8 @@ final class ArenaMatch {
         discardMobs();
         leaveTeams();
         hideBoard();
+        startKits.clear();
+        deathKits.clear();
     }
 
     // ---- reporting
@@ -531,6 +758,9 @@ final class ArenaMatch {
         var out = new LinkedHashMap<String, Object>();
         out.put("mode", mode);
         out.put("state", state.name().toLowerCase(Locale.ROOT));
+        out.put("respawn_mode", respawns.config().mode().wireName());
+        out.put("respawn_count", respawns.config().count());
+        out.put("respawn_delay_ticks", respawns.config().delayTicks());
         if (series != null) out.put("series", List.of(series[0], series[1]));
         if (reason != null) out.put("reason", reason);
         if (winner != null) out.put("winner", winner);
@@ -555,16 +785,22 @@ final class ArenaMatch {
             }
             out.put("wave_mobs", list);
         }
+        var live = liveMap();
         var people = new ArrayList<Map<String, Object>>();
         for (var id : participants) {
             var p = new LinkedHashMap<String, Object>();
-            p.put("uuid", id.toString());
-            p.put("name", names.get(id));
-            p.put("alive", live(id));
-            if (teamOf.containsKey(id)) p.put("team", teamOf.get(id));
-            var player = server.getPlayerList().getPlayer(id);
-            if (player != null) p.put("position", List.of(round(player.getX()), round(player.getY()), round(player.getZ())));
             String name = names.get(id);
+            p.put("uuid", id.toString());
+            p.put("name", name);
+            p.put("alive", Boolean.TRUE.equals(live.get(name)));
+            p.put("state", respawns.state(name).wireName());
+            p.put("returning", respawns.isReturning(name));
+            p.put("return_in_ticks", respawns.ticksRemaining(name, ticks));
+            p.put("respawns_left", respawns.respawnsLeft(name));
+            p.put("respawns_used", respawns.respawnsUsed(name));
+            if (teamOf.containsKey(id)) p.put("team", teamOf.get(id));
+            var player = resolvePlayer(id);
+            if (player != null) p.put("position", List.of(round(player.getX()), round(player.getY()), round(player.getZ())));
             p.put("mob_kills", tally.mobs(name));
             p.put("player_kills", tally.players(name));
             p.put("deaths", tally.deaths(name));
@@ -574,10 +810,13 @@ final class ArenaMatch {
             people.add(p);
         }
         out.put("participants", people);
+        out.put("respawns", respawns.statusSnapshot(live, ticks));
         if (!teams.isEmpty()) {
             var byTeam = new LinkedHashMap<String, Object>();
             teams.forEach((team, members) -> byTeam.put(team, members.stream().filter(this::live).count()));
             out.put("teams_alive", byTeam);
+            out.put("teams_returning", respawns.returningByTeam());
+            out.put("teams_respawns_left", respawns.respawnsLeftByTeam());
             out.put("team_kills", tally.byTeam());
         }
         return out;

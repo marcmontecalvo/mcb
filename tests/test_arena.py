@@ -771,3 +771,62 @@ def test_a_kit_can_keep_what_each_player_carries():
     client(t).kit(["Ann"], None)
     (sent,) = t.sent
     assert sent["kit"] == {"heal": True}, "no kit: healed, inventory untouched"
+
+
+def test_normalize_respawns_validates_and_normalizes():
+    assert arena.normalize_respawns() == ("elimination", 0, None)
+    assert arena.normalize_respawns("elimination", 0) == ("elimination", 0, None)
+    assert arena.normalize_respawns("player", 2, 40) == ("player", 2, 40)
+    assert arena.normalize_respawns("team", 3) == ("team", 3, None)
+    assert arena.normalize_respawns("player", 0) == ("elimination", 0, None)
+    assert arena.normalize_respawns("team", 0, 20) == ("elimination", 0, 20)
+    for args in [
+        ("bogus", 1, None),
+        ("elimination", 1, None),
+        ("player", None, None),
+        ("team", -1, None),
+        ("team", 100, None),
+        ("team", True, None),
+        ("team", 1, -1),
+        ("team", 1, 9999),
+    ]:
+        with pytest.raises(arena.ArenaError) as caught:
+            arena.normalize_respawns(*args)
+        assert caught.value.reason == "bad_request"
+
+
+def test_start_sends_respawn_fields_only_when_configured():
+    t = FakeTransport()
+    c = client(t)
+    c.start("duel", "teams", teams={"red": ["Ann"], "blue": ["Bob"]})
+    c.start(
+        "duel",
+        "teams",
+        teams={"red": ["Ann"], "blue": ["Bob"]},
+        respawn_mode="team",
+        respawn_count=2,
+        respawn_delay_ticks=40,
+    )
+    c.start(
+        "duel",
+        "teams",
+        teams={"red": ["Ann"], "blue": ["Bob"]},
+        respawn_mode="player",
+        respawn_count=0,
+    )
+    fields = [{k: v for k, v in p.items() if k not in arena.ENVELOPE} for p in t.sent]
+    assert "respawn_mode" not in fields[0] and "respawn_count" not in fields[0]
+    assert fields[1]["respawn_mode"] == "team"
+    assert fields[1]["respawn_count"] == 2
+    assert fields[1]["respawn_delay_ticks"] == 40
+    assert "respawn_mode" not in fields[2] and "respawn_count" not in fields[2]
+    with pytest.raises(arena.ArenaError) as bad:
+        c.start(
+            "vault",
+            "waves",
+            waves=[{"mobs": {"minecraft:zombie": 1}}],
+            respawn_mode="player",
+            respawn_count=1,
+        )
+    assert bad.value.reason == "bad_request"
+    assert len(t.sent) == 3

@@ -116,6 +116,8 @@ class RunSettings:
     game: str | None = None
     waves: str | None = None
     custom_waves: str | None = None
+    respawn_mode: str | None = None
+    respawn_count: int | None = None
     kit: str | None = None
     weapon_material: str | None = None
     armor_material: str | None = None

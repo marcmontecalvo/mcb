@@ -5,11 +5,13 @@ import com.google.gson.JsonParser;
 import com.vulpine.mcb.arena.ArenaBox;
 import com.vulpine.mcb.arena.ArenaCursor;
 import com.vulpine.mcb.arena.ArenaFail;
+import com.vulpine.mcb.arena.ArenaLobbyStations;
 import com.vulpine.mcb.arena.ArenaLogic;
 import com.vulpine.mcb.arena.ArenaPlan;
 import com.vulpine.mcb.arena.ArenaRecord;
 import com.vulpine.mcb.arena.ArenaRegistry;
 import com.vulpine.mcb.arena.ArenaRequests;
+import com.vulpine.mcb.arena.ArenaRespawns;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -55,6 +57,8 @@ public final class ArenaLogicTest {
         registry();
         requests();
         spawn();
+        respawns();
+        lobbyStations();
         System.out.println("ArenaLogicTest ok");
     }
 
@@ -767,5 +771,264 @@ public final class ArenaLogicTest {
         var many = new StringBuilder("{\"name\":\"v\",\"mode\":\"waves\",\"waves\":[");
         for (int i = 0; i < 51; i++) many.append(i == 0 ? "" : ",").append("{\"mobs\":{\"minecraft:zombie\":1}}");
         rejects(() -> ArenaRequests.parseStart(json(many + "]}")), "bad_request", "wave count cap");
+
+        // protocol 5: PvP respawns in arena_start
+        check(ArenaLogic.PROTOCOL == 5, "protocol bumped to 5 for PvP respawns");
+        check(mapped.respawns().mode() == ArenaRespawns.Mode.ELIMINATION
+                && mapped.respawns().count() == 0
+                && mapped.respawns().delayTicks() == ArenaRespawns.DEFAULT_DELAY_TICKS,
+                "respawns default to elimination with 0 extra respawns");
+        var perPlayer = ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\","
+                + "\"teams\":{\"red\":[\"Ann\"],\"blue\":[\"Bob\"]},"
+                + "\"respawn_mode\":\"player\",\"respawn_count\":2,\"respawn_delay_ticks\":40}"));
+        check(perPlayer.respawns().mode() == ArenaRespawns.Mode.PLAYER
+                && perPlayer.respawns().count() == 2
+                && perPlayer.respawns().delayTicks() == 40, "player respawn config");
+        var teamPool = ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\","
+                + "\"teams\":{\"red\":[\"Ann\"],\"blue\":[\"Bob\"]},"
+                + "\"respawn_mode\":\"team\",\"respawn_count\":3}"));
+        check(teamPool.respawns().mode() == ArenaRespawns.Mode.TEAM
+                && teamPool.respawns().count() == 3
+                && teamPool.respawns().delayTicks() == ArenaRespawns.DEFAULT_DELAY_TICKS, "team respawn config");
+        var normalized = ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\","
+                + "\"teams\":{\"red\":[\"Ann\"],\"blue\":[\"Bob\"]},"
+                + "\"respawn_mode\":\"team\",\"respawn_count\":0}"));
+        check(normalized.respawns().mode() == ArenaRespawns.Mode.ELIMINATION && normalized.respawns().count() == 0,
+                "zero respawn_count normalizes to elimination");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\","
+                + "\"teams\":{\"red\":[\"Ann\"],\"blue\":[\"Bob\"]},\"respawn_mode\":\"bogus\",\"respawn_count\":1}")),
+                "bad_request", "unknown respawn_mode");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\","
+                + "\"teams\":{\"red\":[\"Ann\"],\"blue\":[\"Bob\"]},\"respawn_mode\":\"elimination\",\"respawn_count\":1}")),
+                "bad_request", "elimination cannot have extra respawns");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\","
+                + "\"teams\":{\"red\":[\"Ann\"],\"blue\":[\"Bob\"]},\"respawn_mode\":\"player\"}")),
+                "bad_request", "player mode requires respawn_count");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\","
+                + "\"teams\":{\"red\":[\"Ann\"],\"blue\":[\"Bob\"]},\"respawn_mode\":\"team\",\"respawn_count\":-1}")),
+                "bad_request", "negative respawn_count");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\","
+                + "\"teams\":{\"red\":[\"Ann\"],\"blue\":[\"Bob\"]},\"respawn_mode\":\"team\",\"respawn_count\":100}")),
+                "bad_request", "over-max respawn_count");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\","
+                + "\"teams\":{\"red\":[\"Ann\"],\"blue\":[\"Bob\"]},\"respawn_mode\":\"team\",\"respawn_count\":1,\"respawn_delay_ticks\":-1}")),
+                "bad_request", "negative respawn_delay_ticks");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"waves\","
+                + "\"waves\":[{\"mobs\":{\"minecraft:zombie\":1}}],\"respawn_mode\":\"player\",\"respawn_count\":1}")),
+                "bad_request", "respawns belong to teams mode");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"race\","
+                + "\"waves\":[{\"mobs\":{\"minecraft:zombie\":1}}],\"teams\":{\"red\":[\"Ann\"],\"blue\":[\"Bob\"]},"
+                + "\"respawn_mode\":\"team\",\"respawn_count\":1}")),
+                "bad_request", "race does not accept PvP respawns");
+    }
+
+    private static Map<String, List<String>> duelTeams(List<String> red, List<String> blue) {
+        var map = new LinkedHashMap<String, List<String>>();
+        map.put("red", red);
+        map.put("blue", blue);
+        return map;
+    }
+
+    private static void respawns() {
+        // Config validation & normalization
+        var elimCfg = ArenaRespawns.Config.of(ArenaRespawns.Mode.ELIMINATION, 0, 60);
+        check(!elimCfg.enabled() && elimCfg.mode() == ArenaRespawns.Mode.ELIMINATION && elimCfg.count() == 0, "elimination config");
+        var normCfg = ArenaRespawns.Config.of(ArenaRespawns.Mode.PLAYER, 0, 40);
+        check(!normCfg.enabled() && normCfg.mode() == ArenaRespawns.Mode.ELIMINATION && normCfg.count() == 0 && normCfg.delayTicks() == 40,
+                "0 respawns normalizes to elimination");
+        rejects(() -> ArenaRespawns.Config.of(ArenaRespawns.Mode.ELIMINATION, 2, 60), "bad_request", "elimination with >0 respawns");
+        rejects(() -> ArenaRespawns.Config.of(ArenaRespawns.Mode.TEAM, -1, 60), "bad_request", "negative count");
+        rejects(() -> ArenaRespawns.Config.of(ArenaRespawns.Mode.TEAM, 1, -1), "bad_request", "negative delay");
+
+        // 1) Elimination mode: death eliminates immediately; simultaneous wipe is draw
+        var elim = new ArenaRespawns(ArenaRespawns.Config.ELIMINATION, duelTeams(List.of("Ann"), List.of("Bob")), java.util.Set.of());
+        var d1 = elim.onDeath("Ann", 10, "Bob");
+        check(!d1.reserved() && d1.state() == ArenaRespawns.ParticipantState.ELIMINATED && d1.respawnsLeft() == 0, "elimination death");
+        check(elim.activeByTeam(Map.of("Ann", false, "Bob", true)).equals(sides(0, 1)), "red out, blue alive");
+        check(ArenaLogic.decide("teams", null, elim.activeByTeam(Map.of("Ann", false, "Bob", true)), sides(0, 0)).winner().equals("blue"),
+                "blue wins on elimination");
+        var d2 = elim.onDeath("Bob", 10, "Ann");
+        check(!d2.reserved() && elim.activeByTeam(Map.of("Ann", false, "Bob", false)).equals(sides(0, 0)), "simultaneous wipe in elimination");
+        check(ArenaLogic.decide("teams", null, elim.activeByTeam(Map.of("Ann", false, "Bob", false)), sides(0, 0)).reason().equals("draw"),
+                "simultaneous wipe draws");
+
+        // 2) Per-participant respawns: identical for human and bot, countdown, re-entry, no double-spend
+        var perPlayer = new ArenaRespawns(ArenaRespawns.Config.of(ArenaRespawns.Mode.PLAYER, 1, 60),
+                duelTeams(List.of("Ann"), List.of("MCBot")), java.util.Set.of("MCBot"));
+        var rAnn = perPlayer.onDeath("Ann", 20, "MCBot");
+        check(rAnn.reserved() && rAnn.reservationId() == 1 && rAnn.returnAtTick() == 80 && rAnn.respawnsLeft() == 0, "Ann reserves personal respawn");
+        // duplicate death call while already returning must not double-spend or create another reservation
+        var dup = perPlayer.onDeath("Ann", 20, "MCBot");
+        check(!dup.reserved() && dup.ignored(), "duplicate death while returning is ignored");
+        // Red has 0 alive, 1 returning -> NOT eliminated!
+        check(perPlayer.activeByTeam(Map.of("Ann", false, "MCBot", true)).equals(sides(1, 1)), "returning participant keeps team active");
+        check(ArenaLogic.decide("teams", null, perPlayer.activeByTeam(Map.of("Ann", false, "MCBot", true)), sides(0, 0)) == null,
+                "match plays on while Ann returns");
+        check(perPlayer.ticksRemaining("Ann", 40) == 40 && perPlayer.secondsRemaining("Ann", 40) == 2, "countdown ticks and seconds");
+        check(perPlayer.dueToReturn(79, Map.of("Ann", true, "MCBot", true)).isEmpty(), "not due before returnAtTick");
+        check(perPlayer.dueToReturn(80, Map.of("Ann", false, "MCBot", true)).isEmpty(), "waits while still on death screen");
+        check(perPlayer.dueToReturn(80, Map.of("Ann", true, "MCBot", true)).equals(List.of("Ann")), "due once countdown up and alive");
+        var ret = perPlayer.completeReturn("Ann", 80, new int[] {1, 65, 1});
+        check(ret != null && ret.reservationId() == 1 && perPlayer.state("Ann") == ArenaRespawns.ParticipantState.ALIVE
+                && perPlayer.respawnsUsed("Ann") == 1 && perPlayer.respawnsLeft("Ann") == 0, "Ann returned to alive");
+        // Second death: no respawns left -> eliminated
+        var annOut = perPlayer.onDeath("Ann", 120, "MCBot");
+        check(!annOut.reserved() && annOut.state() == ArenaRespawns.ParticipantState.ELIMINATED, "second death eliminates Ann");
+        // Bot dies on same tick: bot still has its own 1 respawn -> Blue wins because Red has 0 alive & 0 returning while Blue has 1 returning!
+        var rBot = perPlayer.onDeath("MCBot", 120, "Ann");
+        check(rBot.reserved() && perPlayer.activeByTeam(Map.of("Ann", false, "MCBot", false)).equals(sides(0, 1)),
+                "bot returning vs eliminated red");
+        check(ArenaLogic.decide("teams", null, perPlayer.activeByTeam(Map.of("Ann", false, "MCBot", false)), sides(0, 0)).winner().equals("blue"),
+                "blue wins with pending return when red is fully eliminated");
+
+        // 3) Team-pool respawns: human and bot on same team die on same tick with 1 pooled respawn left -> ONLY ONE gets it
+        var pool = new ArenaRespawns(ArenaRespawns.Config.of(ArenaRespawns.Mode.TEAM, 1, 60),
+                duelTeams(List.of("Ann", "MCBot"), List.of("Bob", "MCBot2")), java.util.Set.of("MCBot", "MCBot2"));
+        var first = pool.onDeath("Ann", 50, "Bob");
+        var second = pool.onDeath("MCBot", 50, "MCBot2");
+        check(first.reserved() && !second.reserved(), "only one of simultaneous deaths gets the single team respawn");
+        check(pool.state("Ann") == ArenaRespawns.ParticipantState.RETURNING
+                && pool.state("MCBot") == ArenaRespawns.ParticipantState.ELIMINATED, "Ann returns, MCBot eliminated");
+        check(pool.teamRespawnsLeft("red") == 0 && pool.teamRespawnsLeft("blue") == 1, "red pool spent atomically, blue untouched");
+        check(pool.activeByTeam(Map.of("Ann", false, "MCBot", false, "Bob", true, "MCBot2", true)).equals(sides(1, 2)),
+                "red still has 1 returning");
+        // Simultaneous wipe where BOTH sides still have a returning member plays on
+        var blue1 = pool.onDeath("Bob", 60, "Ann");
+        var blue2 = pool.onDeath("MCBot2", 60, "Ann");
+        check(blue1.reserved() && !blue2.reserved(), "blue pool also reserves exactly once");
+        check(pool.activeByTeam(Map.of("Ann", false, "MCBot", false, "Bob", false, "MCBot2", false)).equals(sides(1, 1)),
+                "both sides have 1 returning -> plays on");
+
+        // 4) Disconnects and forfeits without indefinite waits
+        var disc = new ArenaRespawns(ArenaRespawns.Config.of(ArenaRespawns.Mode.TEAM, 1, 40),
+                duelTeams(List.of("Ann", "MCBot"), List.of("Bob")), java.util.Set.of("MCBot"), 100);
+        // Alive human disconnects -> forfeited immediately without spending team pool
+        var discAlive = disc.onDisconnect("Ann", 10);
+        check(discAlive != null && disc.state("Ann") == ArenaRespawns.ParticipantState.FORFEITED
+                && disc.teamRespawnsLeft("red") == 1, "alive disconnect forfeits without spending pool");
+        // Bot dies -> Carpet disconnects fake player while returning (must NOT forfeit immediately!)
+        var botDied = disc.onDeath("MCBot", 20, "Bob");
+        check(botDied.reserved() && disc.state("MCBot") == ArenaRespawns.ParticipantState.RETURNING, "bot reserves team respawn");
+        check(disc.tickDisconnects(30, Map.of("MCBot", false, "Bob", true)).isEmpty(),
+                "returning fake player offline during Carpet respawn is given grace");
+        // Bot fails to come back before returnAtTick (60) + grace (100) = 160 -> cancelled cleanly
+        var expired = disc.tickDisconnects(160, Map.of("MCBot", false, "Bob", true));
+        check(expired.size() == 1 && expired.get(0).player().equals("MCBot") && expired.get(0).reason().equals("respawn_timeout"),
+                "stale returning bot times out cleanly without indefinite wait");
+        check(disc.state("MCBot") == ArenaRespawns.ParticipantState.FORFEITED, "timed out bot forfeited");
+        check(disc.activeByTeam(Map.of("Ann", false, "MCBot", false, "Bob", true)).equals(sides(0, 1)), "red now eliminated");
+
+        // Returning human disconnects -> cancelled immediately (no wait)
+        var discHuman = new ArenaRespawns(ArenaRespawns.Config.of(ArenaRespawns.Mode.PLAYER, 1, 60),
+                duelTeams(List.of("Ann"), List.of("Bob")), java.util.Set.of(), 100);
+        discHuman.onDeath("Ann", 10, "Bob");
+        var cancelled = discHuman.tickDisconnects(15, Map.of("Ann", false, "Bob", true));
+        check(cancelled.size() == 1 && cancelled.get(0).player().equals("Ann") && cancelled.get(0).reason().equals("disconnected"),
+                "returning human disconnecting cancels immediately");
+        check(discHuman.state("Ann") == ArenaRespawns.ParticipantState.FORFEITED, "disconnected returning human forfeited");
+        check(ArenaLogic.decide("teams", null, discHuman.activeByTeam(Map.of("Ann", false, "Bob", true)), sides(0, 0)).winner().equals("blue"),
+                "blue wins immediately when returning Ann disconnects");
+
+        // Explicit forfeit during pending return
+        var forf = new ArenaRespawns(ArenaRespawns.Config.of(ArenaRespawns.Mode.PLAYER, 2, 60),
+                duelTeams(List.of("Ann"), List.of("Bob")), java.util.Set.of());
+        forf.onDeath("Ann", 10, "Bob");
+        var fe = forf.forfeit("Ann", 20, "forfeited");
+        check(fe != null && forf.state("Ann") == ArenaRespawns.ParticipantState.FORFEITED, "explicit forfeit cancels pending return");
+
+        // 5) Board formatting with alive / returning / remaining counts
+        var boardPool = new ArenaRespawns(ArenaRespawns.Config.of(ArenaRespawns.Mode.TEAM, 1, 60),
+                duelTeams(List.of("Ann", "MCBot"), List.of("Bob", "MCBot2")), java.util.Set.of("MCBot", "MCBot2"));
+        boardPool.onDeath("Ann", 50, "Bob");
+        boardPool.onDeath("MCBot", 50, "Bob");
+        boardPool.onDeath("MCBot2", 55, "Ann");
+        var summary = boardPool.boardSummary(Map.of("Ann", false, "MCBot", false, "Bob", true, "MCBot2", false), 70);
+        var boardLines = ArenaLogic.fit(ArenaLogic.matchBoard("teams", List.of("red", "blue"), List.of(
+                new ArenaLogic.Player("Ann", "red", 1, false, true, 0, 2),
+                new ArenaLogic.Player("MCBot", "red", 0, false, false, 0, 0),
+                new ArenaLogic.Player("Bob", "blue", 2, true, false, 0, 0),
+                new ArenaLogic.Player("MCBot2", "blue", 0, false, true, 0, 3)), null, summary), 15);
+        var rendered = texts(boardLines);
+        check(rendered.get(0).equals("Red · 0 alive · 1 returning · 0 respawns left=1"), "red header shows alive, returning, respawns left: " + rendered);
+        check(boardLines.get(1).color().equals("yellow") && !boardLines.get(1).struck() && rendered.get(1).contains("Ann") && rendered.get(1).contains("2s"),
+                "returning player highlighted in yellow with countdown: " + rendered.get(1));
+        check(boardLines.get(2).struck() && boardLines.get(2).color().equals("dark_gray"), "eliminated player struck through");
+        check(rendered.get(3).equals("Blue · 1 alive · 1 returning · 0 respawns left=2"),
+                "blue header matches alive/returning/respawns format: " + rendered.get(3));
+
+        // 6) Pad selection and status/event recording
+        check(ArenaRespawns.choosePadIndex(0, 3, 0) == 0 && ArenaRespawns.choosePadIndex(0, 3, 1) == 1
+                && ArenaRespawns.choosePadIndex(2, 3, 2) == 1 && ArenaRespawns.choosePadIndex(0, 0, 1) == 0,
+                "pad selection wraps cleanly");
+        check(pool.events().size() >= 4, "deaths and reservations recorded in events: " + pool.events().size());
+        var snap = pool.statusSnapshot(Map.of("Ann", false, "MCBot", false, "Bob", true, "MCBot2", false), 70);
+        check(snap.get("mode").equals("team") && snap.get("count").equals(1), "status snapshot exposes respawn config");
+        check(pool.returningByTeam().equals(sides(1, 1)) && pool.respawnsLeftByTeam().equals(sides(0, 0)),
+                "returning and remaining maps per team");
+        check(pool.anyReturning() && pool.padSlot("MCBot") == 1 && pool.padSlot("Unknown") == 0, "returning flag and pad slots");
+
+        // 7) Countdown polling, death-screen timeout, player-mode board, coop helper, edge cases
+        rejects(() -> ArenaRespawns.Mode.parse(null), "bad_request", "null mode");
+        rejects(() -> ArenaRespawns.Config.of(null, 0, 60), "bad_request", "null config mode");
+        rejects(() -> ArenaRespawns.Config.of(ArenaRespawns.Mode.TEAM, 100, 60), "bad_request", "over max respawns");
+        rejects(() -> ArenaRespawns.Config.of(ArenaRespawns.Mode.TEAM, 1, 1201), "bad_request", "over max delay");
+        rejects(() -> new ArenaRespawns(ArenaRespawns.Config.ELIMINATION, duelTeams(List.of("Ann"), List.of("Bob")), java.util.Set.of(), -1),
+                "bad_request", "negative grace ticks");
+
+        var countdown = new ArenaRespawns(ArenaRespawns.Config.of(ArenaRespawns.Mode.PLAYER, 2, 60),
+                duelTeams(List.of("Ann"), List.of("Bob")), java.util.Set.of(), 40);
+        countdown.onDeath("Ann", 0, "Bob");
+        check(countdown.pollCountdownSecond("Ann", 0) == 3 && countdown.pollCountdownSecond("Ann", 5) == -1
+                && countdown.pollCountdownSecond("Ann", 20) == 2 && countdown.pollCountdownSecond("Ann", 40) == 1
+                && countdown.pollCountdownSecond("Ann", 60) == -1, "countdown announcements fire once per second");
+        // Human stays online on death screen past returnAtTick (60) + grace (40) = 100 -> respawn_timeout
+        var stalled = countdown.tickDisconnects(100, Map.of("Ann", true, "Bob", true), Map.of("Ann", false, "Bob", true));
+        check(stalled.size() == 1 && stalled.get(0).reason().equals("respawn_timeout") && stalled.get(0).hadPendingReturn(),
+                "human stuck on death screen times out cleanly");
+        check(countdown.completeReturn("Ann", 105, new int[] {0, 64, 0}) == null, "cannot complete cancelled return");
+        check(countdown.onDisconnect("Ann", 105) == null && countdown.forfeit("Ann", 105, "quit") == null,
+                "already forfeited participant returns null");
+        // Player-mode board lines show per-player remaining respawns and (returning) when 0s left
+        var pSummary = countdown.boardSummary(Map.of("Ann", false, "Bob", true), 105);
+        var pLines = ArenaLogic.fit(ArenaLogic.matchBoard("teams", List.of("red", "blue"), List.of(
+                new ArenaLogic.Player("Ann", "red", 0, false, true, 1, 0),
+                new ArenaLogic.Player("Bob", "blue", 1, true, false, 2, 0)), null, pSummary), 15);
+        var pTexts = texts(pLines);
+        check(pTexts.get(1).contains("Ann (returning)") && pTexts.get(3).contains("Bob · 2 left"),
+                "player mode shows remaining respawns and returning label: " + pTexts);
+        // Alive disconnect via tickDisconnects
+        var aliveDisc = new ArenaRespawns(ArenaRespawns.Config.ELIMINATION, duelTeams(List.of("Ann"), List.of("Bob")), java.util.Set.of());
+        var leftAlive = aliveDisc.tickDisconnects(10, Map.of("Ann", false, "Bob", true), Map.of("Ann", false, "Bob", true));
+        check(leftAlive.size() == 1 && !leftAlive.get(0).hadPendingReturn() && aliveDisc.state("Ann") == ArenaRespawns.ParticipantState.FORFEITED,
+                "alive disconnect detected on tick");
+        // Coop helper
+        var coopTracker = ArenaRespawns.coop(List.of("Ann", "MCBot"), java.util.Set.of("MCBot"));
+        check(!coopTracker.config().enabled() && coopTracker.state("Ann") == ArenaRespawns.ParticipantState.ALIVE
+                && !coopTracker.onDeath("Ann", 5, null).reserved(), "coop tracker runs elimination");
+    }
+
+    private static void lobbyStations() {
+        check(ArenaLobbyStations.STATIONS.size() == 16, "16 lobby stations defined");
+        int[] origin = new int[] {-12, 100, -12};
+        check(ArenaLobbyStations.payloadFor(null, 0, 0, 0) == null, "null origin returns null");
+        check(ArenaLobbyStations.payloadFor(origin, 0, 102, 0) == null, "non-station block returns null");
+        for (var station : ArenaLobbyStations.STATIONS) {
+            var wall = ArenaLobbyStations.payloadFor(
+                    origin, origin[0] + station.x(), origin[1] + station.y(), origin[2] + station.z());
+            var banner = ArenaLobbyStations.payloadFor(
+                    origin, origin[0] + station.bannerX(), origin[1] + station.bannerY(), origin[2] + station.bannerZ());
+            check(station.payload().equals(wall) && station.payload().equals(banner),
+                    "wall and banner match for " + station.label());
+        }
+        check(Map.of("action", "play").equals(ArenaLobbyStations.fromSignLines(List.of("[Play]", "Start"))),
+                "sign Play");
+        check(Map.of("action", "join", "team", "green").equals(ArenaLobbyStations.fromSignLines(List.of("[Join Green]"))),
+                "sign Join Green");
+        check(Map.of("action", "cycle_respawns").equals(ArenaLobbyStations.fromSignLines(List.of("Respawns"))),
+                "sign Respawns");
+        check(Map.of("action", "rematch").equals(ArenaLobbyStations.fromSignLines(List.of("Play Again"))),
+                "sign Play Again");
+        check(ArenaLobbyStations.fromSignLines(List.of("Welcome", "Friends")) == null,
+                "unrecognized sign lines return null");
     }
 }

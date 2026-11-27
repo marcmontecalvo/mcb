@@ -36,7 +36,7 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mclab.arena.client import ArenaError
+from mclab.arena.client import ArenaError, normalize_respawns
 from mclab.arena.standings import player_totals, series_board, series_recap
 from mclab.companion_names import BotNames
 
@@ -234,6 +234,155 @@ def _humans_playing(match: dict, humans: list[str]) -> bool:
     )
 
 
+def _participant_row(match: dict, name: str) -> dict | None:
+    return next(
+        (
+            p
+            for p in match.get("participants") or ()
+            if isinstance(p, dict) and _same(p.get("name"), name)
+        ),
+        None,
+    )
+
+
+def _any_returning(match: dict) -> bool:
+    """Whether any participant (human or bot) has a pending respawn in this match."""
+    if match.get("state") != "running":
+        return False
+    return any(
+        isinstance(p, dict)
+        and (p.get("returning") is True or p.get("state") == "returning")
+        for p in match.get("participants") or ()
+    )
+
+
+def _match_still_active(
+    match: dict, humans: list[str], awaiting_return: set[str]
+) -> bool:
+    """True when the match must keep running even if every current bot job ended."""
+    if match.get("state") != "running":
+        return False
+    return (
+        _humans_playing(match, humans)
+        or _any_returning(match)
+        or bool(awaiting_return)
+    )
+
+
+def _sync_bot_respawns(
+    fighters: list[_Fighter],
+    match: dict,
+    over: set[str],
+    awaiting_return: set[str],
+    seen_respawns_used: dict[str, int],
+    job_ids: dict[str, str],
+    job_history: dict[str, list[tuple[str, dict | None]]],
+    jobs: dict[str, dict | None],
+    kit: list[dict] | None,
+    name: str,
+    clock,
+    sleep,
+    started: float,
+    timeout: float,
+    bot_resumes: list[dict],
+) -> None:
+    """Coordinate bots that died with a reserved respawn: track pending returns,
+    re-kit if needed once back on a team pad, and resume ``attack {arena}``."""
+    if match.get("state") != "running":
+        return
+    for f in fighters:
+        p = _participant_row(match, f.name)
+        if p is None:
+            continue
+        returning = p.get("returning") is True or p.get("state") == "returning"
+        used = int(p.get("respawns_used") or 0)
+        if returning:
+            awaiting_return.add(f.name)
+            continue
+        if p.get("state") in ("eliminated", "forfeited"):
+            awaiting_return.discard(f.name)
+            continue
+        if used > seen_respawns_used.get(f.name, 0):
+            seen_respawns_used[f.name] = used
+            if f.name in over:
+                awaiting_return.add(f.name)
+        if f.name not in awaiting_return or f.name not in over or not p.get("alive"):
+            continue
+        status = _result(f.call("status", {}, source="api"))
+        if (
+            status.get("session") != "ready"
+            or status.get("body_state") != "ready"
+            or status.get("job")
+        ):
+            continue
+        rekitted = False
+        if kit is not None:
+            held = status.get("inventory") or {}
+            if not all(held.get(g["item"], 0) >= 1 for g in kit):
+                f.trial(
+                    {"heal": True, "wear": True, "clear_inventory": True, "give": kit}
+                )
+                remaining = max(1.0, timeout - (clock() - started))
+                _holds(f, kit, clock, sleep, wait=min(KIT_WAIT_S, remaining))
+                rekitted = True
+        reply = f.call("attack", {"arena": name}, source="api")
+        if reply.get("ok"):
+            job_history[f.name].append((job_ids[f.name], jobs.get(f.name)))
+            new_id = _result(reply)["job"]["id"]
+            job_ids[f.name] = new_id
+            jobs[f.name] = None
+            over.discard(f.name)
+            awaiting_return.discard(f.name)
+            bot_resumes.append(
+                {
+                    "bot": f.name,
+                    "t": round(clock() - started, 1),
+                    "job_id": new_id,
+                    "rekitted": rekitted,
+                }
+            )
+
+
+def _respawn_evidence(
+    match: dict,
+    respawn_mode: str,
+    respawn_count: int,
+    respawn_delay_ticks: int | None,
+    bot_resumes: list[dict],
+) -> dict:
+    """Structured respawn configuration, death, reservation, return and bot-resume
+    evidence recorded in the run artifact."""
+    snap = match.get("respawns") if isinstance(match.get("respawns"), dict) else {}
+    out: dict = {
+        "mode": snap.get("mode", respawn_mode),
+        "count": snap.get("count", respawn_count),
+        "events": list(snap.get("events") or []),
+        "bot_resumes": list(bot_resumes),
+    }
+    delay = snap.get(
+        "delay_ticks", match.get("respawn_delay_ticks", respawn_delay_ticks)
+    )
+    if delay is not None:
+        out["delay_ticks"] = delay
+    if snap.get("teams"):
+        out["teams"] = snap["teams"]
+    participants = {}
+    for p in match.get("participants") or ():
+        if not isinstance(p, dict) or not p.get("name"):
+            continue
+        if any(
+            k in p for k in ("state", "returning", "respawns_used", "respawns_left")
+        ):
+            participants[p["name"]] = {
+                k: p[k]
+                for k in ("team", "state", "deaths", "respawns_used", "respawns_left")
+                if k in p
+            }
+    if participants:
+        out["participants"] = participants
+    return out
+
+
 def _end(fighters: list[_Fighter], arena, name: str) -> None:
     """Stop every bot, then the match (each tried even when another fails)."""
     stops = [lambda f=f: f.call("stop", {}, source="api") for f in fighters]
@@ -263,6 +412,9 @@ def hunt(
     kit: list[dict] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     series: tuple[int, int] | None = None,
+    respawn_mode: str = "elimination",
+    respawn_count: int | None = None,
+    respawn_delay_ticks: int | None = None,
 ) -> dict:
     """One match from a full-health start to its end. ``kit``: the trial op's give
     entries, handed out afresh to every bot and human (a player who died last run
@@ -275,6 +427,9 @@ def hunt(
     bots a roster may hold. Each one in the roster plays when ``api`` reaches it,
     on its own kit, attack job and row; the rest of the roster are the humans. A
     match with no bot playing is only watched."""
+    norm_mode, norm_count, norm_delay = normalize_respawns(
+        respawn_mode, respawn_count, respawn_delay_ticks
+    )
     people = roster(participants, teams)
     named = _bots_of(bot, bots)
     in_roster = [n for n in named if any(_same(p, n) for p in people)]
@@ -286,7 +441,12 @@ def hunt(
     )
     humans = [p for p in people if not any(_same(p, n) for n in named)]
     many = len(fighters) > 1
-    row: dict = {"mode": mode, "participants": people}
+    row: dict = {
+        "mode": mode,
+        "participants": people,
+        "respawn_mode": norm_mode,
+        "respawn_count": norm_count,
+    }
     if mode in SIDED and len(in_roster) <= 1:
         row["bot_team"] = _team_of(teams, in_roster[0]) if in_roster else None
     if kit is not None:
@@ -301,6 +461,12 @@ def hunt(
             if kit is not None and not _holds(f, kit, clock, sleep):
                 error = f"the kit never showed in {f.name}'s inventory"
                 return {**row, "outcome": "not_started", "error": error}
+    start_extra: dict = {}
+    if norm_mode != "elimination":
+        start_extra["respawn_mode"] = norm_mode
+        start_extra["respawn_count"] = norm_count
+    if norm_delay is not None:
+        start_extra["respawn_delay_ticks"] = norm_delay
     try:
         if humans:
             arena.kit(humans, kit)
@@ -313,11 +479,15 @@ def hunt(
             exit=exit,
             series=series,
             keep_inventory=kit is None,
+            **start_extra,
         )
     except ArenaError as error:
         return {**row, "outcome": "not_started", "error": str(error)}
     started = clock()
     job_ids: dict[str, str] = {}
+    job_history: dict[str, list[tuple[str, dict | None]]] = {
+        f.name: [] for f in fighters
+    }
     cursors: dict[str, int] = {}
     for f in fighters:
         cursors[f.name] = f.events(0, wait=0).get("latest", 0)  # its steps come after
@@ -328,7 +498,10 @@ def hunt(
                     "refused_by": f.name}  # fmt: skip
         job_ids[f.name] = _result(reply)["job"]["id"]
     jobs: dict[str, dict | None] = {}
-    over: set[str] = set()  # the bots whose job has ended
+    over: set[str] = set()  # the bots whose current job has ended
+    awaiting_return: set[str] = set()
+    seen_respawns_used: dict[str, int] = {f.name: 0 for f in fighters}
+    bot_resumes: list[dict] = []
     samples, match = [], {}
     while True:
         s, match = _sample(fighters, arena, name, clock() - started)
@@ -340,7 +513,26 @@ def hunt(
                 jobs[f.name] = job
                 if job is None or job.get("state") in DONE:
                     over.add(f.name)
-            if len(over) == len(fighters) and not _humans_playing(match, humans):
+            _sync_bot_respawns(
+                fighters,
+                match,
+                over,
+                awaiting_return,
+                seen_respawns_used,
+                job_ids,
+                job_history,
+                jobs,
+                kit,
+                name,
+                clock,
+                sleep,
+                started,
+                timeout,
+                bot_resumes,
+            )
+            if len(over) == len(fighters) and not _match_still_active(
+                match, humans, awaiting_return
+            ):
                 break
         elif match.get("state") != "running":
             break
@@ -356,12 +548,15 @@ def hunt(
         _end(fighters, arena, name)  # the next run finds it still going (match_running)
         match = {**match, "state": "abandoned"}
     outcome = match.get("state", "unknown")
+    all_runs = {
+        f.name: [*job_history[f.name], (job_ids[f.name], jobs.get(f.name))]
+        for f in fighters
+    }
     per = {
         f.name: _bot_row(
             f,
-            jobs.get(f.name),
+            all_runs[f.name],
             cursors[f.name],
-            job_ids[f.name],
             [s["bot_health"][f.name] if many else s.get("health") for s in samples],
             _team_of(teams, f.name) if mode in SIDED else None,
             match,
@@ -369,7 +564,11 @@ def hunt(
         )
         for f in fighters
     }
-    results = [(jobs.get(f.name) or {}).get("result") or {} for f in fighters]
+    results = [
+        (job or {}).get("result") or {}
+        for runs in all_runs.values()
+        for _, job in runs
+    ]
     health = [
         h
         for s in samples
@@ -388,6 +587,9 @@ def hunt(
         min_health=min(health) if health else None,
         wave_times=wave_times(samples),
         **_board(match),
+        respawns=_respawn_evidence(
+            match, norm_mode, norm_count, norm_delay, bot_resumes
+        ),
         samples=samples,
     )
     if many:
@@ -405,21 +607,29 @@ PLAYER_STATS = ("mob_kills", "player_kills", "deaths", "damage_dealt", "damage_t
                 "healing")  # fmt: skip
 
 
-def _bot_row(f, job, cursor, job_id, healths, team, match, outcome) -> dict:
-    """What one bot did in the match: its job's end and totals, its fights (every
-    step, the damage it took by source, what dealt the last blow, which weapon met
-    which mob type), its lowest health and, in a team match, its side and result."""
-    result = (job or {}).get("result") or {}
+def _bot_row(f, runs, cursor, healths, team, match, outcome) -> dict:
+    """What one bot did in the match across its initial life and any respawns:
+    its latest job's end, totals across all lives, its fights, its lowest health
+    and, in a team match, its side and result."""
+    last_job = runs[-1][1] if runs else None
+    job_ids = {jid for jid, _ in runs if jid}
+    results = [(job or {}).get("result") or {} for _, job in runs]
     health = [h for h in healths if isinstance(h, (int, float))]
-    out = {
+    out: dict = {
         "min_health": min(health) if health else None,
-        "job_state": (job or {}).get("state"),
-        "error": (job or {}).get("error"),
-        **_steps(f, cursor, job_id),
-        **{k: result[k] for k in ("hits", "damage") if k in result},
+        "job_state": (last_job or {}).get("state"),
+        "error": (last_job or {}).get("error"),
+        **_steps(f, cursor, job_ids),
     }
-    if "kills" in result:
-        out["bot_kills"] = result["kills"]
+    for key in ("hits", "damage"):
+        values = [r[key] for r in results if key in r]
+        if values:
+            out[key] = round(sum(values), 2) if key == "damage" else sum(values)
+    kill_values = [r["kills"] for r in results if "kills" in r]
+    if kill_values:
+        out["bot_kills"] = sum(kill_values)
+    if len(runs) > 1:
+        out["respawn_resumes"] = len(runs) - 1
     if team is not None:
         out["team"] = team
         if outcome in ("won", "lost"):
@@ -477,13 +687,14 @@ def _add(total: dict, more) -> None:
             total[k] = round(total.get(k, 0.0) + v, 2)
 
 
-def _steps(api, cursor: int, job_id: str) -> dict:
+def _steps(api, cursor: int, job_ids: set[str] | str) -> dict:
     """The job's fights (host job_step events): every step, the damage the bot took
     by source, what landed the last blow, and which weapon met which mob type."""
+    wanted = {job_ids} if isinstance(job_ids, str) else set(job_ids)
     steps = [
         e["data"].get("step") or {}
         for e in api.events(cursor, wait=0).get("events") or ()
-        if e.get("type") == "job_step" and (e.get("data") or {}).get("id") == job_id
+        if e.get("type") == "job_step" and (e.get("data") or {}).get("id") in wanted
     ]
     hurt: dict = {}
     picks: dict = {}
@@ -647,6 +858,9 @@ def run_series(
     label: str | None = None,
     kit: list[dict] | None = None,
     ready_timeout: float = PLAYERS_WAIT_S,
+    respawn_mode: str = "elimination",
+    respawn_count: int | None = None,
+    respawn_delay_ticks: int | None = None,
 ) -> Path:
     """`repeat` matches of the same roster and waves, each written as it ends.
     ``ops``: each human's operator status, set once before the first match.
@@ -665,6 +879,9 @@ def run_series(
     With more than one match, the lobby's sidebar shows the standings after each
     (team wins, series kills) and the series' end sends a chat recap of everyone's
     totals; a single match keeps its own final board and recap."""
+    norm_mode, norm_count, norm_delay = normalize_respawns(
+        respawn_mode, respawn_count, respawn_delay_ticks
+    )
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = Path(out_dir) / f"{stamp}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -679,6 +896,13 @@ def run_series(
         "arena": name,
         "label": label,
         "mode": mode,
+        "respawn_mode": norm_mode,
+        "respawn_count": norm_count,
+        **(
+            {"respawn_delay_ticks": norm_delay}
+            if norm_delay is not None
+            else {}
+        ),
         "waves": waves,
         "participants": people,
         "teams": teams,
@@ -725,6 +949,9 @@ def run_series(
             kit=kit,
             sleep=sleep,
             series=(i + 1, repeat),
+            respawn_mode=norm_mode,
+            respawn_count=norm_count,
+            respawn_delay_ticks=norm_delay,
         )
         record["runs"].append(row)
         record["summary"] = summary(record["runs"])

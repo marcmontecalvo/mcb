@@ -26,5 +26,6 @@ public abstract class ServerPlayerRespawnMixin {
         if (kept && !self.level().getGameRules().get(GameRules.KEEP_INVENTORY) && !oldPlayer.isSpectator()) {
             this.transferInventoryXpAndScore(oldPlayer);
         }
+        ArenaRuntime.respawned(self);
     }
 }

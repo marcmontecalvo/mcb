@@ -40,7 +40,11 @@ OPS = (
 # 2: arena_board, arena_say and arena_start's series. 3: arena_recap (the series
 # table, drawn by the mod like a match's) in place of arena_say. 4: arena_start's
 # keep_inventory (arena deaths never drop; keep_inventory keeps what they carry).
-PROTOCOL = 4
+# 5: arena_start's respawn_mode, respawn_count and respawn_delay_ticks (PvP respawns).
+PROTOCOL = 5
+RESPAWN_MODES = ("elimination", "player", "team")
+MAX_RESPAWNS = 99
+MAX_RESPAWN_DELAY_TICKS = 1200
 UPDATE_MOD = "stop the arena server, run `mcarena mod-install`, then start it again"
 ENVELOPE = frozenset(
     {
@@ -177,6 +181,51 @@ def check_waves(waves) -> None:
 
 def _whole(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def normalize_respawns(
+    respawn_mode: str | None = None,
+    respawn_count: int | None = None,
+    respawn_delay_ticks: int | None = None,
+) -> tuple[str, int, int | None]:
+    """Validate and normalize PvP respawn settings.
+
+    ``elimination`` allows 0 extra respawns; ``player`` and ``team`` require an
+    integer ``respawn_count`` in ``0..MAX_RESPAWNS``, with ``0`` normalized
+    consistently to ``("elimination", 0, delay)``.
+    """
+    mode = "elimination" if respawn_mode is None else respawn_mode
+    if not isinstance(mode, str) or mode not in RESPAWN_MODES:
+        raise ArenaError(
+            "bad_request",
+            f"respawn_mode must be one of {', '.join(RESPAWN_MODES)}",
+        )
+    if respawn_count is None:
+        if mode != "elimination":
+            raise ArenaError(
+                "bad_request", f"respawn_count is required for {mode} respawns"
+            )
+        count = 0
+    else:
+        if not _whole(respawn_count) or not 0 <= respawn_count <= MAX_RESPAWNS:
+            raise ArenaError(
+                "bad_request", f"respawn_count must be 0..{MAX_RESPAWNS}"
+            )
+        count = respawn_count
+    if mode == "elimination" and count > 0:
+        raise ArenaError("bad_request", "elimination allows 0 respawns")
+    if mode != "elimination" and count == 0:
+        mode = "elimination"
+    if respawn_delay_ticks is not None:
+        if (
+            not _whole(respawn_delay_ticks)
+            or not 0 <= respawn_delay_ticks <= MAX_RESPAWN_DELAY_TICKS
+        ):
+            raise ArenaError(
+                "bad_request",
+                f"respawn_delay_ticks must be 0..{MAX_RESPAWN_DELAY_TICKS}",
+            )
+    return mode, count, respawn_delay_ticks
 
 
 def parse_teams(items: list[str] | None) -> dict[str, list[str]] | None:
@@ -492,15 +541,25 @@ class ArenaClient:
         exit=None,  # noqa: A002 - the mod's field name
         series: tuple[int, int] | None = None,
         keep_inventory: bool = False,
+        respawn_mode: str = "elimination",
+        respawn_count: int | None = None,
+        respawn_delay_ticks: int | None = None,
     ) -> dict:
         """A match: ``waves`` (co-op), ``teams`` (team against team; waves
         optional, empty for none) or ``race`` (teams race to kill the waves).
         ``exit``: the cell participants still in the arena go to at the end;
         ``series``: (match, of) when it is one of a series (its board and recap
         say which); ``keep_inventory``: keep what participants carry across
-        death instead of clearing their inventory (nothing is dropped either way)."""
+        death instead of clearing their inventory (nothing is dropped either way);
+        ``respawn_mode`` / ``respawn_count`` / ``respawn_delay_ticks``: PvP
+        respawn rules (``teams`` mode only)."""
         if waves:
             check_waves(waves)
+        norm_mode, norm_count, norm_delay = normalize_respawns(
+            respawn_mode, respawn_count, respawn_delay_ticks
+        )
+        if mode != "teams" and (norm_mode != "elimination" or norm_delay is not None):
+            raise ArenaError("bad_request", "respawns belong to the teams mode")
         fields = {
             "waves": waves or None,
             "participants": participants,
@@ -508,6 +567,9 @@ class ArenaClient:
             "exit": None if exit is None else list(exit),
             "series": None if series is None else {"match": series[0], "of": series[1]},
             "keep_inventory": True if keep_inventory else None,
+            "respawn_mode": norm_mode if norm_mode != "elimination" else None,
+            "respawn_count": norm_count if norm_mode != "elimination" else None,
+            "respawn_delay_ticks": norm_delay,
         }
         return self.call(
             "arena_start",

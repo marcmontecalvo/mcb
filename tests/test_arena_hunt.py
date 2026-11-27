@@ -1333,3 +1333,393 @@ def test_a_bot_that_cannot_be_put_in_stops_the_match_before_it_starts():
     api = FleetApi(Clock())
     with pytest.raises(ah.BotsUnavailable, match="mcbot9.*No bot profile"):
         ah.ensure_bots(api, {"MCBot9": "mcbot9"})
+
+
+# ---- PvP respawns: bot respawn coordination and evidence recording ----------
+
+
+class RespawnContest:
+    """A scripted PvP match with respawns: each status read returns the next snapshot."""
+
+    def __init__(self, snapshots):
+        self.snapshots = list(snapshots)
+        self.index = 0
+        self.started = []
+        self.stopped = []
+        self.kits = []
+
+    def start(
+        self,
+        name,
+        mode,
+        *,
+        waves=None,
+        participants=None,
+        teams=None,
+        exit=None,  # noqa: A002
+        series=None,
+        keep_inventory=False,
+        respawn_mode="elimination",
+        respawn_count=None,
+        respawn_delay_ticks=None,
+    ):
+        self.started.append(
+            {
+                "name": name,
+                "mode": mode,
+                "teams": teams,
+                "respawn_mode": respawn_mode,
+                "respawn_count": respawn_count,
+                "respawn_delay_ticks": respawn_delay_ticks,
+            }
+        )
+        return {"name": name, "mode": mode, "teams": teams}
+
+    def status(self, name):
+        snap = self.snapshots[min(self.index, len(self.snapshots) - 1)]
+        self.index += 1
+        return {"name": name, "match": snap, "match_state": snap["state"]}
+
+    def kit(self, players, give):
+        self.kits.append((list(players), give))
+
+    def stop(self, name):
+        self.stopped.append(name)
+
+    def board(self, name, title, rows):
+        pass
+
+    def recap(self, name, title, players, *, teams=(), lines=()):
+        pass
+
+
+class RespawnBotApi:
+    """Bot API that dies on life 1, loses kit on respawn, and resumes attack on life 2."""
+
+    def __init__(self, clock, *, drop_kit_on_respawn=True):
+        self.clock = clock
+        self.drop_kit_on_respawn = drop_kit_on_respawn
+        self.calls = []
+        self.trials = []
+        self.held = {}
+        self.attack_count = 0
+        self.jobs = {}
+        self.log = []
+        self.body_state = "ready"
+        self.session_state = "ready"
+
+    def trial(self, spec):
+        self.trials.append(spec)
+        self.held = {g["item"]: g["count"] for g in spec.get("give", ())}
+        return {"ok": True, "result": {}}
+
+    def call(self, intent, args=None, key=None, source="mcp"):
+        self.calls.append((intent, args))
+        if intent == "attack":
+            self.attack_count += 1
+            jid = f"j{self.attack_count}"
+            self.jobs[jid] = {"id": jid, "state": "running"}
+            return {"ok": True, "result": {"job": {"id": jid}}}
+        if intent == "status":
+            return {
+                "ok": True,
+                "result": {
+                    "session": self.session_state,
+                    "body_state": self.body_state,
+                    "health": 20.0 if self.body_state == "ready" else 0.0,
+                    "inventory": dict(self.held),
+                },
+            }
+        return {"ok": True, "result": {}}
+
+    def wait_job(self, job_id, wait=0.0):
+        self.clock.now += max(wait, 0.5)
+        return dict(self.jobs[job_id])
+
+    def events(self, after=0, wait=0.0):
+        rows = [
+            {"seq": i + 1, "type": t, "data": d} for i, (t, d) in enumerate(self.log)
+        ]
+        return {"latest": len(rows), "events": [r for r in rows if r["seq"] > after]}
+
+
+def test_bot_respawns_rekit_and_resumes_attack_with_recorded_evidence(tmp_path):
+    clock = Clock()
+    teams = {"red": ["MCBot"], "blue": ["Bob"]}
+    give = [{"item": "minecraft:iron_sword", "count": 1}]
+    events = [
+        {"type": "death", "player": "MCBot", "team": "red", "tick": 40, "reserved": True},
+        {"type": "reserved", "player": "MCBot", "team": "red", "tick": 40, "reservation_id": 1, "respawns_left": 0},
+        {"type": "returned", "player": "MCBot", "team": "red", "tick": 100, "reservation_id": 1, "pad": [1, 65, 1]},
+    ]
+    snapshots = [
+        {
+            "mode": "teams", "state": "running", "respawn_mode": "player", "respawn_count": 1, "respawn_delay_ticks": 60,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": True, "returning": False, "state": "alive", "deaths": 0, "respawns_used": 0, "respawns_left": 1},
+                {"name": "Bob", "team": "blue", "alive": True, "returning": False, "state": "alive", "deaths": 0, "respawns_used": 0, "respawns_left": 1},
+            ],
+            "respawns": {"mode": "player", "count": 1, "delay_ticks": 60, "events": []},
+        },
+        {
+            "mode": "teams", "state": "running", "respawn_mode": "player", "respawn_count": 1, "respawn_delay_ticks": 60,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": False, "returning": True, "state": "returning", "return_in_ticks": 40, "deaths": 1, "respawns_used": 0, "respawns_left": 0},
+                {"name": "Bob", "team": "blue", "alive": True, "returning": False, "state": "alive", "deaths": 0, "respawns_used": 0, "respawns_left": 1},
+            ],
+            "respawns": {"mode": "player", "count": 1, "delay_ticks": 60, "events": events[:2]},
+        },
+        {
+            "mode": "teams", "state": "running", "respawn_mode": "player", "respawn_count": 1, "respawn_delay_ticks": 60,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": True, "returning": False, "state": "alive", "deaths": 1, "respawns_used": 1, "respawns_left": 0},
+                {"name": "Bob", "team": "blue", "alive": True, "returning": False, "state": "alive", "deaths": 0, "respawns_used": 0, "respawns_left": 1},
+            ],
+            "respawns": {"mode": "player", "count": 1, "delay_ticks": 60, "events": events},
+        },
+        {
+            "mode": "teams", "state": "won", "winner": "red", "respawn_mode": "player", "respawn_count": 1, "respawn_delay_ticks": 60,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": True, "returning": False, "state": "alive", "player_kills": 2, "deaths": 1, "respawns_used": 1, "respawns_left": 0},
+                {"name": "Bob", "team": "blue", "alive": False, "returning": False, "state": "eliminated", "player_kills": 1, "deaths": 2, "respawns_used": 1, "respawns_left": 0},
+            ],
+            "respawns": {
+                "mode": "player", "count": 1, "delay_ticks": 60, "events": events,
+                "teams": {"red": {"alive": 1, "returning": 0, "eliminated": 0, "respawns_left": 0},
+                          "blue": {"alive": 0, "returning": 0, "eliminated": 1, "respawns_left": 0}},
+            },
+        },
+    ]
+    contest = RespawnContest(snapshots)
+    api = RespawnBotApi(clock)
+    orig_status = contest.status
+
+    def status(name):
+        out = orig_status(name)
+        idx = contest.index
+        if idx == 2:
+            # Bot died -> job j1 failed, inventory cleared during death
+            api.jobs["j1"] = {"id": "j1", "state": "failed", "error": "MCBot died", "result": {"kills": 1, "hits": 3}}
+            api.log.append(("job_step", {"id": "j1", "step": {"weapon": "minecraft:iron_sword", "hurt_by": {"minecraft:player": 20.0}, "killed_by": "Bob"}}))
+            api.held = {}
+        elif idx == 4:
+            api.jobs["j2"] = {"id": "j2", "state": "succeeded", "result": {"kills": 1, "hits": 4}}
+            api.log.append(("job_step", {"id": "j2", "step": {"weapon": "minecraft:iron_sword", "hurt_by": {"minecraft:player": 6.0}}}))
+        return out
+
+    contest.status = status
+    path = ah.run_series(
+        api,
+        contest,
+        "crossroads",
+        [],
+        repeat=1,
+        mode="teams",
+        teams=teams,
+        timeout=60,
+        out_dir=tmp_path,
+        echo=lambda _l: None,
+        clock=clock,
+        sleep=lambda s: setattr(clock, "now", clock.now + s),
+        kit=give,
+        respawn_mode="player",
+        respawn_count=1,
+        respawn_delay_ticks=60,
+    )
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert record["respawn_mode"] == "player" and record["respawn_count"] == 1
+    assert contest.started[0]["respawn_mode"] == "player"
+    assert contest.started[0]["respawn_count"] == 1
+    assert contest.started[0]["respawn_delay_ticks"] == 60
+    assert contest.stopped == []
+    # Two attacks (initial + resumed after return), two kits (initial + re-kit when inventory was empty)
+    assert [a for i, a in api.calls if i == "attack"] == [{"arena": "crossroads"}, {"arena": "crossroads"}]
+    assert len(api.trials) == 2
+    row = record["runs"][0]
+    assert row["outcome"] == "won" and row["winner"] == "red"
+    assert row["bot_kills"] == 2 and row["hits"] == 7
+    assert row["hurt_by"] == {"minecraft:player": 26.0}
+    assert row["respawn_mode"] == "player" and row["respawn_count"] == 1
+    assert len(row["respawns"]["events"]) == 3
+    assert len(row["respawns"]["bot_resumes"]) == 1
+    assert row["respawns"]["bot_resumes"][0]["bot"] == "MCBot"
+    assert row["respawns"]["bot_resumes"][0]["rekitted"] is True
+
+
+def test_match_does_not_abandon_while_returning_teammate_awaits_respawn():
+    clock = Clock()
+    teams = {"red": ["MCBot", "Ann"], "blue": ["Bob"]}
+    snapshots = [
+        {
+            "mode": "teams", "state": "running", "respawn_mode": "team", "respawn_count": 1,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": False, "returning": False, "state": "eliminated", "deaths": 1},
+                {"name": "Ann", "team": "red", "alive": False, "returning": True, "state": "returning", "deaths": 1},
+                {"name": "Bob", "team": "blue", "alive": True, "returning": False, "state": "alive", "deaths": 0},
+            ],
+            "respawns": {"mode": "team", "count": 1, "events": []},
+        },
+        {
+            "mode": "teams", "state": "won", "winner": "red", "respawn_mode": "team", "respawn_count": 1,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": False, "returning": False, "state": "eliminated", "deaths": 1},
+                {"name": "Ann", "team": "red", "alive": True, "returning": False, "state": "alive", "deaths": 1, "respawns_used": 1},
+                {"name": "Bob", "team": "blue", "alive": False, "returning": False, "state": "eliminated", "deaths": 1},
+            ],
+            "respawns": {"mode": "team", "count": 1, "events": []},
+        },
+    ]
+    contest = RespawnContest(snapshots)
+    api = RespawnBotApi(clock)
+    orig = api.call
+
+    def call(intent, args=None, key=None, source="mcp"):
+        out = orig(intent, args, key, source)
+        if intent == "attack":
+            api.jobs["j1"] = {"id": "j1", "state": "failed", "error": "MCBot died"}
+        return out
+
+    api.call = call
+    row = ah.hunt(
+        api,
+        contest,
+        "crossroads",
+        [],
+        mode="teams",
+        teams=teams,
+        timeout=60,
+        clock=clock,
+        sleep=lambda s: setattr(clock, "now", clock.now + s),
+        respawn_mode="team",
+        respawn_count=1,
+    )
+    assert contest.stopped == []
+    assert row["outcome"] == "won" and row["winner"] == "red"
+
+
+def test_arena_hunt_script_accepts_and_validates_respawn_flags():
+    import importlib.util
+
+    from mclab.paths import ROOT
+
+    spec = importlib.util.spec_from_file_location("arena_hunt_script", ROOT / "scripts/arena-hunt.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    parser = mod._parser()
+    args = parser.parse_args(
+        ["--arena", "duel", "--mode", "teams", "--team", "red=MCBot", "--team", "blue=Ann",
+         "--respawn-mode", "team", "--respawn-count", "2"]
+    )
+    assert args.respawn_mode == "team" and args.respawn_count == 2
+    with pytest.raises(SystemExit) as err:
+        mod.main(["--arena", "vault", "--mode", "waves", "--wave", "zombie*1",
+                  "--respawn-mode", "player", "--respawn-count", "1"])
+    assert err.value.code == 2
+    with pytest.raises(SystemExit) as err2:
+        mod.main(["--arena", "duel", "--mode", "teams", "--team", "red=MCBot", "--team", "blue=Ann",
+                  "--respawn-mode", "elimination", "--respawn-count", "2"])
+    assert err2.value.code == 2
+
+
+def test_bot_fast_respawn_between_samples_resumes_without_rekitting_when_kit_intact():
+    clock = Clock()
+    teams = {"red": ["MCBot"], "blue": ["Bob"]}
+    give = [{"item": "minecraft:iron_sword", "count": 1}]
+    snapshots = [
+        {
+            "mode": "teams", "state": "running", "respawn_mode": "player", "respawn_count": 1,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": True, "returning": False, "state": "alive", "deaths": 1, "respawns_used": 1, "respawns_left": 0},
+                {"name": "Bob", "team": "blue", "alive": True, "returning": False, "state": "alive", "deaths": 0, "respawns_used": 0, "respawns_left": 1},
+            ],
+            "respawns": {"mode": "player", "count": 1, "events": []},
+        },
+        {
+            "mode": "teams", "state": "won", "winner": "red", "respawn_mode": "player", "respawn_count": 1,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": True, "returning": False, "state": "alive", "deaths": 1, "respawns_used": 1, "respawns_left": 0},
+                {"name": "Bob", "team": "blue", "alive": False, "returning": False, "state": "eliminated", "deaths": 2, "respawns_used": 1, "respawns_left": 0},
+            ],
+            "respawns": {"mode": "player", "count": 1, "events": []},
+        },
+    ]
+    contest = RespawnContest(snapshots)
+    api = RespawnBotApi(clock)
+    orig_status = contest.status
+
+    def status(name):
+        out = orig_status(name)
+        if contest.index == 1:
+            # Job j1 failed on death, but bot already returned on pad with kit intact
+            api.jobs["j1"] = {"id": "j1", "state": "failed", "error": "MCBot died"}
+        elif contest.index == 2:
+            api.jobs["j2"] = {"id": "j2", "state": "succeeded", "result": {"kills": 1}}
+        return out
+
+    contest.status = status
+    row = ah.hunt(
+        api,
+        contest,
+        "crossroads",
+        [],
+        mode="teams",
+        teams=teams,
+        timeout=60,
+        clock=clock,
+        sleep=lambda s: setattr(clock, "now", clock.now + s),
+        kit=give,
+        respawn_mode="player",
+        respawn_count=1,
+    )
+    assert row["outcome"] == "won" and row["respawn_resumes"] == 1
+    assert len(api.trials) == 1  # kit already intact -> no extra trial call
+    assert row["respawns"]["bot_resumes"][0]["rekitted"] is False
+
+
+def test_bot_whose_pending_respawn_is_forfeited_does_not_hang():
+    clock = Clock()
+    teams = {"red": ["MCBot"], "blue": ["Bob"]}
+    snapshots = [
+        {
+            "mode": "teams", "state": "running", "respawn_mode": "player", "respawn_count": 1,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": False, "returning": True, "state": "returning", "deaths": 1},
+                {"name": "Bob", "team": "blue", "alive": True, "returning": False, "state": "alive", "deaths": 0},
+            ],
+            "respawns": {"mode": "player", "count": 1, "events": []},
+        },
+        {
+            "mode": "teams", "state": "won", "winner": "blue", "respawn_mode": "player", "respawn_count": 1,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": False, "returning": False, "state": "forfeited", "deaths": 1},
+                {"name": "Bob", "team": "blue", "alive": True, "returning": False, "state": "alive", "deaths": 0},
+            ],
+            "respawns": {"mode": "player", "count": 1, "events": [{"type": "cancelled", "player": "MCBot", "reason": "respawn_timeout"}]},
+        },
+    ]
+    contest = RespawnContest(snapshots)
+    api = RespawnBotApi(clock)
+    orig = api.call
+
+    def call(intent, args=None, key=None, source="mcp"):
+        out = orig(intent, args, key, source)
+        if intent == "attack":
+            api.jobs["j1"] = {"id": "j1", "state": "failed", "error": "MCBot died"}
+        return out
+
+    api.call = call
+    row = ah.hunt(
+        api,
+        contest,
+        "crossroads",
+        [],
+        mode="teams",
+        teams=teams,
+        timeout=60,
+        clock=clock,
+        sleep=lambda s: setattr(clock, "now", clock.now + s),
+        respawn_mode="player",
+        respawn_count=1,
+    )
+    assert row["outcome"] == "won" and row["winner"] == "blue"
+    assert row["respawns"]["events"][0]["reason"] == "respawn_timeout"

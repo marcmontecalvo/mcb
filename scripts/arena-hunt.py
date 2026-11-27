@@ -119,6 +119,24 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument(
+        "--respawn-mode",
+        choices=list(arena.RESPAWN_MODES),
+        default="elimination",
+        help="PvP respawn rule: elimination (default), player, or team",
+    )
+    parser.add_argument(
+        "--respawn-count",
+        type=int,
+        default=None,
+        help="extra respawns per participant (player) or per team pool (team)",
+    )
+    parser.add_argument(
+        "--respawn-delay-ticks",
+        type=int,
+        default=None,
+        help="countdown ticks before a reserved respawn returns on a team pad",
+    )
+    parser.add_argument(
         "--timeout", type=float, default=600.0, help="seconds per match"
     )
     parser.add_argument("--label", help="a name for the series in its file")
@@ -181,6 +199,13 @@ def main(argv=None) -> int:
             if args.kit == "keep"
             else ct.kit(args.kit, tier=args.tier, armor=args.armor)
         )
+        respawn_mode, respawn_count, respawn_delay = arena.normalize_respawns(
+            args.respawn_mode, args.respawn_count, args.respawn_delay_ticks
+        )
+        if args.mode != "teams" and (
+            respawn_mode != "elimination" or respawn_delay is not None
+        ):
+            parser.error("respawns belong to --mode teams")
     except (ValueError, arena.ArenaError) as error:
         parser.error(str(error))
     people = ah.roster(participants, teams)
@@ -218,6 +243,9 @@ def main(argv=None) -> int:
         label=args.label,
         kit=kit,
         ready_timeout=args.ready_timeout,
+        respawn_mode=respawn_mode,
+        respawn_count=respawn_count,
+        respawn_delay_ticks=respawn_delay,
     )
     record = json.loads(path.read_text(encoding="utf-8"))
     print(json.dumps(record["summary"]))
