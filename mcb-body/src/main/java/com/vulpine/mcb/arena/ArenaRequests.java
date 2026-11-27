@@ -35,10 +35,11 @@ public final class ArenaRequests {
     /**
      * participants: player names, or null for every player inside the bounds; teams: an explicit team to names map, or
      * null; exit: the cell participants still in the arena are sent to when the match ends (null: they stay); series:
-     * {match, of} when the match is one of a series (its board and recap say which), else null.
+     * {match, of} when the match is one of a series (its board and recap say which), else null; keepInventory: true to
+     * let participants keep what they carry across death (still dropping nothing), false to clear their inventory on death.
      */
     public record Start(String name, String mode, List<Wave> waves, List<String> participants, Map<String, List<String>> teams,
-                        int[] exit, int[] series) {}
+                        int[] exit, int[] series, boolean keepInventory) {}
 
     /** A sidebar board for an arena (the series standings between matches): title and rows, or clear to take it down. */
     public record Board(String name, String title, List<ArenaLogic.Line> rows, boolean clear) {}
@@ -131,7 +132,7 @@ public final class ArenaRequests {
      * kill the waves: waves required).
      */
     public static Start parseStart(JsonObject request) {
-        only(request, Set.of("name", "mode", "waves", "participants", "teams", "exit", "series"));
+        only(request, Set.of("name", "mode", "waves", "participants", "teams", "exit", "series", "keep_inventory"));
         String name = name(request), mode = text(request, "mode");
         if (!ArenaLogic.MODES.contains(mode)) throw bad("mode must be waves, teams or race");
         if (!ArenaLogic.sided(mode) && request.has("teams")) throw bad("teams belong to the teams and race modes");
@@ -162,7 +163,8 @@ public final class ArenaRequests {
             participants = flat;
         }
         int[] series = request.has("series") ? series(request.get("series")) : null;
-        return new Start(name, mode, List.copyOf(waves), participants == null ? null : List.copyOf(participants), teams, exit, series);
+        return new Start(name, mode, List.copyOf(waves), participants == null ? null : List.copyOf(participants), teams, exit, series,
+                flag(request, "keep_inventory"));
     }
 
     private static int[] series(JsonElement e) {

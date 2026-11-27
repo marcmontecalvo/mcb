@@ -69,6 +69,15 @@ public final class ArenaLogicTest {
         // alive and ignored their respawn click; their team was out before the match began.
         ArenaLogic.requireAlive("Ann", false);
         rejects(() -> ArenaLogic.requireAlive("Ann", true), "participant_dead", "a dead participant is refused");
+        // Arena deaths never drop items on the floor: a keep_inventory match keeps what they carry across respawn,
+        // every other arena or match death clears their inventory, and deaths outside every arena/match use vanilla.
+        check(ArenaLogic.onPlayerDeath(false, false, false) == ArenaLogic.DeathInventory.DROP, "outside arena/match: vanilla drops");
+        check(ArenaLogic.onPlayerDeath(false, false, true) == ArenaLogic.DeathInventory.DROP, "keep flag only applies in a match");
+        check(ArenaLogic.onPlayerDeath(true, false, false) == ArenaLogic.DeathInventory.CLEAR, "in arena outside match: clear, no drop");
+        check(ArenaLogic.onPlayerDeath(true, true, false) == ArenaLogic.DeathInventory.CLEAR, "kitted match: clear, no drop");
+        check(ArenaLogic.onPlayerDeath(false, true, false) == ArenaLogic.DeathInventory.CLEAR, "participant outside bounds: clear, no drop");
+        check(ArenaLogic.onPlayerDeath(true, true, true) == ArenaLogic.DeathInventory.KEEP, "keep_inventory match: keep, no drop");
+        check(ArenaLogic.onPlayerDeath(false, true, true) == ArenaLogic.DeathInventory.KEEP, "keep_inventory participant: keep, no drop");
     }
 
     private static void box() {
@@ -724,6 +733,11 @@ public final class ArenaLogicTest {
         var series = ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\",\"teams\":{\"red\":[\"a\"],\"blue\":[\"b\"]},"
                 + "\"series\":{\"match\":2,\"of\":5}}"));
         check(series.series()[0] == 2 && series.series()[1] == 5 && mapped.series() == null, "a match of a series, or none");
+        check(!series.keepInventory(), "keep_inventory defaults to false");
+        check(ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\",\"teams\":{\"red\":[\"a\"]},\"keep_inventory\":true}")).keepInventory(),
+                "keep_inventory true");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\",\"teams\":{\"red\":[\"a\"]},\"keep_inventory\":\"yes\"}")),
+                "bad_request", "keep_inventory must be boolean");
         for (var bad : List.of("{\"match\":0,\"of\":5}", "{\"match\":6,\"of\":5}", "{\"match\":1}", "{\"match\":1,\"of\":2,\"x\":1}", "3"))
             rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"teams\",\"teams\":{\"red\":[\"a\"]},\"series\":" + bad + "}")),
                     "bad_request", "series " + bad);

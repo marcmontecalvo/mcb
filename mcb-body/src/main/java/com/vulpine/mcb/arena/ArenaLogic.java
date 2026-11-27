@@ -27,8 +27,22 @@ public final class ArenaLogic {
      * match starts (mclab.arena.client.PROTOCOL; a test keeps the two equal). Raise it
      * whenever an op is added or a request gains or changes a field. 1: no report.
      * 2: arena_board, arena_say and arena_start's series. 3: arena_recap (the series table) in place of arena_say.
+     * 4: arena_start's keep_inventory (arena deaths never drop; keep_inventory keeps what they carry across death).
      */
-    public static final int PROTOCOL = 3;
+    public static final int PROTOCOL = 4;
+
+    /** What happens to a player's inventory when they die. */
+    public enum DeathInventory { DROP, CLEAR, KEEP }
+
+    /**
+     * A player dying inside a registered arena (or in a running match) never drops items or experience onto the floor:
+     * a match with {@code keepInventory} keeps what they carry across death; every other arena death clears their
+     * inventory so nothing litters the floor and they respawn empty-handed. Outside every arena and match, vanilla applies.
+     */
+    public static DeathInventory onPlayerDeath(boolean inArena, boolean inMatch, boolean keepInventory) {
+        if (inMatch && keepInventory) return DeathInventory.KEEP;
+        return inArena || inMatch ? DeathInventory.CLEAR : DeathInventory.DROP;
+    }
 
     /**
      * Whether a joining (or bedless respawning) player starts exactly at the world spawn, given the state of the arena

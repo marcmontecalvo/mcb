@@ -266,7 +266,8 @@ def hunt(
 ) -> dict:
     """One match from a full-health start to its end. ``kit``: the trial op's give
     entries, handed out afresh to every bot and human (a player who died last run
-    left the kit on the arena floor); None keeps what each carries. ``exit``: where
+    had their inventory cleared without dropping it); None keeps what each carries
+    across death too. ``exit``: where
     the players still in the arena go when it ends. ``series``: (match, of), for
     the match's board and recap.
 
@@ -311,6 +312,7 @@ def hunt(
             teams=teams,
             exit=exit,
             series=series,
+            keep_inventory=kit is None,
         )
     except ArenaError as error:
         return {**row, "outcome": "not_started", "error": str(error)}

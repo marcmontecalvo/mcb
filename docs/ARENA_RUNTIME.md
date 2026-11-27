@@ -71,8 +71,12 @@ match ends.
 Litter (dropped items, experience orbs, arrows and other projectiles, potion clouds) is cleared
 from the bounds when a match starts and when it ends, while its chunks are still held
 (`arena_cleared` when there was any), and litter that loads from a chunk file inside an arena
-whose match is running is refused: it was left before chunk holding kept it loaded. A match's own
-drops stay for the match.
+whose match is running is refused: it was left before chunk holding kept it loaded. Players dying
+inside a registered arena (or in a running match) never drop items or experience onto the floor
+(`PlayerDeathMixin`, `ServerPlayerRespawnMixin`): their inventory is cleared on death unless the
+match was started with `keep_inventory: true` ("Keep what they carry"), in which case their
+inventory and experience are restored on respawn. Intentionally thrown items, arrows and potion
+clouds stay for the match and are swept when it ends.
 
 `mode: "teams"`: players go to their team's pads, a scoreboard team `mcb_<8 hex>` per arena team is
 made with friendly fire off, and it is removed afterwards. Each name (over the head, in the tab list
@@ -173,7 +177,7 @@ otherwise fail a match only after everyone had typed `/mcb ready`. This happened
 - **What the lab expects.** `mclab.arena.client.PROTOCOL`. A test keeps the two numbers equal.
 - **When to raise it.** Raise both together whenever an op is added or a request gains or changes
   a field. Protocol 2 added `arena_board`, `arena_say` and `series`. Protocol 3 replaced
-  `arena_say` with `arena_recap`.
+  `arena_say` with `arena_recap`. Protocol 4 added `arena_start`'s `keep_inventory`.
 - **Where it is checked.** Every match is checked before it starts:
   - The dashboard's Start checks before it launches the script, and shows the error on the run.
   - `arena-hunt.py` checks before it builds the world or waits for anyone

@@ -215,6 +215,20 @@ def test_the_lab_and_the_mod_name_the_same_arena_protocol():
     assert found and int(found.group(1)) == arena.PROTOCOL
 
 
+def test_start_sends_keep_inventory_only_when_requested():
+    t = FakeTransport()
+    c = client(t)
+    c.start("vault", "teams", teams={"red": ["Ann"], "blue": ["Bob"]})
+    c.start(
+        "vault",
+        "teams",
+        teams={"red": ["Ann"], "blue": ["Bob"]},
+        keep_inventory=True,
+    )
+    assert "keep_inventory" not in t.sent[0]
+    assert t.sent[1]["keep_inventory"] is True
+
+
 def test_call_sends_the_envelope_and_returns_the_answer_without_the_echo():
     t = FakeTransport({"arena_list": [("done", {"arenas": []})]})
     assert client(t).call("arena_list") == {"arenas": []}

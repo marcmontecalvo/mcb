@@ -38,8 +38,9 @@ OPS = (
 # the mod rejects a field it does not know, so a lab and a mod of different protocols
 # would fail a match only once it starts. 1: every mod from before the handshake.
 # 2: arena_board, arena_say and arena_start's series. 3: arena_recap (the series
-# table, drawn by the mod like a match's) in place of arena_say.
-PROTOCOL = 3
+# table, drawn by the mod like a match's) in place of arena_say. 4: arena_start's
+# keep_inventory (arena deaths never drop; keep_inventory keeps what they carry).
+PROTOCOL = 4
 UPDATE_MOD = "stop the arena server, run `mcarena mod-install`, then start it again"
 ENVELOPE = frozenset(
     {
@@ -490,12 +491,14 @@ class ArenaClient:
         teams=None,
         exit=None,  # noqa: A002 - the mod's field name
         series: tuple[int, int] | None = None,
+        keep_inventory: bool = False,
     ) -> dict:
         """A match: ``waves`` (co-op), ``teams`` (team against team; waves
         optional, empty for none) or ``race`` (teams race to kill the waves).
         ``exit``: the cell participants still in the arena go to at the end;
         ``series``: (match, of) when it is one of a series (its board and recap
-        say which)."""
+        say which); ``keep_inventory``: keep what participants carry across
+        death instead of clearing their inventory (nothing is dropped either way)."""
         if waves:
             check_waves(waves)
         fields = {
@@ -504,6 +507,7 @@ class ArenaClient:
             "teams": teams,
             "exit": None if exit is None else list(exit),
             "series": None if series is None else {"match": series[0], "of": series[1]},
+            "keep_inventory": True if keep_inventory else None,
         }
         return self.call(
             "arena_start",

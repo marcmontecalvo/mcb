@@ -12,7 +12,9 @@
     "DoorGriefMixin",
     "SpawnFinderMixin",
     "LivingStatsMixin",
-    "HealEffectMixin"
+    "HealEffectMixin",
+    "PlayerDeathMixin",
+    "ServerPlayerRespawnMixin"
   ],
   "injectors": {
     "defaultRequire": 1

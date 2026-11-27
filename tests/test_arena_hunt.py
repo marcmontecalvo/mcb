@@ -26,12 +26,13 @@ class FakeArena:
 
     def start(
         self, name, mode, *, waves=None, participants=None, teams=None, exit=None,
-        series=None,
+        series=None, keep_inventory=False,
     ):  # noqa: A002  # fmt: skip
         if self.fail_start:
             raise ah.ArenaError(self.fail_start, "no")
         self.started.append((name, mode, waves, participants))
         self.series = series
+        self.keep_inventory = keep_inventory
         self.reads = 0
         return {"name": name, "mode": mode, "participants": participants}
 
@@ -516,10 +517,11 @@ class FakeContest:
 
     def start(
         self, name, mode, *, waves=None, participants=None, teams=None, exit=None,
-        series=None,
+        series=None, keep_inventory=False,
     ):  # noqa: A002  # fmt: skip
         self.started.append({"name": name, "mode": mode, "waves": waves,
-                             "teams": teams, "exit": exit, "series": series})  # fmt: skip
+                             "teams": teams, "exit": exit, "series": series,
+                             "keep_inventory": keep_inventory})  # fmt: skip
         self.left = self.reads
         if self.winners:
             self.winner = self.winners.pop(0)
@@ -594,7 +596,7 @@ def test_a_team_match_starts_its_teams_dresses_everyone_and_reports_the_winner()
                   series=(2, 5))  # fmt: skip
     assert contest.started == [{"name": "duel", "mode": "teams", "waves": None,
                                 "teams": teams, "exit": (0, 102, 0),
-                                "series": (2, 5)}]  # fmt: skip
+                                "series": (2, 5), "keep_inventory": False}]  # fmt: skip
     assert contest.kits == [(["Ann", "Bob"], give)]  # the humans get the bot's kit
     assert api.trials[0]["give"] == give
     assert ("attack", {"arena": "duel"}) in api.calls
@@ -607,6 +609,15 @@ def test_a_team_match_starts_its_teams_dresses_everyone_and_reports_the_winner()
     assert row["players"]["Bob"]["deaths"] == 1
     assert row["team_kills"] == {"red": 3, "blue": 1}
     assert row["participants"] == ["MCBot", "Ann", "Bob"]
+
+
+def test_keep_kit_starts_the_match_with_keep_inventory():
+    clock = Clock()
+    teams = {"red": ["Ann"], "blue": ["Bob"]}
+    contest = FakeContest(clock, teams, reads=1)
+    ah.hunt(None, contest, "duel", [], mode="teams", teams=teams, timeout=60,
+            clock=clock, sleep=lambda _s: None, kit=None)  # fmt: skip
+    assert contest.started[0]["keep_inventory"] is True
 
 
 def test_a_match_of_humans_only_is_watched_to_its_end_without_the_bot():

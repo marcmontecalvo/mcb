@@ -63,6 +63,7 @@ final class ArenaMatch {
     private final ArenaLogic.Tally tally;
     /** {match, of} when this match is one of a series, else null. */
     private final int[] series;
+    private final boolean keepInventory;
     private final ArenaBoard board;
     private State state = State.RUNNING;
     private String winner, reason;
@@ -75,7 +76,7 @@ final class ArenaMatch {
 
     ArenaMatch(MinecraftServer server, ArenaEmit emit, ArenaRecord arena, ServerLevel level, String mode,
                List<ArenaRequests.Wave> waves, List<ServerPlayer> players, Map<String, List<ServerPlayer>> teams, int[] exit,
-               int[] series) {
+               int[] series, boolean keepInventory) {
         this.server = server;
         this.emit = emit;
         this.arena = arena;
@@ -84,6 +85,7 @@ final class ArenaMatch {
         this.waves = waves;
         this.exit = exit;
         this.series = series;
+        this.keepInventory = keepInventory;
         this.board = new ArenaBoard(server, ArenaLogic.objectiveName(arena.name()));
         this.tag = ArenaLogic.waveTag(arena.name());
         this.followRange = ArenaLogic.followRange(arena.box());
@@ -107,6 +109,10 @@ final class ArenaMatch {
     State state() { return state; }
 
     boolean running() { return state == State.RUNNING; }
+
+    boolean hasParticipant(UUID id) { return names.containsKey(id); }
+
+    boolean keepsInventory() { return keepInventory; }
 
     void start() {
         startTick = server.getTickCount();

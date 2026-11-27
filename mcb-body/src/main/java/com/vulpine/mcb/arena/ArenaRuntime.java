@@ -65,6 +65,8 @@ public final class ArenaRuntime {
     private final Map<String, ArenaMatch> matches = new LinkedHashMap<>();
     /** Arenas whose match holds its chunks forceloaded right now. */
     private final Set<String> holding = new HashSet<>();
+    /** Players who died in a keep_inventory match and are waiting to respawn with what they carried. */
+    private final Set<UUID> keepOnRespawn = new HashSet<>();
     private final Map<String, Integer> blocked = new HashMap<>();
     private final List<Runnable> afterAck = new ArrayList<>();
 
@@ -355,7 +357,8 @@ public final class ArenaRuntime {
             ArenaLogic.wavePads(padCounts(record), players.size(), record.capacity().teams() * record.capacity().perTeam());
         }
         sweep(record, level);
-        var match = new ArenaMatch(server, emitter, record, level, req.mode(), req.waves(), players, teamPlayers, req.exit(), req.series());
+        var match = new ArenaMatch(server, emitter, record, level, req.mode(), req.waves(), players, teamPlayers, req.exit(), req.series(),
+                req.keepInventory());
         matches.put(record.name(), match);
         holdChunks(record, level);
         registry.save();
@@ -491,6 +494,44 @@ public final class ArenaRuntime {
         if (runtime == null) return true;
         for (var match : runtime.matches.values()) if (!match.allowsDamage(entity, source)) return false;
         return true;
+    }
+
+    private ArenaLogic.DeathInventory deathRule(ServerPlayer player) {
+        boolean inMatch = false, keep = false;
+        for (var match : matches.values()) {
+            if (match.running() && match.hasParticipant(player.getUUID())) {
+                inMatch = true;
+                if (match.keepsInventory()) keep = true;
+            }
+        }
+        boolean inArena = ArenaGuard.protectedPoint(player.level(), player.getX(), player.getY(), player.getZ());
+        return ArenaLogic.onPlayerDeath(inArena, inMatch, keep);
+    }
+
+    /**
+     * Player.dropEquipment: decides whether a dying player drops items (vanilla), clears their inventory without
+     * dropping, or keeps it across respawn (for a {@code keep_inventory} match). Remembers KEEP until respawn,
+     * since the match may finish while the player is still on the death screen.
+     */
+    public static ArenaLogic.DeathInventory deathInventory(ServerPlayer player) {
+        var runtime = active;
+        if (runtime == null) return ArenaLogic.DeathInventory.DROP;
+        var action = runtime.deathRule(player);
+        if (action == ArenaLogic.DeathInventory.KEEP) runtime.keepOnRespawn.add(player.getUUID());
+        else runtime.keepOnRespawn.remove(player.getUUID());
+        return action;
+    }
+
+    /** Player.getBaseExperienceReward: true when a dying player is in an arena or match and should drop no XP orbs. */
+    public static boolean suppressDeathExperience(ServerPlayer player) {
+        var runtime = active;
+        return runtime != null && runtime.deathRule(player) != ArenaLogic.DeathInventory.DROP;
+    }
+
+    /** ServerPlayer.restoreFrom: true once when this player died in a {@code keep_inventory} match and keeps their gear. */
+    public static boolean consumeKeepOnRespawn(UUID playerId) {
+        var runtime = active;
+        return runtime != null && runtime.keepOnRespawn.remove(playerId);
     }
 
     /**
@@ -702,6 +743,7 @@ public final class ArenaRuntime {
             releaseChunks(job.record, job.level());
         }
         builds.clear();
+        keepOnRespawn.clear();
         try { registry.save(); } catch (RuntimeException error) { LOG.error("cannot save the arena registry", error); }
         if (active == this) active = null;
     }
