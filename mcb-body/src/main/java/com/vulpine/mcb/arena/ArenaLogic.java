@@ -29,8 +29,9 @@ public final class ArenaLogic {
      * 2: arena_board, arena_say and arena_start's series. 3: arena_recap (the series table) in place of arena_say.
      * 4: arena_start's keep_inventory (arena deaths never drop; keep_inventory keeps what they carry across death).
      * 5: arena_start's respawn_mode, respawn_count and respawn_delay_ticks (PvP respawns).
+     * 6: arena_start's team_mobs and team_mob_kits (counted allied mob groups in teams mode).
      */
-    public static final int PROTOCOL = 5;
+    public static final int PROTOCOL = 6;
 
     /** What happens to a player's inventory when they die. */
     public enum DeathInventory { DROP, CLEAR, KEEP }
@@ -282,14 +283,29 @@ public final class ArenaLogic {
 
     /** An explicit assignment checked against the arena: known teams, no one twice, two sides, a pad and a place for each. */
     public static void checkTeams(Map<String, List<String>> assignment, Set<String> arenaTeams, Map<String, Integer> pads, int perTeam) {
+        checkTeams(assignment, arenaTeams, pads, perTeam, Map.of());
+    }
+
+    /**
+     * An explicit team assignment checked alongside optional allied mob counts per team: known teams, no duplicate
+     * players, enough pads/per-team slots for every player, and at least two active teams (players or allied mobs).
+     */
+    public static void checkTeams(Map<String, List<String>> assignment, Set<String> arenaTeams, Map<String, Integer> pads, int perTeam,
+                                  Map<String, Integer> alliedCounts) {
         var seen = new LinkedHashSet<String>();
-        int sides = 0;
+        var active = new LinkedHashSet<String>();
         for (var entry : assignment.entrySet()) {
             if (!arenaTeams.contains(entry.getKey())) throw new ArenaFail("unknown_team", entry.getKey());
             for (var player : entry.getValue()) if (!seen.add(player)) throw new ArenaFail("duplicate_participant", player);
-            if (!entry.getValue().isEmpty()) sides++;
+            if (!entry.getValue().isEmpty()) active.add(entry.getKey());
         }
-        if (sides < 2) throw new ArenaFail("not_enough_teams", "a match needs two teams with players");
+        if (alliedCounts != null) {
+            for (var entry : alliedCounts.entrySet()) {
+                if (!arenaTeams.contains(entry.getKey())) throw new ArenaFail("unknown_team", entry.getKey());
+                if (entry.getValue() != null && entry.getValue() > 0) active.add(entry.getKey());
+            }
+        }
+        if (active.size() < 2) throw new ArenaFail("not_enough_teams", "a match needs two teams with players");
         for (var entry : assignment.entrySet()) {
             int n = entry.getValue().size();
             if (n > pads.getOrDefault(entry.getKey(), 0)) throw new ArenaFail("not_enough_pads", entry.getKey());
@@ -610,6 +626,16 @@ public final class ArenaLogic {
      */
     public static List<Section> matchBoard(String mode, List<String> teams, List<Player> players, WaveInfo waves,
                                            ArenaRespawns.BoardSummary respawns) {
+        return matchBoard(mode, teams, players, waves, respawns, null, null);
+    }
+
+    /**
+     * The match's sidebar, with optional PvP respawn counts and optional allied mob counts and kills per team
+     * (supporting mixed teams and mob-only teams cleanly within 15 lines).
+     */
+    public static List<Section> matchBoard(String mode, List<String> teams, List<Player> players, WaveInfo waves,
+                                           ArenaRespawns.BoardSummary respawns, Map<String, Integer> alliedAlive,
+                                           Map<String, Integer> alliedKills) {
         var out = new ArrayList<Section>();
         if (waves != null) {
             out.add(new Section(new Line("Wave", waves.wave() + "/" + waves.waves(), "yellow", false, false), List.of()));
@@ -620,23 +646,35 @@ public final class ArenaLogic {
             return out;
         }
         boolean showRespawns = respawns != null && respawns.enabled();
+        boolean hasAllied = (alliedAlive != null && !alliedAlive.isEmpty()) || (alliedKills != null && !alliedKills.isEmpty());
         for (int i = 0; i < teams.size(); i++) {
             String team = teams.get(i), color = teamColor(team, i);
             var members = players.stream().filter(p -> p.team().equals(team)).toList();
-            int kills = members.stream().mapToInt(Player::kills).sum();
+            int allied = alliedAlive == null ? 0 : Math.max(0, alliedAlive.getOrDefault(team, 0));
+            int kills = members.stream().mapToInt(Player::kills).sum()
+                    + (alliedKills == null ? 0 : Math.max(0, alliedKills.getOrDefault(team, 0)));
             String heading;
             if (showRespawns) {
                 var tb = respawns.teams().get(team);
-                int alive = tb != null ? tb.alive() : (int) members.stream().filter(Player::alive).count();
+                int alive = (tb != null ? tb.alive() : (int) members.stream().filter(Player::alive).count()) + allied;
                 int returning = tb != null ? tb.returning() : (int) members.stream().filter(Player::returning).count();
                 int left = tb != null ? tb.respawnsLeft() : 0;
                 var sb = new StringBuilder(title(team)).append(" · ").append(alive).append(" alive");
+                if (allied > 0) sb.append(" (").append(allied).append(allied == 1 ? " mob)" : " mobs)");
                 if (returning > 0) sb.append(" · ").append(returning).append(" returning");
-                sb.append(" · ").append(left).append(left == 1 ? " respawn left" : " respawns left");
+                if (!members.isEmpty() || left > 0)
+                    sb.append(" · ").append(left).append(left == 1 ? " respawn left" : " respawns left");
                 heading = sb.toString();
             } else {
-                int alive = (int) members.stream().filter(Player::alive).count();
-                heading = title(team) + " · " + alive + " alive";
+                int playerAlive = (int) members.stream().filter(Player::alive).count();
+                int totalAlive = playerAlive + allied;
+                if (hasAllied && members.isEmpty()) {
+                    heading = title(team) + " · " + allied + (allied == 1 ? " mob" : " mobs") + " alive";
+                } else if (hasAllied && allied > 0) {
+                    heading = title(team) + " · " + totalAlive + " alive (" + allied + (allied == 1 ? " mob)" : " mobs)");
+                } else {
+                    heading = title(team) + " · " + totalAlive + " alive";
+                }
             }
             var head = new Line(heading, Integer.toString(kills), color, true, false);
             out.add(new Section(head, playerLines(members, color, " ", respawns)));

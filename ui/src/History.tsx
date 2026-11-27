@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Badge, Button, Card } from "@homenet/ui";
 import { api } from "./api";
 import { buildRow, resultRow } from "./forms";
+import { Scenarios } from "./Scenarios.jsx";
 
 type Rec = Record<string, unknown>;
 const PAGE = 40;
@@ -30,6 +31,7 @@ function Detail({ path }: { path: string }) {
 }
 
 export function History() {
+  const [view, setView] = useState<"results" | "scenarios">("results");
   const [results, setResults] = useState<Rec[] | null>(null);
   const [builds, setBuilds] = useState<Rec[] | null>(null);
   const [error, setError] = useState("");
@@ -58,7 +60,25 @@ export function History() {
     );
   return (
     <div className="history">
-      {error && <p className="field-error">{error}</p>}
+      <div className="history-tools">
+        <Button
+          variant={view === "results" ? "primary" : "secondary"}
+          onClick={() => setView("results")}
+        >
+          Results & builds
+        </Button>
+        <Button
+          variant={view === "scenarios" ? "primary" : "secondary"}
+          onClick={() => setView("scenarios")}
+        >
+          Scenarios & comparison
+        </Button>
+      </div>
+      {view === "scenarios" ? (
+        <Scenarios />
+      ) : (
+        <>
+          {error && <p className="field-error">{error}</p>}
       <Card className="panel" title="Results" description="Every finished run, newest first. Click a row for its full summary.">
         <div className="history-tools">
           <input
@@ -170,6 +190,8 @@ export function History() {
           </div>
         )}
       </Card>
+        </>
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ package com.vulpine.mcb.body;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.vulpine.mcb.arena.ArenaAlliedMobs;
 import com.vulpine.mcb.arena.ArenaBox;
 import com.vulpine.mcb.arena.ArenaCursor;
 import com.vulpine.mcb.arena.ArenaFail;
@@ -59,6 +60,7 @@ public final class ArenaLogicTest {
         spawn();
         respawns();
         lobbyStations();
+        alliedMobs();
         System.out.println("ArenaLogicTest ok");
     }
 
@@ -772,8 +774,8 @@ public final class ArenaLogicTest {
         for (int i = 0; i < 51; i++) many.append(i == 0 ? "" : ",").append("{\"mobs\":{\"minecraft:zombie\":1}}");
         rejects(() -> ArenaRequests.parseStart(json(many + "]}")), "bad_request", "wave count cap");
 
-        // protocol 5: PvP respawns in arena_start
-        check(ArenaLogic.PROTOCOL == 5, "protocol bumped to 5 for PvP respawns");
+        // protocol 6: allied mob groups in arena_start (teams mode)
+        check(ArenaLogic.PROTOCOL == 6, "protocol bumped to 6 for allied mobs");
         check(mapped.respawns().mode() == ArenaRespawns.Mode.ELIMINATION
                 && mapped.respawns().count() == 0
                 && mapped.respawns().delayTicks() == ArenaRespawns.DEFAULT_DELAY_TICKS,
@@ -1030,5 +1032,216 @@ public final class ArenaLogicTest {
                 "sign Play Again");
         check(ArenaLobbyStations.fromSignLines(List.of("Welcome", "Friends")) == null,
                 "unrecognized sign lines return null");
+    }
+
+    private static void alliedMobs() {
+        // 1) Curated supported mob allowlist and daylight-burning undead set
+        check(ArenaAlliedMobs.SUPPORTED_TYPES.size() == 16, "16 verified allied mob types");
+        for (var mob : List.of("minecraft:zombie", "minecraft:husk", "minecraft:drowned", "minecraft:skeleton",
+                "minecraft:stray", "minecraft:wither_skeleton", "minecraft:spider", "minecraft:cave_spider",
+                "minecraft:pillager", "minecraft:vindicator", "minecraft:witch", "minecraft:iron_golem",
+                "minecraft:wolf", "minecraft:piglin_brute", "minecraft:blaze", "minecraft:breeze")) {
+            check(ArenaAlliedMobs.SUPPORTED_TYPES.contains(mob), "supported: " + mob);
+        }
+        check(ArenaAlliedMobs.needsDaylightHelmet("minecraft:zombie")
+                && ArenaAlliedMobs.needsDaylightHelmet("minecraft:skeleton")
+                && ArenaAlliedMobs.needsDaylightHelmet("minecraft:stray")
+                && ArenaAlliedMobs.needsDaylightHelmet("minecraft:drowned"), "sunlight-burning undead get daylight safety");
+        check(!ArenaAlliedMobs.needsDaylightHelmet("minecraft:husk")
+                && !ArenaAlliedMobs.needsDaylightHelmet("minecraft:wither_skeleton")
+                && !ArenaAlliedMobs.needsDaylightHelmet("minecraft:iron_golem"), "non-burning mobs need no fallback helmet");
+
+        // 2) Wire parsing of team_mobs and team_mob_kits in arena_start (teams mode only)
+        var mixed = ArenaRequests.parseStart(json("{\"name\":\"crossroads\",\"mode\":\"teams\","
+                + "\"teams\":{\"red\":[\"Ann\",\"MCBot\"],\"blue\":[\"MCBot2\",\"MCBot3\"]},"
+                + "\"team_mobs\":{\"red\":[{\"type\":\"minecraft:skeleton\",\"count\":2,\"name\":\"Red Archer\","
+                + "\"kit\":{\"give\":[{\"item\":\"minecraft:bow\",\"count\":1,\"enchantments\":{\"minecraft:power\":2}}],\"wear\":true},"
+                + "\"overrides\":[{\"index\":0,\"name\":\"Captain\",\"kit\":{\"give\":[{\"item\":\"minecraft:iron_sword\",\"count\":1}]}}]}],"
+                + "\"blue\":[{\"type\":\"minecraft:zombie\",\"count\":3}]},"
+                + "\"team_mob_kits\":{\"red\":{\"give\":[{\"item\":\"minecraft:chainmail_chestplate\",\"count\":1}]},"
+                + "\"blue\":{\"give\":[{\"item\":\"minecraft:iron_axe\",\"count\":1}],\"wear\":true}}}"));
+        check(mixed.teamMobs().size() == 2 && mixed.teamMobKits().size() == 2, "parsed team_mobs and team_mob_kits");
+        check(ArenaAlliedMobs.totalCount(mixed.teamMobs()) == 5, "total allied mobs across teams");
+
+        // Kit and name precedence: override.kit > group.kit > team_mob_kits[team]
+        var resolved = ArenaAlliedMobs.resolveMembers(mixed.teamMobs(), mixed.teamMobKits());
+        check(resolved.size() == 5, "5 resolved allied mob members");
+        check(resolved.get(0).team().equals("red")
+                && "Captain".equals(resolved.get(0).customName())
+                && resolved.get(0).effectiveKit().give().get(0).item().equals("minecraft:iron_sword"),
+                "override kit and name beat group and team default");
+        check(resolved.get(1).team().equals("red")
+                && "Red Archer".equals(resolved.get(1).customName())
+                && resolved.get(1).effectiveKit().give().get(0).item().equals("minecraft:bow"),
+                "group kit and name beat team default");
+        check(resolved.get(2).team().equals("blue")
+                && resolved.get(2).customName() == null
+                && resolved.get(2).effectiveKit().give().get(0).item().equals("minecraft:iron_axe"),
+                "team default kit applies when group and override omit kit");
+
+        // Mob-only start request (no teams or participants needed)
+        var mobOnly = ArenaRequests.parseStart(json("{\"name\":\"crossroads\",\"mode\":\"teams\","
+                + "\"team_mobs\":{\"red\":[{\"type\":\"minecraft:skeleton\",\"count\":2}],"
+                + "\"blue\":[{\"type\":\"minecraft:zombie\",\"count\":3}]}}"));
+        check(mobOnly.participants() == null && mobOnly.teams() == null && ArenaAlliedMobs.totalCount(mobOnly.teamMobs()) == 5,
+                "mob-only start request parses cleanly");
+
+        // Rejects unsupported/boss/passive mobs with unsupported_mob
+        for (var badMob : List.of("minecraft:ender_dragon", "minecraft:villager", "minecraft:sheep", "minecraft:creeper")) {
+            rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"c\",\"mode\":\"teams\","
+                    + "\"team_mobs\":{\"red\":[{\"type\":\"" + badMob + "\",\"count\":1}]}}")),
+                    "unsupported_mob", "reject unsupported mob " + badMob);
+        }
+        // Rejects non-teams modes and malformed fields
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"waves\","
+                + "\"waves\":[{\"mobs\":{\"minecraft:zombie\":1}}],"
+                + "\"team_mobs\":{\"red\":[{\"type\":\"minecraft:zombie\",\"count\":1}]}}")),
+                "bad_request", "team_mobs rejected in waves mode");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"v\",\"mode\":\"race\","
+                + "\"waves\":[{\"mobs\":{\"minecraft:zombie\":1}}],"
+                + "\"teams\":{\"red\":[\"Ann\"],\"blue\":[\"Bob\"]},"
+                + "\"team_mob_kits\":{\"red\":{\"give\":[]}}}")),
+                "bad_request", "team_mob_kits rejected in race mode");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"c\",\"mode\":\"teams\","
+                + "\"team_mobs\":{\"red\":[{\"type\":\"zombie\",\"count\":1}]}}")),
+                "bad_request", "non-namespaced type rejected");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"c\",\"mode\":\"teams\","
+                + "\"team_mobs\":{\"red\":[{\"type\":\"minecraft:zombie\",\"count\":0}]}}")),
+                "bad_request", "count 0 rejected");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"c\",\"mode\":\"teams\","
+                + "\"team_mobs\":{\"red\":[{\"type\":\"minecraft:zombie\",\"count\":33}]}}")),
+                "bad_request", "count > 32 rejected");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"c\",\"mode\":\"teams\","
+                + "\"team_mobs\":{\"red\":[{\"type\":\"minecraft:zombie\",\"count\":1,\"extra\":1}]}}")),
+                "bad_request", "unknown group field rejected");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"c\",\"mode\":\"teams\","
+                + "\"team_mobs\":{\"red\":[{\"type\":\"minecraft:zombie\",\"count\":2,"
+                + "\"overrides\":[{\"index\":0,\"name\":\"A\"},{\"index\":0,\"name\":\"B\"}]}]}}")),
+                "bad_request", "duplicate override index rejected");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"c\",\"mode\":\"teams\","
+                + "\"team_mobs\":{\"red\":[{\"type\":\"minecraft:zombie\",\"count\":2,"
+                + "\"overrides\":[{\"index\":2,\"name\":\"OOB\"}]}]}}")),
+                "bad_request", "out-of-range override index rejected");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"c\",\"mode\":\"teams\","
+                + "\"team_mobs\":{\"red\":[{\"type\":\"minecraft:zombie\",\"count\":1,\"name\":\"\"}]}}")),
+                "bad_request", "empty mob name rejected");
+        rejects(() -> ArenaRequests.parseStart(json("{\"name\":\"c\",\"mode\":\"teams\","
+                + "\"team_mobs\":{\"red\":[{\"type\":\"minecraft:zombie\",\"count\":1,\"kit\":{\"summon\":[]}}]}}")),
+                "bad_request", "unknown kit field rejected");
+
+        // 3) Capacity & active team checks (mixed and mob-only)
+        var arenaTeams = java.util.Set.of("red", "blue", "green");
+        var pads = Map.of("red", 4, "blue", 4, "green", 4);
+        // Mob-only: 0 players, 2 teams with mobs -> valid!
+        ArenaAlliedMobs.checkConfig(arenaTeams, Map.of(), mobOnly.teamMobs(), Map.of(), 10);
+        ArenaLogic.checkTeams(Map.of(), arenaTeams, pads, 4, ArenaAlliedMobs.countByTeam(mobOnly.teamMobs()));
+        // Mixed: red has 1 player only, blue has 3 zombies only -> 2 active teams -> valid!
+        var redOnlyPlayer = new LinkedHashMap<String, List<String>>();
+        redOnlyPlayer.put("red", List.of("Ann"));
+        var blueMobs = ArenaAlliedMobs.parseTeamMobs(json("{\"blue\":[{\"type\":\"minecraft:zombie\",\"count\":3}]}"));
+        ArenaAlliedMobs.checkConfig(arenaTeams, redOnlyPlayer, blueMobs, Map.of(), 10);
+        ArenaLogic.checkTeams(redOnlyPlayer, arenaTeams, pads, 4, ArenaAlliedMobs.countByTeam(blueMobs));
+        // Only 1 active team (red has player + mobs, blue empty) -> rejected!
+        var redMobs = ArenaAlliedMobs.parseTeamMobs(json("{\"red\":[{\"type\":\"minecraft:skeleton\",\"count\":2}]}"));
+        rejects(() -> ArenaAlliedMobs.checkConfig(arenaTeams, redOnlyPlayer, redMobs, Map.of(), 10),
+                "not_enough_teams", "only one active team rejected");
+        // Over capacity: total allied mobs > arena.capacity().mobs() -> over_capacity naming "mobs"
+        try {
+            ArenaAlliedMobs.checkConfig(arenaTeams, Map.of(), mobOnly.teamMobs(), Map.of(), 4);
+            throw new AssertionError("accepted over capacity allied mobs");
+        } catch (ArenaFail fail) {
+            check(fail.reason.equals("over_capacity") && fail.detail.contains("mobs"),
+                    "over_capacity names mobs: " + fail.getMessage());
+        }
+        // Unknown team in team_mobs or team_mob_kits
+        var badTeamMobs = ArenaAlliedMobs.parseTeamMobs(json("{\"purple\":[{\"type\":\"minecraft:zombie\",\"count\":1}]}"));
+        rejects(() -> ArenaAlliedMobs.checkConfig(arenaTeams, Map.of(), badTeamMobs, Map.of(), 10),
+                "unknown_team", "unknown team in team_mobs");
+        var badTeamKits = ArenaAlliedMobs.parseTeamMobKits(json("{\"purple\":{\"give\":[]}}"));
+        rejects(() -> ArenaAlliedMobs.checkConfig(arenaTeams, Map.of(), mobOnly.teamMobs(), badTeamKits, 10),
+                "unknown_team", "unknown team in team_mob_kits");
+
+        // 4) Targeting and friendly-fire rules
+        var P = ArenaAlliedMobs.Affiliation.PLAYER;
+        var A = ArenaAlliedMobs.Affiliation.ALLIED_MOB;
+        var W = ArenaAlliedMobs.Affiliation.WAVE_MOB;
+        var O = ArenaAlliedMobs.Affiliation.OUTSIDER;
+        // Allied mob targeting
+        check(!ArenaAlliedMobs.canMobTarget(A, "red", P, "red"), "allied mob never targets allied player");
+        check(!ArenaAlliedMobs.canMobTarget(A, "red", A, "red"), "allied mob never targets allied mob");
+        check(ArenaAlliedMobs.canMobTarget(A, "red", P, "blue"), "allied mob targets enemy player");
+        check(ArenaAlliedMobs.canMobTarget(A, "red", A, "blue"), "allied mob targets enemy allied mob");
+        check(ArenaAlliedMobs.canMobTarget(A, "red", W, ""), "allied mob can target neutral wave mob");
+        check(!ArenaAlliedMobs.canMobTarget(A, "red", O, ""), "allied mob never targets outsider");
+        // Neutral wave mob targeting
+        check(ArenaAlliedMobs.canMobTarget(W, "", P, "red"), "wave mob targets players");
+        check(ArenaAlliedMobs.canMobTarget(W, "", A, "blue"), "wave mob targets allied mobs");
+        check(!ArenaAlliedMobs.canMobTarget(W, "", O, ""), "wave mob never targets outsider");
+        check(!ArenaAlliedMobs.canMobTarget(W, "", W, ""), "wave mob does not target wave mob");
+        // Friendly-fire damage rules
+        check(!ArenaAlliedMobs.allowsDamage("teams", P, "red", A, "red", false), "player cannot hurt allied mob");
+        check(!ArenaAlliedMobs.allowsDamage("teams", A, "red", P, "red", false), "allied mob cannot hurt allied player");
+        check(!ArenaAlliedMobs.allowsDamage("teams", A, "red", A, "red", false), "allied mob cannot hurt allied mob");
+        check(!ArenaAlliedMobs.allowsDamage("teams", P, "red", P, "red", false), "player cannot hurt teammate");
+        check(ArenaAlliedMobs.allowsDamage("teams", P, "red", A, "blue", false), "player can hurt enemy allied mob");
+        check(ArenaAlliedMobs.allowsDamage("teams", A, "red", P, "blue", false), "allied mob can hurt enemy player");
+        check(ArenaAlliedMobs.allowsDamage("teams", A, "red", A, "blue", false), "allied mob can hurt enemy allied mob");
+        check(ArenaAlliedMobs.allowsDamage("teams", W, "", A, "red", false), "wave mob can hurt allied mob");
+        check(ArenaAlliedMobs.allowsDamage("teams", A, "red", W, "", false), "allied mob can hurt wave mob");
+        check(ArenaAlliedMobs.allowsDamage("teams", A, "red", A, "red", true), "self-damage allowed");
+
+        // Retargeting picks enemy team before neutral wave mob, and wave mob picks nearest player or allied mob
+        var candidates = List.of(
+                new ArenaAlliedMobs.Combatant(0, P, "red", 1, 64, 0, true),
+                new ArenaAlliedMobs.Combatant(1, A, "blue", 10, 64, 0, true),
+                new ArenaAlliedMobs.Combatant(2, W, "", 3, 64, 0, true),
+                new ArenaAlliedMobs.Combatant(3, P, "blue", 15, 64, 0, true));
+        check(ArenaAlliedMobs.pickAlliedTarget("red", 0, 64, 0, candidates) == 1,
+                "allied mob prefers enemy team combatant over neutral wave mob");
+        var onlyWave = List.of(
+                new ArenaAlliedMobs.Combatant(0, P, "red", 1, 64, 0, true),
+                new ArenaAlliedMobs.Combatant(1, W, "", 5, 64, 0, true));
+        check(ArenaAlliedMobs.pickAlliedTarget("red", 0, 64, 0, onlyWave) == 1,
+                "allied mob falls back to wave mob when no enemy team target is live");
+        check(ArenaAlliedMobs.pickWaveTarget(9, 64, 0, candidates) == 1,
+                "wave mob picks nearest live combatant (player or allied mob)");
+
+        // 5) Elimination & draws including allied mobs
+        var activeWithAllies = ArenaAlliedMobs.mergeActive(sides(0, 1), sides(2, 0));
+        check(activeWithAllies.equals(sides(2, 1)), "red stays active with 2 allied mobs even after players fall");
+        check(ArenaLogic.decide("teams", null, activeWithAllies, sides(0, 0)) == null, "match plays on");
+        var blueWins = ArenaLogic.decide("teams", null, ArenaAlliedMobs.mergeActive(sides(0, 0), sides(0, 1)), sides(0, 0));
+        check(blueWins.won() && blueWins.winner().equals("blue"), "mob-only team can win");
+        var mobDraw = ArenaLogic.decide("teams", null, ArenaAlliedMobs.mergeActive(sides(0, 0), sides(0, 0)), sides(0, 0));
+        check(!mobDraw.won() && mobDraw.reason().equals("draw"), "simultaneous wipe of last mobs ends in draw");
+
+        // 6) Sidebar board formatting for mixed and mob-only teams within 15 lines
+        var mixedBoard = ArenaLogic.fit(ArenaLogic.matchBoard("teams", List.of("red", "blue"), List.of(
+                player("Ann", "red", 1, true)), null, null, sides(2, 3), sides(1, 2)), 15);
+        var mixedTexts = texts(mixedBoard);
+        check(mixedBoard.size() <= 15, "board stays within 15 lines");
+        check(mixedTexts.get(0).contains("Red") && mixedTexts.get(0).contains("3 alive")
+                && mixedTexts.get(0).contains("2 mobs") && mixedTexts.get(0).endsWith("=2"),
+                "mixed team header combines alive players + mobs and total kills: " + mixedTexts);
+        check(mixedTexts.get(2).contains("Blue") && mixedTexts.get(2).contains("3 mobs")
+                && mixedTexts.get(2).endsWith("=2"),
+                "mob-only team shows mob count and allied kills: " + mixedTexts);
+
+        // Respawns + allied mobs combined on board, plus mobSearchOffsets & non-pvp allowsDamage
+        var respAllied = new ArenaRespawns(ArenaRespawns.Config.of(ArenaRespawns.Mode.TEAM, 1, 60),
+                duelTeams(List.of("Ann"), List.of()), java.util.Set.of());
+        var respBoard = ArenaLogic.fit(ArenaLogic.matchBoard("teams", List.of("red", "blue"), List.of(
+                new ArenaLogic.Player("Ann", "red", 1, true, false, 1, 0)), null,
+                respAllied.boardSummary(Map.of("Ann", true), 0), sides(1, 2), sides(0, 1)), 15);
+        var respTexts = texts(respBoard);
+        check(respTexts.get(0).contains("2 alive (1 mob)") && respTexts.get(0).contains("1 respawn left"),
+                "respawns + allied mobs board header: " + respTexts);
+        check(respTexts.get(2).contains("2 alive (2 mobs)"), "mob-only team under respawns mode: " + respTexts);
+        check(ArenaAlliedMobs.mobSearchOffsets().size() > ArenaLogic.searchOffsets().size(),
+                "mobSearchOffsets expands search ring for large groups");
+        check(ArenaAlliedMobs.canMobTarget(O, "", P, "red"), "outsider mob unaffected by arena targeting guard");
+        check(!ArenaAlliedMobs.allowsDamage("waves", P, "", P, "", false)
+                && ArenaAlliedMobs.allowsDamage("waves", W, "", P, "", false),
+                "non-pvp allowsDamage blocks player-player only");
     }
 }

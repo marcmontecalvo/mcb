@@ -1362,6 +1362,8 @@ class RespawnContest:
         respawn_mode="elimination",
         respawn_count=None,
         respawn_delay_ticks=None,
+        team_mobs=None,
+        team_mob_kits=None,
     ):
         self.started.append(
             {
@@ -1371,6 +1373,8 @@ class RespawnContest:
                 "respawn_mode": respawn_mode,
                 "respawn_count": respawn_count,
                 "respawn_delay_ticks": respawn_delay_ticks,
+                **({"team_mobs": team_mobs} if team_mobs is not None else {}),
+                **({"team_mob_kits": team_mob_kits} if team_mob_kits is not None else {}),
             }
         )
         return {"name": name, "mode": mode, "teams": teams}
@@ -1723,3 +1727,200 @@ def test_bot_whose_pending_respawn_is_forfeited_does_not_hang():
     )
     assert row["outcome"] == "won" and row["winner"] == "blue"
     assert row["respawns"]["events"][0]["reason"] == "respawn_timeout"
+
+
+def test_mixed_match_with_allied_mobs_does_not_abandon_after_bot_dies():
+    clock = Clock()
+    teams = {"red": ["MCBot"], "blue": ["Bob"]}
+    team_mobs = {
+        "red": [{"type": "minecraft:skeleton", "count": 2}],
+        "blue": [{"type": "minecraft:zombie", "count": 3}],
+    }
+    snapshots = [
+        {
+            "mode": "teams",
+            "state": "running",
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": False, "state": "eliminated"},
+                {"name": "Bob", "team": "blue", "alive": False, "state": "eliminated"},
+            ],
+            "team_mobs": [
+                {"uuid": "s1", "team": "red", "type": "minecraft:skeleton", "position": [1, 64, 1], "health": 20.0},
+                {"uuid": "z1", "team": "blue", "type": "minecraft:zombie", "position": [4, 64, 4], "health": 20.0},
+            ],
+            "teams_alive": {"red": 0, "blue": 0},
+            "teams_allied_mobs_alive": {"red": 1, "blue": 1},
+            "teams_total_alive": {"red": 1, "blue": 1},
+            "allied_team_kills": {"red": 1, "blue": 1},
+        },
+        {
+            "mode": "teams",
+            "state": "won",
+            "winner": "red",
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": False, "state": "eliminated"},
+                {"name": "Bob", "team": "blue", "alive": False, "state": "eliminated"},
+            ],
+            "team_mobs": [
+                {"uuid": "s1", "team": "red", "type": "minecraft:skeleton", "position": [2, 64, 2], "health": 12.0},
+            ],
+            "teams_alive": {"red": 0, "blue": 0},
+            "teams_allied_mobs_alive": {"red": 1, "blue": 0},
+            "teams_total_alive": {"red": 1, "blue": 0},
+            "allied_team_kills": {"red": 2, "blue": 1},
+        },
+    ]
+    contest = RespawnContest(snapshots)
+    api = RespawnBotApi(clock)
+    orig = api.call
+
+    def call(intent, args=None, key=None, source="mcp"):
+        out = orig(intent, args, key, source)
+        if intent == "attack":
+            api.jobs["j1"] = {"id": "j1", "state": "failed", "error": "MCBot died"}
+        return out
+
+    api.call = call
+    row = ah.hunt(
+        api,
+        contest,
+        "crossroads",
+        [],
+        mode="teams",
+        teams=teams,
+        team_mobs=team_mobs,
+        timeout=60,
+        clock=clock,
+        sleep=lambda s: setattr(clock, "now", clock.now + s),
+    )
+    assert contest.stopped == []
+    assert contest.started[0]["team_mobs"] == team_mobs
+    assert row["outcome"] == "won" and row["winner"] == "red"
+    assert row["team_mobs"] == team_mobs
+    assert row["teams_allied_mobs_alive"] == {"red": 1, "blue": 0}
+    assert row["allied_team_kills"] == {"red": 2, "blue": 1}
+
+
+def test_player_kits_and_respawn_reroll_recorded_in_hunt_and_series(tmp_path):
+    clock = Clock()
+    teams = {"red": ["MCBot", "Ann"], "blue": ["Bob"]}
+    sword = [{"item": "minecraft:iron_sword", "count": 1}]
+    bow = [{"item": "minecraft:bow", "count": 1}, {"item": "minecraft:arrow", "count": 64}]
+    axe = [{"item": "minecraft:iron_axe", "count": 1}]
+    events = [
+        {"type": "death", "player": "MCBot", "team": "red", "tick": 40, "reserved": True},
+        {"type": "reserved", "player": "MCBot", "team": "red", "tick": 40, "reservation_id": 1, "respawns_left": 0},
+        {"type": "returned", "player": "MCBot", "team": "red", "tick": 100, "reservation_id": 1, "pad": [1, 65, 1]},
+        {"type": "death", "player": "Ann", "team": "red", "tick": 110, "reserved": True},
+        {"type": "reserved", "player": "Ann", "team": "red", "tick": 110, "reservation_id": 2, "respawns_left": 0},
+        {"type": "returned", "player": "Ann", "team": "red", "tick": 140, "reservation_id": 2, "pad": [1, 65, 2]},
+    ]
+    snapshots = [
+        {
+            "mode": "teams", "state": "running", "respawn_mode": "player", "respawn_count": 1,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": True, "returning": False, "state": "alive", "deaths": 0, "respawns_used": 0},
+                {"name": "Ann", "team": "red", "alive": True, "returning": False, "state": "alive", "deaths": 0, "respawns_used": 0},
+                {"name": "Bob", "team": "blue", "alive": True, "returning": False, "state": "alive", "deaths": 0, "respawns_used": 0},
+            ],
+            "respawns": {"mode": "player", "count": 1, "events": []},
+        },
+        {
+            "mode": "teams", "state": "running", "respawn_mode": "player", "respawn_count": 1,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": False, "returning": True, "state": "returning", "deaths": 1, "respawns_used": 0},
+                {"name": "Ann", "team": "red", "alive": False, "returning": True, "state": "returning", "deaths": 1, "respawns_used": 0},
+                {"name": "Bob", "team": "blue", "alive": True, "returning": False, "state": "alive", "deaths": 0, "respawns_used": 0},
+            ],
+            "respawns": {"mode": "player", "count": 1, "events": events[:2]},
+        },
+        {
+            "mode": "teams", "state": "running", "respawn_mode": "player", "respawn_count": 1,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": True, "returning": False, "state": "alive", "deaths": 1, "respawns_used": 1},
+                {"name": "Ann", "team": "red", "alive": True, "returning": False, "state": "alive", "deaths": 1, "respawns_used": 1},
+                {"name": "Bob", "team": "blue", "alive": True, "returning": False, "state": "alive", "deaths": 0, "respawns_used": 0},
+            ],
+            "respawns": {"mode": "player", "count": 1, "events": events},
+        },
+        {
+            "mode": "teams", "state": "won", "winner": "red", "respawn_mode": "player", "respawn_count": 1,
+            "participants": [
+                {"name": "MCBot", "team": "red", "alive": True, "returning": False, "state": "alive", "deaths": 1, "respawns_used": 1},
+                {"name": "Ann", "team": "red", "alive": True, "returning": False, "state": "alive", "deaths": 1, "respawns_used": 1},
+                {"name": "Bob", "team": "blue", "alive": False, "returning": False, "state": "eliminated", "deaths": 2, "respawns_used": 1},
+            ],
+            "respawns": {"mode": "player", "count": 1, "events": events},
+        },
+    ]
+    contest = RespawnContest(snapshots)
+    human_kits = []
+
+    def tracking_kit(players, give):
+        human_kits.append((list(players), list(give)))
+
+    contest.kit = tracking_kit
+    api = RespawnBotApi(clock)
+    orig_status = contest.status
+
+    def status(name):
+        out = orig_status(name)
+        if contest.index == 2:
+            api.jobs["j1"] = {"id": "j1", "state": "failed", "error": "MCBot died"}
+        elif contest.index == 4:
+            api.jobs["j2"] = {"id": "j2", "state": "succeeded", "result": {"kills": 1}}
+        return out
+
+    contest.status = status
+    rerolls = []
+
+    def roller(player, respawn_index):
+        rerolls.append((player, respawn_index))
+        return {
+            "kit_id": "tank" if player == "MCBot" else "archer",
+            "kit_name": "Tank" if player == "MCBot" else "Archer",
+            "compiled": {"give": axe if player == "MCBot" else bow},
+        }
+
+    assignment_meta = {
+        "mode": "class_picker",
+        "seed": 12345,
+        "reroll_on_respawn": True,
+        "assignments": {
+            "MCBot": {"kit_id": "fighter", "kit_name": "Fighter", "random_rolled": False},
+            "Ann": {"kit_id": "archer", "kit_name": "Archer", "random_rolled": True},
+            "Bob": {"kit_id": "tank", "kit_name": "Tank", "random_rolled": False},
+        },
+    }
+    path = ah.run_series(
+        api,
+        contest,
+        "crossroads",
+        [],
+        repeat=1,
+        mode="teams",
+        teams=teams,
+        timeout=60,
+        out_dir=tmp_path,
+        echo=lambda _l: None,
+        clock=clock,
+        sleep=lambda s: setattr(clock, "now", clock.now + s),
+        player_kits={"MCBot": sword, "Ann": bow, "Bob": axe},
+        kit_assignment=assignment_meta,
+        respawn_kit_roller=roller,
+        respawn_mode="player",
+        respawn_count=1,
+    )
+    record = json.loads(path.read_text(encoding="utf-8"))
+    # Initial kits: bot got sword, Ann got bow, Bob got axe
+    assert api.trials[0]["give"] == sword
+    assert (["Ann"], bow) in human_kits and (["Bob"], axe) in human_kits
+    # Respawn rerolls applied for both bot (axe) and human Ann (bow)
+    assert ("MCBot", 1) in rerolls and ("Ann", 1) in rerolls
+    assert api.trials[1]["give"] == axe
+    assert (["Ann"], bow) in human_kits[2:]
+    row = record["runs"][0]
+    assert row["kit_assignment"]["seed"] == 12345
+    assert len(row["kit_assignment"]["respawn_rerolls"]) == 2
+    assert record["kit_assignment"]["seed"] == 12345
+

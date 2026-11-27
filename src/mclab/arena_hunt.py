@@ -28,6 +28,7 @@ Docs: docs/ARENA_RUNTIME.md "The bot's hunt", "Several bots", "Boards and recaps
 
 from __future__ import annotations
 
+import copy
 import json
 import statistics
 import time
@@ -36,7 +37,7 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mclab.arena.client import ArenaError, normalize_respawns
+from mclab.arena.client import ArenaError, check_team_mobs, normalize_respawns
 from mclab.arena.standings import player_totals, series_board, series_recap
 from mclab.companion_names import BotNames
 
@@ -205,6 +206,8 @@ def _sample(fighters: list[_Fighter], arena, name: str, t: float) -> tuple[dict,
     }
     if len(seen) > 1:
         row["bot_health"] = {n: s.get("health") for n, s in seen.items()}
+    if match.get("teams_allied_mobs_alive"):
+        row["allied_alive"] = dict(match["teams_allied_mobs_alive"])
     return row, match
 
 
@@ -256,6 +259,18 @@ def _any_returning(match: dict) -> bool:
     )
 
 
+def _allied_mobs_alive(match: dict) -> bool:
+    """Whether a running match still has live allied team mobs fighting."""
+    if match.get("state") != "running":
+        return False
+    counts = match.get("teams_allied_mobs_alive")
+    if isinstance(counts, dict) and any(
+        isinstance(v, int) and v > 0 for v in counts.values()
+    ):
+        return True
+    return bool(match.get("team_mobs"))
+
+
 def _match_still_active(
     match: dict, humans: list[str], awaiting_return: set[str]
 ) -> bool:
@@ -266,7 +281,24 @@ def _match_still_active(
         _humans_playing(match, humans)
         or _any_returning(match)
         or bool(awaiting_return)
+        or _allied_mobs_alive(match)
     )
+
+
+def _kit_for_player(
+    name: str,
+    default_kit: list[dict] | None,
+    player_kits: dict[str, list[dict]] | None,
+) -> list[dict] | None:
+    if not player_kits:
+        return default_kit
+    if name in player_kits:
+        return player_kits[name]
+    lower = name.lower()
+    for key, spec in player_kits.items():
+        if key.lower() == lower:
+            return spec
+    return default_kit
 
 
 def _sync_bot_respawns(
@@ -285,9 +317,13 @@ def _sync_bot_respawns(
     started: float,
     timeout: float,
     bot_resumes: list[dict],
+    *,
+    player_kits: dict[str, list[dict]] | None = None,
+    respawn_kit_roller: Callable[[str, int], dict | None] | None = None,
+    respawn_rerolls: list[dict] | None = None,
 ) -> None:
     """Coordinate bots that died with a reserved respawn: track pending returns,
-    re-kit if needed once back on a team pad, and resume ``attack {arena}``."""
+    re-kit (or re-roll when enabled) once back on a team pad, and resume combat."""
     if match.get("state") != "running":
         return
     for f in fighters:
@@ -316,15 +352,49 @@ def _sync_bot_respawns(
         ):
             continue
         rekitted = False
-        if kit is not None:
-            held = status.get("inventory") or {}
-            if not all(held.get(g["item"], 0) >= 1 for g in kit):
-                f.trial(
-                    {"heal": True, "wear": True, "clear_inventory": True, "give": kit}
+        rolled = (
+            respawn_kit_roller(f.name, max(1, used))
+            if respawn_kit_roller is not None
+            else None
+        )
+        if rolled and isinstance(rolled.get("compiled"), dict):
+            rerolled_give = rolled["compiled"].get("give") or []
+            f.trial(
+                {
+                    "heal": True,
+                    "wear": True,
+                    "clear_inventory": True,
+                    "give": rerolled_give,
+                }
+            )
+            remaining = max(1.0, timeout - (clock() - started))
+            _holds(f, rerolled_give, clock, sleep, wait=min(KIT_WAIT_S, remaining))
+            rekitted = True
+            if respawn_rerolls is not None:
+                respawn_rerolls.append(
+                    {
+                        "player": f.name,
+                        "respawn_index": max(1, used),
+                        "kit_id": rolled.get("kit_id"),
+                        "kit_name": rolled.get("kit_name"),
+                    }
                 )
-                remaining = max(1.0, timeout - (clock() - started))
-                _holds(f, kit, clock, sleep, wait=min(KIT_WAIT_S, remaining))
-                rekitted = True
+        else:
+            f_kit = _kit_for_player(f.name, kit, player_kits)
+            if f_kit is not None:
+                held = status.get("inventory") or {}
+                if not all(held.get(g["item"], 0) >= 1 for g in f_kit):
+                    f.trial(
+                        {
+                            "heal": True,
+                            "wear": True,
+                            "clear_inventory": True,
+                            "give": f_kit,
+                        }
+                    )
+                    remaining = max(1.0, timeout - (clock() - started))
+                    _holds(f, f_kit, clock, sleep, wait=min(KIT_WAIT_S, remaining))
+                    rekitted = True
         reply = f.call("attack", {"arena": name}, source="api")
         if reply.get("ok"):
             job_history[f.name].append((job_ids[f.name], jobs.get(f.name)))
@@ -341,6 +411,44 @@ def _sync_bot_respawns(
                     "rekitted": rekitted,
                 }
             )
+
+
+def _sync_human_respawns(
+    humans: list[str],
+    arena,
+    match: dict,
+    seen_human_respawns: dict[str, int],
+    respawn_kit_roller: Callable[[str, int], dict | None] | None,
+    respawn_rerolls: list[dict],
+) -> None:
+    if respawn_kit_roller is None or match.get("state") != "running":
+        return
+    for h in humans:
+        p = _participant_row(match, h)
+        if p is None:
+            continue
+        returning = p.get("returning") is True or p.get("state") == "returning"
+        if (
+            returning
+            or p.get("state") in ("eliminated", "forfeited")
+            or not p.get("alive")
+        ):
+            continue
+        used = int(p.get("respawns_used") or 0)
+        if used > seen_human_respawns.get(h, 0):
+            seen_human_respawns[h] = used
+            rolled = respawn_kit_roller(h, used)
+            if rolled and isinstance(rolled.get("compiled"), dict):
+                rerolled_give = rolled["compiled"].get("give") or []
+                arena.kit([h], rerolled_give)
+                respawn_rerolls.append(
+                    {
+                        "player": h,
+                        "respawn_index": used,
+                        "kit_id": rolled.get("kit_id"),
+                        "kit_name": rolled.get("kit_name"),
+                    }
+                )
 
 
 def _respawn_evidence(
@@ -415,6 +523,11 @@ def hunt(
     respawn_mode: str = "elimination",
     respawn_count: int | None = None,
     respawn_delay_ticks: int | None = None,
+    team_mobs: dict[str, list[dict]] | None = None,
+    team_mob_kits: dict[str, dict] | None = None,
+    player_kits: dict[str, list[dict]] | None = None,
+    kit_assignment: dict | None = None,
+    respawn_kit_roller: Callable[[str, int], dict | None] | None = None,
 ) -> dict:
     """One match from a full-health start to its end. ``kit``: the trial op's give
     entries, handed out afresh to every bot and human (a player who died last run
@@ -426,10 +539,16 @@ def hunt(
     ``bots`` (name -> fleet id; ``bot`` alone is the server's first bot) are the
     bots a roster may hold. Each one in the roster plays when ``api`` reaches it,
     on its own kit, attack job and row; the rest of the roster are the humans. A
-    match with no bot playing is only watched."""
+    match with no bot playing (humans-only or mob-only) is only watched."""
     norm_mode, norm_count, norm_delay = normalize_respawns(
         respawn_mode, respawn_count, respawn_delay_ticks
     )
+    if team_mobs is not None or team_mob_kits is not None:
+        if mode != "teams":
+            raise ArenaError(
+                "bad_request", "team_mobs and team_mob_kits belong to the teams mode"
+            )
+        check_team_mobs(team_mobs, team_mob_kits)
     people = roster(participants, teams)
     named = _bots_of(bot, bots)
     in_roster = [n for n in named if any(_same(p, n) for p in people)]
@@ -447,18 +566,27 @@ def hunt(
         "respawn_mode": norm_mode,
         "respawn_count": norm_count,
     }
+    if team_mobs is not None:
+        row["team_mobs"] = team_mobs
+    if team_mob_kits is not None:
+        row["team_mob_kits"] = team_mob_kits
     if mode in SIDED and len(in_roster) <= 1:
         row["bot_team"] = _team_of(teams, in_roster[0]) if in_roster else None
     if kit is not None:
         row["kit"] = [g["item"] for g in kit]
+    if kit_assignment is not None:
+        row["kit_assignment"] = copy.deepcopy(kit_assignment)
+    has_any_kit = kit is not None or bool(player_kits)
     if fighters:
-        spec: dict = {"heal": True, "wear": True}
-        if kit is not None:
-            spec.update(clear_inventory=True, give=kit)
         for f in fighters:
+            f_kit = _kit_for_player(f.name, kit, player_kits)
+            spec: dict = {"heal": True, "wear": True}
+            if f_kit is not None:
+                spec.update(clear_inventory=True, give=f_kit)
             f.trial(spec)
         for f in fighters:
-            if kit is not None and not _holds(f, kit, clock, sleep):
+            f_kit = _kit_for_player(f.name, kit, player_kits)
+            if f_kit is not None and not _holds(f, f_kit, clock, sleep):
                 error = f"the kit never showed in {f.name}'s inventory"
                 return {**row, "outcome": "not_started", "error": error}
     start_extra: dict = {}
@@ -467,9 +595,22 @@ def hunt(
         start_extra["respawn_count"] = norm_count
     if norm_delay is not None:
         start_extra["respawn_delay_ticks"] = norm_delay
+    if team_mobs is not None:
+        start_extra["team_mobs"] = team_mobs
+    if team_mob_kits is not None:
+        start_extra["team_mob_kits"] = team_mob_kits
     try:
         if humans:
-            arena.kit(humans, kit)
+            if player_kits:
+                grouped: dict[str, tuple[list[str], list[dict] | None]] = {}
+                for h in humans:
+                    h_kit = _kit_for_player(h, kit, player_kits)
+                    sig = json.dumps(h_kit, sort_keys=True)
+                    grouped.setdefault(sig, ([], h_kit))[0].append(h)
+                for group_humans, group_kit in grouped.values():
+                    arena.kit(group_humans, group_kit)
+            else:
+                arena.kit(humans, kit)
         arena.start(
             name,
             mode,
@@ -478,7 +619,7 @@ def hunt(
             teams=teams,
             exit=exit,
             series=series,
-            keep_inventory=kit is None,
+            keep_inventory=not has_any_kit,
             **start_extra,
         )
     except ArenaError as error:
@@ -501,11 +642,21 @@ def hunt(
     over: set[str] = set()  # the bots whose current job has ended
     awaiting_return: set[str] = set()
     seen_respawns_used: dict[str, int] = {f.name: 0 for f in fighters}
+    seen_human_respawns: dict[str, int] = {h: 0 for h in humans}
     bot_resumes: list[dict] = []
+    respawn_rerolls: list[dict] = []
     samples, match = [], {}
     while True:
         s, match = _sample(fighters, arena, name, clock() - started)
         samples.append(s)
+        _sync_human_respawns(
+            humans,
+            arena,
+            match,
+            seen_human_respawns,
+            respawn_kit_roller,
+            respawn_rerolls,
+        )
         if fighters:
             live = [f for f in fighters if f.name not in over]
             for turn, f in enumerate(live):  # block on the first only: one tick of wait
@@ -529,6 +680,9 @@ def hunt(
                 started,
                 timeout,
                 bot_resumes,
+                player_kits=player_kits,
+                respawn_kit_roller=respawn_kit_roller,
+                respawn_rerolls=respawn_rerolls,
             )
             if len(over) == len(fighters) and not _match_still_active(
                 match, humans, awaiting_return
@@ -600,6 +754,8 @@ def hunt(
         row.update(bot=who, **only)
     else:  # watched only: no job, as ever
         row.update(job_state=None, error=None)
+    if respawn_rerolls:
+        row.setdefault("kit_assignment", {})["respawn_rerolls"] = respawn_rerolls
     return row
 
 
@@ -678,6 +834,9 @@ def _board(match: dict) -> dict:
         out["players"] = players
     if match.get("team_kills"):
         out["team_kills"] = match["team_kills"]
+    for key in ("teams_allied_mobs_alive", "teams_total_alive", "allied_team_kills"):
+        if match.get(key) is not None:
+            out[key] = dict(match[key])
     return out
 
 
@@ -761,6 +920,13 @@ def summary(rows: list[dict]) -> dict:
     }
     if each:
         out["bots"] = each
+    allied_kills: dict[str, int] = {}
+    for r in rows:
+        for team, count in (r.get("allied_team_kills") or {}).items():
+            if isinstance(count, int):
+                allied_kills[team] = allied_kills.get(team, 0) + count
+    if allied_kills:
+        out["allied_team_kills"] = allied_kills
     return out
 
 
@@ -861,6 +1027,11 @@ def run_series(
     respawn_mode: str = "elimination",
     respawn_count: int | None = None,
     respawn_delay_ticks: int | None = None,
+    team_mobs: dict[str, list[dict]] | None = None,
+    team_mob_kits: dict[str, dict] | None = None,
+    player_kits: dict[str, list[dict]] | None = None,
+    kit_assignment: dict | None = None,
+    respawn_kit_roller: Callable[[str, int], dict | None] | None = None,
 ) -> Path:
     """`repeat` matches of the same roster and waves, each written as it ends.
     ``ops``: each human's operator status, set once before the first match.
@@ -882,6 +1053,12 @@ def run_series(
     norm_mode, norm_count, norm_delay = normalize_respawns(
         respawn_mode, respawn_count, respawn_delay_ticks
     )
+    if team_mobs is not None or team_mob_kits is not None:
+        if mode != "teams":
+            raise ArenaError(
+                "bad_request", "team_mobs and team_mob_kits belong to the teams mode"
+            )
+        check_team_mobs(team_mobs, team_mob_kits)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = Path(out_dir) / f"{stamp}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -901,6 +1078,13 @@ def run_series(
         **(
             {"respawn_delay_ticks": norm_delay}
             if norm_delay is not None
+            else {}
+        ),
+        **({"team_mobs": team_mobs} if team_mobs is not None else {}),
+        **({"team_mob_kits": team_mob_kits} if team_mob_kits is not None else {}),
+        **(
+            {"kit_assignment": copy.deepcopy(kit_assignment)}
+            if kit_assignment is not None
             else {}
         ),
         "waves": waves,
@@ -952,6 +1136,11 @@ def run_series(
             respawn_mode=norm_mode,
             respawn_count=norm_count,
             respawn_delay_ticks=norm_delay,
+            team_mobs=team_mobs,
+            team_mob_kits=team_mob_kits,
+            player_kits=player_kits,
+            kit_assignment=kit_assignment,
+            respawn_kit_roller=respawn_kit_roller,
         )
         record["runs"].append(row)
         record["summary"] = summary(record["runs"])
@@ -960,7 +1149,9 @@ def run_series(
         if repeat > 1:
             _show(echo, "standings", lambda: arena.board(name, *series_board(record)))
     if repeat > 1 and record["runs"]:
-        _show(echo, "recap", lambda: arena.recap(name, **series_recap(record)))
+        recap_data = series_recap(record)
+        if recap_data.get("players"):
+            _show(echo, "recap", lambda: arena.recap(name, **recap_data))
     path.write_text(json.dumps(record, indent=1), encoding="utf-8")
     return path
 

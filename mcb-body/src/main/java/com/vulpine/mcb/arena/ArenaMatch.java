@@ -11,19 +11,30 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import net.minecraft.core.Holder;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.monster.piglin.AbstractPiglin;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.ProjectileWeaponItem;
+import net.minecraft.world.item.TridentItem;
+import net.minecraft.world.item.alchemy.Potion;
+import net.minecraft.world.item.alchemy.PotionContents;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -42,6 +53,27 @@ final class ArenaMatch {
         double vx, vy, vz;  // blocks per tick: where a thrown potion will meet it
         float health;
         Tracked(String type, double x, double y, double z, float health) { this.type = type; this.x = x; this.y = y; this.z = z; this.health = health; }
+    }
+
+    /** A counted allied team mob's last known state. */
+    private static final class AlliedTracked {
+        final String team;
+        final String type;
+        final String customName;
+        double x, y, z;
+        double vx, vy, vz;
+        float health;
+        boolean dead;
+
+        AlliedTracked(String team, String type, String customName, double x, double y, double z, float health) {
+            this.team = team;
+            this.type = type;
+            this.customName = customName;
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.health = health;
+        }
     }
 
     private static final int RETARGET_TICKS = 10;
@@ -63,6 +95,10 @@ final class ArenaMatch {
     private final Map<String, List<UUID>> teams;
     private final Map<UUID, String> teamOf = new HashMap<>();
     private final Map<UUID, Tracked> mobs = new LinkedHashMap<>();
+    private final List<ArenaAlliedMobs.MemberSpec> alliedSpecs;
+    private final Map<UUID, AlliedTracked> alliedMobs = new LinkedHashMap<>();
+    private final Map<String, Integer> alliedTeamKills = new LinkedHashMap<>();
+    private final boolean hasAlliedMobs;
     private final Map<UUID, List<ItemStack>> startKits = new HashMap<>();
     private final Map<UUID, List<ItemStack>> deathKits = new HashMap<>();
     private final String tag;
@@ -86,7 +122,8 @@ final class ArenaMatch {
 
     ArenaMatch(MinecraftServer server, ArenaEmit emit, ArenaRecord arena, ServerLevel level, String mode,
                List<ArenaRequests.Wave> waves, List<ServerPlayer> players, Map<String, List<ServerPlayer>> teams, int[] exit,
-               int[] series, boolean keepInventory, ArenaRespawns.Config respawnConfig) {
+               int[] series, boolean keepInventory, ArenaRespawns.Config respawnConfig,
+               List<ArenaAlliedMobs.MemberSpec> alliedSpecs) {
         this.server = server;
         this.emit = emit;
         this.arena = arena;
@@ -96,6 +133,8 @@ final class ArenaMatch {
         this.exit = exit;
         this.series = series;
         this.keepInventory = keepInventory;
+        this.alliedSpecs = alliedSpecs == null ? List.of() : List.copyOf(alliedSpecs);
+        this.hasAlliedMobs = !this.alliedSpecs.isEmpty();
         this.board = new ArenaBoard(server, ArenaLogic.objectiveName(arena.name()));
         this.tag = ArenaLogic.waveTag(arena.name());
         this.followRange = ArenaLogic.followRange(arena.box());
@@ -123,6 +162,7 @@ final class ArenaMatch {
             }
             this.teams.put(team, ids);
             teamRoster.put(team, memberNames);
+            this.alliedTeamKills.put(team, 0);
         });
         var sides = new LinkedHashMap<String, String>();
         for (var id : participants) sides.put(names.get(id), teamOf.getOrDefault(id, ""));
@@ -158,7 +198,9 @@ final class ArenaMatch {
         data.put("respawn_delay_ticks", respawns.config().delayTicks());
         if (clock != null) data.put("waves", waves.size());
         if (!teams.isEmpty()) data.put("teams", teamNames());
+        if (hasAlliedMobs) data.put("team_mobs", alliedAliveByTeam());
         emit.emit("arena_match_started", data);
+        if (hasAlliedMobs && !alliedMobs.isEmpty()) retarget();
     }
 
     // ---- the tick
@@ -166,12 +208,13 @@ final class ArenaMatch {
     void tick(int serverTick) {
         if (state != State.RUNNING) return;
         ticks++;
+        pruneAlliedMobs();
         processRespawns();
         ArenaLogic.Step step = null;
         if (clock != null) {
             prune();
             reinforce();
-            step = clock.tick(mobs.size() + queued(), anyLive() || respawns.anyReturning());
+            step = clock.tick(mobs.size() + queued(), anyLive() || respawns.anyReturning() || !alliedMobs.isEmpty());
             switch (step.kind()) {
                 case SPAWN -> spawnWave(step.wave());
                 case CLEARED -> {
@@ -191,7 +234,7 @@ final class ArenaMatch {
             else finish(State.LOST, outcome.reason(), "arena_match_lost");
             return;
         }
-        if (clock != null && ticks % RETARGET_TICKS == 0) retarget();
+        if ((clock != null || !alliedMobs.isEmpty()) && ticks % RETARGET_TICKS == 0) retarget();
         if (ticks % BOARD_TICKS == 0) refreshBoard();
     }
 
@@ -270,8 +313,31 @@ final class ArenaMatch {
         return map;
     }
 
+    private Map<String, Integer> alliedAliveByTeam() {
+        var out = new LinkedHashMap<String, Integer>();
+        for (var team : teams.keySet()) out.put(team, 0);
+        for (var t : alliedMobs.values()) {
+            if (!t.dead) out.merge(t.team, 1, Integer::sum);
+        }
+        return out;
+    }
+
+    private Map<String, Integer> totalAliveByTeam(Map<String, Boolean> live) {
+        var allied = alliedAliveByTeam();
+        var out = new LinkedHashMap<String, Integer>();
+        for (var entry : teams.entrySet()) {
+            int pAlive = 0;
+            for (var id : entry.getValue()) {
+                if (Boolean.TRUE.equals(live.get(names.get(id)))) pAlive++;
+            }
+            out.put(entry.getKey(), pAlive + allied.getOrDefault(entry.getKey(), 0));
+        }
+        return out;
+    }
+
     private Map<String, Integer> activeByTeam() {
-        return respawns.activeByTeam(liveMap());
+        var playerActive = respawns.activeByTeam(liveMap());
+        return hasAlliedMobs ? ArenaAlliedMobs.mergeActive(playerActive, alliedAliveByTeam()) : playerActive;
     }
 
     /** Captures a participant's inventory on death in {@code keep_inventory} matches so bots can restore it on return. */
@@ -343,16 +409,38 @@ final class ArenaMatch {
 
     // ---- kills
 
-    /** An entity died: a wave mob credits the participant who killed it; a participant downed by an enemy credits that enemy. */
+    /** An entity died: wave and enemy allied mobs credit the killer; allied-mob kills credit allied_team_kills. */
     void died(LivingEntity entity, DamageSource source) {
         if (state != State.RUNNING) return;
-        String killer = participantName(source.getEntity());
+        Entity killerEntity = source.getEntity();
+        if (killerEntity == null) killerEntity = entity.getKillCredit();
+        String killer = participantName(killerEntity);
         if (killer == null) killer = participantName(entity.getKillCredit());
-        if (mobs.containsKey(entity.getUUID())) tally.mob(killer);
-        else if (names.containsKey(entity.getUUID())) {
+        String killerAlliedTeam = alliedMobTeam(killerEntity);
+        if (killerAlliedTeam == null) killerAlliedTeam = alliedMobTeam(entity.getKillCredit());
+
+        if (mobs.containsKey(entity.getUUID())) {
+            if (killer != null) tally.mob(killer);
+            else if (killerAlliedTeam != null) alliedTeamKills.merge(killerAlliedTeam, 1, Integer::sum);
+        } else if (alliedMobs.containsKey(entity.getUUID())) {
+            var tracked = alliedMobs.get(entity.getUUID());
+            if (tracked == null || tracked.dead) return;
+            tracked.dead = true;
+            if (killer != null) {
+                UUID killerId = idByName.get(killer);
+                String killerTeam = killerId == null ? "" : teamOf.getOrDefault(killerId, "");
+                if (!tracked.team.equals(killerTeam)) tally.mob(killer);
+            } else if (killerAlliedTeam != null && !killerAlliedTeam.equals(tracked.team)) {
+                alliedTeamKills.merge(killerAlliedTeam, 1, Integer::sum);
+            }
+        } else if (names.containsKey(entity.getUUID())) {
             String victim = names.get(entity.getUUID());
+            String victimTeam = teamOf.getOrDefault(entity.getUUID(), "");
             tally.down(victim);
             tally.player(killer, victim);
+            if (killer == null && killerAlliedTeam != null && !killerAlliedTeam.equals(victimTeam)) {
+                alliedTeamKills.merge(killerAlliedTeam, 1, Integer::sum);
+            }
             var outcome = respawns.onDeath(victim, ticks, killer);
             if (!outcome.ignored()) {
                 var diedData = base();
@@ -390,14 +478,21 @@ final class ArenaMatch {
         refreshBoard();
     }
 
-    /** Health (and absorption) an entity lost to a hit: a participant's taken, a participant's dealt to an enemy or wave mob. */
+    /** Health (and absorption) an entity lost to a hit: a participant's taken, dealt to an enemy, enemy allied mob, or wave mob. */
     void hurt(LivingEntity entity, DamageSource source, float amount) {
         if (state != State.RUNNING) return;
         String victim = names.get(entity.getUUID());
         boolean waveMob = mobs.containsKey(entity.getUUID());
         String attacker = participantName(source.getEntity());
-        if (victim == null && !(waveMob && attacker != null)) return;
-        tally.hurt(attacker, victim, waveMob, amount);
+        boolean enemyAlliedMob = false;
+        if (alliedMobs.containsKey(entity.getUUID()) && attacker != null) {
+            var tracked = alliedMobs.get(entity.getUUID());
+            UUID attackerId = idByName.get(attacker);
+            String attackerTeam = attackerId == null ? "" : teamOf.getOrDefault(attackerId, "");
+            enemyAlliedMob = tracked != null && !tracked.team.equals(attackerTeam);
+        }
+        if (victim == null && !((waveMob || enemyAlliedMob) && attacker != null)) return;
+        tally.hurt(attacker, victim, waveMob || enemyAlliedMob, amount);
     }
 
     /** Health given back to a participant: by {@code by} (who threw or drank the potion), else (null) by their own body. */
@@ -409,15 +504,50 @@ final class ArenaMatch {
         tally.healed(healer, target, amount);
     }
 
-    /** Whether this hit may land: participants never hurt each other outside team against team (their own team never). */
+    private ArenaAlliedMobs.Affiliation affiliationOf(Entity entity) {
+        if (entity == null) return ArenaAlliedMobs.Affiliation.OUTSIDER;
+        UUID id = entity.getUUID();
+        if (names.containsKey(id)) return ArenaAlliedMobs.Affiliation.PLAYER;
+        if (alliedMobs.containsKey(id)) return ArenaAlliedMobs.Affiliation.ALLIED_MOB;
+        if (mobs.containsKey(id)) return ArenaAlliedMobs.Affiliation.WAVE_MOB;
+        return ArenaAlliedMobs.Affiliation.OUTSIDER;
+    }
+
+    private String teamOfEntity(Entity entity) {
+        if (entity == null) return "";
+        UUID id = entity.getUUID();
+        if (teamOf.containsKey(id)) return teamOf.get(id);
+        var tracked = alliedMobs.get(id);
+        return tracked == null ? "" : tracked.team;
+    }
+
+    boolean canMobTarget(Mob mob, LivingEntity target) {
+        if (state != State.RUNNING) return true;
+        var mobAff = affiliationOf(mob);
+        if (mobAff == ArenaAlliedMobs.Affiliation.OUTSIDER) return true;
+        var targetAff = affiliationOf(target);
+        if (targetAff == ArenaAlliedMobs.Affiliation.PLAYER && !live(target.getUUID())) return false;
+        return ArenaAlliedMobs.canMobTarget(mobAff, teamOfEntity(mob), targetAff, teamOfEntity(target));
+    }
+
+    /** Whether this hit may land: blocks all same-team damage in teams mode (including projectiles/explosions) and PvP outside teams. */
     boolean allowsDamage(LivingEntity target, DamageSource source) {
-        if (state != State.RUNNING || ArenaLogic.pvp(mode)) return true;
-        var by = source.getEntity();
-        return by == null || by == target || !names.containsKey(target.getUUID()) || !names.containsKey(by.getUUID());
+        if (state != State.RUNNING) return true;
+        Entity by = source.getEntity();
+        if (by == null) by = source.getDirectEntity();
+        if (by == null) return true;
+        return ArenaAlliedMobs.allowsDamage(mode, affiliationOf(by), teamOfEntity(by),
+                affiliationOf(target), teamOfEntity(target), by == target);
     }
 
     private String participantName(Entity entity) {
         return entity instanceof ServerPlayer player ? names.get(player.getUUID()) : null;
+    }
+
+    private String alliedMobTeam(Entity entity) {
+        if (entity == null) return null;
+        var tracked = alliedMobs.get(entity.getUUID());
+        return tracked == null ? null : tracked.team;
     }
 
     // ---- the kill board and the recap
@@ -436,7 +566,8 @@ final class ArenaMatch {
         ArenaLogic.WaveInfo info = clock == null ? null
                 : new ArenaLogic.WaveInfo(Math.min(clock.index() + 1, waves.size()), waves.size(), mobs.size() + queued());
         var boardSummary = respawns.boardSummary(live, ticks);
-        var lines = ArenaLogic.fit(ArenaLogic.matchBoard(mode, teamNames(), players, info, boardSummary), ArenaLogic.BOARD_LINES);
+        var lines = ArenaLogic.fit(ArenaLogic.matchBoard(mode, teamNames(), players, info, boardSummary,
+                hasAlliedMobs ? alliedAliveByTeam() : null, hasAlliedMobs ? alliedTeamKills : null), ArenaLogic.BOARD_LINES);
         board.show(ArenaLogic.matchTitle(arena.name(), series), lines);
     }
 
@@ -504,6 +635,184 @@ final class ArenaMatch {
                 if (player == null) continue;
                 scoreboard.addPlayerToTeam(player.getScoreboardName(), team);
                 place(player, pads.get(i++));
+            }
+        }
+        if (hasAlliedMobs) spawnAlliedMobs();
+    }
+
+    // ---- allied mobs
+
+    private static final EquipmentSlot[] MOB_SLOTS = {
+            EquipmentSlot.MAINHAND, EquipmentSlot.OFFHAND,
+            EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET
+    };
+
+    /** Validates every allied mob entity type and every kit item/potion/enchantment id before a match starts. */
+    static void validateAlliedMobs(ServerLevel level, List<ArenaAlliedMobs.MemberSpec> specs) {
+        var checkedTypes = new HashSet<String>();
+        for (var spec : specs) {
+            if (checkedTypes.add(spec.type())) {
+                var key = Identifier.tryParse(spec.type());
+                if (key == null || !BuiltInRegistries.ENTITY_TYPE.containsKey(key))
+                    throw new ArenaFail("unknown_entity", spec.type());
+                Entity probe = BuiltInRegistries.ENTITY_TYPE.getValue(key).create(level, EntitySpawnReason.COMMAND);
+                boolean isMob = probe instanceof Mob;
+                if (probe != null) probe.discard();
+                if (!isMob) throw new ArenaFail("not_a_mob", spec.type());
+            }
+            if (spec.effectiveKit() != null) {
+                buildMobStacks(level, spec.effectiveKit().give());
+            }
+        }
+    }
+
+    private static List<ItemStack> buildMobStacks(ServerLevel level, List<ArenaAlliedMobs.Give> gives) {
+        var stacks = new ArrayList<ItemStack>(gives.size());
+        var enchantments = level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT);
+        for (var give : gives) {
+            var itemId = Identifier.tryParse(give.item());
+            if (itemId == null || !BuiltInRegistries.ITEM.containsKey(itemId))
+                throw new ArenaFail("unknown_item", give.item());
+            var stack = new ItemStack(BuiltInRegistries.ITEM.getValue(itemId), give.count());
+            if (give.potion() != null) {
+                var potionKey = Identifier.tryParse(give.potion());
+                Holder<Potion> potion = potionKey == null ? null
+                        : BuiltInRegistries.POTION.get(potionKey).map(h -> (Holder<Potion>) h).orElse(null);
+                if (potion == null) throw new ArenaFail("unknown_potion", give.potion());
+                stack.set(DataComponents.POTION_CONTENTS, new PotionContents(potion));
+            }
+            for (var entry : give.enchantments().entrySet()) {
+                var enchKey = Identifier.tryParse(entry.getKey());
+                var holder = enchKey == null ? null
+                        : enchantments.get(ResourceKey.create(Registries.ENCHANTMENT, enchKey)).orElse(null);
+                if (holder == null) throw new ArenaFail("unknown_enchantment", entry.getKey());
+                stack.enchant(holder, entry.getValue());
+            }
+            stacks.add(stack);
+        }
+        return stacks;
+    }
+
+    private static boolean isMobWeapon(ItemStack stack) {
+        if (stack.isEmpty()) return false;
+        if (stack.has(DataComponents.WEAPON) || stack.has(DataComponents.PIERCING_WEAPON)
+                || stack.has(DataComponents.KINETIC_WEAPON)) return true;
+        if (stack.getItem() instanceof ProjectileWeaponItem || stack.getItem() instanceof TridentItem) return true;
+        if (stack.has(DataComponents.FOOD) || stack.has(DataComponents.POTION_CONTENTS)) return false;
+        String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+        return id.endsWith("_sword") || id.endsWith("_axe") || id.endsWith("_spear")
+                || id.equals("minecraft:bow") || id.equals("minecraft:crossbow")
+                || id.equals("minecraft:trident") || id.equals("minecraft:mace");
+    }
+
+    private void applyMobKit(Mob mob, ArenaAlliedMobs.MobKit kit) {
+        if (kit == null) return;
+        if (kit.clearInventory()) {
+            for (var slot : MOB_SLOTS) mob.setItemSlot(slot, ItemStack.EMPTY);
+        }
+        var stacks = buildMobStacks(level, kit.give());
+        boolean mainhandSet = false;
+        for (var stack : stacks) {
+            if (stack.has(DataComponents.BLOCKS_ATTACKS)) {
+                mob.setItemSlot(EquipmentSlot.OFFHAND, stack.copy());
+                mob.setDropChance(EquipmentSlot.OFFHAND, 0f);
+                continue;
+            }
+            var equippable = stack.get(DataComponents.EQUIPPABLE);
+            if (equippable != null) {
+                var eqSlot = equippable.slot();
+                if (eqSlot == EquipmentSlot.HEAD || eqSlot == EquipmentSlot.CHEST
+                        || eqSlot == EquipmentSlot.LEGS || eqSlot == EquipmentSlot.FEET) {
+                    mob.setItemSlot(eqSlot, stack.copy());
+                    mob.setDropChance(eqSlot, 0f);
+                    continue;
+                }
+            }
+            if (!mainhandSet && isMobWeapon(stack)) {
+                mob.setItemSlot(EquipmentSlot.MAINHAND, stack.copy());
+                mob.setDropChance(EquipmentSlot.MAINHAND, 0f);
+                mainhandSet = true;
+            }
+        }
+        if (kit.heal()) {
+            mob.setHealth(mob.getMaxHealth());
+            mob.clearFire();
+            mob.removeAllEffects();
+        }
+    }
+
+    private void spawnAlliedMobs() {
+        var scoreboard = server.getScoreboard();
+        var box = arena.box();
+        double cx = (box.minX() + box.maxX() + 1) / 2.0, cz = (box.minZ() + box.maxZ() + 1) / 2.0;
+        var offsets = ArenaAlliedMobs.mobSearchOffsets();
+        var perTeamSpawned = new HashMap<String, Integer>();
+        for (var spec : alliedSpecs) {
+            var teamMarker = arena.teams().get(spec.team());
+            if (teamMarker == null || teamMarker.pads().isEmpty()) continue;
+            var pads = teamMarker.pads();
+            int teamPlayersCount = teams.getOrDefault(spec.team(), List.of()).size();
+            int idx = perTeamSpawned.merge(spec.team(), 1, Integer::sum) - 1;
+            int[] anchor = arena.world(pads.get((teamPlayersCount + idx) % pads.size()));
+            var entityType = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(spec.type()));
+            Entity created = entityType.create(level, EntitySpawnReason.COMMAND);
+            if (!(created instanceof Mob mob)) {
+                if (created != null) created.discard();
+                continue;
+            }
+            double dx = cx - (anchor[0] + .5), dz = cz - (anchor[2] + .5);
+            float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+            boolean placed = false;
+            for (int[] offset : offsets) {
+                double x = anchor[0] + offset[0] + .5, y = anchor[1] + offset[1], z = anchor[2] + offset[2] + .5;
+                if (!box.containsPoint(x, y, z)) continue;
+                mob.snapTo(x, y, z, yaw, 0f);
+                if (level.noCollision(mob)) { placed = true; break; }
+            }
+            if (!placed) { mob.discard(); continue; }
+            mob.addTag(tag);
+            mob.setPersistenceRequired();
+            mob.setCanPickUpLoot(false);
+            if (mob instanceof AbstractPiglin piglin) piglin.setImmuneToZombification(true);
+            var follow = mob.getAttribute(Attributes.FOLLOW_RANGE);
+            if (follow != null) follow.setBaseValue(followRange);
+            mob.finalizeSpawn(level, level.getCurrentDifficultyAt(mob.blockPosition()), EntitySpawnReason.COMMAND, null);
+            var riders = new ArrayList<Entity>();
+            mob.getIndirectPassengers().forEach(riders::add);
+            for (var rider : riders) rider.discard();
+            mob.ejectPassengers();
+            applyMobKit(mob, spec.effectiveKit());
+            for (var slot : MOB_SLOTS) mob.setDropChance(slot, 0f);
+            if (ArenaAlliedMobs.needsDaylightHelmet(spec.type()) && mob.getItemBySlot(EquipmentSlot.HEAD).isEmpty()) {
+                mob.setItemSlot(EquipmentSlot.HEAD, new ItemStack(Items.LEATHER_HELMET));
+                mob.setDropChance(EquipmentSlot.HEAD, 0f);
+            }
+            if (spec.customName() != null) {
+                mob.setCustomName(Component.literal(spec.customName()));
+                mob.setCustomNameVisible(true);
+            }
+            var sbTeam = scoreboard.getPlayerTeam(ArenaLogic.teamName(arena.name(), spec.team()));
+            if (sbTeam != null) scoreboard.addPlayerToTeam(mob.getScoreboardName(), sbTeam);
+            alliedMobs.put(mob.getUUID(), new AlliedTracked(spec.team(), spec.type(), spec.customName(),
+                    mob.getX(), mob.getY(), mob.getZ(), mob.getHealth()));
+            level.addFreshEntity(mob);
+        }
+    }
+
+    private void pruneAlliedMobs() {
+        for (Iterator<Map.Entry<UUID, AlliedTracked>> it = alliedMobs.entrySet().iterator(); it.hasNext(); ) {
+            var entry = it.next();
+            Entity entity = level.getEntityInAnyDimension(entry.getKey());
+            var t = entry.getValue();
+            if (entity == null) {
+                if (level.getChunkSource().hasChunk((int) Math.floor(t.x) >> 4, (int) Math.floor(t.z) >> 4)) it.remove();
+            } else if (entity.isRemoved() || !entity.isAlive()) {
+                it.remove();
+            } else {
+                t.x = entity.getX(); t.y = entity.getY(); t.z = entity.getZ();
+                var v = entity.getDeltaMovement();
+                t.vx = v.x; t.vy = v.y; t.vz = v.z;
+                if (entity instanceof LivingEntity living) t.health = living.getHealth();
             }
         }
     }
@@ -657,25 +966,53 @@ final class ArenaMatch {
         return dx * dx + dy * dy + dz * dz <= ArenaLogic.DERIVED_RANGE * ArenaLogic.DERIVED_RANGE;
     }
 
-    boolean owns(UUID id) { return mobs.containsKey(id); }
+    boolean owns(UUID id) { return mobs.containsKey(id) || alliedMobs.containsKey(id); }
 
     private void retarget() {
-        var live = new ArrayList<ServerPlayer>();
+        var entities = new ArrayList<LivingEntity>();
+        var candidates = new ArrayList<ArenaAlliedMobs.Combatant>();
         for (var id : participants) {
-            var player = server.getPlayerList().getPlayer(id);
-            if (player != null && live(id)) live.add(player);
+            var player = resolvePlayer(id);
+            if (player != null && live(id)) {
+                int idx = entities.size();
+                entities.add(player);
+                candidates.add(new ArenaAlliedMobs.Combatant(idx, ArenaAlliedMobs.Affiliation.PLAYER,
+                        teamOf.getOrDefault(id, ""), player.getX(), player.getY(), player.getZ(), true));
+            }
         }
-        if (live.isEmpty()) return;
-        var positions = new double[live.size()][];
-        var flags = new boolean[live.size()];
-        for (int i = 0; i < live.size(); i++) {
-            positions[i] = new double[] {live.get(i).getX(), live.get(i).getY(), live.get(i).getZ()};
-            flags[i] = true;
+        var liveAllied = new ArrayList<Map.Entry<Mob, AlliedTracked>>();
+        for (var entry : alliedMobs.entrySet()) {
+            if (entry.getValue().dead) continue;
+            if (!(level.getEntityInAnyDimension(entry.getKey()) instanceof Mob mob) || mob.level() != level
+                    || !mob.isAlive() || mob.isRemoved()) continue;
+            int idx = entities.size();
+            entities.add(mob);
+            candidates.add(new ArenaAlliedMobs.Combatant(idx, ArenaAlliedMobs.Affiliation.ALLIED_MOB,
+                    entry.getValue().team, mob.getX(), mob.getY(), mob.getZ(), true));
+            liveAllied.add(Map.entry(mob, entry.getValue()));
         }
+        var liveWave = new ArrayList<Mob>();
         for (var id : mobs.keySet()) {
-            if (!(level.getEntityInAnyDimension(id) instanceof Mob mob) || mob.level() != level) continue;
-            int best = ArenaLogic.nearest(mob.getX(), mob.getY(), mob.getZ(), positions, flags);
-            if (best >= 0 && mob.getTarget() != live.get(best)) mob.setTarget(live.get(best));
+            if (!(level.getEntityInAnyDimension(id) instanceof Mob mob) || mob.level() != level
+                    || !mob.isAlive() || mob.isRemoved()) continue;
+            int idx = entities.size();
+            entities.add(mob);
+            candidates.add(new ArenaAlliedMobs.Combatant(idx, ArenaAlliedMobs.Affiliation.WAVE_MOB,
+                    "", mob.getX(), mob.getY(), mob.getZ(), true));
+            liveWave.add(mob);
+        }
+        for (var entry : liveAllied) {
+            var mob = entry.getKey();
+            var tracked = entry.getValue();
+            if (mob.getLastHurtByMob() != null && !canMobTarget(mob, mob.getLastHurtByMob())) mob.setLastHurtByMob(null);
+            if (mob.getTarget() != null && !canMobTarget(mob, mob.getTarget())) mob.setTarget(null);
+            int best = ArenaAlliedMobs.pickAlliedTarget(tracked.team, mob.getX(), mob.getY(), mob.getZ(), candidates);
+            if (best >= 0 && mob.getTarget() != entities.get(best)) mob.setTarget(entities.get(best));
+        }
+        for (var mob : liveWave) {
+            if (mob.getTarget() != null && !canMobTarget(mob, mob.getTarget())) mob.setTarget(null);
+            int best = ArenaAlliedMobs.pickWaveTarget(mob.getX(), mob.getY(), mob.getZ(), candidates);
+            if (best >= 0 && mob.getTarget() != entities.get(best)) mob.setTarget(entities.get(best));
         }
     }
 
@@ -694,6 +1031,8 @@ final class ArenaMatch {
         reason = why;
         endTick = server.getTickCount();
         closeBoard();  // before the mobs go and the players leave: the board shows the end as it was
+        var finalAlliedAlive = hasAlliedMobs ? alliedAliveByTeam() : null;
+        var finalTotalAlive = hasAlliedMobs ? totalAliveByTeam(liveMap()) : null;
         discardMobs();
         leaveTeams();
         sendToExit();
@@ -710,6 +1049,11 @@ final class ArenaMatch {
         }
         data.put("kills", tally.rows());
         if (!teams.isEmpty()) data.put("team_kills", tally.byTeam());
+        if (hasAlliedMobs) {
+            data.put("allied_team_kills", new LinkedHashMap<>(alliedTeamKills));
+            data.put("teams_allied_mobs_alive", finalAlliedAlive);
+            data.put("teams_total_alive", finalTotalAlive);
+        }
         data.put("duration_ticks", endTick - startTick);
         startKits.clear();
         deathKits.clear();
@@ -732,6 +1076,11 @@ final class ArenaMatch {
             if (entity != null) entity.discard();
         }
         mobs.clear();
+        for (var id : alliedMobs.keySet()) {
+            var entity = level.getEntityInAnyDimension(id);
+            if (entity != null) entity.discard();
+        }
+        alliedMobs.clear();
     }
 
     /** The server is going down: end the match quietly (mobs and teams cleaned up, no event). */
@@ -811,10 +1160,30 @@ final class ArenaMatch {
         }
         out.put("participants", people);
         out.put("respawns", respawns.statusSnapshot(live, ticks));
+        if (hasAlliedMobs || !alliedMobs.isEmpty()) {
+            var alliedList = new ArrayList<Map<String, Object>>();
+            for (var entry : alliedMobs.entrySet()) {
+                var t = entry.getValue();
+                if (t.dead) continue;
+                var m = new LinkedHashMap<String, Object>();
+                m.put("uuid", entry.getKey().toString());
+                m.put("team", t.team);
+                m.put("type", t.type);
+                if (t.customName != null) m.put("name", t.customName);
+                m.put("position", List.of(round(t.x), round(t.y), round(t.z)));
+                m.put("health", (double) t.health);
+                m.put("velocity", List.of(round(t.vx * 20), round(t.vy * 20), round(t.vz * 20)));
+                alliedList.add(m);
+            }
+            out.put("team_mobs", alliedList);
+        }
         if (!teams.isEmpty()) {
             var byTeam = new LinkedHashMap<String, Object>();
             teams.forEach((team, members) -> byTeam.put(team, members.stream().filter(this::live).count()));
             out.put("teams_alive", byTeam);
+            out.put("teams_allied_mobs_alive", alliedAliveByTeam());
+            out.put("teams_total_alive", totalAliveByTeam(live));
+            out.put("allied_team_kills", new LinkedHashMap<>(alliedTeamKills));
             out.put("teams_returning", respawns.returningByTeam());
             out.put("teams_respawns_left", respawns.respawnsLeftByTeam());
             out.put("team_kills", tally.byTeam());

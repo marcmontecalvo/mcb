@@ -1070,6 +1070,11 @@ def summary_paths():
     return sorted((ROOT / "results").glob("*/*/summary.json"))
 
 
+def arena_summary_paths():
+    """Arena series artifacts inspected from the scenario comparison detail view."""
+    return sorted((ROOT / "results/companion/arena").glob("*.json"))
+
+
 def result_rows(path, value):
     """Separate entrants in historical natural cohorts without altering evidence."""
     if isinstance(value, list) and all(

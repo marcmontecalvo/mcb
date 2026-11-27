@@ -8,7 +8,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from mclab import (
+    arena_kits,
     arena_roster,
+    arena_scenarios,
     dashboard,
     dashboard_runs,
     dashboard_suites,
@@ -80,8 +82,11 @@ def main():
             "companion": {},
         }
         dashboard_runs.natural_seeds = lambda: []
-        # The saved roster lives in the temporary folder; who is online is fixed.
+        # The saved roster, kits, and scenarios live in the temporary folder.
         arena_roster.ROSTER_FILE = root / "runtime/arena-roster.json"
+        arena_kits.DEFAULT_KITS_PATH = root / "runtime/arena-kits.json"
+        arena_scenarios.DEFAULT_STORE_PATH = root / "runtime/arena-scenarios.json"
+        arena_scenarios.DEFAULT_RESULTS_DIR = root / "results/companion/arena"
         # So does the bots' name book; the companion host has two idle bots, and a
         # renamed one comes back at once.
         play_runs.bots_runtime = lambda root_=None: root / "runtime/arena-bots"
@@ -102,8 +107,8 @@ def main():
                 {"name": "Dad_", "bot": False},
                 {"name": "Son_", "bot": False},
                 {"name": "MCBot", "bot": True},
-                {"name": "MCBot2", "bot": True},  # a second bot, put in on the server
-                {"name": "Carpet_1", "bot": True},  # a fake player that is no bot of ours
+                {"name": "MCBot2", "bot": True},  # second bot put in on the server
+                {"name": "Carpet_1", "bot": True},  # fake player not ours
             ],
             "bot": "MCBot",
             "note": None,

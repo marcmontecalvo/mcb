@@ -35,7 +35,7 @@ public final class PlayerKit {
     public static PlayerKit check(ServerPlayer anyone, JsonObject kit) {
         try {
             var trial = TrialLogic.parse(kit);
-            return new PlayerKit(trial, BodyTrial.stacks(anyone, trial.give()));
+            return new PlayerKit(trial, BodyTrial.arenaStacks(anyone, trial.give()));
         } catch (BodyActions.Fail fail) {
             throw new Refused(fail.getMessage());
         }

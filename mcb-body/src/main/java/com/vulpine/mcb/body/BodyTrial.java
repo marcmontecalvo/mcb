@@ -20,6 +20,7 @@ import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.level.levelgen.Heightmap;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -59,6 +60,42 @@ final class BodyTrial {
                         : enchantments.get(ResourceKey.create(Registries.ENCHANTMENT, key)).orElse(null);
                 if (holder == null) throw new BodyActions.Fail("unknown_enchantment");
                 stack.enchant(holder, level.getValue());
+            }
+            stacks.add(stack);
+        }
+        return stacks;
+    }
+
+    /** Survival-legal arena kit stacks: policy-checked plus live registry {@code canEnchant}, max level and conflicts. */
+    static List<ItemStack> arenaStacks(ServerPlayer player, List<TrialLogic.Give> gives) {
+        KitPolicy.validateArenaKit(gives);
+        var stacks = new ArrayList<ItemStack>();
+        var enchantments = player.level().registryAccess().lookupOrThrow(Registries.ENCHANTMENT);
+        for (var give : gives) {
+            var id = Identifier.tryParse(give.item());
+            if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) throw new BodyActions.Fail("unknown_item");
+            var stack = new ItemStack(BuiltInRegistries.ITEM.getValue(id), give.count());
+            if (give.potion() != null) {
+                var potion = BodyPotion.lookup(give.potion());
+                if (potion == null) throw new BodyActions.Fail("unknown_potion");
+                stack.set(DataComponents.POTION_CONTENTS, new PotionContents(potion));
+            }
+            var applied = new ArrayList<net.minecraft.core.Holder<Enchantment>>();
+            for (var level : give.enchantments().entrySet()) {
+                var key = Identifier.tryParse(level.getKey());
+                var holder = key == null ? null
+                        : enchantments.get(ResourceKey.create(Registries.ENCHANTMENT, key)).orElse(null);
+                if (holder == null) throw new BodyActions.Fail("unknown_enchantment");
+                int lvl = level.getValue();
+                if (!holder.value().canEnchant(stack)) throw new BodyActions.Fail("incompatible_enchantment");
+                if (lvl < 1 || lvl > holder.value().getMaxLevel()) throw new BodyActions.Fail("illegal_enchantment_level");
+                for (var prev : applied) {
+                    if (!Enchantment.areCompatible(prev, holder)) {
+                        throw new BodyActions.Fail("conflicting_enchantments");
+                    }
+                }
+                stack.enchant(holder, lvl);
+                applied.add(holder);
             }
             stacks.add(stack);
         }

@@ -14,7 +14,8 @@
     "LivingStatsMixin",
     "HealEffectMixin",
     "PlayerDeathMixin",
-    "ServerPlayerRespawnMixin"
+    "ServerPlayerRespawnMixin",
+    "MobTargetMixin"
   ],
   "injectors": {
     "defaultRequire": 1

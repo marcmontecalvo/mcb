@@ -404,3 +404,28 @@ def test_another_bot_is_a_foe_on_the_other_team_and_never_on_mine():
     ]
     found = attack.hunt(contest(first, mate, rival), state(), None, "mcbot2")
     assert (found.uuid, found.name) == ("u-MCBot3", "MCBot3")
+
+
+def test_allied_team_mobs_are_excluded_while_enemy_team_mobs_and_wave_mobs_are_foes():
+    me = fighter("MCBot", "red", (0.5, 64, 0.5))
+    ally_mob = {
+        "uuid": "ally-1",
+        "team": "red",
+        "type": "minecraft:skeleton",
+        "position": [1.5, 64.0, 0.5],
+        "health": 20.0,
+    }
+    enemy_mob = {
+        "uuid": "enemy-1",
+        "team": "blue",
+        "type": "minecraft:zombie",
+        "position": [6.5, 64.0, 0.5],
+        "health": 20.0,
+    }
+    wave = wave_mob("wave-1", (15.5, 64, 0.5), "minecraft:pillager")
+    status = contest(me, mobs=[wave])
+    status["match"]["team_mobs"] = [ally_mob, enemy_mob]
+    rows = attack.foes(status["match"], "MCBot")
+    assert [r["uuid"] for r in rows] == ["wave-1", "enemy-1"]
+    found = attack.hunt(status, state(), None, "MCBot")
+    assert found.uuid == "enemy-1" and found.type == "minecraft:zombie"

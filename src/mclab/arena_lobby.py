@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from mclab import arena_kits
 from mclab.arena import client as arena_client
 from mclab.arena import designs, standings
 from mclab.arena import plan as arena_plan
@@ -292,6 +293,7 @@ class ArenaLobby:
         *,
         state_path: Path,
         runtime_dir: Path | None = None,
+        kits_path: Path | None = None,
         fleet: Any = None,
         clock: Callable[[], float] = time.time,
         countdown_seconds: float = DEFAULT_COUNTDOWN_S,
@@ -301,6 +303,7 @@ class ArenaLobby:
     ):
         self.state_path = Path(state_path)
         self.runtime_dir = Path(runtime_dir) if runtime_dir else self.state_path.parent
+        self.kits_path = Path(kits_path) if kits_path else None
         self._fleet = fleet
         self._clock = clock
         self.countdown_seconds = float(countdown_seconds)
@@ -322,6 +325,7 @@ class ArenaLobby:
         *,
         state_path: Path,
         runtime_dir: Path | None = None,
+        kits_path: Path | None = None,
         fleet: Any = None,
         clock: Callable[[], float] = time.time,
         countdown_seconds: float = DEFAULT_COUNTDOWN_S,
@@ -332,6 +336,7 @@ class ArenaLobby:
         return cls(
             state_path=state_path,
             runtime_dir=runtime_dir,
+            kits_path=kits_path,
             fleet=fleet,
             clock=clock,
             countdown_seconds=countdown_seconds,
@@ -356,9 +361,15 @@ class ArenaLobby:
             "waves": [],
             "waves_preset": None if mode == "teams" else _default_wave_preset(),
             "kit": DEFAULT_KIT,
+            "kit_mode": "uniform",
+            "kit_pool": ["fighter", "archer", "tank", "skirmisher"],
+            "team_kits": {},
+            "player_kits": {},
+            "reroll_on_respawn": False,
             "weapon_material": "iron",
             "armor_material": "iron",
             "kit_overrides": {},
+            "last_kit_assignment": None,
             "respawn_mode": "elimination",
             "respawn_count": 0,
             "allow_uneven": False,
@@ -469,6 +480,9 @@ class ArenaLobby:
             return BotNames.load(self.runtime_dir)
         except ValueError:
             return BotNames()
+
+    def _kit_library(self) -> arena_kits.KitLibrary:
+        return arena_kits.default_library(self.kits_path)
 
     def _require_not_frozen(self) -> None:
         if self._state["phase"] == "countdown":
@@ -795,6 +809,11 @@ class ArenaLobby:
             "waves": copy.deepcopy(self._state["waves"]),
             "waves_preset": self._state["waves_preset"],
             "kit": self._state["kit"],
+            "kit_mode": self._state["kit_mode"],
+            "kit_pool": list(self._state["kit_pool"]),
+            "team_kits": copy.deepcopy(self._state["team_kits"]),
+            "player_kits": copy.deepcopy(self._state["player_kits"]),
+            "reroll_on_respawn": bool(self._state["reroll_on_respawn"]),
             "weapon_material": self._state["weapon_material"],
             "armor_material": self._state["armor_material"],
             "kit_overrides": copy.deepcopy(self._state["kit_overrides"]),
@@ -896,6 +915,14 @@ class ArenaLobby:
                 "hazards_enabled": hazards_enabled,
                 "hazards_summary": hazards_summary,
                 "kit": self._state["kit"],
+                "kit_mode": self._state["kit_mode"],
+                "kit_pool": list(self._state["kit_pool"]),
+                "team_kits": copy.deepcopy(self._state["team_kits"]),
+                "player_kits": copy.deepcopy(self._state["player_kits"]),
+                "reroll_on_respawn": bool(self._state["reroll_on_respawn"]),
+                "last_kit_assignment": copy.deepcopy(
+                    self._state["last_kit_assignment"]
+                ),
                 "weapon_material": self._state["weapon_material"],
                 "armor_material": self._state["armor_material"],
                 "kit_overrides": copy.deepcopy(self._state["kit_overrides"]),
@@ -1328,6 +1355,8 @@ class ArenaLobby:
             if team or slot:
                 key = f"slot:{slot}" if slot else f"team:{team}"
                 self._state["kit_overrides"][key] = clean_kit
+                if team and not slot:
+                    self._state["team_kits"][str(team).strip().lower()] = clean_kit
                 reason = f"{actor} set kit override for {key} to {clean_kit}."
             else:
                 self._state["kit"] = clean_kit
@@ -1341,6 +1370,222 @@ class ArenaLobby:
             self._bump_revision(reason)
             self._save_to_disk()
             return self.snapshot()
+
+    def set_kit_mode(
+        self,
+        actor: str,
+        mode: str,
+        *,
+        operator: bool = False,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
+        mode_norm = str(mode).strip().lower()
+        with self._lock:
+            self._sync_from_disk()
+            self._require_expected_revision(expected_revision)
+            self._require_not_frozen()
+            self._require_host(actor, operator=operator)
+            if mode_norm not in arena_kits.KIT_MODES:
+                avail = ", ".join(arena_kits.KIT_MODES)
+                raise LobbyError(
+                    f"Unknown kit mode {mode!r} (valid: {avail}).",
+                    revision=self._state["revision"],
+                )
+            if self._state["phase"] == "recap":
+                self._state["phase"] = "open"
+            self._state["kit_mode"] = mode_norm
+            self._bump_revision(f"{actor} set kit mode to {mode_norm}.")
+            self._save_to_disk()
+            return self.snapshot()
+
+    def set_kit_pool(
+        self,
+        actor: str,
+        pool: list[str] | tuple[str, ...],
+        *,
+        operator: bool = False,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            self._sync_from_disk()
+            self._require_expected_revision(expected_revision)
+            self._require_not_frozen()
+            self._require_host(actor, operator=operator)
+            if not isinstance(pool, (list, tuple)) or not pool:
+                raise LobbyError("Kit pool must be a non-empty list of kit ids.")
+            lib = self._kit_library()
+            cleaned: list[str] = []
+            for entry in pool:
+                kid = str(entry).strip().lower()
+                if not kid or not lib.has_kit(kid):
+                    raise LobbyError(
+                        f"Unknown kit {entry!r} in kit pool.",
+                        code="unknown_kit",
+                        revision=self._state["revision"],
+                    )
+                if kid not in cleaned:
+                    cleaned.append(kid)
+            if self._state["phase"] == "recap":
+                self._state["phase"] = "open"
+            self._state["kit_pool"] = cleaned
+            self._bump_revision(f"{actor} updated kit pool ({', '.join(cleaned)}).")
+            self._save_to_disk()
+            return self.snapshot()
+
+    def set_kit_reroll(
+        self,
+        actor: str,
+        enabled: bool,
+        *,
+        operator: bool = False,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            self._sync_from_disk()
+            self._require_expected_revision(expected_revision)
+            self._require_not_frozen()
+            self._require_host(actor, operator=operator)
+            flag = bool(enabled)
+            if self._state["phase"] == "recap":
+                self._state["phase"] = "open"
+            self._state["reroll_on_respawn"] = flag
+            state_lbl = "enabled" if flag else "disabled"
+            self._bump_revision(f"{actor} {state_lbl} kit re-roll on respawn.")
+            self._save_to_disk()
+            return self.snapshot()
+
+    def pick_kit(
+        self,
+        actor: str,
+        kit_id: str,
+        *,
+        target: str | None = None,
+        operator: bool = False,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
+        choice = str(kit_id).strip().lower()
+        if not choice:
+            raise LobbyError("Kit id is required.")
+        with self._lock:
+            self._sync_from_disk()
+            self._require_expected_revision(expected_revision)
+            self._require_not_frozen()
+            if self._state["mode"] and self._state["phase"] == "recap":
+                self._state["phase"] = "open"
+
+            if target is not None and target.strip().lower() != actor.strip().lower():
+                self._require_host(actor, operator=operator)
+                subject_in = target.strip()
+            else:
+                if self._state["kit_mode"] == "uniform" and target is None:
+                    self._require_host(actor, operator=operator)
+                    if (
+                        choice != arena_kits.RANDOM_SENTINEL
+                        and not self._kit_library().has_kit(choice)
+                    ):
+                        raise LobbyError(
+                            f"Unknown kit {kit_id!r}.",
+                            code="unknown_kit",
+                            revision=self._state["revision"],
+                        )
+                    self._state["kit"] = choice
+                    self._bump_revision(f"{actor} changed kit to {choice}.")
+                    self._save_to_disk()
+                    return self.snapshot()
+                subject_in = actor.strip()
+
+            human = self._find_human(subject_in)
+            bot_match = next(
+                (
+                    b["name"]
+                    for b in self._state["bots"].values()
+                    if b["name"].lower() == subject_in.lower()
+                ),
+                None,
+            )
+            subject = (
+                human["name"]
+                if human is not None
+                else bot_match
+            )
+            if subject is None:
+                raise LobbyError(
+                    "Join a team before selecting a kit.",
+                    code="not_participant",
+                    revision=self._state["revision"],
+                )
+
+            if choice != arena_kits.RANDOM_SENTINEL:
+                lib = self._kit_library()
+                if not lib.has_kit(choice):
+                    raise LobbyError(
+                        f"Unknown kit {kit_id!r}.",
+                        code="unknown_kit",
+                        revision=self._state["revision"],
+                    )
+                if self._state["kit_mode"] == "class_picker":
+                    pool_set = {k.lower() for k in self._state["kit_pool"]}
+                    if pool_set and choice not in pool_set:
+                        raise LobbyError(
+                            f"Kit {choice!r} is not in the host's allowed kit pool.",
+                            code="invalid_choice",
+                            revision=self._state["revision"],
+                        )
+
+            self._state["player_kits"][subject] = choice
+            label = "Random" if choice == arena_kits.RANDOM_SENTINEL else choice
+            self._bump_revision(f"{subject} picked kit {label}.")
+            self._save_to_disk()
+            return self.snapshot()
+
+    def clone_tweak_kit(
+        self,
+        actor: str,
+        source_id: str,
+        new_name: str,
+        *,
+        new_id: str | None = None,
+        description: str | None = None,
+        add_items: list[dict[str, Any]] | None = None,
+        remove_items: list[str] | None = None,
+        replace_items: dict[str, dict[str, Any]] | None = None,
+        enchant_tweaks: dict[str, dict[str, int | None]] | None = None,
+        add_to_pool: bool = True,
+        operator: bool = False,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            self._sync_from_disk()
+            self._require_expected_revision(expected_revision)
+            self._require_not_frozen()
+            self._require_host(actor, operator=operator)
+            lib = self._kit_library()
+            try:
+                created = lib.clone_and_tweak(
+                    source_id,
+                    new_name,
+                    new_id=new_id,
+                    description=description,
+                    add_items=add_items,
+                    remove_items=remove_items,
+                    replace_items=replace_items,
+                    enchant_tweaks=enchant_tweaks,
+                )
+            except arena_kits.KitError as error:
+                raise LobbyError(
+                    str(error),
+                    code=error.code,
+                    revision=self._state["revision"],
+                ) from error
+            if add_to_pool and created["id"] not in self._state["kit_pool"]:
+                self._state["kit_pool"].append(created["id"])
+            if self._state["phase"] == "recap":
+                self._state["phase"] = "open"
+            self._bump_revision(
+                f"{actor} created custom kit {created['name']} from {source_id}."
+            )
+            self._save_to_disk()
+            return created
 
     def set_respawns(
         self,
@@ -1891,6 +2136,9 @@ class ArenaLobby:
             self._state["countdown_revision"] = None
             self._state["ready_revisions"] = {}
             self._state["last_recap"] = copy.deepcopy(recap)
+            self._state["last_kit_assignment"] = copy.deepcopy(
+                recap.get("kit_assignment")
+            )
 
             folded: list[str] = []
             still_spectating: list[str] = []
@@ -2096,6 +2344,64 @@ class ArenaLobby:
                 expected_revision=exp,
             )
             return {"ok": True, "message": snap["last_change_reason"], "lobby": snap}
+        if action == "kit_mode":
+            snap = self.set_kit_mode(
+                actor,
+                str(payload.get("mode") or ""),
+                operator=operator,
+                expected_revision=exp,
+            )
+            return {"ok": True, "message": snap["last_change_reason"], "lobby": snap}
+        if action == "kit_pool":
+            snap = self.set_kit_pool(
+                actor,
+                payload.get("pool") or [],
+                operator=operator,
+                expected_revision=exp,
+            )
+            return {"ok": True, "message": snap["last_change_reason"], "lobby": snap}
+        if action == "kit_reroll":
+            raw = payload.get("enabled", payload.get("value"))
+            flag = (
+                raw.strip().lower() in ("on", "true", "yes", "1")
+                if isinstance(raw, str)
+                else bool(raw)
+            )
+            snap = self.set_kit_reroll(
+                actor, flag, operator=operator, expected_revision=exp
+            )
+            return {"ok": True, "message": snap["last_change_reason"], "lobby": snap}
+        if action == "kit_pick":
+            snap = self.pick_kit(
+                actor,
+                str(payload.get("kit") or ""),
+                target=payload.get("target"),
+                operator=operator,
+                expected_revision=exp,
+            )
+            return {"ok": True, "message": snap["last_change_reason"], "lobby": snap}
+        if action == "kit_clone_tweak":
+            created = self.clone_tweak_kit(
+                actor,
+                str(payload.get("source_id") or ""),
+                str(payload.get("new_name") or ""),
+                new_id=payload.get("new_id"),
+                description=payload.get("description"),
+                add_items=payload.get("add_items"),
+                remove_items=payload.get("remove_items"),
+                replace_items=payload.get("replace_items"),
+                enchant_tweaks=payload.get("enchant_tweaks"),
+                add_to_pool=bool(payload.get("add_to_pool", True)),
+                operator=operator,
+                expected_revision=exp,
+            )
+            snap = self.snapshot()
+            return {
+                "ok": True,
+                "message": snap["last_change_reason"],
+                "kit": created,
+                "lobby": snap,
+            }
         if action == "respawns":
             rmode = payload.get("respawn_mode", payload.get("mode", "elimination"))
             rcount = payload.get("respawn_count", payload.get("count", 0))
@@ -2365,6 +2671,7 @@ def make_arena_launcher(
     admin_factory: Callable[[], Any] | None = None,
     api_factory: Callable[[], Any] | None = None,
     out_dir: Path | None = None,
+    kits_path: Path | None = None,
     match_timeout_s: float = 600.0,
     async_launch: bool = True,
 ) -> Callable[[dict[str, Any]], None]:
@@ -2400,15 +2707,114 @@ def make_arena_launcher(
                 waves = list(cfg["waves"])
             else:
                 waves = []
+            mode = cfg["mode"]
+            teams = cfg["teams"] if mode in SIDED_MODES else None
+            participants = cfg["participants"] if mode not in SIDED_MODES else None
+
+            team_mobs: dict[str, list[dict[str, Any]]] | None = None
+            if mode == "teams" and cfg.get("mob_groups"):
+                grouped_mobs: dict[str, list[dict[str, Any]]] = {}
+                for grp in cfg["mob_groups"]:
+                    if (
+                        isinstance(grp, dict)
+                        and grp.get("team")
+                        and grp.get("mob")
+                    ):
+                        entry: dict[str, Any] = {
+                            "type": grp["mob"],
+                            "count": int(grp.get("count", 1)),
+                        }
+                        if isinstance(grp.get("kit"), dict):
+                            entry["kit"] = grp["kit"]
+                        grouped_mobs.setdefault(grp["team"], []).append(entry)
+                team_mobs = grouped_mobs or None
+
+            lib = arena_kits.default_library(kits_path)
+            kit_mode = cfg.get("kit_mode") or "uniform"
             kit_spec = cfg.get("kit")
-            if not kit_spec or kit_spec == "keep":
-                kit = None
-            else:
+            roster_people = list(cfg.get("participants") or [])
+            kit = None
+            player_kits: dict[str, list[dict[str, Any]]] | None = None
+            kit_assignment: dict[str, Any] | None = None
+            respawn_kit_roller = None
+
+            use_library = bool(roster_people) and (
+                kit_mode != "uniform"
+                or (
+                    isinstance(kit_spec, str)
+                    and (
+                        kit_spec.strip().lower() == arena_kits.RANDOM_SENTINEL
+                        or lib.has_kit(kit_spec)
+                    )
+                )
+            )
+            if use_library:
+                team_kits = dict(cfg.get("team_kits") or {})
+                for key, val in (cfg.get("kit_overrides") or {}).items():
+                    if isinstance(key, str) and key.startswith("team:"):
+                        team_kits.setdefault(key.removeprefix("team:"), val)
+                resolved = arena_kits.resolve_match_kits(
+                    lib,
+                    mode=kit_mode,
+                    participants=roster_people,
+                    teams=cfg.get("teams") or None,
+                    kit_id=kit_spec,
+                    team_kits=team_kits or None,
+                    player_choices=cfg.get("player_kits") or None,
+                    pool=cfg.get("kit_pool") or None,
+                    reroll_on_respawn=bool(cfg.get("reroll_on_respawn")),
+                )
+                player_kits = {
+                    p: a["compiled"]["give"]
+                    for p, a in resolved["assignments"].items()
+                }
+                kit_assignment = {
+                    k: resolved[k]
+                    for k in (
+                        "mode",
+                        "seed",
+                        "pool",
+                        "reroll_on_respawn",
+                        "shared_kit",
+                        "recap_summary",
+                    )
+                }
+                kit_assignment["assignments"] = {
+                    p: {k: v for k, v in a.items() if k != "compiled"}
+                    for p, a in resolved["assignments"].items()
+                }
+                if resolved["reroll_on_respawn"]:
+                    pool_copy = list(resolved["pool"])
+                    seed_val = resolved["seed"]
+                    prev_by_player = {
+                        p: a["kit_id"] for p, a in resolved["assignments"].items()
+                    }
+
+                    def respawn_kit_roller(
+                        player_name: str,
+                        respawn_index: int,
+                        _lib=lib,
+                        _pool=pool_copy,
+                        _seed=seed_val,
+                        _prev=prev_by_player,
+                    ):
+                        rolled = arena_kits.roll_respawn_kit(
+                            _lib,
+                            pool=_pool,
+                            seed=_seed,
+                            player=player_name,
+                            respawn_index=respawn_index,
+                            previous_kit_id=_prev.get(player_name),
+                        )
+                        _prev[player_name] = rolled["kit_id"]
+                        return rolled
+            elif kit_spec and kit_spec != "keep":
                 kit = combat_trial.kit(
                     kit_spec,
                     tier=cfg.get("weapon_material") or combat_trial.DEFAULT_TIER,
                     armor=cfg.get("armor_material") or combat_trial.DEFAULT_TIER,
                 )
+
             bots_map = {
                 b["name"]: b["bot_id"]
                 for b in cfg.get("bots") or ()
@@ -2425,9 +2831,6 @@ def make_arena_launcher(
                 if bots_map
                 else None
             )
-            mode = cfg["mode"]
-            teams = cfg["teams"] if mode in SIDED_MODES else None
-            participants = cfg["participants"] if mode not in SIDED_MODES else None
             _update_board()
             runner = run_series_fn or arena_hunt.run_series
             record_path = runner(
@@ -2446,6 +2849,10 @@ def make_arena_launcher(
                 echo=lambda _line: None,
                 label=f"lobby-rev-{cfg['revision']}",
                 kit=kit,
+                player_kits=player_kits,
+                kit_assignment=kit_assignment,
+                respawn_kit_roller=respawn_kit_roller,
+                team_mobs=team_mobs,
                 respawn_mode=cfg["respawn_mode"],
                 respawn_count=cfg["respawn_count"],
             )
@@ -2463,10 +2870,14 @@ def make_arena_launcher(
                         "seconds",
                         "players",
                         "team_kills",
+                        "allied_team_kills",
+                        "kit_assignment",
                     )
                     if last_run.get(key) is not None
                 }
                 recap["record_path"] = str(record_path)
+            if kit_assignment is not None and "kit_assignment" not in recap:
+                recap["kit_assignment"] = kit_assignment
             snap = lobby_getter().complete_match(recap)
             _update_board(snap)
         except Exception as error:  # noqa: BLE001

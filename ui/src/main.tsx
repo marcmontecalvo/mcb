@@ -7,6 +7,7 @@ import { api, token } from "./api";
 import { Fields, type House, HousesCtx, SchemaCtx, WhereCtx } from "./fields";
 import { type Where, fieldText, humanize, optionalLabel } from "./forms";
 import { History } from "./History";
+import { KitBuilder } from "./KitBuilder.jsx";
 import { LiveSession, RecentRun } from "./LiveSession";
 import {
   type Entry,
@@ -85,7 +86,7 @@ function App() {
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [connected, setConnected] = useState(false),
-    [tab, setTab] = useState<"configure" | "activity" | "history">("configure"),
+    [tab, setTab] = useState<"configure" | "kits" | "activity" | "history">("configure"),
     [seedText, setSeedText] = useState(""),
     [suiteId, setSuiteId] = useState(""),
     [showAdvanced, setShowAdvanced] = useState(false);
@@ -460,6 +461,12 @@ function App() {
                   ◇ <span>Run something</span>
                 </button>
                 <button
+                  className={tab === "kits" ? "active" : ""}
+                  onClick={() => setTab("kits")}
+                >
+                  ⚔ <span>Arena kits</span>
+                </button>
+                <button
                   className={tab === "activity" ? "active" : ""}
                   onClick={() => setTab("activity")}
                 >
@@ -485,16 +492,20 @@ function App() {
                     <h1>
                       {tab === "configure"
                         ? "Send the bot on missions"
-                        : tab === "activity"
-                          ? "Live activity"
-                          : "History & builds"}
+                        : tab === "kits"
+                          ? "Arena kits"
+                          : tab === "activity"
+                            ? "Live activity"
+                            : "History & builds"}
                     </h1>
                     <p>
                       {tab === "configure"
                         ? "Choose what to test, pick a mission, adjust it if you like, then press Start."
-                        : tab === "activity"
-                          ? "What's running now and how to watch it in Minecraft."
-                          : "Past results and house builds."}
+                        : tab === "kits"
+                          ? "Create and customize survival-legal weapon and armor kits for arena matches."
+                          : tab === "activity"
+                            ? "What's running now and how to watch it in Minecraft."
+                            : "Past results and house builds."}
                     </p>
                   </div>
                   <ServerChips
@@ -888,6 +899,7 @@ function App() {
                     </details>
                   </div>
                 )}
+                {tab === "kits" && <KitBuilder />}
                 {tab === "history" && <History />}
               </div>
             </main>

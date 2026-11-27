@@ -830,3 +830,37 @@ def test_start_sends_respawn_fields_only_when_configured():
         )
     assert bad.value.reason == "bad_request"
     assert len(t.sent) == 3
+
+
+def test_start_sends_team_mobs_and_team_mob_kits_only_in_teams_mode():
+    t = FakeTransport()
+    c = client(t)
+    mobs = {
+        "red": [{"type": "minecraft:skeleton", "count": 2}],
+        "blue": [{"type": "minecraft:zombie", "count": 3}],
+    }
+    kits = {"red": {"give": [{"item": "minecraft:bow", "count": 1}]}}
+    c.start("crossroads", "teams", team_mobs=mobs, team_mob_kits=kits)
+    fields = {k: v for k, v in t.sent[0].items() if k not in arena.ENVELOPE}
+    assert fields == {
+        "name": "crossroads",
+        "mode": "teams",
+        "team_mobs": mobs,
+        "team_mob_kits": kits,
+    }
+    with pytest.raises(arena.ArenaError) as bad_mode:
+        c.start(
+            "vault",
+            "waves",
+            waves=[{"mobs": {"minecraft:zombie": 1}}],
+            team_mobs=mobs,
+        )
+    assert bad_mode.value.reason == "bad_request"
+    with pytest.raises(arena.ArenaError) as bad_mob:
+        c.start(
+            "crossroads",
+            "teams",
+            team_mobs={"red": [{"type": "minecraft:villager", "count": 1}]},
+        )
+    assert bad_mob.value.reason == "unsupported_mob"
+    assert len(t.sent) == 1

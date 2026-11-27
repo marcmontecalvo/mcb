@@ -64,6 +64,17 @@ def _parser() -> argparse.ArgumentParser:
         help="teams and race modes: a team and its players, one flag per team",
     )
     parser.add_argument(
+        "--team-mob",
+        action="append",
+        metavar="TEAM=TYPE*N+...",
+        help="teams mode: allied mob groups for a team (e.g. red=skeleton*2+wolf@Fang)",
+    )
+    parser.add_argument(
+        "--team-mobs-json",
+        help="teams mode: JSON string or file path with team_mobs "
+        "(and optional team_mob_kits)",
+    )
+    parser.add_argument(
         "--bot",
         action="append",
         metavar="NAME",
@@ -144,13 +155,45 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _roster(parser, args) -> tuple[list[str] | None, dict | None]:
+def _parse_team_mobs_args(
+    parser, args
+) -> tuple[dict[str, list[dict]] | None, dict[str, dict] | None]:
+    if args.team_mob and args.team_mobs_json:
+        parser.error("give --team-mob or --team-mobs-json, not both")
+    if not args.team_mob and not args.team_mobs_json:
+        return None, None
+    if args.mode != "teams":
+        parser.error("--team-mob and --team-mobs-json belong to --mode teams")
+    if args.team_mob:
+        return arena.parse_team_mobs(args.team_mob), None
+    raw = args.team_mobs_json
+    path = Path(raw)
+    text = path.read_text(encoding="utf-8") if path.is_file() else raw
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError("--team-mobs-json must be a JSON object")
+    if "team_mobs" in data or "team_mob_kits" in data:
+        extra = set(data) - {"team_mobs", "team_mob_kits"}
+        if extra:
+            raise ValueError(f"--team-mobs-json has unknown field {sorted(extra)[0]}")
+        team_mobs = data.get("team_mobs")
+        team_mob_kits = data.get("team_mob_kits")
+    else:
+        team_mobs = data
+        team_mob_kits = None
+    arena.check_team_mobs(team_mobs, team_mob_kits)
+    return team_mobs, team_mob_kits
+
+
+def _roster(
+    parser, args, has_team_mobs: bool = False
+) -> tuple[list[str] | None, dict | None]:
     teams = arena.parse_teams(args.team)
     if args.mode == "waves":
         if teams:
             parser.error("--team belongs to --mode teams or race")
         return args.players or [(args.bot or [ah.BOT])[0]], None
-    if args.players or not teams:
+    if args.players or (not teams and not (args.mode == "teams" and has_team_mobs)):
         parser.error(f"--mode {args.mode} takes its players by --team, one per team")
     return None, teams
 
@@ -186,7 +229,8 @@ def main(argv=None) -> int:
     if args.repeat < 1:
         parser.error("--repeat must be at least 1")
     try:
-        participants, teams = _roster(parser, args)
+        team_mobs, team_mob_kits = _parse_team_mobs_args(parser, args)
+        participants, teams = _roster(parser, args, has_team_mobs=bool(team_mobs))
         waves = (
             arena.load_waves(args.waves)
             if args.waves
@@ -206,7 +250,7 @@ def main(argv=None) -> int:
             respawn_mode != "elimination" or respawn_delay is not None
         ):
             parser.error("respawns belong to --mode teams")
-    except (ValueError, arena.ArenaError) as error:
+    except (ValueError, OSError, arena.ArenaError) as error:
         parser.error(str(error))
     people = ah.roster(participants, teams)
     ops = {name: True for name in args.op} | {name: False for name in args.deop}
@@ -246,6 +290,8 @@ def main(argv=None) -> int:
         respawn_mode=respawn_mode,
         respawn_count=respawn_count,
         respawn_delay_ticks=respawn_delay,
+        team_mobs=team_mobs,
+        team_mob_kits=team_mob_kits,
     )
     record = json.loads(path.read_text(encoding="utf-8"))
     print(json.dumps(record["summary"]))

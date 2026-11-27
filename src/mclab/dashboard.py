@@ -966,6 +966,49 @@ def handler(dashboard):
                     from mclab import arena_lobby
 
                     return self.reply(200, arena_lobby.default_lobby().snapshot())
+                if parsed.path == "/api/kits":
+                    from mclab import arena_kits
+
+                    return self.reply(
+                        200,
+                        {
+                            "kits": arena_kits.default_library().list_kits(),
+                            "catalog": arena_kits.catalog_metadata(),
+                        },
+                    )
+                if parsed.path == "/api/kits/catalog":
+                    from mclab import arena_kits
+
+                    return self.reply(200, arena_kits.catalog_metadata())
+                if parsed.path.startswith("/api/kits/"):
+                    from mclab import arena_kits
+
+                    kit_id = unquote(parsed.path.removeprefix("/api/kits/"))
+                    try:
+                        return self.reply(
+                            200, arena_kits.default_library().get_kit(kit_id)
+                        )
+                    except arena_kits.KitError as error:
+                        return self._reply_kit_error(error)
+                if parsed.path == "/api/scenarios":
+                    from mclab import arena_scenarios
+
+                    try:
+                        return self.reply(200, arena_scenarios.list_scenarios())
+                    except arena_scenarios.ScenarioError as error:
+                        return self.reply(400, {"error": str(error)})
+                if parsed.path.startswith("/api/scenarios/"):
+                    from mclab import arena_scenarios
+
+                    scenario_id = unquote(parsed.path.removeprefix("/api/scenarios/"))
+                    try:
+                        return self.reply(
+                            200, arena_scenarios.get_scenario(scenario_id)
+                        )
+                    except arena_scenarios.ScenarioNotFoundError as error:
+                        return self.reply(404, {"error": str(error)})
+                    except arena_scenarios.ScenarioError as error:
+                        return self.reply(400, {"error": str(error)})
                 if parsed.path == "/api/sessions":
                     return self.reply(200, dashboard.sessions())
                 if parsed.path == "/api/baseline-progress":
@@ -981,28 +1024,202 @@ def handler(dashboard):
                 if parsed.path == "/api/detail":
                     relative = parse_qs(parsed.query).get("path", [""])[0]
                     path = runs.project_file(relative)
-                    if path not in runs.summary_paths():
+                    if (
+                        path not in runs.summary_paths()
+                        and path not in runs.arena_summary_paths()
+                    ):
                         raise ValueError("Select a run summary")
                     return self.reply(200, read_json(path))
                 return self.reply(404, {"error": "Not found"})
             except (OSError, ValueError, TypeError, KeyError) as error:
                 return self.reply(400, {"error": str(error)})
 
-        def do_POST(self):
+        def _check_mutation_auth(self):
             origin = f"http://127.0.0.1:{self.server.server_port}"
             if (
                 not self.trusted_host()
                 or self.headers.get("Origin") != origin
-                or not secrets.compare_digest(self.headers.get("X-UI-Token", ""), token)
+                or not secrets.compare_digest(
+                    self.headers.get("X-UI-Token", ""), token
+                )
             ):
-                return self.reply(403, {"error": "Reload the local dashboard"})
+                self.reply(403, {"error": "Reload the local dashboard"})
+                return False
+            return True
+
+        def _read_json_body(self, *, allow_empty=False):
+            length = int(self.headers.get("Content-Length", "0"))
+            if length == 0 and allow_empty:
+                return {}
+            if not 0 < length <= 65_536:
+                raise ValueError("Invalid request size")
+            request = json.loads(self.rfile.read(length))
+            if not isinstance(request, dict):
+                raise ValueError("JSON request must be an object")
+            return request
+
+        def _reply_kit_error(self, error):
+            code = getattr(error, "code", "kit_error")
+            if hasattr(error, "errors"):
+                return self.reply(
+                    400,
+                    {
+                        "error": str(error),
+                        "code": code,
+                        "errors": list(error.errors),
+                    },
+                )
+            status = (
+                403
+                if code == "readonly_builtin"
+                else 404
+                if code == "not_found"
+                else 409
+                if code == "duplicate_id"
+                else 400
+            )
+            return self.reply(status, {"error": str(error), "code": code})
+
+        def do_POST(self):
+            if not self._check_mutation_auth():
+                return
+            parsed = urlsplit(self.path)
+            path = parsed.path
             try:
-                length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 16_384:
-                    raise ValueError("Invalid request size")
-                request = json.loads(self.rfile.read(length))
-                if not isinstance(request, dict):
-                    raise ValueError("JSON request must be an object")
+                allow_empty = path.endswith("/duplicate") or path.endswith("/swap")
+                request = self._read_json_body(allow_empty=allow_empty)
+                if path == "/api/kits":
+                    from mclab import arena_kits
+
+                    try:
+                        return self.reply(
+                            200, arena_kits.default_library().create_kit(request)
+                        )
+                    except arena_kits.KitError as error:
+                        return self._reply_kit_error(error)
+                if path == "/api/kits/validate":
+                    from mclab import arena_kits
+
+                    try:
+                        norm = arena_kits.validate_kit(request)
+                        return self.reply(
+                            200,
+                            {
+                                "valid": True,
+                                "kit": norm,
+                                "power": arena_kits.score_kit(norm),
+                                "compiled": arena_kits.compile_kit(norm),
+                            },
+                        )
+                    except arena_kits.KitError as error:
+                        return self._reply_kit_error(error)
+                if path.startswith("/api/kits/") and path.endswith("/duplicate"):
+                    from mclab import arena_kits
+
+                    kit_id = unquote(
+                        path.removeprefix("/api/kits/").removesuffix("/duplicate")
+                    )
+                    try:
+                        return self.reply(
+                            200,
+                            arena_kits.default_library().duplicate_kit(
+                                kit_id,
+                                request.get("name"),
+                                new_id=request.get("id"),
+                                description=request.get("description"),
+                            ),
+                        )
+                    except arena_kits.KitError as error:
+                        return self._reply_kit_error(error)
+                if path == "/api/scenarios":
+                    from mclab import arena_scenarios
+
+                    try:
+                        return self.reply(200, arena_scenarios.save_scenario(request))
+                    except arena_scenarios.ScenarioError as error:
+                        return self.reply(400, {"error": str(error)})
+                if path == "/api/scenarios/expand":
+                    from mclab import arena_scenarios
+
+                    try:
+                        return self.reply(
+                            200,
+                            arena_scenarios.expand_comparison_jobs(
+                                request["baseline_id"],
+                                request["variant_id"],
+                                repetitions=request.get("repetitions", 1),
+                                include_side_swap=request.get(
+                                    "include_side_swap", True
+                                ),
+                                arena_teams=request.get("arena_teams"),
+                            ),
+                        )
+                    except arena_scenarios.ScenarioNotFoundError as error:
+                        return self.reply(404, {"error": str(error)})
+                    except arena_scenarios.ScenarioError as error:
+                        return self.reply(400, {"error": str(error)})
+                if path == "/api/scenarios/compare":
+                    from mclab import arena_scenarios
+
+                    try:
+                        return self.reply(
+                            200,
+                            arena_scenarios.compare_scenarios(
+                                request["baseline_id"],
+                                request["variant_id"],
+                                results_dir=ROOT / "results/companion/arena",
+                                baseline_version=request.get("baseline_version"),
+                                variant_version=request.get("variant_version"),
+                                baseline_paths=request.get("baseline_paths"),
+                                variant_paths=request.get("variant_paths"),
+                                root=ROOT,
+                            ),
+                        )
+                    except arena_scenarios.ScenarioNotFoundError as error:
+                        return self.reply(404, {"error": str(error)})
+                    except arena_scenarios.ScenarioError as error:
+                        return self.reply(400, {"error": str(error)})
+                if path.startswith("/api/scenarios/") and path.endswith("/duplicate"):
+                    from mclab import arena_scenarios
+
+                    scenario_id = unquote(
+                        path.removeprefix("/api/scenarios/").removesuffix("/duplicate")
+                    )
+                    try:
+                        return self.reply(
+                            200,
+                            arena_scenarios.duplicate_scenario(
+                                scenario_id,
+                                name=request["name"],
+                                factor_note=request.get("factor_note", ""),
+                                edits=request.get("edits"),
+                                new_id=request.get("id"),
+                            ),
+                        )
+                    except arena_scenarios.ScenarioNotFoundError as error:
+                        return self.reply(404, {"error": str(error)})
+                    except arena_scenarios.ScenarioError as error:
+                        return self.reply(400, {"error": str(error)})
+                if path.startswith("/api/scenarios/") and path.endswith("/swap"):
+                    from mclab import arena_scenarios
+
+                    scenario_id = unquote(
+                        path.removeprefix("/api/scenarios/").removesuffix("/swap")
+                    )
+                    try:
+                        return self.reply(
+                            200,
+                            arena_scenarios.create_swapped_scenario(
+                                scenario_id,
+                                name=request.get("name"),
+                                new_id=request.get("id"),
+                                arena_teams=request.get("arena_teams"),
+                            ),
+                        )
+                    except arena_scenarios.ScenarioNotFoundError as error:
+                        return self.reply(404, {"error": str(error)})
+                    except arena_scenarios.ScenarioError as error:
+                        return self.reply(400, {"error": str(error)})
                 if self.path == "/api/start":
                     return self.reply(200, dashboard.start(request))
                 if self.path == "/api/suites":
@@ -1103,6 +1320,63 @@ def handler(dashboard):
                                 "manually after review"
                             )
                         return self.reply(200, delete_session(request.get("id")))
+                return self.reply(404, {"error": "Not found"})
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                return self.reply(400, {"error": str(error)})
+
+        def do_PUT(self):
+            if not self._check_mutation_auth():
+                return
+            path = urlsplit(self.path).path
+            try:
+                request = self._read_json_body()
+                if path.startswith("/api/kits/"):
+                    from mclab import arena_kits
+
+                    kit_id = unquote(path.removeprefix("/api/kits/"))
+                    try:
+                        return self.reply(
+                            200,
+                            arena_kits.default_library().update_kit(kit_id, request),
+                        )
+                    except arena_kits.KitError as error:
+                        return self._reply_kit_error(error)
+                return self.reply(404, {"error": "Not found"})
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                return self.reply(400, {"error": str(error)})
+
+        def do_DELETE(self):
+            if not self._check_mutation_auth():
+                return
+            path = urlsplit(self.path).path
+            try:
+                if path.startswith("/api/kits/"):
+                    from mclab import arena_kits
+
+                    kit_id = unquote(path.removeprefix("/api/kits/"))
+                    try:
+                        return self.reply(
+                            200, arena_kits.default_library().delete_kit(kit_id)
+                        )
+                    except arena_kits.KitError as error:
+                        return self._reply_kit_error(error)
+                if path.startswith("/api/scenarios/"):
+                    from mclab import arena_scenarios
+
+                    scenario_id = unquote(path.removeprefix("/api/scenarios/"))
+                    try:
+                        deleted = arena_scenarios.delete_scenario(scenario_id)
+                        if not deleted:
+                            return self.reply(
+                                404, {"error": f"Scenario {scenario_id!r} not found"}
+                            )
+                        return self.reply(
+                            200, {"deleted": True, "id": scenario_id}
+                        )
+                    except arena_scenarios.ScenarioNotFoundError as error:
+                        return self.reply(404, {"error": str(error)})
+                    except arena_scenarios.ScenarioError as error:
+                        return self.reply(400, {"error": str(error)})
                 return self.reply(404, {"error": "Not found"})
             except (OSError, ValueError, TypeError, KeyError) as error:
                 return self.reply(400, {"error": str(error)})

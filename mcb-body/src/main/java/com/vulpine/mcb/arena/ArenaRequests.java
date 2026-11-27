@@ -39,7 +39,11 @@ public final class ArenaRequests {
      * let participants keep what they carry across death (still dropping nothing), false to clear their inventory on death.
      */
     public record Start(String name, String mode, List<Wave> waves, List<String> participants, Map<String, List<String>> teams,
-                        int[] exit, int[] series, boolean keepInventory, ArenaRespawns.Config respawns) {}
+                        int[] exit, int[] series, boolean keepInventory, ArenaRespawns.Config respawns,
+                        Map<String, List<ArenaAlliedMobs.Group>> teamMobs,
+                        Map<String, ArenaAlliedMobs.MobKit> teamMobKits) {
+        public boolean hasAlliedMobs() { return ArenaAlliedMobs.totalCount(teamMobs) > 0; }
+    }
 
     /** A sidebar board for an arena (the series standings between matches): title and rows, or clear to take it down. */
     public record Board(String name, String title, List<ArenaLogic.Line> rows, boolean clear) {}
@@ -133,10 +137,15 @@ public final class ArenaRequests {
      */
     public static Start parseStart(JsonObject request) {
         only(request, Set.of("name", "mode", "waves", "participants", "teams", "exit", "series", "keep_inventory",
-                "respawn_mode", "respawn_count", "respawn_delay_ticks"));
+                "respawn_mode", "respawn_count", "respawn_delay_ticks", "team_mobs", "team_mob_kits"));
         String name = name(request), mode = text(request, "mode");
         if (!ArenaLogic.MODES.contains(mode)) throw bad("mode must be waves, teams or race");
         if (!ArenaLogic.sided(mode) && request.has("teams")) throw bad("teams belong to the teams and race modes");
+        if (!ArenaLogic.pvp(mode) && (request.has("team_mobs") || request.has("team_mob_kits"))) {
+            throw bad("team_mobs and team_mob_kits belong to the teams mode");
+        }
+        var teamMobs = request.has("team_mobs") ? ArenaAlliedMobs.parseTeamMobs(request.get("team_mobs")) : Map.<String, List<ArenaAlliedMobs.Group>>of();
+        var teamMobKits = request.has("team_mob_kits") ? ArenaAlliedMobs.parseTeamMobKits(request.get("team_mob_kits")) : Map.<String, ArenaAlliedMobs.MobKit>of();
         var waves = new ArrayList<Wave>();
         boolean optional = mode.equals("teams");
         if (request.has("waves") || !optional) {
@@ -166,7 +175,7 @@ public final class ArenaRequests {
         int[] series = request.has("series") ? series(request.get("series")) : null;
         var respawns = parseRespawns(request, mode);
         return new Start(name, mode, List.copyOf(waves), participants == null ? null : List.copyOf(participants), teams, exit, series,
-                flag(request, "keep_inventory"), respawns);
+                flag(request, "keep_inventory"), respawns, teamMobs, teamMobKits);
     }
 
     private static ArenaRespawns.Config parseRespawns(JsonObject request, String mode) {

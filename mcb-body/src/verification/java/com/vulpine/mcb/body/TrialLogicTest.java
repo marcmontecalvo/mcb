@@ -108,6 +108,151 @@ public final class TrialLogicTest {
         var many = new StringBuilder("{\"summon\":[");
         for (int i = 0; i < 9; i++) many.append(i == 0 ? "" : ",").append("{\"type\":\"minecraft:zombie\",\"offset\":[1,0,0]}");
         rejects(many.append("]}").toString(), "bad_request");
+        kitPolicy();
         System.out.println("TrialLogicTest ok");
+    }
+
+    private static void acceptsKit(String json) {
+        KitPolicy.validateArenaKit(parse(json).give());
+    }
+
+    private static void rejectsKit(String json, String reason) {
+        try {
+            KitPolicy.validateArenaKit(parse(json).give());
+        } catch (BodyActions.Fail fail) {
+            check(fail.getMessage().equals(reason), json + " -> " + fail.getMessage() + " (expected " + reason + ")");
+            return;
+        }
+        throw new AssertionError("accepted illegal arena kit " + json);
+    }
+
+    private static void kitPolicy() {
+        // Built-in starter classes + copper tier + legacy DEFAULT_KIT must all pass
+        acceptsKit("{\"give\":["
+                + "{\"item\":\"minecraft:iron_sword\",\"count\":1,\"enchantments\":{\"minecraft:sharpness\":2}},"
+                + "{\"item\":\"minecraft:iron_helmet\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1}},"
+                + "{\"item\":\"minecraft:iron_chestplate\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1}},"
+                + "{\"item\":\"minecraft:iron_leggings\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1}},"
+                + "{\"item\":\"minecraft:iron_boots\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1}},"
+                + "{\"item\":\"minecraft:shield\",\"count\":1},"
+                + "{\"item\":\"minecraft:cooked_beef\",\"count\":16},"
+                + "{\"item\":\"minecraft:golden_apple\",\"count\":2},"
+                + "{\"item\":\"minecraft:splash_potion\",\"count\":2,\"potion\":\"minecraft:strong_healing\"}"
+                + "]}");
+        acceptsKit("{\"give\":["
+                + "{\"item\":\"minecraft:bow\",\"count\":1,\"enchantments\":{\"minecraft:power\":2,\"minecraft:punch\":1}},"
+                + "{\"item\":\"minecraft:arrow\",\"count\":64},"
+                + "{\"item\":\"minecraft:stone_sword\",\"count\":1},"
+                + "{\"item\":\"minecraft:chainmail_helmet\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1}},"
+                + "{\"item\":\"minecraft:chainmail_chestplate\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1}},"
+                + "{\"item\":\"minecraft:chainmail_leggings\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1}},"
+                + "{\"item\":\"minecraft:chainmail_boots\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1,\"minecraft:feather_falling\":1}},"
+                + "{\"item\":\"minecraft:cooked_beef\",\"count\":16},"
+                + "{\"item\":\"minecraft:potion\",\"count\":1,\"potion\":\"minecraft:swiftness\"}"
+                + "]}");
+        acceptsKit("{\"give\":["
+                + "{\"item\":\"minecraft:iron_axe\",\"count\":1},"
+                + "{\"item\":\"minecraft:diamond_chestplate\",\"count\":1,\"enchantments\":{\"minecraft:protection\":2}},"
+                + "{\"item\":\"minecraft:iron_helmet\",\"count\":1,\"enchantments\":{\"minecraft:protection\":2}},"
+                + "{\"item\":\"minecraft:iron_leggings\",\"count\":1,\"enchantments\":{\"minecraft:protection\":2}},"
+                + "{\"item\":\"minecraft:iron_boots\",\"count\":1,\"enchantments\":{\"minecraft:protection\":2}},"
+                + "{\"item\":\"minecraft:shield\",\"count\":1,\"enchantments\":{\"minecraft:unbreaking\":2}},"
+                + "{\"item\":\"minecraft:cooked_beef\",\"count\":16},"
+                + "{\"item\":\"minecraft:golden_apple\",\"count\":3},"
+                + "{\"item\":\"minecraft:potion\",\"count\":1,\"potion\":\"minecraft:regeneration\"}"
+                + "]}");
+        acceptsKit("{\"give\":["
+                + "{\"item\":\"minecraft:iron_sword\",\"count\":1,\"enchantments\":{\"minecraft:knockback\":1}},"
+                + "{\"item\":\"minecraft:crossbow\",\"count\":1,\"enchantments\":{\"minecraft:quick_charge\":1}},"
+                + "{\"item\":\"minecraft:arrow\",\"count\":32},"
+                + "{\"item\":\"minecraft:trident\",\"count\":1,\"enchantments\":{\"minecraft:loyalty\":2}},"
+                + "{\"item\":\"minecraft:chainmail_helmet\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1}},"
+                + "{\"item\":\"minecraft:chainmail_chestplate\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1}},"
+                + "{\"item\":\"minecraft:chainmail_leggings\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1}},"
+                + "{\"item\":\"minecraft:chainmail_boots\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1}},"
+                + "{\"item\":\"minecraft:cooked_beef\",\"count\":16},"
+                + "{\"item\":\"minecraft:potion\",\"count\":2,\"potion\":\"minecraft:swiftness\"},"
+                + "{\"item\":\"minecraft:splash_potion\",\"count\":2,\"potion\":\"minecraft:strong_healing\"}"
+                + "]}");
+        // Copper tier + legacy DEFAULT_KIT (5 weapons + shield + armor + food + 14 potions)
+        acceptsKit("{\"give\":["
+                + "{\"item\":\"minecraft:copper_sword\",\"count\":1},"
+                + "{\"item\":\"minecraft:copper_chestplate\",\"count\":1}"
+                + "]}");
+        acceptsKit("{\"give\":["
+                + "{\"item\":\"minecraft:iron_sword\",\"count\":1},"
+                + "{\"item\":\"minecraft:iron_axe\",\"count\":1},"
+                + "{\"item\":\"minecraft:iron_spear\",\"count\":1},"
+                + "{\"item\":\"minecraft:bow\",\"count\":1},"
+                + "{\"item\":\"minecraft:arrow\",\"count\":64},"
+                + "{\"item\":\"minecraft:trident\",\"count\":1,\"enchantments\":{\"minecraft:loyalty\":3}},"
+                + "{\"item\":\"minecraft:shield\",\"count\":1},"
+                + "{\"item\":\"minecraft:iron_helmet\",\"count\":1},"
+                + "{\"item\":\"minecraft:iron_chestplate\",\"count\":1},"
+                + "{\"item\":\"minecraft:iron_leggings\",\"count\":1},"
+                + "{\"item\":\"minecraft:iron_boots\",\"count\":1},"
+                + "{\"item\":\"minecraft:cooked_beef\",\"count\":16},"
+                + "{\"item\":\"minecraft:golden_apple\",\"count\":2},"
+                + "{\"item\":\"minecraft:potion\",\"count\":6,\"potion\":\"minecraft:strong_healing\"},"
+                + "{\"item\":\"minecraft:splash_potion\",\"count\":8,\"potion\":\"minecraft:strong_healing\"}"
+                + "]}");
+
+        // Illegal enchantment levels (including above vanilla max and level <= 10 that TrialLogic allows)
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:iron_sword\",\"count\":1,\"enchantments\":{\"minecraft:sharpness\":6}}]}", "illegal_enchantment_level");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:iron_helmet\",\"count\":1,\"enchantments\":{\"minecraft:protection\":5}}]}", "illegal_enchantment_level");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:trident\",\"count\":1,\"enchantments\":{\"minecraft:loyalty\":4}}]}", "illegal_enchantment_level");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:bow\",\"count\":1,\"enchantments\":{\"minecraft:flame\":2}}]}", "illegal_enchantment_level");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:bow\",\"count\":1,\"enchantments\":{\"minecraft:power\":6}}]}", "illegal_enchantment_level");
+        rejects("{\"give\":[{\"item\":\"minecraft:iron_sword\",\"count\":1,\"enchantments\":{\"minecraft:sharpness\":100}}]}", "bad_request");
+
+        // Inapplicable enchantments
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:iron_sword\",\"count\":1,\"enchantments\":{\"minecraft:power\":2}}]}", "incompatible_enchantment");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:bow\",\"count\":1,\"enchantments\":{\"minecraft:sharpness\":2}}]}", "incompatible_enchantment");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:iron_sword\",\"count\":1,\"enchantments\":{\"minecraft:protection\":1}}]}", "incompatible_enchantment");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:iron_axe\",\"count\":1,\"enchantments\":{\"minecraft:loyalty\":1}}]}", "incompatible_enchantment");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:iron_helmet\",\"count\":1,\"enchantments\":{\"minecraft:feather_falling\":1}}]}", "incompatible_enchantment");
+
+        // Conflicting enchantments
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:iron_sword\",\"count\":1,\"enchantments\":{\"minecraft:sharpness\":2,\"minecraft:smite\":2}}]}", "conflicting_enchantments");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:iron_chestplate\",\"count\":1,\"enchantments\":{\"minecraft:protection\":2,\"minecraft:blast_protection\":2}}]}", "conflicting_enchantments");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:crossbow\",\"count\":1,\"enchantments\":{\"minecraft:multishot\":1,\"minecraft:piercing\":1}}]}", "conflicting_enchantments");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:trident\",\"count\":1,\"enchantments\":{\"minecraft:loyalty\":1,\"minecraft:riptide\":1}}]}", "conflicting_enchantments");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:bow\",\"count\":1,\"enchantments\":{\"minecraft:infinity\":1,\"minecraft:mending\":1}}]}", "conflicting_enchantments");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:mace\",\"count\":1,\"enchantments\":{\"minecraft:density\":2,\"minecraft:breach\":2}}]}", "conflicting_enchantments");
+
+        // Disallowed / creative / grief items
+        for (String badItem : new String[] {
+                "minecraft:enchanted_golden_apple", "minecraft:lava_bucket", "minecraft:water_bucket",
+                "minecraft:ender_pearl", "minecraft:chorus_fruit", "minecraft:tnt",
+                "minecraft:end_crystal", "minecraft:command_block", "minecraft:bedrock",
+                "minecraft:flint_and_steel"
+        }) {
+            rejectsKit("{\"give\":[{\"item\":\"" + badItem + "\",\"count\":1}]}", "item_not_allowed");
+        }
+
+        // Potion requirements & allowlist
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:potion\",\"count\":1}]}", "potion_required");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:splash_potion\",\"count\":1}]}", "potion_required");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:lingering_potion\",\"count\":1}]}", "potion_required");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:tipped_arrow\",\"count\":8}]}", "potion_required");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:potion\",\"count\":1,\"potion\":\"minecraft:invisibility\"}]}", "potion_not_allowed");
+
+        // Cap violations
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:golden_apple\",\"count\":9}]}", "kit_cap_exceeded");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:totem_of_undying\",\"count\":2}]}", "kit_cap_exceeded");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:shield\",\"count\":2}]}", "kit_cap_exceeded");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:iron_helmet\",\"count\":1},{\"item\":\"minecraft:diamond_helmet\",\"count\":1}]}", "kit_cap_exceeded");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:arrow\",\"count\":129}]}", "kit_cap_exceeded");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:cooked_beef\",\"count\":65}]}", "kit_cap_exceeded");
+        rejectsKit("{\"give\":[{\"item\":\"minecraft:splash_potion\",\"count\":17,\"potion\":\"minecraft:strong_healing\"}]}", "kit_cap_exceeded");
+        rejectsKit("{\"give\":["
+                + "{\"item\":\"minecraft:wooden_sword\",\"count\":1},"
+                + "{\"item\":\"minecraft:stone_sword\",\"count\":1},"
+                + "{\"item\":\"minecraft:iron_sword\",\"count\":1},"
+                + "{\"item\":\"minecraft:diamond_sword\",\"count\":1},"
+                + "{\"item\":\"minecraft:netherite_sword\",\"count\":1},"
+                + "{\"item\":\"minecraft:iron_axe\",\"count\":1},"
+                + "{\"item\":\"minecraft:bow\",\"count\":1}"
+                + "]}", "kit_cap_exceeded");
     }
 }

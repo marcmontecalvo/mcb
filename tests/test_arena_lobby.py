@@ -1338,3 +1338,170 @@ def test_make_arena_launcher_recovers_to_open_on_failure_and_attaches_on_launch(
     assert first._on_launch is None
     second = arena_lobby.default_lobby(runtime_dir=rt, on_launch=launcher)
     assert second is first and second._on_launch is launcher
+
+
+# --- 12. Kit library modes, random kits, host clone/tweak & anti-scumming -----
+
+
+def test_lobby_kit_modes_class_picker_and_host_tweak(tmp_path):
+    from mclab import arena_kits
+
+    kits_path = tmp_path / "arena-kits.json"
+    fleet = FakeFleet()
+    lobby = arena_lobby_with_kits(tmp_path, kits_path, fleet=fleet)
+    snap = lobby.snapshot()
+    assert snap["kit_mode"] == "uniform"
+    assert snap["kit_pool"] == ["fighter", "archer", "tank", "skirmisher"]
+    assert snap["team_kits"] == {}
+    assert snap["player_kits"] == {}
+    assert snap["reroll_on_respawn"] is False
+
+    lobby.join("Alice", "red")
+    lobby.join("Bob", "blue")
+
+    # Non-host cannot change kit_mode, kit_pool, or reroll_on_respawn
+    for fn in (
+        lambda: lobby.set_kit_mode("Bob", "class_picker"),
+        lambda: lobby.set_kit_pool("Bob", ["fighter", "archer"]),
+        lambda: lobby.set_kit_reroll("Bob", True),
+        lambda: lobby.clone_tweak_kit("Bob", "fighter", "Sneaky"),
+    ):
+        with pytest.raises(PermissionError_, match="host"):
+            fn()
+
+    # Host switches to class_picker with restricted pool
+    snap = lobby.set_kit_mode("Alice", "class_picker")
+    assert snap["kit_mode"] == "class_picker"
+    lobby.set_kit_pool("Alice", ["fighter", "archer"])
+    lobby.set_kit_reroll("Alice", True)
+    assert lobby.snapshot()["reroll_on_respawn"] is True
+
+    # Seated player can pick a kit from pool OR 'random'
+    lobby.pick_kit("Bob", "random")
+    assert lobby.snapshot()["player_kits"]["Bob"] == "random"
+    lobby.pick_kit("Alice", "archer")
+    assert lobby.snapshot()["player_kits"]["Alice"] == "archer"
+    with pytest.raises(LobbyError, match="pool"):
+        lobby.pick_kit("Bob", "tank")
+
+    # Host can clone & tweak a kit in the lobby using survival-legal validation
+    tweaked = lobby.clone_tweak_kit(
+        "Alice",
+        "fighter",
+        "Boosted Fighter",
+        add_items=[{"item": "minecraft:cooked_beef", "count": 4}],
+        add_to_pool=True,
+    )
+    assert tweaked["id"] in lobby.snapshot()["kit_pool"]
+    lib = arena_kits.KitLibrary(kits_path)
+    assert lib.has_kit(tweaked["id"])
+
+    # Illegal sharpness 100 tweak is rejected cleanly
+    with pytest.raises(LobbyError, match="level|invalid"):
+        lobby.clone_tweak_kit(
+            "Alice",
+            "fighter",
+            "Cheat Sword",
+            enchant_tweaks={"minecraft:iron_sword": {"minecraft:sharpness": 100}},
+        )
+
+
+def arena_lobby_with_kits(tmp_path, kits_path, *, fleet=None, clock=None, on_launch=None):
+    return ArenaLobby(
+        state_path=tmp_path / "arena-lobby.json",
+        runtime_dir=tmp_path,
+        kits_path=kits_path,
+        fleet=fleet if fleet is not None else FakeFleet(),
+        clock=clock if clock is not None else FakeClock(),
+        on_launch=on_launch,
+    )
+
+
+def test_random_kits_roll_at_match_start_only_and_forward_team_mobs(tmp_path):
+    from mclab import arena_lobby as arena_lobby_module
+
+    launched: list[dict] = []
+    record_file = tmp_path / "rec.json"
+    record_file.write_text(
+        json.dumps(
+            {
+                "runs": [
+                    {
+                        "winner": "red",
+                        "outcome": "won",
+                        "seconds": 12.0,
+                        "players": {"Alice": {"player_kills": 1}},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeAdmin:
+        def require_protocol(self):
+            return {"protocol": 6}
+
+    def fake_prepare(admin, arena_name, *, echo):
+        return {"arena": arena_name, "spawn": [0, 102, 0], "built": []}
+
+    def fake_run_series(api, admin, name, waves, **kwargs):
+        launched.append(kwargs)
+        # Exercise respawn_kit_roller once if provided
+        if kwargs.get("respawn_kit_roller"):
+            rolled = kwargs["respawn_kit_roller"]("Bob", 1)
+            assert rolled["kit_id"] in {"fighter", "archer", "tank", "skirmisher"}
+            assert rolled["compiled"]["give"]
+        return record_file
+
+    holder: dict[str, ArenaLobby] = {}
+    kits_path = tmp_path / "arena-kits.json"
+    launcher = arena_lobby_module.make_arena_launcher(
+        runtime_dir=tmp_path,
+        lobby_getter=lambda: holder["lobby"],
+        prepare_fn=fake_prepare,
+        run_series_fn=fake_run_series,
+        admin_factory=lambda: FakeAdmin(),
+        api_factory=lambda: object(),
+        kits_path=kits_path,
+        async_launch=False,
+    )
+    clock = FakeClock()
+    lobby = arena_lobby_with_kits(tmp_path, kits_path, clock=clock, on_launch=launcher)
+    holder["lobby"] = lobby
+    lobby.join("Alice", "red")
+    lobby.join("Bob", "blue")
+    lobby.add_mob_group("Alice", "red", "minecraft:skeleton", 2)
+    lobby.add_mob_group("Alice", "blue", "minecraft:zombie", 2)
+    lobby.set_kit_mode("Alice", "class_picker")
+    lobby.pick_kit("Alice", "fighter")
+    lobby.pick_kit("Bob", "random")
+    lobby.set_kit_reroll("Alice", True)
+
+    # Anti-reroll-scumming: random assignment must NOT appear before match start!
+    snap = lobby.snapshot()
+    assert snap["last_kit_assignment"] is None
+    assert snap["player_kits"]["Bob"] == "random"
+
+    rev = snap["revision"]
+    lobby.ready("Alice", seen_revision=rev)
+    lobby.ready("Bob", seen_revision=rev)
+    assert lobby.snapshot()["phase"] == "countdown"
+    assert lobby.snapshot()["last_kit_assignment"] is None
+
+    clock.advance(6.0)
+    lobby.tick()
+
+    assert len(launched) == 1
+    kwargs = launched[0]
+    assert kwargs["team_mobs"] == {
+        "red": [{"type": "minecraft:skeleton", "count": 2}],
+        "blue": [{"type": "minecraft:zombie", "count": 2}],
+    }
+    assert "Alice" in kwargs["player_kits"] and "Bob" in kwargs["player_kits"]
+    meta = kwargs["kit_assignment"]
+    assert meta["mode"] == "class_picker" and isinstance(meta["seed"], int)
+    assert meta["assignments"]["Alice"]["random_rolled"] is False
+    assert meta["assignments"]["Bob"]["random_rolled"] is True
+    assert lobby.snapshot()["last_recap"]["kit_assignment"]["seed"] == meta["seed"]
+

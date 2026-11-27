@@ -335,17 +335,50 @@ public final class ArenaRuntime {
         if (req.exit() != null) ArenaLogic.checkHeight(ArenaBox.of(req.exit(), new int[] {1, 2, 1}), level.getMinY(), level.getMaxY());
         var players = new ArrayList<ServerPlayer>();
         var teamPlayers = new LinkedHashMap<String, List<ServerPlayer>>();
+        var alliedSpecs = List.<ArenaAlliedMobs.MemberSpec>of();
+        boolean hasAllied = req.hasAlliedMobs() || !req.teamMobs().isEmpty() || !req.teamMobKits().isEmpty();
         if (teamMode) {
             var arenaTeams = record.teams().keySet();
-            var names = req.participants() != null ? req.participants() : inBounds(record, level);
-            var assignment = req.teams() != null ? req.teams() : ArenaLogic.assignTeams(new ArrayList<>(arenaTeams), names);
-            ArenaLogic.checkTeams(assignment, new LinkedHashSet<>(arenaTeams), padCounts(record), record.capacity().perTeam());
+            Map<String, List<String>> assignment;
+            if (req.teams() != null) {
+                assignment = req.teams();
+            } else if (req.participants() != null) {
+                if (hasAllied && req.participants().size() < 2) {
+                    var dealt = new LinkedHashMap<String, List<String>>();
+                    var teamList = new ArrayList<>(arenaTeams);
+                    for (var t : teamList) dealt.put(t, new ArrayList<>());
+                    for (int i = 0; i < req.participants().size(); i++) {
+                        dealt.get(teamList.get(i % teamList.size())).add(req.participants().get(i));
+                    }
+                    assignment = dealt;
+                } else {
+                    assignment = ArenaLogic.assignTeams(new ArrayList<>(arenaTeams), req.participants());
+                }
+            } else if (hasAllied) {
+                assignment = Map.of();
+            } else {
+                var names = inBounds(record, level);
+                assignment = ArenaLogic.assignTeams(new ArrayList<>(arenaTeams), names);
+            }
+            if (hasAllied) {
+                ArenaAlliedMobs.checkConfig(new LinkedHashSet<>(arenaTeams), assignment, req.teamMobs(), req.teamMobKits(),
+                        record.capacity().mobs());
+                alliedSpecs = ArenaAlliedMobs.resolveMembers(req.teamMobs(), req.teamMobKits());
+                ArenaMatch.validateAlliedMobs(level, alliedSpecs);
+                ArenaLogic.checkTeams(assignment, new LinkedHashSet<>(arenaTeams), padCounts(record),
+                        record.capacity().perTeam(), ArenaAlliedMobs.countByTeam(req.teamMobs()));
+            } else {
+                ArenaLogic.checkTeams(assignment, new LinkedHashSet<>(arenaTeams), padCounts(record), record.capacity().perTeam());
+            }
             assignment.forEach((team, members) -> {
                 var resolved = new ArrayList<ServerPlayer>();
                 for (var name : members) resolved.add(living(name));
                 teamPlayers.put(team, resolved);
                 players.addAll(resolved);
             });
+            for (var team : req.teamMobs().keySet()) {
+                teamPlayers.computeIfAbsent(team, t -> new ArrayList<>());
+            }
         } else {
             var names = req.participants() != null ? req.participants() : inBounds(record, level);
             if (names.isEmpty()) throw new ArenaFail("no_participants", "no player is inside " + record.name());
@@ -358,7 +391,7 @@ public final class ArenaRuntime {
         }
         sweep(record, level);
         var match = new ArenaMatch(server, emitter, record, level, req.mode(), req.waves(), players, teamPlayers, req.exit(), req.series(),
-                req.keepInventory(), req.respawns());
+                req.keepInventory(), req.respawns(), alliedSpecs);
         matches.put(record.name(), match);
         holdChunks(record, level);
         registry.save();
@@ -377,6 +410,7 @@ public final class ArenaRuntime {
             teamPlayers.forEach((team, members) -> assigned.put(team, members.stream().map(p -> p.getName().getString()).toList()));
             out.put("teams", assigned);
         }
+        if (hasAllied) out.put("team_mobs", ArenaAlliedMobs.countByTeam(req.teamMobs()));
         afterAck.add(match::start);
         return out;
     }
@@ -491,11 +525,20 @@ public final class ArenaRuntime {
         for (var match : runtime.matches.values()) match.died(entity, source);
     }
 
-    /** ALLOW_DAMAGE: false refuses a hit one participant lands on another outside team against team. */
+    /** ALLOW_DAMAGE: false refuses friendly fire in teams mode or PvP outside team against team. */
     public static boolean allowDamage(LivingEntity entity, DamageSource source) {
         var runtime = active;
         if (runtime == null) return true;
         for (var match : runtime.matches.values()) if (!match.allowsDamage(entity, source)) return false;
+        return true;
+    }
+
+    /** MobTargetMixin: false blocks Mob.setTarget when an arena mob would target an ally or non-participant. */
+    public static boolean canMobTarget(Mob mob, LivingEntity target) {
+        if (mob == null || target == null) return true;
+        var runtime = active;
+        if (runtime == null || runtime.matches.isEmpty()) return true;
+        for (var match : runtime.matches.values()) if (!match.canMobTarget(mob, target)) return false;
         return true;
     }
 

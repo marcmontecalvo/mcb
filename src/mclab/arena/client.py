@@ -41,10 +41,42 @@ OPS = (
 # table, drawn by the mod like a match's) in place of arena_say. 4: arena_start's
 # keep_inventory (arena deaths never drop; keep_inventory keeps what they carry).
 # 5: arena_start's respawn_mode, respawn_count and respawn_delay_ticks (PvP respawns).
-PROTOCOL = 5
+# 6: arena_start's team_mobs and team_mob_kits (counted allied mob groups in teams mode).
+PROTOCOL = 6
 RESPAWN_MODES = ("elimination", "player", "team")
 MAX_RESPAWNS = 99
 MAX_RESPAWN_DELAY_TICKS = 1200
+SUPPORTED_ALLIED_MOBS = frozenset(
+    {
+        "minecraft:zombie",
+        "minecraft:husk",
+        "minecraft:drowned",
+        "minecraft:skeleton",
+        "minecraft:stray",
+        "minecraft:wither_skeleton",
+        "minecraft:spider",
+        "minecraft:cave_spider",
+        "minecraft:pillager",
+        "minecraft:vindicator",
+        "minecraft:witch",
+        "minecraft:iron_golem",
+        "minecraft:wolf",
+        "minecraft:piglin_brute",
+        "minecraft:blaze",
+        "minecraft:breeze",
+    }
+)
+MAX_ALLIED_GROUP_COUNT = 32
+MAX_ALLIED_GROUPS_PER_TEAM = 32
+MAX_ALLIED_NAME_LEN = 32
+MAX_KIT_GIVE = 36
+MAX_KIT_COUNT = 256
+MAX_KIT_ENCHANTMENTS = 4
+MAX_KIT_ENCHANTMENT_LEVEL = 10
+KIT_FIELDS = frozenset({"give", "clear_inventory", "heal", "wear"})
+GIVE_FIELDS = frozenset({"item", "count", "enchantments", "potion"})
+ALLIED_GROUP_FIELDS = frozenset({"type", "count", "name", "kit", "overrides"})
+ALLIED_OVERRIDE_FIELDS = frozenset({"index", "name", "kit"})
 UPDATE_MOD = "stop the arena server, run `mcarena mod-install`, then start it again"
 ENVELOPE = frozenset(
     {
@@ -181,6 +213,210 @@ def check_waves(waves) -> None:
 
 def _whole(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _check_mob_name(value, where: str) -> None:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > MAX_ALLIED_NAME_LEN
+        or not value.strip()
+    ):
+        raise ArenaError(
+            "bad_request",
+            f"{where} must be 1..{MAX_ALLIED_NAME_LEN} non-blank characters",
+        )
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in value):
+        raise ArenaError("bad_request", f"{where} holds a control character")
+
+
+def _check_mob_kit(kit, where: str) -> None:
+    if not isinstance(kit, dict):
+        raise ArenaError("bad_request", f"{where} must be an object")
+    extra = set(kit) - KIT_FIELDS
+    if extra:
+        raise ArenaError("bad_request", f"{where} has unknown field {sorted(extra)[0]}")
+    for flag in ("clear_inventory", "heal", "wear"):
+        if flag in kit and not isinstance(kit[flag], bool):
+            raise ArenaError("bad_request", f"{where}.{flag} must be true or false")
+    if "give" in kit:
+        give = kit["give"]
+        if not isinstance(give, list) or len(give) > MAX_KIT_GIVE:
+            raise ArenaError(
+                "bad_request", f"{where}.give must be a list of at most {MAX_KIT_GIVE} items"
+            )
+        for i, entry in enumerate(give):
+            g_where = f"{where}.give[{i}]"
+            if not isinstance(entry, dict):
+                raise ArenaError("bad_request", f"{g_where} must be an object")
+            g_extra = set(entry) - GIVE_FIELDS
+            if g_extra:
+                raise ArenaError(
+                    "bad_request", f"{g_where} has unknown field {sorted(g_extra)[0]}"
+                )
+            item = entry.get("item")
+            if not isinstance(item, str) or not MOB_ID.fullmatch(item):
+                raise ArenaError("bad_request", f"{g_where}.item must be a namespaced id")
+            if "count" in entry:
+                cnt = entry["count"]
+                if not _whole(cnt) or not 1 <= cnt <= MAX_KIT_COUNT:
+                    raise ArenaError(
+                        "bad_request", f"{g_where}.count must be 1..{MAX_KIT_COUNT}"
+                    )
+            if "enchantments" in entry:
+                ench = entry["enchantments"]
+                if not isinstance(ench, dict) or len(ench) > MAX_KIT_ENCHANTMENTS:
+                    raise ArenaError(
+                        "bad_request",
+                        f"{g_where}.enchantments must map at most {MAX_KIT_ENCHANTMENTS} ids",
+                    )
+                for eid, lvl in ench.items():
+                    if not isinstance(eid, str) or not MOB_ID.fullmatch(eid):
+                        raise ArenaError(
+                            "bad_request",
+                            f"{g_where}.enchantments {eid} is not a namespaced id",
+                        )
+                    if not _whole(lvl) or not 1 <= lvl <= MAX_KIT_ENCHANTMENT_LEVEL:
+                        raise ArenaError(
+                            "bad_request",
+                            f"{g_where}.enchantments.{eid} must be 1..{MAX_KIT_ENCHANTMENT_LEVEL}",
+                        )
+            if "potion" in entry:
+                potion = entry["potion"]
+                if not isinstance(potion, str) or not MOB_ID.fullmatch(potion):
+                    raise ArenaError(
+                        "bad_request", f"{g_where}.potion must be a namespaced id"
+                    )
+
+
+def check_team_mobs(team_mobs, team_mob_kits=None) -> None:
+    """Validate ``team_mobs`` and optional ``team_mob_kits`` with the mod's rules."""
+    if team_mobs is not None:
+        if not isinstance(team_mobs, dict):
+            raise ArenaError(
+                "bad_request", "team_mobs must map a team to a list of mob groups"
+            )
+        for team, groups in team_mobs.items():
+            if not isinstance(team, str) or not NAME.fullmatch(team):
+                raise ArenaError("bad_request", f"team name {team!r}")
+            t_where = f"team_mobs.{team}"
+            if not isinstance(groups, list) or len(groups) > MAX_ALLIED_GROUPS_PER_TEAM:
+                raise ArenaError(
+                    "bad_request",
+                    f"{t_where} must be a list of at most {MAX_ALLIED_GROUPS_PER_TEAM} groups",
+                )
+            for i, group in enumerate(groups):
+                g_where = f"{t_where}[{i}]"
+                if not isinstance(group, dict):
+                    raise ArenaError("bad_request", f"{g_where} must be an object")
+                extra = set(group) - ALLIED_GROUP_FIELDS
+                if extra:
+                    raise ArenaError(
+                        "bad_request", f"{g_where} has unknown field {sorted(extra)[0]}"
+                    )
+                mob_type = group.get("type")
+                if not isinstance(mob_type, str) or not MOB_ID.fullmatch(mob_type):
+                    raise ArenaError(
+                        "bad_request", f"{g_where}.type must be a namespaced id"
+                    )
+                if mob_type not in SUPPORTED_ALLIED_MOBS:
+                    raise ArenaError(
+                        "unsupported_mob",
+                        f"{mob_type} is not a supported allied mob",
+                    )
+                count = group.get("count")
+                if not _whole(count) or not 1 <= count <= MAX_ALLIED_GROUP_COUNT:
+                    raise ArenaError(
+                        "bad_request",
+                        f"{g_where}.count must be 1..{MAX_ALLIED_GROUP_COUNT}",
+                    )
+                if "name" in group and group["name"] is not None:
+                    _check_mob_name(group["name"], f"{g_where}.name")
+                if "kit" in group and group["kit"] is not None:
+                    _check_mob_kit(group["kit"], f"{g_where}.kit")
+                if "overrides" in group and group["overrides"] is not None:
+                    overrides = group["overrides"]
+                    if not isinstance(overrides, list):
+                        raise ArenaError(
+                            "bad_request", f"{g_where}.overrides must be a list"
+                        )
+                    seen_indices: set[int] = set()
+                    for j, ov in enumerate(overrides):
+                        ov_where = f"{g_where}.overrides[{j}]"
+                        if not isinstance(ov, dict):
+                            raise ArenaError(
+                                "bad_request", f"{ov_where} must be an object"
+                            )
+                        ov_extra = set(ov) - ALLIED_OVERRIDE_FIELDS
+                        if ov_extra:
+                            raise ArenaError(
+                                "bad_request",
+                                f"{ov_where} has unknown field {sorted(ov_extra)[0]}",
+                            )
+                        idx = ov.get("index")
+                        if not _whole(idx) or not 0 <= idx < count:
+                            raise ArenaError(
+                                "bad_request",
+                                f"{ov_where}.index must be 0..{count - 1}",
+                            )
+                        if idx in seen_indices:
+                            raise ArenaError(
+                                "bad_request", f"{ov_where}.index {idx} is duplicated"
+                            )
+                        seen_indices.add(idx)
+                        if "name" in ov and ov["name"] is not None:
+                            _check_mob_name(ov["name"], f"{ov_where}.name")
+                        if "kit" in ov and ov["kit"] is not None:
+                            _check_mob_kit(ov["kit"], f"{ov_where}.kit")
+    if team_mob_kits is not None:
+        if not isinstance(team_mob_kits, dict):
+            raise ArenaError(
+                "bad_request", "team_mob_kits must map a team to a kit object"
+            )
+        for team, kit in team_mob_kits.items():
+            if not isinstance(team, str) or not NAME.fullmatch(team):
+                raise ArenaError("bad_request", f"team name {team!r}")
+            _check_mob_kit(kit, f"team_mob_kits.{team}")
+
+
+def parse_team_mobs(items: list[str] | None) -> dict[str, list[dict]] | None:
+    """``["red=skeleton*2+wolf@Fang", "blue=zombie*3"]`` to ``team_mobs`` dict."""
+    if not items:
+        return None
+    out: dict[str, list[dict]] = {}
+    for item in items:
+        team, sep, spec = item.partition("=")
+        if not sep or not NAME.fullmatch(team) or not spec.strip():
+            raise ArenaError(
+                "bad_request",
+                f"--team-mob wants TEAM=type*count+type (got {item!r})",
+            )
+        groups = out.setdefault(team, [])
+        for raw_part in spec.split("+"):
+            part = raw_part.strip()
+            if not part:
+                raise ArenaError(
+                    "bad_request",
+                    f"--team-mob wants TEAM=type*count+type (got {item!r})",
+                )
+            head, has_at, label = part.partition("@")
+            kind, has_star, count_str = head.partition("*")
+            kind = kind.strip()
+            if not kind or (has_star and (not count_str.isdigit() or count_str == "0")):
+                raise ArenaError(
+                    "bad_request",
+                    f"--team-mob wants TEAM=type*count+type (got {item!r})",
+                )
+            full_type = kind if ":" in kind else f"minecraft:{kind}"
+            group: dict = {
+                "type": full_type,
+                "count": int(count_str) if has_star else 1,
+            }
+            if has_at:
+                group["name"] = label.strip()
+            groups.append(group)
+    check_team_mobs(out)
+    return out
 
 
 def normalize_respawns(
@@ -544,6 +780,8 @@ class ArenaClient:
         respawn_mode: str = "elimination",
         respawn_count: int | None = None,
         respawn_delay_ticks: int | None = None,
+        team_mobs: dict[str, Sequence[dict]] | None = None,
+        team_mob_kits: dict[str, dict] | None = None,
     ) -> dict:
         """A match: ``waves`` (co-op), ``teams`` (team against team; waves
         optional, empty for none) or ``race`` (teams race to kill the waves).
@@ -552,7 +790,8 @@ class ArenaClient:
         say which); ``keep_inventory``: keep what participants carry across
         death instead of clearing their inventory (nothing is dropped either way);
         ``respawn_mode`` / ``respawn_count`` / ``respawn_delay_ticks``: PvP
-        respawn rules (``teams`` mode only)."""
+        respawn rules (``teams`` mode only); ``team_mobs`` / ``team_mob_kits``:
+        counted allied mob groups and default team mob kits (``teams`` mode only)."""
         if waves:
             check_waves(waves)
         norm_mode, norm_count, norm_delay = normalize_respawns(
@@ -560,6 +799,12 @@ class ArenaClient:
         )
         if mode != "teams" and (norm_mode != "elimination" or norm_delay is not None):
             raise ArenaError("bad_request", "respawns belong to the teams mode")
+        if team_mobs is not None or team_mob_kits is not None:
+            if mode != "teams":
+                raise ArenaError(
+                    "bad_request", "team_mobs and team_mob_kits belong to the teams mode"
+                )
+            check_team_mobs(team_mobs, team_mob_kits)
         fields = {
             "waves": waves or None,
             "participants": participants,
@@ -570,6 +815,8 @@ class ArenaClient:
             "respawn_mode": norm_mode if norm_mode != "elimination" else None,
             "respawn_count": norm_count if norm_mode != "elimination" else None,
             "respawn_delay_ticks": norm_delay,
+            "team_mobs": team_mobs,
+            "team_mob_kits": team_mob_kits,
         }
         return self.call(
             "arena_start",

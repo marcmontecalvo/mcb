@@ -130,9 +130,11 @@ MODES = frozenset({"waves", "teams", "race"})  # co-op, team against team, kill 
 
 
 def foes(match: dict, bot: str | None) -> list[dict]:
-    """A match's foes, as status rows: every placed wave mob, then, in the teams
-    mode (the only one where players hurt players), each live participant of
-    another team than the bot's. A bot on no team has no enemies among players."""
+    """A match's foes, as status rows: every placed neutral wave mob, then, in
+    the teams mode (the only one where teams fight teams), each live participant
+    and each live allied team mob of another team than the bot's. Allied mobs on
+    the bot's own team are strictly excluded. A bot on no team has no enemies
+    among players or team mobs."""
     rows = [m for m in match.get("wave_mobs") or () if _position(m) is not None]
     if match.get("mode") != "teams" or not bot:
         return rows
@@ -154,6 +156,21 @@ def foes(match: dict, bot: str | None) -> list[dict]:
                         "name": p.get("name"),
                     }
                 )
+    for m in match.get("team_mobs") or ():
+        if not isinstance(m, dict):
+            continue
+        team = m.get("team")
+        if not team or team == side:
+            continue
+        if m.get("alive", True) and _position(m) is not None and m.get("type"):
+            row = {
+                "uuid": m.get("uuid"),
+                "type": m["type"],
+                "position": m["position"],
+            }
+            if m.get("name"):
+                row["name"] = m["name"]
+            rows.append(row)
     return rows
 
 

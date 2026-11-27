@@ -29,6 +29,11 @@ public final class McbCommand {
     private static final List<String> MODES = List.of("teams", "waves", "race");
     private static final List<String> TOGGLES = List.of("on", "off");
     private static final List<String> RESPAWN_MODES = List.of("elimination", "player", "team");
+    private static final List<String> KITS = List.of("fighter", "archer", "tank", "skirmisher", "random");
+    private static final List<String> KIT_MODES = List.of("uniform", "per_team", "class_picker", "everyone_random",
+            "random_shared");
+    private static final List<String> ALLIED_MOBS = List.of("skeleton", "zombie", "pillager", "vindicator",
+            "spider", "witch", "iron_golem", "blaze", "breeze");
 
     private McbCommand() {}
 
@@ -184,7 +189,47 @@ public final class McbCommand {
                                 .then(Commands.argument("bot", StringArgumentType.word()).executes(context ->
                                         run(context.getSource(), "lobby", Map.of(
                                                 "action", "bot_remove",
-                                                "bot", StringArgumentType.getString(context, "bot")))))));
+                                                "bot", StringArgumentType.getString(context, "bot")))))))
+                .then(Commands.literal("kit")
+                        .then(Commands.argument("kit_id", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(KITS, builder))
+                                .executes(context -> run(context.getSource(), "lobby", Map.of(
+                                        "action", "kit_pick",
+                                        "kit", StringArgumentType.getString(context, "kit_id"))))))
+                .then(Commands.literal("kitmode")
+                        .then(Commands.argument("mode", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(KIT_MODES, builder))
+                                .executes(context -> run(context.getSource(), "lobby", Map.of(
+                                        "action", "kit_mode",
+                                        "mode", StringArgumentType.getString(context, "mode"))))))
+                .then(Commands.literal("kitreroll")
+                        .then(Commands.argument("state", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(TOGGLES, builder))
+                                .executes(context -> run(context.getSource(), "lobby", Map.of(
+                                        "action", "kit_reroll",
+                                        "value", StringArgumentType.getString(context, "state"))))))
+                .then(Commands.literal("mob")
+                        .then(Commands.literal("add")
+                                .then(Commands.argument("team", StringArgumentType.word())
+                                        .suggests((context, builder) -> SharedSuggestionProvider.suggest(TEAMS, builder))
+                                        .then(Commands.argument("mob", StringArgumentType.word())
+                                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(ALLIED_MOBS, builder))
+                                                .executes(context -> run(context.getSource(), "lobby", Map.of(
+                                                        "action", "mob_add",
+                                                        "team", StringArgumentType.getString(context, "team"),
+                                                        "mob", StringArgumentType.getString(context, "mob"),
+                                                        "count", 1)))
+                                                .then(Commands.argument("count", IntegerArgumentType.integer(1, 32)).executes(context ->
+                                                        run(context.getSource(), "lobby", Map.of(
+                                                                "action", "mob_add",
+                                                                "team", StringArgumentType.getString(context, "team"),
+                                                                "mob", StringArgumentType.getString(context, "mob"),
+                                                                "count", IntegerArgumentType.getInteger(context, "count"))))))))
+                        .then(Commands.literal("remove")
+                                .then(Commands.argument("group_id", StringArgumentType.word()).executes(context ->
+                                        run(context.getSource(), "lobby", Map.of(
+                                                "action", "mob_remove",
+                                                "group_id", StringArgumentType.getString(context, "group_id")))))));
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> lobbyAction(String action) {

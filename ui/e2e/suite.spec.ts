@@ -344,3 +344,44 @@ test("invalid seeds block the list; keyboard navigation still works", async ({ p
   await expect(page.getByLabel("Times to run", { exact: true })).toBeFocused();
   expect(await noSideScroll(page)).toBe(true);
 });
+
+test("create a custom arena kit and manage versioned scenarios with side-swap", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/");
+
+  // Arena kits tab: inspect starter classes, duplicate Fighter, rename and save, persist across reload
+  await page.getByRole("button", { name: /Arena kits/ }).click();
+  await expect(page.getByRole("heading", { name: "Arena kits" })).toBeVisible();
+  await expect(page.getByText("Starter Classes")).toBeVisible();
+  await page.getByRole("button", { name: "Duplicate" }).first().click();
+  await expect(page.getByLabel("Kit name")).toHaveValue("Fighter Copy");
+  await page.getByLabel("Kit name").fill("Vanguard I");
+  await page.getByRole("button", { name: "Save Changes" }).click();
+  await expect(page.getByText('Saved kit "Vanguard I".')).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: /Arena kits/ }).click();
+  await expect(page.getByText("Vanguard I")).toBeVisible();
+
+  // History -> Scenarios & comparison: save baseline, duplicate + edit 1 factor, swap sides
+  await page.getByRole("button", { name: /History & builds/ }).click();
+  await page.getByRole("button", { name: "Scenarios & comparison" }).click();
+  await page.getByRole("button", { name: "+ Save new scenario" }).click();
+  await page.getByLabel("Scenario name").fill("Crossroads Baseline");
+  await page.getByRole("button", { name: "Save scenario" }).click();
+  await expect(page.getByText('Saved scenario "Crossroads Baseline" (v1).')).toBeVisible();
+
+  await page.getByRole("button", { name: "Duplicate & edit" }).first().click();
+  await page.getByLabel("Variant name").fill("Crossroads Archer");
+  await page.getByLabel("New value").fill("archer");
+  await page.getByLabel("Factor note").fill("Switch global kit to archer");
+  await page.getByRole("button", { name: "Create variant" }).click();
+  await expect(page.getByText(/Created variant "Crossroads Archer"/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Swap sides" }).first().click();
+  await expect(page.getByText(/Created side-swapped scenario/)).toBeVisible();
+  expect(await noSideScroll(page)).toBe(true);
+  expect(errors).toEqual([]);
+});
