@@ -1006,6 +1006,7 @@ def _start_adapters(fleet, settings, token, runtime, *, on_shutdown=None):
             lobby = arena_lobby.default_lobby(
                 fleet=fleet, runtime_dir=runtime, on_launch=launcher
             )
+            publisher = _lobby_publisher(lobby, fleet, _lobby_board)
             ingress = companion_ingress.Ingress(
                 fleet,
                 fleet,
@@ -1014,8 +1015,14 @@ def _start_adapters(fleet, settings, token, runtime, *, on_shutdown=None):
                 poll_s=0.25,
                 stop_all=True,
                 lobby=lobby,
-                publisher=_lobby_publisher(lobby, fleet, _lobby_board),
+                publisher=publisher,
             )
+            threading.Thread(
+                target=_refresh_lobby,
+                args=(publisher,),
+                name="lobby-refresh",
+                daemon=True,
+            ).start()
         else:
             ingress = companion_ingress.Ingress(
                 fleet,
@@ -1029,6 +1036,34 @@ def _start_adapters(fleet, settings, token, runtime, *, on_shutdown=None):
     except Exception:  # noqa: BLE001
         log.exception("chat ingress not started")
     return stops
+
+
+def _refresh_lobby(
+    publisher, *, ensure=None, attempts=60, delay_s=5.0, sleep=time.sleep
+):
+    """Build the lobby if it is missing or from an older design, then republish its
+    screens; True once done. Run once when the arena host starts: a resumed bot spawns
+    at its saved position, so nothing else rebuilds an old lobby before players come.
+    The server may still be starting, so a failure is retried ``attempts`` times."""
+    if ensure is None:
+        from mclab.arena import client as arena_client
+        from mclab.arena import world
+
+        def ensure():
+            world.ensure_lobby(arena_client.ArenaClient.from_state(), echo=log.info)
+
+    for attempt in range(attempts):
+        try:
+            ensure()
+        except Exception:  # noqa: BLE001 - the server may not be up yet
+            log.debug("lobby not ready yet", exc_info=True)
+            if attempt + 1 < attempts:
+                sleep(delay_s)
+            continue
+        publisher.publish()
+        return True
+    log.warning("the lobby could not be brought up to date")
+    return False
 
 
 def _lobby_publisher(lobby, fleet, board, *, client_factory=None, players=None):

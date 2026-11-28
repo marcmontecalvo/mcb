@@ -1364,18 +1364,62 @@ def test_arena_instance_wires_lobby_and_board_into_ingress(tmp_path, monkeypatch
     monkeypatch.setattr(
         paths, "INSTANCE", pytypes.SimpleNamespace(name="arena"), raising=False
     )
+    refreshed = []
+    monkeypatch.setattr(companion_host, "_refresh_lobby", refreshed.append)
     stops = companion_host._start_adapters(
         "fleet", {"companion_port": 8777}, "tok", tmp_path
     )
     ingress_call = next(e for e in log if e[0] == "ingress")
     lobby_obj, board_cb = ingress_call[5], ingress_call[6]
     publisher, poll_s = ingress_call[7], ingress_call[8]
+    for _ in range(100):  # the refresh runs on its own thread
+        if refreshed:
+            break
+        time.sleep(0.01)
+    assert refreshed == [publisher]
     assert lobby_obj is not None
     assert callable(lobby_obj._on_launch)
     assert board_cb is None  # the publisher owns the floating board
     assert publisher.lobby is lobby_obj
     assert poll_s == 0.25
     assert len(stops) == 2
+
+
+def test_the_arena_host_brings_the_lobby_up_to_date_at_start_and_republishes():
+    # A resumed bot spawns at its saved position, so nothing else rebuilds a lobby
+    # left from an older design before players arrive.
+    calls, sleeps = [], []
+
+    def ensure():
+        calls.append("ensure")
+        if len(calls) < 3:
+            raise OSError("server still starting")
+
+    class Publisher:
+        def publish(self):
+            calls.append("publish")
+
+    assert companion_host._refresh_lobby(
+        Publisher(), ensure=ensure, attempts=5, delay_s=2.0, sleep=sleeps.append
+    )
+    assert calls == ["ensure", "ensure", "ensure", "publish"]
+    assert sleeps == [2.0, 2.0]
+
+
+def test_the_lobby_refresh_gives_up_after_its_attempts():
+    sleeps = []
+
+    def ensure():
+        raise OSError("down")
+
+    class Publisher:
+        def publish(self):
+            raise AssertionError("never published")
+
+    assert not companion_host._refresh_lobby(
+        Publisher(), ensure=ensure, attempts=3, delay_s=1.0, sleep=sleeps.append
+    )
+    assert sleeps == [1.0, 1.0]
 
 
 def test_the_lobby_publisher_sends_through_the_arena_client_and_skips_bots():
