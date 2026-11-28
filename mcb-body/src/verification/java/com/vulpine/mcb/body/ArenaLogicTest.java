@@ -552,7 +552,7 @@ public final class ArenaLogicTest {
                 && !ArenaLogic.isOperationName("trial") && !ArenaLogic.isOperationName("arena_bogus"), "the ops the runtime owns");
         check(ArenaLogic.isOperationName("arena_spawn") && ArenaLogic.isOperationName("arena_op")
                 && ArenaLogic.isOperationName("arena_kit"), "the world's spawn, ops and kits");
-        check(ArenaLogic.OPS.size() == 11, "eleven ops");
+        check(ArenaLogic.OPS.size() == 12 && ArenaLogic.isOperationName("arena_lobby_view"), "twelve ops, the lobby view among them");
     }
 
     private static void cursor() {
@@ -775,7 +775,7 @@ public final class ArenaLogicTest {
         rejects(() -> ArenaRequests.parseStart(json(many + "]}")), "bad_request", "wave count cap");
 
         // protocol 6: allied mob groups in arena_start (teams mode)
-        check(ArenaLogic.PROTOCOL == 6, "protocol bumped to 6 for allied mobs");
+        check(ArenaLogic.PROTOCOL >= 6, "protocol 6 or later carries allied mobs");
         check(mapped.respawns().mode() == ArenaRespawns.Mode.ELIMINATION
                 && mapped.respawns().count() == 0
                 && mapped.respawns().delayTicks() == ArenaRespawns.DEFAULT_DELAY_TICKS,
@@ -1010,28 +1010,18 @@ public final class ArenaLogicTest {
     }
 
     private static void lobbyStations() {
-        check(ArenaLobbyStations.STATIONS.size() == 16, "16 lobby stations defined");
+        // the full station checks live in ArenaLobbyMenuTest; here, each station's two cells map back to it
+        check(ArenaLobbyStations.STATIONS.size() == 6, "6 lobby stations defined");
         int[] origin = new int[] {-12, 100, -12};
-        check(ArenaLobbyStations.payloadFor(null, 0, 0, 0) == null, "null origin returns null");
-        check(ArenaLobbyStations.payloadFor(origin, 0, 102, 0) == null, "non-station block returns null");
+        check(ArenaLobbyStations.at(null, 0, 0, 0) == null, "null origin returns null");
+        check(ArenaLobbyStations.at(origin, 0, 102, 0) == null, "non-station block returns null");
         for (var station : ArenaLobbyStations.STATIONS) {
-            var wall = ArenaLobbyStations.payloadFor(
-                    origin, origin[0] + station.x(), origin[1] + station.y(), origin[2] + station.z());
-            var banner = ArenaLobbyStations.payloadFor(
-                    origin, origin[0] + station.bannerX(), origin[1] + station.bannerY(), origin[2] + station.bannerZ());
-            check(station.payload().equals(wall) && station.payload().equals(banner),
-                    "wall and banner match for " + station.label());
+            check(ArenaLobbyStations.at(origin, origin[0] + station.signX(), origin[1] + station.signY(), origin[2] + station.signZ()) == station,
+                    "sign of " + station.id());
+            if (station.hasButton())
+                check(ArenaLobbyStations.at(origin, origin[0] + station.buttonX(), origin[1] + station.buttonY(),
+                        origin[2] + station.buttonZ()) == station, "button of " + station.id());
         }
-        check(Map.of("action", "play").equals(ArenaLobbyStations.fromSignLines(List.of("[Play]", "Start"))),
-                "sign Play");
-        check(Map.of("action", "join", "team", "green").equals(ArenaLobbyStations.fromSignLines(List.of("[Join Green]"))),
-                "sign Join Green");
-        check(Map.of("action", "cycle_respawns").equals(ArenaLobbyStations.fromSignLines(List.of("Respawns"))),
-                "sign Respawns");
-        check(Map.of("action", "rematch").equals(ArenaLobbyStations.fromSignLines(List.of("Play Again"))),
-                "sign Play Again");
-        check(ArenaLobbyStations.fromSignLines(List.of("Welcome", "Friends")) == null,
-                "unrecognized sign lines return null");
     }
 
     private static void alliedMobs() {

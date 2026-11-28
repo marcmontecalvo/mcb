@@ -514,3 +514,25 @@ def test_ravager_straddles_a_stair_edge_but_not_a_two_deep_drop():
 
     assert 5 in reach([1, 1, 2, 3, 3, 3, 3, 3])
     assert 7 not in reach([1, 1, 3, 3, 3, 3, 3, 3])
+
+
+def _banned(plan):
+    return [p for p in ap.validate(plan) if p.startswith("banned")]
+
+
+def test_wall_signs_and_buttons_are_allowed_in_the_lobby_only():
+    sign = Fill((5, 5, 5), (5, 5, 5), "minecraft:oak_wall_sign[facing=east]")
+    button = Fill((6, 5, 5), (6, 5, 5), "minecraft:stone_button[face=wall,facing=east]")
+    room = good_plan()
+    for name, expected in (("lobby", 0), ("room", 2)):
+        plan = replace(room, name=name, fills=[*room.fills, sign, button])
+        assert len(_banned(plan)) == expected, name
+    standing = Fill((5, 5, 5), (5, 5, 5), "minecraft:oak_sign[rotation=4]")
+    assert _banned(replace(room, name="lobby", fills=[*room.fills, standing]))
+
+
+def test_wall_signs_and_buttons_do_not_block_a_body():
+    assert ap.is_passable("oak_wall_sign") and ap.is_passable("stone_button")
+    assert not ap.is_passable("oak_planks")
+    assert ap.is_lobby_station_block("dark_oak_wall_sign")
+    assert not ap.is_lobby_station_block("oak_door")

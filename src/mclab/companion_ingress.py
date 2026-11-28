@@ -138,6 +138,7 @@ class Ingress:
         stop_all=False,
         lobby=None,
         board=None,
+        publisher=None,
     ):
         """``host`` and ``talker`` may be a ``Fleet`` (several bots): then ``/mcb stop``
         names every bot (``stop_all``), and the other commands reach the first bot,
@@ -147,6 +148,7 @@ class Ingress:
         self.players = players  # () -> online player names, or None when unknown
         self.lobby = lobby
         self.board = board
+        self.publisher = publisher  # LobbyPublisher: the menus, signs and display
         self.cursor: int | None = None
         self.launch_id = None
         self.gaps = 0
@@ -211,6 +213,14 @@ class Ingress:
                 print(
                     f"companion-ingress: lobby tick {type(error).__name__}", flush=True
                 )
+            if self.publisher is not None:
+                try:
+                    self.publisher.tick()
+                except Exception as error:
+                    print(
+                        f"companion-ingress: lobby view {type(error).__name__}",
+                        flush=True,
+                    )
 
     # -- events ---------------------------------------------------------------
 
@@ -304,11 +314,16 @@ class Ingress:
             return self._tell(actor, "Lobby is not enabled on this server.")
         from mclab.arena_lobby import LobbyError
 
+        screen = data.get("then") or data.get("menu_screen") or "home"
+        if str(data.get("action") or "").strip().lower() == "menu":
+            return self._show(actor, "home", None)
         try:
             result = lobby.handle_action(actor.name, data)
         except LobbyError as error:
+            self._show(actor, screen, (f"{error}", "red"))
             return self._tell(actor, f"Lobby: {error}")
         except Exception:
+            self._show(actor, screen, ("Something went wrong. Try again.", "red"))
             return self._tell(actor, "Lobby: something went wrong.")
         message = result.get("message") or "Lobby updated."
         self._tell(actor, message)
@@ -318,6 +333,20 @@ class Ingress:
                 self.board("lobby", title, rows)
             except Exception:
                 pass
+        self._show(actor, screen, (message, "green"), snap=result.get("lobby"))
+
+    def _show(self, actor, screen, notice, *, snap=None):
+        """Answer a lobby action by opening ``screen`` for the actor with ``notice``
+        (text, colour). Never raises: the screens must not break the chat reply."""
+        if self.publisher is None:
+            return
+        entry = {"screen": screen}
+        if notice and notice[0]:
+            entry["notice"] = {"text": notice[0][:200], "color": notice[1]}
+        try:
+            self.publisher.publish(snap, show={actor.name: entry})
+        except Exception as error:
+            print(f"companion-ingress: lobby show {type(error).__name__}", flush=True)
 
     def _attack(self, actor, data):
         """``/mcb attack <word> [weapon]``: the word is an online player's name first,

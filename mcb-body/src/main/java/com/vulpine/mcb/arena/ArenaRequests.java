@@ -21,7 +21,7 @@ public final class ArenaRequests {
     /** A dragon takes the world apart; everything else (a wither included) is the arena's to contain. */
     static final Set<String> FORBIDDEN_MOBS = Set.of("minecraft:ender_dragon");
     private static final Pattern ID = Pattern.compile("[a-z0-9_.-]+:[a-z0-9_./-]+");
-    private static final Pattern PLAYER = Pattern.compile("[A-Za-z0-9_]{1,16}");
+    static final Pattern PLAYER = Pattern.compile("[A-Za-z0-9_]{1,16}");
 
     public record Build(ArenaPlan plan, int[] origin, String name, String dimension) {}
 
@@ -67,32 +67,32 @@ public final class ArenaRequests {
 
     static final Set<String> KIT_FIELDS = Set.of("give", "clear_inventory", "heal", "wear");
 
-    private static ArenaFail bad(String detail) { return new ArenaFail("bad_request", detail); }
+    static ArenaFail bad(String detail) { return new ArenaFail("bad_request", detail); }
 
-    private static void only(JsonObject request, Set<String> fields) {
+    static void only(JsonObject request, Set<String> fields) {
         for (var key : request.keySet()) if (!fields.contains(key) && !ENVELOPE.contains(key)) throw bad("unknown field " + key);
     }
 
-    private static String text(JsonObject o, String key) {
+    static String text(JsonObject o, String key) {
         var e = o.get(key);
         if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isString()) throw bad(key + " must be text");
         return e.getAsString();
     }
 
-    private static String name(JsonObject o) {
+    static String name(JsonObject o) {
         String name = text(o, "name");
         if (!ArenaPlan.NAME.matcher(name).matches()) throw bad("name must match " + ArenaPlan.NAME.pattern());
         return name;
     }
 
-    private static int whole(JsonElement e, String where, int lo, int hi) {
+    static int whole(JsonElement e, String where, int lo, int hi) {
         if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) throw bad(where + " must be a whole number");
         double v = e.getAsDouble();
         if (v != Math.rint(v) || v < lo || v > hi) throw bad(where + " must be " + lo + ".." + hi);
         return (int) v;
     }
 
-    private static boolean flag(JsonObject o, String key) {
+    static boolean flag(JsonObject o, String key) {
         if (!o.has(key)) return false;
         var e = o.get(key);
         if (!e.isJsonPrimitive() || !e.getAsJsonPrimitive().isBoolean()) throw bad(key + " must be true or false");
@@ -299,12 +299,12 @@ public final class ArenaRequests {
         return List.copyOf(lines);
     }
 
-    private static String bounded(String value, String where, int max) {
+    static String bounded(String value, String where, int max) {
         if (value.length() > max) throw bad(where + " is longer than " + max);
         return value;
     }
 
-    private static String color(JsonObject o, String where) {
+    static String color(JsonObject o, String where) {
         if (!o.has("color")) return "white";
         String color = text(o, "color");
         if (!ArenaLogic.COLORS.contains(color)) throw bad(where + ".color must be one of " + new java.util.TreeSet<>(ArenaLogic.COLORS));

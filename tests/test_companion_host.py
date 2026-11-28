@@ -1275,6 +1275,8 @@ def _fake_adapters(monkeypatch, log, *, fail=()):
                 stop_all,
                 kwargs.get("lobby"),
                 kwargs.get("board"),
+                kwargs.get("publisher"),
+                kwargs.get("poll_s"),
             )
         )
         return Adapter(log, "ingress")
@@ -1309,7 +1311,17 @@ def test_adapters_are_wired_and_the_handshake_written(tmp_path, monkeypatch):
         ("on_shutdown", hook),
         # one ingress for the fleet: the fleet is its host and its talker, and a
         # stop names every bot
-        ("ingress", True, "events-source", "players-source", True, None, None),
+        (
+            "ingress",
+            True,
+            "events-source",
+            "players-source",
+            True,
+            None,
+            None,
+            None,
+            None,
+        ),
         ("start", "ingress"),
     ]
     handshake = json.loads((tmp_path / "companion-host.json").read_text())
@@ -1325,7 +1337,17 @@ def test_a_failing_adapter_does_not_stop_the_others(tmp_path, monkeypatch):
         "fleet", {"companion_port": 8777}, "tok", tmp_path
     )
     assert log == [
-        ("ingress", True, "events-source", "players-source", True, None, None),
+        (
+            "ingress",
+            True,
+            "events-source",
+            "players-source",
+            True,
+            None,
+            None,
+            None,
+            None,
+        ),
         ("start", "ingress"),
     ]
     assert not (tmp_path / "companion-host.json").exists()
@@ -1347,10 +1369,50 @@ def test_arena_instance_wires_lobby_and_board_into_ingress(tmp_path, monkeypatch
     )
     ingress_call = next(e for e in log if e[0] == "ingress")
     lobby_obj, board_cb = ingress_call[5], ingress_call[6]
+    publisher, poll_s = ingress_call[7], ingress_call[8]
     assert lobby_obj is not None
     assert callable(lobby_obj._on_launch)
-    assert callable(board_cb)
+    assert board_cb is None  # the publisher owns the floating board
+    assert publisher.lobby is lobby_obj
+    assert poll_s == 0.25
     assert len(stops) == 2
+
+
+def test_the_lobby_publisher_sends_through_the_arena_client_and_skips_bots():
+    sent, skipped = [], []
+
+    class Client:
+        def lobby_view(self, **fields):
+            sent.append(fields)
+            return {"ok": True}
+
+    class Fleet:
+        def bots(self):
+            return [{"name": "MCBot"}, {"id": "x"}]
+
+    class Lobby:
+        def snapshot(self):
+            raise RuntimeError("not needed here")
+
+    publisher = companion_host._lobby_publisher(
+        Lobby(),
+        Fleet(),
+        None,
+        client_factory=Client,
+        players=lambda: ["Ann", "MCBot"],
+    )
+    publisher._send(signs={})
+    assert sent == [{"signs": {}}]
+    assert list(publisher._skip()) == ["MCBot"]
+
+    class Broken:
+        def bots(self):
+            raise OSError("fleet down")
+
+    broken = companion_host._lobby_publisher(
+        Lobby(), Broken(), None, client_factory=Client, players=lambda: []
+    )
+    assert list(broken._skip()) == skipped
 
 
 def test_a_member_is_a_host_and_a_talker_under_the_bots_own_name(tmp_path, monkeypatch):

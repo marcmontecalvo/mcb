@@ -69,11 +69,16 @@ public final class ArenaRuntime {
     private final Set<UUID> keepOnRespawn = new HashSet<>();
     private final Map<String, Integer> blocked = new HashMap<>();
     private final List<Runnable> afterAck = new ArrayList<>();
+    /** The lobby's game menu, signs and floating board. */
+    private final ArenaLobby lobby;
 
     private ArenaRuntime(MinecraftServer server, ArenaRegistry registry) {
         this.server = server;
         this.registry = registry;
+        this.lobby = new ArenaLobby(server);
     }
+
+    public ArenaLobby lobby() { return lobby; }
 
     public static ArenaRuntime active() { return active; }
 
@@ -112,7 +117,9 @@ public final class ArenaRuntime {
             if (BOARD_NAME.matcher(objective.getName()).matches()) scoreboard.removeObjective(objective);
         }
         for (var level : server.getAllLevels()) {
-            for (var entity : level.getAllEntities()) if (hasArenaTag(entity)) entity.discard();
+            // a lobby board from an earlier run goes too: Python publishes the board again
+            for (var entity : level.getAllEntities())
+                if (hasArenaTag(entity) || entity.entityTags().contains(ArenaLobby.DISPLAY_TAG)) entity.discard();
         }
     }
 
@@ -151,6 +158,7 @@ public final class ArenaRuntime {
                 case "arena_kit" -> data.putAll(kit(request));
                 case "arena_board" -> data.putAll(board(request));
                 case "arena_recap" -> data.putAll(recap(request));
+                case "arena_lobby_view" -> data.putAll(lobbyView(request));
                 default -> throw new ArenaFail("unknown_op", op);
             }
         } catch (ArenaFail fail) {
@@ -235,6 +243,7 @@ public final class ArenaRuntime {
         var match = matches.get(record.name());
         if (match != null && match.running()) { match.stop("removed"); releaseMatch(record.name()); }
         if (match != null) match.hideBoard();
+        lobby.removed(record, level);
         var series = seriesBoards.remove(record.name());
         if (series != null) series.hide();
         matches.remove(record.name());
@@ -479,6 +488,16 @@ public final class ArenaRuntime {
         return Map.of("name", record.name(), "players", told);
     }
 
+    /**
+     * What the lobby shows (docs/LOBBY_MENU.md): each player's game menu, the station signs, the floating board, screens
+     * to open or close now, and titles. The whole request is checked before anything changes.
+     */
+    private Map<String, Object> lobbyView(JsonObject request) {
+        var view = ArenaLobbyMenu.parseView(request);
+        var record = require(view.name());
+        return lobby.view(record, requireLevel(record.dimension()), view);
+    }
+
     /** Chat lines for every player in {@code level} and for {@code also} wherever they are; how many heard them. */
     static int tell(ServerLevel level, java.util.Collection<UUID> also, List<List<ArenaLogic.Seg>> lines) {
         var heard = new java.util.LinkedHashSet<ServerPlayer>(level.players());
@@ -675,6 +694,8 @@ public final class ArenaRuntime {
                 if (!match.running()) releaseMatch(entry.getKey());
             }
         }
+        var lobbyRecord = registry.get(ArenaLobbyStations.LOBBY_ARENA);
+        lobby.tick(lobbyRecord, lobbyRecord == null ? null : levelOf(lobbyRecord.dimension()));
     }
 
     private void finishBuild(ArenaBuild job) {
@@ -694,6 +715,7 @@ public final class ArenaRuntime {
             record.setState("built");
             sweep(record, level);
             registry.save();
+            lobby.built(record, level);
             emit("arena_built", data);
         } else {
             registry.remove(record.name());
@@ -799,6 +821,7 @@ public final class ArenaRuntime {
         }
         builds.clear();
         keepOnRespawn.clear();
+        lobby.close();
         try { registry.save(); } catch (RuntimeException error) { LOG.error("cannot save the arena registry", error); }
         if (active == this) active = null;
     }

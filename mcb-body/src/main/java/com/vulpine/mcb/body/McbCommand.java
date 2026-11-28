@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * /mcb status|stop|ready|goto|gather|build|ask|attack|defense|lobby. Open to every player (permission 0): this only
+ * /mcb status|stop|ready|goto|gather|build|ask|attack|defense|menu|lobby. Open to every player (permission 0): this only
  * records the request; the Python companion service checks authority before acting on anything but stop's cancel.
  */
 public final class McbCommand {
@@ -96,6 +96,13 @@ public final class McbCommand {
                                 .then(Commands.argument("blocks", IntegerArgumentType.integer(2, 32)).executes(context ->
                                         run(context.getSource(), "defense", Map.of(
                                                 "threat_radius", IntegerArgumentType.getInteger(context, "blocks")))))))
+                // /mcb menu: the arena lobby's game menu (the compass, G and the Esc screen open it too)
+                .then(Commands.literal("menu").executes(context -> {
+                    var player = context.getSource().getPlayer();
+                    if (player == null) return 0;
+                    com.vulpine.mcb.arena.ArenaLobby.openFor(player);
+                    return 1;
+                }))
                 .then(lobbyCommand()));
     }
 

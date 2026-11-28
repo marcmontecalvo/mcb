@@ -992,9 +992,7 @@ def _start_adapters(fleet, settings, token, runtime, *, on_shutdown=None):
 
             def _lobby_board(arena_name: str, title: str, rows: list[dict]) -> None:
                 try:
-                    arena_client.ArenaClient.from_state().board(
-                        arena_name, title, rows
-                    )
+                    arena_client.ArenaClient.from_state().board(arena_name, title, rows)
                 except Exception:  # noqa: BLE001
                     log.debug("lobby board update failed", exc_info=True)
 
@@ -1003,7 +1001,7 @@ def _start_adapters(fleet, settings, token, runtime, *, on_shutdown=None):
                 lobby_getter=lambda: arena_lobby.default_lobby(
                     fleet=fleet, runtime_dir=runtime
                 ),
-                board=_lobby_board,
+                board=None,  # the publisher owns the floating board
             )
             lobby = arena_lobby.default_lobby(
                 fleet=fleet, runtime_dir=runtime, on_launch=launcher
@@ -1013,9 +1011,10 @@ def _start_adapters(fleet, settings, token, runtime, *, on_shutdown=None):
                 fleet,
                 companion_ingress.bridge_events_source(),
                 players=companion_ingress.bridge_players_source(),
+                poll_s=0.25,
                 stop_all=True,
                 lobby=lobby,
-                board=_lobby_board,
+                publisher=_lobby_publisher(lobby, fleet, _lobby_board),
             )
         else:
             ingress = companion_ingress.Ingress(
@@ -1030,6 +1029,33 @@ def _start_adapters(fleet, settings, token, runtime, *, on_shutdown=None):
     except Exception:  # noqa: BLE001
         log.exception("chat ingress not started")
     return stops
+
+
+def _lobby_publisher(lobby, fleet, board, *, client_factory=None, players=None):
+    """The lobby's game menu, signs and floating board, sent to the arena server.
+
+    Companion bots are not players: they never get a menu."""
+    from mclab import arena_lobby_menu, companion_ingress
+    from mclab.arena import client as arena_client
+
+    factory = client_factory or arena_client.ArenaClient.from_state
+
+    def send(**fields):
+        return factory().lobby_view(**fields)
+
+    def bot_names():
+        try:
+            return [row["name"] for row in fleet.bots() if row.get("name")]
+        except Exception:  # noqa: BLE001
+            return []
+
+    return arena_lobby_menu.LobbyPublisher(
+        send,
+        players or companion_ingress.bridge_players_source(),
+        lobby,
+        board=board,
+        skip=bot_names,
+    )
 
 
 def main(argv=None) -> int:

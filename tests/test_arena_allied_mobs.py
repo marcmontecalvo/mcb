@@ -49,8 +49,8 @@ def test_supported_allied_mobs_match_java_curated_allowlist():
     assert _java_supported_types() == expected
 
 
-def test_protocol_is_bumped_to_6_for_allied_mobs():
-    assert arena.PROTOCOL == 6
+def test_protocol_is_at_least_6_for_allied_mobs():
+    assert arena.PROTOCOL >= 6
 
 
 def test_check_team_mobs_accepts_groups_kits_and_overrides():

@@ -228,13 +228,23 @@ def is_banned(base: str) -> bool:
     )
 
 
+LOBBY_PLAN = "lobby"
+
+
+def is_lobby_station_block(base: str) -> bool:
+    """Wall signs and buttons: only the lobby room may use them (its menu stations)."""
+    return base.endswith(("_wall_sign", "_button"))
+
+
 def is_glass(base: str) -> bool:
     return base.endswith("glass") or base.endswith("glass_pane")
 
 
 def is_passable(base: str) -> bool:
-    """Blocks a body walks through (air and wall banners; everything else is solid)."""
-    return base in ("air", "cave_air", "void_air") or base.endswith("wall_banner")
+    """Blocks a body walks through (air, wall banners, wall signs, buttons; all else solid)."""
+    return base in ("air", "cave_air", "void_air") or base.endswith(
+        ("wall_banner", "_wall_sign", "_button")
+    )
 
 
 def emission(base: str) -> int:
@@ -524,7 +534,10 @@ def _structure(plan: Plan) -> list[str]:
                 f"block-format: fill {n} has a malformed block {fill.block!r}"
             )
             continue
-        if is_banned(base_name(fill.block)):
+        base = base_name(fill.block)
+        if is_banned(base) and not (
+            plan.name == LOBBY_PLAN and is_lobby_station_block(base)
+        ):
             banned.add(fill.block)
         if any(a > b for a, b in zip(fill.frm, fill.to, strict=True)):
             problems.append(

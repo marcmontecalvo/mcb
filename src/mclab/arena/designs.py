@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Iterable
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from mclab.arena import plan as ap
 from mclab.arena.plan import Capacity, Cell, Fill, Plan, Team
@@ -144,6 +144,19 @@ class Builder:
     def banner(self, x: int, y: int, z: int, color: str, facing: str) -> None:
         self.point(
             (x, y, z), f"minecraft:{color}_wall_banner[facing={self.facing(facing)}]"
+        )
+
+    def wall_sign(self, x: int, y: int, z: int, wood: str, facing: str) -> None:
+        """A blank wall sign facing ``facing`` (the mod writes its text)."""
+        self.point(
+            (x, y, z), f"minecraft:{wood}_wall_sign[facing={self.facing(facing)}]"
+        )
+
+    def button(self, x: int, y: int, z: int, material: str, facing: str) -> None:
+        """A button on a wall, facing ``facing``."""
+        self.point(
+            (x, y, z),
+            f"minecraft:{material}_button[face=wall,facing={self.facing(facing)}]",
         )
 
     # --- cover ----------------------------------------------------------------
@@ -962,88 +975,56 @@ def crash_site() -> Plan:
 # --- the arena server's lobby (not an arena: never in DESIGNS) ---------------
 
 
+LOBBY_VERSION = 2  # raise it whenever lobby() changes: a stale lobby is rebuilt (world._lobby)
+
+
 @dataclass(frozen=True)
 class LobbyStation:
-    """One clickable vanilla interaction station built into the arena lobby walls."""
+    """One physical station in the lobby wall: a wall sign (its text is the mod's, live)
+    and a stone button, both on a backing block.  Right-clicking either sends ``payload``
+    as a lobby command; the help sign has no button and no payload (the mod opens the
+    game menu).  ``mcb-body``'s ``ArenaLobbyStations.STATIONS`` lists the same cells and
+    a test keeps them equal (docs/LOBBY_MENU.md)."""
 
-    label: str
-    local_pos: Cell
-    block: str
-    action: str
-    args: dict[str, str] = field(default_factory=dict)
-    banner_pos: Cell | None = None
-    banner_color: str | None = None
-    banner_facing: str | None = None
+    id: str
+    sign: Cell
+    button: Cell | None
+    backing_block: str | None
+    backing: tuple[Cell, Cell] | None
+    facing: str
+    payload: dict[str, str] | None
+
+
+def _join_station(team: str, z: int) -> LobbyStation:
+    return LobbyStation(
+        f"join_{team}",
+        (2, 3, z),
+        (2, 2, z),
+        _mc(f"{team}_concrete"),
+        ((1, 2, z - 1), (1, 4, z + 1)),
+        "east",
+        {"action": "join", "team": team},
+    )
 
 
 LOBBY_STATIONS: tuple[LobbyStation, ...] = (
-    # North showcase wall (under spectator gallery, facing spawn)
+    # West wall: the four team booths
+    _join_station("red", 7),
+    _join_station("blue", 11),
+    _join_station("green", 15),
+    _join_station("yellow", 19),
+    # East wall: the READY booth
     LobbyStation(
-        "Play", (9, 3, 5), _mc("emerald_block"), "play",
-        banner_pos=(9, 4, 6), banner_color="lime", banner_facing="south",
+        "ready",
+        (22, 3, 12),
+        (22, 2, 12),
+        _mc("lime_concrete"),
+        ((23, 2, 11), (23, 4, 13)),
+        "west",
+        {"action": "ready_toggle"},
     ),
-    LobbyStation(
-        "Watch", (11, 3, 5), _mc("amethyst_block"), "watch",
-        banner_pos=(11, 4, 6), banner_color="purple", banner_facing="south",
-    ),
-    LobbyStation(
-        "Play Again", (13, 3, 5), _mc("gold_block"), "rematch",
-        banner_pos=(13, 4, 6), banner_color="yellow", banner_facing="south",
-    ),
-    LobbyStation(
-        "Ready", (15, 3, 5), _mc("diamond_block"), "ready_toggle",
-        banner_pos=(15, 4, 6), banner_color="light_blue", banner_facing="south",
-    ),
-    # West wall: team join / create & leave controls
-    LobbyStation(
-        "Join Red", (1, 3, 8), _mc("red_concrete"), "join", {"team": "red"},
-        banner_pos=(2, 4, 8), banner_color="red", banner_facing="east",
-    ),
-    LobbyStation(
-        "Join Blue", (1, 3, 11), _mc("blue_concrete"), "join", {"team": "blue"},
-        banner_pos=(2, 4, 11), banner_color="blue", banner_facing="east",
-    ),
-    LobbyStation(
-        "Join Green", (1, 3, 14), _mc("green_concrete"), "join", {"team": "green"},
-        banner_pos=(2, 4, 14), banner_color="green", banner_facing="east",
-    ),
-    LobbyStation(
-        "Join Yellow", (1, 3, 17), _mc("yellow_concrete"), "join", {"team": "yellow"},
-        banner_pos=(2, 4, 17), banner_color="yellow", banner_facing="east",
-    ),
-    LobbyStation(
-        "Leave", (1, 3, 20), _mc("white_concrete"), "leave",
-        banner_pos=(2, 4, 20), banner_color="white", banner_facing="east",
-    ),
-    # East wall: host rule, bot, and countdown controls
-    LobbyStation(
-        "Map", (23, 3, 8), _mc("lapis_block"), "cycle_map",
-        banner_pos=(22, 4, 8), banner_color="light_blue", banner_facing="west",
-    ),
-    LobbyStation(
-        "Mode", (23, 3, 10), _mc("purpur_block"), "cycle_mode",
-        banner_pos=(22, 4, 10), banner_color="purple", banner_facing="west",
-    ),
-    LobbyStation(
-        "Add Bot", (23, 3, 12), _mc("iron_block"), "bot_add",
-        banner_pos=(22, 4, 12), banner_color="light_gray", banner_facing="west",
-    ),
-    LobbyStation(
-        "Remove Bot", (23, 3, 14), _mc("oxidized_copper"), "bot_remove",
-        banner_pos=(22, 4, 14), banner_color="cyan", banner_facing="west",
-    ),
-    LobbyStation(
-        "Uneven Teams", (23, 3, 16), _mc("copper_block"), "toggle_uneven",
-        banner_pos=(22, 4, 16), banner_color="orange", banner_facing="west",
-    ),
-    LobbyStation(
-        "Respawns", (23, 3, 18), _mc("netherite_block"), "cycle_respawns",
-        banner_pos=(22, 4, 18), banner_color="black", banner_facing="west",
-    ),
-    LobbyStation(
-        "Reopen", (23, 3, 20), _mc("crying_obsidian"), "reopen",
-        banner_pos=(22, 4, 20), banner_color="magenta", banner_facing="west",
-    ),
+    # South wall: a sign telling where the game menu is
+    LobbyStation("help", (12, 3, 22), None, None, None, "north", None),
 )
 
 
@@ -1051,10 +1032,12 @@ def lobby() -> Plan:
     """The room the arena server's players spawn in: a sealed, lit hall floating in the void.
 
     Glass walls look out on the sky; sixteen pads (one red team) hold an 8v8 roster
-    while it waits, and the team entry at the centre is the world spawn.  Interactive
-    vanilla wall stations (Play, Watch, Play Again, Ready, team join/create, and host
-    match/bot controls) sit flush in the walls and dispatch structured ``lobby``
-    commands through ``ArenaGuard`` / ``ArenaLobbyStations``.
+    while it waits, and the team entry at the centre is the world spawn.  Six stations
+    (``LOBBY_STATIONS``) sit in the walls: four team booths on the west wall and a READY
+    booth on the east wall, each a wall sign and a stone button on team-coloured concrete,
+    and a help sign on the south wall.  The mod rewrites the signs live and sends the
+    clicks to the lobby (``ArenaLobbyStations``); the rest of the game is the menu
+    (docs/LOBBY_MENU.md).  Raise ``LOBBY_VERSION`` when this changes.
     """
     wall, floor, glass = _mc("quartz_bricks"), _mc("smooth_quartz"), _mc("glass")
     trim, glow = _mc("cut_copper"), _mc("sea_lantern")
@@ -1062,7 +1045,7 @@ def lobby() -> Plan:
     top = b.top
     b.shell(wall, interior=((2, 2, 2), (22, top, 22)))
     b.box((2, 1, 2), (22, 1, 22), floor)
-    for side in range(4):  # a window band in every wall, above the station banners
+    for side in range(4):  # a window band in every wall, above the stations
         with b.rotated(side, (12, 12)):
             b.box((5, 5, 0), (19, top - 1, 1), glass)
     b.disc(12, 12, 3, 1, 1, trim)
@@ -1073,10 +1056,11 @@ def lobby() -> Plan:
     b.team("red", pads, entry=(12, 2, 12))
     b.gallery_north(12, width=4, depth=3, raise_by=3, wall=wall)
     for station in LOBBY_STATIONS:
-        b.point(station.local_pos, station.block)
-        if station.banner_pos and station.banner_color and station.banner_facing:
-            bx, by, bz = station.banner_pos
-            b.banner(bx, by, bz, station.banner_color, station.banner_facing)
+        if station.backing and station.backing_block:
+            b.box(station.backing[0], station.backing[1], station.backing_block)
+        b.wall_sign(*station.sign, "dark_oak", station.facing)
+        if station.button:
+            b.button(*station.button, "stone", station.facing)
     b.hang_lanterns([(x, z) for x in (5, 12, 19) for z in (9, 14, 20)])
     b.ensure_light(glow)
     return b.to_plan(Capacity(teams=1, per_team=len(pads), mobs=0))

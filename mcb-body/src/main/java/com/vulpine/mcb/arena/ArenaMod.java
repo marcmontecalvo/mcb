@@ -4,6 +4,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import org.slf4j.LoggerFactory;
 
 /** The arena runtime's entry point: protection events from the start, the registry once the server is up. */
@@ -18,6 +19,8 @@ public final class ArenaMod implements ModInitializer {
             var runtime = ArenaRuntime.active();
             if (runtime != null) runtime.tick();
         });
+        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> ArenaLobby.joined(handler.player));
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> ArenaLobby.left(handler.player));
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             var runtime = ArenaRuntime.active();
             if (runtime != null) runtime.close();

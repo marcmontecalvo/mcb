@@ -1,5 +1,7 @@
 """The arena server's world: a floating lobby at spawn, arenas in slots beside it."""
 
+import json
+
 import pytest
 
 from mclab.arena import client as arena
@@ -185,6 +187,81 @@ def test_ensure_lobby_builds_it_once_and_sets_the_spawn():
     fake.calls.clear()
     assert world.ensure_lobby(fake, echo=lines.append)["built"] is False
     assert fake.calls == [("list",), ("spawn", world.lobby_spawn(lobby))]
+
+
+@pytest.fixture(autouse=True)
+def lobby_of_the_current_version(tmp_path, monkeypatch):
+    """A lobby that stands is the current one, unless a test says otherwise."""
+    monkeypatch.setattr(world, "lobby_runtime_dir", lambda: tmp_path / "instance")
+    path = world.lobby_version_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"version": designs.LOBBY_VERSION}), "utf-8")
+
+
+def _record_version(version):
+    path = world.lobby_version_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"version": version}), "utf-8")
+
+
+def test_a_lobby_built_now_records_its_version():
+    world.lobby_version_path().unlink()
+    fake = FakeArenas()
+    world.ensure_lobby(fake, echo=lambda _: None)
+    recorded = json.loads(world.lobby_version_path().read_text("utf-8"))
+    assert recorded == {"version": designs.LOBBY_VERSION}
+
+
+def test_a_standing_lobby_of_the_current_version_is_left_alone():
+    lobby = designs.lobby()
+    fake = FakeArenas([_listed(world.LOBBY, world.LOBBY_ORIGIN, size=lobby.size)])
+    _record_version(designs.LOBBY_VERSION)
+    assert world.ensure_lobby(fake, echo=lambda _: None)["built"] is False
+    assert fake.calls == [("list",), ("spawn", world.lobby_spawn(lobby))]
+
+
+@pytest.mark.parametrize("old", [None, 1])
+def test_a_standing_lobby_of_another_version_is_rebuilt(old):
+    lobby = designs.lobby()
+    fake = FakeArenas([_listed(world.LOBBY, world.LOBBY_ORIGIN, size=lobby.size)])
+    if old is None:
+        world.lobby_version_path().unlink()
+    else:
+        _record_version(old)
+    lines = []
+    assert world.ensure_lobby(fake, echo=lines.append)["built"] is True
+    assert fake.calls == [
+        ("list",),
+        ("remove", world.LOBBY, False),
+        ("build", world.LOBBY, world.LOBBY_ORIGIN),
+        ("wait", world.LOBBY),
+        ("spawn", world.lobby_spawn(lobby)),
+    ]
+    assert any("lobby" in line for line in lines)
+    assert world.lobby_version_path().is_file()
+    assert json.loads(world.lobby_version_path().read_text("utf-8")) == {
+        "version": designs.LOBBY_VERSION
+    }
+    fake.calls.clear()  # and now it is current
+    assert world.ensure_lobby(fake, echo=lambda _: None)["built"] is False
+
+
+def test_a_garbled_version_file_means_rebuild():
+    lobby = designs.lobby()
+    fake = FakeArenas([_listed(world.LOBBY, world.LOBBY_ORIGIN, size=lobby.size)])
+    path = world.lobby_version_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("not json", "utf-8")
+    assert world.ensure_lobby(fake, echo=lambda _: None)["built"] is True
+
+
+def test_the_version_file_lives_in_the_arena_instance_runtime(monkeypatch):
+    from mclab import paths
+
+    monkeypatch.setattr(world, "lobby_runtime_dir", world.default_runtime_dir)
+    assert world.lobby_version_path() == (
+        paths.instance_paths("arena").runtime / "arena-lobby-version.json"
+    )
 
 
 def test_the_bots_world_spawn_on_the_arena_server_is_the_lobby_built_first():

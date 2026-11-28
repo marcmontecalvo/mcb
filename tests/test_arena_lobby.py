@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 from mclab.arena import designs, world
-from mclab.arena import plan as ap
 from mclab.arena_lobby import (
     ArenaLobby,
     LobbyError,
@@ -594,45 +593,7 @@ def test_board_rows_fit_sidebar_and_status_text_is_readable(tmp_path):
 # --- 8. Physical lobby design & Java station parity ----------------------------
 
 
-def test_lobby_design_has_valid_clickable_stations_and_matches_java():
-    plan = designs.lobby()
-    assert ap.validate(plan) == []
-    assert len(designs.LOBBY_STATIONS) >= 12
-    actions = {s.action for s in designs.LOBBY_STATIONS}
-    assert {
-        "play",
-        "watch",
-        "rematch",
-        "ready_toggle",
-        "join",
-        "leave",
-        "cycle_map",
-        "cycle_mode",
-        "bot_add",
-        "reopen",
-    } <= actions
-    teams = {s.args.get("team") for s in designs.LOBBY_STATIONS if s.action == "join"}
-    assert teams == {"red", "blue", "green", "yellow"}
-
-    # Every station exists as a non-air block in the voxelized lobby
-    grid = ap.voxelize(plan)
-    for st in designs.LOBBY_STATIONS:
-        assert grid.block(*st.local_pos) == st.block
-        assert world.lobby_station_world_pos(st) == tuple(
-            o + c for o, c in zip(world.LOBBY_ORIGIN, st.local_pos, strict=True)
-        )
-
-    # Java ArenaLobbyStations.java matches Python LOBBY_STATIONS coordinates
-    java_path = (
-        ROOT / "mcb-body/src/main/java/com/vulpine/mcb/arena/ArenaLobbyStations.java"
-    )
-    assert java_path.is_file()
-    java_src = java_path.read_text(encoding="utf-8")
-    for st in designs.LOBBY_STATIONS:
-        x, y, z = st.local_pos
-        assert f"{x}, {y}, {z}" in java_src, (
-            f"Missing station {st.label} at {st.local_pos}"
-        )
+# The station table and its Java twin are tested in test_arena_lobby_stations.py.
 
 
 def test_java_mcb_command_exposes_lobby_subcommands_without_op():
@@ -1023,8 +984,8 @@ def test_validation_error_branches_and_edge_cases(tmp_path):
     lobby.join("Dan", "green")
     lobby.set_map("Alice", "duel")
     errs = lobby.snapshot()["validation_errors"]
-    assert any("red" in e and "2" in e for e in errs)
-    assert any("green" in e and "duel" in e for e in errs)
+    assert any("red" in e.lower() and "2" in e for e in errs)
+    assert any("green" in e.lower() and "duel" in e.lower() for e in errs)
 
     # Corrupted JSON on disk recovers cleanly to blank state
     bad_path = tmp_path / "corrupt.json"
@@ -1088,7 +1049,7 @@ def test_fleet_adapters_and_default_lobby_and_world_stations(tmp_path, monkeypat
     # world.lobby_stations()
     stations = world.lobby_stations()
     assert len(stations) == len(designs.LOBBY_STATIONS)
-    assert any(s["label"] == "Play" and s["action"] == "play" for s in stations)
+    assert {s["id"] for s in stations} >= {"join_red", "ready", "help"}
     assert companion_api.RUNTIME_FILE == "companion-host.json"
 
 
@@ -1251,7 +1212,9 @@ def test_make_arena_launcher_runs_match_forwards_respawns_and_completes_recap(tm
         return {"arena": arena_name, "spawn": [0, 102, 0], "built": []}
 
     def fake_run_series(api, admin, name, waves, **kwargs):
-        launched_series.append({"api": api, "admin": admin, "name": name, "waves": waves, **kwargs})
+        launched_series.append(
+            {"api": api, "admin": admin, "name": name, "waves": waves, **kwargs}
+        )
         return record_file
 
     holder: dict[str, ArenaLobby] = {}
@@ -1270,7 +1233,9 @@ def test_make_arena_launcher_runs_match_forwards_respawns_and_completes_recap(tm
     lobby.join("Alice", "red")
     lobby.add_bot("Alice", "blue")
     lobby.set_respawns("Alice", "team", 2)
-    lobby.set_kit("Alice", "sword+shield", weapon_material="diamond", armor_material="iron")
+    lobby.set_kit(
+        "Alice", "sword+shield", weapon_material="diamond", armor_material="iron"
+    )
     rev = lobby.snapshot()["revision"]
     lobby.ready("Alice", seen_revision=rev)
     clock.advance(6.0)
@@ -1297,7 +1262,9 @@ def test_make_arena_launcher_runs_match_forwards_respawns_and_completes_recap(tm
     assert boards and boards[-1][0] == "lobby" and "Recap" in boards[-1][1]
 
 
-def test_make_arena_launcher_recovers_to_open_on_failure_and_attaches_on_launch(tmp_path):
+def test_make_arena_launcher_recovers_to_open_on_failure_and_attaches_on_launch(
+    tmp_path,
+):
     from mclab import arena_lobby
 
     boards: list[tuple[str, str, list[dict]]] = []
@@ -1406,7 +1373,9 @@ def test_lobby_kit_modes_class_picker_and_host_tweak(tmp_path):
         )
 
 
-def arena_lobby_with_kits(tmp_path, kits_path, *, fleet=None, clock=None, on_launch=None):
+def arena_lobby_with_kits(
+    tmp_path, kits_path, *, fleet=None, clock=None, on_launch=None
+):
     return ArenaLobby(
         state_path=tmp_path / "arena-lobby.json",
         runtime_dir=tmp_path,
@@ -1505,3 +1474,137 @@ def test_random_kits_roll_at_match_start_only_and_forward_team_mobs(tmp_path):
     assert meta["assignments"]["Bob"]["random_rolled"] is True
     assert lobby.snapshot()["last_recap"]["kit_assignment"]["seed"] == meta["seed"]
 
+
+# --- 9. The game menu: settings form, menu action, plain wording ---------------
+
+
+def _hosted(tmp_path, **kwargs):
+    lobby, fleet, clock = make_lobby(tmp_path, **kwargs)
+    lobby.join("Ann", "red")
+    lobby.join("Bob", "blue")
+    return lobby, fleet, clock
+
+
+def test_apply_settings_changes_everything_in_one_revision(tmp_path):
+    lobby, _, _ = _hosted(tmp_path)
+    lobby.ready("Bob", seen_revision=lobby.snapshot()["revision"])
+    before = lobby.snapshot()["revision"]
+    snap = lobby.apply_settings(
+        "Ann",
+        {
+            "mode": "race",
+            "lives": "team:5",
+            "kit_mode": "per_team",
+            "reroll": True,
+            "uneven": True,
+        },
+    )
+    assert snap["revision"] == before + 1
+    assert snap["mode"] == "race"
+    assert (snap["respawn_mode"], snap["respawn_count"]) == ("team", 5)
+    assert snap["kit_mode"] == "per_team"
+    assert snap["reroll_on_respawn"] is True and snap["allow_uneven"] is True
+    assert "game settings" in snap["last_change_reason"]
+    assert not any(c in snap["last_change_reason"] for c in "#:")
+
+
+def test_apply_settings_with_no_difference_spends_no_revision(tmp_path):
+    lobby, _, _ = _hosted(tmp_path)
+    before = lobby.snapshot()
+    snap = lobby.apply_settings(
+        "Ann",
+        {
+            "mode": before["mode"],
+            "kit": "current",
+            "reroll": before["reroll_on_respawn"],
+        },
+    )
+    assert snap["revision"] == before["revision"]
+
+
+@pytest.mark.parametrize(
+    "bad,match",
+    [
+        ({"mode": "chess"}, "Unknown game mode"),
+        ({"lives": "forever"}, "lives options"),
+        ({"lives": "team:0"}, "lives options"),
+        ({"kit_mode": "nope"}, "kit options"),
+        ({"kit": "no_such_kit"}, "no kit called"),
+    ],
+)
+def test_apply_settings_refuses_bad_fields_and_changes_nothing(tmp_path, bad, match):
+    lobby, _, _ = _hosted(tmp_path)
+    before = lobby.snapshot()
+    with pytest.raises(LobbyError, match=match):
+        lobby.apply_settings("Ann", {"uneven": True, **bad})
+    after = lobby.snapshot()
+    assert after["revision"] == before["revision"]
+    assert after["allow_uneven"] == before["allow_uneven"]
+
+
+def test_apply_settings_is_host_only_and_checks_the_revision(tmp_path):
+    lobby, _, _ = _hosted(tmp_path)
+    with pytest.raises(LobbyError):
+        lobby.apply_settings("Bob", {"mode": "race"})
+    with pytest.raises(LobbyError):
+        lobby.apply_settings("Ann", {"mode": "race"}, expected_revision=999)
+
+
+def test_apply_settings_waves_flag_and_mode_rules(tmp_path):
+    lobby, _, _ = _hosted(tmp_path)
+    snap = lobby.apply_settings("Ann", {"waves": True})
+    assert snap["waves_preset"] or snap["waves"]
+    snap = lobby.apply_settings("Ann", {"waves": False})
+    assert not snap["waves_preset"] and not snap["waves"]
+    lobby.apply_settings("Ann", {"mode": "waves"})
+    with pytest.raises(LobbyError, match="needs mob waves"):
+        lobby.apply_settings("Ann", {"waves": False})
+    snap = lobby.apply_settings("Ann", {"mode": "teams"})
+    assert snap["mode"] == "teams" and not snap["waves_preset"]
+
+
+def test_apply_settings_rejects_a_mode_the_map_cannot_run(tmp_path):
+    lobby, _, _ = _hosted(tmp_path)
+    lobby.set_map("Ann", "vault")
+    with pytest.raises(LobbyError, match="does not work"):
+        lobby.apply_settings("Ann", {"mode": "teams"})
+
+
+def test_apply_settings_reopens_a_recap(tmp_path):
+    lobby, _, _ = _hosted(tmp_path)
+    lobby._state["phase"] = "recap"
+    assert lobby.apply_settings("Ann", {"reroll": True})["phase"] == "open"
+
+
+def test_settings_action_reports_what_changed_in_words(tmp_path):
+    lobby, _, _ = _hosted(tmp_path)
+    reply = lobby.handle_action("Ann", {"action": "settings", "mode": "race"})
+    assert reply["ok"] and "game settings" in reply["message"]
+    same = lobby.handle_action("Ann", {"action": "settings", "mode": "race"})
+    assert same["message"] == "Nothing changed."
+
+
+def test_menu_action_is_a_quiet_snapshot(tmp_path):
+    lobby, _, _ = _hosted(tmp_path)
+    reply = lobby.handle_action("Ann", {"action": "menu"})
+    assert reply["ok"] and reply["message"] == ""
+    assert reply["lobby"]["revision"] == lobby.snapshot()["revision"]
+
+
+def test_bot_add_with_team_auto_and_no_name_picks_a_team_and_a_name(tmp_path):
+    lobby, fleet, _ = _hosted(tmp_path)
+    reply = lobby.handle_action(
+        "Ann", {"action": "bot_add", "team": "auto", "name": ""}
+    )
+    assert reply["ok"]
+    assert len(lobby.snapshot()["bots"]) == 1 and fleet.added
+
+
+def test_board_rows_and_status_are_plain_english(tmp_path):
+    lobby, _, _ = _hosted(tmp_path)
+    snap = lobby.snapshot()
+    cells = [str(c) for row in lobby.board_rows(snap) for c in row]
+    text = " ".join(cells) + " " + lobby.status_text(snap)
+    assert "rev #" not in text and "#" not in text
+    assert "Elim" not in text and "NoMob" not in text and "P:" not in text
+    assert "Team Battle" in text

@@ -38,3 +38,14 @@ def isolated_arena_roster(tmp_path, monkeypatch):
     monkeypatch.setattr(
         play_runs, "bots_runtime", lambda root=None: tmp_path / "runtime/arena-bots"
     )
+
+
+@pytest.fixture(autouse=True)
+def isolated_lobby_version(tmp_path, monkeypatch):
+    """Building the arena lobby in a test must never record its version in the
+    arena instance's real runtime folder."""
+    from mclab.arena import world
+
+    monkeypatch.setattr(
+        world, "lobby_runtime_dir", lambda: tmp_path / "runtime/arena-instance"
+    )

@@ -546,3 +546,134 @@ def test_default_source_reads_instance_state(monkeypatch, bridge, tmp_path):
     monkeypatch.setattr(paths, "config", lambda: {"bridge_port": port})
     companion_ingress.bridge_events_source()(2)
     assert seen[0] == ("/events?after=2", "Bearer abc")
+
+
+# --- the lobby's game menu -----------------------------------------------------
+
+
+class FakePublisher:
+    def __init__(self, fail=False):
+        self.shown, self.ticks, self.fail = [], 0, fail
+
+    def publish(self, snap=None, *, show=None):
+        if self.fail:
+            raise RuntimeError("arena server down")
+        self.shown.append((snap, show))
+        return True
+
+    def tick(self):
+        self.ticks += 1
+        if self.fail:
+            raise RuntimeError("arena server down")
+
+
+class FakeLobby:
+    def __init__(self, error=None):
+        self.error, self.actions = error, []
+
+    def tick(self):
+        pass
+
+    def handle_action(self, actor, payload):
+        self.actions.append((actor, payload))
+        if self.error:
+            raise self.error
+        return {"ok": True, "message": "Ann joined the Red Team.", "lobby": {"rev": 1}}
+
+
+def _lobby_ingress(lobby=None, publisher=None):
+    host = FakeHost()
+    ingress = Ingress(
+        host,
+        FakeTalker(),
+        Source(batch(latest=10)),
+        bot=BOT,
+        lobby=lobby or FakeLobby(),
+        publisher=publisher,
+    )
+    return ingress, host
+
+
+def _ann():
+    return Actor("command", "Ann", "u-a", None)
+
+
+def test_a_lobby_action_answers_with_the_screen_and_a_green_notice():
+    pub = FakePublisher()
+    ingress, host = _lobby_ingress(publisher=pub)
+    ingress._command(
+        _ann(),
+        {"command": "lobby", "action": "join", "team": "red", "menu_screen": "teams"},
+    )
+    ((snap, show),) = pub.shown
+    assert snap == {"rev": 1}
+    assert show == {
+        "Ann": {
+            "screen": "teams",
+            "notice": {"text": "Ann joined the Red Team.", "color": "green"},
+        }
+    }
+    assert ("Ann", "Ann joined the Red Team.") in [("Ann", t) for _, t in host.tells()]
+
+
+def test_then_wins_over_menu_screen_and_home_is_the_default():
+    pub = FakePublisher()
+    ingress, _ = _lobby_ingress(publisher=pub)
+    ingress._command(
+        _ann(),
+        {"command": "lobby", "action": "x", "then": "home", "menu_screen": "settings"},
+    )
+    ingress._command(_ann(), {"command": "lobby", "action": "x"})
+    assert [s["Ann"]["screen"] for _, s in pub.shown] == ["home", "home"]
+
+
+def test_a_refused_action_shows_the_error_in_red_and_still_tells_chat():
+    from mclab.arena_lobby import LobbyError
+
+    pub = FakePublisher()
+    ingress, host = _lobby_ingress(FakeLobby(LobbyError("The Red Team is full.")), pub)
+    ingress._command(
+        _ann(), {"command": "lobby", "action": "join", "menu_screen": "teams"}
+    )
+    ((_, show),) = pub.shown
+    assert show["Ann"]["screen"] == "teams"
+    assert show["Ann"]["notice"] == {"text": "The Red Team is full.", "color": "red"}
+    assert any("full" in text for _, text in host.tells())
+
+
+def test_an_unexpected_error_shows_a_plain_red_notice():
+    pub = FakePublisher()
+    ingress, _ = _lobby_ingress(FakeLobby(RuntimeError("boom")), pub)
+    ingress._command(_ann(), {"command": "lobby", "action": "ready"})
+    ((_, show),) = pub.shown
+    assert show["Ann"]["notice"] == {
+        "text": "Something went wrong. Try again.",
+        "color": "red",
+    }
+
+
+def test_the_menu_action_opens_home_with_no_notice_and_no_chat():
+    pub = FakePublisher()
+    lobby = FakeLobby()
+    ingress, host = _lobby_ingress(lobby, pub)
+    ingress._command(_ann(), {"command": "lobby", "action": "menu"})
+    assert pub.shown == [(None, {"Ann": {"screen": "home"}})]
+    assert lobby.actions == [] and host.tells() == []
+
+
+def test_the_publisher_ticks_after_the_lobby_and_its_failures_are_swallowed():
+    pub = FakePublisher(fail=True)
+    ingress, _ = _lobby_ingress(publisher=pub)
+    ingress.poll_once()
+    ingress.poll_once()
+    ingress.poll_once()
+    assert pub.ticks == 2  # the first poll only finds the head
+    ingress._command(
+        _ann(), {"command": "lobby", "action": "ready"}
+    )  # show swallowed too
+
+
+def test_actions_work_without_a_publisher():
+    ingress, host = _lobby_ingress()
+    ingress._command(_ann(), {"command": "lobby", "action": "ready"})
+    assert host.tells()

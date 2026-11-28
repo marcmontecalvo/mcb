@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from mclab import arena_kits
+from mclab import arena_lobby_menu as words
 from mclab.arena import client as arena_client
 from mclab.arena import designs, standings
 from mclab.arena import plan as arena_plan
@@ -173,6 +174,12 @@ def _default_wave_preset() -> str | None:
     if "mixed-10" in presets:
         return "mixed-10"
     return presets[0] if presets else None
+
+
+def _as_flag(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ("on", "true", "yes", "1")
+    return bool(value)
 
 
 def _valid_player_name(name: Any) -> str:
@@ -484,6 +491,10 @@ class ArenaLobby:
     def _kit_library(self) -> arena_kits.KitLibrary:
         return arena_kits.default_library(self.kits_path)
 
+    def kit_list(self) -> list[dict[str, Any]]:
+        """The kit library's kits (id, name, description, items) for the game menu."""
+        return self._kit_library().list_kits(include_compiled=False)
+
     def _require_not_frozen(self) -> None:
         if self._state["phase"] == "countdown":
             raise LobbyFrozenError(
@@ -671,16 +682,17 @@ class ArenaLobby:
         mode = self._state["mode"]
         errors: list[str] = []
         if mode not in info.compatible_modes:
-            avail = ", ".join(info.compatible_modes)
+            avail = ", ".join(words.mode_label(m) for m in info.compatible_modes)
             errors.append(
-                f"Mode {mode} is not compatible with {info.name} (compatible: {avail})."
+                f"{words.mode_label(mode)} does not work on "
+                f"{words.map_label(info.name)} (it supports: {avail})."
             )
         if (
             mode in WAVE_MODES
             and not self._state["waves"]
             and not self._state["waves_preset"]
         ):
-            errors.append(f"Mode {mode} requires mob waves.")
+            errors.append(f"{words.mode_label(mode)} requires mob waves.")
 
         player_counts = self._team_counts()
         member_counts = self._team_member_counts_including_mobs()
@@ -703,15 +715,15 @@ class ArenaLobby:
                 )
             for team, count in player_counts.items():
                 if team not in info.teams:
-                    avail = ", ".join(info.teams)
                     errors.append(
-                        f"Team {team} is not available on {info.name} "
-                        f"(available: {avail})."
+                        f"The {words.team_label(team)} is not on "
+                        f"{words.map_label(info.name)}."
                     )
                 elif count > info.per_team:
                     errors.append(
-                        f"Team {team} has {count} players; {info.name} holds "
-                        f"at most {info.per_team} per team."
+                        f"The {words.team_label(team)} has {count} players; "
+                        f"{words.map_label(info.name)} holds at most "
+                        f"{info.per_team} per team."
                     )
         else:
             active_teams: dict[str, int] = {}
@@ -719,28 +731,32 @@ class ArenaLobby:
                 if count <= 0:
                     continue
                 if team not in info.teams:
-                    avail = ", ".join(info.teams)
                     errors.append(
-                        f"Team {team} is not available on {info.name} "
-                        f"(available: {avail})."
+                        f"The {words.team_label(team)} is not on "
+                        f"{words.map_label(info.name)}."
                     )
                     continue
                 p_count = player_counts.get(team, 0)
                 if p_count > info.per_team:
                     errors.append(
-                        f"Team {team} has {p_count} players; {info.name} holds "
-                        f"at most {info.per_team} per team."
+                        f"The {words.team_label(team)} has {p_count} players; "
+                        f"{words.map_label(info.name)} holds at most "
+                        f"{info.per_team} per team."
                     )
                 active_teams[team] = count
             if len(active_teams) < 2:
-                errors.append(f"Mode {mode} needs participants on at least 2 teams.")
+                errors.append(
+                    f"{words.mode_label(mode)} needs players on at least 2 teams."
+                )
             elif not self._state["allow_uneven"]:
                 sizes = set(active_teams.values())
                 if len(sizes) > 1:
-                    detail = ", ".join(f"{t}: {c}" for t, c in active_teams.items())
+                    detail = ", ".join(
+                        f"{t.capitalize()} {c}" for t, c in active_teams.items()
+                    )
                     errors.append(
                         f"Teams are uneven ({detail}). "
-                        "Balance teams or host can allow uneven teams."
+                        "Balance the teams or allow uneven teams."
                     )
         return errors
 
@@ -763,7 +779,7 @@ class ArenaLobby:
             if ready.get(h["name"].lower()) != rev
         ]
         if waiting:
-            return [f"Waiting for ready: {', '.join(waiting)}"]
+            return [f"Waiting for: {', '.join(waiting)}"]
         return []
 
     def _all_humans_ready_locked(self) -> bool:
@@ -786,9 +802,7 @@ class ArenaLobby:
         self._state["phase"] = "countdown"
         self._state["countdown_revision"] = self._state["revision"]
         self._state["countdown_ends_at"] = self._clock() + self.countdown_seconds
-        self._state["last_change_reason"] = (
-            f"All players ready for rev #{self._state['revision']}. Starting countdown!"
-        )
+        self._state["last_change_reason"] = "Everyone is ready. Starting the countdown!"
         return True
 
     def _build_match_config_locked(self) -> dict[str, Any]:
@@ -1015,17 +1029,14 @@ class ArenaLobby:
                 old_team = existing["team"]
                 existing["team"] = team_name
                 self._bump_revision(
-                    f"{player} switched from {old_team} to {team_name}."
+                    f"{player} moved from the {words.team_label(old_team)} "
+                    f"to the {words.team_label(team_name)}."
                 )
             else:
-                was_empty = not any(
-                    h["team"] == team_name for h in self._state["humans"]
-                ) and not any(
-                    b["team"] == team_name for b in self._state["bots"].values()
-                )
                 self._state["humans"].append({"name": player, "team": team_name})
-                verb = "created and joined" if was_empty else "joined"
-                self._bump_revision(f"{player} {verb} {team_name}.")
+                self._bump_revision(
+                    f"{player} joined the {words.team_label(team_name)}."
+                )
             self._save_to_disk()
             return self.snapshot()
 
@@ -1196,8 +1207,10 @@ class ArenaLobby:
                     and not self._state["waves_preset"]
                 ):
                     self._state["waves_preset"] = _default_wave_preset()
-                extra = f" (mode set to {self._state['mode']})"
-            self._bump_revision(f"{actor} selected map {info.name}{extra}.")
+                extra = f" (the mode is now {words.mode_label(self._state['mode'])})"
+            self._bump_revision(
+                f"{actor} chose the map {words.map_label(info.name)}{extra}."
+            )
             self._save_to_disk()
             return self.snapshot()
 
@@ -1255,7 +1268,9 @@ class ArenaLobby:
                 self._state["waves_preset"] = None
             elif not self._state["waves"] and not self._state["waves_preset"]:
                 self._state["waves_preset"] = _default_wave_preset()
-            self._bump_revision(f"{actor} set mode to {mode_name}.")
+            self._bump_revision(
+                f"{actor} set the mode to {words.mode_label(mode_name)}."
+            )
             self._save_to_disk()
             return self.snapshot()
 
@@ -1503,11 +1518,7 @@ class ArenaLobby:
                 ),
                 None,
             )
-            subject = (
-                human["name"]
-                if human is not None
-                else bot_match
-            )
+            subject = human["name"] if human is not None else bot_match
             if subject is None:
                 raise LobbyError(
                     "Join a team before selecting a kit.",
@@ -1621,8 +1632,9 @@ class ArenaLobby:
                 raise LobbyError(f"Respawn mode {rmode} needs count >= 1.")
             self._state["respawn_mode"] = rmode
             self._state["respawn_count"] = count
-            desc = "elimination" if rmode == "elimination" else f"{rmode} ({count})"
-            self._bump_revision(f"{actor} set respawns to {desc}.")
+            self._bump_revision(
+                f"{actor} set lives to {words.lives_label(rmode, count)}."
+            )
             self._save_to_disk()
             return self.snapshot()
 
@@ -1673,6 +1685,146 @@ class ArenaLobby:
             self._state["allow_uneven"] = flag
             label = "enabled" if flag else "disabled"
             self._bump_revision(f"{actor} {label} uneven teams.")
+            self._save_to_disk()
+            return self.snapshot()
+
+    def apply_settings(
+        self,
+        actor: str,
+        settings: dict[str, Any],
+        *,
+        operator: bool = False,
+        expected_revision: int | None = None,
+    ) -> dict[str, Any]:
+        """Apply the game menu's settings form in ONE revision (ready players are reset
+        once, not once per field).  Keys, all optional: ``mode``, ``lives``
+        (``elimination``, ``player:N``, ``team:N``), ``kit_mode``, ``kit`` (a kit id,
+        ``random`` or ``current`` for no change), ``reroll``, ``waves`` and ``uneven``
+        (booleans).  Nothing is changed when any field is refused, and no revision is
+        spent when nothing differs."""
+        with self._lock:
+            self._sync_from_disk()
+            self._require_expected_revision(expected_revision)
+            self._require_not_frozen()
+            self._require_host(actor, operator=operator)
+            st = self._state
+            info = self._map_info()
+            rev = st["revision"]
+            names: list[str] = []
+
+            mode = st["mode"]
+            waves = copy.deepcopy(st["waves"])
+            preset = st["waves_preset"]
+            raw_mode = settings.get("mode")
+            if raw_mode not in (None, ""):
+                cand = str(raw_mode).strip().lower()
+                if cand not in MODES:
+                    raise LobbyError(f"Unknown game mode {raw_mode!r}.", revision=rev)
+                if cand not in info.compatible_modes:
+                    raise LobbyError(
+                        f"{words.mode_label(cand)} does not work on "
+                        f"{words.map_label(info.name)}.",
+                        code="incompatible_mode",
+                        revision=rev,
+                    )
+                if cand != mode:
+                    mode = cand
+                    if mode == "teams":
+                        waves, preset = [], None
+                    elif not waves and not preset:
+                        preset = _default_wave_preset()
+                    names.append("mode")
+
+            had_waves = bool(st["waves"] or st["waves_preset"])
+            if (
+                settings.get("waves") is not None
+                and _as_flag(settings["waves"]) != had_waves
+            ):
+                if _as_flag(settings["waves"]):
+                    preset = _default_wave_preset()
+                    waves = []
+                    if preset is None:
+                        raise LobbyError("No mob waves are available.", revision=rev)
+                elif mode in WAVE_MODES:
+                    raise LobbyError(
+                        f"{words.mode_label(mode)} needs mob waves.", revision=rev
+                    )
+                else:
+                    waves, preset = [], None
+            if mode in WAVE_MODES and not waves and not preset:
+                preset = _default_wave_preset()
+            if (waves, preset) != (st["waves"], st["waves_preset"]) and (
+                "mode" not in names
+            ):
+                names.append("mob waves")
+
+            respawn = (st["respawn_mode"], st["respawn_count"])
+            lives = settings.get("lives")
+            if lives not in (None, ""):
+                text = str(lives).strip().lower()
+                parsed = re.fullmatch(r"(player|team):(\d{1,2})", text)
+                if text == "elimination":
+                    respawn = ("elimination", 0)
+                elif parsed and 1 <= int(parsed.group(2)) <= 99:
+                    respawn = (parsed.group(1), int(parsed.group(2)))
+                else:
+                    raise LobbyError("Pick one of the lives options.", revision=rev)
+                if respawn != (st["respawn_mode"], st["respawn_count"]):
+                    names.append("lives")
+
+            kit_mode = st["kit_mode"]
+            raw_kit_mode = settings.get("kit_mode")
+            if raw_kit_mode not in (None, ""):
+                cand_mode = str(raw_kit_mode).strip().lower()
+                if cand_mode not in arena_kits.KIT_MODES:
+                    raise LobbyError("Pick one of the kit options.", revision=rev)
+                if cand_mode != kit_mode:
+                    kit_mode = cand_mode
+                    names.append("kits")
+
+            kit = st["kit"]
+            raw_kit = settings.get("kit")
+            if raw_kit not in (None, "", words.CURRENT, kit):
+                cand_kit = str(raw_kit).strip().lower()
+                if cand_kit != arena_kits.RANDOM_SENTINEL and not (
+                    self._kit_library().has_kit(cand_kit)
+                ):
+                    raise LobbyError(
+                        f"There is no kit called {raw_kit!r}.",
+                        code="unknown_kit",
+                        revision=rev,
+                    )
+                if cand_kit != kit:
+                    kit = cand_kit
+                    names.append("kit")
+
+            reroll = bool(st["reroll_on_respawn"])
+            if (
+                settings.get("reroll") is not None
+                and _as_flag(settings["reroll"]) != reroll
+            ):
+                reroll = not reroll
+                names.append("re-roll")
+
+            uneven = bool(st["allow_uneven"])
+            if (
+                settings.get("uneven") is not None
+                and _as_flag(settings["uneven"]) != uneven
+            ):
+                uneven = not uneven
+                names.append("uneven teams")
+
+            if not names:
+                return self.snapshot()
+            st["mode"], st["waves"], st["waves_preset"] = mode, waves, preset
+            st["respawn_mode"], st["respawn_count"] = respawn
+            st["kit_mode"], st["kit"] = kit_mode, kit
+            st["reroll_on_respawn"], st["allow_uneven"] = reroll, uneven
+            if st["phase"] == "recap":
+                st["phase"] = "open"
+            self._bump_revision(
+                f"{actor} changed the game settings ({', '.join(names)})."
+            )
             self._save_to_disk()
             return self.snapshot()
 
@@ -1778,7 +1930,9 @@ class ArenaLobby:
                 "error": err,
             }
             self._state["bots"][bot_id] = slot
-            self._bump_revision(f"{team_name.capitalize()} added {display_name}.")
+            self._bump_revision(
+                f"{display_name} (bot) joined the {words.team_label(team_name)}."
+            )
             self._save_to_disk()
             return copy.deepcopy(slot)
 
@@ -1942,9 +2096,7 @@ class ArenaLobby:
             }
             self._state["mob_groups"].append(group)
             short_mob = mob_id.removeprefix("minecraft:")
-            self._bump_revision(
-                f"{team_name.capitalize()} added {count}x {short_mob}."
-            )
+            self._bump_revision(f"{team_name.capitalize()} added {count}x {short_mob}.")
             self._save_to_disk()
             return copy.deepcopy(group)
 
@@ -2244,6 +2396,21 @@ class ArenaLobby:
         if action == "status":
             snap = self.snapshot()
             return {"ok": True, "message": self.status_text(snap), "lobby": snap}
+        if action == "menu":  # the game menu asks for itself; the ingress shows it
+            return {"ok": True, "message": "", "lobby": self.snapshot()}
+        if action == "settings":
+            before = self.snapshot()["revision"]
+            snap = self.apply_settings(
+                actor, payload, operator=operator, expected_revision=exp
+            )
+            changed = snap["revision"] != before
+            return {
+                "ok": True,
+                "message": (
+                    snap["last_change_reason"] if changed else "Nothing changed."
+                ),
+                "lobby": snap,
+            }
         if action == "play":
             snap = self.play(actor, expected_revision=exp)
             return {"ok": True, "message": snap["last_change_reason"], "lobby": snap}
@@ -2280,24 +2447,24 @@ class ArenaLobby:
             msg = (
                 snap["last_change_reason"]
                 if snap["phase"] == "countdown"
-                else f"{actor} is ready (rev #{snap['revision']})."
+                else f"{actor} is ready."
             )
             return {"ok": True, "message": msg, "lobby": snap}
         if action == "ready_toggle":
             cur = self.snapshot()
             if cur["ready_revisions"].get(actor.lower()) == cur["revision"]:
                 snap = self.unready(actor)
-                return {"ok": True, "message": f"{actor} unreadied.", "lobby": snap}
+                return {"ok": True, "message": f"{actor} is not ready.", "lobby": snap}
             snap = self.ready(actor, seen_revision=seen)
             msg = (
                 snap["last_change_reason"]
                 if snap["phase"] == "countdown"
-                else f"{actor} is ready (rev #{snap['revision']})."
+                else f"{actor} is ready."
             )
             return {"ok": True, "message": msg, "lobby": snap}
         if action == "unready":
             snap = self.unready(actor)
-            return {"ok": True, "message": f"{actor} unreadied.", "lobby": snap}
+            return {"ok": True, "message": f"{actor} is not ready.", "lobby": snap}
         if action == "reopen":
             snap = self.reopen(actor, operator=operator)
             return {"ok": True, "message": snap["last_change_reason"], "lobby": snap}
@@ -2437,10 +2604,12 @@ class ArenaLobby:
             snap = self.transfer_host(actor, str(target), expected_revision=exp)
             return {"ok": True, "message": snap["last_change_reason"], "lobby": snap}
         if action == "bot_add":
+            team = str(payload.get("team") or "").strip().lower()
+            bot_name = str(payload.get("name") or "").strip()
             slot = self.add_bot(
                 actor,
-                payload.get("team"),
-                name=payload.get("name"),
+                None if team in ("", words.AUTO) else team,
+                name=bot_name or None,
                 operator=operator,
                 expected_revision=exp,
             )
@@ -2539,70 +2708,69 @@ class ArenaLobby:
         """Format lobby state for ``ArenaClient.board`` (<= 15 rows, <= 40 chars)."""
         s = snap if snap is not None else self.snapshot()
         phase = s["phase"]
+        map_name = words.map_label(s["map"])
         if phase == "countdown" and s["countdown_remaining_s"] is not None:
-            title = (
-                f"Starting in {int(s['countdown_remaining_s'] + 0.99)}s · {s['map']}"
-            )
+            title = f"Starting in {words.countdown_seconds(s)}s · {map_name}"
         elif phase == "recap":
-            title = f"Recap · {s['map']}"
+            title = f"Recap · {map_name}"
         elif phase == "running":
-            title = f"Live · {s['map']} ({s['mode']})"
+            title = f"Live · {map_name} · {words.mode_label(s['mode'])}"
         else:
-            title = f"Lobby · {s['map']} · {s['mode']}"
+            title = f"Lobby · {map_name} · {words.mode_label(s['mode'])}"
         title = title[:64]
 
         sections: list[tuple[dict[str, Any] | None, list[dict[str, Any]]]] = []
-        respawn_lbl = (
-            "Elim"
-            if s["respawn_mode"] == "elimination"
-            else f"{s['respawn_mode'][0].upper()}:{s['respawn_count']}"
-        )
-        rules_val = f"{'Mobs' if s['hazards_enabled'] else 'NoMob'} {respawn_lbl}"
         sections.append(
             (
                 {
-                    "text": f"Host: {s['host'] or 'open'}"[:40],
-                    "value": f"#{s['revision']}"[:16],
+                    "text": f"Host: {s['host'] or 'nobody yet'}"[:40],
                     "color": "gold",
                 },
                 [
+                    {"text": words.rules_text(s)[:40], "color": "gray"},
                     {
-                        "text": ("Uneven OK" if s["allow_uneven"] else "Balanced")[:40],
-                        "value": rules_val[:16],
+                        "text": (
+                            "Uneven teams are OK"
+                            if s["allow_uneven"]
+                            else "Teams must be even"
+                        )[:40],
                         "color": "gray",
-                    }
+                    },
                 ],
             )
         )
         rev = s["revision"]
         ready = s["ready_revisions"]
+        show_ready = phase in ("open", "countdown")
         for i, (team, info) in enumerate(s["teams"].items()):
             color = standings.team_color(team, i)
             head = {
-                "text": team.capitalize()[:40],
+                "text": words.team_label(team)[:40],
                 "value": f"{info['player_count']}/{info['capacity']}"[:16],
                 "color": color,
                 "bold": True,
             }
             members: list[dict[str, Any]] = []
             for name in info["humans"]:
-                tag = "ok" if ready.get(name.lower()) == rev else "..."
-                members.append({"text": f" {name}"[:40], "value": tag, "color": color})
+                row: dict[str, Any] = {"text": f" {name}"[:40], "color": color}
+                if show_ready:
+                    ok = ready.get(name.lower()) == rev
+                    row["value"] = "✔ Ready" if ok else "Not ready"
+                members.append(row)
             for bot in info["bots"]:
-                st = (
-                    "bot"
-                    if bot["status"] == "connected"
-                    else ("ERR" if bot["status"] == "failed" else "...")
-                )
+                status = {
+                    "connected": "(bot)",
+                    "failed": "Failed",
+                }.get(bot["status"], "Connecting")
                 members.append(
                     {
                         "text": f" {bot['name']}"[:40],
-                        "value": st,
+                        "value": status,
                         "color": "red" if bot["status"] == "failed" else color,
                     }
                 )
             for grp in info["mob_groups"]:
-                short = grp["mob"].removeprefix("minecraft:")
+                short = words.item_label(grp["mob"])
                 members.append(
                     {
                         "text": f" {short}"[:40],
@@ -2620,7 +2788,7 @@ class ArenaLobby:
             )
             sections.append(
                 (
-                    {"text": "Spectators", "value": val[:16], "color": "aqua"},
+                    {"text": "Watching", "value": val[:16], "color": "aqua"},
                     [],
                 )
             )
@@ -2629,14 +2797,21 @@ class ArenaLobby:
     def status_text(self, snap: dict[str, Any] | None = None) -> str:
         """One concise chat summary for in-game ``/mcb lobby status``."""
         s = snap if snap is not None else self.snapshot()
+        stage = {
+            "open": "open",
+            "countdown": "starting",
+            "running": "match running",
+            "recap": "match over",
+        }.get(s["phase"], s["phase"])
         parts = [
-            f"Lobby #{s['revision']} ({s['phase']}): {s['map']} {s['mode']}",
-            s["hazards_summary"],
-            f"host={s['host'] or 'open'}",
+            f"Lobby ({stage}): {words.map_label(s['map'])} · "
+            f"{words.mode_label(s['mode'])}",
+            words.rules_text(s),
+            f"host: {s['host'] or 'nobody yet'}",
         ]
         team_bits = []
         for team, info in s["teams"].items():
-            members = info["humans"] + [b["name"] for b in info["bots"]]
+            members = info["humans"] + [f"{b['name']} (bot)" for b in info["bots"]]
             if members or info["mob_groups"]:
                 m_str = ", ".join(members)
                 if info["mob_groups"]:
@@ -2646,7 +2821,8 @@ class ArenaLobby:
                     )
                     m_str = f"{m_str}, {mobs}" if m_str else mobs
                 team_bits.append(
-                    f"{team}({info['player_count']}/{info['capacity']}): {m_str}"
+                    f"{words.team_label(team)} "
+                    f"({info['player_count']}/{info['capacity']}): {m_str}"
                 )
         if team_bits:
             parts.append(" | ".join(team_bits))
@@ -2715,11 +2891,7 @@ def make_arena_launcher(
             if mode == "teams" and cfg.get("mob_groups"):
                 grouped_mobs: dict[str, list[dict[str, Any]]] = {}
                 for grp in cfg["mob_groups"]:
-                    if (
-                        isinstance(grp, dict)
-                        and grp.get("team")
-                        and grp.get("mob")
-                    ):
+                    if isinstance(grp, dict) and grp.get("team") and grp.get("mob"):
                         entry: dict[str, Any] = {
                             "type": grp["mob"],
                             "count": int(grp.get("count", 1)),
@@ -2765,8 +2937,7 @@ def make_arena_launcher(
                     reroll_on_respawn=bool(cfg.get("reroll_on_respawn")),
                 )
                 player_kits = {
-                    p: a["compiled"]["give"]
-                    for p, a in resolved["assignments"].items()
+                    p: a["compiled"]["give"] for p, a in resolved["assignments"].items()
                 }
                 kit_assignment = {
                     k: resolved[k]

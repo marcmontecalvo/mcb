@@ -9,8 +9,10 @@ See docs/ARENA_RUNTIME.md ("The arena server").
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
+from pathlib import Path
 
 from mclab.arena import client as arena
 from mclab.arena import designs
@@ -39,24 +41,60 @@ def lobby_spawn(lobby: ap.Plan) -> ap.Cell:
     return tuple(o + e for o, e in zip(LOBBY_ORIGIN, team.entry, strict=True))
 
 
-def lobby_station_world_pos(station: designs.LobbyStation) -> ap.Cell:
-    """World coordinates of a lobby station block inside the floating arena lobby."""
-    return tuple(o + c for o, c in zip(LOBBY_ORIGIN, station.local_pos, strict=True))
+def _world(cell: ap.Cell) -> list[int]:
+    return [o + c for o, c in zip(LOBBY_ORIGIN, cell, strict=True)]
 
 
 def lobby_stations() -> list[dict]:
-    """All clickable lobby stations with their world coordinates and action payloads."""
+    """The lobby's signs and buttons with their world coordinates and click payloads."""
     return [
         {
-            "label": st.label,
-            "local_pos": list(st.local_pos),
-            "world_pos": list(lobby_station_world_pos(st)),
-            "block": st.block,
-            "action": st.action,
-            "args": dict(st.args),
+            "id": st.id,
+            "sign": list(st.sign),
+            "sign_world": _world(st.sign),
+            "button": None if st.button is None else list(st.button),
+            "button_world": None if st.button is None else _world(st.button),
+            "facing": st.facing,
+            "payload": None if st.payload is None else dict(st.payload),
         }
         for st in designs.LOBBY_STATIONS
     ]
+
+
+# --- which design the standing lobby was built from --------------------------------
+
+LOBBY_VERSION_FILE = "arena-lobby-version.json"
+
+
+def default_runtime_dir() -> Path:
+    """The arena server instance's runtime folder (where the lobby's own files live)."""
+    from mclab import paths
+
+    return paths.instance_paths("arena").runtime
+
+
+lobby_runtime_dir: Callable[[], Path] = default_runtime_dir  # tests point it at tmp
+
+
+def lobby_version_path() -> Path:
+    return lobby_runtime_dir() / LOBBY_VERSION_FILE
+
+
+def _recorded_lobby_version() -> int | None:
+    try:
+        value = json.loads(lobby_version_path().read_text(encoding="utf-8"))["version"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return value if isinstance(value, int) else None
+
+
+def _record_lobby_version() -> None:
+    path = lobby_version_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"version": designs.LOBBY_VERSION}), encoding="utf-8")
+    except OSError:
+        log.warning("could not record the lobby version in %s", path, exc_info=True)
 
 
 def _box(origin, size) -> tuple[ap.Cell, ap.Cell]:
@@ -127,9 +165,18 @@ def _ensure(
 
 def _lobby(client, listed, echo, timeout) -> dict:
     lobby = designs.lobby()
+    if (
+        listed.get(LOBBY, {}).get("state") == "built"
+        and _recorded_lobby_version() != designs.LOBBY_VERSION
+    ):  # built from an older design (or before versions were kept): build it again
+        echo("lobby: the lobby has a new design; building it again")
+        client.remove(LOBBY)
+        listed.pop(LOBBY)
     built = _ensure(
         client, listed, lambda: ap.to_dict(lobby), LOBBY, LOBBY_ORIGIN, echo, timeout
     )
+    if built:
+        _record_lobby_version()
     spawn = lobby_spawn(lobby)
     client.spawn(spawn)
     return {"spawn": spawn, "built": built, "size": lobby.size}

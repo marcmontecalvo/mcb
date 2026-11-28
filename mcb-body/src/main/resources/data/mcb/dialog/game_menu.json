@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:multi_action",
+  "title": {"text": "MCB Arena", "color": "gold", "bold": true},
+  "external_title": {"text": "Arena Menu"},
+  "body": [
+    {"type": "minecraft:plain_message", "contents": {"text": "Join a team, pick your kit and get ready."}}
+  ],
+  "can_close_with_escape": true,
+  "pause": false,
+  "after_action": "wait_for_response",
+  "columns": 1,
+  "actions": [
+    {
+      "label": {"text": "Open the Game Menu", "color": "green"},
+      "width": 200,
+      "action": {"type": "minecraft:custom", "id": "mcb:menu", "payload": {"open": true}}
+    }
+  ]
+}

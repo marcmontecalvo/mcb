@@ -697,6 +697,7 @@ def test_the_bridge_routes_arena_ops_to_the_body_mod():
         "arena_kit",
         "arena_board",
         "arena_recap",
+        "arena_lobby_view",
     )
 
 
@@ -864,3 +865,18 @@ def test_start_sends_team_mobs_and_team_mob_kits_only_in_teams_mode():
         )
     assert bad_mob.value.reason == "unsupported_mob"
     assert len(t.sent) == 1
+
+
+def test_the_lobby_view_op_carries_the_menu_fields_to_the_named_lobby():
+    t = FakeTransport()
+    c = client(t)
+    c.lobby_view(signs={"ready": ["Ready"]}, close=["Ann"])
+    c.lobby_view("hub", show={"Ann": {"screen": "home"}})
+    sent = [{k: v for k, v in p.items() if k not in arena.ENVELOPE} for p in t.sent]
+    assert sent[0] == {"name": "lobby", "signs": {"ready": ["Ready"]}, "close": ["Ann"]}
+    assert sent[1] == {"name": "hub", "show": {"Ann": {"screen": "home"}}}
+    assert [p["op"] for p in t.sent] == ["arena_lobby_view"] * 2
+
+
+def test_protocol_7_adds_the_lobby_view():
+    assert arena.PROTOCOL == 7

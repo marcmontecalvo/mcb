@@ -105,7 +105,7 @@ starts with a code.
 
 - Structure: `schema`, `name`, `size` (height ≤ 64), `clear-first`, `fill-bounds`,
   `fill-order`, `fill-volume`, `block-format`, `palette` (≤ 255 distinct blocks).
-- `banned`: gravity blocks, water/lava, leaves, crops, fire, doors, trapdoors, buttons,
+- `banned`: gravity blocks, water/lava, leaves, crops, fire, doors, trapdoors, buttons (the lobby alone may use wall signs and buttons),
   pressure plates, redstone, TNT, beds, containers, spawners, carpets and things that
   change on their own (ice, grass, vines, sculk and so on). Flagged even if overwritten.
 - `shell-open`: every face of the bounds is solid and the top face has no glass.

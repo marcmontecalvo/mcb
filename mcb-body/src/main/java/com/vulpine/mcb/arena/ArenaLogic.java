@@ -18,7 +18,7 @@ public final class ArenaLogic {
 
     /** The ops the arena runtime owns. */
     public static final Set<String> OPS = Set.of("arena_build", "arena_remove", "arena_list", "arena_status", "arena_start", "arena_stop",
-            "arena_spawn", "arena_op", "arena_kit", "arena_board", "arena_recap");
+            "arena_spawn", "arena_op", "arena_kit", "arena_board", "arena_recap", "arena_lobby_view");
 
     public static boolean isOperationName(String op) { return OPS.contains(op); }
 
@@ -30,8 +30,9 @@ public final class ArenaLogic {
      * 4: arena_start's keep_inventory (arena deaths never drop; keep_inventory keeps what they carry across death).
      * 5: arena_start's respawn_mode, respawn_count and respawn_delay_ticks (PvP respawns).
      * 6: arena_start's team_mobs and team_mob_kits (counted allied mob groups in teams mode).
+     * 7: arena_lobby_view (the lobby's game menu, signs and floating board).
      */
-    public static final int PROTOCOL = 6;
+    public static final int PROTOCOL = 7;
 
     /** What happens to a player's inventory when they die. */
     public enum DeathInventory { DROP, CLEAR, KEEP }

@@ -162,8 +162,11 @@ What counts (`ArenaLogic.Tally`, fed by `LivingStatsMixin` and `HealEffectMixin`
   - `players` is 1–64 entries of `{name, team?, mob_kills?, player_kills?, deaths?, dealt?, taken?,
     healing?}`. Counts are whole numbers and health figures are 0 or more; a missing number is 0.
   - `team` must be one of `teams`, and is absent in co-op.
-- In both ops, an unknown field is refused (`bad_request`).
-- Python: `ArenaClient.board`, `clear_board`, `recap`.
+- `arena_lobby_view {name, signs?, display?, menus?, show?, close?, announce?}` (protocol 7)
+  drives the lobby's game menu (vanilla dialogs), its wall signs and the floating board.
+  Fields, limits and screens are in [LOBBY_MENU.md](LOBBY_MENU.md).
+- In these ops, an unknown field is refused (`bad_request`).
+- Python: `ArenaClient.board`, `clear_board`, `recap`, `lobby_view`.
 - `arena_start` takes `series: {match, of}` (1 ≤ match ≤ of ≤ 1000) for the board and the recap.
 
 ### Protocol check
@@ -427,7 +430,13 @@ nothing but the lobby and the arenas. The play world is untouched.
 before the first match:
 
 1. the **lobby** (`designs.lobby`, never offered as a match arena): a 25 × 25 lit quartz hall with
-   glass windows and a spectator gallery, built at `LOBBY_ORIGIN` so its entry is `(0, 102, 0)`;
+   glass windows and a spectator gallery, built at `LOBBY_ORIGIN` so its entry is `(0, 102, 0)`.
+   Its six stations (`designs.LOBBY_STATIONS`: four join signs, a ready sign and a help sign, each
+   a wall sign with a button below it) mirror `ArenaLobbyStations.java`; a test keeps them equal.
+   Menus, sign text and the display come from `mclab.arena_lobby_menu` (see
+   [LOBBY_MENU.md](LOBBY_MENU.md)). `designs.LOBBY_VERSION` is recorded in
+   `<arena instance runtime>/arena-lobby-version.json`; when it differs, `world.ensure_lobby`
+   removes and rebuilds the standing lobby. Bump it when the room or its stations change;
 2. `arena_spawn` at the lobby's entry: everyone who joins (or dies outside a match) starts there;
 3. the chosen arena, when it is not built, at the first free slot east of the lobby
    (`slot_origin`: `MAX_FOOTPRINT + 64` apart, never overlapping a registered arena). An arena

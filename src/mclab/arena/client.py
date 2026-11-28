@@ -32,6 +32,7 @@ OPS = (
     "arena_kit",
     "arena_board",
     "arena_recap",
+    "arena_lobby_view",
 )
 # The arena protocol this lab speaks (ArenaLogic.PROTOCOL, reported by arena_list).
 # Raise both together whenever an op is added or a request gains or changes a field:
@@ -42,7 +43,8 @@ OPS = (
 # keep_inventory (arena deaths never drop; keep_inventory keeps what they carry).
 # 5: arena_start's respawn_mode, respawn_count and respawn_delay_ticks (PvP respawns).
 # 6: arena_start's team_mobs and team_mob_kits (counted allied mob groups in teams mode).
-PROTOCOL = 6
+# 7: arena_lobby_view (the lobby's game menu, signs and floating board).
+PROTOCOL = 7
 RESPAWN_MODES = ("elimination", "player", "team")
 MAX_RESPAWNS = 99
 MAX_RESPAWN_DELAY_TICKS = 1200
@@ -833,6 +835,11 @@ class ArenaClient:
         """The arena's series board on the sidebar: ``rows`` of ``text`` and
         optional ``value``, ``color``, ``bold``, ``struck`` (at most 15)."""
         return self.call("arena_board", name=name, title=title, rows=list(rows))
+
+    def lobby_view(self, name: str = "lobby", **fields) -> dict:
+        """The lobby's game menu, signs and floating board (``docs/LOBBY_MENU.md``):
+        any of ``signs``, ``display``, ``menus``, ``show``, ``close`` and ``announce``."""
+        return self.call("arena_lobby_view", name=name, **fields)
 
     def clear_board(self, name: str) -> dict:
         return self.call("arena_board", name=name, clear=True)

@@ -14,6 +14,7 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.BucketItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -79,17 +80,25 @@ public final class ArenaGuard {
             var clicked = hit.getBlockPos();
             var arena = arenaAt(level, clicked);
             if (arena != null && ArenaLobbyStations.LOBBY_ARENA.equals(arena.name())) {
-                var payload = ArenaLobbyStations.payloadFor(
-                        arena.origin(), clicked.getX(), clicked.getY(), clicked.getZ());
-                if (payload != null) {
-                    if (level instanceof ServerLevel && hand == InteractionHand.MAIN_HAND
-                            && player instanceof ServerPlayer serverPlayer) {
-                        McbCommand.dispatch(serverPlayer, "lobby", payload);
+                var station = ArenaLobbyStations.at(arena.origin(), clicked.getX(), clicked.getY(), clicked.getZ());
+                if (station != null) {
+                    if (level instanceof ServerLevel && hand == InteractionHand.MAIN_HAND && player instanceof ServerPlayer serverPlayer) {
+                        if (station.help()) ArenaLobby.openFor(serverPlayer);
+                        else McbCommand.dispatch(serverPlayer, "lobby", station.click());
                     }
-                    return InteractionResult.SUCCESS;
+                    var o = arena.origin();
+                    // the sign never opens its edit screen; the button presses visibly (vanilla uses it) unless the hand
+                    // holds what the arena refuses
+                    if (station.isSign(clicked.getX() - o[0], clicked.getY() - o[1], clicked.getZ() - o[2])) return InteractionResult.SUCCESS;
+                    return restricted(player.getItemInHand(hand)) ? InteractionResult.FAIL : InteractionResult.PASS;
                 }
             }
             var stack = player.getItemInHand(hand);
+            if (ArenaLobby.isMenuCompass(stack)) {
+                // the Game Menu compass opens the menu on any block too (and never binds to a lodestone)
+                if (level instanceof ServerLevel && player instanceof ServerPlayer serverPlayer) ArenaLobby.openFor(serverPlayer);
+                return InteractionResult.SUCCESS;
+            }
             if (!restricted(stack)) return InteractionResult.PASS;
             int reach = reach(stack);
             return nearArena(level, clicked, reach) || nearArena(level, clicked.relative(hit.getDirection()), reach)
@@ -97,16 +106,24 @@ public final class ArenaGuard {
         });
         UseItemCallback.EVENT.register((player, level, hand) -> {
             var stack = player.getItemInHand(hand);
+            if (ArenaLobby.isMenuCompass(stack)) {
+                if (level instanceof ServerLevel && player instanceof ServerPlayer serverPlayer) ArenaLobby.openFor(serverPlayer);
+                return InteractionResult.SUCCESS;
+            }
             return restricted(stack) && nearArena(level, player.blockPosition(), reach(stack)) ? InteractionResult.FAIL : InteractionResult.PASS;
         });
         ServerEntityEvents.ALLOW_LOAD.register(ArenaGuard::allowLoad);
     }
 
-    /** The entity-load gate: false discards the entity. Only mobs added fresh inside an arena are judged. */
+    /**
+     * The entity-load gate: false discards the entity. A dropped Game Menu compass never lands (the lobby hands it back);
+     * from disk, stale wave mobs, litter and lobby boards go; otherwise only mobs added fresh inside an arena are judged.
+     */
     static boolean allowLoad(Entity entity, ServerLevel level, EntitySpawnReason reason, boolean fromDisk) {
+        if (entity instanceof ItemEntity item && ArenaLobby.isMenuCompass(item.getItem())) return false;
         var runtime = ArenaRuntime.active();
         if (runtime == null) return true;
-        if (fromDisk) return !runtime.staleWaveMob(entity) && !runtime.staleLitter(entity, level);
+        if (fromDisk) return !runtime.staleWaveMob(entity) && !runtime.staleLitter(entity, level) && !runtime.lobby().staleBoard(entity);
         if (!(entity instanceof Mob mob)) return true;
         var arena = runtime.registry().atPoint(dimension(level), entity.getX(), entity.getY(), entity.getZ());
         return arena == null || runtime.admitMob(arena, mob, reason);
